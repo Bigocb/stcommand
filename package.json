@@ -1,0 +1,31 @@
+{
+  "name": "stcommand",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "node --test --import tsx tests/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "migrate": "tsx src/db/migrate.ts",
+    "start": "tsx src/cli/index.ts",
+    "dev": "tsx watch src/cli/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "description": "Standing Orders: multi-tenant autonomous SpaceTraders fleet engine",
+  "type": "module",
+  "dependencies": {
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "openapi-fetch": "^0.17.0",
+    "pg": "^8.13.1",
+    "tsx": "^4.23.11",
+    "typescript": "^5.7.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6"
+  }
+}
