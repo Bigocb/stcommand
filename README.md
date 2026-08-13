@@ -15,7 +15,7 @@ behind Row-Level Security, three shared galaxy-data tables ungated, proven
 against a real Postgres instance with tests that specifically verify
 cross-tenant isolation holds — not just written, tested.
 
-**Phase A (engine core port): in progress.**
+**Phase A (engine core port): done.**
 
 An audit of straders' engine (not a guess — every file's actual `Store`
 call sites were counted) found the whole `Store` dependency surface is 83
@@ -79,7 +79,20 @@ Done so far:
   straders' real `fleet.ts`, `trader.ts`, and `agent.ts` — every remaining
   line is an intentional async/tenantId change, nothing fabricated or
   dropped.
-- `agentChat.ts` (7 Store call sites) — not yet ported.
+- `agentChat.ts` — the co-pilot's tool layer, done, and much simpler than
+  `fleet.ts`: every tool's `execute` was already an `async` closure (it's an
+  LLM tool-calling surface), so the 7 `Store` call sites plus one now-async
+  `fleet.getMissions()` call just needed `await` added — no sync-callback
+  cascade like `trader.ts`/`agent.ts` had. Only `recentActivity` and
+  `ledgerTotals` are tenant-scoped and need `tenantId`; the other five touch
+  shared galaxy tables. `tests/agentChat.test.ts` ports verbatim — none of
+  its 4 tests touch `Store` at all (they exercise `ChatLLM`'s tool-call loop
+  and `ChatAgent`'s wiring against mocked fetch/LLM), so it needed zero
+  changes.
+
+**Phase A is now complete: every file in straders' engine core (`Store`-
+dependent or not) has been ported, tenant-scoped where needed, verified by
+diff against the real source, and covered by a passing test.**
 
 Every Postgres-backed database/schema decision was checked against the real
 target, not assumed: the Render Postgres instance provided (`promptoria-db`)
@@ -92,22 +105,27 @@ session state. `search_path` is set once at the connection-pool level
 (`src/db/pool.ts`), so every unqualified table name in `store.ts` resolves
 only within `stcommand`'s namespace.
 
-92 tests (Store, Doctrine, MissionManager, FleetManager — including
-tenant-isolation, cross-tenant invisibility, and persistence-across-a-fresh-
-instance cases), all passing against real Postgres, deterministic across
-repeated fresh-migration runs. `fleet.ts`'s 51 tests are a straight port of
-straders' own `tests/fleet.test.ts` (same scenarios, `await` added), with
-one test rewritten rather than just `await`-ed — the halt-state restore test
-now asserts the real, current behavior (see above) instead of the
-synchronous-constructor behavior that no longer exists — and one new fixture
-(`beforeEach` clearing `market_snapshots` in the mission-buy-targets suite)
-needed because these tests now share one live Postgres instance instead of
-each getting a fresh throwaway SQLite file.
+96 tests (Store, Doctrine, MissionManager, FleetManager, ChatAgent —
+including tenant-isolation, cross-tenant invisibility, and
+persistence-across-a-fresh-instance cases), all passing against real
+Postgres, deterministic across repeated fresh-migration runs. `fleet.ts`'s 51
+tests are a straight port of straders' own `tests/fleet.test.ts` (same
+scenarios, `await` added), with one test rewritten rather than just
+`await`-ed — the halt-state restore test now asserts the real, current
+behavior (see above) instead of the synchronous-constructor behavior that no
+longer exists — and one new fixture (`beforeEach` clearing `market_snapshots`
+in the mission-buy-targets suite) needed because these tests now share one
+live Postgres instance instead of each getting a fresh throwaway SQLite file.
 
 Not yet ported: `trader.test.ts` (591 lines, straders' direct TraderAgent
 route-finding/buy/sell tests) — `trader.ts`'s actual trading logic wasn't
 touched by this port, only 5 callback signatures at its edges, so this is
 lower-risk than `fleet.ts` was, but still not verified by a test run yet.
+
+Not yet started: Phase B — the gate/auth screen, `TenantRegistry` (the
+runtime that resolves an incoming request to a tenant and hands back the
+right per-tenant engine instance), and the bring-your-own-LLM-key settings
+page. See `docs/architecture-plan.md` for the design of all three.
 
 ## Local development
 
