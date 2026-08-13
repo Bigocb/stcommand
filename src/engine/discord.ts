@@ -1,5 +1,15 @@
 import type { ActivityEntry } from "../db/store.js";
 
+/**
+ * Straders' original `getDiscord()` module-level singleton is gone —
+ * deliberately, not an oversight. One process now serves every tenant
+ * (docs/architecture-plan.md §5), and a shared singleton would mean tenant
+ * A's ship purchases posting to tenant B's Discord channel the moment both
+ * had a webhook configured. `TenantRegistry` constructs one `DiscordRelay`
+ * per tenant instead, seeded from that tenant's `discord_webhook_enc`
+ * column (src/db/tenants.ts), and hands it to that tenant's `FleetManager`
+ * alone.
+ */
 interface DiscordPayload {
   content?: string;
   embeds?: {
@@ -11,7 +21,7 @@ interface DiscordPayload {
   }[];
 }
 
-class DiscordRelay {
+export class DiscordRelay {
   private webhookUrl: string | null = null;
   private lastPost = 0;
 
@@ -69,11 +79,4 @@ class DiscordRelay {
       console.error("[discord] webhook post failed", err);
     }
   }
-}
-
-let instance: DiscordRelay | undefined;
-
-export function getDiscord(): DiscordRelay {
-  if (!instance) instance = new DiscordRelay();
-  return instance;
 }

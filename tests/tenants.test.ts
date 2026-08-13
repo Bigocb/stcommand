@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { randomBytes } from "node:crypto";
 import { createPool } from "../src/db/pool.js";
-import { findOrCreateTenant, getTenantToken, createSession, resolveSession, touchTenant, deleteSession, getTenantLlmConfig, setTenantLlmConfig } from "../src/db/tenants.js";
+import { findOrCreateTenant, getTenantToken, createSession, resolveSession, touchTenant, deleteSession, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook, setTenantDiscordWebhook } from "../src/db/tenants.js";
 
 const DB_URL = process.env.TEST_DATABASE_URL ?? "postgresql://stcommand:stcommand_dev@localhost:5432/stcommand";
 let pool: pg.Pool;
@@ -134,5 +134,39 @@ describe("tenant LLM config", () => {
 
     await setTenantLlmConfig(pool, tenant.id, undefined);
     assert.equal(await getTenantLlmConfig(pool, tenant.id), undefined);
+  });
+});
+
+describe("tenant Discord webhook", () => {
+  it("is undefined for a tenant that hasn't set one", async () => {
+    const symbol = agentSymbol();
+    const tenant = await findOrCreateTenant(pool, symbol, "st-token");
+    tenantIds.push(tenant.id);
+
+    assert.equal(await getTenantDiscordWebhook(pool, tenant.id), undefined);
+  });
+
+  it("setTenantDiscordWebhook + getTenantDiscordWebhook round-trips, encrypting the URL at rest", async () => {
+    const symbol = agentSymbol();
+    const tenant = await findOrCreateTenant(pool, symbol, "st-token");
+    tenantIds.push(tenant.id);
+
+    await setTenantDiscordWebhook(pool, tenant.id, "https://discord.com/api/webhooks/123/secret-token");
+    assert.equal(await getTenantDiscordWebhook(pool, tenant.id), "https://discord.com/api/webhooks/123/secret-token");
+
+    const raw = await pool.query<{ discord_webhook_enc: Buffer }>(`SELECT discord_webhook_enc FROM tenants WHERE id = $1`, [tenant.id]);
+    assert.ok(!raw.rows[0]!.discord_webhook_enc!.toString("utf8").includes("secret-token"), "webhook URL must not be stored in plaintext");
+  });
+
+  it("setTenantDiscordWebhook(undefined) clears a previously-set webhook", async () => {
+    const symbol = agentSymbol();
+    const tenant = await findOrCreateTenant(pool, symbol, "st-token");
+    tenantIds.push(tenant.id);
+
+    await setTenantDiscordWebhook(pool, tenant.id, "https://discord.com/api/webhooks/123/secret-token");
+    assert.ok(await getTenantDiscordWebhook(pool, tenant.id));
+
+    await setTenantDiscordWebhook(pool, tenant.id, undefined);
+    assert.equal(await getTenantDiscordWebhook(pool, tenant.id), undefined);
   });
 });

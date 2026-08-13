@@ -6,7 +6,8 @@ import { ContractManager } from "./contract.js";
 import { FleetManager } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
 import { MarketIntel } from "./market.js";
-import { getTenantToken, getTenantLlmConfig } from "../db/tenants.js";
+import { DiscordRelay } from "./discord.js";
+import { getTenantToken, getTenantLlmConfig, getTenantDiscordWebhook } from "../db/tenants.js";
 
 export interface TenantWorker {
   tenantId: string;
@@ -16,6 +17,7 @@ export interface TenantWorker {
   state: FleetState;
   contracts: ContractManager;
   fleet: FleetManager;
+  discord: DiscordRelay;
   chat?: ChatAgent;
 }
 
@@ -138,12 +140,19 @@ export class TenantRegistry {
     log(`found ${markets.length} markets`);
 
     const contracts = new ContractManager(api);
+    // This tenant's own relay, never a shared one — see discord.ts's class
+    // doc comment for why straders' module-level getDiscord() singleton
+    // can't be reused in a multi-tenant process.
+    const discord = new DiscordRelay();
+    const webhookUrl = await getTenantDiscordWebhook(this.pool, tenantId);
+    if (webhookUrl) discord.setWebhook(webhookUrl);
     const fleet = new FleetManager({
       api,
       contracts,
       store,
       tenantId,
       log,
+      discord,
       recordLedger: (e) => store.recordLedger(tenantId, e),
       onActivity: (kind, detail, credits) =>
         store.recordActivity(tenantId, { timestamp: new Date().toISOString(), shipSymbol: "fleet", kind, detail, credits }),
@@ -221,6 +230,6 @@ export class TenantRegistry {
     await refreshState();
     setInterval(refreshState, STATE_REFRESH_MS).unref();
 
-    return { tenantId, agentSymbol, api, store, state, contracts, fleet, chat };
+    return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, chat };
   }
 }

@@ -12,7 +12,7 @@ import type { Store } from "../db/store.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
-import { getDiscord } from "./discord.js";
+import type { DiscordRelay } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
 import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
@@ -66,6 +66,8 @@ export interface FleetOptions {
   /** Called for notable events for the live feed. */
   onActivity?: (kind: string, detail: string, credits?: number) => void;
   minCashReserve?: number;
+  /** This tenant's own Discord relay, if they've configured a webhook — never a shared/global one. See discord.ts's class doc comment. */
+  discord?: DiscordRelay;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -123,6 +125,7 @@ export class FleetManager {
 
   private readonly store?: Store;
   private readonly tenantId?: string;
+  private readonly discord?: DiscordRelay;
   private readonly galaxy: GalaxyAtlas;
   private surveyedSystems = new Set<string>();
   private gateBlockedSystems = new Set<string>();
@@ -143,6 +146,7 @@ export class FleetManager {
     this.minCashReserveDefault = opts.minCashReserve ?? 20_000;
     this.store = opts.store;
     this.tenantId = opts.tenantId;
+    this.discord = opts.discord;
     // Halt state used to be restored synchronously right here
     // (better-sqlite3 is synchronous, in-process), specifically so a halted
     // fleet stayed halted for the whole window before init()'s awaited API
@@ -1028,7 +1032,7 @@ export class FleetManager {
       tradeSymbol: type,
       total: res.transaction.price,
     });
-    await getDiscord().postActivity({
+    await this.discord?.postActivity({
       timestamp: new Date().toISOString(),
       shipSymbol: "fleet",
       kind: "ship",
@@ -1106,7 +1110,7 @@ export class FleetManager {
           tradeSymbol: "SHIP_SURVEYOR",
           total: res.transaction.price,
         });
-        await getDiscord().postActivity({
+        await this.discord?.postActivity({
           timestamp: new Date().toISOString(),
           shipSymbol: "fleet",
           kind: "ship",
@@ -1156,7 +1160,7 @@ export class FleetManager {
           tradeSymbol: "SHIP_SIPHON_DRONE",
           total: res.transaction.price,
         });
-        await getDiscord().postActivity({
+        await this.discord?.postActivity({
           timestamp: new Date().toISOString(),
           shipSymbol: "fleet",
           kind: "ship",
@@ -1245,7 +1249,7 @@ export class FleetManager {
           tradeSymbol: attempt.type,
           total: res.transaction.price,
         });
-        await getDiscord().postActivity({
+        await this.discord?.postActivity({
           timestamp: new Date().toISOString(),
           shipSymbol: "fleet",
           kind: "ship",

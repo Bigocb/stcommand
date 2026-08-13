@@ -147,3 +147,33 @@ export async function setTenantLlmConfig(
     );
   });
 }
+
+/**
+ * A tenant's own Discord webhook URL, or undefined if they haven't set one.
+ * `TenantRegistry` reads this once at boot to seed that tenant's own
+ * `DiscordRelay` (see discord.ts's class doc comment on why there's one per
+ * tenant, not a shared singleton).
+ */
+export async function getTenantDiscordWebhook(pool: pg.Pool, tenantId: string): Promise<string | undefined> {
+  return withPool(pool, async (c) => {
+    const res = await c.query<{ discord_webhook_enc: Buffer | null; discord_webhook_iv: Buffer | null }>(
+      `SELECT discord_webhook_enc, discord_webhook_iv FROM tenants WHERE id = $1`,
+      [tenantId],
+    );
+    const row = res.rows[0];
+    if (!row || !row.discord_webhook_enc || !row.discord_webhook_iv) return undefined;
+    return decryptSecret(row.discord_webhook_enc, row.discord_webhook_iv);
+  });
+}
+
+/** Set (or clear, by passing undefined) a tenant's Discord webhook URL. */
+export async function setTenantDiscordWebhook(pool: pg.Pool, tenantId: string, webhookUrl: string | undefined): Promise<void> {
+  await withPool(pool, async (c) => {
+    if (!webhookUrl) {
+      await c.query(`UPDATE tenants SET discord_webhook_enc = NULL, discord_webhook_iv = NULL WHERE id = $1`, [tenantId]);
+      return;
+    }
+    const { enc, iv } = encryptSecret(webhookUrl);
+    await c.query(`UPDATE tenants SET discord_webhook_enc = $2, discord_webhook_iv = $3 WHERE id = $1`, [tenantId, enc, iv]);
+  });
+}
