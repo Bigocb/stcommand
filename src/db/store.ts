@@ -19,22 +19,23 @@ import { withTenant, withPool } from "./pool.js";
  * original finding).
  *
  * Ported so far, covering every method fleet.ts/mission.ts/doctrine.ts/
- * agentChat.ts actually call (see the Phase A audit in conversation — 30
- * distinct methods measured, not guessed): recordLedger, ledgerTotals,
- * lastPurchasePrice, avgPurchasePrice, recordActivity, recentActivity,
- * goodPriceHistory, getDoctrine, setDoctrine, getFleetFlag, setFleetFlag,
- * removeFleetFlag, getFleetState, setFleetState, removeFleetState,
- * warehouseBalance, warehouseAll, warehouseValue, warehouseDeposit,
- * warehouseWithdraw, warehouseLedger, warehouseTargetList, setWarehouseTarget,
- * removeWarehouseTarget, recordMarket, latestMarketSnapshots,
- * freshMarketSnapshots, bestTrades, tradeLegs, recordShipyardInventory,
- * shipyardInventory, recordModuleCatalog, moduleCatalog, recordMission,
- * latestMissions, completeMission.
+ * agentChat.ts/the server route layer actually call: recordLedger,
+ * ledgerTotals, lastPurchasePrice, avgPurchasePrice, recordActivity,
+ * recentActivity, goodPriceHistory, getDoctrine, setDoctrine, getFleetFlag,
+ * setFleetFlag, removeFleetFlag, getFleetState, setFleetState,
+ * removeFleetState, warehouseBalance, warehouseAll, warehouseValue,
+ * warehouseDeposit, warehouseWithdraw, warehouseLedger, warehouseTargetList,
+ * setWarehouseTarget, removeWarehouseTarget, recordMarket,
+ * latestMarketSnapshots, freshMarketSnapshots, bestTrades, tradeLegs,
+ * recordShipyardInventory, shipyardInventory, recordModuleCatalog,
+ * moduleCatalog, recordMission, latestMissions, completeMission,
+ * earningsByShip, netSeries, recordChatMessage, chatHistory.
  *
- * Still not ported: priceHistory, earningsByShip, netSeries, chat message
- * history, buckets — none of them are on the engine core's critical path
- * (they're dashboard-only reads), so they're deferred to whenever the server
- * route layer gets ported, not blocking the engine.
+ * Still not ported: `priceHistory` (per-waypoint price history — distinct
+ * from `goodPriceHistory`'s fleet-wide aggregate, which the /api/prices
+ * route actually uses) and the `buckets`/`bucket_ledger` tables. Neither has
+ * a caller anywhere in straders' own server routes or engine; dead surface,
+ * not deferred work.
  */
 
 export interface LedgerEntry {
@@ -886,5 +887,80 @@ export class Store {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(`UPDATE missions SET status = 'complete', updated_at = now() WHERE target_waypoint = $1`, [targetWaypoint]),
     );
+  }
+
+  /**
+   * Net credits per ship over a window. SELL is income; PURCHASE, REFUEL and
+   * ship purchases are spend. Scrapping is recorded as type SHIP but returns
+   * credits, so it is counted as income.
+   */
+  async earningsByShip(tenantId: string, sinceIso: string): Promise<{ shipSymbol: string; earned: number; spent: number; net: number }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ ship_symbol: string; earned: number; spent: number }>(
+        `SELECT ship_symbol,
+           COALESCE(SUM(CASE WHEN type = 'SELL' OR trade_symbol = 'SCRAP' THEN total ELSE 0 END), 0) AS earned,
+           COALESCE(SUM(CASE WHEN type != 'SELL' AND COALESCE(trade_symbol, '') != 'SCRAP' THEN total ELSE 0 END), 0) AS spent
+         FROM ledger
+         WHERE timestamp >= $1
+         GROUP BY ship_symbol`,
+        [sinceIso],
+      );
+      return res.rows
+        .map((r) => ({ shipSymbol: r.ship_symbol, earned: r.earned, spent: r.spent, net: r.earned - r.spent }))
+        .sort((a, b) => b.net - a.net);
+    });
+  }
+
+  /**
+   * Net credits bucketed over time, for the rate readout and its sparkline.
+   * Buckets are labelled by their start instant.
+   */
+  async netSeries(tenantId: string, sinceIso: string, bucketMinutes = 60): Promise<{ t: string; net: number }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ timestamp: Date; delta: number }>(
+        `SELECT timestamp,
+           CASE WHEN type = 'SELL' OR trade_symbol = 'SCRAP' THEN total ELSE -total END AS delta
+         FROM ledger
+         WHERE timestamp >= $1
+         ORDER BY timestamp ASC`,
+        [sinceIso],
+      );
+      const size = bucketMinutes * 60_000;
+      const start = new Date(sinceIso).getTime();
+      const buckets = new Map<number, number>();
+      for (const r of res.rows) {
+        const idx = Math.floor((r.timestamp.getTime() - start) / size);
+        buckets.set(idx, (buckets.get(idx) ?? 0) + r.delta);
+      }
+      const last = Math.floor((Date.now() - start) / size);
+      const out: { t: string; net: number }[] = [];
+      for (let i = 0; i <= last; i += 1) {
+        out.push({ t: new Date(start + i * size).toISOString(), net: Math.round(buckets.get(i) ?? 0) });
+      }
+      return out;
+    });
+  }
+
+  /** Persist one chat message for the co-pilot. */
+  async recordChatMessage(tenantId: string, msg: { role: string; content: string; toolCallId?: string }): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO chat_messages (tenant_id, role, content, tool_call_id, timestamp) VALUES ($1, $2, $3, $4, now())`,
+        [tenantId, msg.role, msg.content, msg.toolCallId ?? null],
+      ),
+    );
+  }
+
+  /** Recent co-pilot chat history, oldest first. */
+  async chatHistory(tenantId: string, limit = 50): Promise<{ role: string; content: string; toolCallId: string | null; timestamp: string }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ role: string; content: string; tool_call_id: string | null; timestamp: Date }>(
+        `SELECT role, content, tool_call_id, timestamp FROM chat_messages ORDER BY id DESC LIMIT $1`,
+        [limit],
+      );
+      return res.rows
+        .map((r) => ({ role: r.role, content: r.content, toolCallId: r.tool_call_id, timestamp: r.timestamp.toISOString() }))
+        .reverse();
+    });
   }
 }

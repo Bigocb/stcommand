@@ -182,6 +182,92 @@ describe("Store.ledger", () => {
   });
 });
 
+describe("Store.earningsByShip / netSeries (bridge dashboard reads)", () => {
+  it("earningsByShip nets SELL/SCRAP income against everything else, per ship", async () => {
+    const since = new Date(Date.now() - 3600_000).toISOString();
+    await store.recordLedger(tenantA, {
+      timestamp: new Date().toISOString(), shipSymbol: "EARN-1", waypointSymbol: "X1-A-A1",
+      type: "PURCHASE", tradeSymbol: "IRON", units: 10, pricePerUnit: 10, total: 100,
+    });
+    await store.recordLedger(tenantA, {
+      timestamp: new Date().toISOString(), shipSymbol: "EARN-1", waypointSymbol: "X1-A-A2",
+      type: "SELL", tradeSymbol: "IRON", units: 10, pricePerUnit: 30, total: 300,
+    });
+    // A ship-scrap sale is type SHIP with tradeSymbol SCRAP, but it's income, not spend.
+    await store.recordLedger(tenantA, {
+      timestamp: new Date().toISOString(), shipSymbol: "EARN-1", waypointSymbol: "X1-A-A2",
+      type: "SHIP", tradeSymbol: "SCRAP", total: 50,
+    });
+
+    const rows = await store.earningsByShip(tenantA, since);
+    const row = rows.find((r) => r.shipSymbol === "EARN-1");
+    assert.deepEqual(row, { shipSymbol: "EARN-1", earned: 350, spent: 100, net: 250 });
+  });
+
+  it("is invisible across tenants, same as the rest of the ledger", async () => {
+    const since = new Date(Date.now() - 3600_000).toISOString();
+    await store.recordLedger(tenantA, {
+      timestamp: new Date().toISOString(), shipSymbol: "CROSS-TENANT", waypointSymbol: "X1-A-A1",
+      type: "SELL", tradeSymbol: "IRON", units: 1, pricePerUnit: 999, total: 999,
+    });
+    const rowsB = await store.earningsByShip(tenantB, since);
+    assert.equal(rowsB.find((r) => r.shipSymbol === "CROSS-TENANT"), undefined);
+  });
+
+  it("netSeries buckets deltas by time, SELL positive and PURCHASE negative", async () => {
+    // netSeries sums a tenant's *entire* ledger in the window, unlike
+    // earningsByShip's per-ship grouping above — reusing the file-level
+    // tenantA here would silently sum in every other describe block's
+    // ledger entries too (all within the same last-hour window), so this
+    // test gets its own throwaway tenant instead.
+    const created = await pool.query<{ id: string }>(
+      `INSERT INTO tenants (agent_symbol, token_enc, token_iv) VALUES ($1, '\\x00', '\\x00') RETURNING id`,
+      [`TEST-SERIES-${Date.now()}`],
+    );
+    const seriesTenant = created.rows[0]!.id;
+    try {
+      const since = new Date(Date.now() - 3600_000).toISOString();
+      await store.recordLedger(seriesTenant, {
+        timestamp: new Date().toISOString(), shipSymbol: "SERIES-1", waypointSymbol: "X1-A-A1",
+        type: "SELL", tradeSymbol: "IRON", units: 1, pricePerUnit: 500, total: 500,
+      });
+      await store.recordLedger(seriesTenant, {
+        timestamp: new Date().toISOString(), shipSymbol: "SERIES-1", waypointSymbol: "X1-A-A1",
+        type: "PURCHASE", tradeSymbol: "IRON", units: 1, pricePerUnit: 200, total: 200,
+      });
+      const series = await store.netSeries(seriesTenant, since, 60);
+      const total = series.reduce((sum, p) => sum + p.net, 0);
+      assert.equal(total, 300, "500 (sell) - 200 (purchase) net across whichever buckets they landed in");
+    } finally {
+      await pool.query(`DELETE FROM tenants WHERE id = $1`, [seriesTenant]);
+    }
+  });
+});
+
+describe("Store.chatHistory / recordChatMessage", () => {
+  it("round-trips messages oldest first, scoped per tenant", async () => {
+    await store.recordChatMessage(tenantA, { role: "user", content: "how's the fleet doing?" });
+    await store.recordChatMessage(tenantA, { role: "assistant", content: "profitable, captain." });
+
+    const history = await store.chatHistory(tenantA, 10);
+    const relevant = history.filter((m) => m.content.includes("fleet doing") || m.content.includes("profitable"));
+    assert.deepEqual(relevant.map((m) => m.role), ["user", "assistant"], "oldest first");
+  });
+
+  it("is invisible across tenants", async () => {
+    await store.recordChatMessage(tenantA, { role: "user", content: "tenant-a-only message" });
+    const historyB = await store.chatHistory(tenantB, 50);
+    assert.equal(historyB.some((m) => m.content === "tenant-a-only message"), false);
+  });
+
+  it("stores a null toolCallId when none is given", async () => {
+    await store.recordChatMessage(tenantA, { role: "user", content: "no tool call here" });
+    const history = await store.chatHistory(tenantA, 50);
+    const msg = history.find((m) => m.content === "no tool call here");
+    assert.equal(msg?.toolCallId, null);
+  });
+});
+
 describe("Store.warehouse", () => {
   it("computes the weighted-average cost basis across two deposits", async () => {
     await store.warehouseDeposit(tenantA, "FAB_MATS", 100, 10, "SHIP-1", "buy");
