@@ -10,20 +10,47 @@ how bring-your-own-LLM-key settings work, and hosting on Render.
 
 ## Status
 
-Phase 0 (repo scaffold): done.
+**Phase 0 (repo scaffold): done.** Postgres schema, every tenant-scoped table
+behind Row-Level Security, three shared galaxy-data tables ungated, proven
+against a real Postgres instance with tests that specifically verify
+cross-tenant isolation holds — not just written, tested.
 
-- Postgres schema (`migrations/001_init.sql`) — every tenant-scoped table
-  behind Row-Level Security, three shared galaxy-data tables ungated.
-- Async `Store` (`src/db/store.ts`) — a representative slice ported from
-  straders' `Store` (ledger, activity, doctrine, fleet flags, warehouse's
-  weighted-average cost basis), proven against a real Postgres instance with
-  tests that specifically verify cross-tenant isolation holds.
+**Phase A (engine core port): in progress.**
 
-Not yet started: the rest of `Store`'s methods (mechanical, same three
-patterns already proven), the engine core port (straders' `FleetManager` /
-`TraderAgent` / etc. — expected to carry over close to unchanged per the
-original multi-tenant plan's finding that none of it holds global state), the
-gate/auth screen, `TenantRegistry`, and the LLM settings page.
+An audit of straders' engine (not a guess — every file's actual `Store`
+call sites were counted) found the whole `Store` dependency surface is 83
+call sites across exactly 3 files (`fleet.ts` 73, `mission.ts` 6,
+`doctrine.ts` 4) plus `agentChat.ts`'s 7 (missed on the first pass, caught by
+re-checking against real method names rather than a `this.store` pattern
+match). Everything else — 17 files, ~6,000 lines — has zero `Store`
+dependency and ports close to verbatim.
+
+Done so far:
+- 17 zero-dependency files ported unmodified: `client.ts`, `schema.d.ts`,
+  `chatLLM.ts`, `auth.ts`, `trader.ts`, `agent.ts`, `scout.ts`, `siphoner.ts`,
+  `dispatcher.ts`, `contract.ts`, `market.ts`, `survey.ts`, `loadout.ts`,
+  `loadoutGa.ts`, `discord.ts`, `state.ts`, `narrative.ts`, `triage.ts`.
+- `galaxy.ts` — 3-line async fix (two callback parameters were unawaited
+  `=> void`, now `=> Promise<void>`).
+- `src/db/store.ts` — every method the engine core actually calls now ported
+  (30 of them), not just a representative slice: warehouse ledger/targets,
+  fleet state, missions (jsonb round-trip), and the three shared galaxy
+  tables (`bestTrades`, `tradeLegs` — including a real SQLite→Postgres
+  dialect fix, scalar `MIN(a,b)` isn't valid Postgres, needed `LEAST`),
+  shipyard/module catalogs. A real bug was caught and fixed in the process:
+  `ledgerTotals` assumed purchases store a negative `total`, but the app
+  always stores a positive magnitude and uses `type` for direction.
+- `doctrine.ts` — ported and tenant-scoped. The one real design decision:
+  the constructor can no longer synchronously populate its cache (Postgres
+  reads are async), so `reload()` must be explicitly awaited once at
+  startup — documented and covered by a test that exercises both the
+  before- and after-reload behavior, not just the happy path.
+
+24 Store tests + 7 Doctrine tests, all passing against real Postgres.
+
+Not yet started: `mission.ts` (6 sites) and `fleet.ts` (73 sites) — the two
+remaining real conversions — plus `agentChat.ts`, the gate/auth screen,
+`TenantRegistry`, and the LLM settings page.
 
 ## Local development
 
