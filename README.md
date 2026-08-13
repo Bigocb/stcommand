@@ -122,10 +122,65 @@ route-finding/buy/sell tests) — `trader.ts`'s actual trading logic wasn't
 touched by this port, only 5 callback signatures at its edges, so this is
 lower-risk than `fleet.ts` was, but still not verified by a test run yet.
 
-Not yet started: Phase B — the gate/auth screen, `TenantRegistry` (the
-runtime that resolves an incoming request to a tenant and hands back the
-right per-tenant engine instance), and the bring-your-own-LLM-key settings
-page. See `docs/architecture-plan.md` for the design of all three.
+**Phase B (auth, tenant resolution, `TenantRegistry`): done** — the
+mechanics from docs/architecture-plan.md §4/§5, end to end:
+
+- `src/auth/crypto.ts` — AES-256-GCM for secrets at rest (tokens, LLM keys)
+  and HMAC-SHA256 for signing session cookies, both off one `SESSION_SECRET`.
+  "No JWT library" in practice: a session cookie is `<sessionId>.<hmac>`,
+  verified with `timingSafeEqual`, same shape as straders' own
+  dashboard-token gate just applied to a per-session id instead of one
+  shared token.
+- `src/db/tenants.ts` — the control-plane CRUD `store.ts` deliberately
+  doesn't do: find-or-create a tenant by agent symbol (re-logging in with a
+  rotated token just updates the stored one), session create/resolve/delete,
+  and get/set for the bring-your-own LLM config. Goes through `withPool`,
+  not `withTenant` — there's no tenant context yet when these run, that's
+  the whole point of them.
+- `src/engine/tenantRegistry.ts` — `TenantRegistry`, holding one live
+  `{ api, store, state, contracts, fleet, chat? }` bundle per tenant,
+  exactly as designed in the architecture doc, booted the same way
+  straders' own CLI boots its single fleet (discover markets, build
+  `FleetManager`, retry `init()` through transient API errors, resume any
+  active missions, wire the co-pilot only if an LLM key is set) — replayed
+  once per tenant instead of once per process. `fleet.run()` is deliberately
+  the one fire-and-forget call in the whole codebase: the coordinator loop
+  runs for the life of the process, not the life of a request, because "a
+  tenant's engine keeps running whether or not their dashboard tab is open"
+  is the product's whole point. `getOrCreate` dedupes concurrent boots for
+  the same tenant so two requests racing in right after login can't
+  double-start a fleet.
+- `src/http/gate.ts` + `src/http/resolveTenant.ts` — the two ways in (paste
+  a token, or register a new agent) and the middleware that turns a signed
+  cookie back into `req.tenantId`. The actual SpaceTraders API calls
+  (`GET /my/agent`, `POST /register`) are injectable, same DI seam
+  `TenantRegistry` uses for its `api` — tests fake that one boundary rather
+  than needing network access and a disposable real account.
+- `src/cli/index.ts` — wires it all into a real Express server. Boots with
+  zero fleets running and lazily starts one per tenant on that tenant's
+  first authenticated request, then leaves it running. Smoke-tested against
+  a real listening server: a bad token 401s from the gate, `/api/status`
+  401s with no session, both against the real HTTP stack, not just unit
+  calls into the handler functions.
+
+44 more tests (140 total): `crypto.test.ts`, `tenants.test.ts`,
+`tenantRegistry.test.ts` (a fake SpaceTraders API standing in for an agent
+with zero ships in an empty system — everything reachable only via a real
+ship or waypoint throws loudly if a wiring bug ever reaches it), `gate.test.ts`
+(a real Express app on a real listening port, hit with real `fetch`, cookies
+and all), and `cookies.test.ts`. One real bug this surfaced and fixed:
+`fleet.run()`'s 2-second coordinator loop has no natural end short of
+`maxTicks`, so the very first `TenantRegistry` test run hung — `stop()`
+already existed on `FleetManager` for exactly this, `TenantRegistry` just
+didn't expose a way to call it for every booted worker at once
+(`stopAll()`, now also the real graceful-shutdown path in `src/cli/index.ts`).
+
+Not yet built: the actual dashboard route surface (ship commands, warehouse
+controls, the chat endpoint, the LLM-settings page's UI) — `TenantRegistry`
+and `resolveTenant` are wired into `src/cli/index.ts` with one example
+route (`/api/status`); the rest of Phase C's routes are straightforward
+repeats of that pattern but haven't been written yet. See
+`docs/architecture-plan.md` for the sequencing.
 
 ## Local development
 
