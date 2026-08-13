@@ -3,6 +3,7 @@ import express from "express";
 import { createPool } from "../db/pool.js";
 import { createGateRouter } from "../http/gate.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
+import { createDashboardRouter } from "../http/dashboard.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 
 function log(msg: string): void {
@@ -19,10 +20,12 @@ function log(msg: string): void {
  * docs/architecture-plan.md §5, that tenant's fleet keeps running for the
  * life of the process regardless of whether they have a request in flight.
  *
- * This wires the mechanics (gate, session resolution, per-tenant engine
- * boot) end to end; it does not yet expose the dashboard's full route
- * surface (ship commands, warehouse controls, the chat endpoint) — see
- * README.md's status section for what's still ahead.
+ * Wires the mechanics (gate, session resolution, per-tenant engine boot)
+ * together with the full dashboard route surface (src/http/dashboard.ts) —
+ * ship commands, warehouse controls, doctrine/dispatch/keeper tuning, the
+ * chat endpoint. Still ahead: a static frontend to actually serve (this is
+ * the JSON API only) and the LLM/Discord settings UI's own routes for
+ * reading back what's currently configured. See README.md's status section.
  */
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -54,21 +57,7 @@ async function main(): Promise<void> {
     }
   });
 
-  app.get("/api/status", (req, res) => {
-    const worker = registry.get(req.tenantId!);
-    if (!worker) {
-      res.status(503).json({ error: "engine not ready yet" });
-      return;
-    }
-    const s = worker.state.get();
-    res.json({
-      agentSymbol: worker.agentSymbol,
-      paused: worker.fleet.isPaused(),
-      credits: s.agent?.credits ?? null,
-      shipCount: s.agent?.shipCount ?? 0,
-      systemSymbol: s.systemSymbol,
-    });
-  });
+  app.use("/api", createDashboardRouter(registry, pool));
 
   const port = Number(process.env.PORT ?? 3000);
   const server = app.listen(port, () => log(`Standing Orders listening on :${port}`));

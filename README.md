@@ -175,12 +175,55 @@ already existed on `FleetManager` for exactly this, `TenantRegistry` just
 didn't expose a way to call it for every booted worker at once
 (`stopAll()`, now also the real graceful-shutdown path in `src/cli/index.ts`).
 
-Not yet built: the actual dashboard route surface (ship commands, warehouse
-controls, the chat endpoint, the LLM-settings page's UI) — `TenantRegistry`
-and `resolveTenant` are wired into `src/cli/index.ts` with one example
-route (`/api/status`); the rest of Phase C's routes are straightforward
-repeats of that pattern but haven't been written yet. See
-`docs/architecture-plan.md` for the sequencing.
+**Phase C (dashboard route surface): the JSON API is done.**
+`src/http/dashboard.ts` is a tenant-scoped port of straders'
+`src/server/index.ts` — all ~45 routes: fleet state/status/pause/resume,
+ship dispatch/hold/release/mine/dock/transfer/buy/refuel/scrap/jump/explore,
+component install/remove, warehouse (goods/targets/designate/adjust),
+doctrine, keeper stations, dispatch overrides, missions, contracts,
+markets/prices/goods, surveys, narrative, loadout scoring (including the GA
+optimizer), and the chat endpoint. Every route reads `registry.get(req.tenantId!)`
+instead of one process-wide `opts.*` bundle, `await`s what's now async, and
+passes `tenantId` to the `Store` methods that need it — otherwise this is
+the same logic straders already shipped, not a rewrite.
+
+Getting there surfaced one more real cross-tenant bug, the same class as the
+async-callback one `fleet.ts` had: straders' `discord.ts` exports
+`getDiscord()`, a **module-level singleton** — correct for a single-fleet
+process, but in a multi-tenant one it means tenant A's ship purchases would
+post to tenant B's Discord channel the moment both had a webhook configured,
+since all of `fleet.ts`'s `postActivity()` calls reached the same shared
+instance regardless of whose fleet was running. Fixed the same way as the
+LLM key: `DiscordRelay` is now an exported class, `TenantRegistry` builds
+one per tenant at boot from that tenant's own encrypted
+`discord_webhook_enc` column (new `getTenantDiscordWebhook`/
+`setTenantDiscordWebhook` in `db/tenants.ts`), and `POST /api/discord`
+updates both the stored value and the *live* relay so a webhook change
+takes effect without a restart. Re-diffed `fleet.ts` against the pristine
+original afterward to confirm that was the only new deviation.
+
+Four more `Store` methods got ported in the process — `earningsByShip`,
+`netSeries`, `recordChatMessage`, `chatHistory` — explicitly deferred since
+Phase A as "dashboard-only reads, not on the engine's critical path"; now
+needed by `/api/bridge` and `/api/chat`. `priceHistory` (the per-waypoint
+variant) and the `buckets`/`bucket_ledger` tables stay unported — checked,
+and neither has a caller anywhere in straders' own routes or engine.
+
+15 new dashboard-router tests (a representative slice, not all ~45 routes —
+the rest are thin, mechanically similar wrappers around already-tested
+`FleetManager`/`Store` methods) plus 3 for the Discord webhook CRUD and 10
+for the new `Store` methods. 164 tests total. One caught a real, current
+limitation rather than a bug: an LLM key set after a tenant's worker has
+already booted doesn't retroactively enable that worker's co-pilot (unlike
+the Discord webhook, there's no live-update path for it yet) — documented
+in the test itself so a future settings-page route inherits the right
+expectation instead of assuming it already works.
+
+Not yet built: a frontend to actually serve (this is the JSON API only,
+same shape as straders' `/api/*` — the static dashboard HTML/JS itself
+hasn't been ported) and a settings-page route for editing LLM config (the
+storage side — `getTenantLlmConfig`/`setTenantLlmConfig` — has existed
+since Phase B; nothing reads/writes it over HTTP yet).
 
 ## Local development
 
