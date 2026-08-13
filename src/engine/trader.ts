@@ -40,7 +40,7 @@ export interface TraderOptions {
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Provide latest market snapshots from persistent store on each tick. */
-  getMarketSnapshots?: () => { waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[];
+  getMarketSnapshots?: () => Promise<{ waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[]>;
   /** Multi-system atlas for jump routing between systems. */
   atlas?: GalaxyAtlas;
   /** Trade symbols reserved for missions; the trader must never buy/sell these. */
@@ -74,17 +74,17 @@ export interface TraderOptions {
   /** Where the warehouse ship is parked, if one is designated — the rendezvous point for buy/sell-role legs. */
   getWarehouseShip?: () => { shipSymbol: string; waypointSymbol: string } | undefined;
   /** Units of a good currently held in the warehouse, for sizing a sell-role withdrawal. */
-  warehouseBalance?: (good: string) => number;
+  warehouseBalance?: (good: string) => Promise<number>;
   /** Record a deposit into the warehouse's bookkeeping — call only after the real transferCargo into the warehouse ship has succeeded. */
-  warehouseDeposit?: (good: string, units: number, price: number, shipSymbol: string) => void;
+  warehouseDeposit?: (good: string, units: number, price: number, shipSymbol: string) => Promise<void>;
   /** Record a withdrawal from the warehouse's bookkeeping — call only after the real transferCargo out of the warehouse ship has succeeded. Returns the actual units removed and their cost basis. */
-  warehouseWithdraw?: (good: string, units: number, shipSymbol: string) => { units: number; avgCost: number };
+  warehouseWithdraw?: (good: string, units: number, shipSymbol: string) => Promise<{ units: number; avgCost: number }>;
   /** Minimum per-unit margin over cost basis required to sell out of the warehouse. Default 0 (any profit clears). */
   warehouseMinMargin?: () => number;
   /** Whether the ship may act right now. False while the fleet is halted. */
   shouldRun?: () => boolean;
   /** Recover a cost basis this process never saw, from the trade ledger. */
-  recoverCostBasis?: (good: string) => number | undefined;
+  recoverCostBasis?: (good: string) => Promise<number | undefined>;
 }
 
 
@@ -129,7 +129,7 @@ export class TraderAgent {
   private readonly warehouseWithdraw?: TraderOptions["warehouseWithdraw"];
   private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
   private readonly shouldRun?: () => boolean;
-  private readonly recoverCostBasis?: (good: string) => number | undefined;
+  private readonly recoverCostBasis?: TraderOptions["recoverCostBasis"];
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
   /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
@@ -399,10 +399,10 @@ export class TraderAgent {
    * sell at any price. That's the meaningful distinction the old code couldn't
    * make, because "never bought" and "forgot what we paid" looked identical.
    */
-  private costBasis(good: string): number | undefined {
+  private async costBasis(good: string): Promise<number | undefined> {
     const known = this.heldCost.get(good);
     if (known !== undefined && known > 0) return known;
-    const recovered = this.recoverCostBasis?.(good);
+    const recovered = await this.recoverCostBasis?.(good);
     if (recovered !== undefined && recovered > 0) {
       this.heldCost.set(good, recovered);
       this.log(`recovered cost basis for ${good}: ${Math.round(recovered)}c (from trade ledger)`);
@@ -412,8 +412,8 @@ export class TraderAgent {
   }
 
   /** True when selling at `price` would exceed the allowed loss vs the cost basis. */
-  private exceedsLossFloor(good: string, price: number): boolean {
-    const cost = this.costBasis(good);
+  private async exceedsLossFloor(good: string, price: number): Promise<boolean> {
+    const cost = await this.costBasis(good);
     if (cost === undefined || cost <= 0) return false;
     const floor = cost * (1 - this.maxLossPct / 100);
     return price < floor;
@@ -582,8 +582,8 @@ export class TraderAgent {
    * observed live at a market this tick are re-applied on top, since those are
    * fresher than anything the store has.
    */
-  private loadSnapshots(): void {
-    const snaps = this.getMarketSnapshots?.() ?? [];
+  private async loadSnapshots(): Promise<void> {
+    const snaps = (await this.getMarketSnapshots?.()) ?? [];
     const next = new Map<string, Map<string, { buy: number; sell: number; volume: number }>>();
     for (const s of snaps) {
       const table = next.get(s.waypointSymbol) ?? new Map();
@@ -631,7 +631,7 @@ export class TraderAgent {
     if (this.ship.nav.status !== "DOCKED") return undefined;
     try {
       const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
-      if (live !== undefined && this.exceedsLossFloor(item.symbol, live)) {
+      if (live !== undefined && (await this.exceedsLossFloor(item.symbol, live))) {
         this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
         return true;
       }
@@ -666,7 +666,7 @@ export class TraderAgent {
    * market.
    */
   private async discoverPrices(preferred: string[]): Promise<boolean> {
-    const knownMarkets = [...new Set((this.getMarketSnapshots?.() ?? []).map((s) => s.waypointSymbol))];
+    const knownMarkets = [...new Set(((await this.getMarketSnapshots?.()) ?? []).map((s) => s.waypointSymbol))];
     const here = this.ship.nav.waypointSymbol;
     const target = preferred.filter((m) => m && m !== here).find((m) => knownMarkets.includes(m)) ?? knownMarkets.find((m) => m !== here) ?? knownMarkets[0];
     if (!target) return false;
@@ -737,7 +737,7 @@ export class TraderAgent {
       await this.navigateTo(route.sellAt);
       await this.ensureDocked();
       const live = await this.liveSellPrice(route.sellAt, route.good);
-      if (live !== undefined && this.exceedsLossFloor(route.good, live)) {
+      if (live !== undefined && (await this.exceedsLossFloor(route.good, live))) {
         this.log(`holding ${units}u ${route.good}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(route.good)}c)`);
         return true;
       }
@@ -828,7 +828,7 @@ export class TraderAgent {
     try {
       const xfer = await this.api.transferCargo(this.symbol, assigned.good, units, warehouse.shipSymbol);
       this.ship = { ...this.ship, cargo: xfer.cargo };
-      this.warehouseDeposit?.(assigned.good, units, res.transaction.pricePerUnit, this.symbol);
+      await this.warehouseDeposit?.(assigned.good, units, res.transaction.pricePerUnit, this.symbol);
       this.log(`deposited ${units}u ${assigned.good} into warehouse ship ${warehouse.shipSymbol}`);
       this.onActivity?.("warehouse-deposit", `${units}u ${assigned.good} into ${warehouse.shipSymbol}`);
     } catch (err) {
@@ -853,7 +853,7 @@ export class TraderAgent {
     if (this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
     if (this.systemOf(warehouse.waypointSymbol) !== this.systemOf(sellAt)) return this.runArbitrage(undefined);
 
-    const balance = this.warehouseBalance?.(assigned.good) ?? 0;
+    const balance = (await this.warehouseBalance?.(assigned.good)) ?? 0;
     if (balance <= 0) return this.discoverPrices([sellAt]);
 
     await this.navigateTo(warehouse.waypointSymbol);
@@ -872,7 +872,7 @@ export class TraderAgent {
       // The response carries the SENDER's (warehouse ship's) cargo, not
       // ours — refresh to pick up what we actually received.
       await this.refresh();
-      withdrawn = this.warehouseWithdraw?.(assigned.good, units, this.symbol) ?? { units, avgCost: 0 };
+      withdrawn = (await this.warehouseWithdraw?.(assigned.good, units, this.symbol)) ?? { units, avgCost: 0 };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.log(`withdraw from warehouse ship failed: ${msg}`);
@@ -886,7 +886,7 @@ export class TraderAgent {
     await this.navigateTo(sellAt);
     await this.ensureDocked();
     const live = await this.liveSellPrice(sellAt, assigned.good);
-    if (live !== undefined && this.exceedsLossFloor(assigned.good, live)) {
+    if (live !== undefined && await this.exceedsLossFloor(assigned.good, live)) {
       this.log(`holding ${withdrawn.units}u ${assigned.good}: live sell ${live}c is below loss floor (cost ${withdrawn.avgCost}c)`);
       return true;
     }
@@ -926,7 +926,7 @@ export class TraderAgent {
     if (!warehouse || !targetWaypoint) return this.runArbitrage(undefined);
     if (this.systemOf(warehouse.waypointSymbol) !== this.systemOf(targetWaypoint)) return this.runArbitrage(undefined);
 
-    const balance = this.warehouseBalance?.(assigned.good) ?? 0;
+    const balance = (await this.warehouseBalance?.(assigned.good)) ?? 0;
     if (balance <= 0) return this.discoverPrices([]);
 
     await this.navigateTo(warehouse.waypointSymbol);
@@ -941,7 +941,7 @@ export class TraderAgent {
       // Same as runSell: made as the warehouse ship, since it's the sender.
       await this.api.transferCargo(warehouse.shipSymbol, assigned.good, units, this.symbol);
       await this.refresh();
-      withdrawn = this.warehouseWithdraw?.(assigned.good, units, this.symbol) ?? { units, avgCost: 0 };
+      withdrawn = (await this.warehouseWithdraw?.(assigned.good, units, this.symbol)) ?? { units, avgCost: 0 };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.log(`withdraw from warehouse ship failed: ${msg}`);
@@ -983,7 +983,7 @@ export class TraderAgent {
       }
       return false;
     }
-    this.loadSnapshots();
+    await this.loadSnapshots();
     const assignedAtTickStart = this.assignedRoute?.();
     // Dead routes are per-tick: a market's price can recover, so forget them
     // once we've had a chance to pick a different route.

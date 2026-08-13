@@ -1,0 +1,703 @@
+import { describe, it, before, beforeEach, after } from "node:test";
+import assert from "node:assert/strict";
+import pg from "pg";
+import { FleetManager } from "../src/engine/fleet.js";
+import { createPool } from "../src/db/pool.js";
+import { Store } from "../src/db/store.js";
+
+/**
+ * Ported from straders' tests/fleet.test.ts. Same assertions and scenarios;
+ * every method fleet.ts made async now gets `await`, and every store-backed
+ * test creates a real tenant against Postgres instead of a temp SQLite file
+ * (`tempDb()` is gone — `makeTenant()` below is its replacement). One test
+ * ("setPaused ... restores it immediately") is rewritten rather than just
+ * `await`-ed: the synchronous constructor-time restore it exercised no
+ * longer exists (Postgres reads are async, so restoration moved to
+ * `init()` — see FleetManager's constructor comment) — see the note on that
+ * test below for what changed and why.
+ */
+
+const DB_URL = process.env.TEST_DATABASE_URL ?? "postgresql://stcommand:stcommand_dev@localhost:5432/stcommand";
+let pool: pg.Pool;
+const tenantIds: string[] = [];
+
+before(async () => {
+  pool = createPool(DB_URL);
+});
+
+after(async () => {
+  if (tenantIds.length) await pool.query(`DELETE FROM tenants WHERE id = ANY($1)`, [tenantIds]);
+  await pool.end();
+});
+
+async function makeTenant(): Promise<string> {
+  const res = await pool.query<{ id: string }>(
+    `INSERT INTO tenants (agent_symbol, token_enc, token_iv) VALUES ($1, '\\x00', '\\x00') RETURNING id`,
+    [`FLEET-${Date.now()}-${Math.random().toString(36).slice(2)}`],
+  );
+  const id = res.rows[0]!.id;
+  tenantIds.push(id);
+  return id;
+}
+
+/** A minimal stand-in for the agent classes FleetManager holds in its role maps. */
+function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 40, cargoUnits = 0) {
+  let nav = { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) };
+  let manual = false;
+  let suspended = false;
+  let pinned: string | undefined;
+  return {
+    symbol,
+    getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: cargoUnits, inventory: [] } }),
+    isManual: () => manual,
+    isSuspended: () => suspended,
+    dispatchTo: async (wp: string) => {
+      nav = { ...nav, waypointSymbol: wp };
+      manual = true;
+    },
+    release: () => {
+      manual = false;
+      pinned = undefined;
+    },
+    suspend: () => {
+      suspended = true;
+    },
+    resume: () => {
+      suspended = false;
+    },
+    stop: () => {},
+    pinnedField: () => pinned,
+    mineAt: (wp: string) => {
+      pinned = wp;
+    },
+    unpinMining: () => {
+      pinned = undefined;
+    },
+  };
+}
+
+function makeFleet(agents: ReturnType<typeof makeFakeAgent>[], store?: Store, tenantId?: string) {
+  const fleet = new FleetManager({
+    api: {
+      getShip: async (s: string) => agents.find((a) => a.symbol === s)!.getShip(),
+    } as any,
+    store,
+    tenantId,
+  });
+  for (const a of agents) (fleet as any).traders.set(a.symbol, a);
+  return fleet;
+}
+
+describe("FleetManager warehouse ship", () => {
+  it("designates a ship and parks it via dispatchTo", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent]);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    assert.deepEqual(fleet.getWarehouseShip(), { shipSymbol: "SHIP-1", waypointSymbol: "X1-A-A2" });
+    assert.equal(agent.getShip().nav.waypointSymbol, "X1-A-A2");
+    assert.equal(agent.isManual(), true);
+  });
+
+  it("refuses a ship with no cargo hold", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1", 0);
+    const fleet = makeFleet([agent]);
+    await assert.rejects(() => fleet.designateWarehouseShip("SHIP-1", "X1-A-A2"), /cargo hold/);
+    assert.equal(fleet.getWarehouseShip(), undefined);
+  });
+
+  it("refuses a ship not under fleet control", async () => {
+    const fleet = makeFleet([]);
+    await assert.rejects(() => fleet.designateWarehouseShip("GHOST-1", "X1-A-A2"), /not under fleet control/);
+  });
+
+  it("re-designating releases the previous warehouse ship", async () => {
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const b = makeFakeAgent("SHIP-2", "X1-A-A1");
+    const fleet = makeFleet([a, b]);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    await fleet.designateWarehouseShip("SHIP-2", "X1-A-A3");
+    assert.deepEqual(fleet.getWarehouseShip(), { shipSymbol: "SHIP-2", waypointSymbol: "X1-A-A3" });
+    assert.equal(a.isManual(), false, "the old warehouse ship must be handed back to auto duty");
+  });
+
+  it("releaseWarehouseShip clears the designation and releases the ship", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent]);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    await fleet.releaseWarehouseShip();
+    assert.equal(fleet.getWarehouseShip(), undefined);
+    assert.equal(agent.isManual(), false);
+  });
+
+  it("releaseWarehouseShip is a no-op when nothing is designated", async () => {
+    const fleet = makeFleet([]);
+    await assert.doesNotReject(() => fleet.releaseWarehouseShip());
+  });
+
+  it("scrapping the warehouse ship clears the designation", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent]);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    await (fleet as any).removeShip("SHIP-1");
+    assert.equal(fleet.getWarehouseShip(), undefined);
+  });
+
+  it("getShipStatuses reports the warehouse ship once, tagged as warehouse", async () => {
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const b = makeFakeAgent("SHIP-2", "X1-A-A1");
+    const fleet = makeFleet([a, b]);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    const statuses = fleet.getShipStatuses();
+    const forShip1 = statuses.filter((s) => s.symbol === "SHIP-1");
+    assert.equal(forShip1.length, 1, "the warehouse ship must not appear twice");
+    assert.equal(forShip1[0]?.role, "warehouse");
+    const forShip2 = statuses.filter((s) => s.symbol === "SHIP-2");
+    assert.equal(forShip2.length, 1);
+    assert.equal(forShip2[0]?.role, "trader");
+  });
+});
+
+describe("FleetManager dispatcher eligibility", () => {
+  it("a suspended trader stops reserving its good for the whole fleet", () => {
+    // An assignment reserves its good against the entire rest of the fleet.
+    // A trader suspended as a mission carrier still received one, so a long
+    // construction mission could lock the fleet's best route away for hours
+    // behind a ship parked at a building site.
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const b = makeFakeAgent("SHIP-2", "X1-A-A1");
+    const fleet = makeFleet([a, b]);
+
+    assert.deepEqual(
+      (fleet as any).dispatcherTraders().map((t: any) => t.shipSymbol).sort(),
+      ["SHIP-1", "SHIP-2"],
+    );
+
+    (fleet as any).suspendAgent("SHIP-1");
+    assert.deepEqual(
+      (fleet as any).dispatcherTraders().map((t: any) => t.shipSymbol),
+      ["SHIP-2"],
+      "a suspended carrier must not be handed a route it cannot fly",
+    );
+  });
+
+  it("a held trader stops reserving its good too", async () => {
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const b = makeFakeAgent("SHIP-2", "X1-A-A1");
+    const fleet = makeFleet([a, b]);
+    await fleet.holdShip("SHIP-1");
+    assert.deepEqual(
+      (fleet as any).dispatcherTraders().map((t: any) => t.shipSymbol),
+      ["SHIP-2"],
+      "an operator hold must not withdraw a route from the rest of the fleet",
+    );
+  });
+
+  it("suspending releases the live claim immediately, not at the next recompute", () => {
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([a]);
+    fleet.dispatcher.setManual("SHIP-1", undefined);
+    fleet.dispatcher.claim("SHIP-1");
+    (fleet as any).suspendAgent("SHIP-1");
+    assert.equal(
+      fleet.dispatcher.assignmentFor("SHIP-1"),
+      undefined,
+      "the good should be free the moment the ship stops trading",
+    );
+  });
+
+  it("resuming makes the trader eligible again", () => {
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([a]);
+    (fleet as any).suspendAgent("SHIP-1");
+    assert.deepEqual((fleet as any).dispatcherTraders(), []);
+    (fleet as any).resumeAgent("SHIP-1");
+    assert.deepEqual(
+      (fleet as any).dispatcherTraders().map((t: any) => t.shipSymbol),
+      ["SHIP-1"],
+    );
+  });
+});
+
+describe("FleetManager restart persistence", () => {
+  it("holdShip persists the hold, so a restart doesn't lose it", async () => {
+    const tenantId = await makeTenant();
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(pool);
+    const fleet = makeFleet([agent], store, tenantId);
+    await fleet.holdShip("SHIP-1");
+    const raw = await store.getFleetFlag(tenantId, "shipManualState");
+    assert.ok(raw);
+    assert.deepEqual(JSON.parse(raw!), { "SHIP-1": { holdWaypoint: "X1-A-A1" } });
+  });
+
+  it("releaseShip clears the persisted hold", async () => {
+    const tenantId = await makeTenant();
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(pool);
+    const fleet = makeFleet([agent], store, tenantId);
+    await fleet.holdShip("SHIP-1");
+    await fleet.releaseShip("SHIP-1");
+    assert.equal(await store.getFleetFlag(tenantId, "shipManualState"), undefined);
+  });
+
+  it("mineAt persists the pin independently of any hold on the same ship", async () => {
+    const tenantId = await makeTenant();
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    (fleet as any).miners.set("SHIP-1", agent);
+    await fleet.mineAt("SHIP-1", "X1-A-E5");
+    const raw = await store.getFleetFlag(tenantId, "shipManualState");
+    assert.deepEqual(JSON.parse(raw!), { "SHIP-1": { minePin: "X1-A-E5" } });
+  });
+
+  it("unpinMining clears only the pin, not a coexisting hold", async () => {
+    const tenantId = await makeTenant();
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    (fleet as any).miners.set("SHIP-1", agent);
+    await fleet.mineAt("SHIP-1", "X1-A-E5");
+    // holdShip goes through controlledAgent, which only looks at
+    // miners/traders/surveyors/tours/scouts/siphoners — SHIP-1 is already a
+    // registered miner above, so this reaches the same agent.
+    await fleet.holdShip("SHIP-1");
+    await fleet.unpinMining("SHIP-1");
+    const raw = await store.getFleetFlag(tenantId, "shipManualState");
+    assert.deepEqual(JSON.parse(raw!), { "SHIP-1": { holdWaypoint: "X1-A-A1" } });
+  });
+
+  it("designateWarehouseShip persists the binding; releaseWarehouseShip clears it", async () => {
+    const tenantId = await makeTenant();
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(pool);
+    const fleet = makeFleet([agent], store, tenantId);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    assert.deepEqual(JSON.parse((await store.getFleetFlag(tenantId, "warehouseShip"))!), { shipSymbol: "SHIP-1", waypointSymbol: "X1-A-A2" });
+    await fleet.releaseWarehouseShip();
+    assert.equal(await store.getFleetFlag(tenantId, "warehouseShip"), undefined);
+  });
+
+  it("scrapping a ship drops its persisted hold/pin, warehouse binding, and dispatch override", async () => {
+    const tenantId = await makeTenant();
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(pool);
+    const fleet = makeFleet([agent], store, tenantId);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    await fleet.setManualDispatch("SHIP-1", {
+      shipSymbol: "SHIP-1", good: "IRON", role: "direct", buyAt: "X1-A-A1", sellAt: "X1-A-A2",
+      buyPrice: 10, sellPrice: 20, profitPerTrip: 100, source: "manual",
+    } as any);
+    await (fleet as any).removeShip("SHIP-1");
+    assert.equal(await store.getFleetFlag(tenantId, "warehouseShip"), undefined);
+    assert.equal(await store.getFleetFlag(tenantId, "shipManualState"), undefined);
+    assert.equal(await store.getFleetFlag(tenantId, "dispatchManual"), undefined);
+  });
+
+  it("setManualDispatch persists the override and updates the live assignment together", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    const assignment = {
+      shipSymbol: "SHIP-1", good: "IRON", role: "direct" as const, buyAt: "X1-A-A1", sellAt: "X1-A-A2",
+      buyPrice: 10, sellPrice: 20, profitPerTrip: 100, source: "auto" as const,
+    };
+    await fleet.setManualDispatch("SHIP-1", assignment);
+    assert.equal(fleet.dispatcher.assignmentFor("SHIP-1")?.good, "IRON");
+    assert.equal(fleet.dispatcher.assignmentFor("SHIP-1")?.source, "manual", "setManualDispatch always tags the assignment manual");
+    const persisted = JSON.parse((await store.getFleetFlag(tenantId, "dispatchManual"))!);
+    assert.equal(persisted["SHIP-1"].good, "IRON");
+
+    await fleet.setManualDispatch("SHIP-1", undefined);
+    assert.equal(fleet.dispatcher.assignmentFor("SHIP-1"), undefined);
+    assert.equal(await store.getFleetFlag(tenantId, "dispatchManual"), undefined);
+  });
+
+  it("a halted fleet still runs rescue, but nothing else", async () => {
+    // Halt stops automation, not recovery. Previously pausing switched off
+    // rescueStranded() — the only thing that recovers a 0-fuel ship — while
+    // leaving every ship loop running, so a Halt made stranding *more* likely.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    let rescues = 0;
+    let creditRefreshes = 0;
+    (fleet as any).rescueStranded = async () => { rescues += 1; };
+    (fleet as any).refreshCredits = async () => { creditRefreshes += 1; };
+
+    await fleet.setPaused(true);
+    await fleet.tick();
+
+    assert.equal(rescues, 1, "rescue must keep running while halted");
+    assert.equal(creditRefreshes, 0, "ordinary coordination must not run while halted");
+  });
+
+  it("halting the fleet stops the ship agents too", async () => {
+    // The predicate handed to every agent is what makes Halt real; agents own
+    // their own loops and would otherwise keep trading straight through it.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    const opts = (fleet as any).traderOptions("SHIP-1");
+    assert.equal(typeof opts.shouldRun, "function", "traders must receive a halt predicate");
+    assert.equal(opts.shouldRun(), true, "an unpaused fleet lets ships run");
+    await fleet.setPaused(true);
+    assert.equal(opts.shouldRun(), false, "a halted fleet stops ships acting");
+  });
+
+  it("setPaused persists the halt state to the store", async () => {
+    // The original straders test also asserted that a *fresh* FleetManager on
+    // the same store came back paused immediately after construction —
+    // better-sqlite3 could restore that synchronously in the constructor.
+    // Postgres reads are inherently async, so that restore moved to init()
+    // (see FleetManager's constructor comment): a freshly constructed
+    // instance now starts unpaused until init() runs, by design — narrower
+    // than before, but honest about where the async boundary actually is.
+    // What's unchanged and still tested here: setPaused's write, and that the
+    // persisted value is readable back from a completely fresh Store/pool
+    // connection, not just in-memory state.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    assert.equal(fleet.isPaused(), false, "starts unpaused by default");
+    await fleet.setPaused(true);
+    assert.equal(await store.getFleetFlag(tenantId, "paused"), "true");
+
+    const restarted = makeFleet([], store, tenantId);
+    assert.equal(restarted.isPaused(), false, "not restored yet — only init() reads it back, per the async boundary above");
+    if (tenantId) assert.equal((await store.getFleetFlag(tenantId, "paused")), "true", "but the persisted value itself is still there, waiting for init()");
+
+    await fleet.setPaused(false);
+    assert.equal(await store.getFleetFlag(tenantId, "paused"), "false");
+  });
+});
+
+const sampleRoutes = [
+  { good: "IRON", buyAt: "X1-A-A1", buySystem: "X1-A", buyPrice: 10, sellAt: "X1-A-A2", sellSystem: "X1-A", sellPrice: 20, volume: 20, distance: 1, fuelUnits: 1, fuelCost: 1, profitPerTrip: 100, ageMinutes: 1 },
+  { good: "GOLD", buyAt: "X1-A-A1", buySystem: "X1-A", buyPrice: 5, sellAt: "X1-A-A2", sellSystem: "X1-A", sellPrice: 15, volume: 20, distance: 1, fuelUnits: 1, fuelCost: 1, profitPerTrip: 50, ageMinutes: 1 },
+] as any[];
+
+describe("FleetManager warehouse targets", () => {
+  it("produces no targets while warehousing is disabled (the default)", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    await store.setWarehouseTarget(tenantId, "IRON", 300, false);
+    const fleet = makeFleet([], store, tenantId);
+    const targets = await (fleet as any).computeWarehouseTargets(sampleRoutes);
+    assert.deepEqual(targets, []);
+  });
+
+  it("produces no targets when the curated list is empty, even though warehousing is enabled", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    const targets = await (fleet as any).computeWarehouseTargets(sampleRoutes);
+    assert.deepEqual(targets, [], "only goods an operator explicitly added are ever warehoused");
+  });
+
+  it("only a curated good with a real route gets a target — uncurated goods stay direct", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await fleet.doctrine.set("warehouseMax", { value: 200, enabled: true });
+    await store.setWarehouseTarget(tenantId, "IRON", 300, false);
+    // GOLD has a real route but was never added to the curated list.
+    await store.warehouseDeposit(tenantId, "IRON", 50, 10, undefined, "buy");
+
+    const targets = (await (fleet as any).computeWarehouseTargets(sampleRoutes)) as { good: string; target: number; balance: number }[];
+
+    assert.deepEqual(targets.map((t) => t.good), ["IRON"]);
+    assert.equal(targets[0]!.target, 200, "target is capped by warehouseMax even though the curated target is set higher");
+    assert.equal(targets[0]!.balance, 50);
+  });
+
+  it("a curated good with no real route right now is skipped this cycle", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await store.setWarehouseTarget(tenantId, "SILVER", 100, false); // not in sampleRoutes
+
+    const targets = await (fleet as any).computeWarehouseTargets(sampleRoutes);
+    assert.deepEqual(targets, []);
+  });
+
+  it("a good flagged forMission is excluded — it goes through computeMissionBuyTargets instead", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await store.setWarehouseTarget(tenantId, "IRON", 300, true);
+
+    const targets = await (fleet as any).computeWarehouseTargets(sampleRoutes);
+    assert.deepEqual(targets, []);
+  });
+
+  it("disabling warehouseMax removes the cap", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await fleet.doctrine.set("warehouseMax", { value: 200, enabled: false });
+    await store.setWarehouseTarget(tenantId, "IRON", 300, false);
+
+    const targets = (await (fleet as any).computeWarehouseTargets(sampleRoutes)) as { good: string; target: number; balance: number }[];
+
+    assert.equal(targets[0]!.target, 300);
+  });
+});
+
+describe("FleetManager haul targets", () => {
+  it("produces no haul targets while warehousing is disabled (the default)", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+    await store.warehouseDeposit(tenantId, "FAB_MATS", 30, 61, undefined, "adjust");
+
+    assert.deepEqual(await (fleet as any).computeHaulTargets(), []);
+  });
+
+  it("once enabled, a mission-needed good the warehouse holds becomes a haul target", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+    await store.warehouseDeposit(tenantId, "FAB_MATS", 30, 61, undefined, "adjust");
+
+    const targets = await (fleet as any).computeHaulTargets();
+
+    assert.deepEqual(targets, [{ good: "FAB_MATS", targetWaypoint: "X1-A-I59", needed: 80, balance: 30 }]);
+  });
+
+  it("no haul target when the warehouse holds none of the needed good", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    assert.deepEqual(await (fleet as any).computeHaulTargets(), []);
+  });
+
+  it("no haul target for a material that's already fully supplied", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 100 }]);
+    await store.warehouseDeposit(tenantId, "FAB_MATS", 30, 61, undefined, "adjust");
+
+    assert.deepEqual(await (fleet as any).computeHaulTargets(), []);
+  });
+
+  it("a paused mission produces no haul target", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+    await store.warehouseDeposit(tenantId, "FAB_MATS", 30, 61, undefined, "adjust");
+    await fleet.missions.pause("X1-A-I59");
+
+    assert.deepEqual(await (fleet as any).computeHaulTargets(), []);
+  });
+});
+
+describe("FleetManager mission buy targets", () => {
+  // market_snapshots is a shared, ungated galaxy table (no tenant_id) — unlike
+  // the original SQLite tests, which each got a fresh throwaway db file, every
+  // test in this process shares one Postgres instance, so a FAB_MATS row one
+  // test records here is still visible to the next one unless cleared.
+  beforeEach(async () => {
+    await pool.query(`DELETE FROM market_snapshots WHERE good_symbol = 'FAB_MATS'`);
+  });
+
+  it("produces no mission-buy targets while warehousing is disabled (the default)", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await store.setWarehouseTarget(tenantId, "FAB_MATS", 0, true);
+    await store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 } as any);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    assert.deepEqual(await (fleet as any).computeMissionBuyTargets(), []);
+  });
+
+  it("produces no mission-buy targets when nothing is flagged forMission", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await store.setWarehouseTarget(tenantId, "FAB_MATS", 100, false); // curated, but not flagged for mission buying
+    await store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 } as any);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    assert.deepEqual(await (fleet as any).computeMissionBuyTargets(), []);
+  });
+
+  it("a good flagged forMission with an active mission short of it sources the cheapest known market", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await store.setWarehouseTarget(tenantId, "FAB_MATS", 0, true);
+    // Two markets sell it — the cheaper one should win.
+    await store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 } as any);
+    await store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-E12", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "MODERATE", purchasePrice: 70, sellPrice: 60, tradeVolume: 30 } as any);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    const targets = await (fleet as any).computeMissionBuyTargets();
+
+    assert.deepEqual(targets, [{ good: "FAB_MATS", buyAt: "X1-A-D46", buyPrice: 61, needed: 80, balance: 0 }]);
+  });
+
+  it("a good with no known market yet produces no mission-buy target", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await store.setWarehouseTarget(tenantId, "FAB_MATS", 0, true);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    assert.deepEqual(await (fleet as any).computeMissionBuyTargets(), []);
+  });
+
+  it("a material that's already fully supplied produces no mission-buy target", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await store.setWarehouseTarget(tenantId, "FAB_MATS", 0, true);
+    await store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 } as any);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 100 }]);
+
+    assert.deepEqual(await (fleet as any).computeMissionBuyTargets(), []);
+  });
+
+  it("a paused mission produces no mission-buy target", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.doctrine.set("warehouseTarget", { enabled: true });
+    await store.setWarehouseTarget(tenantId, "FAB_MATS", 0, true);
+    await store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 } as any);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+    await fleet.missions.pause("X1-A-I59");
+
+    assert.deepEqual(await (fleet as any).computeMissionBuyTargets(), []);
+  });
+});
+
+describe("FleetManager warehouse target list", () => {
+  it("starts empty", async () => {
+    const tenantId = await makeTenant();
+    const fleet = makeFleet([], new Store(pool), tenantId);
+    assert.deepEqual(await fleet.warehouseTargetList(), []);
+  });
+
+  it("setWarehouseTarget adds a good, removeWarehouseTarget drops it", async () => {
+    const tenantId = await makeTenant();
+    const fleet = makeFleet([], new Store(pool), tenantId);
+    await fleet.setWarehouseTarget("IRON_ORE", 100, false);
+    await fleet.setWarehouseTarget("FAB_MATS", 50, true);
+    assert.deepEqual(await fleet.warehouseTargetList(), [
+      { goodSymbol: "FAB_MATS", target: 50, forMission: true },
+      { goodSymbol: "IRON_ORE", target: 100, forMission: false },
+    ]);
+    await fleet.removeWarehouseTarget("IRON_ORE");
+    assert.deepEqual(await fleet.warehouseTargetList(), [{ goodSymbol: "FAB_MATS", target: 50, forMission: true }]);
+  });
+
+  it("rejects a non-positive target", async () => {
+    const tenantId = await makeTenant();
+    const fleet = makeFleet([], new Store(pool), tenantId);
+    await assert.rejects(() => fleet.setWarehouseTarget("IRON_ORE", 0, false), /positive/);
+    await assert.rejects(() => fleet.setWarehouseTarget("IRON_ORE", -5, false), /positive/);
+  });
+
+  it("throws with no store attached", async () => {
+    const fleet = makeFleet([]);
+    await assert.rejects(() => fleet.setWarehouseTarget("IRON_ORE", 100, false), /store not available/);
+  });
+
+  it("removeWarehouseTarget with no store attached is a safe no-op", async () => {
+    const fleet = makeFleet([]);
+    await assert.doesNotReject(() => fleet.removeWarehouseTarget("IRON_ORE"));
+  });
+});
+
+describe("FleetManager dispatcherTraders", () => {
+  it("excludes the warehouse ship so it can never lock a good away from a real trader", async () => {
+    const warehouse = makeFakeAgent("WH-1", "X1-A-A1");
+    const trader = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([warehouse, trader]);
+    await fleet.designateWarehouseShip("WH-1", "X1-A-A2");
+
+    const eligible = (fleet as any).dispatcherTraders() as { shipSymbol: string }[];
+
+    assert.deepEqual(eligible.map((t) => t.shipSymbol), ["SHIP-1"]);
+  });
+
+  it("marks a trader busy when it's holding cargo", () => {
+    const trader = makeFakeAgent("SHIP-1", "X1-A-A1", 40, 12);
+    const fleet = makeFleet([trader]);
+
+    const eligible = (fleet as any).dispatcherTraders() as { shipSymbol: string; busy: boolean }[];
+
+    assert.equal(eligible[0]?.busy, true);
+  });
+});
+
+describe("FleetManager warehouse API surface", () => {
+  it("warehouseGoods and warehouseValue reflect the store", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await store.warehouseDeposit(tenantId, "IRON", 40, 10, undefined, "buy");
+
+    assert.deepEqual(await fleet.warehouseGoods(), [{ goodSymbol: "IRON", units: 40, avgCost: 10, value: 400 }]);
+    assert.equal(await fleet.warehouseValue(), 400);
+  });
+
+  it("warehouseGoods/Value are empty with no store attached", async () => {
+    const fleet = makeFleet([]);
+    assert.deepEqual(await fleet.warehouseGoods(), []);
+    assert.equal(await fleet.warehouseValue(), 0);
+  });
+
+  it("adjustWarehouse deposit and withdraw update the store and are tagged 'adjust'", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+
+    const deposited = await fleet.adjustWarehouse("IRON", 40, "deposit", 10);
+    assert.deepEqual(deposited, { units: 40, avgCost: 10 });
+
+    const withdrawn = await fleet.adjustWarehouse("IRON", 15, "withdraw", 0);
+    assert.deepEqual(withdrawn, { units: 15, avgCost: 10 });
+    assert.equal((await fleet.warehouseGoods()).find((g) => g.goodSymbol === "IRON")?.units, 25);
+
+    const ledger = await fleet.warehouseLedger(10);
+    assert.ok(ledger.every((row) => row.reason === "adjust"), `expected every ledger row tagged "adjust", got ${JSON.stringify(ledger)}`);
+  });
+
+  it("adjustWarehouse withdraw clamps to what's actually held, same as the store", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await fleet.adjustWarehouse("IRON", 10, "deposit", 5);
+
+    const withdrawn = await fleet.adjustWarehouse("IRON", 999, "withdraw", 0);
+
+    assert.equal(withdrawn.units, 10);
+  });
+
+  it("adjustWarehouse throws with no store attached", async () => {
+    const fleet = makeFleet([]);
+    await assert.rejects(() => fleet.adjustWarehouse("IRON", 10, "deposit", 5), /store not available/);
+  });
+});

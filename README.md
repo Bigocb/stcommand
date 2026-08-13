@@ -56,6 +56,31 @@ Done so far:
   have double-counted delivered material — all fixed before this was
   trusted. Every remaining diff line is an intentional async/tenantId change.
 
+- `fleet.ts` — the last and largest conversion, done. All 73 direct `Store`
+  call sites plus 12 `doctrine`/`missions` call sites are async and
+  tenant-scoped. Converting it surfaced a problem the audit didn't catch:
+  `FleetManager` hands several *synchronous* read callbacks down into
+  `trader.ts` and `agent.ts` (`getMarketSnapshots`, `recoverCostBasis`,
+  `warehouseBalance/Deposit/Withdraw`, `marketTourTargets`,
+  `staleMarketTargets`, `shipyardTourTargets`, and `MissionManager`'s
+  `canReach`/`listBuyers`) — fine when they read an in-process SQLite file,
+  not once the store is a network round-trip. Fixed at the source: those
+  option types in `trader.ts`, `agent.ts`, and `mission.ts` are now
+  Promise-returning, and every call site (all already inside `async`
+  methods, so this never became its own cascade) got `await`. One
+  synchronous behavior was deliberately *not* preserved and is documented
+  in `FleetManager`'s constructor: halt state used to restore synchronously
+  in the constructor (better-sqlite3), so a halted fleet could never have a
+  moment of running unhalted after a restart; Postgres reads can't happen
+  in a constructor at all, so that restore moved to the first line of
+  `init()` instead — a real, narrow, and explained behavior change, not an
+  oversight.
+  Verified the same way as `mission.ts`: diffed byte-for-byte against
+  straders' real `fleet.ts`, `trader.ts`, and `agent.ts` — every remaining
+  line is an intentional async/tenantId change, nothing fabricated or
+  dropped.
+- `agentChat.ts` (7 Store call sites) — not yet ported.
+
 Every Postgres-backed database/schema decision was checked against the real
 target, not assumed: the Render Postgres instance provided (`promptoria-db`)
 turned out to already run a different, unrelated production app in its
@@ -67,13 +92,22 @@ session state. `search_path` is set once at the connection-pool level
 (`src/db/pool.ts`), so every unqualified table name in `store.ts` resolves
 only within `stcommand`'s namespace.
 
-41 tests (Store, Doctrine, MissionManager — including tenant-isolation and
-persistence-across-a-fresh-instance cases), all passing against real
-Postgres, deterministic across repeated fresh-migration runs.
+92 tests (Store, Doctrine, MissionManager, FleetManager — including
+tenant-isolation, cross-tenant invisibility, and persistence-across-a-fresh-
+instance cases), all passing against real Postgres, deterministic across
+repeated fresh-migration runs. `fleet.ts`'s 51 tests are a straight port of
+straders' own `tests/fleet.test.ts` (same scenarios, `await` added), with
+one test rewritten rather than just `await`-ed — the halt-state restore test
+now asserts the real, current behavior (see above) instead of the
+synchronous-constructor behavior that no longer exists — and one new fixture
+(`beforeEach` clearing `market_snapshots` in the mission-buy-targets suite)
+needed because these tests now share one live Postgres instance instead of
+each getting a fresh throwaway SQLite file.
 
-Not yet started: `fleet.ts` (73 sites) — the last and largest real
-conversion — plus `agentChat.ts`, the gate/auth screen, `TenantRegistry`,
-and the LLM settings page.
+Not yet ported: `trader.test.ts` (591 lines, straders' direct TraderAgent
+route-finding/buy/sell tests) — `trader.ts`'s actual trading logic wasn't
+touched by this port, only 5 callback signatures at its edges, so this is
+lower-risk than `fleet.ts` was, but still not verified by a test run yet.
 
 ## Local development
 

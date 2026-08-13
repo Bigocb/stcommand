@@ -114,7 +114,7 @@ describe("MissionManager API cost per tick", () => {
     const mgr = new MissionManager({
       api,
       // No known buyers and no discovery: step() sets a retry backoff and returns.
-      listBuyers: () => [],
+      listBuyers: async () => [],
       discoverBuyers: async () => [],
     });
     await mgr.startConstruction("X1-A-I1");

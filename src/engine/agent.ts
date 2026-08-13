@@ -36,11 +36,11 @@ export interface AgentOptions {
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
   protectedGoods?: () => Set<string>;
   /** Marketplace waypoints to tour periodically so price snapshots stay fresh. */
-  marketTourTargets?: () => string[];
+  marketTourTargets?: () => Promise<string[]>;
   /** Markets whose snapshots are older than the freshness window — tour these first. */
-  staleMarketTargets?: () => string[];
+  staleMarketTargets?: () => Promise<string[]>;
   /** Shipyard waypoints to tour periodically so ship stock stays fresh. */
-  shipyardTourTargets?: () => string[];
+  shipyardTourTargets?: () => Promise<string[]>;
   /** Called when the ship docks at a shipyard so its inventory can be recorded. */
   recordShipyard?: (waypointSymbol: string) => Promise<void>;
   /** Stationary keeper: the market this ship polls on a timer to keep prices fresh. */
@@ -121,9 +121,9 @@ export class ShipAgent {
   private markets: MarketSnapshot[] = [];
   private readonly surveyPool: SurveyPool | undefined;
   private readonly protectedGoods?: () => Set<string>;
-  private readonly marketTourTargets?: () => string[];
-  private readonly staleMarketTargets?: () => string[];
-  private readonly shipyardTourTargets?: () => string[];
+  private readonly marketTourTargets?: AgentOptions["marketTourTargets"];
+  private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
+  private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly keeperMarket?: () => string | undefined;
   private readonly shouldRun?: () => boolean;
@@ -930,7 +930,7 @@ export class ShipAgent {
     // No asteroid field needs a survey right now: do intel tours instead.
     // Periodically tour marketplaces so price snapshots stay fresh and we catch
     // new goods (e.g. modules) as market inventory rotates. One market per tick.
-    const tourTargets = this.marketTourTargets?.() ?? [];
+    const tourTargets = (await this.marketTourTargets?.()) ?? [];
     if (tourTargets.length > 0) {
       const marketTarget = tourTargets[this.marketTourIndex % tourTargets.length];
       if (marketTarget && marketTarget !== this.ship.nav.waypointSymbol) {
@@ -945,7 +945,7 @@ export class ShipAgent {
 
     // Periodically tour shipyards so their stock stays fresh (ship inventory is
     // only visible when a ship is docked there). One shipyard per tick.
-    const yardTargets = this.shipyardTourTargets?.() ?? [];
+    const yardTargets = (await this.shipyardTourTargets?.()) ?? [];
     if (yardTargets.length > 0) {
       const yardTarget = yardTargets[this.marketTourIndex % yardTargets.length];
       if (yardTarget && yardTarget !== this.ship.nav.waypointSymbol) {
@@ -988,8 +988,8 @@ export class ShipAgent {
     }
     this.log(`tour scout: tick @ ${this.ship.nav.waypointSymbol} (fuel ${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
 
-    const marketTargets = this.marketTourTargets?.() ?? [];
-    const yardTargets = this.shipyardTourTargets?.() ?? [];
+    const marketTargets = (await this.marketTourTargets?.()) ?? [];
+    const yardTargets = (await this.shipyardTourTargets?.()) ?? [];
     const targets = [...marketTargets, ...yardTargets];
     if (targets.length === 0) {
       this.log("tour scout: no tour targets");
@@ -997,7 +997,7 @@ export class ShipAgent {
     }
     // Prefer markets whose snapshots have gone stale — that's the whole point
     // of the tour. Fall back to nearest-reachable when everything is fresh.
-    const stale = new Set(this.staleMarketTargets?.() ?? []);
+    const stale = new Set((await this.staleMarketTargets?.()) ?? []);
     const here = this.ship.nav.waypointSymbol;
     const herePos = this.waypointPositions.get(here);
     const reachable = targets

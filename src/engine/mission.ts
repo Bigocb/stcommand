@@ -44,7 +44,7 @@ interface MissionOptions {
   /** Estimate fuel between two waypoints. */
   estimatedFuelBetween?: (a: string, b: string) => number;
   /** True if a ship can physically reach the mission target (directly or via refuel stops). */
-  canReach?: (shipSymbol: string, targetWaypoint: string) => boolean;
+  canReach?: (shipSymbol: string, targetWaypoint: string) => Promise<boolean>;
   /** Fly a ship to a waypoint (any system), returning when it arrives/docked. */
   dispatchShip?: (shipSymbol: string, waypointSymbol: string) => Promise<void>;
   /** Pick an idle cargo-capable ship to run this mission. */
@@ -53,7 +53,7 @@ interface MissionOptions {
   suspend?: (shipSymbol: string) => void;
   resume?: (shipSymbol: string) => void;
   /** Sources known to sell a trade good, cheapest first: { waypoint, purchasePrice, tradeVolume }. */
-  listBuyers?: (tradeSymbol: string) => { waypoint: string; purchasePrice: number; tradeVolume: number }[];
+  listBuyers?: (tradeSymbol: string) => Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]>;
   /** Survey a small batch of unknown markets looking for the good; returns newly found buyers. */
   discoverBuyers?: (tradeSymbol: string) => Promise<{ waypoint: string; purchasePrice: number }[]>;
   /** Credits available to spend on mission supplies. */
@@ -342,7 +342,7 @@ export class MissionManager {
     // sells a needed material). Otherwise the mission surveys markets while every
     // ship keeps producing — a blocked mission must never idle a miner.
     if (!mission.assignedShip) {
-      const buyers = this.listBuyers?.(mission.materials.find((m) => m.fulfilled < m.required)?.tradeSymbol ?? "") ?? [];
+      const buyers = (await this.listBuyers?.(mission.materials.find((m) => m.fulfilled < m.required)?.tradeSymbol ?? "")) ?? [];
       if (buyers.length === 0) {
         await this.maybeDiscover(mission, t);
         return;
@@ -382,7 +382,7 @@ export class MissionManager {
     // A carrier that cannot reach the target on a full tank — directly, or via
     // refuel stops along the way — can never complete the mission. Release it so
     // a capable ship can be picked instead.
-    if (this.canReach && !this.canReach(ship.symbol, mission.targetWaypoint)) {
+    if (this.canReach && !(await this.canReach(ship.symbol, mission.targetWaypoint))) {
       this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} cannot reach target (no viable route); releasing`);
       this.releaseCarrier(mission);
       return;
@@ -407,7 +407,7 @@ export class MissionManager {
 
     // 2) Pick a source market for that material, if not already chosen.
     if (!t.market) {
-      const buyers = this.listBuyers?.(t.currentMaterial) ?? [];
+      const buyers = (await this.listBuyers?.(t.currentMaterial)) ?? [];
       if (buyers.length === 0) {
         // No buyer known — a carrier should never have been assigned. Back off and re-source.
         t.retryAt = Date.now() + 60_000;
@@ -463,7 +463,7 @@ export class MissionManager {
       const toBuy = Math.min(need.required - need.fulfilled, ship.cargo.capacity - ship.cargo.units);
       if (toBuy > 0) {
         const credits = (await this.getCredits?.()) ?? 0;
-        const buyer = this.listBuyers?.(material)?.find((b) => b.waypoint === market);
+        const buyer = (await this.listBuyers?.(material))?.find((b) => b.waypoint === market);
         const price = buyer?.purchasePrice ?? 0;
         const affordable = price > 0 ? Math.floor(credits / price) : toBuy;
         // Respect the market's per-transaction trade volume limit (e.g. FAB_MATS
