@@ -45,12 +45,35 @@ Done so far:
   reads are async), so `reload()` must be explicitly awaited once at
   startup — documented and covered by a test that exercises both the
   before- and after-reload behavior, not just the happy path.
+- `mission.ts` — ported and tenant-scoped, same binding pattern as
+  `doctrine.ts`. `list()`, `assignCarrier()`, `pause()`, and `resumeMission()`
+  were synchronous in the original (SQLite) and are async here, since all
+  four touch the store directly or via `persist()`. Verified against a real
+  diff, not memory: after a first draft, `diff`-ing byte-for-byte against
+  straders' actual source caught three real reconstruction errors — a
+  fabricated extra `tasks.get()` call, an unnecessary variable rename, and
+  an entirely dropped cargo-cleanup block plus a fabricated line that would
+  have double-counted delivered material — all fixed before this was
+  trusted. Every remaining diff line is an intentional async/tenantId change.
 
-24 Store tests + 7 Doctrine tests, all passing against real Postgres.
+Every Postgres-backed database/schema decision was checked against the real
+target, not assumed: the Render Postgres instance provided (`promptoria-db`)
+turned out to already run a different, unrelated production app in its
+`public` schema (confirmed by querying it directly) — Standing Orders now
+lives in its own `stcommand` schema on that same instance, with the
+`apply_tenant_rls()` setup function and its generated policies explicitly
+schema-qualified so they can never reach `public` even under an unexpected
+session state. `search_path` is set once at the connection-pool level
+(`src/db/pool.ts`), so every unqualified table name in `store.ts` resolves
+only within `stcommand`'s namespace.
 
-Not yet started: `mission.ts` (6 sites) and `fleet.ts` (73 sites) — the two
-remaining real conversions — plus `agentChat.ts`, the gate/auth screen,
-`TenantRegistry`, and the LLM settings page.
+41 tests (Store, Doctrine, MissionManager — including tenant-isolation and
+persistence-across-a-fresh-instance cases), all passing against real
+Postgres, deterministic across repeated fresh-migration runs.
+
+Not yet started: `fleet.ts` (73 sites) — the last and largest real
+conversion — plus `agentChat.ts`, the gate/auth screen, `TenantRegistry`,
+and the LLM settings page.
 
 ## Local development
 
