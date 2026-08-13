@@ -80,7 +80,7 @@ describe("Store RLS isolation", () => {
 
   it("sessions has no RLS — it must be readable by id before tenant_id is known", async () => {
     const res = await pool.query<{ relrowsecurity: boolean }>(
-      `SELECT relrowsecurity FROM pg_class WHERE relname = 'sessions' AND relnamespace = 'public'::regnamespace`,
+      `SELECT relrowsecurity FROM pg_class WHERE relname = 'sessions' AND relnamespace = 'stcommand'::regnamespace`,
     );
     assert.equal(res.rows[0]?.relrowsecurity, false);
   });
@@ -88,12 +88,12 @@ describe("Store RLS isolation", () => {
   it("shared galaxy tables have no RLS and no tenant_id column", async () => {
     for (const table of ["market_snapshots", "shipyard_inventory", "module_catalog"]) {
       const rls = await pool.query<{ relrowsecurity: boolean }>(
-        `SELECT relrowsecurity FROM pg_class WHERE relname = $1 AND relnamespace = 'public'::regnamespace`,
+        `SELECT relrowsecurity FROM pg_class WHERE relname = $1 AND relnamespace = 'stcommand'::regnamespace`,
         [table],
       );
       assert.equal(rls.rows[0]?.relrowsecurity, false, `${table} must not be tenant-gated`);
       const col = await pool.query(
-        `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'tenant_id'`,
+        `SELECT 1 FROM information_schema.columns WHERE table_schema = 'stcommand' AND table_name = $1 AND column_name = 'tenant_id'`,
         [table],
       );
       assert.equal(col.rows.length, 0, `${table} must not have a tenant_id column`);

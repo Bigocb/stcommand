@@ -11,8 +11,22 @@
 -- markets and prices for every tenant on the same game server reset — ported
 -- directly from straders' schema, which made the same call for the same
 -- reason.
+--
+-- Everything lives in a dedicated `stcommand` schema, not `public` — this
+-- database (Render's promptoria-db) already runs a real, unrelated app in
+-- `public` (Prisma-migrated, 41 tables: users, subscriptions, oauth_accounts,
+-- etc.). A second app's tables in the same schema as an existing production
+-- app is one shared blast radius for both — a bad migration, an accidental
+-- DROP, or apply_tenant_rls() below scanning for a stray tenant_id column
+-- could touch the other app's data. A dedicated schema is real namespace
+-- isolation while still sharing the one paid instance, confirmed via the
+-- pool-level `search_path` set in src/db/pool.ts rather than schema-qualifying
+-- every query by hand.
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
+CREATE SCHEMA IF NOT EXISTS stcommand;
+SET search_path TO stcommand;
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA stcommand; -- gen_random_uuid()
 
 -- ── Control plane ──────────────────────────────────────────────
 
@@ -52,18 +66,22 @@ CREATE INDEX idx_sessions_tenant ON sessions (tenant_id);
 -- to in the first place. RLS on it would make login impossible. The id
 -- column being an unguessable random uuid is that table's real security
 -- boundary, the same way any session token's unguessability is.
+-- Scoped to table_schema = 'stcommand' explicitly, not just "whatever's on
+-- search_path" — this function must never be able to reach promptoria's
+-- tables in `public`, even if this migration is ever run with a different
+-- search_path than expected.
 CREATE OR REPLACE FUNCTION apply_tenant_rls() RETURNS void AS $$
 DECLARE
   t text;
 BEGIN
   FOR t IN
     SELECT table_name FROM information_schema.columns
-    WHERE column_name = 'tenant_id' AND table_schema = 'public' AND table_name != 'sessions'
+    WHERE column_name = 'tenant_id' AND table_schema = 'stcommand' AND table_name != 'sessions'
   LOOP
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
-    EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t); -- applies even to the table owner
+    EXECUTE format('ALTER TABLE stcommand.%I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('ALTER TABLE stcommand.%I FORCE ROW LEVEL SECURITY', t); -- applies even to the table owner
     EXECUTE format(
-      'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)::uuid)',
+      'CREATE POLICY tenant_isolation ON stcommand.%I USING (tenant_id = current_setting(''app.tenant_id'', true)::uuid)',
       t
     );
   END LOOP;

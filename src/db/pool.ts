@@ -9,9 +9,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * whole point of moving off per-tenant SQLite files: Postgres is async and
  * pooled, so one tenant's query never blocks another's the way a synchronous
  * `better-sqlite3` call on a shared event loop would.
+ *
+ * Every connection sets `search_path=stcommand` at the libpq level via
+ * `options`, deliberately excluding `public` — this database (Render's
+ * promptoria-db) already runs a real, unrelated app in `public`. Every query
+ * in `store.ts` uses unqualified table names on purpose; this is the one
+ * place that decides what those names resolve against, so a typo can never
+ * silently resolve to one of promptoria's tables just because they happened
+ * to share a name.
  */
 export function createPool(connectionString: string): pg.Pool {
-  return new Pool({ connectionString });
+  return new Pool({ connectionString, options: "-c search_path=stcommand" });
 }
 
 /**
