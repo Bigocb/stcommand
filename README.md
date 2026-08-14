@@ -688,14 +688,47 @@ without ever starting the old `keeperLoop()`. 240 tests total, all passing.
 **Where this actually leaves things:** with a real Postgres tenant booted
 through `TenantRegistry` (which now always passes a scheduler), every ship
 is genuinely driven by the Scheduler/Task machinery end to end — this is
-no longer just parallel scaffolding, it's live. What's still ahead, per
-the design doc's own remaining scope: real per-task API-call accounting
-(`estimatedCalls`/`actualCalls` are still fixed heuristics, not measured),
-and using the scheduler's priority ordering for something the old
-uniform-blocking-loops architecture couldn't do at all — e.g. guaranteeing
-rescue tasks always preempt trade tasks under real budget pressure, which
-today works only because rescue happens to run directly in `tick()`
-rather than through the scheduler.
+no longer just parallel scaffolding, it's live.
+
+Note on scope: this is not a dual-track system with an old version kept
+alive for comparison. The design doc's phased/dual-write structure was a
+*migration* discipline — land safely, verify, then cut over — not a
+long-term feature flag between "old" and "new" behavior. Once a cutover
+lands, the old code path exists only as the fallback for callers that
+haven't been updated yet (see `FleetOptions.scheduler`'s comment), not as
+a supported alternate mode to toggle back to.
+
+## Cutover, part 3: real per-task API-call accounting
+
+`Client` (`src/core/client.ts`) now counts every real HTTP request it
+sends — including retries, since a 429/500 retry is still a real call
+against the rate limit, not a free do-over — via a new private
+`callCount`, exposed as `getCallCount()`. `SpaceTradersAPI` (what every
+agent actually holds as `this.api`) passes it through.
+
+Every `nextTask()`-family `run()` callback (all seven: `TraderAgent`,
+`ShipAgent`'s four roles, `ScoutAgent`, `SiphonerAgent`) now reads
+`this.api.getCallCount()` before and after its own work and reports the
+**delta** as `actualCalls`, replacing what used to be the same fixed
+number as `estimatedCalls` (a guess reported as if it were a fact).
+`estimatedCalls` itself is still necessarily a heuristic — the scheduler
+needs *some* number before the work runs, to decide whether to admit a
+task at all, and no amount of instrumentation changes that a pre-run
+number is a guess by definition. What changed is that `actualCalls` is no
+longer *also* a guess: it's `Client.getCallCount()`'s real delta across
+the actual `tick()`/`surveyScout()`/`tourScout()`/`keeperPoll()` call,
+measured whether that call succeeded or threw.
+
+New `tests/client.test.ts`: the counter starts at zero, increments once
+per real request, counts a retried request once per actual attempt (not
+once per logical call — a mocked fetch failing twice before succeeding on
+the third attempt reports 3, not 1), and `SpaceTradersAPI.getCallCount()`
+reads the same underlying counter as its `Client`, not a separate one.
+Updated the existing per-role `nextTask()` tests (`traderNextTask.test.ts`,
+`agentNextTask.test.ts`) that used to assert the fixed heuristic value to
+instead assert the measured delta from a stateful fake counter — proving
+the measuring logic itself, not just that a number gets returned. 243
+tests total, all passing.
 
 ## Local development
 

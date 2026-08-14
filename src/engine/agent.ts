@@ -1291,12 +1291,14 @@ export class ShipAgent {
         // not just the old runLoop()'s while condition.
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
+        const before = this.api.getCallCount();
         try {
           const made = await this.tick();
-          return { actualCalls: 3, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
+          const actualCalls = this.api.getCallCount() - before;
           this.log(`agent error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls: 0, next: this.nextTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         }
       },
     };
@@ -1313,12 +1315,14 @@ export class ShipAgent {
       run: async (): Promise<TaskResult> => {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextSurveyTask(Date.now() + HALT_POLL_MS) };
+        const before = this.api.getCallCount();
         try {
           const made = await this.surveyScout();
-          return { actualCalls: 2, next: this.nextSurveyTask(Date.now() + (made ? 0 : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextSurveyTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
+          const actualCalls = this.api.getCallCount() - before;
           this.log(`surveyor error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls: 0, next: this.nextSurveyTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextSurveyTask(Date.now() + 10_000) };
         }
       },
     };
@@ -1335,12 +1339,14 @@ export class ShipAgent {
       run: async (): Promise<TaskResult> => {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTourTask(Date.now() + HALT_POLL_MS) };
+        const before = this.api.getCallCount();
         try {
           const made = await this.tourScout();
-          return { actualCalls: 2, next: this.nextTourTask(Date.now() + (made ? 0 : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextTourTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
+          const actualCalls = this.api.getCallCount() - before;
           this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls: 0, next: this.nextTourTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextTourTask(Date.now() + 10_000) };
         }
       },
     };
@@ -1358,12 +1364,14 @@ export class ShipAgent {
       run: async (): Promise<TaskResult> => {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + HALT_POLL_MS) };
+        const before = this.api.getCallCount();
         try {
           const snapshotted = await this.keeperPoll();
-          return { actualCalls: 2, next: this.nextKeeperTask(Date.now() + (snapshotted ? 5 * 60_000 : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted ? 5 * 60_000 : 30_000)) };
         } catch (err) {
+          const actualCalls = this.api.getCallCount() - before;
           this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextKeeperTask(Date.now() + 10_000) };
         }
       },
     };

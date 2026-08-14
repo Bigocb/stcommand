@@ -24,7 +24,7 @@ function makeShip(symbol = "SHIP-1"): Ship {
 
 describe("TraderAgent.nextTask", () => {
   it("returns a well-formed trade-priority Task", () => {
-    const trader = new TraderAgent(makeShip("SHIP-1"), { api: {} as any });
+    const trader = new TraderAgent(makeShip("SHIP-1"), { api: { getCallCount: () => 0 } as any });
     const task = trader.nextTask();
     assert.equal(task.id, "SHIP-1-trade");
     assert.equal(task.shipSymbol, "SHIP-1");
@@ -35,7 +35,7 @@ describe("TraderAgent.nextTask", () => {
 
   it("when halted, does no work and reschedules quickly rather than calling tick()", async () => {
     let tickCalled = false;
-    const trader = new TraderAgent(makeShip(), { api: {} as any, shouldRun: () => false });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any, shouldRun: () => false });
     (trader as any).tick = async () => { tickCalled = true; return true; };
 
     const result = await trader.nextTask().run();
@@ -46,19 +46,20 @@ describe("TraderAgent.nextTask", () => {
     assert.ok(result.next!.earliestRunAt <= Date.now() + 1_000, "halt re-poll must be quick (HALT_POLL_MS), not the 30s idle backoff");
   });
 
-  it("when tick() did work (made=true), chains an immediately-ready next task", async () => {
-    const trader = new TraderAgent(makeShip(), { api: {} as any });
-    (trader as any).tick = async () => true;
+  it("when tick() did work (made=true), reports actualCalls measured from the real API call counter and chains an immediately-ready next task", async () => {
+    let calls = 0;
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => calls } as any });
+    (trader as any).tick = async () => { calls += 2; return true; }; // simulates tick() making 2 real API calls
 
     const result = await trader.nextTask().run();
 
-    assert.equal(result.actualCalls, 3);
+    assert.equal(result.actualCalls, 2, "must be the measured delta, not the fixed estimatedCalls heuristic (3)");
     assert.ok(result.next);
     assert.ok(result.next!.earliestRunAt <= Date.now(), "productive work must chain a task ready to run again immediately");
   });
 
   it("when tick() found nothing to do (made=false), backs off ~30s — same as runLoop()'s idle sleep", async () => {
-    const trader = new TraderAgent(makeShip(), { api: {} as any });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (trader as any).tick = async () => false;
 
     const result = await trader.nextTask().run();
@@ -68,7 +69,7 @@ describe("TraderAgent.nextTask", () => {
   });
 
   it("when tick() throws, backs off ~10s and does not propagate the error — same as runLoop()'s catch", async () => {
-    const trader = new TraderAgent(makeShip(), { api: {} as any });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (trader as any).tick = async () => { throw new Error("boom"); };
 
     const result = await trader.nextTask().run();
@@ -78,7 +79,7 @@ describe("TraderAgent.nextTask", () => {
   });
 
   it("a fuel-related error marks the ship stranded, same as runLoop()'s error handling", async () => {
-    const trader = new TraderAgent(makeShip(), { api: {} as any });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (trader as any).tick = async () => { throw new Error("insufficient fuel for this trip"); };
 
     assert.ok(!trader.isStranded());
@@ -87,7 +88,7 @@ describe("TraderAgent.nextTask", () => {
   });
 
   it("a non-fuel error does not mark the ship stranded", async () => {
-    const trader = new TraderAgent(makeShip(), { api: {} as any });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (trader as any).tick = async () => { throw new Error("market unavailable"); };
 
     await trader.nextTask().run();

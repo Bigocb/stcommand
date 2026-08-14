@@ -69,6 +69,16 @@ export class Client {
   private readonly retryBackoffMs: number;
   private readonly limiter: RateLimiter;
   readonly onRateLimited: ClientOptions["onRateLimited"];
+  /**
+   * Real count of HTTP requests actually sent (including retries — a 429 or
+   * 500 retry is still a real call against the rate limit, not a free
+   * do-over). This is what makes Scheduler Task `actualCalls` a measured
+   * number instead of the fixed per-task-type heuristic it used to be: an
+   * agent's nextTask() reads this before and after its own work and reports
+   * the delta. See fleet.ts/trader.ts/agent.ts/scout.ts/siphoner.ts's
+   * nextTask() comments.
+   */
+  private callCount = 0;
 
   constructor(opts: ClientOptions = {}) {
     this.token = opts.token;
@@ -105,6 +115,7 @@ export class Client {
     let attempt = 0;
     for (;;) {
       await this.limiter.acquire();
+      this.callCount += 1;
       const res = await fetch(url, {
         method: req.method,
         headers: {
@@ -160,6 +171,11 @@ export class Client {
     const res = await this.request<{ data: T }>({ method: "PATCH", path, body });
     return res.data;
   }
+
+  /** Total real HTTP requests sent so far, including retries. */
+  getCallCount(): number {
+    return this.callCount;
+  }
 }
 
 function safeJson(text: string): unknown {
@@ -189,6 +205,11 @@ export class SpaceTradersAPI {
       method: "GET",
       path: "/",
     });
+  }
+
+  /** Total real HTTP requests sent through this agent's client so far, including retries. */
+  getCallCount(): number {
+    return this.client.getCallCount();
   }
 
   getMyAgent() {

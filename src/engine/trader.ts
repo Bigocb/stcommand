@@ -1042,14 +1042,12 @@ export class TraderAgent {
    * observe identical timing, not just identical trades.
    *
    * `estimatedCalls: 3` is a fixed heuristic (one navigate + one buy/sell +
-   * one refresh, roughly), not a real per-route estimate — the design doc's
-   * own example for an equivalent task uses the same fixed number for the
-   * same reason: without instrumenting every API call `tick()`'s
-   * sub-methods make, a precise estimate isn't available yet, and a fixed
-   * conservative one is enough for the scheduler's budget check to be
-   * useful. `actualCalls` is reported the same way for the same reason —
-   * see README's Greenfield section for why this is real, tested scaffold
-   * code that nothing in `fleet.run()` actually drives yet.
+   * one refresh, roughly), not a real per-route estimate — the scheduler
+   * needs *some* number before the work runs, to decide whether to admit
+   * this task at all, so a pre-run guess is unavoidable here regardless.
+   * `actualCalls`, though, is measured for real: `Client.getCallCount()`'s
+   * delta across the actual `tick()` call, not another guess — see
+   * README's Greenfield section.
    */
   nextTask(earliestRunAt = Date.now()): Task {
     // Marks the chain "live" whether this is the first call (a fresh
@@ -1073,14 +1071,21 @@ export class TraderAgent {
         if (this.halted()) {
           return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         }
+        // Real measured count (Client.getCallCount() delta), not the fixed
+        // `estimatedCalls: 3` heuristic above — the estimate is still a
+        // guess made before the work runs (needed for the scheduler's
+        // pre-admission budget check), but what actually happened is now
+        // truth, not another guess.
+        const before = this.api.getCallCount();
         try {
           const made = await this.tick();
-          return { actualCalls: 3, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
+          const actualCalls = this.api.getCallCount() - before;
           const msg = err instanceof Error ? err.message : String(err);
           this.log(`trader error: ${msg}`);
           if (/fuel/i.test(msg)) this.markStranded();
-          return { actualCalls: 0, next: this.nextTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         }
       },
     };

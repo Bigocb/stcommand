@@ -51,14 +51,14 @@ function makeFakeAgent(symbol: string, nextTaskId: string) {
 
 describe("FleetManager.syncSchedulerTasks", () => {
   it("does nothing when no scheduler was provided", () => {
-    const fleet = new FleetManager({ api: {} as any });
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
     (fleet as any).traders.set("SHIP-1", makeFakeAgent("SHIP-1", "t"));
     assert.doesNotThrow(() => (fleet as any).syncSchedulerTasks());
   });
 
   it("enqueues each new agent's task exactly once, using the right nextTask-family method per role", () => {
     const scheduler = new Scheduler();
-    const fleet = new FleetManager({ api: {} as any, scheduler });
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any, scheduler });
     (fleet as any).miners.set("MINER-1", makeFakeAgent("MINER-1", "mine"));
     (fleet as any).traders.set("TRADER-1", makeFakeAgent("TRADER-1", "trade"));
     (fleet as any).surveyors.set("SURV-1", makeFakeAgent("SURV-1", "surv"));
@@ -85,7 +85,7 @@ describe("FleetManager.syncSchedulerTasks", () => {
 
   it("enqueues a newly-added agent (e.g. a fresh ship purchase) without re-enqueueing existing ones", () => {
     const scheduler = new Scheduler();
-    const fleet = new FleetManager({ api: {} as any, scheduler });
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any, scheduler });
     (fleet as any).traders.set("TRADER-1", makeFakeAgent("TRADER-1", "trade"));
     (fleet as any).syncSchedulerTasks();
     assert.equal(scheduler.size(), 1);
@@ -98,7 +98,7 @@ describe("FleetManager.syncSchedulerTasks", () => {
 
 describe("Task chain termination on stop()", () => {
   it("a stopped TraderAgent's task ends the chain (no `next`) instead of running forever", async () => {
-    const trader = new TraderAgent(makeShip(), { api: {} as any });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     const task = trader.nextTask(); // marks running = true, as syncSchedulerTasks() would
     trader.stop(); // e.g. removeShip() during a scrap, or maybeAssignKeepers() converting this ship away
     const result = await task.run();
@@ -108,12 +108,12 @@ describe("Task chain termination on stop()", () => {
 
 describe("fleet.run() with a scheduler present", () => {
   it("does not start the old runLoop()-family blocking loops", async () => {
-    const trader = new TraderAgent(makeShip(), { api: {} as any });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     let runLoopCalled = false;
     trader.runLoop = async () => { runLoopCalled = true; };
 
     const scheduler = new Scheduler();
-    const fleet = new FleetManager({ api: {} as any, scheduler });
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any, scheduler });
     (fleet as any).traders.set("SHIP-1", trader);
 
     await fleet.run(1);
@@ -123,11 +123,11 @@ describe("fleet.run() with a scheduler present", () => {
   });
 
   it("without a scheduler, still starts the old loop (the pre-cutover fallback path)", async () => {
-    const trader = new TraderAgent(makeShip(), { api: {} as any });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     let runLoopCalled = false;
     trader.runLoop = async (maxTicks: number) => { runLoopCalled = true; };
 
-    const fleet = new FleetManager({ api: {} as any });
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
     (fleet as any).traders.set("SHIP-1", trader);
 
     await fleet.run(1);
@@ -139,7 +139,7 @@ describe("fleet.run() with a scheduler present", () => {
 describe("maybeAssignKeepers with a scheduler present", () => {
   it("enqueues the new keeper's nextKeeperTask() directly, without starting the old keeperLoop()", async () => {
     const scheduler = new Scheduler();
-    const fleet = new FleetManager({ api: {} as any, scheduler });
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any, scheduler });
     await fleet.doctrine.set("keeperCount", { value: 5, enabled: true });
 
     const miner = makeFakeAgent("MINER-1", "mine");

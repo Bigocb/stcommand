@@ -454,7 +454,7 @@ export class SiphonerAgent {
     this.running = false;
   }
 
-  /** Greenfield Phase 7: Scheduler Task producer wrapping tick(), same approach as TraderAgent.nextTask() (Phase 6) — see that file's comment. Not called by fleet.run(); runLoop() still drives every siphoner. */
+  /** Scheduler Task producer wrapping tick(), same approach as TraderAgent.nextTask() — see that file's comment. Driven for real by fleet.run() when a Scheduler is wired in (see FleetManager.syncSchedulerTasks()). */
   nextTask(earliestRunAt = Date.now()): Task {
     this.running = true;
     return {
@@ -466,12 +466,14 @@ export class SiphonerAgent {
       run: async (): Promise<TaskResult> => {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
+        const before = this.api.getCallCount();
         try {
           const made = await this.tick();
-          return { actualCalls: 3, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
+          const actualCalls = this.api.getCallCount() - before;
           this.log(`siphoner error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls: 0, next: this.nextTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         }
       },
     };
