@@ -3,6 +3,7 @@ import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
+import { type AgentStep, IDLE_STEP } from "./agentStep.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -65,6 +66,12 @@ export class ScoutAgent {
   private scanCooldownUntil = 0;
   private scanSystemsNext = true;
   running = false;
+  private currentStep: AgentStep = IDLE_STEP;
+
+  /** What this ship is doing right now, if it's mid-navigation — see agentStep.ts. Scouts never transact. */
+  getStep(): AgentStep {
+    return this.currentStep;
+  }
 
   constructor(ship: Ship, opts: ScoutOptions) {
     this.symbol = ship.symbol;
@@ -174,15 +181,20 @@ export class ScoutAgent {
       this.log(`cannot navigate to ${waypoint}: need ${need} fuel, have ${this.ship.fuel.current}`);
       return;
     }
-    const arrival = await this.api.navigateShip(this.symbol, waypoint);
-    this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
-    this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`);
-    const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
-    if (wait > 0) {
-      this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
-      await sleep(wait + 1000);
+    this.currentStep = { kind: "navigating", to: waypoint };
+    try {
+      const arrival = await this.api.navigateShip(this.symbol, waypoint);
+      this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
+      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`);
+      const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
+      if (wait > 0) {
+        this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
+        await sleep(wait + 1000);
+      }
+      await this.refresh();
+    } finally {
+      this.currentStep = IDLE_STEP;
     }
-    await this.refresh();
   }
 
   private distanceTo(wp: WaypointPos): number {

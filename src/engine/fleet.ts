@@ -11,6 +11,7 @@ import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent } from "../db/store.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
+import { IDLE_STEP, type AgentStep } from "./agentStep.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -44,6 +45,8 @@ interface ControlledAgent {
   release(): void;
   suspend(): void;
   resume(): void;
+  /** Optional: real agent classes all implement this (see agentStep.ts); test fakes that don't are treated as always idle. */
+  getStep?(): AgentStep;
 }
 
 export interface FleetOptions {
@@ -2242,16 +2245,25 @@ export class FleetManager {
 
   /**
    * Greenfield Phase 2: persist a lifecycle state per ship — idle | assigned
-   * | travelling | returning | docked — derived from `getShipStatuses()`'s
-   * role + live SpaceTraders nav status, so `ship_state` has a real record
-   * of what every ship was doing even before the next dashboard read
-   * re-derives it live. `returning` is `travelling` with cargo already in
-   * the hold — in transit and carrying something reads as heading toward a
-   * sale/delivery, not away from one; a real if approximate signal, not
-   * full per-agent step tracking. `target` is populated: the transit
-   * destination while travelling/returning, the current waypoint otherwise.
-   * `step` and the doc's `transacting` state are still not populated — see
-   * this field's own type comment in store.ts for why.
+   * | travelling | returning | docked | transacting — derived from
+   * `getShipStatuses()`'s role + live SpaceTraders nav status, so
+   * `ship_state` has a real record of what every ship was doing even before
+   * the next dashboard read re-derives it live.
+   *
+   * `transacting` and `step` now come from each agent's own `getStep()`
+   * (see agentStep.ts) — every agent class sets `currentStep` around its
+   * actual buy/sell/extract/siphon/survey API calls and its one shared
+   * navigation entry point, so this is a real, if best-effort, signal: a
+   * `transacting` step is only observable here if a coordinator tick
+   * happens to land while that specific `await` is still in flight (a
+   * real if narrow window — network latency, not zero), not manufactured.
+   * `transacting` takes priority over the nav-status-derived state when
+   * present. `returning` is `travelling` with cargo already in the hold —
+   * in transit and carrying something reads as heading toward a sale/
+   * delivery, not away from one. `target` is the transit destination while
+   * travelling/returning/transacting mid-navigation, the current waypoint
+   * otherwise, falling back to the agent's own reported navigation target
+   * when nav data disagrees (mid-flight step vs. a stale cached ship object).
    */
   private async syncShipStates(): Promise<void> {
     if (!this.tenantId || !this.store) return;
@@ -2259,16 +2271,24 @@ export class FleetManager {
     await Promise.all(
       statuses.map((s) => {
         const ship = this.shipFor(s.symbol);
+        const step = this.stepFor(s.symbol);
         const carryingCargo = (ship?.cargo?.units ?? 0) > 0;
-        const state = s.role === "idle"
-          ? "idle"
+        const state = step.kind === "transacting"
+          ? "transacting"
+          : s.role === "idle"
+            ? "idle"
+            : s.status === "IN_TRANSIT"
+              ? (carryingCargo ? "returning" : "travelling")
+              : s.status === "DOCKED"
+                ? "docked"
+                : "assigned";
+        const target = step.kind === "navigating"
+          ? step.to
           : s.status === "IN_TRANSIT"
-            ? (carryingCargo ? "returning" : "travelling")
-            : s.status === "DOCKED"
-              ? "docked"
-              : "assigned";
-        const target = s.status === "IN_TRANSIT" ? ship?.nav?.route?.destination?.symbol : ship?.nav?.waypointSymbol;
-        return this.store!.updateShipState(this.tenantId!, s.symbol, state, target);
+            ? ship?.nav?.route?.destination?.symbol
+            : ship?.nav?.waypointSymbol;
+        const persistedStep = step.kind === "idle" ? undefined : step;
+        return this.store!.updateShipState(this.tenantId!, s.symbol, state, target, persistedStep);
       }),
     );
   }
@@ -2277,6 +2297,12 @@ export class FleetManager {
   private shipFor(shipSymbol: string): Ship | undefined {
     const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
     return agent ? agent.getShip() : this.idleShips.get(shipSymbol);
+  }
+
+  /** What the ship's agent is doing right now (see agentStep.ts) — idle for an idle ship (no agent driving it) or a fake test agent that doesn't implement getStep(). */
+  private stepFor(shipSymbol: string): AgentStep {
+    const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
+    return agent?.getStep?.() ?? IDLE_STEP;
   }
 
   /** A ship's current cargo inventory, whichever role map (or idleShips) actually holds it. */

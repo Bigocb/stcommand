@@ -867,16 +867,6 @@ instrumentation. `target` is now populated too: the transit destination
 current waypoint (`nav.waypointSymbol`) otherwise — also already-available
 data that just wasn't being read before.
 
-The doc's `transacting` state and full per-agent `step` tracking are still
-not built, and that gap is real, not just relabeled: `transacting` means
-"an API call to buy/sell is in flight right now," a transient state that
-by construction is almost never observed at a ~2s tick boundary, and `step`
-would need every agent to explicitly report its current sub-task through a
-shared concept that doesn't exist anywhere in `trader.ts`/`agent.ts`'s
-control flow today. Unlike the manifest intents, this one really would be
-new plumbing across every agent, not a missing connection between two
-things that already exist — left for when a specific consumer needs it.
-
 9 new tests in `tests/shipManifest.test.ts` (mission-delivery tagging, held-
 position tagging both above and below the loss floor with a real two-good
 ledger/market scenario, and warehouse-deposit's priority over both) and 4
@@ -888,6 +878,65 @@ bare `true` placeholder for an idle ship's cached object, which the new
 reading garbage; fixed by using a real fake ship object and hardening the
 production code's own null-safety at the same time). 258 tests total, all
 passing.
+
+## The third gap: `transacting` state and real per-agent step tracking
+
+This one *was* genuinely new plumbing, not a missing wire — and it's built
+now too. New `src/engine/agentStep.ts` defines the shared concept that
+never existed: `AgentStep`, a small tagged union (`idle` |
+`{ navigating, to }` | `{ transacting, action, good? }`). Every agent class
+(`TraderAgent`, `ShipAgent`, `ScoutAgent`, `SiphonerAgent`) now holds a
+`currentStep` field and a public `getStep()`, set around the real moments
+that matter: each class's one shared `navigateTo()` entry point, and every
+buy/sell/extract/siphon/survey API call site (5 in `trader.ts`, 4 in
+`agent.ts`, 1 each in `siphoner.ts`/`scout.ts`'s navigation). Every site
+follows the same shape — set the step immediately before the `await`,
+clear it immediately after (`navigateTo()` uses `try/finally` so a failed
+navigation can't leave the step stuck) — and touches no trading/mining
+*logic* anywhere: every edit is a pure side-effect assignment bracketing
+an `await` that already existed, not a changed conditional or control-flow
+branch, in code that (per README's earlier notes) has no direct test
+coverage of its own to catch a mistake.
+
+`FleetManager.syncShipStates()` reads it via a new `stepFor()` accessor
+(same lookup shape as `shipFor()`/`cargoForShip()`) and:
+
+- Reports `transacting` as the ship's lifecycle state, overriding the
+  nav-status derivation, whenever an agent's step is currently
+  `transacting`. This is a real, honest observation, not a manufactured
+  one: it's genuinely only seen here if a coordinator tick happens to land
+  while that specific API call is still in flight (real network latency,
+  not a synchronous instant) — narrow, but not fake.
+- Populates `step` (the jsonb column that sat unused since Phase 2) with
+  the agent's actual `AgentStep` object.
+- Uses the agent's own reported navigation target (`step.to`) for `target`
+  while mid-navigation, falling back to the nav-status-derived value
+  otherwise.
+- Backward compatible on purpose: `getStep` is optional on the
+  `ControlledAgent` interface, so any test fixture (or future minimal
+  fake) that doesn't implement it is just treated as always-idle, not a
+  crash.
+
+9 new tests in `tests/agentStep.test.ts`. The step-tracking tests don't
+rely on real timing/races: each fake API method captures
+`agent.getStep()` *from inside itself*, before resolving — deterministic
+proof the step is set before the real call and cleared after, not a hope
+that a test runs fast enough to observe a window. Covers: default idle,
+`navigateTo()` reporting `navigating` and clearing correctly (including on
+a thrown error), a real sell path (`clearLeftoverCargo()`) reporting
+`transacting: sell` with the right good, a real extract path reporting
+`transacting: extract`, and three `FleetManager.syncShipStates()`-level
+tests (transacting overriding nav-derived state and persisting the step
+JSON, navigating target coming from the agent's own report, and the
+no-`getStep()` fallback not crashing). 267 tests total, all passing.
+
+**What's still true**: `transacting` observations are real but rare by
+nature — most coordinator ticks won't catch any ship mid-call, same as
+the doc's own framing of this as a transient, sub-tick-resolution state.
+That's an inherent property of a ~2s polling interval sampling
+millisecond-to-hundreds-of-milliseconds-long API calls, not a shortcut
+taken here — the doc's design has the same limitation, this implementation
+just makes the (occasional) observation real instead of impossible.
 
 ## Local development
 

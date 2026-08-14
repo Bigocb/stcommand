@@ -3,6 +3,7 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
+import { type AgentStep, IDLE_STEP } from "./agentStep.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -137,6 +138,12 @@ export class ShipAgent {
   private pinnedMiningTarget?: string;
   private marketTourIndex = 0;
   running = false;
+  private currentStep: AgentStep = IDLE_STEP;
+
+  /** What this ship is doing right now, if it's mid-navigation or mid-transaction — see agentStep.ts. */
+  getStep(): AgentStep {
+    return this.currentStep;
+  }
 
   constructor(ship: Ship, opts: AgentOptions) {
     this.symbol = ship.symbol;
@@ -230,6 +237,7 @@ export class ShipAgent {
       this.log(`cannot navigate to ${waypoint}: need ${need} fuel, have ${this.ship.fuel.current} (stranded?)`);
       return;
     }
+    this.currentStep = { kind: "navigating", to: waypoint };
     try {
       const arrival = await this.api.navigateShip(this.symbol, waypoint);
       this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
@@ -248,6 +256,8 @@ export class ShipAgent {
         return;
       }
       throw err;
+    } finally {
+      this.currentStep = IDLE_STEP;
     }
   }
 
@@ -588,7 +598,9 @@ export class ShipAgent {
     const units = Math.min(route.units, this.cargoFree());
     if (units <= 0) return false;
     this.log(`arbitrage: buying ${units}u ${route.good} @ ${route.buyPrice}c`);
+    this.currentStep = { kind: "transacting", action: "buy", good: route.good };
     const bought = await this.api.purchaseCargo(this.symbol, route.good, units);
+    this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: bought.cargo };
     this.recordLedger?.({
       timestamp: new Date().toISOString(),
@@ -603,7 +615,9 @@ export class ShipAgent {
     this.onActivity?.("buy", `${units}u ${route.good} @ ${bought.transaction.pricePerUnit}c at ${route.buyAt}`, -bought.transaction.totalPrice);
     await this.navigateTo(route.sellAt);
     await this.ensureDocked();
+    this.currentStep = { kind: "transacting", action: "sell", good: route.good };
     const sold = await this.api.sellCargo(this.symbol, route.good, units);
+    this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: sold.cargo };
     this.recordLedger?.({
       timestamp: new Date().toISOString(),
@@ -816,11 +830,13 @@ export class ShipAgent {
           extraction: components["schemas"]["Extraction"];
           cargo: components["schemas"]["ShipCargo"];
         };
+        this.currentStep = { kind: "transacting", action: "extract" };
         if (survey) {
           res = await this.api.extractWithSurvey(this.symbol, survey);
         } else {
           res = await this.api.extract(this.symbol);
         }
+        this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo, cooldown: res.cooldown };
         const got = res.extraction.yield;
         this.onActivity?.("extract", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`);
@@ -858,7 +874,9 @@ export class ShipAgent {
   /** Survey the current waypoint and pick the deposit that refines into the most valuable metal. */
   private async createAndPickSurvey(): Promise<components["schemas"]["Survey"] | undefined> {
     try {
+      this.currentStep = { kind: "transacting", action: "survey" };
       const res = await this.api.createSurvey(this.symbol);
+      this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cooldown: res.cooldown };
       await this.waitCooldown();
       let best: components["schemas"]["Survey"] | undefined;
@@ -1070,9 +1088,11 @@ export class ShipAgent {
     while (this.cargoFree() > 0 && safety < 40) {
       safety += 1;
       try {
+        this.currentStep = { kind: "transacting", action: "extract" };
         const res = survey
           ? await this.api.extractWithSurvey(this.symbol, survey)
           : await this.api.extract(this.symbol);
+        this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo, cooldown: res.cooldown };
         const got = res.extraction.yield;
         this.onActivity?.("extract", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`);
@@ -1111,7 +1131,9 @@ export class ShipAgent {
         continue;
       }
       try {
+        this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
         const res = await this.api.sellCargo(this.symbol, item.symbol, item.units);
+        this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo };
         this.recordLedger?.({
           timestamp: new Date().toISOString(),

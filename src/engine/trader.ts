@@ -4,6 +4,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
 import type { TraderAssignment } from "./dispatcher.js";
 import type { Task, TaskResult } from "./scheduler.js";
+import { type AgentStep, IDLE_STEP } from "./agentStep.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -146,6 +147,12 @@ export class TraderAgent {
   private deadRoutes = new Set<string>();
   private stranded = false;
   running = false;
+  private currentStep: AgentStep = IDLE_STEP;
+
+  /** What this ship is doing right now, if it's mid-navigation or mid-transaction — see agentStep.ts. */
+  getStep(): AgentStep {
+    return this.currentStep;
+  }
 
   constructor(ship: Ship, opts: TraderOptions) {
     this.symbol = ship.symbol;
@@ -287,8 +294,13 @@ export class TraderAgent {
       }
     }
     await this.ensureInOrbit();
-    await this.api.navigateShip(this.symbol, waypoint);
-    await this.waitForArrival();
+    this.currentStep = { kind: "navigating", to: waypoint };
+    try {
+      await this.api.navigateShip(this.symbol, waypoint);
+      await this.waitForArrival();
+    } finally {
+      this.currentStep = IDLE_STEP;
+    }
   }
 
   /** Jump to a waypoint in another system using the nearest jump gate. */
@@ -636,7 +648,9 @@ export class TraderAgent {
         this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
         return true;
       }
+      this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
       const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
+      this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cargo: sold.cargo };
       this.recordLedger?.({
         timestamp: new Date().toISOString(),
@@ -653,7 +667,9 @@ export class TraderAgent {
       return true;
     } catch (err) {
       // market doesn't buy it — jettison to free the hold
+      this.currentStep = { kind: "transacting", action: "jettison", good: item.symbol };
       const j = await this.api.jettisonCargo(this.symbol, item.symbol, item.units);
+      this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cargo: j.cargo };
       this.log(`jettisoned ${item.units}u ${item.symbol} (no buyer)`);
       return true;
@@ -720,7 +736,9 @@ export class TraderAgent {
       if (units <= 0) return true;
       // Also guard against over-filling the hold with a single oversized buy.
       units = Math.max(0, Math.floor(units));
+      this.currentStep = { kind: "transacting", action: "buy", good: route.good };
       const res = await this.api.purchaseCargo(this.symbol, route.good, units);
+      this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cargo: res.cargo };
       this.heldCost.set(route.good, res.transaction.pricePerUnit);
       this.recordLedger?.({
@@ -742,7 +760,9 @@ export class TraderAgent {
         this.log(`holding ${units}u ${route.good}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(route.good)}c)`);
         return true;
       }
+      this.currentStep = { kind: "transacting", action: "sell", good: route.good };
       const sold = await this.api.sellCargo(this.symbol, route.good, units);
+      this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cargo: sold.cargo };
       this.recordLedger?.({
         timestamp: new Date().toISOString(),
@@ -805,7 +825,9 @@ export class TraderAgent {
     units = Math.max(0, Math.floor(units));
     if (units <= 0) return this.discoverPrices([buyAt]);
 
+    this.currentStep = { kind: "transacting", action: "buy", good: assigned.good };
     const res = await this.api.purchaseCargo(this.symbol, assigned.good, units);
+    this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: res.cargo };
     // Warehouse-bound cargo needs a cost basis too. Without this, a deposit
     // that failed its rendezvous left the goods in the hold with no basis, so
@@ -896,7 +918,9 @@ export class TraderAgent {
       this.log(`holding ${withdrawn.units}u ${assigned.good}: live sell ${live}c clears cost basis (${withdrawn.avgCost}c) by only ${live - withdrawn.avgCost}c, below warehouse margin floor ${minMargin}c`);
       return true;
     }
+    this.currentStep = { kind: "transacting", action: "sell", good: assigned.good };
     const sold = await this.api.sellCargo(this.symbol, assigned.good, withdrawn.units);
+    this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: sold.cargo };
     this.recordLedger?.({
       timestamp: new Date().toISOString(),

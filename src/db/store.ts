@@ -91,16 +91,17 @@ export interface FleetStateRow {
  * current waypoint (`nav.waypointSymbol`) otherwise. `returning` is
  * `travelling` with cargo already in the hold — a real, if approximate,
  * signal (a ship in transit carrying cargo is heading toward a sale/
- * delivery, not away from one), not full step-tracking.
+ * delivery, not away from one).
  *
- * `step` and the doc's `transacting` state are still not populated:
- * "actively mid buy/sell API call" is a transient, sub-tick-resolution
- * state that by construction is almost never observed at a ~2s sync
- * boundary — persisting it would mean each agent explicitly reporting a
- * step through a shared concept that doesn't exist yet in trader.ts/
- * agent.ts's own control flow, real remaining work, not done here.
+ * `transacting` and `step` are populated too, from each agent's own
+ * `AgentStep` (see engine/agentStep.ts): every agent class now sets
+ * `currentStep` around its actual buy/sell/extract/siphon/survey API calls
+ * and its shared navigation entry point. `transacting` is a real, if
+ * narrow, observation — it's only ever seen here if a coordinator tick
+ * happens to land while that specific API call is still in flight — not a
+ * manufactured state.
  */
-export type ShipLifecycleState = "idle" | "assigned" | "travelling" | "returning" | "docked";
+export type ShipLifecycleState = "idle" | "assigned" | "travelling" | "returning" | "docked" | "transacting";
 
 export interface ShipStateRow {
   shipSymbol: string;

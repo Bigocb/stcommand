@@ -3,6 +3,7 @@ import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
+import { type AgentStep, IDLE_STEP } from "./agentStep.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -59,6 +60,12 @@ export class SiphonerAgent {
   /** Manual override: park at this waypoint and hold until released. */
   private manualGoal: string | null = null;
   running = false;
+  private currentStep: AgentStep = IDLE_STEP;
+
+  /** What this ship is doing right now, if it's mid-navigation or mid-transaction — see agentStep.ts. */
+  getStep(): AgentStep {
+    return this.currentStep;
+  }
 
   constructor(ship: Ship, opts: SiphonerOptions) {
     this.symbol = ship.symbol;
@@ -254,6 +261,7 @@ export class SiphonerAgent {
       this.log(`cannot navigate to ${waypoint}: need ${need} fuel, have ${this.ship.fuel.current}`);
       return false;
     }
+    this.currentStep = { kind: "navigating", to: waypoint };
     try {
       const arrival = await this.api.navigateShip(this.symbol, waypoint);
       this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
@@ -273,6 +281,8 @@ export class SiphonerAgent {
       }
       this.log(`navigate failed: ${msg}`);
       return false;
+    } finally {
+      this.currentStep = IDLE_STEP;
     }
   }
 
@@ -283,7 +293,9 @@ export class SiphonerAgent {
     while (this.cargoFree() > 0 && safety < 40) {
       safety += 1;
       try {
+        this.currentStep = { kind: "transacting", action: "siphon" };
         const res = await this.api.siphon(this.symbol);
+        this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo, cooldown: res.cooldown };
         const got = res.siphon.yield;
         this.onActivity?.("siphon", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`);
@@ -314,7 +326,9 @@ export class SiphonerAgent {
         continue;
       }
       try {
+        this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
         const res = await this.api.sellCargo(this.symbol, item.symbol, item.units);
+        this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo };
         this.recordLedger?.({
           timestamp: new Date().toISOString(),
