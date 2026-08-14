@@ -3,6 +3,7 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
 import type { TraderAssignment } from "./dispatcher.js";
+import type { Task, TaskResult } from "./scheduler.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -1027,6 +1028,51 @@ export class TraderAgent {
 
   stop(): void {
     this.running = false;
+  }
+
+  /**
+   * Greenfield Phase 6: this trader as a Scheduler `Task` producer, wrapping
+   * the exact same `tick()` `runLoop()` already calls — no trading logic is
+   * duplicated or reimplemented, just its control flow re-shaped from
+   * "block and sleep" to "return one Task, chain the next." Mirrors
+   * `runLoop()`'s own backoff rules exactly: halted polls again after
+   * `HALT_POLL_MS`, a tick that did nothing backs off 30s (same as
+   * `!made`), an error backs off 10s and still marks the ship stranded on a
+   * fuel error — so a scheduler driving this instead of `runLoop()` would
+   * observe identical timing, not just identical trades.
+   *
+   * `estimatedCalls: 3` is a fixed heuristic (one navigate + one buy/sell +
+   * one refresh, roughly), not a real per-route estimate — the design doc's
+   * own example for an equivalent task uses the same fixed number for the
+   * same reason: without instrumenting every API call `tick()`'s
+   * sub-methods make, a precise estimate isn't available yet, and a fixed
+   * conservative one is enough for the scheduler's budget check to be
+   * useful. `actualCalls` is reported the same way for the same reason —
+   * see README's Greenfield section for why this is real, tested scaffold
+   * code that nothing in `fleet.run()` actually drives yet.
+   */
+  nextTask(earliestRunAt = Date.now()): Task {
+    return {
+      id: `${this.symbol}-trade`,
+      shipSymbol: this.symbol,
+      priority: 2,
+      estimatedCalls: 3,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (this.halted()) {
+          return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
+        }
+        try {
+          const made = await this.tick();
+          return { actualCalls: 3, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.log(`trader error: ${msg}`);
+          if (/fuel/i.test(msg)) this.markStranded();
+          return { actualCalls: 0, next: this.nextTask(Date.now() + 10_000) };
+        }
+      },
+    };
   }
 
   /** True when the ship can't reach any market (low fuel) and needs a tender. */

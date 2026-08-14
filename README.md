@@ -256,7 +256,7 @@ server + real Postgres: `GET /` serves the dashboard shell, an invalid
 `/api/state` 401s with no session cookie, same as every other route behind
 `resolveTenant`.
 
-## Greenfield engine redesign: in progress
+## Greenfield engine redesign: all 7 phases landed, dual-write throughout
 
 A separate design doc (not in this repo — see project chat history)
 diagnosed a real structural problem in the ported engine: eight independent
@@ -271,6 +271,23 @@ independently-shippable phases against the current codebase, not a rewrite.
 No tables are removed and no existing mechanism is deleted until its
 replacement has run stable in parallel; see the design doc's own migration
 section for the phase-by-phase dual-write plan.
+
+**Where this actually leaves the engine, read this before assuming
+anything below changed behavior:** every phase is additive. Phases 1-4
+(market projection, ship state, cargo manifest, ShipRegistry) run for real,
+persisting real data every coordinator tick, but nothing reads any of it as
+a gate — they're observational. Phases 5-7 (the scheduler, and every
+agent's `nextTask()` producer) are real, tested, and not driving the fleet
+at all — `fleet.run()` still boots the original per-agent blocking loops
+exactly as before this work started. **If you're looking for what changed
+in how ships actually behave: nothing did.** What changed is that the fleet
+now keeps a second, parallel, persisted record of its own decisions, and
+has a fully-built (but disconnected) alternative execution path sitting
+next to the one actually running. The real cutover — wiring dispatch to
+`ShipRegistry.claim()`, wiring `fleet.run()` to enqueue `nextTask()`s onto
+the `Scheduler` instead of starting `runLoop()`s — is deliberately left for
+later, per-mechanism, once each piece has run stable in parallel. See each
+phase's own write-up below for exactly where its line is drawn.
 
 **Phase 1 (market_latest projection): done.** `migrations/002_greenfield_phase1.sql`
 adds `market_latest` — one row per waypoint+good, upserted by `recordMarket()`
@@ -424,12 +441,125 @@ cross-tenant isolation + `releaseClaim`'s owner check, and
 (including the operator→auto downgrade the `preempt: true` choice exists
 for). 196 tests total, all passing.
 
-Phases 5-7 (the unified scheduler that replaces the current per-agent
-blocking loops, and the agent-by-agent conversion to it) are ahead — see
-the design doc for the full sequencing and why they're deliberately last:
-the scheduler needs a canonical ownership model to make preemption
-decisions, which is exactly what this phase built, even before anything
-calls it as a gate.
+**Phase 5 (unified scheduler): done, skeleton only — running per tenant, driving nothing yet.**
+New `src/engine/scheduler.ts`: `Scheduler`, a priority task queue (0 rescue
+· 1 mission · 2 trade · 3 survey/keeper · 4 telemetry) plus `SchedulerBudget`,
+a token-bucket admission budget — deliberately a *second*, separate
+instance from `src/core/client.ts`'s own per-tenant HTTP rate limiter, not a
+duplicate of it: the client's limiter is what actually throttles requests
+to stay under SpaceTraders' 2/s cap; this one is the scheduler's own
+accounting for *which priority* of task gets to spend that budget this
+pass, before any of those calls are made. `run(maxTicks)` is the same
+`while (running) { ...; await sleep(...) }` coordinator shape as
+`FleetManager.run()`; `runOnce()` (what `run()` calls each pass, also
+directly unit-testable) sorts ready tasks by priority, admits them while
+the budget allows, runs them, trues up the budget from each result's
+`actualCalls`, and enqueues any `next` step a task returns. While the
+fleet's paused, only priority-0 tasks are admitted — same rescue-must-
+still-run rule `FleetManager.tick()`'s halted branch already follows.
+
+`TenantRegistry` boots one `Scheduler` per tenant alongside `fleet.run()`
+(`isPaused` wired to `fleet.isPaused()`) and stops it in `stopAll()`. It is
+genuinely running, not just constructed — and genuinely inert, because
+nothing in this codebase calls `scheduler.enqueue()` yet. `fleet.run()`
+still boots the old per-agent blocking loops (`TraderAgent.runLoop()`,
+`ShipAgent.runLoop/surveyLoop/tourLoop/keeperLoop()`, `ScoutAgent.runLoop()`,
+`SiphonerAgent.runLoop()`) exactly as before; converting those into
+`nextTask()` producers the scheduler actually drives is Phase 6/7, and even
+once built, wiring `fleet.run()` to enqueue them instead of starting the
+old loops is separate, later work — see those phases' own write-ups below
+and each file's class comment for exactly where the line is drawn.
+
+11 new tests in `tests/scheduler.test.ts`: budget depletion/floor, priority
+ordering independent of enqueue order, `earliestRunAt` gating, budget
+exhaustion preserving the un-admitted task for a later pass, the
+pause-admits-only-rescue rule, `next`-chaining across passes, `run()`/
+`stop()`'s polling shape, and two independent `Scheduler` instances proving
+neither's budget or queue leaks into the other (the multi-tenant
+requirement, exercised without needing Postgres at all — this class has no
+database dependency, same as `ShipRegistry`). No database migration; this
+phase adds no persisted table. 207 tests total, all passing.
+
+**Phase 6 (TraderAgent as a task producer): done, additive — not wired as `fleet.run()`'s dispatch path.**
+`TraderAgent.nextTask()` is new, and it wraps — does not reimplement —
+`tick()`, the exact same method `runLoop()` already calls. No trading logic
+changed; only the control-flow shape did, from "block and sleep" to "return
+one `Task`, chain the next": halted re-polls after `HALT_POLL_MS` (same as
+`runLoop()`'s `sleep(HALT_POLL_MS)`), a tick that found nothing to do backs
+off 30s, an error backs off 10s and still marks the ship stranded on a fuel
+error — a scheduler driving this instead of `runLoop()` would see identical
+timing, not just identical trades. `estimatedCalls: 3`/`actualCalls: 3` is a
+fixed heuristic (no per-route call counting exists yet anywhere in the
+engine), matching the design doc's own example for an equivalent task.
+
+`fleet.run()` still calls `TraderAgent.runLoop()` to actually drive every
+trader — `nextTask()` exists, is tested, and is not called by anything in
+production. Cutting `fleet.run()` over to enqueue `nextTask()`'s onto the
+Phase 5 `Scheduler` instead of starting `runLoop()` is real, separate,
+higher-risk work (per-ship state that currently lives entirely inside a
+`while` loop's closure would need to survive being paused between
+scheduler passes) intentionally left undone — see trader.ts's own comment
+on `nextTask()`.
+
+7 new tests in `tests/traderNextTask.test.ts`, deliberately scoped to what
+this phase actually changed: Task shape, the halted/idle/error backoff
+timings, and fuel-error stranding — by stubbing `tick()` itself rather than
+exercising real trading decisions (straders' own 591-line direct
+TraderAgent test suite was never ported to this repo at all; unrelated to
+this phase, see "What's genuinely NOT done yet" above). 214 tests total,
+all passing.
+
+**Phase 7 (remaining agents as task producers): done, same wrap-don't-rewrite approach, same additive scope.**
+Every other agent class with a blocking loop got the same Phase-6 treatment
+— a `nextTask()`-style method wrapping its existing bounded work-unit
+method, none of the underlying logic touched, none of the old loops removed
+or called by anything new:
+
+- `ShipAgent` (`src/engine/agent.ts`) drives four roles off one class —
+  miner, surveyor, tour scout, keeper — so it gained four producers:
+  `nextTask()` wraps `tick()` (miner, priority 2 — mining is
+  revenue-producing the same way trading is, so it shares trade's tier, a
+  judgment call the design doc doesn't make directly), `nextSurveyTask()`
+  wraps `surveyScout()` (priority 3, survey/keeper), `nextTourTask()` wraps
+  `tourScout()` (priority 4, telemetry — background market/shipyard intel
+  refresh, not active production, the other judgment call), `nextKeeperTask()`
+  wraps a *new* private `keeperPoll()`. That last one needed a real,
+  behavior-preserving refactor first: `keeperLoop()`'s reposition/snapshot
+  logic was inline in the loop body, not a separate method like the other
+  three roles have — extracted verbatim (same reposition/refuel/dock/
+  snapshot sequence, same return-boolean-for-"was there work" shape) so
+  `keeperLoop()` and `nextKeeperTask()` now share one implementation instead
+  of the loop being the only place it existed. `nextKeeperTask()` backs off
+  5 minutes after a successful snapshot (`keeperLoop()`'s own
+  `sleep(5 * 60_000)`), not the usual 0/30s the other three use.
+- `ScoutAgent.nextTask()` (`src/engine/scout.ts`) wraps `tick()`, priority 4.
+- `SiphonerAgent.nextTask()` (`src/engine/siphoner.ts`) wraps `tick()`,
+  priority 2 (siphoning is extraction, same revenue tier as mining).
+- `src/engine/dispatcher.ts`'s `RouteDispatcher` needed nothing: unlike the
+  other six, it was never a blocking loop in this port — `fleet.tick()`
+  already calls `dispatcher.recompute()` directly, once per coordinator
+  pass, which is already task-shaped. Not a gap; there was nothing to
+  convert.
+
+`fleet.run()` is unchanged: it still boots `TraderAgent.runLoop()`,
+`ShipAgent.runLoop/surveyLoop/tourLoop/keeperLoop()`, `ScoutAgent.runLoop()`,
+and `SiphonerAgent.runLoop()` exactly as before. Every `nextTask()`-family
+method across all six roles is new, tested, and not called by anything in
+production — the actual cutover (fleet.run() enqueueing these onto the
+Phase 5 `Scheduler` instead of starting the old loops, for every role at
+once or one at a time) is real, separate, higher-risk work the design doc
+itself scopes as needing weeks of stability-proving per agent, deliberately
+left undone here. This closes out all seven phases from the design doc at
+the "dual-write, nothing cut over" line — see the doc's own Migration Path
+section (referenced in Phase 4's write-up above) for what actually flipping
+that switch, role by role, would involve next.
+
+11 new tests in `tests/agentNextTask.test.ts`, same stub-the-wrapped-method
+strategy as Phase 6's trader tests: Task shape and priority per role, the
+halted/idle/error backoff timings, the keeper role's 5-minute-vs-30s
+distinction, and one test proving `keeperLoop()`'s extraction didn't change
+`keeperPoll()`'s real (unstubbed) behavior for the no-market-assigned case.
+225 tests total, all passing.
 
 ## Local development
 

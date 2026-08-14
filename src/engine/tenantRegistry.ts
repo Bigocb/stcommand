@@ -7,6 +7,7 @@ import { FleetManager } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
 import { MarketIntel } from "./market.js";
 import { DiscordRelay } from "./discord.js";
+import { Scheduler } from "./scheduler.js";
 import { getTenantToken, getTenantLlmConfig, getTenantDiscordWebhook } from "../db/tenants.js";
 
 export interface TenantWorker {
@@ -18,6 +19,8 @@ export interface TenantWorker {
   contracts: ContractManager;
   fleet: FleetManager;
   discord: DiscordRelay;
+  /** Greenfield Phase 5: booted per tenant, running, but with nothing ever enqueued yet — see scheduler.ts's class comment. */
+  scheduler: Scheduler;
   chat?: ChatAgent;
 }
 
@@ -87,7 +90,10 @@ export class TenantRegistry {
 
   /** Stop every booted tenant's coordinator loop (graceful shutdown, and what tests use to let the process exit). */
   stopAll(): void {
-    for (const worker of this.workers.values()) worker.fleet.stop();
+    for (const worker of this.workers.values()) {
+      worker.fleet.stop();
+      worker.scheduler.stop();
+    }
   }
 
   private async boot(tenantId: string, agentSymbol: string): Promise<TenantWorker> {
@@ -203,6 +209,13 @@ export class TenantRegistry {
     // than left to crash the process on an unhandled rejection.
     fleet.run(RUN_FOREVER_TICKS).catch((err) => log(`fleet run crashed: ${err instanceof Error ? err.message : String(err)}`));
 
+    // Greenfield Phase 5: booted alongside the fleet's own coordinator loop,
+    // running for real, but with an empty queue — nothing in this codebase
+    // enqueues a task yet, so this is inert by construction until Phase 6/7's
+    // nextTask() producers are actually wired to feed it (see scheduler.ts).
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused() });
+    scheduler.run(RUN_FOREVER_TICKS).catch((err) => log(`scheduler run crashed: ${err instanceof Error ? err.message : String(err)}`));
+
     const refreshState = async () => {
       try {
         const freshAgent = await api.getMyAgent();
@@ -230,6 +243,6 @@ export class TenantRegistry {
     await refreshState();
     setInterval(refreshState, STATE_REFRESH_MS).unref();
 
-    return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, chat };
+    return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat };
   }
 }

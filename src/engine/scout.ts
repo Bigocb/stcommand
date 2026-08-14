@@ -2,6 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
+import type { Task, TaskResult } from "./scheduler.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -384,5 +385,26 @@ export class ScoutAgent {
 
   stop(): void {
     this.running = false;
+  }
+
+  /** Greenfield Phase 7: Scheduler Task producer wrapping tick(), same approach as TraderAgent.nextTask() (Phase 6) — see that file's comment. Not called by fleet.run(); runLoop() still drives every scout. */
+  nextTask(earliestRunAt = Date.now()): Task {
+    return {
+      id: `${this.symbol}-scout`,
+      shipSymbol: this.symbol,
+      priority: 4,
+      estimatedCalls: 2,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
+        try {
+          const made = await this.tick();
+          return { actualCalls: 2, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
+        } catch (err) {
+          this.log(`scout error: ${err instanceof Error ? err.message : String(err)}`);
+          return { actualCalls: 0, next: this.nextTask(Date.now() + 10_000) };
+        }
+      },
+    };
   }
 }

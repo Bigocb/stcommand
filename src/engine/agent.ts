@@ -2,6 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
+import type { Task, TaskResult } from "./scheduler.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -1204,6 +1205,38 @@ export class ShipAgent {
   }
 
   /**
+   * One keeper poll: reposition to the assigned market if needed, snapshot
+   * it, and record shipyard inventory too if this is a shipyard-market.
+   * Returns whether there was an assigned market to poll at all — `false`
+   * means "nothing to do," same as every other agent's `tick()`-style
+   * boolean, extracted here (Greenfield Phase 7) so `keeperLoop()` and
+   * `nextKeeperTask()` can share one implementation instead of the loop
+   * body being the only place this logic existed.
+   */
+  private async keeperPoll(): Promise<boolean> {
+    const market = this.keeperMarket?.();
+    if (!market) {
+      this.log("keeper: no assigned market");
+      return false;
+    }
+    await this.refresh();
+    // If we're not at the assigned market, fly there (one-time reposition).
+    // Refuel first — navigateTo() bails when fuel is short instead of
+    // topping up, which would strand the keeper mid-hop.
+    if (this.ship.nav.waypointSymbol !== market || this.ship.nav.status === "IN_TRANSIT") {
+      await this.refuelIfNeeded(5, market);
+      await this.navigateTo(market);
+    }
+    await this.ensureDocked();
+    if (this.recordMarket) await this.recordMarket(market);
+    // Shipyard-markets (A2/C43/H56) also need their ship stock kept fresh —
+    // shipyard inventory is only visible when a ship is docked there.
+    if (this.recordShipyard) await this.recordShipyard(market);
+    this.log(`keeper: snapshot ${market} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`);
+    return true;
+  }
+
+  /**
    * Stationary keeper: poll one market on a timer so its prices never go stale.
    * The ship stays docked at its assigned market and re-snapshots it every
    * KEEPER_POLL_MS. Used for probes (0 fuel, can only sit at their spawn
@@ -1216,33 +1249,113 @@ export class ShipAgent {
       ticks += 1;
       if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
-        const market = this.keeperMarket?.();
-        if (!market) {
-          this.log("keeper: no assigned market");
-          await sleep(30_000);
-          continue;
-        }
-        await this.refresh();
-        // If we're not at the assigned market, fly there (one-time reposition).
-        // Refuel first — navigateTo() bails when fuel is short instead of
-        // topping up, which would strand the keeper mid-hop.
-        if (this.ship.nav.waypointSymbol !== market || this.ship.nav.status === "IN_TRANSIT") {
-          await this.refuelIfNeeded(5, market);
-          await this.navigateTo(market);
-        }
-        await this.ensureDocked();
-        if (this.recordMarket) await this.recordMarket(market);
-        // Shipyard-markets (A2/C43/H56) also need their ship stock kept fresh —
-        // shipyard inventory is only visible when a ship is docked there.
-        if (this.recordShipyard) await this.recordShipyard(market);
-        this.log(`keeper: snapshot ${market} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`);
-        await sleep(5 * 60_000);
+        const snapshotted = await this.keeperPoll();
+        await sleep(snapshotted ? 5 * 60_000 : 30_000);
       } catch (err) {
         this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
         await sleep(10_000);
       }
     }
     this.running = false;
+  }
+
+  /**
+   * Greenfield Phase 7: Scheduler `Task` producers for this class's four
+   * roles, same wrapping approach as `TraderAgent.nextTask()` (Phase 6) —
+   * each wraps the pre-existing bounded work-unit method its own loop
+   * variant already calls (`tick`/`surveyScout`/`tourScout`/`keeperPoll`),
+   * reimplementing none of the underlying logic, only its control-flow
+   * shape and timing. None of `runLoop`/`surveyLoop`/`tourLoop`/`keeperLoop`
+   * are removed or changed in behavior; `fleet.run()` still calls those,
+   * not these — see README's Greenfield section.
+   *
+   * Priority buckets follow the design doc's own scheme (0 rescue · 1
+   * mission · 2 trade · 3 survey/keeper · 4 telemetry), extended by one
+   * judgment call each for the two roles the doc doesn't name directly:
+   * mining is revenue-producing the same way trading is, so `nextTask()`
+   * (this class's miner role) shares trade's priority 2; a tour scout's
+   * market/shipyard intel refresh is background reference data, not active
+   * production, so `nextTourTask()` sits at telemetry's priority 4.
+   */
+  nextTask(earliestRunAt = Date.now()): Task {
+    return {
+      id: `${this.symbol}-mine`,
+      shipSymbol: this.symbol,
+      priority: 2,
+      estimatedCalls: 3,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
+        try {
+          const made = await this.tick();
+          return { actualCalls: 3, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
+        } catch (err) {
+          this.log(`agent error: ${err instanceof Error ? err.message : String(err)}`);
+          return { actualCalls: 0, next: this.nextTask(Date.now() + 10_000) };
+        }
+      },
+    };
+  }
+
+  nextSurveyTask(earliestRunAt = Date.now()): Task {
+    return {
+      id: `${this.symbol}-survey`,
+      shipSymbol: this.symbol,
+      priority: 3,
+      estimatedCalls: 2,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (this.halted()) return { actualCalls: 0, next: this.nextSurveyTask(Date.now() + HALT_POLL_MS) };
+        try {
+          const made = await this.surveyScout();
+          return { actualCalls: 2, next: this.nextSurveyTask(Date.now() + (made ? 0 : 30_000)) };
+        } catch (err) {
+          this.log(`surveyor error: ${err instanceof Error ? err.message : String(err)}`);
+          return { actualCalls: 0, next: this.nextSurveyTask(Date.now() + 10_000) };
+        }
+      },
+    };
+  }
+
+  nextTourTask(earliestRunAt = Date.now()): Task {
+    return {
+      id: `${this.symbol}-tour`,
+      shipSymbol: this.symbol,
+      priority: 4,
+      estimatedCalls: 2,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (this.halted()) return { actualCalls: 0, next: this.nextTourTask(Date.now() + HALT_POLL_MS) };
+        try {
+          const made = await this.tourScout();
+          return { actualCalls: 2, next: this.nextTourTask(Date.now() + (made ? 0 : 30_000)) };
+        } catch (err) {
+          this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
+          return { actualCalls: 0, next: this.nextTourTask(Date.now() + 10_000) };
+        }
+      },
+    };
+  }
+
+  /** Unlike the other three, a successful keeper poll backs off 5 minutes (KEEPER_POLL_MS-equivalent), not 0 — same as keeperLoop()'s own sleep(5 * 60_000) after a snapshot. */
+  nextKeeperTask(earliestRunAt = Date.now()): Task {
+    return {
+      id: `${this.symbol}-keeper`,
+      shipSymbol: this.symbol,
+      priority: 3,
+      estimatedCalls: 2,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (this.halted()) return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + HALT_POLL_MS) };
+        try {
+          const snapshotted = await this.keeperPoll();
+          return { actualCalls: 2, next: this.nextKeeperTask(Date.now() + (snapshotted ? 5 * 60_000 : 30_000)) };
+        } catch (err) {
+          this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
+          return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + 10_000) };
+        }
+      },
+    };
   }
 
   /** True when the ship is under a manual command instead of autonomous loop. */

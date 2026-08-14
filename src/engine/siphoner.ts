@@ -2,6 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
+import type { Task, TaskResult } from "./scheduler.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -451,5 +452,26 @@ export class SiphonerAgent {
 
   stop(): void {
     this.running = false;
+  }
+
+  /** Greenfield Phase 7: Scheduler Task producer wrapping tick(), same approach as TraderAgent.nextTask() (Phase 6) — see that file's comment. Not called by fleet.run(); runLoop() still drives every siphoner. */
+  nextTask(earliestRunAt = Date.now()): Task {
+    return {
+      id: `${this.symbol}-siphon`,
+      shipSymbol: this.symbol,
+      priority: 2,
+      estimatedCalls: 3,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
+        try {
+          const made = await this.tick();
+          return { actualCalls: 3, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
+        } catch (err) {
+          this.log(`siphoner error: ${err instanceof Error ? err.message : String(err)}`);
+          return { actualCalls: 0, next: this.nextTask(Date.now() + 10_000) };
+        }
+      },
+    };
   }
 }
