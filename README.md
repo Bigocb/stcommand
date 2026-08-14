@@ -823,6 +823,72 @@ isolates it from the broader scenario test that found it.
 
 5 new tests total, all passing. 251 tests overall.
 
+## Closing two of the deliberate Phase 2/3 gaps
+
+Two of the scope reductions documented in Phase 2 and Phase 3's write-ups
+above turned out to be smaller than described once actually looked at
+against the original design doc — not new features, just missing
+connections between things that already existed.
+
+**Cargo manifest — `mission-delivery` and `held-position`.**
+`syncShipManifests()` (`fleet.ts`) now assigns all four of the design
+doc's intents, not two:
+
+- `mission-delivery`: checks `MissionManager.committedShips()` — the exact
+  same lookup `syncShipClaims()` already used to derive the `"mission"`
+  claim owner, just never also wired into the manifest sync.
+- `held-position`: the design doc frames this as feeding "the sweeper" —
+  and this codebase already has one. `TraderAgent.clearLeftoverCargo()`
+  (and two other sell paths in `trader.ts`) already call a private
+  `exceedsLossFloor(good, price)` — `price < cost * (1 - maxLossPct / 100)`
+  — and hold cargo instead of selling at a loss whenever it trips. That
+  decision already happens in production; the manifest just couldn't see
+  it. Rather than expose `TraderAgent`'s private state (or trigger extra
+  API calls from the sync path), `syncShipManifests()` re-derives the same
+  formula using the Phase 1 `market_latest` projection — one query, reused
+  across every ship this tick — against a fixed
+  `HELD_POSITION_MAX_LOSS_PCT` (15, matching `TraderAgent`'s own default).
+  This is a manifest-side approximation for classification/dashboard
+  display; it doesn't gate any real sell decision, which still goes
+  through each trader's own live check with its own configured
+  `maxLossPct`.
+
+Neither needed a new operator-facing control — no button, no new route.
+`warehouse-deposit` still takes priority over both for the designated
+warehouse ship, even if it's also mission-committed or technically below
+the loss floor (a ship can only have one manifest intent per good).
+
+**Ship state — a fifth state (`returning`) and a populated `target`.**
+`ShipLifecycleState` gained `returning`: a ship `IN_TRANSIT` while already
+carrying cargo reads as heading toward a sale/delivery, not away from one
+— derived from data already on hand (`nav.status` + `cargo.units`), no new
+instrumentation. `target` is now populated too: the transit destination
+(`nav.route.destination.symbol`) while `travelling`/`returning`, the
+current waypoint (`nav.waypointSymbol`) otherwise — also already-available
+data that just wasn't being read before.
+
+The doc's `transacting` state and full per-agent `step` tracking are still
+not built, and that gap is real, not just relabeled: `transacting` means
+"an API call to buy/sell is in flight right now," a transient state that
+by construction is almost never observed at a ~2s tick boundary, and `step`
+would need every agent to explicitly report its current sub-task through a
+shared concept that doesn't exist anywhere in `trader.ts`/`agent.ts`'s
+control flow today. Unlike the manifest intents, this one really would be
+new plumbing across every agent, not a missing connection between two
+things that already exist — left for when a specific consumer needs it.
+
+9 new tests in `tests/shipManifest.test.ts` (mission-delivery tagging, held-
+position tagging both above and below the loss floor with a real two-good
+ledger/market scenario, and warehouse-deposit's priority over both) and 4
+new tests in `tests/shipState.test.ts` (`returning` vs `travelling` by
+cargo, `target` populated correctly in transit vs docked, and a
+regression test for a real crash this surfaced — a test fixture using a
+bare `true` placeholder for an idle ship's cached object, which the new
+`target`-reading code correctly rejected by crashing rather than silently
+reading garbage; fixed by using a real fake ship object and hardening the
+production code's own null-safety at the same time). 258 tests total, all
+passing.
+
 ## Local development
 
 Requires a local Postgres. To stand one up quickly:

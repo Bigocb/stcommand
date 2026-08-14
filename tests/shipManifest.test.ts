@@ -173,4 +173,70 @@ describe("FleetManager.syncShipManifests", () => {
     (fleet as any).traders.set("SHIP-1", makeFakeAgent("SHIP-1", [{ symbol: "IRON_ORE", units: 5 }]));
     await assert.doesNotReject(() => (fleet as any).syncShipManifests());
   });
+
+  it("tags a mission-committed ship's cargo mission-delivery instead of resale", async () => {
+    const tenantId = await makeTenant();
+    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    (fleet as any).traders.set("CARRIER-1", makeFakeAgent("CARRIER-1", [{ symbol: "FAB_MATS", units: 40 }]));
+    (fleet as any).missions.committedShips = () => new Set(["CARRIER-1"]);
+
+    await (fleet as any).syncShipManifests();
+
+    const rows = await store.getManifestForShip(tenantId, "CARRIER-1");
+    assert.equal(rows[0]?.intent, "mission-delivery");
+  });
+
+  it("tags cargo held-position when its live sell price at this ship's waypoint is below the loss floor", async () => {
+    const tenantId = await makeTenant();
+    // Bought at 100/unit — market_latest sell price well below the loss
+    // floor (15% under cost, matching TraderAgent's own default maxLossPct).
+    await store.recordLedger(tenantId, {
+      timestamp: new Date().toISOString(), shipSymbol: "TRADER-1", waypointSymbol: "X1-A-A1",
+      type: "PURCHASE", tradeSymbol: "PLATINUM", units: 10, pricePerUnit: 100, total: 1000,
+    });
+    await store.recordMarket({
+      systemSymbol: "X1-A", waypointSymbol: "X1-A-A1", goodSymbol: "PLATINUM",
+      type: "EXPORT", supply: "SCARCE", purchasePrice: 105, sellPrice: 50, tradeVolume: 10,
+    });
+    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    (fleet as any).traders.set("TRADER-1", makeFakeAgent("TRADER-1", [{ symbol: "PLATINUM", units: 10 }]));
+
+    await (fleet as any).syncShipManifests();
+
+    const rows = await store.getManifestForShip(tenantId, "TRADER-1");
+    assert.equal(rows[0]?.intent, "held-position");
+  });
+
+  it("does not tag held-position when the live sell price still clears the loss floor", async () => {
+    const tenantId = await makeTenant();
+    await store.recordLedger(tenantId, {
+      timestamp: new Date().toISOString(), shipSymbol: "TRADER-1", waypointSymbol: "X1-A-A1",
+      type: "PURCHASE", tradeSymbol: "PLATINUM", units: 10, pricePerUnit: 100, total: 1000,
+    });
+    // Only a few percent under cost — inside the allowed loss band, not below the floor.
+    await store.recordMarket({
+      systemSymbol: "X1-A", waypointSymbol: "X1-A-A1", goodSymbol: "PLATINUM",
+      type: "EXPORT", supply: "SCARCE", purchasePrice: 105, sellPrice: 98, tradeVolume: 10,
+    });
+    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    (fleet as any).traders.set("TRADER-1", makeFakeAgent("TRADER-1", [{ symbol: "PLATINUM", units: 10 }]));
+
+    await (fleet as any).syncShipManifests();
+
+    const rows = await store.getManifestForShip(tenantId, "TRADER-1");
+    assert.equal(rows[0]?.intent, "resale");
+  });
+
+  it("the warehouse ship's own cargo stays warehouse-deposit even if it's also mission-committed or below the loss floor", async () => {
+    const tenantId = await makeTenant();
+    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    (fleet as any).traders.set("WH-1", makeFakeAgent("WH-1", [{ symbol: "FAB_MATS", units: 40 }]));
+    (fleet as any).warehouseShip = { shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" };
+    (fleet as any).missions.committedShips = () => new Set(["WH-1"]);
+
+    await (fleet as any).syncShipManifests();
+
+    const rows = await store.getManifestForShip(tenantId, "WH-1");
+    assert.equal(rows[0]?.intent, "warehouse-deposit", "warehouse designation must take priority over mission/held-position");
+  });
 });

@@ -84,6 +84,9 @@ export interface FleetOptions {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Matches TraderAgent's own default `maxLossPct` — see syncShipManifests()'s comment for why this is a fixed approximation, not each trader's actual configured value. */
+const HELD_POSITION_MAX_LOSS_PCT = 15;
+
 /** A single in-progress fuel-ferry rescue mission. */
 interface TenderPlan {
   strandedSymbol: string;
@@ -2238,50 +2241,76 @@ export class FleetManager {
   }
 
   /**
-   * Greenfield Phase 2: persist a coarse lifecycle state per ship —
-   * idle | assigned | travelling | docked, derived from `getShipStatuses()`'s
-   * role + live SpaceTraders nav status — so `ship_state` has a real record
+   * Greenfield Phase 2: persist a lifecycle state per ship — idle | assigned
+   * | travelling | returning | docked — derived from `getShipStatuses()`'s
+   * role + live SpaceTraders nav status, so `ship_state` has a real record
    * of what every ship was doing even before the next dashboard read
-   * re-derives it live. Deliberately does NOT track per-agent sub-steps
-   * (which mission leg, which resale hold, etc.) yet: `target`/`step` are
-   * always written null here. That finer detail is a real gap against the
-   * design doc's full state machine, left for a later phase once a specific
-   * agent needs to recover it — this phase's job is just "the persisted
-   * table is never stale by more than one coordinator tick," which is
-   * already true SpaceTraders-authoritative nav status can't itself be lost
-   * on restart, only the fleet's own intent could be, and that intent
-   * capture is exactly what Phase 3 (cargo manifest) and Phase 4
-   * (ShipRegistry) add.
+   * re-derives it live. `returning` is `travelling` with cargo already in
+   * the hold — in transit and carrying something reads as heading toward a
+   * sale/delivery, not away from one; a real if approximate signal, not
+   * full per-agent step tracking. `target` is populated: the transit
+   * destination while travelling/returning, the current waypoint otherwise.
+   * `step` and the doc's `transacting` state are still not populated — see
+   * this field's own type comment in store.ts for why.
    */
   private async syncShipStates(): Promise<void> {
     if (!this.tenantId || !this.store) return;
     const statuses = this.getShipStatuses();
     await Promise.all(
       statuses.map((s) => {
-        const state = s.role === "idle" ? "idle" : s.status === "IN_TRANSIT" ? "travelling" : s.status === "DOCKED" ? "docked" : "assigned";
-        return this.store!.updateShipState(this.tenantId!, s.symbol, state);
+        const ship = this.shipFor(s.symbol);
+        const carryingCargo = (ship?.cargo?.units ?? 0) > 0;
+        const state = s.role === "idle"
+          ? "idle"
+          : s.status === "IN_TRANSIT"
+            ? (carryingCargo ? "returning" : "travelling")
+            : s.status === "DOCKED"
+              ? "docked"
+              : "assigned";
+        const target = s.status === "IN_TRANSIT" ? ship?.nav?.route?.destination?.symbol : ship?.nav?.waypointSymbol;
+        return this.store!.updateShipState(this.tenantId!, s.symbol, state, target);
       }),
     );
   }
 
+  /** A ship's full current object, whichever role map (or idleShips) actually holds it — controlledAgent() alone misses keepers, same gap noted on that method. */
+  private shipFor(shipSymbol: string): Ship | undefined {
+    const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
+    return agent ? agent.getShip() : this.idleShips.get(shipSymbol);
+  }
+
   /** A ship's current cargo inventory, whichever role map (or idleShips) actually holds it. */
   private cargoForShip(shipSymbol: string): { symbol: string; units: number }[] {
-    const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
-    if (agent) return agent.getShip().cargo?.inventory ?? [];
-    return this.idleShips.get(shipSymbol)?.cargo?.inventory ?? [];
+    return this.shipFor(shipSymbol)?.cargo?.inventory ?? [];
   }
 
   /**
    * Greenfield Phase 3: reconcile the persisted `ship_manifest` against each
    * ship's real cargo, once per coordinator tick (same cadence as
-   * `syncShipStates`). Deliberately assigns only two of the design doc's
-   * four intents — `warehouse-deposit` for the warehouse ship's own hold,
-   * `resale` for everything else — rather than the full `mission-delivery`/
-   * `held-position` distinction, which needs per-ship context (which
-   * mission a carrier is actually hauling for, whether a hold was
-   * deliberate) this phase doesn't track. That's a real, documented gap
-   * against the full design, not an oversight — see README's Greenfield
-   * section. Cost basis prefers this ship's own last purchase of the good
+   * `syncShipStates`). Now assigns all four of the design doc's intents:
+   *
+   * - `warehouse-deposit` — the warehouse ship's own hold.
+   * - `mission-delivery` — a ship `MissionManager.committedShips()` has
+   *   assigned, the same lookup `syncShipClaims()` already uses to derive
+   *   the `"mission"` claim owner.
+   * - `held-position` — a good whose current market sell price, at this
+   *   ship's own waypoint, is below its cost basis by more than
+   *   `HELD_POSITION_MAX_LOSS_PCT`. This mirrors `TraderAgent`'s own
+   *   private `exceedsLossFloor()` check (`price < cost * (1 - maxLossPct
+   *   / 100)`, same formula) — the real hold-below-a-loss-floor decision
+   *   that `clearLeftoverCargo()` and the other sell paths in trader.ts
+   *   already make and always did; this just gives the manifest visibility
+   *   into that decision, using the Phase 1 `market_latest` projection
+   *   instead of a fresh API call. Deliberately re-derived here rather than
+   *   reading `TraderAgent`'s own private state directly: this runs for
+   *   every role (not just traders), and a manifest-side approximation
+   *   using a fixed percentage is enough for classification/dashboard
+   *   display — it doesn't gate any real sell decision, which still goes
+   *   through each trader's own live check with its own configured
+   *   `maxLossPct`.
+   * - `resale` — everything else, the default.
+   *
+   * Cost basis prefers this ship's own last purchase of the good
    * (`basisKind: 'actual'`); falls back to the fleet-wide volume-weighted
    * average, then 0, when this ship never bought it itself (picked it up
    * via mining, a transfer, or contract fulfillment instead).
@@ -2291,6 +2320,11 @@ export class FleetManager {
     const store = this.store;
     const tenantId = this.tenantId;
     const warehouseSymbol = this.warehouseShip?.shipSymbol;
+    const committed = this.missions.committedShips();
+    // One query, reused across every ship this tick — same pattern
+    // syncShipClaims() uses for committedShips(), and an improvement over
+    // this method's previous per-ship-per-good store round trips.
+    const marketSnapshots = await store.latestMarketSnapshots();
     for (const s of this.getShipStatuses()) {
       const inventory = this.cargoForShip(s.symbol);
       const existing = await store.getManifestForShip(tenantId, s.symbol);
@@ -2299,19 +2333,26 @@ export class FleetManager {
       if (stale.length) await store.deleteManifestRows(tenantId, s.symbol, stale);
       if (inventory.length === 0) continue;
 
-      const intent: CargoIntent = s.symbol === warehouseSymbol ? "warehouse-deposit" : "resale";
+      const waypoint = this.shipWaypoint(s.symbol);
       const rows = await Promise.all(
         inventory.map(async (item) => {
           const actual = await store.lastPurchasePrice(tenantId, s.symbol, item.symbol);
           const costBasis = actual ?? (await store.avgPurchasePrice(tenantId, item.symbol)) ?? 0;
-          return {
-            shipSymbol: s.symbol,
-            goodSymbol: item.symbol,
-            units: item.units,
-            costBasis,
-            basisKind: (actual !== undefined ? "actual" : "estimated") as "actual" | "estimated",
-            intent,
-          };
+          const basisKind = (actual !== undefined ? "actual" : "estimated") as "actual" | "estimated";
+
+          let intent: CargoIntent;
+          if (s.symbol === warehouseSymbol) {
+            intent = "warehouse-deposit";
+          } else if (committed.has(s.symbol)) {
+            intent = "mission-delivery";
+          } else {
+            const marketRow = marketSnapshots.find((m) => m.waypointSymbol === waypoint && m.goodSymbol === item.symbol);
+            const floor = costBasis * (1 - HELD_POSITION_MAX_LOSS_PCT / 100);
+            const belowFloor = costBasis > 0 && marketRow !== undefined && marketRow.sellPrice < floor;
+            intent = belowFloor ? "held-position" : "resale";
+          }
+
+          return { shipSymbol: s.symbol, goodSymbol: item.symbol, units: item.units, costBasis, basisKind, intent };
         }),
       );
       await store.upsertManifestRows(tenantId, rows);

@@ -84,12 +84,23 @@ export interface FleetStateRow {
  * once per coordinator tick (FleetManager.syncShipStates) so a restart has a
  * real record of what each ship was doing instead of only recovering its
  * *role* (fleet_state, above) and re-deriving its moment-to-moment status
- * from the live SpaceTraders API. `target`/`step` are the hooks for a future
- * agent to record which waypoint/sub-task a state is for; Phase 2 itself
- * only ever writes `target: null, step: null` — see README's Greenfield
- * section for the deliberately-coarse scope of this phase.
+ * from the live SpaceTraders API.
+ *
+ * `target` is populated: the ship's transit destination
+ * (`nav.route.destination.symbol`) while `travelling`/`returning`, or its
+ * current waypoint (`nav.waypointSymbol`) otherwise. `returning` is
+ * `travelling` with cargo already in the hold — a real, if approximate,
+ * signal (a ship in transit carrying cargo is heading toward a sale/
+ * delivery, not away from one), not full step-tracking.
+ *
+ * `step` and the doc's `transacting` state are still not populated:
+ * "actively mid buy/sell API call" is a transient, sub-tick-resolution
+ * state that by construction is almost never observed at a ~2s sync
+ * boundary — persisting it would mean each agent explicitly reporting a
+ * step through a shared concept that doesn't exist yet in trader.ts/
+ * agent.ts's own control flow, real remaining work, not done here.
  */
-export type ShipLifecycleState = "idle" | "assigned" | "travelling" | "docked";
+export type ShipLifecycleState = "idle" | "assigned" | "travelling" | "returning" | "docked";
 
 export interface ShipStateRow {
   shipSymbol: string;
