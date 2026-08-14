@@ -10,7 +10,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent } from "../db/store.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
-import type { Scheduler, Task } from "./scheduler.js";
+import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -153,6 +153,8 @@ export class FleetManager {
   private readonly scheduler?: Scheduler;
   /** Ship symbols that already have a live nextTask() chain enqueued on `scheduler` — see syncSchedulerTasks(). */
   private readonly scheduledShips = new Set<string>();
+  /** Whether the fleet-level rescue task (see nextRescueTask()) has already been enqueued once. */
+  private rescueScheduled = false;
 
   constructor(opts: FleetOptions) {
     this.api = opts.api;
@@ -2377,6 +2379,10 @@ export class FleetManager {
   private syncSchedulerTasks(): void {
     if (!this.scheduler) return;
     const scheduler = this.scheduler;
+    if (!this.rescueScheduled) {
+      scheduler.enqueue(this.nextRescueTask());
+      this.rescueScheduled = true;
+    }
     const live = new Set<string>();
     const schedule = (sym: string, agent: { running: boolean }, makeTask: () => Task): void => {
       live.add(sym);
@@ -2399,6 +2405,45 @@ export class FleetManager {
     // symbol reused later (never happens in practice — SpaceTraders symbols
     // are unique) would be treated as fresh.
     for (const sym of [...this.scheduledShips]) if (!live.has(sym)) this.scheduledShips.delete(sym);
+  }
+
+  /**
+   * Cutover: `rescueStranded()` as a fleet-level (not per-ship) Scheduler
+   * `Task`, priority 0 — the highest, matching the design doc's own
+   * priority scheme (0 rescue · 1 mission · 2 trade · 3 survey/keeper ·
+   * 4 telemetry). This is the concrete payoff of routing rescue through the
+   * scheduler at all: `Scheduler.runOnce()` already only admits priority-0
+   * tasks while the fleet is paused, so once this task exists, "rescue
+   * always runs, even halted, even under budget pressure" is a property of
+   * the scheduler's own admission logic — not, as it was before this cutover,
+   * something that happened to be true only because `tick()` called
+   * `rescueStranded()` directly regardless of anything else. Deliberately
+   * does NOT check `this.halted()` the way every per-ship `nextTask()` does:
+   * unlike those, this task's whole point is to keep running through a halt.
+   *
+   * Enqueued once (`rescueScheduled`), from `syncSchedulerTasks()`, then
+   * self-chains forever on a fixed ~2s cadence — the same interval
+   * `FleetManager.run()`'s own coordinator loop already polls at, since
+   * rescue needs to notice a newly-stranded ship quickly, not back off like
+   * an idle per-ship task would.
+   */
+  private nextRescueTask(earliestRunAt = Date.now()): Task {
+    return {
+      id: "fleet-rescue",
+      priority: 0,
+      estimatedCalls: 5,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (!this.running) return { actualCalls: 0 };
+        const before = this.api.getCallCount();
+        try {
+          await this.rescueStranded();
+        } catch (err) {
+          this.log(`rescue task error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return { actualCalls: this.api.getCallCount() - before, next: this.nextRescueTask(Date.now() + 2_000) };
+      },
+    };
   }
 
   /** Detect ships stranded without enough fuel to reach any known market. */
@@ -2463,10 +2508,11 @@ export class FleetManager {
       // must keep running: a halted fleet still has ships sitting at 0 fuel,
       // and previously pausing switched off the only mechanism that recovers
       // them while leaving every ship loop running — so a Halt actively made
-      // stranding more likely. Rescue drives its tender directly through the
-      // API rather than through an agent loop, so it works while the loops
-      // are held.
-      await this.rescueStranded();
+      // stranding more likely. With a scheduler, nextRescueTask() (priority 0,
+      // admitted by Scheduler.runOnce() even while paused) already covers
+      // this — calling it directly here too would just run it twice. Without
+      // one, this direct call is still what makes rescue halt-proof.
+      if (!this.scheduler) await this.rescueStranded();
       await this.syncShipStates();
       await this.syncShipManifests();
       await this.syncShipClaims();
@@ -2492,7 +2538,11 @@ export class FleetManager {
     await this.maybeBuySiphoner();
     await this.maybeInstallScanner();
     await this.autoExplore();
-    await this.rescueStranded();
+    // Cutover: with a scheduler, nextRescueTask() (enqueued once from
+    // syncSchedulerTasks(), self-chained every ~2s) already covers this —
+    // see the halted branch above for why calling it here too would double
+    // it up. Without one, this direct call is unchanged from before.
+    if (!this.scheduler) await this.rescueStranded();
     await this.missions.tick();
     await this.syncShipStates();
     await this.syncShipManifests();

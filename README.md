@@ -730,6 +730,43 @@ instead assert the measured delta from a stateful fake counter — proving
 the measuring logic itself, not just that a number gets returned. 243
 tests total, all passing.
 
+## Cutover, part 4: rescue runs through the scheduler as priority 0
+
+Before this, "a halted fleet still rescues stranded ships" worked only
+because `FleetManager.tick()` called `rescueStranded()` directly,
+unconditionally, regardless of anything else — true, but true by
+accident of where the call happened to sit in `tick()`'s body, not because
+of any actual priority guarantee. The design doc's whole premise for a
+priority queue is that priority-0 (rescue) tasks provably preempt
+lower-priority ones under real budget pressure; that only means something
+once rescue actually goes through the same queue as everything else.
+
+New `FleetManager.nextRescueTask()`: a fleet-level (not per-ship) Scheduler
+`Task`, `priority: 0`, wrapping the same `rescueStranded()` `tick()` used
+to call directly — no rescue logic changed, only how it's driven.
+Enqueued exactly once (`rescueScheduled` flag) from `syncSchedulerTasks()`,
+then self-chains forever on a fixed ~2s cadence (matching the coordinator
+loop's own poll interval — rescue needs to notice a newly-stranded ship
+quickly, not back off like an idle per-ship task would). Deliberately does
+**not** check `this.halted()` the way every per-ship `nextTask()` does:
+`Scheduler.runOnce()` already only admits priority-0 tasks while paused,
+so "rescue survives a halt" is now a property of the scheduler's own
+admission logic, not a `tick()` implementation detail. `tick()`'s two
+direct `rescueStranded()` calls (the halted branch and the normal end)
+are now conditional on `!this.scheduler` — the exact same opt-in pattern
+every other cutover piece uses; without a scheduler, behavior is
+unchanged.
+
+4 new tests in `tests/schedulerCutover.test.ts`: the rescue task is
+enqueued exactly once regardless of fleet size (a fresh `syncSchedulerTasks()`
+call with zero ships still produces it), it runs even with `paused = true`
+(proving the "no halted() check" design choice), it chains itself on a
+~2s interval, and a stopped fleet's rescue task ends its own chain instead
+of polling forever — same termination guarantee every other `nextTask()`
+already has. Adjusted three pre-existing scheduler tests whose task-count
+assertions didn't yet account for this new always-present task. 246 tests
+total, all passing.
+
 ## Local development
 
 Requires a local Postgres. To stand one up quickly:
