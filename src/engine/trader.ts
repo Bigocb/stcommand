@@ -1052,6 +1052,11 @@ export class TraderAgent {
    * code that nothing in `fleet.run()` actually drives yet.
    */
   nextTask(earliestRunAt = Date.now()): Task {
+    // Marks the chain "live" whether this is the first call (a fresh
+    // enqueue) or a chained one — idempotent, and means a caller can never
+    // forget to flip this before scheduling, the way runLoop()'s own
+    // `this.running = true` at entry couldn't be forgotten either.
+    this.running = true;
     return {
       id: `${this.symbol}-trade`,
       shipSymbol: this.symbol,
@@ -1059,6 +1064,12 @@ export class TraderAgent {
       estimatedCalls: 3,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
+        // Cutover: a stopped agent (scrapped, or converted to another role —
+        // see fleet.ts's removeShip()/maybeAssignKeepers()) must not keep
+        // chaining a task forever just because its last `next` was already
+        // enqueued. No `next` here ends the chain for good — the same way
+        // `runLoop()`'s own `while (this.running)` would have exited.
+        if (!this.running) return { actualCalls: 0 };
         if (this.halted()) {
           return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         }

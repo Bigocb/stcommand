@@ -152,13 +152,22 @@ export class TenantRegistry {
     const discord = new DiscordRelay();
     const webhookUrl = await getTenantDiscordWebhook(this.pool, tenantId);
     if (webhookUrl) discord.setWebhook(webhookUrl);
-    const fleet = new FleetManager({
+    // Cutover: created before FleetManager (which needs the instance itself
+    // to enqueue tasks onto) and before its own isPaused callback has
+    // anything to call — `fleet` is assigned just below, but closures over
+    // it don't run until the scheduler's own loop actually polls, by which
+    // point it's long since been assigned. Same forward-reference pattern
+    // MissionManager's own callbacks into FleetManager already use.
+    let fleet!: FleetManager;
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused() });
+    fleet = new FleetManager({
       api,
       contracts,
       store,
       tenantId,
       log,
       discord,
+      scheduler,
       recordLedger: (e) => store.recordLedger(tenantId, e),
       onActivity: (kind, detail, credits) =>
         store.recordActivity(tenantId, { timestamp: new Date().toISOString(), shipSymbol: "fleet", kind, detail, credits }),
@@ -209,11 +218,10 @@ export class TenantRegistry {
     // than left to crash the process on an unhandled rejection.
     fleet.run(RUN_FOREVER_TICKS).catch((err) => log(`fleet run crashed: ${err instanceof Error ? err.message : String(err)}`));
 
-    // Greenfield Phase 5: booted alongside the fleet's own coordinator loop,
-    // running for real, but with an empty queue — nothing in this codebase
-    // enqueues a task yet, so this is inert by construction until Phase 6/7's
-    // nextTask() producers are actually wired to feed it (see scheduler.ts).
-    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused() });
+    // Cutover: this is the scheduler `fleet` above was built with —
+    // fleet.run()/tick() enqueues every agent's nextTask() onto it instead
+    // of starting the old runLoop()-family blocking loops; this drives
+    // execution of whatever's been enqueued, on its own independent poll.
     scheduler.run(RUN_FOREVER_TICKS).catch((err) => log(`scheduler run crashed: ${err instanceof Error ? err.message : String(err)}`));
 
     const refreshState = async () => {

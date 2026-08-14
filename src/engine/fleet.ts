@@ -10,6 +10,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent } from "../db/store.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
+import type { Scheduler, Task } from "./scheduler.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -69,6 +70,16 @@ export interface FleetOptions {
   minCashReserve?: number;
   /** This tenant's own Discord relay, if they've configured a webhook — never a shared/global one. See discord.ts's class doc comment. */
   discord?: DiscordRelay;
+  /**
+   * Cutover (Greenfield Phase 5-7 completing): when provided, `run()` drives
+   * every agent by enqueueing its `nextTask()` onto this Scheduler instead
+   * of starting the old per-agent `runLoop()`-family blocking loops. When
+   * omitted (the default for any caller not yet updated — most of this
+   * repo's own tests), `run()` falls back to the pre-cutover behavior
+   * unchanged. See README's Greenfield section for what this actually
+   * changes.
+   */
+  scheduler?: Scheduler;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -139,6 +150,9 @@ export class FleetManager {
   readonly dispatcher = new RouteDispatcher();
   /** Greenfield Phase 4: mirrors this fleet's own ownership decisions — see shipRegistry.ts and syncShipClaims(). */
   readonly shipRegistry = new ShipRegistry();
+  private readonly scheduler?: Scheduler;
+  /** Ship symbols that already have a live nextTask() chain enqueued on `scheduler` — see syncSchedulerTasks(). */
+  private readonly scheduledShips = new Set<string>();
 
   constructor(opts: FleetOptions) {
     this.api = opts.api;
@@ -150,6 +164,7 @@ export class FleetManager {
     this.store = opts.store;
     this.tenantId = opts.tenantId;
     this.discord = opts.discord;
+    this.scheduler = opts.scheduler;
     // Halt state used to be restored synchronously right here
     // (better-sqlite3 is synchronous, in-process), specifically so a halted
     // fleet stayed halted for the whole window before init()'s awaited API
@@ -314,6 +329,7 @@ export class FleetManager {
     await this.syncShipStates();
     await this.syncShipManifests();
     await this.syncShipClaims();
+    this.syncSchedulerTasks();
   }
 
   /** Live cash floor. Read from doctrine each time so an edit applies on the
@@ -2347,6 +2363,44 @@ export class FleetManager {
     await this.shipRegistry.persistDirtyState(this.tenantId, this.store);
   }
 
+  /**
+   * Cutover: ensure every currently-known agent has exactly one live
+   * `nextTask()` chain enqueued on `scheduler`, once per tick alongside
+   * `syncShipStates`/`syncShipManifests`/`syncShipClaims`. Idempotent per
+   * ship — once a ship's first task is enqueued, its own chain
+   * (`TaskResult.next`) keeps it running on its own; this just notices
+   * *new* agents (a fresh ship purchase, a role promotion, a keeper
+   * conversion) and gives them their first task. A no-op when `scheduler`
+   * wasn't provided to this FleetManager — see FleetOptions.scheduler's
+   * comment for why that's the default.
+   */
+  private syncSchedulerTasks(): void {
+    if (!this.scheduler) return;
+    const scheduler = this.scheduler;
+    const live = new Set<string>();
+    const schedule = (sym: string, agent: { running: boolean }, makeTask: () => Task): void => {
+      live.add(sym);
+      if (this.scheduledShips.has(sym)) return;
+      agent.running = true;
+      scheduler.enqueue(makeTask());
+      this.scheduledShips.add(sym);
+    };
+    for (const [sym, a] of this.miners) schedule(sym, a, () => a.nextTask());
+    for (const [sym, a] of this.traders) schedule(sym, a, () => a.nextTask());
+    for (const [sym, a] of this.surveyors) schedule(sym, a, () => a.nextSurveyTask());
+    for (const [sym, a] of this.tours) schedule(sym, a, () => a.nextTourTask());
+    for (const [sym, a] of this.keepers) schedule(sym, a, () => a.nextKeeperTask());
+    for (const [sym, a] of this.scouts) schedule(sym, a, () => a.nextTask());
+    for (const [sym, a] of this.siphoners) schedule(sym, a, () => a.nextTask());
+    // A ship no longer in any role map (scrapped, or converted to a
+    // different role) already had stop() called on its old agent elsewhere
+    // (removeShip(), maybeAssignKeepers()) — its own running=false check
+    // ends that chain on its own. This just stops tracking it, so a
+    // symbol reused later (never happens in practice — SpaceTraders symbols
+    // are unique) would be treated as fresh.
+    for (const sym of [...this.scheduledShips]) if (!live.has(sym)) this.scheduledShips.delete(sym);
+  }
+
   /** Detect ships stranded without enough fuel to reach any known market. */
   getStrandedShips(): { symbol: string; waypointSymbol: string; fuel: number; reason: string }[] {
     const stranded: { symbol: string; waypointSymbol: string; fuel: number; reason: string }[] = [];
@@ -2416,6 +2470,7 @@ export class FleetManager {
       await this.syncShipStates();
       await this.syncShipManifests();
       await this.syncShipClaims();
+      this.syncSchedulerTasks();
       return;
     }
     await this.refreshCredits();
@@ -2442,6 +2497,7 @@ export class FleetManager {
     await this.syncShipStates();
     await this.syncShipManifests();
     await this.syncShipClaims();
+    this.syncSchedulerTasks();
   }
 
   /**
@@ -2503,9 +2559,21 @@ export class FleetManager {
       this.keeperMarkets.set(sym, market);
       if (this.tenantId) await this.store?.setFleetState(this.tenantId, sym, "keeper", market);
       this.log(`role: keeper ${sym} (converted from ${what}, stationed at ${market})`);
-      // Launch the keeper loop now — the run() loop array was built at startup,
-      // so a mid-run conversion needs its own loop.
-      void keeper.keeperLoop(1_000_000);
+      if (this.scheduler) {
+        // Cutover: `sym` is already in `scheduledShips` from its old role,
+        // so syncSchedulerTasks()'s generic "is this ship new" check would
+        // skip it here — the old agent's task chain just terminated itself
+        // (stop() above set its running=false), and nothing would replace
+        // it without this explicit enqueue. Directly give the new keeper
+        // agent its first task, the same way the old-loop branch below
+        // directly starts keeperLoop() for the same reason.
+        keeper.running = true;
+        this.scheduler.enqueue(keeper.nextKeeperTask());
+      } else {
+        // Launch the keeper loop now — the run() loop array was built at
+        // startup, so a mid-run conversion needs its own loop.
+        void keeper.keeperLoop(1_000_000);
+      }
     }
   }
 
@@ -2854,15 +2922,23 @@ export class FleetManager {
   /** Drive every ship and the coordination loop. */
   async run(maxTicks: number): Promise<void> {
     this.running = true;
-    const loops: Promise<void>[] = [
-      ...[...this.miners.values()].map((a) => a.runLoop(maxTicks)),
-      ...[...this.traders.values()].map((a) => a.runLoop(maxTicks)),
-      ...[...this.surveyors.values()].map((a) => a.surveyLoop(maxTicks)),
-      ...[...this.tours.values()].map((a) => a.tourLoop(maxTicks)),
-      ...[...this.keepers.values()].map((a) => a.keeperLoop(maxTicks)),
-      ...[...this.scouts.values()].map((a) => a.runLoop(maxTicks)),
-      ...[...this.siphoners.values()].map((a) => a.runLoop(maxTicks)),
-    ];
+    // Cutover: with a scheduler, every agent is driven by nextTask() chains
+    // enqueued via syncSchedulerTasks() (called from tick(), including once
+    // at the end of init()) — none of the old blocking loops are started at
+    // all. Without one (the default for any caller not yet updated), fall
+    // back to starting them exactly as before. See FleetOptions.scheduler's
+    // comment.
+    const loops: Promise<void>[] = this.scheduler
+      ? []
+      : [
+          ...[...this.miners.values()].map((a) => a.runLoop(maxTicks)),
+          ...[...this.traders.values()].map((a) => a.runLoop(maxTicks)),
+          ...[...this.surveyors.values()].map((a) => a.surveyLoop(maxTicks)),
+          ...[...this.tours.values()].map((a) => a.tourLoop(maxTicks)),
+          ...[...this.keepers.values()].map((a) => a.keeperLoop(maxTicks)),
+          ...[...this.scouts.values()].map((a) => a.runLoop(maxTicks)),
+          ...[...this.siphoners.values()].map((a) => a.runLoop(maxTicks)),
+        ];
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;

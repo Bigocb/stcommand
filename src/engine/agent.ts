@@ -1278,6 +1278,7 @@ export class ShipAgent {
    * production, so `nextTourTask()` sits at telemetry's priority 4.
    */
   nextTask(earliestRunAt = Date.now()): Task {
+    this.running = true; // idempotent whether this is a fresh enqueue or a chained call — see TraderAgent.nextTask()'s comment
     return {
       id: `${this.symbol}-mine`,
       shipSymbol: this.symbol,
@@ -1285,6 +1286,10 @@ export class ShipAgent {
       estimatedCalls: 3,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
+        // Cutover: stop() (scrapped, or converted to keeper — see fleet.ts's
+        // removeShip()/maybeAssignKeepers()) must end this chain for good,
+        // not just the old runLoop()'s while condition.
+        if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         try {
           const made = await this.tick();
@@ -1298,6 +1303,7 @@ export class ShipAgent {
   }
 
   nextSurveyTask(earliestRunAt = Date.now()): Task {
+    this.running = true;
     return {
       id: `${this.symbol}-survey`,
       shipSymbol: this.symbol,
@@ -1305,6 +1311,7 @@ export class ShipAgent {
       estimatedCalls: 2,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
+        if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextSurveyTask(Date.now() + HALT_POLL_MS) };
         try {
           const made = await this.surveyScout();
@@ -1318,6 +1325,7 @@ export class ShipAgent {
   }
 
   nextTourTask(earliestRunAt = Date.now()): Task {
+    this.running = true;
     return {
       id: `${this.symbol}-tour`,
       shipSymbol: this.symbol,
@@ -1325,6 +1333,7 @@ export class ShipAgent {
       estimatedCalls: 2,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
+        if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTourTask(Date.now() + HALT_POLL_MS) };
         try {
           const made = await this.tourScout();
@@ -1339,6 +1348,7 @@ export class ShipAgent {
 
   /** Unlike the other three, a successful keeper poll backs off 5 minutes (KEEPER_POLL_MS-equivalent), not 0 — same as keeperLoop()'s own sleep(5 * 60_000) after a snapshot. */
   nextKeeperTask(earliestRunAt = Date.now()): Task {
+    this.running = true;
     return {
       id: `${this.symbol}-keeper`,
       shipSymbol: this.symbol,
@@ -1346,6 +1356,7 @@ export class ShipAgent {
       estimatedCalls: 2,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
+        if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + HALT_POLL_MS) };
         try {
           const snapshotted = await this.keeperPoll();

@@ -389,6 +389,7 @@ export class ScoutAgent {
 
   /** Greenfield Phase 7: Scheduler Task producer wrapping tick(), same approach as TraderAgent.nextTask() (Phase 6) — see that file's comment. Not called by fleet.run(); runLoop() still drives every scout. */
   nextTask(earliestRunAt = Date.now()): Task {
+    this.running = true;
     return {
       id: `${this.symbol}-scout`,
       shipSymbol: this.symbol,
@@ -396,6 +397,7 @@ export class ScoutAgent {
       estimatedCalls: 2,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
+        if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         try {
           const made = await this.tick();

@@ -621,6 +621,82 @@ The Scheduler cutover (fleet.run() actually driving agents via
 the other half of this work and is still ahead — see the task list this
 session is tracking.
 
+## Cutover, part 2: the Scheduler now actually drives every agent
+
+`FleetManager` gained an optional `scheduler` (a Phase 5 `Scheduler`
+instance). When one's provided, `run()` no longer starts any of the old
+`runLoop()`-family blocking loops at all — every agent is driven by a
+`nextTask()` chain enqueued onto the scheduler instead. When one isn't
+provided (every test file in this repo except the new ones below), `run()`
+falls back to the exact pre-cutover behavior, unchanged — this is an
+opt-in cutover, not a rewrite of `FleetManager`'s contract.
+
+**Wiring:** `TenantRegistry` now constructs one `Scheduler` per tenant
+*before* the `FleetManager` (`isPaused` wired to `fleet.isPaused()` via a
+forward reference — the same pattern `MissionManager`'s own callbacks into
+`FleetManager` already used) and passes it in. `fleet.run()`'s own
+coordinator tick loop still runs exactly as before (route dispatch,
+warehouse/haul/mission-buy targets, keeper assignment, rescue, ...); a new
+private `syncSchedulerTasks()`, called from the same three points as
+`syncShipStates`/`syncShipManifests`/`syncShipClaims` (end of `init()`, end
+of `tick()`, and the halted early-return branch), is the only new thing —
+for every agent currently in any role map, if it doesn't already have a
+task enqueued, it gets one. Idempotent per ship: once a ship's first task
+is enqueued, its own `TaskResult.next` chaining keeps it running without
+`syncSchedulerTasks()` doing anything further — this is a lightweight
+reconciliation, not a rebuild, same shape as every other `sync*` method.
+
+**The real correctness gap this required closing:** none of the `nextTask()`
+methods built in Phases 6/7 checked whether the agent had actually been
+stopped. `runLoop()`'s own `while (this.running)` naturally exits once
+`stop()` is called (on scrap, or a keeper conversion) — but a `nextTask()`
+chain, driven entirely by whether its own `run()` callback returns a `next`,
+had no equivalent check, so a stopped agent's chain would have run forever
+against a retired agent instance. Every `nextTask()`-family `run()` callback
+now starts with `if (!this.running) return { actualCalls: 0 };` — no `next`,
+chain ends for good, the same guarantee `runLoop()`'s while-condition gave.
+And since nothing but `runLoop()` used to set `running = true`, every
+`nextTask()`-family method now sets it itself (idempotent, whether this is
+a fresh enqueue or a chained call) — removing the "caller must remember to
+flip this before scheduling" footgun entirely, rather than trusting every
+future call site to get it right.
+
+**One real, pre-existing runtime role-transition needed special-casing:**
+`maybeAssignKeepers()` (converting an idle miner/shuttle to a keeper
+mid-run) already had a comment explaining why it couldn't just rely on
+`fleet.run()`'s startup-time loop array — "a mid-run conversion needs its
+own loop," directly launching `keeper.keeperLoop()`. The scheduler version
+of that same problem is subtler: the ship's ship symbol was already in
+`syncSchedulerTasks()`'s "already scheduled" tracking (from its prior role),
+so the generic per-tick reconciliation would skip it, and the old agent's
+chain terminates itself via the `running` guard above — leaving the ship
+with *no* active task at all unless something enqueues the new keeper's
+task directly. `maybeAssignKeepers()` now branches: with a scheduler,
+`keeper.nextKeeperTask()` is enqueued directly (mirroring the old
+`void keeper.keeperLoop(...)` branch); without one, the old direct-launch
+behavior is unchanged.
+
+7 new tests in `tests/schedulerCutover.test.ts`: `syncSchedulerTasks()`
+enqueuing every role exactly once via the right `nextTask`-family method
+and not double-enqueueing on a second pass, a stopped `TraderAgent`'s
+in-flight task actually returning no `next`, `fleet.run()` provably never
+calling `runLoop()` when a scheduler is wired in (and provably still
+calling it when one isn't — the fallback path, checked directly rather
+than assumed), and `maybeAssignKeepers()` enqueuing the new keeper's task
+without ever starting the old `keeperLoop()`. 240 tests total, all passing.
+
+**Where this actually leaves things:** with a real Postgres tenant booted
+through `TenantRegistry` (which now always passes a scheduler), every ship
+is genuinely driven by the Scheduler/Task machinery end to end — this is
+no longer just parallel scaffolding, it's live. What's still ahead, per
+the design doc's own remaining scope: real per-task API-call accounting
+(`estimatedCalls`/`actualCalls` are still fixed heuristics, not measured),
+and using the scheduler's priority ordering for something the old
+uniform-blocking-loops architecture couldn't do at all — e.g. guaranteeing
+rescue tasks always preempt trade tasks under real budget pressure, which
+today works only because rescue happens to run directly in `tick()`
+rather than through the scheduler.
+
 ## Local development
 
 Requires a local Postgres. To stand one up quickly:
