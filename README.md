@@ -767,6 +767,62 @@ already has. Adjusted three pre-existing scheduler tests whose task-count
 assertions didn't yet account for this new always-present task. 246 tests
 total, all passing.
 
+## Integration & regression tests, and a real bug they caught
+
+New `tests/integration.test.ts`, covering the design doc's own Testing
+Strategy section — a longer-running multi-ship scenario, concurrent
+cross-tenant load, restart persistence, and explicit regression cases for
+the "eight owners collide" bug class the whole redesign exists to fix.
+Like every other `fleet.ts` test in this repo, this drives real coordinator
+logic (`tick()`, `dispatcher.recompute()`, `maybeAssignKeepers()`, every
+`sync*` method) against fake agents standing in for real ships, not a
+simulated SpaceTraders network backend — building a full game-mechanics
+simulator remains out of scope, the same way straders' own `trader.test.ts`
+was never ported here. What's under test is `FleetManager`'s own
+bookkeeping staying consistent over time, not literal trading outcomes.
+
+- **100-tick scenario**: 10 ships across every role (3 miners, 3 traders
+  including the designated warehouse ship, a surveyor, a tour scout, a
+  keeper, an idle ship), 5 warehouse-target goods, 3 unassigned
+  construction missions (so `pickMissionCarrier`'s real candidate search
+  runs every tick). After 100 real `tick()` calls: every ship has exactly
+  one persisted claim, a valid `ship_state` row, and appears in at most one
+  role map — `keeperCount` pinned to 0 so the scenario's role composition
+  stays deterministic (mid-run keeper conversion is already covered by
+  `shipRegistryCutover.test.ts`).
+- **Cross-tenant concurrency**: two tenants' fleets ticking genuinely
+  interleaved (`Promise.all` of 20 ticks each, not sequential), then every
+  `ship_claims`/`ship_state`/`ship_manifest` row checked to confirm it only
+  ever references its own tenant's ship symbols.
+- **Restart persistence**: a fleet holds one ship as operator, runs a
+  couple of ticks, then a *second*, fresh `FleetManager` instance (same
+  `tenantId`/`store`, nothing carried over in memory — what a real process
+  restart looks like) hydrates via `shipRegistry.loadAllClaims()` and reads
+  back the same operator claim and the same `ship_state` rows.
+- **Regression**: a suspended trader is excluded from `dispatcherTraders()`
+  and has its route released immediately (`suspendAgent()` calling
+  `dispatcher.release()` inline, not left stale for up to a minute until
+  the next recompute) — the concrete "suspended trader still holding
+  dispatcher route" bug from the original diagnosis.
+
+**A real, pre-existing bug the 100-tick test actually caught**, not a
+contrived one: `syncShipClaims()`'s owner derivation checked `s.paused`
+before checking `s.symbol === warehouseSymbol`. `designateWarehouseShip()`
+dispatches the ship via the exact same `dispatchTo()`/manual-hold mechanism
+an operator hold uses (see that method's own comment — "the same
+manual-dispatch/hold mechanism as any other per-ship pin"), so `isManual()`
+is genuinely true for the warehouse ship too. `designateWarehouseShip()`'s
+own inline `claim()` call correctly set `"warehouse"` — but the *next*
+coordinator tick's `syncShipClaims()` resync, using `preempt: true`,
+silently flipped it back to `"operator"`, and every tick after that kept
+it flipped. A single-tick test would never have caught this: the bug only
+shows up on the *second* resync, which is exactly what a 100-tick scenario
+is for. Fixed by checking `warehouseSymbol` first; a dedicated regression
+test (repeated `syncShipClaims()` calls, asserting the claim survives)
+isolates it from the broader scenario test that found it.
+
+5 new tests total, all passing. 251 tests overall.
+
 ## Local development
 
 Requires a local Postgres. To stand one up quickly:

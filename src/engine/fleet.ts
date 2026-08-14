@@ -2351,10 +2351,21 @@ export class FleetManager {
     const warehouseSymbol = this.warehouseShip?.shipSymbol;
     const committed = this.missions.committedShips();
     for (const s of this.getShipStatuses()) {
-      const owner: ShipClaimOwner = s.paused
-        ? "operator"
-        : s.symbol === warehouseSymbol
-          ? "warehouse"
+      // The warehouse ship must be checked before `s.paused`: designating
+      // it uses the exact same dispatchTo()/manual-hold mechanism as an
+      // operator hold (see designateWarehouseShip()'s own comment — "the
+      // same manual-dispatch/hold mechanism as any other per-ship pin"), so
+      // `isManual()` is genuinely true for it too. Checking `paused` first
+      // would misreport it as "operator" — invisible right after
+      // designateWarehouseShip()'s own inline claim() call sets "warehouse"
+      // correctly, but silently overwritten back to "operator" the very
+      // next tick, since this resync always runs with preempt:true. Caught
+      // by tests/integration.test.ts's 100-tick scenario, not by any
+      // single-tick test — the bug only shows up on the *second* resync.
+      const owner: ShipClaimOwner = s.symbol === warehouseSymbol
+        ? "warehouse"
+        : s.paused
+          ? "operator"
           : committed.has(s.symbol)
             ? "mission"
             : s.role === "keeper"
