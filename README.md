@@ -561,6 +561,66 @@ distinction, and one test proving `keeperLoop()`'s extraction didn't change
 `keeperPoll()`'s real (unstubbed) behavior for the no-market-assigned case.
 225 tests total, all passing.
 
+## Cutover, part 1: ShipRegistry is now a real gate
+
+The seven phases above all landed at "dual-write, nothing enforced" —
+real, tested, but observational. This is the first actual behavior change:
+`shipRegistry.claim()`/`release()` now run inline, at the moment of
+mutation, in fleet.ts's own ownership-changing methods, and a rejected
+claim actually blocks the action instead of only being logged.
+`syncShipClaims()` (Phase 4) still runs every tick as a self-healing
+resync — these inline calls just make the transition immediate instead of
+waiting up to ~2s for the next tick to notice.
+
+- **`holdShip()`** claims `operator` (`preempt: true` — operator is already
+  the strongest owner, so this can't actually fail; it just records the
+  claim immediately rather than waiting for the tick sync).
+  **`releaseShip()`** releases it.
+- **`designateWarehouseShip()`** claims `warehouse` and, new here, actually
+  **rejects** the designation — throws — if the ship is already claimed by
+  a stronger owner (an operator hold, or a mission commitment). Previously
+  this would have silently gone through and only shown up as a
+  disagreement in the next tick's mirror; now it's an error the caller
+  sees immediately. **`releaseWarehouseShip()`** releases the `warehouse`
+  claim specifically (not `operator` — a warehouse ship's claim and an
+  operator hold on some other ship are different claims, released
+  independently).
+- **`pickMissionCarrier()`** (the auto-picker) now excludes any candidate
+  an operator currently holds from consideration entirely, and claims
+  `mission` for whichever ship it actually picks. **`assignMissionCarrier()`**
+  (the manual override) rejects up front — before ever calling into
+  `MissionManager` — if the target ship is operator-held.
+- **`maybeAssignKeepers()`** (idle miner/shuttle → keeper conversion) adds
+  a registry check on top of its existing `isManual()`/`isSuspended()`
+  filter as defense-in-depth against a claim that filter's ~1-tick-old
+  view could have missed, and claims `keeper` on conversion. A rejected
+  candidate is skipped, not fatal to the whole pass — the loop moves on to
+  the next one.
+
+What's still *not* gated: `mineAt`/`unpinMining` (field pins within an
+existing role, not an ownership change — nothing to claim) and the
+coordinator's own initial `assignRole()` (a one-time decision at boot/ship-
+purchase, not a recurring reassignment risk the way keeper conversion is).
+
+9 new tests in `tests/shipRegistryCutover.test.ts`, each proving
+enforcement, not just bookkeeping: `designateWarehouseShip` actually
+throwing (with the exact rejecting owner in the message) rather than
+silently succeeding against an operator-held ship, the operator claim
+surviving the rejected attempt untouched, `pickMissionCarrier` skipping a
+larger-cargo-but-held candidate in favor of a smaller unclaimed one (cargo
+size would otherwise have picked the held ship), `assignMissionCarrier`
+rejecting before `MissionManager` is ever touched (proven by using a
+waypoint with no active mission at all — a `MissionManager`-level failure
+would throw a different, distinguishable error), and `maybeAssignKeepers`
+skipping a candidate the registry alone catches (a claim injected directly,
+bypassing `isManual()`/`isSuspended()`, to isolate what the new check adds).
+233 tests total, all passing.
+
+The Scheduler cutover (fleet.run() actually driving agents via
+`nextTask()`/the Phase 5 `Scheduler` instead of the old `runLoop()`s) is
+the other half of this work and is still ahead — see the task list this
+session is tracking.
+
 ## Local development
 
 Requires a local Postgres. To stand one up quickly:

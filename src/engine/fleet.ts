@@ -1566,10 +1566,18 @@ export class FleetManager {
 
   /** Pick an idle cargo-capable ship to run a mission, preferring the largest hold. */
   private async pickMissionCarrier(exclude: Set<string>, targetWaypoint?: string): Promise<string | undefined> {
+    // Cutover (Greenfield Phase 4): notBusy() already excludes manual ships;
+    // this adds the registry's view on top, which also catches a ship the
+    // dashboard just designated as the warehouse ship this same tick (not
+    // yet reflected in isManual()/isSuspended() the way an operator hold is).
+    const notClaimedAgainstMission = (sym: string) => {
+      const owner = this.shipRegistry.ownerOf(sym)?.owner;
+      return owner === undefined || owner !== "operator";
+    };
     const notBusy = (a: ShipAgent | TraderAgent) => !a.isManual() && !a.isSuspended();
     const candidates: { sym: string; cargo: number }[] = [];
-    for (const [s, a] of this.miners) if (!exclude.has(s) && notBusy(a)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
-    for (const [s, a] of this.traders) if (!exclude.has(s) && notBusy(a)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
+    for (const [s, a] of this.miners) if (!exclude.has(s) && notBusy(a) && notClaimedAgainstMission(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
+    for (const [s, a] of this.traders) if (!exclude.has(s) && notBusy(a) && notClaimedAgainstMission(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
     // A carrier must be able to reach the target on a full tank (it can refuel at
     // markets along the way, but never beyond its tank). Skip ships that can't —
     // otherwise the mission loops on "cannot navigate" forever.
@@ -1584,7 +1592,9 @@ export class FleetManager {
       }
     }
     reachable.sort((a, b) => b.cargo - a.cargo || a.sym.localeCompare(b.sym));
-    return reachable[0]?.sym;
+    const picked = reachable[0]?.sym;
+    if (picked) this.shipRegistry.claim(picked, "mission", this.roleOf(picked));
+    return picked;
   }
   /** Known fuel stops (marketplaces that list FUEL) in a system, by symbol. */
   private async fuelStops(systemSymbol: string): Promise<Set<string>> {
@@ -1806,6 +1816,12 @@ export class FleetManager {
     const other = (await this.missions.list())
       .find((m) => m.assignedShip === shipSymbol && m.targetWaypoint !== waypointSymbol && m.status === "active");
     if (other) throw new Error(`${shipSymbol} is already carrying the mission at ${other.targetWaypoint}`);
+    // Cutover (Greenfield Phase 4): an operator hold outranks a manual
+    // mission assignment — the dashboard's own "manual" override for
+    // missions still must not silently override a ship's operator hold.
+    if (!this.shipRegistry.claim(shipSymbol, "mission", this.roleOf(shipSymbol))) {
+      throw new Error(`${shipSymbol} can't be assigned to a mission — currently claimed by ${this.shipRegistry.ownerOf(shipSymbol)?.owner}`);
+    }
     await this.missions.assignCarrier(waypointSymbol, shipSymbol);
   }
 
@@ -1881,6 +1897,19 @@ export class FleetManager {
     );
   }
 
+  /** This ship's current role, whichever map actually holds it — same lookup `getShipStatuses()` does inline, factored out for the ShipRegistry claim() call sites below. */
+  private roleOf(shipSymbol: string): ShipClaimRole {
+    if (this.miners.has(shipSymbol)) return "miner";
+    if (this.traders.has(shipSymbol)) return "trader";
+    if (this.surveyors.has(shipSymbol)) return "surveyor";
+    if (this.tours.has(shipSymbol)) return "tour";
+    if (this.keepers.has(shipSymbol)) return "keeper";
+    if (this.scouts.has(shipSymbol)) return "scout";
+    if (this.siphoners.has(shipSymbol)) return "siphoner";
+    if (shipSymbol === this.warehouseShip?.shipSymbol) return "warehouse";
+    return "idle";
+  }
+
   /** Dispatch any ship to a specific waypoint, jumping systems if necessary. */
   async dispatchShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
     const ship = await this.api.getShip(shipSymbol);
@@ -1912,6 +1941,11 @@ export class FleetManager {
     // A held ship stops trading, so it must stop reserving a good — otherwise
     // holding one trader quietly withdraws its route from the whole fleet.
     this.dispatcher.release(shipSymbol);
+    // Cutover (Greenfield Phase 4): claim it for real, right now, rather than
+    // waiting for the next coordinator tick's syncShipClaims() to notice —
+    // operator is the strongest owner, so this always succeeds; preempt:true
+    // just makes that explicit rather than relying on precedence math.
+    this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
     this.log(`${shipSymbol} held at ${here} under manual control`);
   }
 
@@ -1957,6 +1991,16 @@ export class FleetManager {
     const agent = this.controlledAgent(shipSymbol);
     if (!agent) throw new Error(`${shipSymbol} is not under fleet control`);
     if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold — can't warehouse anything`);
+    // Cutover (Greenfield Phase 4): actually enforce precedence here, not
+    // just record it — a ship an operator is holding, or one committed to a
+    // mission, must not be silently repurposed as the warehouse ship out
+    // from under whatever it was doing. `role: "warehouse"` matches what
+    // getShipStatuses() (and syncShipClaims's mirror of it) already reports
+    // for the designated ship, not this ship's pre-designation functional role.
+    if (!this.shipRegistry.claim(shipSymbol, "warehouse", "warehouse")) {
+      const ownerNow = this.shipRegistry.ownerOf(shipSymbol)?.owner;
+      throw new Error(`${shipSymbol} can't be designated warehouse ship — currently claimed by ${ownerNow}`);
+    }
     if (this.warehouseShip && this.warehouseShip.shipSymbol !== shipSymbol) {
       await this.releaseWarehouseShip();
     }
@@ -1972,6 +2016,10 @@ export class FleetManager {
     const { shipSymbol } = this.warehouseShip;
     this.warehouseShip = undefined;
     if (this.tenantId) await this.store?.removeFleetFlag(this.tenantId, "warehouseShip");
+    // The warehouse claim, not "operator" — releaseShip() below releases
+    // whatever operator hold this ship also happens to have, but the
+    // warehouse ship's own claim owner is "warehouse", a separate release.
+    this.shipRegistry.release(shipSymbol, "warehouse");
     try {
       await this.releaseShip(shipSymbol);
     } catch {
@@ -2141,6 +2189,14 @@ export class FleetManager {
     // agent.release() also unpins mining (see ShipAgent.release), so both
     // halves of the manual state clear together here.
     await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null });
+    // Cutover (Greenfield Phase 4): drop the operator claim immediately —
+    // release() only clears it if it's actually still "operator"'s, so this
+    // is a safe no-op if the ship wasn't actually held. The ship falls back
+    // to unclaimed until the next tick's syncShipClaims() re-establishes it
+    // as "auto", same self-healing syncShipClaims() already did before this
+    // cutover — inline calls just make the transition immediate instead of
+    // waiting up to one tick.
+    this.shipRegistry.release(shipSymbol, "operator");
   }
 
   getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string }[] {
@@ -2418,6 +2474,16 @@ export class FleetManager {
       const [sym, agent] = source;
       const what = miner ? "miner" : "shuttle";
       const market = need[0]!;
+      // Cutover (Greenfield Phase 4): the idle() filter above already
+      // excludes manual/suspended ships (MissionManager suspends its
+      // carriers, so a mission commitment is already covered too) — this is
+      // defense-in-depth against a claim the filter's ~1-tick-old view
+      // could have missed, not the primary guard. Skip this candidate,
+      // don't abort the whole pass, if it fails.
+      if (!this.shipRegistry.claim(sym, "keeper", "keeper")) {
+        this.log(`role: keeper conversion skipped for ${sym} — claimed by ${this.shipRegistry.ownerOf(sym)?.owner}`);
+        continue;
+      }
       // Stop the old loop so it doesn't keep mining/touring while the keeper
       // agent takes over the same ship.
       agent.stop();
