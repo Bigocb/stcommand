@@ -577,6 +577,26 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     });
   });
 
+  /**
+   * Greenfield Phase 2: the persisted lifecycle table, as of the last
+   * coordinator tick — distinct from /fleet/status above, which recomputes
+   * live from each agent's in-memory ship object on every call. This is
+   * what survives a restart; that one is what's true right now. Both are
+   * kept, not one replacing the other — see README's Greenfield section.
+   */
+  router.get("/ship-state", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ states: await w.store.getAllShipStates(w.tenantId) });
+  });
+
+  /** Greenfield Phase 3: the persisted cargo-intent manifest, reconciled once per coordinator tick. */
+  router.get("/ship-manifest", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ manifest: await w.store.getAllManifestRows(w.tenantId) });
+  });
+
   router.post("/fleet/dispatch", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

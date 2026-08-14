@@ -511,9 +511,14 @@ describe("FleetManager mission buy targets", () => {
   // market_snapshots is a shared, ungated galaxy table (no tenant_id) — unlike
   // the original SQLite tests, which each got a fresh throwaway db file, every
   // test in this process shares one Postgres instance, so a FAB_MATS row one
-  // test records here is still visible to the next one unless cleared.
+  // test records here is still visible to the next one unless cleared. Same
+  // for market_latest (Greenfield Phase 1's read-model projection of the
+  // same data, keyed the same way) — computeMissionBuyTargets reads that
+  // projection now, so a leftover row there is just as visible as one in the
+  // history table would have been.
   beforeEach(async () => {
     await pool.query(`DELETE FROM market_snapshots WHERE good_symbol = 'FAB_MATS'`);
+    await pool.query(`DELETE FROM market_latest WHERE good_symbol = 'FAB_MATS'`);
   });
 
   it("produces no mission-buy targets while warehousing is disabled (the default)", async () => {

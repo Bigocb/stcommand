@@ -23,7 +23,9 @@ import { withTenant, withPool } from "./pool.js";
  * ledgerTotals, lastPurchasePrice, avgPurchasePrice, recordActivity,
  * recentActivity, goodPriceHistory, getDoctrine, setDoctrine, getFleetFlag,
  * setFleetFlag, removeFleetFlag, getFleetState, setFleetState,
- * removeFleetState, warehouseBalance, warehouseAll, warehouseValue,
+ * removeFleetState, getShipState, getAllShipStates, updateShipState,
+ * getManifestForShip, getAllManifestRows, upsertManifestRows,
+ * deleteManifestRows, warehouseBalance, warehouseAll, warehouseValue,
  * warehouseDeposit, warehouseWithdraw, warehouseLedger, warehouseTargetList,
  * setWarehouseTarget, removeWarehouseTarget, recordMarket,
  * latestMarketSnapshots, freshMarketSnapshots, bestTrades, tradeLegs,
@@ -74,6 +76,49 @@ export interface FleetStateRow {
   role: string;
   keeperMarket?: string;
   updatedAt: string;
+}
+
+/**
+ * Greenfield Phase 2: a persisted lifecycle state per ship, kept in sync
+ * once per coordinator tick (FleetManager.syncShipStates) so a restart has a
+ * real record of what each ship was doing instead of only recovering its
+ * *role* (fleet_state, above) and re-deriving its moment-to-moment status
+ * from the live SpaceTraders API. `target`/`step` are the hooks for a future
+ * agent to record which waypoint/sub-task a state is for; Phase 2 itself
+ * only ever writes `target: null, step: null` — see README's Greenfield
+ * section for the deliberately-coarse scope of this phase.
+ */
+export type ShipLifecycleState = "idle" | "assigned" | "travelling" | "docked";
+
+export interface ShipStateRow {
+  shipSymbol: string;
+  state: ShipLifecycleState;
+  target?: string;
+  step?: unknown;
+  updatedAt: string;
+}
+
+/**
+ * Greenfield Phase 3: what a ship's cargo is FOR, not just what's in the
+ * hold — reconciled from real cargo once per coordinator tick
+ * (FleetManager.syncShipManifests). `intent` is a strict subset of the
+ * design doc's four values: this phase only ever assigns 'resale' or
+ * 'warehouse-deposit', since distinguishing 'mission-delivery' and
+ * 'held-position' needs per-ship context (which mission a carrier is
+ * actually hauling for, whether a hold was deliberate) this phase doesn't
+ * have yet — see README's Greenfield section.
+ */
+export type CargoIntent = "resale" | "warehouse-deposit" | "mission-delivery" | "held-position";
+export type CostBasisKind = "actual" | "estimated";
+
+export interface ManifestRow {
+  shipSymbol: string;
+  goodSymbol: string;
+  units: number;
+  costBasis: number;
+  basisKind: CostBasisKind;
+  intent: CargoIntent;
+  acquiredAt: string;
 }
 
 export interface MissionRow {
@@ -229,6 +274,97 @@ export class Store {
 
   async removeFleetState(tenantId: string, shipSymbol: string): Promise<void> {
     await withTenant(this.pool, tenantId, (c) => c.query(`DELETE FROM fleet_state WHERE ship_symbol = $1`, [shipSymbol]));
+  }
+
+  // ── Ship state (Greenfield Phase 2: persisted lifecycle) ────
+
+  async getShipState(tenantId: string, shipSymbol: string): Promise<ShipStateRow | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ ship_symbol: string; state: ShipLifecycleState; target: string | null; step: unknown; updated_at: Date }>(
+        `SELECT ship_symbol, state, target, step, updated_at FROM ship_state WHERE ship_symbol = $1`,
+        [shipSymbol],
+      );
+      const r = res.rows[0];
+      if (!r) return undefined;
+      return { shipSymbol: r.ship_symbol, state: r.state, target: r.target ?? undefined, step: r.step ?? undefined, updatedAt: r.updated_at.toISOString() };
+    });
+  }
+
+  async getAllShipStates(tenantId: string): Promise<ShipStateRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ ship_symbol: string; state: ShipLifecycleState; target: string | null; step: unknown; updated_at: Date }>(
+        `SELECT ship_symbol, state, target, step, updated_at FROM ship_state`,
+      );
+      return res.rows.map((r) => ({
+        shipSymbol: r.ship_symbol,
+        state: r.state,
+        target: r.target ?? undefined,
+        step: r.step ?? undefined,
+        updatedAt: r.updated_at.toISOString(),
+      }));
+    });
+  }
+
+  async updateShipState(tenantId: string, shipSymbol: string, state: ShipLifecycleState, target?: string, step?: unknown): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO ship_state (tenant_id, ship_symbol, state, target, step, updated_at) VALUES ($1, $2, $3, $4, $5, now())
+         ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET state = excluded.state, target = excluded.target, step = excluded.step, updated_at = excluded.updated_at`,
+        [tenantId, shipSymbol, state, target ?? null, step === undefined ? null : JSON.stringify(step)],
+      ),
+    );
+  }
+
+  // ── Cargo manifest (Greenfield Phase 3: intent-tagged holds) ─
+
+  private static mapManifestRow(r: { ship_symbol: string; good_symbol: string; units: number; cost_basis: number; basis_kind: CostBasisKind; intent: CargoIntent; acquired_at: Date }): ManifestRow {
+    return {
+      shipSymbol: r.ship_symbol,
+      goodSymbol: r.good_symbol,
+      units: r.units,
+      costBasis: r.cost_basis,
+      basisKind: r.basis_kind,
+      intent: r.intent,
+      acquiredAt: r.acquired_at.toISOString(),
+    };
+  }
+
+  async getManifestForShip(tenantId: string, shipSymbol: string): Promise<ManifestRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(`SELECT * FROM ship_manifest WHERE ship_symbol = $1`, [shipSymbol]);
+      return res.rows.map(Store.mapManifestRow);
+    });
+  }
+
+  async getAllManifestRows(tenantId: string): Promise<ManifestRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(`SELECT * FROM ship_manifest`);
+      return res.rows.map(Store.mapManifestRow);
+    });
+  }
+
+  /** Upserts every row given, keyed on (ship, good) — the caller decides what "currently held" means. */
+  async upsertManifestRows(tenantId: string, rows: Omit<ManifestRow, "acquiredAt">[]): Promise<void> {
+    if (rows.length === 0) return;
+    await withTenant(this.pool, tenantId, async (c) => {
+      for (const r of rows) {
+        await c.query(
+          `INSERT INTO ship_manifest (tenant_id, ship_symbol, good_symbol, units, cost_basis, basis_kind, intent, acquired_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+           ON CONFLICT (tenant_id, ship_symbol, good_symbol) DO UPDATE SET
+             units = excluded.units, cost_basis = excluded.cost_basis, basis_kind = excluded.basis_kind, intent = excluded.intent`,
+          [tenantId, r.shipSymbol, r.goodSymbol, r.units, r.costBasis, r.basisKind, r.intent],
+        );
+      }
+    });
+  }
+
+  /** Drops rows for goods a ship no longer holds — the other half of reconciliation alongside upsertManifestRows. */
+  async deleteManifestRows(tenantId: string, shipSymbol: string, goodSymbols: string[]): Promise<void> {
+    if (goodSymbols.length === 0) return;
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(`DELETE FROM ship_manifest WHERE ship_symbol = $1 AND good_symbol = ANY($2)`, [shipSymbol, goodSymbols]),
+    );
   }
 
   // ── Fleet flags (small per-tenant settings blobs) ──────────
@@ -446,13 +582,31 @@ export class Store {
   // for every tenant on the same server reset. See the class doc comment.
 
   async recordMarket(m: Omit<MarketRow, "timestamp">): Promise<void> {
-    await withPool(this.pool, (c) =>
-      c.query(
+    await withPool(this.pool, async (c) => {
+      await c.query(
         `INSERT INTO market_snapshots (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
         [m.systemSymbol, m.waypointSymbol, m.goodSymbol, m.type, m.supply, m.purchasePrice, m.sellPrice, m.tradeVolume],
-      ),
-    );
+      );
+      // Greenfield Phase 1 read model: keep market_latest in lockstep with
+      // the append-only history table so latestMarketSnapshots/
+      // freshMarketSnapshots/bestTrades/tradeLegs can read one row per
+      // waypoint+good directly instead of re-deriving it with a
+      // ROW_NUMBER() OVER (PARTITION BY ...) scan of the whole history.
+      await c.query(
+        `INSERT INTO market_latest (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+         ON CONFLICT (waypoint_symbol, good_symbol) DO UPDATE SET
+           system_symbol = excluded.system_symbol,
+           type = excluded.type,
+           supply = excluded.supply,
+           purchase_price = excluded.purchase_price,
+           sell_price = excluded.sell_price,
+           trade_volume = excluded.trade_volume,
+           timestamp = excluded.timestamp`,
+        [m.systemSymbol, m.waypointSymbol, m.goodSymbol, m.type, m.supply, m.purchasePrice, m.sellPrice, m.tradeVolume],
+      );
+    });
   }
 
   private static mapMarketRow(r: {
@@ -479,16 +633,14 @@ export class Store {
     };
   }
 
-  /** Return the most recent market snapshot per waypoint per good. */
+  /**
+   * Return the most recent market snapshot per waypoint per good — a plain
+   * read of the market_latest projection (Greenfield Phase 1), not a
+   * PARTITION BY scan of the whole append-only history table.
+   */
   async latestMarketSnapshots(): Promise<MarketRow[]> {
     return withPool(this.pool, async (c) => {
-      const res = await c.query(
-        `WITH ranked AS (
-           SELECT *, ROW_NUMBER() OVER (PARTITION BY waypoint_symbol, good_symbol ORDER BY timestamp DESC, id DESC) AS rn
-           FROM market_snapshots
-         )
-         SELECT * FROM ranked WHERE rn = 1`,
-      );
+      const res = await c.query(`SELECT * FROM market_latest`);
       return res.rows.map(Store.mapMarketRow);
     });
   }
@@ -503,11 +655,7 @@ export class Store {
   async freshMarketSnapshots(maxAgeMinutes: number): Promise<MarketRow[]> {
     return withPool(this.pool, async (c) => {
       const res = await c.query(
-        `WITH ranked AS (
-           SELECT *, ROW_NUMBER() OVER (PARTITION BY waypoint_symbol, good_symbol ORDER BY timestamp DESC, id DESC) AS rn
-           FROM market_snapshots
-         )
-         SELECT * FROM ranked WHERE rn = 1 AND timestamp >= now() - ($1 || ' minutes')::interval`,
+        `SELECT * FROM market_latest WHERE timestamp >= now() - ($1 || ' minutes')::interval`,
         [maxAgeMinutes],
       );
       return res.rows.map(Store.mapMarketRow);
@@ -538,12 +686,9 @@ export class Store {
         profit_margin_pct: number | null;
         cross_system: boolean;
       }>(
-        `WITH ranked AS (
-           SELECT *, ROW_NUMBER() OVER (PARTITION BY waypoint_symbol, good_symbol ORDER BY timestamp DESC, id DESC) AS rn
-           FROM market_snapshots
+        `WITH latest AS (
+           SELECT * FROM market_latest
            ${system ? "WHERE system_symbol = $1" : ""}
-         ), latest AS (
-           SELECT * FROM ranked WHERE rn = 1
          ), scored AS (
            SELECT *,
              MIN(purchase_price) OVER (PARTITION BY good_symbol) AS min_purchase,
@@ -611,11 +756,8 @@ export class Store {
         volume: number;
         stalest: Date;
       }>(
-        `WITH ranked AS (
-           SELECT *, ROW_NUMBER() OVER (PARTITION BY waypoint_symbol, good_symbol ORDER BY timestamp DESC, id DESC) AS rn
-           FROM market_snapshots
-         ), latest AS (
-           SELECT * FROM ranked WHERE rn = 1 AND timestamp >= now() - ($1 || ' minutes')::interval
+        `WITH latest AS (
+           SELECT * FROM market_latest WHERE timestamp >= now() - ($1 || ' minutes')::interval
          )
          SELECT
            b.good_symbol                        AS good_symbol,

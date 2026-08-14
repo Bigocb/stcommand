@@ -1,10 +1,15 @@
 import "dotenv/config";
 import express from "express";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createPool } from "../db/pool.js";
 import { createGateRouter } from "../http/gate.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = resolve(__dirname, "../../public");
 
 function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -23,9 +28,10 @@ function log(msg: string): void {
  * Wires the mechanics (gate, session resolution, per-tenant engine boot)
  * together with the full dashboard route surface (src/http/dashboard.ts) —
  * ship commands, warehouse controls, doctrine/dispatch/keeper tuning, the
- * chat endpoint. Still ahead: a static frontend to actually serve (this is
- * the JSON API only) and the LLM/Discord settings UI's own routes for
- * reading back what's currently configured. See README.md's status section.
+ * chat endpoint — and serves the command-center frontend (public/index.html,
+ * a tenant-aware port of straders' own dashboard) as static files. Still
+ * ahead: the LLM/Discord settings UI's own routes for reading back what's
+ * currently configured. See README.md's status section.
  */
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -58,6 +64,8 @@ async function main(): Promise<void> {
   });
 
   app.use("/api", createDashboardRouter(registry, pool));
+
+  app.use(express.static(PUBLIC_DIR));
 
   const port = Number(process.env.PORT ?? 3000);
   const server = app.listen(port, () => log(`Standing Orders listening on :${port}`));

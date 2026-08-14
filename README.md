@@ -219,11 +219,163 @@ the Discord webhook, there's no live-update path for it yet) — documented
 in the test itself so a future settings-page route inherits the right
 expectation instead of assuming it already works.
 
-Not yet built: a frontend to actually serve (this is the JSON API only,
-same shape as straders' `/api/*` — the static dashboard HTML/JS itself
-hasn't been ported) and a settings-page route for editing LLM config (the
-storage side — `getTenantLlmConfig`/`setTenantLlmConfig` — has existed
-since Phase B; nothing reads/writes it over HTTP yet).
+Not yet built: a settings-page route for editing LLM config (the storage
+side — `getTenantLlmConfig`/`setTenantLlmConfig` — has existed since Phase
+B; nothing reads/writes it over HTTP yet).
+
+## Frontend: the command-center dashboard is served
+
+`public/index.html` is straders' own dashboard (the full Bridge/Doctrine/
+Markets/Ops single-page UI, ~2800 lines, same map renderer, fleet table,
+warehouse and co-pilot panels) ported for multi-tenancy — served as a static
+file by `src/cli/index.ts`, mounted after the `/api` routers so `GET /` and
+every other path resolve into it.
+
+The only real change straders' UI needed was its auth layer. straders gated
+every `/api/*` route behind one shared `ST_DASHBOARD_TOKEN`, attached
+client-side by overriding `window.fetch` to add an `Authorization: Bearer`
+header. stcommand has no such shared secret — each tenant has their own
+session, established by `POST /api/gate/login` (paste an existing
+SpaceTraders account token) or `POST /api/gate/register` (mint a brand-new
+agent), both setting the httpOnly signed session cookie `resolveTenant.ts`
+already reads. So the auth gate became: two forms (login / register, with a
+toggle between them) instead of one token field, no `Authorization` header
+anywhere — the cookie rides along with every same-origin fetch automatically
+— and a `window.fetch` override that's now purely reactive (a 401 on any
+`/api/*` call re-shows the gate) rather than attaching credentials. Added a
+logout button (`POST /api/gate/logout`) that straders' UI never needed,
+since a single shared token had no concept of "log out."
+
+Everything past the gate — the map, fleet table, dispatch/warehouse/doctrine
+panels, the co-pilot chat drawer, the Discord webhook field under Doctrine —
+is untouched: it already talked to `/api/*` routes that
+`src/http/dashboard.ts` serves under the same paths straders used, so no
+other rewiring was needed. Manually smoke-tested against a real listening
+server + real Postgres: `GET /` serves the dashboard shell, an invalid
+`/api/gate/login` token 401s with the gate's error message, and
+`/api/state` 401s with no session cookie, same as every other route behind
+`resolveTenant`.
+
+## Greenfield engine redesign: in progress
+
+A separate design doc (not in this repo — see project chat history)
+diagnosed a real structural problem in the ported engine: eight independent
+mechanisms can each claim a ship with no single source of truth, and cargo
+carries no persisted intent, so a restart can lose track of what a ship was
+doing or what its cargo was for. It proposes five pillars — **ShipRegistry**
+(unified ownership), **cargo manifest** (intent-tagged holds), a **unified
+scheduler** (one priority task queue + rate-limit budget replacing N
+per-agent blocking loops), a persisted **ship state machine**, and a
+**market_latest read-model projection** — landed as seven additive,
+independently-shippable phases against the current codebase, not a rewrite.
+No tables are removed and no existing mechanism is deleted until its
+replacement has run stable in parallel; see the design doc's own migration
+section for the phase-by-phase dual-write plan.
+
+**Phase 1 (market_latest projection): done.** `migrations/002_greenfield_phase1.sql`
+adds `market_latest` — one row per waypoint+good, upserted by `recordMarket()`
+in lockstep with the existing append-only `market_snapshots` insert, same
+"no tenant_id, shared galaxy data" shape as the table it projects. Four Store
+methods that each used to run their own `ROW_NUMBER() OVER (PARTITION BY
+waypoint_symbol, good_symbol)` scan over the whole history table —
+`latestMarketSnapshots`, `freshMarketSnapshots`, `bestTrades`, `tradeLegs` —
+now read the projection directly, a plain (indexed) lookup instead of a scan
+that gets slower as history grows. Pure read-path optimization, no behavior
+change: same rows, same shape, just derived incrementally on write instead
+of recomputed on every read.
+
+`src/db/migrate.ts` also stopped being single-file: it now applies every
+`migrations/*.sql` file in order, tracking what's already run in a new
+`schema_migrations` table, so `002_greenfield_phase1.sql` (and every phase
+after it) layers on cleanly without hand-editing the migration runner each
+time.
+
+One real test-isolation bug this surfaced: `tests/fleet.test.ts`'s mission-
+buy-targets suite had a `beforeEach` that cleared `market_snapshots` between
+tests (that table has no tenant scoping, so leftover rows from one test were
+visible to the next) but had no reason to know about `market_latest` before
+it existed — once `computeMissionBuyTargets` started reading the projection
+instead, the same leftover-row problem reappeared one table over. Fixed by
+clearing both tables in that hook.
+
+165 tests now (164 + one new projection round-trip test), all passing
+against real Postgres.
+
+**Phase 2 (persisted ship state): done, deliberately scoped down from the
+design doc.** `migrations/003_greenfield_phase2.sql` adds `ship_state`
+(tenant-scoped, RLS'd like every other per-tenant table) and `Store` gained
+`getShipState`/`getAllShipStates`/`updateShipState`. The design doc's
+version of this pillar wants a full lifecycle — `idle → assigned →
+travelling → docked → transacting → returning` — with every agent
+(trader.ts, agent.ts, mission carriers, …) persisting its own transitions
+and sub-step detail. That's a real, multi-file wiring job the doc itself
+estimates at 3-4 days; what shipped here instead is the coarser, honest
+subset that's actually true today: `FleetManager.syncShipStates()` (new,
+private) derives a 4-state coarse lifecycle — `idle | assigned | travelling
+| docked` — from `getShipStatuses()`'s existing role + live SpaceTraders nav
+status, and persists one row per ship at the end of `init()` and at the end
+(or halted-branch early return) of every coordinator `tick()`. `target` and
+`step` exist as columns for a future agent to fill in with real intent
+(which mission leg, which resale hold, …) but Phase 2 itself always writes
+them `null` — that's a real, documented gap against the full design, not an
+oversight. What this phase actually buys: `ship_state` is never stale by
+more than one coordinator tick (~2s), survives a restart, and is queryable
+without needing the live in-process fleet worker — exposed read-only at the
+new `GET /api/ship-state`, additive alongside the existing `/api/fleet/status`
+(which still recomputes live per-request and has richer fields like
+`paused`/`pinnedField` this table doesn't carry) rather than replacing it.
+
+7 new tests in `tests/shipState.test.ts`: Store round-trip/upsert-not-append/
+cross-tenant isolation, then `syncShipStates()` itself against fake agents
+covering all four states plus the "no store/tenantId" no-op path fleet.ts's
+existing optional-store convention requires. 172 tests total, all passing.
+
+**Phase 3 (cargo manifest): done, same kind of scoped-down as Phase 2.**
+`migrations/004_greenfield_phase3.sql` adds `ship_manifest` (tenant-scoped,
+RLS'd like `ship_state`) — one row per (ship, good) actually held, with
+`cost_basis`/`basis_kind` and an `intent` column. `Store` gained
+`getManifestForShip`/`getAllManifestRows`/`upsertManifestRows`/
+`deleteManifestRows`. The design doc's version wants a stateful
+per-ship `ShipManifest` class with four intents (`resale`,
+`warehouse-deposit`, `mission-delivery`, `held-position`) and reconciliation
+tied into the sweeper's sell decisions. What shipped is the coarser subset
+that's actually derivable from what the engine already tracks: a new private
+`FleetManager.syncShipManifests()`, called at the same three points as
+`syncShipStates()` (end of `init()`, end of every `tick()`, and the halted
+early-return branch), reconciles each ship's *real* cargo (`getShip().cargo.inventory`)
+against the table — upserting rows for goods currently held, deleting rows
+for goods no longer there — and assigns exactly two intents: `warehouse-deposit`
+for the warehouse ship's own hold, `resale` for everything else. Distinguishing
+`mission-delivery` (which mission a carrier is actually hauling for) and
+`held-position` (a deliberate margin hold vs. just-not-sold-yet) needs
+per-ship context this phase doesn't track — a real, documented gap, not an
+oversight, left for whichever later phase actually consumes it. Cost basis
+prefers this ship's own last purchase of the good (`lastPurchasePrice`,
+`basisKind: 'actual'`), falling back to the fleet-wide volume-weighted
+average (`avgPurchasePrice`) and then 0 for cargo that arrived by mining, a
+transfer, or contract fulfillment rather than a purchase this ship made
+itself. Exposed read-only at `GET /api/ship-manifest`, same shape as
+`/api/ship-state`.
+
+Known limitation, not yet optimized: `syncShipManifests()` does a
+sequential read-then-write per ship per tick (one `getManifestForShip` plus
+up to two purchase-price lookups per held good) rather than batching —
+fine at today's fleet sizes on a ~2s tick cadence, but a real cost to
+revisit if a large fleet's tick time starts to show it.
+
+9 new tests in `tests/shipManifest.test.ts`: Store round-trip/upsert-in-place/
+partial-delete/cross-tenant isolation, then `syncShipManifests()` against
+fake agents covering default-resale tagging, warehouse-ship tagging, actual-
+vs-estimated cost basis (a real two-ship ledger scenario, not a mock), goods
+dropping off the manifest once sold, and the no-store/tenantId no-op path.
+181 tests total, all passing.
+
+Phases 4-7 (ShipRegistry, and the unified scheduler that replaces the
+current per-agent blocking loops) are ahead — see the design doc for the
+full sequencing and why the scheduler is deliberately last. Phase 4
+(ShipRegistry ownership) is where the mission-delivery/held-position
+distinction this phase left open has a natural home, since ShipRegistry is
+exactly what will know *why* a ship currently has a claim.
 
 ## Local development
 
@@ -245,7 +397,7 @@ npm test
 
 | Command | Description |
 | --- | --- |
-| `npm run migrate` | Apply `migrations/001_init.sql` against `DATABASE_URL` |
+| `npm run migrate` | Apply every not-yet-applied `migrations/*.sql` file, in order, against `DATABASE_URL` |
 | `npm test` | Run the test suite (needs `TEST_DATABASE_URL`, defaults to a local `stcommand` db) |
 | `npm run typecheck` | Typecheck (`tsc --noEmit`) |
 | `npm run build` | Build to `dist/` |

@@ -8,7 +8,7 @@ import { ContractManager } from "./contract.js";
 import { MissionManager } from "./mission.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
-import type { Store } from "../db/store.js";
+import type { Store, CargoIntent } from "../db/store.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -303,6 +303,12 @@ export class FleetManager {
         this.log(`restore manual dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    // Persist the just-restored roles/statuses immediately rather than
+    // waiting for the first coordinator tick (~2s away) — a dashboard read
+    // that lands in that gap should see this boot's state, not the previous
+    // process's stale rows.
+    await this.syncShipStates();
+    await this.syncShipManifests();
   }
 
   /** Live cash floor. Read from doctrine each time so an edit applies on the
@@ -2152,6 +2158,87 @@ export class FleetManager {
     return statuses;
   }
 
+  /**
+   * Greenfield Phase 2: persist a coarse lifecycle state per ship —
+   * idle | assigned | travelling | docked, derived from `getShipStatuses()`'s
+   * role + live SpaceTraders nav status — so `ship_state` has a real record
+   * of what every ship was doing even before the next dashboard read
+   * re-derives it live. Deliberately does NOT track per-agent sub-steps
+   * (which mission leg, which resale hold, etc.) yet: `target`/`step` are
+   * always written null here. That finer detail is a real gap against the
+   * design doc's full state machine, left for a later phase once a specific
+   * agent needs to recover it — this phase's job is just "the persisted
+   * table is never stale by more than one coordinator tick," which is
+   * already true SpaceTraders-authoritative nav status can't itself be lost
+   * on restart, only the fleet's own intent could be, and that intent
+   * capture is exactly what Phase 3 (cargo manifest) and Phase 4
+   * (ShipRegistry) add.
+   */
+  private async syncShipStates(): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    const statuses = this.getShipStatuses();
+    await Promise.all(
+      statuses.map((s) => {
+        const state = s.role === "idle" ? "idle" : s.status === "IN_TRANSIT" ? "travelling" : s.status === "DOCKED" ? "docked" : "assigned";
+        return this.store!.updateShipState(this.tenantId!, s.symbol, state);
+      }),
+    );
+  }
+
+  /** A ship's current cargo inventory, whichever role map (or idleShips) actually holds it. */
+  private cargoForShip(shipSymbol: string): { symbol: string; units: number }[] {
+    const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
+    if (agent) return agent.getShip().cargo?.inventory ?? [];
+    return this.idleShips.get(shipSymbol)?.cargo?.inventory ?? [];
+  }
+
+  /**
+   * Greenfield Phase 3: reconcile the persisted `ship_manifest` against each
+   * ship's real cargo, once per coordinator tick (same cadence as
+   * `syncShipStates`). Deliberately assigns only two of the design doc's
+   * four intents — `warehouse-deposit` for the warehouse ship's own hold,
+   * `resale` for everything else — rather than the full `mission-delivery`/
+   * `held-position` distinction, which needs per-ship context (which
+   * mission a carrier is actually hauling for, whether a hold was
+   * deliberate) this phase doesn't track. That's a real, documented gap
+   * against the full design, not an oversight — see README's Greenfield
+   * section. Cost basis prefers this ship's own last purchase of the good
+   * (`basisKind: 'actual'`); falls back to the fleet-wide volume-weighted
+   * average, then 0, when this ship never bought it itself (picked it up
+   * via mining, a transfer, or contract fulfillment instead).
+   */
+  private async syncShipManifests(): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    const store = this.store;
+    const tenantId = this.tenantId;
+    const warehouseSymbol = this.warehouseShip?.shipSymbol;
+    for (const s of this.getShipStatuses()) {
+      const inventory = this.cargoForShip(s.symbol);
+      const existing = await store.getManifestForShip(tenantId, s.symbol);
+      const held = new Set(inventory.map((i) => i.symbol));
+      const stale = existing.filter((m) => !held.has(m.goodSymbol)).map((m) => m.goodSymbol);
+      if (stale.length) await store.deleteManifestRows(tenantId, s.symbol, stale);
+      if (inventory.length === 0) continue;
+
+      const intent: CargoIntent = s.symbol === warehouseSymbol ? "warehouse-deposit" : "resale";
+      const rows = await Promise.all(
+        inventory.map(async (item) => {
+          const actual = await store.lastPurchasePrice(tenantId, s.symbol, item.symbol);
+          const costBasis = actual ?? (await store.avgPurchasePrice(tenantId, item.symbol)) ?? 0;
+          return {
+            shipSymbol: s.symbol,
+            goodSymbol: item.symbol,
+            units: item.units,
+            costBasis,
+            basisKind: (actual !== undefined ? "actual" : "estimated") as "actual" | "estimated",
+            intent,
+          };
+        }),
+      );
+      await store.upsertManifestRows(tenantId, rows);
+    }
+  }
+
   /** Detect ships stranded without enough fuel to reach any known market. */
   getStrandedShips(): { symbol: string; waypointSymbol: string; fuel: number; reason: string }[] {
     const stranded: { symbol: string; waypointSymbol: string; fuel: number; reason: string }[] = [];
@@ -2218,6 +2305,8 @@ export class FleetManager {
       // API rather than through an agent loop, so it works while the loops
       // are held.
       await this.rescueStranded();
+      await this.syncShipStates();
+      await this.syncShipManifests();
       return;
     }
     await this.refreshCredits();
@@ -2241,6 +2330,8 @@ export class FleetManager {
     await this.autoExplore();
     await this.rescueStranded();
     await this.missions.tick();
+    await this.syncShipStates();
+    await this.syncShipManifests();
   }
 
   /**

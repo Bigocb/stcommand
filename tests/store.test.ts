@@ -425,10 +425,59 @@ describe("Store shared galaxy tables (no tenant scoping)", () => {
        VALUES ('X1-Z', $1, 'STALE_GOOD', 'EXPORT', 'ABUNDANT', 10, 20, 5, now() - interval '2 hours')`,
       [wp],
     );
+    // market_latest (the read-model projection) is only kept current by
+    // recordMarket(), not by inserting into market_snapshots directly — so
+    // seed the projection's row for this waypoint the same backdated way.
+    await pool.query(
+      `INSERT INTO market_latest (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
+       VALUES ('X1-Z', $1, 'STALE_GOOD', 'EXPORT', 'ABUNDANT', 10, 20, 5, now() - interval '2 hours')`,
+      [wp],
+    );
     const fresh = await store.freshMarketSnapshots(90);
     assert.ok(!fresh.some((s) => s.waypointSymbol === wp), "a 2-hour-old row must not pass a 90-minute freshness window");
     const all = await store.latestMarketSnapshots();
     assert.ok(all.some((s) => s.waypointSymbol === wp), "but it must still exist in the unfiltered view");
+  });
+
+  it("recordMarket keeps market_latest as one row per waypoint+good, overwritten by the newest write", async () => {
+    const wp = `X1-Z-PROJ${Date.now()}`;
+    await store.recordMarket({
+      systemSymbol: "X1-Z",
+      waypointSymbol: wp,
+      goodSymbol: "IRON_ORE",
+      type: "EXPORT",
+      supply: "MODERATE",
+      purchasePrice: 8,
+      sellPrice: 12,
+      tradeVolume: 20,
+    });
+    await store.recordMarket({
+      systemSymbol: "X1-Z",
+      waypointSymbol: wp,
+      goodSymbol: "IRON_ORE",
+      type: "EXPORT",
+      supply: "HIGH",
+      purchasePrice: 6,
+      sellPrice: 11,
+      tradeVolume: 25,
+    });
+    const projectionRows = await pool.query(
+      `SELECT purchase_price, sell_price, supply FROM market_latest WHERE waypoint_symbol = $1 AND good_symbol = 'IRON_ORE'`,
+      [wp],
+    );
+    assert.equal(projectionRows.rowCount, 1, "the projection must upsert in place, not accumulate one row per write");
+    assert.equal(projectionRows.rows[0].purchase_price, 6);
+    assert.equal(projectionRows.rows[0].supply, "HIGH");
+
+    const historyRows = await pool.query(
+      `SELECT count(*)::int AS n FROM market_snapshots WHERE waypoint_symbol = $1 AND good_symbol = 'IRON_ORE'`,
+      [wp],
+    );
+    assert.equal(historyRows.rows[0].n, 2, "the append-only history table must still keep both writes");
+
+    const viaStore = await store.latestMarketSnapshots();
+    const row = viaStore.find((s) => s.waypointSymbol === wp);
+    assert.equal(row?.purchasePrice, 6, "latestMarketSnapshots must read the projection, reflecting the newest write");
   });
 
   it("bestTrades ranks by margin and finds the actual cheapest/priciest waypoints", async () => {
