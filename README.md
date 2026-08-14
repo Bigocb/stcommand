@@ -370,12 +370,66 @@ vs-estimated cost basis (a real two-ship ledger scenario, not a mock), goods
 dropping off the manifest once sold, and the no-store/tenantId no-op path.
 181 tests total, all passing.
 
-Phases 4-7 (ShipRegistry, and the unified scheduler that replaces the
-current per-agent blocking loops) are ahead — see the design doc for the
-full sequencing and why the scheduler is deliberately last. Phase 4
-(ShipRegistry ownership) is where the mission-delivery/held-position
-distinction this phase left open has a natural home, since ShipRegistry is
-exactly what will know *why* a ship currently has a claim.
+**Phase 4 (ShipRegistry): done, dual-write only — not yet the gate anything checks.**
+`migrations/005_greenfield_phase4.sql` adds `ship_claims` (tenant-scoped,
+same RLS shape as Phase 2/3's tables). New `src/engine/shipRegistry.ts`:
+`ShipRegistry`, a real, standalone, fully-tested arbiter of "who owns this
+ship" — `claim(shipSymbol, owner, role, intent, opts?)` enforces a fixed
+precedence (`operator > mission > warehouse > keeper > auto`, highest to
+lowest), rejecting a weaker owner's claim over a stronger one's unless
+`preempt: true`; `release(shipSymbol, owner)` only clears a claim actually
+held by that owner; `available(forOwner)` lists ships `forOwner` could
+claim right now. `Store` gained `recordClaim`/`releaseClaim`/`getClaim`/
+`getAllClaims`.
+
+The design doc's version of this pillar wants fleet.ts's actual dispatch/
+warehouse/mission/keeper mutation call sites to call `claim()`/`release()`
+as their real gate, with the registry and the old ownership maps running in
+parallel for about a week and any disagreement between them logged loudly
+before the old maps get deleted. What shipped is the dual-write half of
+that, not the cutover: `FleetManager.shipRegistry` (public, one per tenant,
+hydrated from `ship_claims` in `init()`) is kept in sync by a new
+`syncShipClaims()`, called at the same three points as
+`syncShipStates`/`syncShipManifests()`. It derives each ship's owner from
+state fleet.ts already tracks — `operator` for a manually-dispatched/held
+ship, `warehouse` for the designated warehouse ship, `mission` for a ship
+`MissionManager.committedShips()` has assigned, `keeper` for a stationed
+keeper, `auto` otherwise — and claims it with `preempt: true`, since this is
+one real decision being mirrored, not two independent authorities that
+could actually disagree; preempt is what lets a released operator-hold
+correctly downgrade back to `auto` instead of getting stuck (plain
+precedence would otherwise block a weaker owner from ever reclaiming a
+stronger one's ship, which is right for real contention and wrong for
+resyncing the same source of truth). Because it's a mirror, there is
+nothing to log a disagreement about yet — the "log a loud warning on
+disagreement" step only means something once a second, independent
+decision-maker exists, which is exactly the cutover work this phase
+doesn't do. Nothing in fleet.ts's actual dispatch/warehouse/mission/keeper
+mutation methods calls `claim()`/`release()` as a gate; that wiring — the
+real, separate, higher-risk surgery — is left for whenever the registry has
+run stable in parallel, per the design doc's own migration plan. Exposed
+read-only at `GET /api/ship-claims`.
+
+Known gap, documented in `syncShipClaims()`'s own comment: a scrapped
+ship's claim is never explicitly released (only ships `getShipStatuses()`
+still reports get touched) — harmless today since nothing reads the
+registry as a gate yet, but real once something does.
+
+15 new tests in `tests/shipRegistry.test.ts`: pure `ShipRegistry` unit tests
+(precedence in both directions across all five owner levels, same-owner
+re-claim preserving `since`, `preempt`, `release`'s same-owner-only
+semantics, `available()`), a Postgres-backed persistence round-trip +
+cross-tenant isolation + `releaseClaim`'s owner check, and
+`syncShipClaims()` against fake agents covering every owner derivation
+(including the operator→auto downgrade the `preempt: true` choice exists
+for). 196 tests total, all passing.
+
+Phases 5-7 (the unified scheduler that replaces the current per-agent
+blocking loops, and the agent-by-agent conversion to it) are ahead — see
+the design doc for the full sequencing and why they're deliberately last:
+the scheduler needs a canonical ownership model to make preemption
+decisions, which is exactly what this phase built, even before anything
+calls it as a gate.
 
 ## Local development
 

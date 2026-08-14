@@ -9,6 +9,7 @@ import { MissionManager } from "./mission.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent } from "../db/store.js";
+import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -136,6 +137,8 @@ export class FleetManager {
   private lastCreditsFetch = 0;
   /** Centralized route dispatcher: distinct route per trader + operator overrides. */
   readonly dispatcher = new RouteDispatcher();
+  /** Greenfield Phase 4: mirrors this fleet's own ownership decisions — see shipRegistry.ts and syncShipClaims(). */
+  readonly shipRegistry = new ShipRegistry();
 
   constructor(opts: FleetOptions) {
     this.api = opts.api;
@@ -189,6 +192,7 @@ export class FleetManager {
     // this is the earliest point a halted fleet can be guaranteed to actually
     // stay halted now that the store is async.
     if (this.tenantId) this.paused = (await this.store?.getFleetFlag(this.tenantId, "paused")) === "true";
+    if (this.tenantId && this.store) await this.shipRegistry.loadAllClaims(this.tenantId, this.store);
     await this.doctrine.reload();
     const agent = await this.api.getMyAgent();
     this.credits = agent.credits;
@@ -309,6 +313,7 @@ export class FleetManager {
     // process's stale rows.
     await this.syncShipStates();
     await this.syncShipManifests();
+    await this.syncShipClaims();
   }
 
   /** Live cash floor. Read from doctrine each time so an edit applies on the
@@ -2239,6 +2244,53 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Greenfield Phase 4: mirror fleet.ts's own ownership decisions into
+   * `shipRegistry` (in-memory) and persist them, once per coordinator tick
+   * alongside `syncShipStates`/`syncShipManifests`. `owner` is derived from
+   * state fleet.ts already tracks: `operator` for a manually-dispatched/held
+   * ship (`isManual()`), `warehouse` for the designated warehouse ship,
+   * `mission` for a ship `MissionManager.committedShips()` currently has
+   * assigned, `keeper` for a stationed keeper, `auto` for everything else —
+   * the coordinator's own default role assignment.
+   *
+   * Every call passes `preempt: true`. That's deliberate, not a loophole:
+   * this is a mirror of one real decision, not two independently-arbitrated
+   * claimants, so the freshly-recomputed owner must always win even when
+   * it's weaker than what was persisted last tick — e.g. an operator
+   * releasing a held ship back to `auto` has to actually downgrade the
+   * claim, which plain `claim()` precedence rules would otherwise block.
+   * Real precedence enforcement (rejecting a genuinely competing claim) is
+   * exercised by ShipRegistry's own tests; nothing in fleet.ts's dispatch
+   * paths calls `claim()`/`release()` directly yet — see shipRegistry.ts's
+   * class comment and README's Greenfield section for why that's Phase 4's
+   * deliberate dual-write scope, not a gap.
+   *
+   * Known gap: a scrapped ship's claim is never explicitly released here
+   * (only ships `getShipStatuses()` still reports get touched) — harmless
+   * today since nothing yet reads `shipRegistry` as a gate, but real if a
+   * later phase starts trusting `available()`'s output without also
+   * pruning scrapped ships elsewhere.
+   */
+  private async syncShipClaims(): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    const warehouseSymbol = this.warehouseShip?.shipSymbol;
+    const committed = this.missions.committedShips();
+    for (const s of this.getShipStatuses()) {
+      const owner: ShipClaimOwner = s.paused
+        ? "operator"
+        : s.symbol === warehouseSymbol
+          ? "warehouse"
+          : committed.has(s.symbol)
+            ? "mission"
+            : s.role === "keeper"
+              ? "keeper"
+              : "auto";
+      this.shipRegistry.claim(s.symbol, owner, s.role as ShipClaimRole, { status: s.status }, { preempt: true });
+    }
+    await this.shipRegistry.persistDirtyState(this.tenantId, this.store);
+  }
+
   /** Detect ships stranded without enough fuel to reach any known market. */
   getStrandedShips(): { symbol: string; waypointSymbol: string; fuel: number; reason: string }[] {
     const stranded: { symbol: string; waypointSymbol: string; fuel: number; reason: string }[] = [];
@@ -2307,6 +2359,7 @@ export class FleetManager {
       await this.rescueStranded();
       await this.syncShipStates();
       await this.syncShipManifests();
+      await this.syncShipClaims();
       return;
     }
     await this.refreshCredits();
@@ -2332,6 +2385,7 @@ export class FleetManager {
     await this.missions.tick();
     await this.syncShipStates();
     await this.syncShipManifests();
+    await this.syncShipClaims();
   }
 
   /**

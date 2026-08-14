@@ -597,6 +597,13 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     res.json({ manifest: await w.store.getAllManifestRows(w.tenantId) });
   });
 
+  /** Greenfield Phase 4: the persisted ownership claims — a mirror of fleet.ts's own role/dispatch/mission/warehouse/keeper decisions, not yet the thing anything is gated on. See shipRegistry.ts. */
+  router.get("/ship-claims", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ claims: await w.store.getAllClaims(w.tenantId) });
+  });
+
   router.post("/fleet/dispatch", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

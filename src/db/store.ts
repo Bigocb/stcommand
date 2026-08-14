@@ -25,7 +25,8 @@ import { withTenant, withPool } from "./pool.js";
  * setFleetFlag, removeFleetFlag, getFleetState, setFleetState,
  * removeFleetState, getShipState, getAllShipStates, updateShipState,
  * getManifestForShip, getAllManifestRows, upsertManifestRows,
- * deleteManifestRows, warehouseBalance, warehouseAll, warehouseValue,
+ * deleteManifestRows, recordClaim, releaseClaim, getClaim, getAllClaims,
+ * warehouseBalance, warehouseAll, warehouseValue,
  * warehouseDeposit, warehouseWithdraw, warehouseLedger, warehouseTargetList,
  * setWarehouseTarget, removeWarehouseTarget, recordMarket,
  * latestMarketSnapshots, freshMarketSnapshots, bestTrades, tradeLegs,
@@ -119,6 +120,17 @@ export interface ManifestRow {
   basisKind: CostBasisKind;
   intent: CargoIntent;
   acquiredAt: string;
+}
+
+/** Greenfield Phase 4: mirrors src/engine/shipRegistry.ts's `Claim` shape — see that file for the ownership model this persists. */
+export type ShipOwner = "operator" | "mission" | "warehouse" | "keeper" | "auto";
+
+export interface ClaimRow {
+  shipSymbol: string;
+  owner: ShipOwner;
+  role: string;
+  intent: Record<string, unknown>;
+  since: string;
 }
 
 export interface MissionRow {
@@ -365,6 +377,43 @@ export class Store {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(`DELETE FROM ship_manifest WHERE ship_symbol = $1 AND good_symbol = ANY($2)`, [shipSymbol, goodSymbols]),
     );
+  }
+
+  // ── Ship claims (Greenfield Phase 4: ShipRegistry ownership) ─
+
+  async recordClaim(tenantId: string, claim: ClaimRow): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO ship_claims (tenant_id, ship_symbol, owner, role, intent, since) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET owner = excluded.owner, role = excluded.role, intent = excluded.intent, since = excluded.since`,
+        [tenantId, claim.shipSymbol, claim.owner, claim.role, JSON.stringify(claim.intent), claim.since],
+      ),
+    );
+  }
+
+  /** Deletes the claim, but only if it's currently held by `owner` — mirrors ShipRegistry.release()'s same-owner-only semantics. */
+  async releaseClaim(tenantId: string, shipSymbol: string, owner: ShipOwner): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(`DELETE FROM ship_claims WHERE ship_symbol = $1 AND owner = $2`, [shipSymbol, owner]),
+    );
+  }
+
+  private static mapClaimRow(r: { ship_symbol: string; owner: ShipOwner; role: string; intent: Record<string, unknown>; since: Date }): ClaimRow {
+    return { shipSymbol: r.ship_symbol, owner: r.owner, role: r.role, intent: r.intent, since: r.since.toISOString() };
+  }
+
+  async getClaim(tenantId: string, shipSymbol: string): Promise<ClaimRow | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(`SELECT * FROM ship_claims WHERE ship_symbol = $1`, [shipSymbol]);
+      return res.rows[0] ? Store.mapClaimRow(res.rows[0]) : undefined;
+    });
+  }
+
+  async getAllClaims(tenantId: string): Promise<ClaimRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(`SELECT * FROM ship_claims`);
+      return res.rows.map(Store.mapClaimRow);
+    });
   }
 
   // ── Fleet flags (small per-tenant settings blobs) ──────────
