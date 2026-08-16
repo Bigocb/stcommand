@@ -19,7 +19,18 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * to share a name.
  */
 export function createPool(connectionString: string): pg.Pool {
-  return new Pool({ connectionString, options: "-c search_path=stcommand" });
+  // Render's Postgres (and most hosted Postgres) requires TLS and rejects a
+  // plaintext connection outright ("SSL/TLS required") — local dev/CI
+  // Postgres on localhost neither requires nor typically serves a cert, so
+  // this is conditional on the host rather than always-on. Uses Node's
+  // default trusted-CA store (no rejectUnauthorized:false) since Render's
+  // cert verifies fine against it — no reason to weaken verification.
+  const isLocal = /(?:^|@)(localhost|127\.0\.0\.1)(?::|\/)/.test(connectionString);
+  return new Pool({
+    connectionString,
+    options: "-c search_path=stcommand",
+    ssl: isLocal ? undefined : true,
+  });
 }
 
 /**
