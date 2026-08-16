@@ -1,7 +1,7 @@
 import { describe, it, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { FleetManager } from "../src/engine/fleet.js";
+import { FleetManager, DEFAULT_KEEPER_MARKETS } from "../src/engine/fleet.js";
 import { createPool } from "../src/db/pool.js";
 import { Store } from "../src/db/store.js";
 
@@ -704,5 +704,67 @@ describe("FleetManager warehouse API surface", () => {
   it("adjustWarehouse throws with no store attached", async () => {
     const fleet = makeFleet([]);
     await assert.rejects(() => fleet.adjustWarehouse("IRON", 10, "deposit", 5), /store not available/);
+  });
+});
+
+describe("Keeper markets: no cross-tenant data leakage, command ship excluded", () => {
+  // Regression coverage for a real bug shipped to production: this default
+  // used to be a hardcoded set of waypoints (X1-BY69-*) left over from
+  // straders' own single-tenant deployment's home system, and
+  // keeperPriorityMarkets() persists whatever it falls back to into the
+  // *calling tenant's own* fleet_flags row on first read — so every new
+  // tenant that ever hit this path got another deployment's fixture data
+  // written into their own account as if they'd configured it themselves.
+  it("DEFAULT_KEEPER_MARKETS is empty — no fixture data from any prior deployment", () => {
+    assert.deepEqual(DEFAULT_KEEPER_MARKETS, []);
+  });
+
+  it("a fresh tenant's keeperPriorityMarkets() is empty, not seeded with another tenant's/deployment's waypoints", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+
+    const markets = await fleet.keeperPriorityMarkets();
+
+    assert.deepEqual(markets, []);
+    // And confirm it's really persisted as empty, not left unset to
+    // silently re-derive a non-empty default on a later read.
+    const persisted = await store.getFleetFlag(tenantId, "keeperMarkets");
+    assert.deepEqual(JSON.parse(persisted!), []);
+  });
+
+  it("maybeAssignKeepers converts nothing for a fresh tenant with no configured keeper markets", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const agent = makeFakeAgent("MINER-1", "X1-A-A1");
+    const fleet = makeFleet([], store, tenantId);
+    (fleet as any).miners.set("MINER-1", agent);
+    await fleet.doctrine.set("keeperCount", { value: 5, enabled: true });
+
+    await (fleet as any).maybeAssignKeepers();
+
+    assert.ok(!(fleet as any).keepers.has("MINER-1"), "a brand-new tenant must not have ships auto-converted to keepers with no curated list configured");
+  });
+
+  it("the command ship is never converted to a keeper, even if it's mining-equipped and would otherwise be picked first", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const command = makeFakeAgent("COMMAND-1", "X1-A-A1");
+    (command as any).getShip = () => ({ symbol: "COMMAND-1", nav: { status: "DOCKED", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units: 0, inventory: [] }, registration: { role: "COMMAND" } });
+    const miner = makeFakeAgent("MINER-1", "X1-A-A1");
+    const fleet = makeFleet([], store, tenantId);
+    (fleet as any).miners.set("COMMAND-1", command);
+    (fleet as any).miners.set("MINER-1", miner);
+    await fleet.doctrine.set("keeperCount", { value: 5, enabled: true });
+    await store.setFleetFlag(tenantId, "keeperMarkets", JSON.stringify(["X1-A-D46"]));
+
+    await (fleet as any).maybeAssignKeepers();
+
+    assert.ok(!(fleet as any).keepers.has("COMMAND-1"), "the command ship must never be an auto-keeper candidate");
+    assert.ok((fleet as any).keepers.has("MINER-1"), "a normal miner must still be convertible");
+    // maybeAssignKeepers() launches the new keeper's real keeperLoop() in
+    // the background (no scheduler on this fleet) — must be stopped or its
+    // own error-backoff retries keep the test process alive indefinitely.
+    (fleet as any).keepers.get("MINER-1")?.stop();
   });
 });

@@ -193,7 +193,12 @@ describe("maybeAssignKeepers with a scheduler present", () => {
     const originalKeeperLoop = OriginalShipAgent.prototype.keeperLoop;
     OriginalShipAgent.prototype.keeperLoop = async function (this: any, maxTicks: number) { keeperLoopStarted = true; };
     try {
-      // keeperPriorityMarkets() defaults to a built-in list when no store/tenantId is set.
+      // keeperPriorityMarkets() defaults to [] (no store/tenantId on this
+      // fleet to read a configured list from, and the built-in default is
+      // deliberately empty — see DEFAULT_KEEPER_MARKETS's own comment).
+      // This test is about the scheduler-vs-old-loop branch, not the
+      // priority-list plumbing, so stub a market directly.
+      (fleet as any).keeperPriorityMarkets = async () => ["X1-A-D46"];
       await (fleet as any).maybeAssignKeepers();
     } finally {
       OriginalShipAgent.prototype.keeperLoop = originalKeeperLoop;

@@ -25,12 +25,22 @@ export type ShipType = components["schemas"]["ShipType"];
 /** How long the cached agent credit balance stays good for. See `refreshCredits`. */
 const CREDITS_TTL_MS = 30_000;
 
-/** Buy markets keepers are stationed at to keep prices fresh. Configurable via
- *  the dashboard; persisted as a JSON `fleet_flags` row named `keeperMarkets`. */
-export const DEFAULT_KEEPER_MARKETS = [
-  "X1-BY69-D46", "X1-BY69-E48", "X1-BY69-K85", "X1-BY69-C43", "X1-BY69-H56",
-  "X1-BY69-G54", "X1-BY69-D45", "X1-BY69-E49", "X1-BY69-F52",
-];
+/**
+ * Buy markets keepers are stationed at to keep prices fresh. Configurable via
+ * the dashboard; persisted as a JSON `fleet_flags` row named `keeperMarkets`.
+ *
+ * Empty, not a curated list: this used to default to a hardcoded set of
+ * waypoints (`X1-BY69-*`) left over from straders' original single-tenant
+ * deployment's own home system — every new tenant that ever hit
+ * `keeperPriorityMarkets()` had that other system's waypoints written into
+ * *their own* `fleet_flags` row as if it were their configuration, since
+ * that method also persists the default on first read. Real tenant data
+ * contaminated with another deployment's fixture data, not just a bad
+ * fallback value. A new tenant should see no curated keeper markets at all
+ * until they configure their own — same as `keeperCoverList` and the
+ * curated warehouse-goods list already default to off/empty.
+ */
+export const DEFAULT_KEEPER_MARKETS: string[] = [];
 
 /**
  * The control surface every ship agent shares, regardless of role. Used so the
@@ -2645,7 +2655,13 @@ export class FleetManager {
     // whole uncovered list in one pass when coverList is on; otherwise stops at
     // the keeperCount cap. The conversion itself makes no API calls, so the old
     // one-ship-per-pass crawl just wasted minutes.
-    const idle = (a: ShipAgent) => !a.isManual() && !a.isSuspended() && (a.getShip().cargo?.units ?? 0) === 0;
+    // The command ship is never a candidate, no matter how it's equipped —
+    // a fleet's flagship (registration.role === "COMMAND") shouldn't get
+    // parked as a market listener just because an operator fitted it with a
+    // mining laser, which is otherwise the only way it could even end up in
+    // `this.miners` at all (assignRole() only routes a COMMAND-role ship to
+    // `traders`, not `miners`, when it isn't mining-equipped).
+    const idle = (a: ShipAgent) => !a.isManual() && !a.isSuspended() && (a.getShip().cargo?.units ?? 0) === 0 && a.getShip().registration?.role !== "COMMAND";
     const miners = [...this.miners.entries()].filter(([, a]) => idle(a));
     const shuttles = [...this.tours.entries()].filter(([, a]) => idle(a));
     for (;;) {
