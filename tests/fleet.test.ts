@@ -808,3 +808,51 @@ describe("FleetManager.setShipRole", () => {
     assert.ok((fleet as any).scouts.has("COMMAND-1"));
   });
 });
+
+describe("FleetManager.restorePersistedManualRoles (setShipRole surviving a restart)", () => {
+  it("re-applies a persisted manual role that disagrees with what assignRole() just derived", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    // Simulate: an earlier setShipRole("COMMAND-1", "miner") was persisted,
+    // but this "restart" 's assignRole() pass (simulated here by seeding
+    // the trader map directly, the way makeFleet's helper already does)
+    // put it back in traders — same as a real init() would for a
+    // cargo-capable, non-mining-equipped hull.
+    await store.setFleetState(tenantId, "COMMAND-1", "miner");
+    const command = makeFakeAgent("COMMAND-1", "X1-A-A1");
+    const fleet = makeFleet([command], store, tenantId);
+    assert.ok((fleet as any).traders.has("COMMAND-1"), "sanity: assignRole's simulated result disagrees with the persisted role");
+
+    await (fleet as any).restorePersistedManualRoles([command.getShip()]);
+
+    assert.ok(!(fleet as any).traders.has("COMMAND-1"), "the disagreeing derived role must be replaced");
+    assert.ok((fleet as any).miners.has("COMMAND-1"), "the persisted manual override must win");
+  });
+
+  it("is a no-op when the persisted role already matches what's currently assigned", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    await store.setFleetState(tenantId, "SHIP-1", "trader");
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    let reconstructed = false;
+    agent.stop = () => { reconstructed = true; };
+    const fleet = makeFleet([agent], store, tenantId); // seeded into traders — already agrees with the persisted role
+
+    await (fleet as any).restorePersistedManualRoles([agent.getShip()]);
+
+    assert.ok(!reconstructed, "an already-agreeing role must not be torn down and rebuilt");
+    assert.ok((fleet as any).traders.has("SHIP-1"));
+  });
+
+  it("leaves the derived role in place, rather than throwing, when a persisted keeper row has no resolvable market", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    await store.setFleetState(tenantId, "SHIP-1", "keeper"); // no keeperMarket column, and not at a known market
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent], store, tenantId);
+
+    await assert.doesNotReject(() => (fleet as any).restorePersistedManualRoles([agent.getShip()]));
+
+    assert.ok((fleet as any).traders.has("SHIP-1"), "assignRole's derived role must survive when the override can't be applied");
+  });
+});

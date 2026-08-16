@@ -42,6 +42,10 @@ const CREDITS_TTL_MS = 30_000;
  */
 export const DEFAULT_KEEPER_MARKETS: string[] = [];
 
+/** Roles assignable via setShipRole() — every real role except the two that aren't a ship-agent type (`warehouse` is a designation on top of whatever role a ship already has; `idle` just means no agent claims it). */
+type ManualRole = Exclude<ShipClaimRole, "warehouse" | "idle">;
+const MANUAL_ROLES: ReadonlySet<ManualRole> = new Set<ManualRole>(["miner", "trader", "surveyor", "tour", "keeper", "scout", "siphoner"]);
+
 /**
  * The control surface every ship agent shares, regardless of role. Used so the
  * coordinator can command any ship uniformly instead of switch-casing on role.
@@ -258,10 +262,12 @@ export class FleetManager {
       if (ship.frame?.symbol) await this.doctrine.ensureShipTypeRule(ship.frame.symbol);
       await this.assignRole(ship);
     }
-    // Restore converted keepers immediately instead of re-crawling one per
-    // coordinator pass. Probe keepers re-derive in assignRole above; this
-    // resurrects converted miners/shuttles whose role is a runtime decision.
-    await this.restorePersistedKeepers(ships);
+    // Restore converted/overridden roles immediately instead of re-crawling
+    // one per coordinator pass. Ships whose role assignRole() already
+    // re-derives correctly (probe → keeper, mounts → miner, etc.) are a
+    // no-op here; this resurrects anything assignRole() couldn't reach on
+    // its own (maybeAssignKeepers() conversions, setShipRole() overrides).
+    await this.restorePersistedManualRoles(ships);
     // Promote the largest-cargo ship to trader if we have enough miners and no trader yet.
     if (this.miners.size >= 3 && this.traders.size === 0) {
       const best = ships
@@ -907,46 +913,156 @@ export class FleetManager {
   }
 
   /**
-   * Resurrect keepers whose assignment was a runtime decision (converted
-   * miner/shuttle) rather than a deterministic re-derivation. Called during
-   * init() so keeper count snaps back before the first coordinator pass.
+   * Resurrect any ship whose persisted `fleet_state` role disagrees with
+   * what `assignRole()` just derived for it from mounts/frame — a runtime
+   * decision (maybeAssignKeepers() converting a miner/shuttle) or an
+   * explicit operator override (`setShipRole()`, e.g. putting the command
+   * ship into `keepers` or back). Called during init() so the fleet snaps
+   * back to its last known-good state before the first coordinator pass,
+   * rather than every manual override reverting itself on every restart.
    */
-  private async restorePersistedKeepers(ships: Ship[]): Promise<void> {
+  private async restorePersistedManualRoles(ships: Ship[]): Promise<void> {
     const rows = (this.tenantId ? await this.store?.getFleetState(this.tenantId) : undefined) ?? [];
     for (const r of rows) {
-      if (r.role !== "keeper") continue;
-      if (this.keepers.has(r.shipSymbol)) continue;
+      if (!MANUAL_ROLES.has(r.role as ManualRole)) continue; // unknown/stale role value; ignore rather than crash
+      const role = r.role as ManualRole;
+      if (this.roleOf(r.shipSymbol) === role) continue; // assignRole() already agrees; nothing to redo
       const ship = ships.find((s) => s.symbol === r.shipSymbol);
       if (!ship) continue; // scrapped while we were down; row is now inert
-      const market = r.keeperMarket ?? this.keeperMarketFor(ship);
-      if (!market) continue;
-      // Whatever assignRole gave it is wrong — stop and release that role.
-      this.miners.get(r.shipSymbol)?.stop();
-      this.surveyors.get(r.shipSymbol)?.stop();
-      this.tours.get(r.shipSymbol)?.stop();
-      this.traders.get(r.shipSymbol)?.stop();
-      this.scouts.get(r.shipSymbol)?.stop();
-      this.siphoners.get(r.shipSymbol)?.stop();
-      this.miners.delete(r.shipSymbol);
-      this.surveyors.delete(r.shipSymbol);
-      this.tours.delete(r.shipSymbol);
-      this.traders.delete(r.shipSymbol);
-      this.scouts.delete(r.shipSymbol);
-      this.siphoners.delete(r.shipSymbol);
-      this.dispatcher.release(r.shipSymbol);
-      const keeper = new ShipAgent(ship, {
-        api: this.api,
-        shouldRun: () => !this.paused,
-        log: (m) => this.log(`${r.shipSymbol}: ${m}`),
-        recordLedger: this.recordLedger,
-        onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${r.shipSymbol} ${detail}`, credits),
-        recordMarket: (wp) => this.recordMarketSnapshot(wp),
-        recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
-        keeperMarket: () => this.keeperMarkets.get(r.shipSymbol),
-      }).withWorld(this.positions, this.markets);
-      this.keepers.set(r.shipSymbol, keeper);
-      this.keeperMarkets.set(r.shipSymbol, market);
-      this.log(`restored keeper ${r.shipSymbol} (stationed at ${market})`);
+      if (role === "keeper" && !(r.keeperMarket ?? this.keeperMarketFor(ship))) {
+        // Resolve (or fail to) *before* touching any role map: installRoleAgent()
+        // itself would throw on this same check, but only after clearRoleMaps()
+        // had already torn down whatever assignRole() derived — leaving the ship
+        // with no role at all instead of just keeping its derived one.
+        this.log(`restore role keeper for ${r.shipSymbol} skipped: no market given, and it isn't currently at one`);
+        continue;
+      }
+      this.clearRoleMaps(r.shipSymbol);
+      const market = this.installRoleAgent(ship, role, r.keeperMarket);
+      this.log(`restored role ${role} for ${r.shipSymbol}${market ? ` (stationed at ${market})` : ""}`);
+    }
+  }
+
+  /** Stop and remove a ship's agent from every role map, freeing its route/market claims too. Shared by setShipRole() and restorePersistedManualRoles() — both replace whatever role a ship currently has with a different one. */
+  private clearRoleMaps(shipSymbol: string): void {
+    this.miners.get(shipSymbol)?.stop();
+    this.traders.get(shipSymbol)?.stop();
+    this.surveyors.get(shipSymbol)?.stop();
+    this.scouts.get(shipSymbol)?.stop();
+    this.tours.get(shipSymbol)?.stop();
+    this.keepers.get(shipSymbol)?.stop();
+    this.siphoners.get(shipSymbol)?.stop();
+    this.miners.delete(shipSymbol);
+    this.traders.delete(shipSymbol);
+    this.surveyors.delete(shipSymbol);
+    this.scouts.delete(shipSymbol);
+    this.tours.delete(shipSymbol);
+    this.keepers.delete(shipSymbol);
+    this.siphoners.delete(shipSymbol);
+    this.keeperMarkets.delete(shipSymbol);
+    this.dispatcher.release(shipSymbol);
+    this.idleShips.delete(shipSymbol);
+  }
+
+  /**
+   * Construct the right agent type for `role` and insert it into that role's
+   * map. Returns the resolved keeper market when `role === "keeper"` (for
+   * the caller to persist), throws if that role is requested with no
+   * market resolvable. Shared by setShipRole() and restorePersistedManualRoles().
+   */
+  private installRoleAgent(ship: Ship, role: ManualRole, keeperMarket?: string): string | undefined {
+    const shipSymbol = ship.symbol;
+    switch (role) {
+      case "miner":
+        this.miners.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
+            surveyPool: this.surveyPool,
+            protectedGoods: () => this.missions.protectedGoods(),
+          }).withWorld(this.positions, this.markets),
+        );
+        return undefined;
+      case "surveyor":
+        this.surveyors.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            surveyPool: this.surveyPool,
+            protectedGoods: () => this.missions.protectedGoods(),
+            marketTourTargets: () => this.marketTourTargets(),
+            shipyardTourTargets: () => this.shipyardTourTargets(),
+            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          }).withWorld(this.positions, this.markets),
+        );
+        return undefined;
+      case "siphoner":
+        this.siphoners.set(
+          shipSymbol,
+          new SiphonerAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            protectedGoods: () => this.missions.protectedGoods(),
+          }).withWorld(this.positions, this.markets),
+        );
+        return undefined;
+      case "keeper": {
+        const resolvedKeeperMarket = keeperMarket ?? this.keeperMarketFor(ship);
+        if (!resolvedKeeperMarket) throw new Error(`${shipSymbol}: no keeper market given, and it isn't currently at one`);
+        this.keepers.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+            keeperMarket: () => this.keeperMarkets.get(shipSymbol),
+          }).withWorld(this.positions, this.markets),
+        );
+        this.keeperMarkets.set(shipSymbol, resolvedKeeperMarket);
+        return resolvedKeeperMarket;
+      }
+      case "tour":
+        this.tours.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            marketTourTargets: () => this.sectorTourTargets(shipSymbol),
+            staleMarketTargets: () => this.staleMarketTargets(),
+            shipyardTourTargets: () => this.shipyardTourTargets(),
+            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          }).withWorld(this.positions, this.markets),
+        );
+        return undefined;
+      case "trader":
+        this.traders.set(shipSymbol, new TraderAgent(ship, this.traderOptions(shipSymbol)).withWorld(this.positions));
+        return undefined;
+      case "scout":
+        this.registerScout(ship);
+        return undefined;
     }
   }
 
@@ -1461,127 +1577,14 @@ export class FleetManager {
    * from the ship's *current* position, unlike the real keeperLoop()/
    * nextKeeperTask() poll, which flies to its assigned market on its own).
    *
-   * Only the `keeper` case survives a restart: restorePersistedKeepers()
-   * re-applies any persisted `role === "keeper"` row for any ship symbol,
-   * not just the miners/shuttles maybeAssignKeepers() itself converts. A
-   * manual override to any other role is re-derived away by assignRole()
-   * on the next init() — deliberately not built out further, since the
-   * only role that's not already re-derivable from mounts/frame is keeper.
+   * Survives a restart: restorePersistedManualRoles(), called from init(),
+   * re-applies whatever role is persisted here for any ship symbol whose
+   * derived role (from assignRole()) disagrees with it.
    */
-  async setShipRole(shipSymbol: string, role: Exclude<ShipClaimRole, "warehouse" | "idle">, keeperMarket?: string): Promise<void> {
+  async setShipRole(shipSymbol: string, role: ManualRole, keeperMarket?: string): Promise<void> {
     const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
-
-    this.miners.get(shipSymbol)?.stop();
-    this.traders.get(shipSymbol)?.stop();
-    this.surveyors.get(shipSymbol)?.stop();
-    this.scouts.get(shipSymbol)?.stop();
-    this.tours.get(shipSymbol)?.stop();
-    this.keepers.get(shipSymbol)?.stop();
-    this.siphoners.get(shipSymbol)?.stop();
-    this.miners.delete(shipSymbol);
-    this.traders.delete(shipSymbol);
-    this.surveyors.delete(shipSymbol);
-    this.scouts.delete(shipSymbol);
-    this.tours.delete(shipSymbol);
-    this.keepers.delete(shipSymbol);
-    this.siphoners.delete(shipSymbol);
-    this.keeperMarkets.delete(shipSymbol);
-    this.dispatcher.release(shipSymbol);
-    this.idleShips.delete(shipSymbol);
-
-    let resolvedKeeperMarket: string | undefined;
-    switch (role) {
-      case "miner":
-        this.miners.set(
-          shipSymbol,
-          new ShipAgent(ship, {
-            api: this.api,
-            shouldRun: () => !this.paused,
-            log: (m) => this.log(`${shipSymbol}: ${m}`),
-            recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
-            recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
-            surveyPool: this.surveyPool,
-            protectedGoods: () => this.missions.protectedGoods(),
-          }).withWorld(this.positions, this.markets),
-        );
-        break;
-      case "surveyor":
-        this.surveyors.set(
-          shipSymbol,
-          new ShipAgent(ship, {
-            api: this.api,
-            shouldRun: () => !this.paused,
-            log: (m) => this.log(`${shipSymbol}: ${m}`),
-            recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
-            recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            surveyPool: this.surveyPool,
-            protectedGoods: () => this.missions.protectedGoods(),
-            marketTourTargets: () => this.marketTourTargets(),
-            shipyardTourTargets: () => this.shipyardTourTargets(),
-            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
-          }).withWorld(this.positions, this.markets),
-        );
-        break;
-      case "siphoner":
-        this.siphoners.set(
-          shipSymbol,
-          new SiphonerAgent(ship, {
-            api: this.api,
-            shouldRun: () => !this.paused,
-            log: (m) => this.log(`${shipSymbol}: ${m}`),
-            recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
-            recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            protectedGoods: () => this.missions.protectedGoods(),
-          }).withWorld(this.positions, this.markets),
-        );
-        break;
-      case "keeper": {
-        resolvedKeeperMarket = keeperMarket ?? this.keeperMarketFor(ship);
-        if (!resolvedKeeperMarket) throw new Error(`${shipSymbol}: no keeper market given, and it isn't currently at one`);
-        this.keepers.set(
-          shipSymbol,
-          new ShipAgent(ship, {
-            api: this.api,
-            shouldRun: () => !this.paused,
-            log: (m) => this.log(`${shipSymbol}: ${m}`),
-            recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
-            recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
-            keeperMarket: () => this.keeperMarkets.get(shipSymbol),
-          }).withWorld(this.positions, this.markets),
-        );
-        this.keeperMarkets.set(shipSymbol, resolvedKeeperMarket);
-        break;
-      }
-      case "tour":
-        this.tours.set(
-          shipSymbol,
-          new ShipAgent(ship, {
-            api: this.api,
-            shouldRun: () => !this.paused,
-            log: (m) => this.log(`${shipSymbol}: ${m}`),
-            recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
-            recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            marketTourTargets: () => this.sectorTourTargets(shipSymbol),
-            staleMarketTargets: () => this.staleMarketTargets(),
-            shipyardTourTargets: () => this.shipyardTourTargets(),
-            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
-          }).withWorld(this.positions, this.markets),
-        );
-        break;
-      case "trader":
-        this.traders.set(shipSymbol, new TraderAgent(ship, this.traderOptions(shipSymbol)).withWorld(this.positions));
-        break;
-      case "scout":
-        this.registerScout(ship);
-        break;
-    }
+    this.clearRoleMaps(shipSymbol);
+    const resolvedKeeperMarket = this.installRoleAgent(ship, role, keeperMarket);
     this.log(`role: ${role} ${shipSymbol} (manual override)`);
 
     if (this.tenantId) await this.store?.setFleetState(this.tenantId, shipSymbol, role, resolvedKeeperMarket);
