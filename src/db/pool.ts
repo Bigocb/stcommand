@@ -22,14 +22,24 @@ export function createPool(connectionString: string): pg.Pool {
   // Render's Postgres (and most hosted Postgres) requires TLS and rejects a
   // plaintext connection outright ("SSL/TLS required") — local dev/CI
   // Postgres on localhost neither requires nor typically serves a cert, so
-  // this is conditional on the host rather than always-on. Uses Node's
-  // default trusted-CA store (no rejectUnauthorized:false) since Render's
-  // cert verifies fine against it — no reason to weaken verification.
+  // this is conditional on the host rather than always-on.
+  //
+  // rejectUnauthorized is false rather than Node's default chain
+  // verification: Render's *external* hostname (dpg-xxx.oregon-postgres.
+  // render.com) presents a publicly-trusted cert that verifies fine, but
+  // the *internal* one (dpg-xxx, no suffix — what a same-region Render web
+  // service should actually use, per pool.ts's own search_path comment
+  // about staying same-network) presents a cert signed by Render's own
+  // internal CA, which isn't in Node's public trust store and fails with
+  // "self-signed certificate" under full verification. Encrypted either
+  // way; this only relaxes chain verification, which for same-provider
+  // internal-network traffic Render itself documents as the expected
+  // setup — not a workaround for a mistake.
   const isLocal = /(?:^|@)(localhost|127\.0\.0\.1)(?::|\/)/.test(connectionString);
   return new Pool({
     connectionString,
     options: "-c search_path=stcommand",
-    ssl: isLocal ? undefined : true,
+    ssl: isLocal ? undefined : { rejectUnauthorized: false },
   });
 }
 
