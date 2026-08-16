@@ -2082,6 +2082,20 @@ function openShipDetails(shipSymbol) {
         <button class="pin-mine" data-ship="${shipSymbol}">Mine here</button>
       </div>` : ""}
     </div>
+    ${ship.registration.role === "COMMAND" ? `<div class="loadout-section"><h4>Role</h4>
+      <div class="jump-row">
+        <span class="tgt"><b>Current: ${st?.role ?? "idle"}</b> <span class="d" style="color:var(--dim);font-size:9px">the flagship is never auto-converted — change it manually here</span></span>
+      </div>
+      <div class="jump-row">
+        <select class="role-select" aria-label="Role" style="flex:1;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px">
+          ${["trader", "miner", "surveyor", "siphoner", "tour", "scout", "keeper"].map((r) => `<option value="${r}" ${r === st?.role ? "selected" : ""}>${r}</option>`).join("")}
+        </select>
+        <button class="set-role" data-ship="${shipSymbol}">Change</button>
+      </div>
+      <div class="jump-row role-keeper-market" style="display:none">
+        <input type="text" class="role-keeper-wp" placeholder="keeper market waypoint (skip if already there)" style="width:100%;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px" />
+      </div>
+    </div>` : ""}
     <div class="loadout-section"><h4>Cargo hold</h4>
       ${(ship.cargo.inventory ?? []).length
         ? `<div class="loadout-grid">${(ship.cargo.inventory ?? []).map((i) =>
@@ -2158,6 +2172,29 @@ function openShipDetails(shipSymbol) {
       try {
         await api("POST", "/api/fleet/dispatch", { shipSymbol: b.dataset.ship, waypointSymbol: wp });
         showToastGlobal(`${b.dataset.ship} → ${wp}`);
+        await loadBridge();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".role-select").forEach((sel) => {
+    const toggle = () => {
+      const row = modal.querySelector(".role-keeper-market");
+      if (row) row.style.display = sel.value === "keeper" ? "" : "none";
+    };
+    sel.addEventListener("change", toggle);
+    toggle();
+  });
+  modal.querySelectorAll(".set-role").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const select = modal.querySelector(".role-select");
+      const role = select?.value;
+      const keeperMarket = modal.querySelector(".role-keeper-wp")?.value.trim() || undefined;
+      if (!role) return;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/role", { shipSymbol: b.dataset.ship, role, keeperMarket });
+        showToastGlobal(`${b.dataset.ship} → ${role}`);
         await loadBridge();
         openShipDetails(b.dataset.ship);
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }

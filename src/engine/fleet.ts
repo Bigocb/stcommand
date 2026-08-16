@@ -1447,6 +1447,175 @@ export class FleetManager {
     await this.setManualDispatch(shipSymbol, undefined);
   }
 
+  /**
+   * Operator override: force a ship into a specific role, regardless of what
+   * assignRole() would have derived from its mounts/frame. Exists for cases
+   * assignRole() deliberately can't reach on its own — most notably the
+   * command ship, which assignRole() will never route to `keepers` (only a
+   * SATELLITE/FRAME_PROBE hull qualifies) and `maybeAssignKeepers()` now
+   * explicitly excludes (see the idle-candidate filter's COMMAND check) —
+   * but works for any ship symbol, not just the flagship.
+   *
+   * `keeperMarket` is required when `role === "keeper"` unless the ship is
+   * already sitting at a market waypoint (keeperMarketFor() only resolves
+   * from the ship's *current* position, unlike the real keeperLoop()/
+   * nextKeeperTask() poll, which flies to its assigned market on its own).
+   *
+   * Only the `keeper` case survives a restart: restorePersistedKeepers()
+   * re-applies any persisted `role === "keeper"` row for any ship symbol,
+   * not just the miners/shuttles maybeAssignKeepers() itself converts. A
+   * manual override to any other role is re-derived away by assignRole()
+   * on the next init() — deliberately not built out further, since the
+   * only role that's not already re-derivable from mounts/frame is keeper.
+   */
+  async setShipRole(shipSymbol: string, role: Exclude<ShipClaimRole, "warehouse" | "idle">, keeperMarket?: string): Promise<void> {
+    const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
+
+    this.miners.get(shipSymbol)?.stop();
+    this.traders.get(shipSymbol)?.stop();
+    this.surveyors.get(shipSymbol)?.stop();
+    this.scouts.get(shipSymbol)?.stop();
+    this.tours.get(shipSymbol)?.stop();
+    this.keepers.get(shipSymbol)?.stop();
+    this.siphoners.get(shipSymbol)?.stop();
+    this.miners.delete(shipSymbol);
+    this.traders.delete(shipSymbol);
+    this.surveyors.delete(shipSymbol);
+    this.scouts.delete(shipSymbol);
+    this.tours.delete(shipSymbol);
+    this.keepers.delete(shipSymbol);
+    this.siphoners.delete(shipSymbol);
+    this.keeperMarkets.delete(shipSymbol);
+    this.dispatcher.release(shipSymbol);
+    this.idleShips.delete(shipSymbol);
+
+    let resolvedKeeperMarket: string | undefined;
+    switch (role) {
+      case "miner":
+        this.miners.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
+            surveyPool: this.surveyPool,
+            protectedGoods: () => this.missions.protectedGoods(),
+          }).withWorld(this.positions, this.markets),
+        );
+        break;
+      case "surveyor":
+        this.surveyors.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            surveyPool: this.surveyPool,
+            protectedGoods: () => this.missions.protectedGoods(),
+            marketTourTargets: () => this.marketTourTargets(),
+            shipyardTourTargets: () => this.shipyardTourTargets(),
+            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          }).withWorld(this.positions, this.markets),
+        );
+        break;
+      case "siphoner":
+        this.siphoners.set(
+          shipSymbol,
+          new SiphonerAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            protectedGoods: () => this.missions.protectedGoods(),
+          }).withWorld(this.positions, this.markets),
+        );
+        break;
+      case "keeper": {
+        resolvedKeeperMarket = keeperMarket ?? this.keeperMarketFor(ship);
+        if (!resolvedKeeperMarket) throw new Error(`${shipSymbol}: no keeper market given, and it isn't currently at one`);
+        this.keepers.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+            keeperMarket: () => this.keeperMarkets.get(shipSymbol),
+          }).withWorld(this.positions, this.markets),
+        );
+        this.keeperMarkets.set(shipSymbol, resolvedKeeperMarket);
+        break;
+      }
+      case "tour":
+        this.tours.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            marketTourTargets: () => this.sectorTourTargets(shipSymbol),
+            staleMarketTargets: () => this.staleMarketTargets(),
+            shipyardTourTargets: () => this.shipyardTourTargets(),
+            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          }).withWorld(this.positions, this.markets),
+        );
+        break;
+      case "trader":
+        this.traders.set(shipSymbol, new TraderAgent(ship, this.traderOptions(shipSymbol)).withWorld(this.positions));
+        break;
+      case "scout":
+        this.registerScout(ship);
+        break;
+    }
+    this.log(`role: ${role} ${shipSymbol} (manual override)`);
+
+    if (this.tenantId) await this.store?.setFleetState(this.tenantId, shipSymbol, role, resolvedKeeperMarket);
+
+    if (this.running) {
+      if (this.scheduler) {
+        // shipSymbol is likely already in scheduledShips from its old role
+        // (its old agent's task chain just terminated itself via stop()
+        // setting running=false), so syncSchedulerTasks()'s generic "is this
+        // ship new" check would skip it — enqueue the new agent's first task
+        // directly instead, same as maybeAssignKeepers()'s scheduler branch.
+        const scheduler = this.scheduler;
+        switch (role) {
+          case "miner": { const a = this.miners.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
+          case "trader": { const a = this.traders.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
+          case "surveyor": { const a = this.surveyors.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextSurveyTask()); break; }
+          case "tour": { const a = this.tours.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTourTask()); break; }
+          case "keeper": { const a = this.keepers.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextKeeperTask()); break; }
+          case "scout": { const a = this.scouts.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
+          case "siphoner": { const a = this.siphoners.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
+        }
+        this.scheduledShips.add(shipSymbol);
+      } else {
+        void this.traders.get(shipSymbol)?.runLoop(1_000_000);
+        void this.miners.get(shipSymbol)?.runLoop(1_000_000);
+        void this.surveyors.get(shipSymbol)?.surveyLoop(1_000_000);
+        void this.tours.get(shipSymbol)?.tourLoop(1_000_000);
+        void this.scouts.get(shipSymbol)?.runLoop(1_000_000);
+        void this.siphoners.get(shipSymbol)?.runLoop(1_000_000);
+        void this.keepers.get(shipSymbol)?.keeperLoop(1_000_000);
+      }
+    }
+  }
+
   /** Verify a ship is at a market before trading. */
   private async ensureShipAtMarket(shipSymbol: string): Promise<{ ship: Ship; systemSymbol: string; waypointSymbol: string }> {
     const ship = await this.api.getShip(shipSymbol);

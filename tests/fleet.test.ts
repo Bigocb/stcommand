@@ -768,3 +768,43 @@ describe("Keeper markets: no cross-tenant data leakage, command ship excluded", 
     (fleet as any).keepers.get("MINER-1")?.stop();
   });
 });
+
+describe("FleetManager.setShipRole", () => {
+  it("converts the command ship to keeper, given an explicit market, and persists it as fleet_state", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const command = makeFakeAgent("COMMAND-1", "X1-A-A1");
+    const fleet = makeFleet([command], store, tenantId);
+    assert.ok((fleet as any).traders.has("COMMAND-1"));
+
+    await fleet.setShipRole("COMMAND-1", "keeper", "X1-A-D46");
+
+    assert.ok(!(fleet as any).traders.has("COMMAND-1"), "must be removed from its old role map");
+    assert.ok((fleet as any).keepers.has("COMMAND-1"), "must land in the keepers map");
+    assert.equal((fleet as any).keeperMarkets.get("COMMAND-1"), "X1-A-D46");
+    const rows = await store.getFleetState(tenantId);
+    const row = rows.find((r) => r.shipSymbol === "COMMAND-1");
+    assert.equal(row?.role, "keeper");
+    assert.equal(row?.keeperMarket, "X1-A-D46");
+    (fleet as any).keepers.get("COMMAND-1")?.stop();
+  });
+
+  it("rejects converting to keeper with no market given and the ship not already at one", async () => {
+    const command = makeFakeAgent("COMMAND-1", "X1-A-A1"); // not a marketplace waypoint from the galaxy atlas's POV
+    const fleet = makeFleet([command]);
+    await assert.rejects(() => fleet.setShipRole("COMMAND-1", "keeper"), /no keeper market/);
+  });
+
+  it("switching to a non-keeper role stops and clears the previous role's agent", async () => {
+    const command = makeFakeAgent("COMMAND-1", "X1-A-A1");
+    let stopped = false;
+    command.stop = () => { stopped = true; };
+    const fleet = makeFleet([command]);
+
+    await fleet.setShipRole("COMMAND-1", "scout");
+
+    assert.ok(stopped, "the old trader agent must be stopped before the new role takes over");
+    assert.ok(!(fleet as any).traders.has("COMMAND-1"));
+    assert.ok((fleet as any).scouts.has("COMMAND-1"));
+  });
+});

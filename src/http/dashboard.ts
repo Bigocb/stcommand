@@ -668,6 +668,27 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  const MANUAL_ROLES = new Set(["miner", "trader", "surveyor", "tour", "keeper", "scout", "siphoner"]);
+
+  router.post("/fleet/role", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol, role, keeperMarket } = req.body ?? {};
+    if (typeof shipSymbol !== "string" || typeof role !== "string" || !MANUAL_ROLES.has(role)) {
+      return res.status(400).json({ error: `shipSymbol required, role must be one of ${[...MANUAL_ROLES].join(", ")}` });
+    }
+    if (keeperMarket !== undefined && typeof keeperMarket !== "string") {
+      return res.status(400).json({ error: "keeperMarket must be a string" });
+    }
+    try {
+      await w.fleet.setShipRole(shipSymbol, role as Parameters<typeof w.fleet.setShipRole>[1], keeperMarket);
+      res.json({ ok: true, shipSymbol, role });
+    } catch (err) {
+      console.error("[dashboard] role error", err);
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/fleet/mine", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
