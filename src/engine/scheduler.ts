@@ -87,7 +87,10 @@ export class Scheduler {
   private isPaused: () => boolean;
 
   constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean } = {}) {
-    this.budget = new SchedulerBudget(opts.ratePerSec ?? 2, opts.burst ?? 30);
+    // Matches Client's own RateLimiter (see client.ts's comment) — admitting
+    // tasks faster than the transport layer can actually sustain just means
+    // more of them arrive at the real 429 ceiling instead of waiting here.
+    this.budget = new SchedulerBudget(opts.ratePerSec ?? 1.5, opts.burst ?? 30);
     this.isPaused = opts.isPaused ?? (() => false);
   }
 

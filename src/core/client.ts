@@ -86,7 +86,14 @@ export class Client {
     this.maxRetries = opts.maxRetries ?? 4;
     this.retryBackoffMs = opts.retryBackoffMs ?? 250;
     this.onRateLimited = opts.onRateLimited;
-    this.limiter = new RateLimiter(2, 30);
+    // SpaceTraders' real per-account limit is 2 req/sec, but that's the
+    // server's own ceiling, not headroom to plan around — 2 here regularly
+    // triggers live 429s (confirmed in production: near-continuous
+    // "rate limited, backing off" once several ships are all trading, each
+    // 429 costing a real retry round-trip instead of just consuming a
+    // token). straders' original fleet ran at 1.5/s specifically because
+    // of this; matching that here.
+    this.limiter = new RateLimiter(1.5, 30);
   }
 
   withToken(token: string): Client {
