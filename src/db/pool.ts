@@ -54,6 +54,18 @@ export function createPool(connectionString: string): pg.Pool {
  * automatically reverts on commit/rollback, so a pooled connection can never
  * leak one tenant's context into the next caller that happens to reuse it.
  */
+/**
+ * Temporary diagnostic: every withTenant() call site (fleet_state, ship_state,
+ * ship_manifest, ship_claims, missions, doctrine, activity, ledger, ...) has
+ * been silently producing zero persisted rows in production despite no
+ * errors ever surfacing at any call site — logged here, at the one place
+ * every one of those calls actually goes through, since guessing which of
+ * dozens of call sites is affected (or whether it's all of them) wasn't
+ * getting anywhere. Remove once the cause is found.
+ */
+let withTenantCalls = 0;
+let withTenantSlowWarned = 0;
+
 export async function withTenant<T>(pool: pg.Pool, tenantId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   // Postgres won't accept a parameterized value in SET LOCAL, so tenantId gets
   // string-interpolated below. This is the ONE place in the whole app that
@@ -62,17 +74,30 @@ export async function withTenant<T>(pool: pg.Pool, tenantId: string, fn: (client
   // before it ever reaches a query string, rather than trusting every future
   // caller to only ever pass a real uuid.
   if (!UUID_RE.test(tenantId)) throw new Error(`withTenant: not a uuid: ${JSON.stringify(tenantId)}`);
+  const callId = ++withTenantCalls;
+  const startedAt = Date.now();
+  const connectStart = Date.now();
   const client = await pool.connect();
+  const connectMs = Date.now() - connectStart;
+  if (connectMs > 500) console.log(`[withTenant#${callId}] pool.connect() took ${connectMs}ms (pool: total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount})`);
+  const watchdog = setTimeout(() => {
+    withTenantSlowWarned += 1;
+    console.log(`[withTenant#${callId}] still running after 5s (pool: total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount})`);
+  }, 5_000);
   try {
     await client.query("BEGIN");
     await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
     const result = await fn(client);
     await client.query("COMMIT");
+    const totalMs = Date.now() - startedAt;
+    if (totalMs > 1_000) console.log(`[withTenant#${callId}] committed in ${totalMs}ms`);
     return result;
   } catch (err) {
+    console.log(`[withTenant#${callId}] FAILED after ${Date.now() - startedAt}ms: ${err instanceof Error ? err.message : String(err)}`);
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
+    clearTimeout(watchdog);
     client.release();
   }
 }

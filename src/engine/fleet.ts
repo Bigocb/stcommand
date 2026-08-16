@@ -1587,7 +1587,15 @@ export class FleetManager {
     const resolvedKeeperMarket = this.installRoleAgent(ship, role, keeperMarket);
     this.log(`role: ${role} ${shipSymbol} (manual override)`);
 
-    if (this.tenantId) await this.store?.setFleetState(this.tenantId, shipSymbol, role, resolvedKeeperMarket);
+    // Temporary diagnostic: bracketing the persist call so we can see in
+    // the logs whether it hangs, throws (should already surface via the
+    // dashboard route's catch, but confirming here removes the doubt), or
+    // completes — see pool.ts's withTenant() for the matching instrumentation.
+    if (this.tenantId) {
+      this.log(`${shipSymbol}: persisting role ${role}...`);
+      await this.store?.setFleetState(this.tenantId, shipSymbol, role, resolvedKeeperMarket);
+      this.log(`${shipSymbol}: persisted role ${role}`);
+    }
 
     if (this.running) {
       if (this.scheduler) {
@@ -1597,6 +1605,7 @@ export class FleetManager {
         // ship new" check would skip it — enqueue the new agent's first task
         // directly instead, same as maybeAssignKeepers()'s scheduler branch.
         const scheduler = this.scheduler;
+        const before = scheduler.size();
         switch (role) {
           case "miner": { const a = this.miners.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
           case "trader": { const a = this.traders.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
@@ -1607,6 +1616,7 @@ export class FleetManager {
           case "siphoner": { const a = this.siphoners.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
         }
         this.scheduledShips.add(shipSymbol);
+        this.log(`${shipSymbol}: enqueued ${role} task (scheduler size ${before} -> ${scheduler.size()})`);
       } else {
         void this.traders.get(shipSymbol)?.runLoop(1_000_000);
         void this.miners.get(shipSymbol)?.runLoop(1_000_000);
