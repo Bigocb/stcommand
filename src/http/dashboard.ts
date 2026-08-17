@@ -136,7 +136,12 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     try {
-      const snapshots = await w.store.latestMarketSnapshots();
+      // Same staleness cutoff trading actually flies by (doctrine's
+      // snapshotMaxAgeMin, default 90m) — latestMarketSnapshots() had no
+      // age filter at all, so this panel could show a price hours or days
+      // stale that the dispatcher/traders had already stopped considering.
+      const maxAgeMin = w.fleet.doctrine.value("snapshotMaxAgeMin", 5_256_000);
+      const snapshots = await w.store.freshMarketSnapshots(maxAgeMin);
       const dispatchRoutes = await w.fleet.computeDispatchRoutes();
       const routes = dispatchRoutes
         .map((r) => ({

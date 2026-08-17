@@ -2070,6 +2070,10 @@ function openShipDetails(shipSymbol) {
       ${ship.nav.status !== "IN_TRANSIT" ? `<div class="jump-row">
         <span class="tgt"><b>${docked ? "Docked" : "In orbit"}</b> <span class="d" style="color:var(--dim);font-size:9px">docking/scrapping/trading here requires DOCKED status</span></span>
         <button class="dock-toggle" data-ship="${shipSymbol}">${docked ? "Undock" : "Dock"}</button>
+      </div>
+      <div class="jump-row">
+        <span class="tgt"><b>${ship.fuel.current}/${ship.fuel.capacity} fuel</b> <span class="d" style="color:var(--dim);font-size:9px">a manual send parks a ship without refueling it</span></span>
+        <button class="refuel-now" data-ship="${shipSymbol}">Refuel</button>
       </div>` : ""}
       ${isMiner ? `<div class="jump-row">
         <span class="tgt">${st?.pinnedField
@@ -2187,6 +2191,17 @@ function openShipDetails(shipSymbol) {
       try {
         const res = await api("POST", "/api/fleet/dock", { shipSymbol: b.dataset.ship });
         showToastGlobal(`${b.dataset.ship} ${res.status === "DOCKED" ? "docked" : "undocked"}`);
+        await loadBridge();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".refuel-now").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        const res = await api("POST", "/api/fleet/refuel", { shipSymbol: b.dataset.ship });
+        showToastGlobal(`${b.dataset.ship} refueled to ${res.fuel}/${res.capacity} (${res.cost}c)`);
         await loadBridge();
         openShipDetails(b.dataset.ship);
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
