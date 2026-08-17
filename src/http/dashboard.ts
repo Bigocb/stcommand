@@ -143,27 +143,36 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
       const maxAgeMin = w.fleet.doctrine.value("snapshotMaxAgeMin", 5_256_000);
       const snapshots = await w.store.freshMarketSnapshots(maxAgeMin);
       const dispatchRoutes = await w.fleet.computeDispatchRoutes();
-      const routes = dispatchRoutes
-        .map((r) => ({
-          goodSymbol: r.good,
-          buyAt: r.buyAt,
-          buySystem: r.buySystem,
-          buyPrice: r.buyPrice,
-          sellAt: r.sellAt,
-          sellSystem: r.sellSystem,
-          sellPrice: r.sellPrice,
-          volume: r.volume,
-          distance: r.distance || null,
-          fuelUnits: r.fuelUnits || null,
-          fuelCost: r.fuelCost,
-          marginPerUnit: Math.round((r.sellPrice - r.buyPrice) * 10) / 10,
-          marginPct: Math.round(((r.sellPrice - r.buyPrice) / r.buyPrice) * 1000) / 10,
-          grossPerTrip: Math.round((r.sellPrice - r.buyPrice) * r.volume),
-          profitPerTrip: r.profitPerTrip,
-          crossSystem: r.buySystem !== r.sellSystem,
-          ageMinutes: r.ageMinutes,
-        }))
-        .slice(0, 25);
+      const allRoutes = dispatchRoutes.map((r) => ({
+        goodSymbol: r.good,
+        buyAt: r.buyAt,
+        buySystem: r.buySystem,
+        buyPrice: r.buyPrice,
+        sellAt: r.sellAt,
+        sellSystem: r.sellSystem,
+        sellPrice: r.sellPrice,
+        volume: r.volume,
+        distance: r.distance || null,
+        fuelUnits: r.fuelUnits || null,
+        fuelCost: r.fuelCost,
+        marginPerUnit: Math.round((r.sellPrice - r.buyPrice) * 10) / 10,
+        marginPct: Math.round(((r.sellPrice - r.buyPrice) / r.buyPrice) * 1000) / 10,
+        grossPerTrip: Math.round((r.sellPrice - r.buyPrice) * r.volume),
+        profitPerTrip: r.profitPerTrip,
+        crossSystem: r.buySystem !== r.sellSystem,
+        ageMinutes: r.ageMinutes,
+      }));
+      // A flat top-25-by-profit cut can bury every same-system route below
+      // a handful of high-value cross-system ones, even though same-system
+      // routes are flyable *right now* with no gate transit — so on top of
+      // the profit-ranked cut, backfill up to 5 same-system routes that
+      // didn't make it, then re-sort the combined set by profit so ranking
+      // stays consistent.
+      const top = allRoutes.slice(0, 25);
+      const missingSameSystem = allRoutes
+        .filter((r) => !r.crossSystem && !top.includes(r))
+        .slice(0, 5);
+      const routes = [...top, ...missingSameSystem].sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
       const intel = await w.fleet.getIntel();
       res.json({ routes, snapshots, shipyards: intel.shipyards, modules: intel.modules });
