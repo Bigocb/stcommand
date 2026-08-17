@@ -164,7 +164,7 @@ export class TenantRegistry {
     }
     log(`found ${markets.length} markets`);
 
-    const contracts = new ContractManager(api);
+    const contracts = new ContractManager(api, store);
     // This tenant's own relay, never a shared one — see discord.ts's class
     // doc comment for why straders' module-level getDiscord() singleton
     // can't be reused in a multi-tenant process.

@@ -1,8 +1,15 @@
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
+import type { Store } from "../db/store.js";
 
 export type Contract = components["schemas"]["Contract"];
 export type ContractDeliverGood = components["schemas"]["ContractDeliverGood"];
+
+/** Below this much runway, a contract isn't realistically flyable — one buy
+ *  leg plus one delivery leg needs at least this much time even in the best
+ *  case, so acceptBest() skips anything tighter rather than accepting a
+ *  contract that's going to expire unfulfilled (and cost reputation for it). */
+const MIN_DELIVERY_WINDOW_MS = 15 * 60_000;
 
 /** Active delivery requirement of a contract. */
 export interface Deliverable {
@@ -35,7 +42,24 @@ export class ContractManager {
    */
   private cache?: { at: number; contracts: Contract[] };
 
-  constructor(private readonly api: SpaceTradersAPI) {}
+  /** Optional: lets acceptBest() weigh a contract's real sourcing cost, not
+   *  just its raw payout. Absent in tests/contexts with no market intel yet —
+   *  acceptBest() degrades to payout-only ranking rather than failing. */
+  constructor(
+    private readonly api: SpaceTradersAPI,
+    private readonly store?: Store,
+  ) {}
+
+  /** Cheapest known market for a good, or undefined if none is known yet
+   *  (also the normal case for a raw ore only obtainable by mining — those
+   *  are never sold at any market). */
+  private async cheapestMarket(tradeSymbol: string): Promise<{ waypoint: string; purchasePrice: number } | undefined> {
+    if (!this.store) return undefined;
+    const rows = (await this.store.latestMarketSnapshots()).filter((r) => r.goodSymbol === tradeSymbol && r.purchasePrice > 0);
+    if (!rows.length) return undefined;
+    const cheapest = rows.reduce((a, b) => (b.purchasePrice < a.purchasePrice ? b : a));
+    return { waypoint: cheapest.waypointSymbol, purchasePrice: cheapest.purchasePrice };
+  }
 
   /** The raw contract list, served from cache when fresh. */
   private async fetchContracts(): Promise<Contract[]> {
@@ -79,18 +103,44 @@ export class ContractManager {
     });
   }
 
-  /** Accept the most valuable unaccepted contract, if any. */
+  /**
+   * Accept the most valuable *feasible* unaccepted contract, if any.
+   *
+   * Ranks by payout minus estimated sourcing cost, not raw payout alone —
+   * previously this just took the highest onAccepted+onFulfilled contract
+   * regardless of whether the fleet could actually source or deliver it in
+   * time, which could accept a contract that then expires unfulfilled (a
+   * real reputation cost, not just wasted upside).
+   *
+   * A deliverable with no known market isn't treated as unsourceable: raw
+   * ores (the most common contract good early on) are only ever obtained by
+   * mining, never sold anywhere, so "no market found" just means the cost
+   * can't be priced in — it contributes nothing to the estimate rather than
+   * disqualifying the contract.
+   */
   async acceptBest(): Promise<Contract | undefined> {
     const active = await this.listActive();
     const unaccepted = active.filter((c) => !c.accepted && !this.declined.has(c.id));
     if (unaccepted.length === 0) return undefined;
-    unaccepted.sort(
-      (a, b) =>
-        b.terms.payment.onAccepted +
-        b.terms.payment.onFulfilled -
-        (a.terms.payment.onAccepted + a.terms.payment.onFulfilled),
-    );
-    const best = unaccepted[0]!;
+
+    const now = Date.now();
+    const scored: { contract: Contract; score: number }[] = [];
+    for (const c of unaccepted) {
+      const deadlineMs = new Date(c.terms.deadline).getTime() - now;
+      if (deadlineMs < MIN_DELIVERY_WINDOW_MS) continue; // not enough runway to fly it at all
+      const payout = c.terms.payment.onAccepted + c.terms.payment.onFulfilled;
+      let sourcingCost = 0;
+      for (const d of c.terms.deliver ?? []) {
+        const needed = d.unitsRequired - d.unitsFulfilled;
+        if (needed <= 0) continue;
+        const cheapest = await this.cheapestMarket(d.tradeSymbol);
+        if (cheapest) sourcingCost += cheapest.purchasePrice * needed;
+      }
+      scored.push({ contract: c, score: payout - sourcingCost });
+    }
+    if (scored.length === 0) return undefined;
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0]!.contract;
     await this.api.acceptContract(best.id);
     this.invalidate();
     return best;
@@ -126,19 +176,6 @@ export class ContractManager {
       }
     }
     return out;
-  }
-
-  /** Deliver cargo from a ship at a destination to any outstanding contract. */
-  async deliverFromShip(shipSymbol: string): Promise<void> {
-    const deliveries = await this.outstandingDeliveries();
-    for (const d of deliveries) {
-      try {
-        await this.api.deliverContract(d.contractId, shipSymbol, d.tradeSymbol, d.unitsRequired - d.unitsFulfilled);
-        this.invalidate();
-      } catch {
-        // ship may not carry this good; skip
-      }
-    }
   }
 
   /**
@@ -183,9 +220,23 @@ export class ContractManager {
     }
   }
 
-  /** Does this agent have any deliverable requiring the given good? */
-  async wantsGood(tradeSymbol: string): Promise<boolean> {
-    const deliveries = await this.outstandingDeliveries();
-    return deliveries.some((d) => d.tradeSymbol === tradeSymbol);
+  /**
+   * Trade symbols any currently accepted contract still needs delivered —
+   * synchronous, unlike outstandingDeliveries(), because every
+   * protectedGoods() call site across the fleet is a sync callback (mirrors
+   * MissionManager.protectedGoods()' own in-memory set). Reads the last
+   * fetched contract list (see fetchContracts()'s cache/TTL) rather than
+   * making a fresh call — fulfillCompleted()/acceptBest() already refresh it
+   * once per coordinator tick, which is fresh enough for "don't sell this".
+   */
+  protectedGoods(): Set<string> {
+    const out = new Set<string>();
+    for (const c of this.cache?.contracts ?? []) {
+      if (!c.accepted || c.fulfilled) continue;
+      for (const d of c.terms.deliver ?? []) {
+        if (d.unitsRequired - d.unitsFulfilled > 0) out.add(d.tradeSymbol);
+      }
+    }
+    return out;
   }
 }

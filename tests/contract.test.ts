@@ -1,0 +1,207 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { ContractManager, type Contract } from "../src/engine/contract.js";
+
+/**
+ * Covers the behavior changed while closing the contract-goods-get-dumped
+ * bug: protectedGoods() (previously didn't exist — contract goods had no
+ * protection anywhere), and acceptBest()'s cost/deadline-aware scoring
+ * (previously ranked by raw payout alone, with no feasibility check at
+ * all). ContractManager had zero test coverage before this.
+ */
+
+function makeContract(overrides: Partial<Contract> & { id: string }): Contract {
+  return {
+    factionSymbol: "COSMIC",
+    type: "PROCUREMENT",
+    accepted: false,
+    fulfilled: false,
+    expiration: new Date(Date.now() + 3_600_000).toISOString(),
+    terms: {
+      deadline: new Date(Date.now() + 3_600_000).toISOString(),
+      payment: { onAccepted: 1000, onFulfilled: 2000 },
+      deliver: [],
+    },
+    ...overrides,
+  } as Contract;
+}
+
+function makeApi(contracts: Contract[]) {
+  const accepted: string[] = [];
+  return {
+    api: {
+      getContracts: async () => contracts,
+      acceptContract: async (id: string) => {
+        accepted.push(id);
+        const c = contracts.find((x) => x.id === id)!;
+        c.accepted = true;
+        return { agent: {}, contract: c };
+      },
+      fulfillContract: async () => {},
+      deliverContract: async () => {},
+    } as any,
+    accepted,
+  };
+}
+
+describe("ContractManager.protectedGoods", () => {
+  it("is empty when nothing is accepted", async () => {
+    const { api } = makeApi([makeContract({ id: "c1" })]);
+    const cm = new ContractManager(api);
+    await cm.listActive(); // warms the cache protectedGoods() reads from
+    assert.deepEqual(cm.protectedGoods(), new Set());
+  });
+
+  it("includes trade symbols from accepted contracts with outstanding delivery", async () => {
+    const c = makeContract({
+      id: "c1",
+      accepted: true,
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1000, onFulfilled: 2000 },
+        deliver: [{ tradeSymbol: "IRON_ORE", destinationSymbol: "X1-A-A1", unitsRequired: 10, unitsFulfilled: 0 }],
+      },
+    });
+    const { api } = makeApi([c]);
+    const cm = new ContractManager(api);
+    await cm.listActive();
+    assert.deepEqual(cm.protectedGoods(), new Set(["IRON_ORE"]));
+  });
+
+  it("excludes a good that's already fully delivered", async () => {
+    const c = makeContract({
+      id: "c1",
+      accepted: true,
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1000, onFulfilled: 2000 },
+        deliver: [{ tradeSymbol: "IRON_ORE", destinationSymbol: "X1-A-A1", unitsRequired: 10, unitsFulfilled: 10 }],
+      },
+    });
+    const { api } = makeApi([c]);
+    const cm = new ContractManager(api);
+    await cm.listActive();
+    assert.deepEqual(cm.protectedGoods(), new Set());
+  });
+
+  it("excludes a fulfilled contract even if it reports accepted", async () => {
+    const c = makeContract({
+      id: "c1",
+      accepted: true,
+      fulfilled: true,
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1000, onFulfilled: 2000 },
+        deliver: [{ tradeSymbol: "IRON_ORE", destinationSymbol: "X1-A-A1", unitsRequired: 10, unitsFulfilled: 0 }],
+      },
+    });
+    const { api } = makeApi([c]);
+    const cm = new ContractManager(api);
+    await cm.listActive();
+    assert.deepEqual(cm.protectedGoods(), new Set());
+  });
+});
+
+describe("ContractManager.acceptBest", () => {
+  it("skips a contract whose deadline is too tight to realistically fly", async () => {
+    const tight = makeContract({
+      id: "tight",
+      terms: {
+        deadline: new Date(Date.now() + 60_000).toISOString(), // 1 minute — well under the 15-minute floor
+        payment: { onAccepted: 5000, onFulfilled: 5000 },
+        deliver: [],
+      },
+    });
+    const { api, accepted } = makeApi([tight]);
+    const cm = new ContractManager(api);
+
+    const result = await cm.acceptBest();
+
+    assert.equal(result, undefined);
+    assert.deepEqual(accepted, []);
+  });
+
+  it("with no store, ranks by raw payout (degrades gracefully with no market intel)", async () => {
+    const low = makeContract({ id: "low", terms: { deadline: new Date(Date.now() + 3_600_000).toISOString(), payment: { onAccepted: 100, onFulfilled: 100 }, deliver: [] } });
+    const high = makeContract({ id: "high", terms: { deadline: new Date(Date.now() + 3_600_000).toISOString(), payment: { onAccepted: 5000, onFulfilled: 5000 }, deliver: [] } });
+    const { api, accepted } = makeApi([low, high]);
+    const cm = new ContractManager(api);
+
+    const result = await cm.acceptBest();
+
+    assert.equal(result?.id, "high");
+    assert.deepEqual(accepted, ["high"]);
+  });
+
+  it("prefers a lower-payout contract when the high-payout one costs more to source than it pays", async () => {
+    const cheap = makeContract({
+      id: "cheap",
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1000, onFulfilled: 1000 }, // net 2000
+        deliver: [{ tradeSymbol: "IRON_ORE", destinationSymbol: "X1-A-A1", unitsRequired: 10, unitsFulfilled: 0 }],
+      },
+    });
+    const expensive = makeContract({
+      id: "expensive",
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1500, onFulfilled: 1500 }, // net 3000, but costs 5000 to source
+        deliver: [{ tradeSymbol: "PLATINUM", destinationSymbol: "X1-A-A1", unitsRequired: 10, unitsFulfilled: 0 }],
+      },
+    });
+    const { api, accepted } = makeApi([cheap, expensive]);
+    const store = {
+      latestMarketSnapshots: async () => [
+        { waypointSymbol: "X1-A-M1", goodSymbol: "IRON_ORE", purchasePrice: 10 } as any, // 10 * 10u = 100
+        { waypointSymbol: "X1-A-M2", goodSymbol: "PLATINUM", purchasePrice: 500 } as any, // 500 * 10u = 5000
+      ],
+    };
+    const cm = new ContractManager(api, store as any);
+
+    const result = await cm.acceptBest();
+
+    assert.equal(result?.id, "cheap");
+    assert.deepEqual(accepted, ["cheap"]);
+  });
+
+  it("does not treat a good with no known market as unsourceable (e.g. a raw ore only ever mined)", async () => {
+    const oreOnly = makeContract({
+      id: "ore-only",
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1000, onFulfilled: 1000 },
+        deliver: [{ tradeSymbol: "SILICON_CRYSTALS", destinationSymbol: "X1-A-A1", unitsRequired: 10, unitsFulfilled: 0 }],
+      },
+    });
+    const { api, accepted } = makeApi([oreOnly]);
+    const store = { latestMarketSnapshots: async () => [] }; // no market sells it
+    const cm = new ContractManager(api, store as any);
+
+    const result = await cm.acceptBest();
+
+    assert.equal(result?.id, "ore-only", "an unpriceable good must not disqualify the contract");
+    assert.deepEqual(accepted, ["ore-only"]);
+  });
+
+  it("ignores declined contracts", async () => {
+    const c = makeContract({ id: "c1" });
+    const { api, accepted } = makeApi([c]);
+    const cm = new ContractManager(api);
+    cm.decline("c1");
+
+    const result = await cm.acceptBest();
+
+    assert.equal(result, undefined);
+    assert.deepEqual(accepted, []);
+  });
+});
+
+describe("ContractManager dead-code cleanup", () => {
+  it("wantsGood and deliverFromShip no longer exist (superseded by protectedGoods/deliverVia)", async () => {
+    const { api } = makeApi([]);
+    const cm = new ContractManager(api);
+    assert.equal((cm as any).wantsGood, undefined);
+    assert.equal((cm as any).deliverFromShip, undefined);
+  });
+});

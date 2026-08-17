@@ -17,7 +17,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
-import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type TraderAssignment } from "./dispatcher.js";
+import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -449,6 +449,21 @@ export class FleetManager {
   }
 
   /**
+   * Goods no ship's sell/jettison path may touch: active construction-mission
+   * materials plus every accepted contract's outstanding deliverable. Every
+   * protectedGoods() call site in this file goes through here — previously
+   * they went straight to `this.missions.protectedGoods()`, which meant a
+   * contract good in a ship's hold had no protection at all and could be
+   * sold (or jettisoned, if no market would buy it) before the contract
+   * ever got a chance to be fulfilled.
+   */
+  private allProtectedGoods(): Set<string> {
+    const out = new Set(this.missions.protectedGoods());
+    for (const g of this.contracts?.protectedGoods() ?? []) out.add(g);
+    return out;
+  }
+
+  /**
    * The options every trader is built with. Kept in one place so all three
    * construction sites (promotion by hold size, promotion at miner count, and
    * initial role assignment) can't drift apart — they did, and a trader built
@@ -475,7 +490,8 @@ export class FleetManager {
           (await this.store?.avgPurchasePrice(this.tenantId, good))
         );
       },
-      protectedGoods: () => this.missions.protectedGoods(),
+      protectedGoods: () => this.allProtectedGoods(),
+      deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
@@ -623,6 +639,34 @@ export class FleetManager {
         const balance = (this.tenantId ? await this.store?.warehouseBalance(this.tenantId, mat.tradeSymbol) : undefined) ?? 0;
         targets.push({ good: mat.tradeSymbol, buyAt: cheapest.waypoint, buyPrice: cheapest.purchasePrice, needed, balance });
       }
+    }
+    return targets;
+  }
+
+  /**
+   * Goods an accepted contract still needs delivered, sourced from the
+   * cheapest known market — the contract equivalent of
+   * computeMissionBuyTargets(), minus the warehouseTarget gating: unlike
+   * mission-buy (which only sources goods an operator explicitly curated
+   * for that purpose), contract sourcing is always on once a contract is
+   * accepted. There's no "hold it in the warehouse" step either — see
+   * TraderRole's own comment on why "contractBuy" skips straight to
+   * carrying it.
+   */
+  private async computeContractBuyTargets(): Promise<ContractBuyTarget[]> {
+    if (!this.contracts) return [];
+    const deliveries = await this.contracts.outstandingDeliveries();
+    const neededByGood = new Map<string, number>();
+    for (const d of deliveries) {
+      const needed = d.unitsRequired - d.unitsFulfilled;
+      if (needed <= 0) continue;
+      neededByGood.set(d.tradeSymbol, (neededByGood.get(d.tradeSymbol) ?? 0) + needed);
+    }
+    const targets: ContractBuyTarget[] = [];
+    for (const [good, needed] of neededByGood) {
+      const cheapest = (await this.materialBuyers(good))[0];
+      if (!cheapest) continue; // no known market — e.g. a raw ore only ever obtained by mining
+      targets.push({ good, buyAt: cheapest.waypoint, buyPrice: cheapest.purchasePrice, needed });
     }
     return targets;
   }
@@ -797,7 +841,7 @@ export class FleetManager {
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
           surveyPool: this.surveyPool,
-          protectedGoods: () => this.missions.protectedGoods(),
+          protectedGoods: () => this.allProtectedGoods(),
         }).withWorld(this.positions, this.markets),
       );
       this.log(`role: miner ${ship.symbol}`);
@@ -812,7 +856,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           surveyPool: this.surveyPool,
-          protectedGoods: () => this.missions.protectedGoods(),
+          protectedGoods: () => this.allProtectedGoods(),
           marketTourTargets: () => this.marketTourTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
@@ -831,7 +875,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
-          protectedGoods: () => this.missions.protectedGoods(),
+          protectedGoods: () => this.allProtectedGoods(),
         }).withWorld(this.positions, this.markets),
       );
       this.log(`role: siphoner ${ship.symbol}`);
@@ -989,7 +1033,7 @@ export class FleetManager {
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
             surveyPool: this.surveyPool,
-            protectedGoods: () => this.missions.protectedGoods(),
+            protectedGoods: () => this.allProtectedGoods(),
           }).withWorld(this.positions, this.markets),
         );
         return undefined;
@@ -1004,7 +1048,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             surveyPool: this.surveyPool,
-            protectedGoods: () => this.missions.protectedGoods(),
+            protectedGoods: () => this.allProtectedGoods(),
             marketTourTargets: () => this.marketTourTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
@@ -1021,7 +1065,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            protectedGoods: () => this.missions.protectedGoods(),
+            protectedGoods: () => this.allProtectedGoods(),
           }).withWorld(this.positions, this.markets),
         );
         return undefined;
@@ -2800,12 +2844,13 @@ export class FleetManager {
     }
     // Centralized route dispatch: recompute distinct per-trader assignments.
     const routes = await this.computeDispatchRoutes();
-    const [warehouseTargets, haulTargets, missionBuyTargets] = await Promise.all([
+    const [warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets] = await Promise.all([
       this.computeWarehouseTargets(routes),
       this.computeHaulTargets(),
       this.computeMissionBuyTargets(),
+      this.computeContractBuyTargets(),
     ]);
-    this.dispatcher.recompute(routes, this.dispatcherTraders(), warehouseTargets, haulTargets, missionBuyTargets);
+    this.dispatcher.recompute(routes, this.dispatcherTraders(), warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets);
     await this.maybeAssignKeepers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();

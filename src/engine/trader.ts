@@ -90,6 +90,17 @@ export interface TraderOptions {
   shouldRun?: () => boolean;
   /** Recover a cost basis this process never saw, from the trade ledger. */
   recoverCostBasis?: (good: string) => Promise<number | undefined>;
+  /**
+   * Route/deliver contract cargo this ship is carrying — same contract
+   * (fleet.ts's ContractManager.deliverVia) ShipAgent already wires in.
+   * Checked at the top of tick(), before clearLeftoverCargo() or any route
+   * work, so a trader that ends up holding a contract-deliverable good
+   * (via a "contractBuy" assignment, a warehouse withdrawal, a transfer,
+   * whatever) delivers it instead of selling/jettisoning it — the whole
+   * reason clearLeftoverCargo() now excludes protectedGoods() in the first
+   * place. Traders CAN hold contract goods; this is what makes that safe.
+   */
+  deliverCargo?: (ship: Ship) => Promise<true | string | null>;
 }
 
 
@@ -136,6 +147,7 @@ export class TraderAgent {
   private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
   private readonly shouldRun?: () => boolean;
   private readonly recoverCostBasis?: TraderOptions["recoverCostBasis"];
+  private readonly deliverCargo?: TraderOptions["deliverCargo"];
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
   /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
@@ -189,6 +201,7 @@ export class TraderAgent {
     this.warehouseMinMargin = opts.warehouseMinMargin;
     this.shouldRun = opts.shouldRun;
     this.recoverCostBasis = opts.recoverCostBasis;
+    this.deliverCargo = opts.deliverCargo;
   }
 
   isManual(): boolean {
@@ -651,7 +664,16 @@ export class TraderAgent {
    * stuck in the hold.
    */
   private async clearLeftoverCargo(): Promise<boolean | undefined> {
-    const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0);
+    // Mission materials and contract-deliverable goods must never be swept
+    // here — a contract good in particular is normally already routed away
+    // by the deliverCargo check earlier in tick(), before this ever runs;
+    // this is the defense-in-depth backstop for the rest (mission materials,
+    // or a contract good held when no deliverCargo hook was wired in at
+    // all). Previously this function had no protectedGoods check whatsoever,
+    // so any of them landing in a trader's hold got sold — or jettisoned,
+    // if no market would buy it — on the very next tick.
+    const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
+    const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0 && !protectedGoods.has(i.symbol));
     if (leftover.length === 0) return undefined;
     const item = leftover[0]!;
     // Only sell leftover within the current system — a cross-system sell
@@ -1020,6 +1042,60 @@ export class TraderAgent {
     return true;
   }
 
+  /**
+   * role = "contractBuy": buy `assigned.good` at `assigned.buyAt` and just
+   * hold it — no warehouse leg, no sell leg. The deliverCargo check at the
+   * top of tick() picks it up on a later tick once it's in the hold and
+   * routes/delivers it to whichever contract needs it. Deliberately does
+   * NOT check protectedGoods (unlike runBuy/runSell) — the whole point of
+   * this role is to acquire a good protectedGoods would otherwise block.
+   */
+  private async runContractBuy(assigned: TraderAssignment): Promise<boolean> {
+    const buyAt = assigned.buyAt;
+    if (!buyAt) return this.runArbitrage(undefined);
+    if (this.deadRoutes.has(`${assigned.good}@${buyAt}`)) return this.runArbitrage(undefined);
+
+    await this.navigateTo(buyAt);
+    await this.ensureDocked();
+
+    const liveBuy = await this.liveBuyPrice(buyAt, assigned.good);
+    const buyPrice = liveBuy ?? assigned.buyPrice;
+    if (buyPrice === undefined || buyPrice <= 0) return this.discoverPrices([buyAt]);
+    if (assigned.buyPrice !== undefined && buyPrice > assigned.buyPrice * 1.5) {
+      // A contract still needs this good regardless of price, so this isn't
+      // a hard refusal the way runBuy's margin check is — just avoid
+      // overpaying wildly on a stale snapshot. Try again once the dispatcher
+      // recomputes with fresher intel.
+      this.log(`skipping contract buy: ${assigned.good} at ${buyAt} is now ${buyPrice}c (snapshot ${assigned.buyPrice}c)`);
+      this.deadRoutes.add(`${assigned.good}@${buyAt}`);
+      return this.discoverPrices([buyAt]);
+    }
+
+    const liveCredits = (await this.api.getMyAgent()).credits;
+    const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
+    const units = Math.max(0, Math.floor(Math.min(this.ship.cargo.capacity - this.ship.cargo.units, affordable)));
+    if (units <= 0) return this.discoverPrices([buyAt]);
+
+    this.currentStep = { kind: "transacting", action: "buy", good: assigned.good };
+    const res = await this.api.purchaseCargo(this.symbol, assigned.good, units);
+    this.currentStep = IDLE_STEP;
+    this.ship = { ...this.ship, cargo: res.cargo };
+    this.heldCost.set(assigned.good, res.transaction.pricePerUnit);
+    this.recordLedger?.({
+      timestamp: new Date().toISOString(),
+      shipSymbol: this.symbol,
+      waypointSymbol: this.ship.nav.waypointSymbol,
+      type: "PURCHASE",
+      tradeSymbol: assigned.good,
+      units,
+      pricePerUnit: res.transaction.pricePerUnit,
+      total: res.transaction.totalPrice,
+    });
+    this.log(`bought ${units}u ${assigned.good} @ ${res.transaction.pricePerUnit}c at ${buyAt} for contract delivery`);
+    this.onActivity?.("buy", `${units}u ${assigned.good} @ ${res.transaction.pricePerUnit}c at ${buyAt} (contract)`, -res.transaction.totalPrice, this.symbol);
+    return true;
+  }
+
   /** One trade cycle: ensure prices → dispatch on role → act. */
   async tick(): Promise<boolean> {
     if (this.suspended) {
@@ -1041,12 +1117,37 @@ export class TraderAgent {
     // once we've had a chance to pick a different route.
     this.deadRoutes.clear();
 
+    // Contract delivery outranks everything else, same as ShipAgent's own
+    // tick() — a trader holding a contract-deliverable good (from a
+    // "contractBuy" assignment, a warehouse withdrawal, a manual transfer)
+    // routes/delivers it before clearLeftoverCargo() or any route work ever
+    // gets a chance to sell it.
+    if (this.ship.cargo.units > 0 && this.deliverCargo) {
+      const result = await this.deliverCargo(this.ship);
+      if (typeof result === "string") {
+        // navigateTo() self-manages refueling (see its own comment) — no
+        // separate pre-check needed, unlike ShipAgent's refuelIfNeeded()
+        // gate.
+        this.log(`delivering cargo → ${result}`);
+        await this.navigateTo(result);
+        await this.ensureDocked();
+        await this.deliverCargo(this.ship);
+        await this.refresh();
+        return true;
+      }
+      if (result === true) {
+        await this.refresh();
+        return true;
+      }
+    }
+
     const leftoverResult = await this.clearLeftoverCargo();
     if (leftoverResult !== undefined) return leftoverResult;
 
     if (assignedAtTickStart?.role === "buy") return this.runBuy(assignedAtTickStart);
     if (assignedAtTickStart?.role === "sell") return this.runSell(assignedAtTickStart);
     if (assignedAtTickStart?.role === "haul") return this.runHaul(assignedAtTickStart);
+    if (assignedAtTickStart?.role === "contractBuy") return this.runContractBuy(assignedAtTickStart);
     return this.runArbitrage(assignedAtTickStart);
   }
 

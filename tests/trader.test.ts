@@ -1,0 +1,151 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { TraderAgent, type Ship } from "../src/engine/trader.js";
+
+/**
+ * Covers the fix for the contract-goods-get-dumped bug: TraderAgent had no
+ * deliverCargo hook at all (only ShipAgent did) and clearLeftoverCargo()
+ * never consulted protectedGoods(), so any contract-deliverable good that
+ * ended up in a trader's hold was sold — or jettisoned, if no market would
+ * buy it — on the very next tick. tick()'s pre-existing buy/sell/route
+ * logic itself has no test coverage (see traderNextTask.test.ts's own
+ * comment on that); these only exercise what changed.
+ */
+
+function makeShip(cargo: { symbol: string; units: number }[] = []): Ship {
+  const units = cargo.reduce((sum, i) => sum + i.units, 0);
+  return {
+    symbol: "SHIP-1",
+    nav: { status: "DOCKED", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" },
+    cargo: { capacity: 40, units, inventory: cargo },
+    fuel: { current: 100, capacity: 100 },
+  } as unknown as Ship;
+}
+
+describe("TraderAgent.tick: contract delivery priority", () => {
+  it("checks deliverCargo before clearLeftoverCargo — a ship holding contract cargo gets delivered, not swept for sale", async () => {
+    const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);
+    let sold = false;
+    let delivered = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        sellCargo: async () => { sold = true; return { cargo: ship.cargo, transaction: {} } as any; },
+      } as any,
+      deliverCargo: async () => { delivered = true; return true; },
+    });
+
+    const made = await trader.tick();
+
+    assert.equal(delivered, true, "deliverCargo must be called");
+    assert.equal(sold, false, "the held-for-delivery cargo must never reach the sell path");
+    assert.equal(made, true);
+  });
+
+  it("navigates toward the delivery destination when deliverCargo returns a waypoint, without touching clearLeftoverCargo", async () => {
+    const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);
+    let sold = false;
+    let navigated: string | undefined;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        navigateShip: async (_s: string, wp: string) => { navigated = wp; return { nav: { ...ship.nav, status: "IN_TRANSIT", route: { arrival: new Date().toISOString(), destination: { symbol: wp } } } } as any; },
+        orbitShip: async () => ({ nav: { ...ship.nav, status: "IN_ORBIT" } } as any),
+        dockShip: async () => ({ nav: { ...ship.nav, status: "DOCKED" } } as any),
+        sellCargo: async () => { sold = true; return { cargo: ship.cargo, transaction: {} } as any; },
+      } as any,
+      deliverCargo: async (s) => (s.nav.waypointSymbol === "X1-A-A2" ? true : "X1-A-A2"),
+    });
+    // Avoid needing a full navigateTo()/waitForArrival() simulation — this
+    // test only cares that deliverCargo's routing wins over clearLeftoverCargo,
+    // not the mechanics of flying there.
+    (trader as any).navigateTo = async (wp: string) => { navigated = wp; };
+    (trader as any).ensureDocked = async () => {};
+
+    const made = await trader.tick();
+
+    assert.equal(navigated, "X1-A-A2");
+    assert.equal(sold, false);
+    assert.equal(made, true);
+  });
+
+  it("without a deliverCargo hook, falls through to clearLeftoverCargo exactly as before", async () => {
+    const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);
+    let sold = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        sellCargo: async () => { sold = true; return { cargo: { ...ship.cargo, units: 0, inventory: [] }, transaction: { pricePerUnit: 5, totalPrice: 25 } } as any; },
+      } as any,
+    });
+
+    await trader.tick();
+
+    assert.equal(sold, true, "with no deliverCargo hook wired in, leftover cargo must still be sellable");
+  });
+});
+
+describe("TraderAgent.tick: clearLeftoverCargo respects protectedGoods", () => {
+  it("never sells or jettisons a protectedGoods-listed leftover item", async () => {
+    const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);
+    let sold = false;
+    let jettisoned = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        sellCargo: async () => { sold = true; return { cargo: ship.cargo, transaction: {} } as any; },
+        jettisonCargo: async () => { jettisoned = true; return { cargo: ship.cargo } as any; },
+      } as any,
+      protectedGoods: () => new Set(["IRON_ORE"]),
+    });
+
+    await trader.tick();
+
+    assert.equal(sold, false);
+    assert.equal(jettisoned, false);
+  });
+
+  it("still sells a non-protected leftover item normally", async () => {
+    const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);
+    let sold = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        sellCargo: async () => { sold = true; return { cargo: { ...ship.cargo, units: 0, inventory: [] }, transaction: { pricePerUnit: 5, totalPrice: 25 } } as any; },
+      } as any,
+      protectedGoods: () => new Set(["SOME_OTHER_GOOD"]),
+    });
+
+    await trader.tick();
+
+    assert.equal(sold, true);
+  });
+
+  it("sells an unprotected item while leaving a protected item untouched, when both are in the hold", async () => {
+    const ship = makeShip([
+      { symbol: "IRON_ORE", units: 5 }, // protected — must survive
+      { symbol: "COPPER_ORE", units: 3 }, // not protected — sellable
+    ]);
+    const sold: string[] = [];
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        sellCargo: async (_s: string, good: string) => {
+          sold.push(good);
+          return { cargo: { ...ship.cargo, inventory: ship.cargo.inventory.filter((i) => i.symbol !== good) }, transaction: { pricePerUnit: 5, totalPrice: 15 } } as any;
+        },
+      } as any,
+      protectedGoods: () => new Set(["IRON_ORE"]),
+    });
+
+    await trader.tick();
+
+    assert.deepEqual(sold, ["COPPER_ORE"]);
+  });
+});

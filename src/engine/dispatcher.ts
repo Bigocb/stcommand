@@ -15,14 +15,24 @@ export interface DispatchRoute {
 }
 
 /**
- * "direct" — buy here, carry it yourself, sell there. One trader owns the
- *            whole round trip; this is every assignment before warehousing.
- * "buy"    — buy here, deposit into the warehouse. No sell leg of its own.
- * "sell"   — withdraw from the warehouse, sell there. No buy leg of its own.
- * "haul"   — withdraw from the warehouse, deliver to a mission/construction
- *            site instead of a market. Not produced yet (tracer 6).
+ * "direct"      — buy here, carry it yourself, sell there. One trader owns
+ *                 the whole round trip; this is every assignment before
+ *                 warehousing.
+ * "buy"         — buy here, deposit into the warehouse. No sell leg of its
+ *                 own.
+ * "sell"        — withdraw from the warehouse, sell there. No buy leg of
+ *                 its own.
+ * "haul"        — withdraw from the warehouse, deliver to a mission/
+ *                 construction site instead of a market. Not produced yet
+ *                 (tracer 6).
+ * "contractBuy" — buy here, then just hold it. No warehouse leg, no sell
+ *                 leg: TraderAgent's own deliverCargo check (run before role
+ *                 dispatch, same as ShipAgent's) notices the ship is now
+ *                 carrying a contract-deliverable good and routes it to the
+ *                 contract's destination on a later tick — this assignment
+ *                 only needs to get the good INTO the hold.
  */
-export type TraderRole = "direct" | "buy" | "sell" | "haul";
+export type TraderRole = "direct" | "buy" | "sell" | "haul" | "contractBuy";
 
 export interface TraderAssignment {
   shipSymbol: string;
@@ -83,6 +93,20 @@ export interface MissionBuyTarget {
   needed: number;
   /** Units currently held in the warehouse. */
   balance: number;
+}
+
+/** A good an accepted contract still needs delivered, sourced from the
+ *  cheapest known market — the contract equivalent of MissionBuyTarget,
+ *  minus the warehouse balance (a "contractBuy" assignment never touches
+ *  the warehouse; see TraderRole's own comment). Supplied by the caller
+ *  (fleet.ts), which cross-references ContractManager's outstanding
+ *  deliveries against the cheapest known market for each good. */
+export interface ContractBuyTarget {
+  good: string;
+  buyAt: string;
+  buyPrice: number;
+  /** Units still outstanding across every contract that needs this good. */
+  needed: number;
 }
 
 /**
@@ -184,6 +208,19 @@ export class RouteDispatcher {
     };
   }
 
+  /** No sell/warehouse leg at all — see TraderRole's own comment on why. */
+  private toContractBuyAssignment(shipSymbol: string, target: ContractBuyTarget, priority: number): TraderAssignment {
+    return {
+      shipSymbol,
+      good: target.good,
+      role: "contractBuy",
+      buyAt: target.buyAt,
+      buyPrice: target.buyPrice,
+      profitPerTrip: priority,
+      source: "auto",
+    };
+  }
+
   /** `sellAt` is repurposed as "delivery destination" for a haul assignment —
    *  a construction site rather than a market — so TraderAgent's rendezvous
    *  step (fly to warehouse, withdraw, fly to `sellAt`) needs no role-specific
@@ -274,6 +311,10 @@ export class RouteDispatcher {
    * gets a "buy" trader sourced from the cheapest known market — the only
    * "buy" pathway allowed to acquire a good the trader's protectedGoods
    * would otherwise refuse (see TraderAssignment.missionBuy).
+   *
+   * `contractBuyTargets` is the same idea for accepted contracts: a good a
+   * contract still needs delivered gets a "contractBuy" trader sourced from
+   * the cheapest known market, same protectedGoods exemption as missionBuy.
    */
   recompute(
     routes: DispatchRoute[],
@@ -281,6 +322,7 @@ export class RouteDispatcher {
     warehouseTargets: WarehouseTarget[] = [],
     haulTargets: HaulTarget[] = [],
     missionBuyTargets: MissionBuyTarget[] = [],
+    contractBuyTargets: ContractBuyTarget[] = [],
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -295,11 +337,11 @@ export class RouteDispatcher {
     const usedKeys = new Set<string>();
     const next = new Map<string, TraderAssignment>();
 
-    /** Direct reserves the whole good; buy/sell/haul reserve just their
-     *  side, so e.g. a buy trader and a sell trader can hold the same good
-     *  at once. */
+    /** Direct reserves the whole good; buy/sell/haul/contractBuy reserve
+     *  just their side, so e.g. a buy trader and a sell trader can hold the
+     *  same good at once. */
     const keyFor = (a: { good: string; role: TraderRole }): string =>
-      a.role === "buy" || a.role === "sell" || a.role === "haul" ? `${a.good}:${a.role}` : a.good;
+      a.role === "buy" || a.role === "sell" || a.role === "haul" || a.role === "contractBuy" ? `${a.good}:${a.role}` : a.good;
 
     // Reserve every key a manual override could touch — the operator's good
     // is off-limits to auto-assignment in any role, not just the one they set.
@@ -308,6 +350,7 @@ export class RouteDispatcher {
       usedKeys.add(`${a.good}:buy`);
       usedKeys.add(`${a.good}:sell`);
       usedKeys.add(`${a.good}:haul`);
+      usedKeys.add(`${a.good}:contractBuy`);
     }
 
     // Carry forward every busy trader's current assignment, whatever its role.
@@ -368,6 +411,18 @@ export class RouteDispatcher {
       if (shortfall <= 0) continue; // warehouse already has enough for what's needed
       const priority = shortfall * 50;
       work.push({ key: `${b.good}:buy`, make: (s) => this.toBuyAssignment(s, { good: b.good, buyAt: b.buyAt, buyPrice: b.buyPrice, profitPerTrip: priority }, true), profitPerTrip: priority });
+    }
+    // Contract-buy work has its own `${good}:contractBuy` key, distinct from
+    // an ordinary or mission buy on the same good — a contract needing IRON
+    // shouldn't compete with (or get silently satisfied by) a warehouse-bound
+    // IRON buy that was never headed for the contract's destination.
+    const seenContractBuyGood = new Set<string>();
+    for (const cb of contractBuyTargets) {
+      if (seenContractBuyGood.has(cb.good)) continue; // one buyer per good per cycle, even across multiple contracts
+      seenContractBuyGood.add(cb.good);
+      if (cb.needed <= 0) continue;
+      const priority = cb.needed * 100; // outranks an equivalent mission-buy shortfall — contracts have hard deadlines, warehousing doesn't
+      work.push({ key: `${cb.good}:contractBuy`, make: (s) => this.toContractBuyAssignment(s, cb, priority), profitPerTrip: priority });
     }
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
