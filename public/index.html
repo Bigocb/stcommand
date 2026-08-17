@@ -2067,6 +2067,10 @@ function openShipDetails(shipSymbol) {
         <input type="text" class="dispatch-wp" placeholder="e.g. ${shipSystem}-A1" style="width:110px;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px" />
         <button class="send-wp" data-ship="${shipSymbol}">Go</button>
       </div>` : ""}
+      ${ship.nav.status !== "IN_TRANSIT" ? `<div class="jump-row">
+        <span class="tgt"><b>${docked ? "Docked" : "In orbit"}</b> <span class="d" style="color:var(--dim);font-size:9px">docking/scrapping/trading here requires DOCKED status</span></span>
+        <button class="dock-toggle" data-ship="${shipSymbol}">${docked ? "Undock" : "Dock"}</button>
+      </div>` : ""}
       ${isMiner ? `<div class="jump-row">
         <span class="tgt">${st?.pinnedField
           ? `<b>Pinned to ${shortWp(st.pinnedField)}</b> <span class="d" style="color:var(--dim);font-size:9px">still mining, hauling, selling on its own</span>`
@@ -2132,9 +2136,9 @@ function openShipDetails(shipSymbol) {
           <button class="buy-install" data-ship="${shipSymbol}" data-comp="${m.symbol}" data-market="${m.waypointSymbol}">Buy+Install</button>
         </div>`).join("")}
     </div>
-    ${atYard && docked ? `<div class="loadout-section"><h4>Scrap</h4>
+    ${atYard && ship.nav.status !== "IN_TRANSIT" ? `<div class="loadout-section"><h4>Scrap</h4>
       <div class="jump-row">
-        <span class="tgt"><b>Scrap this ship</b> <span class="d" style="color:var(--dim);font-size:9px">removes it permanently, returns a portion of its value</span></span>
+        <span class="tgt"><b>Scrap this ship</b> <span class="d" style="color:var(--dim);font-size:9px">removes it permanently, returns a portion of its value${docked ? "" : " — docks it first"}</span></span>
         <button class="scrap" data-ship="${shipSymbol}">Scrap</button>
       </div>
     </div>` : ""}`;
@@ -2172,6 +2176,17 @@ function openShipDetails(shipSymbol) {
       try {
         await api("POST", "/api/fleet/dispatch", { shipSymbol: b.dataset.ship, waypointSymbol: wp });
         showToastGlobal(`${b.dataset.ship} → ${wp}`);
+        await loadBridge();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".dock-toggle").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        const res = await api("POST", "/api/fleet/dock", { shipSymbol: b.dataset.ship });
+        showToastGlobal(`${b.dataset.ship} ${res.status === "DOCKED" ? "docked" : "undocked"}`);
         await loadBridge();
         openShipDetails(b.dataset.ship);
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
