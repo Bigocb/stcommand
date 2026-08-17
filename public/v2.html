@@ -176,10 +176,32 @@
      so the map/rails/tip/scrub inside it can be position:absolute against
      its own box, not the viewport. The ticker stays a normal flow sibling
      below it (fixed height), not another absolute layer to juggle. */
-  .view.on.view-bridge { display:flex; flex-direction:column; gap:6px; }
+  .view.on.view-bridge { display:flex; flex-direction:column; gap:6px; position:relative; }
   .field-stage { position:relative; flex:1; min-height:0; overflow:hidden; }
   .field-stage .map-wrap { position:absolute; inset:0; }
   .view-bridge .ticker { flex-shrink:0; }
+
+  /* Ticker gets a small expand tab; clicking it raises a drawer with the
+     fuller shift log (narrative + per-event feed) — what used to be the
+     Doctrine tab's "The watch" pane, folded in here since it's really just
+     a longer view of the same activity the ticker already scrolls. */
+  .ticker-bar { display:flex; align-items:stretch; flex-shrink:0; }
+  .ticker-bar .ticker { flex:1; }
+  .ticker-expand {
+    flex-shrink:0; width:28px; background:var(--panel); border:1px solid var(--hairline); border-right:none;
+    color:var(--dim); cursor:pointer; font-size:10px; transition:color .15s, transform .2s;
+  }
+  .ticker-expand:hover { color:var(--accent); }
+  .ticker-expand[aria-expanded="true"] { transform:rotate(180deg); color:var(--accent); }
+  .shift-log-drawer {
+    position:absolute; left:0; right:0; bottom:100%; z-index:15; height:280px;
+    background:var(--panel-2); border:1px solid var(--hairline); display:flex; flex-direction:column;
+    transform:translateY(8px); opacity:0; pointer-events:none; transition:transform .2s ease, opacity .2s ease;
+  }
+  .shift-log-drawer.open { transform:translateY(0); opacity:1; pointer-events:auto; }
+  .shift-log-drawer .pane-b { flex:1; min-height:0; overflow-y:auto; padding:10px 12px; scrollbar-width:thin; scrollbar-color:var(--hairline) transparent; }
+  .shift-log-drawer .pane-b::-webkit-scrollbar { width:4px; }
+  .shift-log-drawer .pane-b::-webkit-scrollbar-thumb { background:var(--hairline); }
 
   .rail {
     position:absolute; top:12px; bottom:58px; width:280px;
@@ -258,6 +280,10 @@
   .sheet .sig .t { font-family:var(--book); font-style:italic; font-size:14px; color:var(--dim); }
   .sheet .sig .st { margin-left:auto; font-family:var(--chrome); font-weight:800; text-transform:uppercase;
     letter-spacing:0.16em; font-size:10px; color:var(--green); border:1px solid var(--rule); padding:5px 12px; }
+  .book-settings { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule-soft); display:flex; align-items:center; gap:8px; }
+  .book-settings .l { font-family:var(--chrome); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); flex-shrink:0; }
+  .book-settings input { flex:1; min-width:0; background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:5px 8px; }
+  .book-settings .ok { font-size:9px; color:var(--green); flex-shrink:0; }
   .sheet .mnote { border-bottom:1px solid var(--rule-soft); padding:0 0 13px; margin-bottom:13px; }
   .sheet .mnote:last-child { border-bottom:none; }
   .sheet .mnote .ml { font-size:9px; letter-spacing:0.17em; text-transform:uppercase; color:var(--dim); margin-bottom:5px; font-family:var(--chrome); font-weight:600; }
@@ -285,11 +311,13 @@
   .scrub .sp.live.on { color:var(--green); border-color:var(--green); }
   .f-spark-l { fill:none; stroke:var(--accent); stroke-width:1.4; }
   .f-spark-a { fill:var(--accent); fill-opacity:0.14; }
-  .view-doctrine { grid-template-columns:1fr 440px; grid-template-rows:1fr auto; }
-  .view-doctrine .verdict { grid-column:1/-1; }
-  .view-markets { grid-template-columns:400px 1fr 360px; }
-  .view-markets .pane-dispatch { grid-column:1/-1; }
-  .view-markets .pane-keepers { grid-column:1/-1; }
+  .view-markets { grid-template-columns:380px 1fr 340px; }
+  /* Trade Ops: Warehouse (the heaviest pane — several toolbars plus two
+     lists) spans the top row; Dispatch and Keepers split the row below it,
+     since they're each lighter than sharing a 3-way row with Warehouse
+     ever was. */
+  .view-tradeops { grid-template-columns:1fr 1fr; grid-template-rows:auto 1fr; }
+  .view-tradeops .pane-warehouse { grid-column:1/-1; }
   .keeper-hint { color:var(--dim); font-size:9.5px; margin-bottom:6px; }
   .keeper-opt { display:flex; align-items:flex-start; gap:8px; margin-bottom:8px; }
   .keeper-opt .sw { margin-top:1px; }
@@ -307,7 +335,6 @@
   .keeper-row .ship { font-weight:600; color:var(--bone); min-width:110px; }
   .keeper-row .cover { color:var(--green); }
   .keeper-row .cover.missing { color:var(--accent); }
-  .view-markets .pane-warehouse { grid-column:1/-1; }
   .warehouse-summary { display:flex; gap:16px; align-items:baseline; margin-bottom:8px; font-size:10.5px; color:var(--ice); }
   .warehouse-summary b { color:var(--bone); }
   .warehouse-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
@@ -365,7 +392,9 @@
     .rail.rail-l { width:240px; }
     .rail.rail-r { width:220px; }
     .view-markets { grid-template-columns:1fr 1fr; }
-    .view-markets .pane-yards { grid-column:1/-1; max-height:240px; }  }
+    .view-markets .pane-yards { grid-column:1/-1; max-height:240px; }
+    .view-tradeops { grid-template-columns:1fr; }
+  }
   @media (max-width:900px) {
     .view:not(.view-bridge).on { grid-template-columns:1fr !important; overflow-y:auto; }
     .view:not(.view-bridge) > * { grid-column:1/-1 !important; }
@@ -769,8 +798,8 @@
     <div class="grow"></div>
     <div class="views-switch" id="view-switch" role="group" aria-label="View">
       <button data-view="bridge" aria-pressed="true">Bridge</button>
-      <button data-view="doctrine" aria-pressed="false">Doctrine</button>
       <button data-view="markets" aria-pressed="false">Markets</button>
+      <button data-view="tradeops" aria-pressed="false">Trade Ops</button>
       <button data-view="ops" aria-pressed="false">Ops</button>
     </div>
     <div class="field-book-toggle" id="field-book-toggle" role="group" aria-label="Layout mode">
@@ -842,31 +871,17 @@
           <span class="sp live" id="scrub-live">LIVE</span>
         </div>
       </div>
-      <div class="ticker" id="ticker"></div>
-    </section>
-
-    <!-- ══ DOCTRINE ══ -->
-    <section class="view view-doctrine" data-view="doctrine">
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>The watch<span class="count">what the doctrine produced</span></div>
+      <div class="shift-log-drawer" id="shift-log-drawer">
+        <div class="pane-h"><span class="dot"></span>The watch<span class="count">what the doctrine produced this shift</span></div>
         <div class="pane-b">
           <div class="narrative" id="narrative">Awaiting telemetry…</div>
           <div id="shift-log"></div>
         </div>
       </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Standing orders<span class="count">applied live</span><button class="icon-btn" id="doctrine-mode-toggle" style="margin-left:auto;font-size:8px">Prose</button></div>
-        <div class="pane-b">
-          <div id="rules"></div>
-          <div class="pane-h" style="border-bottom:none;padding-left:0;padding-right:0;margin-top:10px">Discord alerts</div>
-          <div class="relay">
-            <input type="text" id="discord-url" placeholder="Webhook URL" />
-            <button class="btn" id="discord-save">Save</button>
-            <div class="ok" id="discord-ok"></div>
-          </div>
-        </div>
+      <div class="ticker-bar">
+        <button class="ticker-expand" id="ticker-expand" aria-expanded="false" aria-label="Expand shift log">▲</button>
+        <div class="ticker" id="ticker"></div>
       </div>
-      <div class="verdict" id="verdict"></div>
     </section>
 
     <!-- ══ MARKETS ══ -->
@@ -890,6 +905,10 @@
         <div class="pane-h"><span class="dot"></span>Yards &amp; outfitting<span class="count">value per credit</span></div>
         <div class="pane-b"><div class="intel" id="shipyard-intel"></div></div>
       </div>
+    </section>
+
+    <!-- ══ TRADE OPS ══ -->
+    <section class="view view-tradeops" data-view="tradeops">
       <div class="pane pane-warehouse">
         <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="warehouse-count">—</span></div>
         <div class="pane-b">
@@ -1364,8 +1383,8 @@ function setView(name) {
 }
 
 function loadViewData(name) {
-  if (name === "doctrine") { loadDoctrine(); loadNarrative(); renderShiftLog(); renderVerdict(); }
-  if (name === "markets") { loadMarkets(); loadGoods(); loadDispatch(); loadKeepers(); loadWarehouse(); }
+  if (name === "markets") { loadMarkets(); loadGoods(); }
+  if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
   if (name === "ops") loadOps();
 }
 
@@ -1386,7 +1405,7 @@ function initViewSwitch() {
       return;
     }
     if (e.target.matches("input, select, textarea")) return;
-    const map = { "1": "bridge", "2": "doctrine", "3": "markets", "4": "ops" };
+    const map = { "1": "bridge", "2": "markets", "3": "tradeops", "4": "ops" };
     if (map[e.key]) setView(map[e.key]);
   });
 }
@@ -1433,7 +1452,10 @@ async function loadActivity() {
     const res = await fetch("/api/activity");
     activity = (await res.json()).activity ?? [];
     renderTicker();
-    if (currentView === "doctrine") renderShiftLog();
+    // The shift-log drawer (Bridge's ticker-expand) is cheap to keep current
+    // even while collapsed — just re-rendering already-fetched data, no
+    // extra network cost — so it's always up to date whenever it's opened.
+    renderShiftLog();
   } catch (e) { console.error(e); }
 }
 
@@ -1669,7 +1691,6 @@ async function saveKeepers() {
 }
 
 let doctrineFires = {};
-let doctrineModeProse = false;
 
 async function loadDoctrine() {
   try {
@@ -1677,10 +1698,7 @@ async function loadDoctrine() {
     if (!res.ok) return;
     doctrineRules = (await res.json()).rules ?? [];
     await loadDoctrineFires();
-    if (doctrineModeProse) renderDoctrineProse();
-    else renderRules();
     renderMobileDoctrine();
-    renderVerdict();
     if (fieldBookMode === "book" && currentView === "bridge") renderBook();
   } catch (e) { console.error(e); }
 }
@@ -1746,6 +1764,12 @@ async function renderBook() {
         <span class="t">Signed this watch. The fleet flies on these.</span>
         <span class="st">${fleetStatus.paused ? "Halted" : "Auto · running"}</span>
       </div>
+      <div class="book-settings">
+        <span class="l">Discord alerts</span>
+        <input type="text" id="discord-url" placeholder="Webhook URL" />
+        <button class="btn ghost" id="discord-save">Save</button>
+        <div class="ok" id="discord-ok"></div>
+      </div>
     </div>
     <div class="marg">${margHtml}</div>`;
 
@@ -1767,6 +1791,10 @@ async function renderBook() {
     });
   });
   el.querySelectorAll("button.cval[data-key]").forEach(wireClauseValueEditor);
+  // Discord's input/button are recreated on every render (they live inside
+  // this dynamic innerHTML), so the listener from initDiscord() needs
+  // re-attaching each time too, not just once at boot.
+  initDiscord();
 }
 
 /** Click-to-edit for a book clause's value chip: swaps the button for a
@@ -1847,31 +1875,6 @@ function clauseForRule(r) {
     return `Fleet cap for ${type}: buy no more than ${chip(r)}.`;
   }
   return `<b>${escapeHtml(r.name)}</b>: ${chip(r)}`;
-}
-
-function renderDoctrineProse() {
-  const el = $("rules");
-  if (!doctrineRules.length) { el.innerHTML = '<div class="empty">Doctrine unavailable — the fleet is still starting.</div>'; return; }
-
-  const prose = doctrineRules.filter((r) => r.enabled).map((r) => {
-    const stats = doctrineFires.get(r.key);
-    const fireCount = stats?.fireCount ?? 0;
-    const lastFired = stats?.lastFired ? new Date(stats.lastFired).toLocaleTimeString("en-US", { hour12: false }) : "never";
-    return `<div class="prose-clause" data-key="${escapeAttr(r.key)}" title="Fired ${fireCount}× (last: ${lastFired})">
-      <div class="prose-gutter" style="opacity:${Math.min(fireCount / 100, 1)}">${fireCount > 0 ? fireCount : ""}</div>
-      <div class="prose-text">${clauseForRule(r)}</div>
-    </div>`;
-  }).join("");
-
-  el.innerHTML = `<div class="prose-book">${prose}</div>`;
-}
-
-function toggleDoctrineMode() {
-  doctrineModeProse = !doctrineModeProse;
-  localStorage.setItem("doctrine-mode-prose", String(doctrineModeProse));
-  const btn = $("doctrine-mode-toggle");
-  if (btn) btn.classList.toggle("on", doctrineModeProse);
-  loadDoctrine();
 }
 
 async function loadNarrative() {
@@ -2105,42 +2108,10 @@ function renderTicker() {
 }
 
 /* ── DOCTRINE ─────────────────────────────── */
-function renderRules() {
-  const el = $("rules");
-  if (!doctrineRules.length) { el.innerHTML = '<div class="empty">Doctrine unavailable — the fleet is still starting.</div>'; return; }
-  el.innerHTML = doctrineRules.map((r) => `
-    <div class="rule ${r.enabled ? "" : "off"}" data-key="${escapeAttr(r.key)}">
-      <div class="top">
-        <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}"><i></i></button>
-        <span class="name">${escapeHtml(r.name)}</span>
-        <span class="tag ${r.enforced ? "live" : ""}">${r.enforced ? "applied" : "not wired"}</span>
-      </div>
-      <div class="desc">${escapeHtml(r.description)}</div>
-      <div class="ctl">
-        <input type="range" min="${r.min}" max="${r.max}" step="${r.step}" value="${r.value}" aria-label="${escapeAttr(r.name)} value" />
-        <input type="number" min="${r.min}" max="${r.max}" step="${r.step}" value="${r.value}" aria-label="${escapeAttr(r.name)} exact value" />
-      </div>
-    </div>`).join("");
-
-  el.querySelectorAll(".rule").forEach((card) => {
-    const key = card.dataset.key;
-    const range = card.querySelector("input[type=range]");
-    const num = card.querySelector("input[type=number]");
-    const sw = card.querySelector(".sw");
-    // Drag updates the twin instantly; the write lands on release so a drag is
-    // one request, not fifty.
-    range.addEventListener("input", () => { num.value = range.value; });
-    range.addEventListener("change", () => saveRule(key, { value: Number(range.value) }));
-    num.addEventListener("change", () => { range.value = num.value; saveRule(key, { value: Number(num.value) }); });
-    sw.addEventListener("click", () => saveRule(key, { enabled: sw.getAttribute("aria-pressed") !== "true" }));
-  });
-}
-
 async function saveRule(key, patch) {
   try {
     const res = await api("POST", "/api/doctrine", { key, ...patch });
     doctrineRules = res.rules ?? doctrineRules;
-    renderRules();
     renderMobileDoctrine();
     if (fieldBookMode === "book" && currentView === "bridge") renderBook();
     const r = res.rule;
@@ -2178,23 +2149,11 @@ function renderShiftLog() {
     </div>`).join("");
 }
 
-function renderVerdict() {
-  const el = $("verdict");
-  const totals = state?.totals ?? { sells: 0, buys: 0 };
-  const net = totals.sells - totals.buys;
-  const rate = bridge.rate ?? 0;
-  const applied = doctrineRules.filter((r) => r.enabled).length;
-  const strandedCount = (fleetStatus.stranded ?? []).length;
-  el.innerHTML = `
-    <div class="cell"><div class="l">Net ledger</div><div class="v ${net >= 0 ? "good" : "bad"}">${signed(net)}c</div></div>
-    <div class="cell"><div class="l">Last hour</div><div class="v ${rate >= 0 ? "good" : "bad"}">${signed(rate)}c</div></div>
-    <div class="cell"><div class="l">Rules applied</div><div class="v">${applied}<small> / ${doctrineRules.length}</small></div></div>
-    <div class="cell"><div class="l">Unruled losses</div><div class="v ${bridge.forgone ? "bad" : ""}">${bridge.forgone ? signed(bridge.forgone) + "c/hr" : "—"}</div></div>
-    <div class="cell"><div class="l">Stranded</div><div class="v ${strandedCount ? "bad" : ""}">${strandedCount}</div></div>`;
-}
-
+// Now only lives inside Book mode's sheet, rendered fresh each time — guard
+// rather than assume the elements exist (they don't until renderBook() has
+// run at least once).
 function initDiscord() {
-  $("discord-save").addEventListener("click", async () => {
+  $("discord-save")?.addEventListener("click", async () => {
     const url = $("discord-url").value.trim();
     if (!url) return;
     try {
@@ -2270,6 +2229,7 @@ async function loadGoods() {
   } catch (e) { console.error(e); }
 }
 
+let lastPricePoints = [];
 async function loadPrices() {
   const sel = $("price-good");
   priceGood = sel.value || priceGood;
@@ -2277,9 +2237,21 @@ async function loadPrices() {
   const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
   try {
     const res = await fetch(`/api/prices?good=${encodeURIComponent(priceGood)}&since=${encodeURIComponent(since)}`);
-    renderPriceChart((await res.json()).points ?? [], "price-chart");
+    lastPricePoints = (await res.json()).points ?? [];
+    renderPriceChart(lastPricePoints, "price-chart");
   } catch (e) { console.error(e); }
 }
+
+// Redraw the price chart from its cached points on resize — the chart's
+// viewBox matches the container's live size, so it needs to be recomputed
+// when that size changes, not just when new data arrives.
+let priceChartResizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(priceChartResizeTimer);
+  priceChartResizeTimer = setTimeout(() => {
+    if (lastPricePoints.length) renderPriceChart(lastPricePoints, "price-chart");
+  }, 150);
+});
 
 /* ── co-pilot drawer ──────────────────────── */
 function initCopilot() {
@@ -3109,7 +3081,11 @@ function renderPriceChart(points, elId = "price-chart-room") {
   // Gradient ids must be unique per chart or the second chart reuses the first's.
   const gradId = `parea-${elId}`;
   if (!points.length) { el.innerHTML = '<div class="empty">No price history for this good yet.</div>'; return; }
-  const W = 320, H = 130, P = 12;
+  // The viewBox now matches the container's real size instead of a fixed
+  // 320×130 — previously the SVG kept its own hardcoded aspect ratio and
+  // letterboxed (default preserveAspectRatio="xMidYMid meet"), leaving empty
+  // space on either side of the chart on any container wider than 2.46:1.
+  const W = Math.max(120, el.clientWidth || 320), H = Math.max(60, el.clientHeight || 130), P = 12;
   const vals = points.map((p) => Number(p.avg));
   const times = points.map((p) => new Date(p.t).getTime());
   let min = Math.min(...vals), max = Math.max(...vals);
@@ -3223,9 +3199,10 @@ const every = (ms, fn) => timers.push({ ms, fn, last: 0 });
 every(5000, loadState);
 every(5000, loadBridge);
 every(3000, loadActivity);
-every(20000, () => { if (currentView === "markets") { loadMarkets(); loadDispatch(); loadKeepers(); loadWarehouse(); } });
+every(20000, () => { if (currentView === "markets") loadMarkets(); });
+every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); } });
 every(20000, () => { if (currentView === "ops") loadOps(); });
-every(30000, () => { if (currentView === "doctrine") loadNarrative(); });
+every(30000, () => { if (currentView === "bridge") loadNarrative(); });
 every(15000, () => { if (isMobile()) loadMobilePanels(); });
 
 setInterval(() => {
@@ -3540,7 +3517,6 @@ initViewSwitch();
 initModeToggle();
 initMapInteractions();
 initCopilot();
-initDiscord();
 
 $("auth-form-login").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -3573,11 +3549,18 @@ function boot() {
   loadBridge();
   loadActivity();
   loadDoctrine();
+  loadNarrative();
   loadOps();
   loadChatHistory();
   loadReplay();
   if (isMobile()) loadMobilePanels();
   initScrubber();
+  initShiftLogDrawer();
+  // Populate Book's sheet once up front regardless of starting mode — it's
+  // also where Discord webhook config now lives, and that must be reachable
+  // (its inputs need to exist in the DOM) even for an operator who never
+  // switches to Book mode on their own.
+  renderBook();
   // Initialize field/book mode for bridge view
   setTimeout(() => {
     const view = $("views").querySelector(".view.on[data-view='bridge']");
@@ -3590,6 +3573,17 @@ function initScrubber() {
   $("scrub-speed")?.addEventListener("click", scrubCycleSpeed);
   $("scrub-live")?.addEventListener("click", scrubGoLive);
   $("scrub-track")?.addEventListener("click", (e) => scrubSeek(e.clientX));
+}
+
+function initShiftLogDrawer() {
+  const btn = $("ticker-expand");
+  const drawer = $("shift-log-drawer");
+  if (!btn || !drawer) return;
+  btn.addEventListener("click", () => {
+    const open = !drawer.classList.contains("open");
+    drawer.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", String(open));
+  });
 }
 
 // Position history keeps growing as the fleet runs — refresh the window
@@ -3624,16 +3618,6 @@ every(60_000, () => { if (currentView === "bridge") loadReplay(); });
     btn.addEventListener("click", () => setHue(Number(btn.dataset.hue)));
   }
 })();
-
-// Load doctrine prose mode preference
-doctrineModeProse = localStorage.getItem("doctrine-mode-prose") === "true";
-
-// Wire up doctrine mode toggle
-const doctrineToggle = $("doctrine-mode-toggle");
-if (doctrineToggle) {
-  doctrineToggle.classList.toggle("on", doctrineModeProse);
-  doctrineToggle.addEventListener("click", toggleDoctrineMode);
-}
 
 // ── Field / Book mode ──────────────────────────────────────────────
 let fieldBookMode = localStorage.getItem("field-book-mode") || "field";
