@@ -1285,8 +1285,14 @@ export class Store {
    *  from the same refresh cycle that records new ones, so the table stays
    *  bounded (~24h of samples at STATE_REFRESH_MS cadence) without a cron. */
   async pruneShipPositionHistory(tenantId: string, beforeIso: string): Promise<void> {
+    // $1 was beforeIso's actual placeholder, but the params array passed
+    // tenantId first and the query used $2 — since tenantId is never
+    // referenced anywhere in the query text (RLS scopes it via withTenant's
+    // SET LOCAL, same as every other method here), Postgres had no type
+    // context for $1 at all: "could not determine data type of parameter
+    // $1", firing on every refreshState() cycle in production.
     await withTenant(this.pool, tenantId, (c) =>
-      c.query(`DELETE FROM ship_position_history WHERE timestamp < $2`, [tenantId, beforeIso]),
+      c.query(`DELETE FROM ship_position_history WHERE timestamp < $1`, [beforeIso]),
     );
   }
 }
