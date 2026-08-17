@@ -359,6 +359,10 @@
   /* ── markets ─────────────────────────────── */
   .route { border:1px solid var(--hairline); background:var(--glass); padding:8px 9px; margin-bottom:6px; }
   .route.best { border-left:2px solid var(--green); }
+  .route-summary { display:flex; gap:14px; margin-bottom:8px; font-size:10px; letter-spacing:0.04em; }
+  .route-summary .count b { font-size:12px; margin-right:3px; }
+  .route-summary .flyable { color:var(--green); }
+  .route-summary .gated { color:var(--teal); }
   .route .r1 { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
   .route .good { color:var(--bone); font-size:11px; font-weight:600; }
   .route .per { font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--green); }
@@ -1587,7 +1591,15 @@ function renderRoutes() {
     html = '<div class="empty">No profitable routes in fresh snapshots. Tour some markets.</div>';
   } else {
     const misleading = marketRoutes.find((r) => r.marginPct > 60 && r.profitPerTrip < (marketRoutes[0].profitPerTrip / 4));
+    const flyable = marketRoutes.filter((r) => !r.crossSystem);
+    const gated = marketRoutes.filter((r) => r.crossSystem);
     html = `
+      <div class="route-summary">
+        <span class="count flyable"><b>${flyable.length}</b> same-system</span>
+        <span class="count gated"><b>${gated.length}</b> need a gate</span>
+      </div>
+      ${flyable.length === 0 ? `<div class="callout warn"><b>No same-system routes right now</b> —
+        every profitable route shown needs the gate.</div>` : ""}
       ${misleading ? `<div class="callout"><b>Ranked by what a trip actually earns</b>, not margin percentage.
         ${escapeHtml(misleading.goodSymbol)} shows a ${misleading.marginPct}% margin and sits far down this list —
         ${misleading.volume} units, ${misleading.fuelUnits ?? "?"} fuel to get there.</div>` : ""}
