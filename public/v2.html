@@ -185,7 +185,14 @@
      fuller shift log (narrative + per-event feed) — what used to be the
      Doctrine tab's "The watch" pane, folded in here since it's really just
      a longer view of the same activity the ticker already scrolls. */
-  .ticker-bar { display:flex; align-items:stretch; flex-shrink:0; }
+  /* position:relative so the drawer's bottom:100% below measures from THIS
+     box's own (small, ticker-height) edge — not the whole Bridge view's,
+     which is what happened when the drawer sat outside .ticker-bar: its
+     containing block was .view-bridge (nearly the full viewport height), so
+     "100% from the bottom" put the drawer's bottom edge at the very TOP of
+     the view, overlapping the header nav and blocking clicks on other tabs
+     while open. Nesting the drawer inside .ticker-bar fixes the math. */
+  .ticker-bar { position:relative; display:flex; align-items:stretch; flex-shrink:0; }
   .ticker-bar .ticker { flex:1; }
   .ticker-expand {
     flex-shrink:0; width:28px; background:var(--panel); border:1px solid var(--hairline); border-right:none;
@@ -871,14 +878,14 @@
           <span class="sp live" id="scrub-live">LIVE</span>
         </div>
       </div>
-      <div class="shift-log-drawer" id="shift-log-drawer">
-        <div class="pane-h"><span class="dot"></span>The watch<span class="count">what the doctrine produced this shift</span></div>
-        <div class="pane-b">
-          <div class="narrative" id="narrative">Awaiting telemetry…</div>
-          <div id="shift-log"></div>
-        </div>
-      </div>
       <div class="ticker-bar">
+        <div class="shift-log-drawer" id="shift-log-drawer">
+          <div class="pane-h"><span class="dot"></span>The watch<span class="count">what the doctrine produced this shift</span></div>
+          <div class="pane-b">
+            <div class="narrative" id="narrative">Awaiting telemetry…</div>
+            <div id="shift-log"></div>
+          </div>
+        </div>
         <button class="ticker-expand" id="ticker-expand" aria-expanded="false" aria-label="Expand shift log">▲</button>
         <div class="ticker" id="ticker"></div>
       </div>
@@ -1380,6 +1387,12 @@ function setView(name) {
   $("view-switch").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === name)));
   loadViewData(name);
   if (name === "bridge") requestAnimationFrame(renderMapLiveOrScrub);
+  else {
+    // Defense in depth alongside the drawer's own positioning fix: never
+    // leave it open while looking at a different view.
+    $("shift-log-drawer")?.classList.remove("open");
+    $("ticker-expand")?.setAttribute("aria-expanded", "false");
+  }
 }
 
 function loadViewData(name) {
