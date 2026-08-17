@@ -197,7 +197,10 @@
     letter-spacing:0.17em; font-size:10px; color:var(--accent);
   }
   .rail .rail-h .n { margin-left:auto; font-family:var(--mono); font-size:9px; letter-spacing:0.04em; color:var(--dim); }
-  .rail .rail-b { padding:11px 12px; overflow-y:auto; flex:1; min-height:0; }
+  .rail .rail-b { padding:11px 12px; overflow-y:auto; flex:1; min-height:0; scrollbar-width:thin; scrollbar-color:var(--rule-soft) transparent; }
+  .rail .rail-b::-webkit-scrollbar { width:4px; }
+  .rail .rail-b::-webkit-scrollbar-thumb { background:var(--rule-soft); }
+  .rail .rail-b::-webkit-scrollbar-track { background:transparent; }
 
   /* Book mode: the field dims to a ground; rails hide; a document takes over. */
   .field-stage.book-mode .map-wrap { opacity:0.28; filter:grayscale(0.6); pointer-events:none; transition:opacity .5s ease, filter .5s ease; }
@@ -213,6 +216,10 @@
     display:grid; grid-template-columns:1fr 260px; overflow:hidden;
     box-shadow:0 30px 80px -20px rgba(0,0,0,.7);
   }
+  .sheet .page, .sheet .marg { scrollbar-width:thin; scrollbar-color:var(--rule-soft) transparent; }
+  .sheet .page::-webkit-scrollbar, .sheet .marg::-webkit-scrollbar { width:4px; }
+  .sheet .page::-webkit-scrollbar-thumb, .sheet .marg::-webkit-scrollbar-thumb { background:var(--rule-soft); }
+  .sheet .page::-webkit-scrollbar-track, .sheet .marg::-webkit-scrollbar-track { background:transparent; }
   .sheet .page { padding:24px 30px; overflow-y:auto; }
   .sheet .marg { border-left:1px solid var(--rule-soft); padding:24px 18px; background:var(--fill); overflow-y:auto; }
   .sheet .oh {
@@ -231,6 +238,22 @@
   .sheet .clause.off { color:var(--dim); opacity:0.6; text-decoration:line-through; }
   .sheet .clause.off .n { color:var(--dim); border-bottom-color:var(--dim); }
   .sheet .clause .tog { float:right; margin-left:8px; }
+  /* Value chips: look like the surrounding prose, but are real buttons —
+     clicking swaps one for a number input, matching the plan's "commit on
+     Enter/blur, cancel on Escape" editing model. */
+  .sheet .clause button.cval { background:transparent; border:none; cursor:pointer; text-decoration:none; }
+  .sheet .clause button.cval:hover { background:var(--accent-soft); border-radius:2px; }
+  .sheet .clause button.cval:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .sheet .clause .cval-input {
+    font-family:var(--mono); font-weight:700; font-size:13.5px; color:var(--accent);
+    background:var(--ink); border:1px solid var(--accent); padding:0 3px; width:74px;
+    font-variant-numeric:tabular-nums; text-decoration:none;
+  }
+  /* Enabled/disabled toggle, reusing the same switch look as the old rule cards. */
+  .sheet .clause .tog.sw { width:24px; height:13px; border:1px solid var(--rule); background:var(--ink); position:relative; cursor:pointer; padding:0; vertical-align:middle; }
+  .sheet .clause .tog.sw i { position:absolute; top:1px; left:1px; width:9px; height:9px; background:var(--dim); transition:all .15s; }
+  .sheet .clause .tog.sw[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
+  .sheet .clause .tog.sw[aria-pressed="true"] i { left:12px; background:var(--accent); }
   .sheet .sig { margin-top:16px; padding-top:14px; border-top:1px solid var(--rule-soft); display:flex; align-items:center; gap:12px; }
   .sheet .sig .t { font-family:var(--book); font-style:italic; font-size:14px; color:var(--dim); }
   .sheet .sig .st { margin-left:auto; font-family:var(--chrome); font-weight:800; text-transform:uppercase;
@@ -1692,9 +1715,8 @@ async function renderBook() {
 
   const applied = doctrineRules.filter((r) => r.enabled).length;
   const clauses = doctrineRules.map((r) => {
-    const stats = doctrineFires.get(r.key);
-    const ships = doctrineFireShips.get(r.key) ?? [];
     return `<p class="clause${r.enabled ? "" : " off"}" data-key="${escapeAttr(r.key)}">
+      <button type="button" class="tog sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}" data-key="${escapeAttr(r.key)}"><i></i></button>
       ${clauseForRule(r)}
     </p>`;
   }).join("");
@@ -1735,6 +1757,50 @@ async function renderBook() {
     chip.addEventListener("mouseleave", () => clearHullPulse());
     chip.addEventListener("click", () => { setFieldBookMode("field"); openShipDetails(chip.dataset.ship); });
   });
+  el.querySelectorAll(".tog.sw[data-key]").forEach((sw) => {
+    sw.addEventListener("click", (e) => {
+      e.stopPropagation();
+      saveRule(sw.dataset.key, { enabled: sw.getAttribute("aria-pressed") !== "true" });
+    });
+  });
+  el.querySelectorAll("button.cval[data-key]").forEach(wireClauseValueEditor);
+}
+
+/** Click-to-edit for a book clause's value chip: swaps the button for a
+ *  number input sized to the rule's own min/max/step, commits on Enter or
+ *  blur, cancels on Escape — the same interaction the plan called for,
+ *  reusing saveRule() rather than a separate save path. */
+function wireClauseValueEditor(btn) {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const { key, min, max, step, value } = btn.dataset;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "cval-input";
+    input.min = min; input.max = max; input.step = step;
+    input.value = value;
+    btn.replaceWith(input);
+    input.focus();
+    input.select();
+    let settled = false;
+    const commit = async () => {
+      if (settled) return;
+      settled = true;
+      const value = Number(input.value);
+      if (Number.isFinite(value)) await saveRule(key, { value });
+      else if (fieldBookMode === "book") renderBook();
+    };
+    const cancel = () => {
+      if (settled) return;
+      settled = true;
+      if (fieldBookMode === "book") renderBook();
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (ke) => {
+      if (ke.key === "Enter") { ke.preventDefault(); input.blur(); }
+      else if (ke.key === "Escape") { ke.preventDefault(); cancel(); }
+    });
+  });
 }
 
 /** "3m ago" / "1h 12m ago" — relative-time formatting for fire-log timestamps. */
@@ -1751,7 +1817,9 @@ function relTime(iso) {
 // The exact copy from the design doc's clause table (field-and-book-plan.md
 // §2.1) — verbatim, not paraphrased. {v} is the editable value chip; text in
 // *italics* is a trailing note rendered dimmed after the sentence.
-function chip(r) { return `<span class="n">${fmt(r.value)}${r.unit}</span>`; }
+function chip(r) {
+  return `<button type="button" class="n cval" data-key="${escapeAttr(r.key)}" data-value="${r.value}" data-min="${r.min}" data-max="${r.max}" data-step="${r.step}" data-unit="${escapeAttr(r.unit)}">${fmt(r.value)}${r.unit}</button>`;
+}
 const CLAUSE_TEXT = {
   cashFloor: (r) => `Never let the balance fall below ${chip(r)} when buying ships or modules.`,
   marginFloor: (r) => `Ignore arbitrage routes whose per-unit margin is below ${chip(r)}.`,
@@ -2071,6 +2139,7 @@ async function saveRule(key, patch) {
     doctrineRules = res.rules ?? doctrineRules;
     renderRules();
     renderMobileDoctrine();
+    if (fieldBookMode === "book" && currentView === "bridge") renderBook();
     const r = res.rule;
     showToastGlobal(`${r.name}: ${r.enabled ? `${fmt(r.value)}${r.unit}` : "off"}`);
   } catch (err) { showToastGlobal(err.message, true); loadDoctrine(); }
