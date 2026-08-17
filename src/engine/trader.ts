@@ -759,14 +759,27 @@ export class TraderAgent {
    * market — same-system candidates before cross-system ones, so the common
    * case never even calls canReachMarket()'s gate-construction check.
    *
-   * Previously this picked *any* known market fleet-wide with no reachability
-   * check at all, so a market in a system with no completed gate connection
-   * got picked, jumpToSystem() silently no-op'd (logged "no jump gate...",
-   * didn't throw), and this function still returned true — reporting the
-   * tick as having made progress, which chained the next attempt with ZERO
-   * backoff (nextTask() only backs off when made=false). That's a busy loop,
-   * not just a slow retry, and it picks the exact same unreachable market
-   * again every pass since knownMarkets' ordering doesn't change.
+   * `preferred` only needs to be *reachable*, not already `knownMarkets` —
+   * requiring it to already have a fresh snapshot defeated the entire point
+   * of this function for exactly its main caller: runArbitrage() passes the
+   * dispatcher's assigned buyAt/sellAt here specifically when viableRoute()
+   * rejected the assignment for lacking a cached price at that market (see
+   * viableRoute()'s own priceTable.get() check). Previously that market got
+   * silently filtered out of its own "go observe it" candidate list, so a
+   * freshly (re)assigned route the trader had never priced yet meant this
+   * returned false with no log line and no action — reported live as a
+   * trader sitting idle and silent for minutes after being released, still
+   * holding an assignment it could never act on.
+   *
+   * Previously this also picked *any* known market fleet-wide with no
+   * reachability check at all, so a market in a system with no completed
+   * gate connection got picked, jumpToSystem() silently no-op'd (logged "no
+   * jump gate...", didn't throw), and this function still returned true —
+   * reporting the tick as having made progress, which chained the next
+   * attempt with ZERO backoff (nextTask() only backs off when made=false).
+   * That's a busy loop, not just a slow retry, and it picks the exact same
+   * unreachable market again every pass since knownMarkets' ordering
+   * doesn't change.
    */
   private async discoverPrices(preferred: string[]): Promise<boolean> {
     const here = this.ship.nav.waypointSymbol;
@@ -774,7 +787,7 @@ export class TraderAgent {
     const knownMarkets = [...new Set(((await this.getMarketSnapshots?.()) ?? []).map((s) => s.waypointSymbol))].filter((m) => m !== here);
     const sameSystem = knownMarkets.filter((m) => this.systemOf(m) === hereSystem);
     const crossSystem = knownMarkets.filter((m) => this.systemOf(m) !== hereSystem);
-    const candidates = [...preferred.filter((m) => m && m !== here && knownMarkets.includes(m)), ...sameSystem, ...crossSystem];
+    const candidates = [...new Set([...preferred.filter((m) => m && m !== here), ...sameSystem, ...crossSystem])];
 
     let target: string | undefined;
     for (const m of candidates) {

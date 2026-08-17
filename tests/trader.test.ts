@@ -252,6 +252,30 @@ describe("TraderAgent.discoverPrices: reachability", () => {
     assert.equal(navigatedTo, "X1-B-A2");
   });
 
+  it("visits a preferred market with no cached price yet, instead of requiring it to already be known", async () => {
+    // Reproduces the reported live bug: runArbitrage() passes the
+    // dispatcher's assigned buyAt/sellAt as `preferred` specifically when
+    // viableRoute() rejected the assignment for lacking a cached price at
+    // that market — so requiring `preferred` to already be a known/fresh
+    // market (the old behavior) excluded the one case this exists for,
+    // leaving the trader silently idle with no log line and an assignment
+    // it could never act on.
+    const ship = makeShip();
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      getMarketSnapshots: async () => [], // nothing known yet — no other ship has priced this market
+    });
+    let navigatedTo: string | undefined;
+    (trader as any).navigateTo = async (wp: string) => { navigatedTo = wp; };
+    (trader as any).refuelAt = async () => {};
+    (trader as any).observeMarket = async () => {};
+
+    const made = await (trader as any).discoverPrices(["X1-A-A9"]); // same system as the ship — no gate needed
+
+    assert.equal(made, true, "an assigned-but-unpriced same-system market must still be visited, not silently skipped");
+    assert.equal(navigatedTo, "X1-A-A9");
+  });
+
   it("prefers a reachable preferred market over an unreachable one, instead of dropping preferred cross-system markets outright", async () => {
     const ship = makeShip();
     const trader = new TraderAgent(ship, {
