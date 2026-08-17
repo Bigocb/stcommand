@@ -460,6 +460,7 @@
   #map path.route { fill:none; stroke:var(--accent); stroke-width:1.6; opacity:0.4; vector-effect:non-scaling-stroke; }
   #map path.route.active { opacity:0.85; stroke-dasharray:5 5; animation:route-flow 1.2s linear infinite; }
   #map path.jump { fill:none; stroke:var(--teal); stroke-width:1.4; opacity:0.55; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
+  #map line.ship-trail { stroke:var(--star); stroke-width:1.6; vector-effect:non-scaling-stroke; pointer-events:none; }
   @keyframes route-flow { to { stroke-dashoffset:-10; } }
   /* Sized for the field's full-bleed scale (previously tuned for a map that
      shared the screen with two grid panes — the same absolute pixel sizes
@@ -1269,15 +1270,30 @@ async function loadReplay() {
 function renderScrubFrame() {
   const targetT = replayT0 + scrubFraction * (replayT1 - replayT0);
   const synthetic = [];
+  const trails = new Map();
   for (const [symbol, samples] of replayByShip) {
     if (!samples.length) continue;
     let best = samples[0];
-    for (const s of samples) {
-      if (s.t <= targetT) best = s; else break;
+    let bestIdx = 0;
+    for (let i = 0; i < samples.length; i++) {
+      if (samples[i].t <= targetT) { best = samples[i]; bestIdx = i; } else break;
     }
     synthetic.push({ symbol, nav: { waypointSymbol: best.waypointSymbol, status: best.status } });
+
+    // The trail: the last few DISTINCT waypoints visited leading up to now.
+    // A ship sitting still produces many consecutive samples at the same
+    // spot (one every state-refresh cycle) — only the transitions between
+    // different waypoints matter for a travel line, so consecutive repeats
+    // collapse into one point.
+    const trail = [];
+    for (let i = bestIdx; i >= 0 && trail.length < 8; i--) {
+      const wp = samples[i].waypointSymbol;
+      if (trail.length === 0 || trail[trail.length - 1] !== wp) trail.push(wp);
+    }
+    trail.reverse();
+    if (trail.length > 1) trails.set(symbol, trail);
   }
-  renderMap(synthetic);
+  renderMap(synthetic, trails);
   updateScrubHead();
 }
 
@@ -2313,7 +2329,7 @@ async function api(method, path, body) {
   return res.json();
 }
 
-function renderMap(ships) {
+function renderMap(ships, trails = new Map()) {
   const svg = $("map");
   const w = svg.clientWidth || 800;
   const h = svg.clientHeight || 600;
@@ -2431,6 +2447,21 @@ function renderMap(ships) {
       out += `<text class="wplabel" x="${pos.x + 6}" y="${pos.y + 3}">${shortWp(p.symbol)}</text>`;
     }
   }
+  // Scrubbing draws each ship's recent path as a fading trail — real
+  // movement history, not the static trade lanes above. Segments nearer the
+  // ship's current position are more opaque than older ones, so the trail
+  // reads as a direction of travel, not just a static line.
+  for (const [, trail] of trails) {
+    for (let i = 1; i < trail.length; i++) {
+      const a = posBySymbol.get(trail[i - 1]);
+      const b = posBySymbol.get(trail[i]);
+      if (!a || !b) continue;
+      const frac = i / (trail.length - 1);
+      const opacity = (0.1 + frac * 0.4).toFixed(2);
+      out += `<line class="ship-trail" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" opacity="${opacity}"></line>`;
+    }
+  }
+
   shipScreenPos.clear();
   for (const s of ships) {
     const pos = posBySymbol.get(s.nav.waypointSymbol);
