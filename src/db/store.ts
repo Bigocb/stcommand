@@ -1171,8 +1171,14 @@ export class Store {
   async recordDoctrineFire(tenantId: string, ruleKey: string): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
+        // fire_count on the right must be qualified — doctrine_fires has
+        // FORCE ROW LEVEL SECURITY, and Postgres's RLS query rewrite for
+        // ON CONFLICT DO UPDATE introduces a second relation into scope
+        // that also has a fire_count column, making the bare name
+        // genuinely ambiguous (reproduced directly against production;
+        // not present on tables without FORCE ROW LEVEL SECURITY).
         `INSERT INTO doctrine_fires (tenant_id, rule_key, fire_count, last_fired) VALUES ($1, $2, 1, now())
-         ON CONFLICT (tenant_id, rule_key) DO UPDATE SET fire_count = fire_count + 1, last_fired = now()`,
+         ON CONFLICT (tenant_id, rule_key) DO UPDATE SET fire_count = doctrine_fires.fire_count + 1, last_fired = now()`,
         [tenantId, ruleKey],
       ),
     );
