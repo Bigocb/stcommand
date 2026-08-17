@@ -261,6 +261,15 @@ export class FleetManager {
     for (const r of persistedFleetState ?? []) {
       if (r.role === "keeper" && r.keeperMarket) this.keeperMarkets.set(r.shipSymbol, r.keeperMarket);
     }
+    // A persisted fleet_state row means a ship's role was already decided
+    // deliberately — either a runtime conversion (maybeAssignKeepers) or an
+    // explicit operator override (setShipRole) — restorePersistedManualRoles()
+    // below re-applies it over whatever assignRole() would derive. The
+    // promotion logic further down must not then re-derive its own opinion
+    // from raw cargo capacity and silently overwrite that decision (observed:
+    // setting a ship to "tour" stuck until the next restart, when largest-
+    // cargo promotion picked it right back up into "trader").
+    const persistedRoleOverrides = new Set((persistedFleetState ?? []).map((r) => r.shipSymbol));
     for (const ship of ships) {
       if (ship.frame?.symbol) await this.doctrine.ensureShipTypeRule(ship.frame.symbol);
       await this.assignRole(ship);
@@ -275,6 +284,7 @@ export class FleetManager {
     if (this.miners.size >= 3 && this.traders.size === 0) {
       const best = ships
         .filter((s) => (s.cargo?.capacity ?? 0) >= 15)
+        .filter((s) => !persistedRoleOverrides.has(s.symbol))
         .sort((a, b) => (b.cargo?.capacity ?? 0) - (a.cargo?.capacity ?? 0))[0];
       if (best) {
         this.miners.delete(best.symbol);
@@ -290,9 +300,15 @@ export class FleetManager {
       // A mining-capable ship with a large hold (e.g. the COMMAND frigate) earns
       // far more arbitrage trading than ore. Once the drone fleet covers mining,
       // promote the biggest-hold miner to trader so it prints credits instead.
+      // Belt-and-suspenders, not strictly load-bearing here: a ship with a
+      // persisted override would already have been moved out of `this.miners`
+      // by restorePersistedManualRoles() above, so it wouldn't reach this
+      // filter in the first place — kept for the same reason as the block
+      // above, in case that ordering ever changes.
       const best = [...this.miners.values()]
         .map((a) => a.getShip())
         .filter((s) => (s.cargo?.capacity ?? 0) >= 40)
+        .filter((s) => !persistedRoleOverrides.has(s.symbol))
         .sort((a, b) => (b.cargo?.capacity ?? 0) - (a.cargo?.capacity ?? 0))[0];
       if (best) {
         this.miners.delete(best.symbol);

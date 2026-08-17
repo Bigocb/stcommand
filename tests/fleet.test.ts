@@ -856,3 +856,73 @@ describe("FleetManager.restorePersistedManualRoles (setShipRole surviving a rest
     assert.ok((fleet as any).traders.has("SHIP-1"), "assignRole's derived role must survive when the override can't be applied");
   });
 });
+
+describe("FleetManager.init: promotion respects manual role overrides", () => {
+  function makeRawShip(symbol: string, opts: { cargoCapacity: number; mining?: boolean; frame?: string }): any {
+    return {
+      symbol,
+      registration: { role: "HAULER" },
+      nav: { status: "DOCKED", waypointSymbol: "X1-TEST-A1", systemSymbol: "X1-TEST" },
+      cargo: { capacity: opts.cargoCapacity, units: 0, inventory: [] },
+      fuel: { current: 100, capacity: 100 },
+      frame: { symbol: opts.frame ?? "FRAME_FRIGATE" },
+      mounts: opts.mining ? [{ symbol: "MOUNT_MINING_LASER_I" }] : [],
+      modules: [],
+    };
+  }
+
+  function makeInitApi(ships: any[]) {
+    return {
+      getCallCount: () => 0,
+      getMyAgent: async () => ({ credits: 100_000, headquarters: "X1-TEST-A1", symbol: "TEST", shipCount: ships.length }),
+      getSystem: async () => ({}),
+      getAllSystemWaypoints: async () => [],
+      listAllShips: async () => ships,
+    } as any;
+  }
+
+  it("does not pull a manually-overridden ship back into trader on the next restart's largest-cargo promotion", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    // The operator's explicit choice, made before this "restart".
+    await store.setFleetState(tenantId, "SHIP-BIG", "tour");
+
+    const miners = [
+      makeRawShip("SHIP-M1", { cargoCapacity: 20, mining: true, frame: "FRAME_DRONE" }),
+      makeRawShip("SHIP-M2", { cargoCapacity: 20, mining: true, frame: "FRAME_DRONE" }),
+      makeRawShip("SHIP-M3", { cargoCapacity: 20, mining: true, frame: "FRAME_DRONE" }),
+    ];
+    // Largest cargo in the fleet — assignRole() derives "trader" for it
+    // naturally (no mining mount, big hold), which disagrees with the
+    // persisted "tour" override; restorePersistedManualRoles() corrects
+    // that. The bug: promotion ran afterward and picked it right back
+    // up purely by cargo size, ignoring that a decision had already been
+    // made for it.
+    const big = makeRawShip("SHIP-BIG", { cargoCapacity: 200 });
+    const ships = [...miners, big];
+
+    const fleet = new FleetManager({ api: makeInitApi(ships), store, tenantId });
+    await fleet.init();
+
+    assert.ok((fleet as any).tours.has("SHIP-BIG"), "the persisted override must hold");
+    assert.ok(!(fleet as any).traders.has("SHIP-BIG"), "largest-cargo promotion must not override a manually-set role");
+  });
+
+  it("still promotes the largest-cargo ship when nothing has a manual override (unaffected by the guard)", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+
+    const miners = [
+      makeRawShip("SHIP-M1", { cargoCapacity: 20, mining: true, frame: "FRAME_DRONE" }),
+      makeRawShip("SHIP-M2", { cargoCapacity: 20, mining: true, frame: "FRAME_DRONE" }),
+      makeRawShip("SHIP-M3", { cargoCapacity: 20, mining: true, frame: "FRAME_DRONE" }),
+    ];
+    const big = makeRawShip("SHIP-BIG", { cargoCapacity: 200 });
+    const ships = [...miners, big];
+
+    const fleet = new FleetManager({ api: makeInitApi(ships), store, tenantId });
+    await fleet.init();
+
+    assert.ok((fleet as any).traders.has("SHIP-BIG"), "with no override, largest-cargo promotion must still work exactly as before");
+  });
+});
