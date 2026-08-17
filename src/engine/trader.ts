@@ -38,7 +38,7 @@ export interface TraderOptions {
     total: number;
   }) => void;
   /** Called for notable events for the live feed. */
-  onActivity?: (kind: string, detail: string, credits?: number) => void;
+  onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Provide latest market snapshots from persistent store on each tick. */
@@ -332,7 +332,7 @@ export class TraderAgent {
     this.log(`jumping ${fromSystem} -> ${targetSystem} via ${gate}`);
     const res = await this.api.jumpShip(this.symbol, destination);
     this.ship = { ...this.ship, nav: res.nav };
-    this.onActivity?.("jump", `jumped to ${destination}`, -res.transaction.totalPrice);
+    this.onActivity?.("jump", `jumped to ${destination}`, -res.transaction.totalPrice, this.symbol);
     await this.refresh();
     if (this.recordMarket) await this.recordMarket(this.ship.nav.waypointSymbol);
   }
@@ -663,7 +663,7 @@ export class TraderAgent {
         total: sold.transaction.totalPrice,
       });
       this.log(`cleared leftover ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`);
-      this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice);
+      this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice, this.symbol);
       return true;
     } catch (err) {
       // market doesn't buy it — jettison to free the hold
@@ -752,7 +752,7 @@ export class TraderAgent {
         total: res.transaction.totalPrice,
       });
       this.log(`bought ${units}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
-      this.onActivity?.("buy", `${units}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice);
+      this.onActivity?.("buy", `${units}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
       await this.navigateTo(route.sellAt);
       await this.ensureDocked();
       const live = await this.liveSellPrice(route.sellAt, route.good);
@@ -775,7 +775,7 @@ export class TraderAgent {
         total: sold.transaction.totalPrice,
       });
       this.log(`sold ${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt} (+${sold.transaction.totalPrice - res.transaction.totalPrice}c)`);
-      this.onActivity?.("sell", `${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt}`, sold.transaction.totalPrice);
+      this.onActivity?.("sell", `${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt}`, sold.transaction.totalPrice, this.symbol);
       return true;
     }
 
@@ -844,7 +844,7 @@ export class TraderAgent {
       total: res.transaction.totalPrice,
     });
     this.log(`bought ${units}u ${assigned.good} @ ${res.transaction.pricePerUnit}c at ${buyAt}`);
-    this.onActivity?.("buy", `${units}u ${assigned.good} @ ${res.transaction.pricePerUnit}c at ${buyAt}`, -res.transaction.totalPrice);
+    this.onActivity?.("buy", `${units}u ${assigned.good} @ ${res.transaction.pricePerUnit}c at ${buyAt}`, -res.transaction.totalPrice, this.symbol);
 
     await this.navigateTo(warehouse.waypointSymbol);
     await this.ensureDocked();
@@ -853,7 +853,7 @@ export class TraderAgent {
       this.ship = { ...this.ship, cargo: xfer.cargo };
       await this.warehouseDeposit?.(assigned.good, units, res.transaction.pricePerUnit, this.symbol);
       this.log(`deposited ${units}u ${assigned.good} into warehouse ship ${warehouse.shipSymbol}`);
-      this.onActivity?.("warehouse-deposit", `${units}u ${assigned.good} into ${warehouse.shipSymbol}`);
+      this.onActivity?.("warehouse-deposit", `${units}u ${assigned.good} into ${warehouse.shipSymbol}`, undefined, this.symbol);
     } catch (err) {
       // Rendezvous failed this tick (warehouse ship not there yet, etc). The
       // cargo stays in the hold; clearLeftoverCargo sweeps it to market next
@@ -904,7 +904,7 @@ export class TraderAgent {
     if (withdrawn.units <= 0) return false;
     this.heldCost.set(assigned.good, withdrawn.avgCost);
     this.log(`withdrew ${withdrawn.units}u ${assigned.good} from warehouse ship ${warehouse.shipSymbol} (cost basis ${withdrawn.avgCost}c)`);
-    this.onActivity?.("warehouse-withdraw", `${withdrawn.units}u ${assigned.good} from ${warehouse.shipSymbol}`);
+    this.onActivity?.("warehouse-withdraw", `${withdrawn.units}u ${assigned.good} from ${warehouse.shipSymbol}`, undefined, this.symbol);
 
     await this.navigateTo(sellAt);
     await this.ensureDocked();
@@ -933,7 +933,7 @@ export class TraderAgent {
       total: sold.transaction.totalPrice,
     });
     this.log(`sold ${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`);
-    this.onActivity?.("sell", `${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`, sold.transaction.totalPrice);
+    this.onActivity?.("sell", `${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`, sold.transaction.totalPrice, this.symbol);
     return true;
   }
 
@@ -974,7 +974,7 @@ export class TraderAgent {
     }
     if (withdrawn.units <= 0) return false;
     this.log(`withdrew ${withdrawn.units}u ${assigned.good} from warehouse ship ${warehouse.shipSymbol} for haul to ${targetWaypoint}`);
-    this.onActivity?.("warehouse-withdraw", `${withdrawn.units}u ${assigned.good} from ${warehouse.shipSymbol} (haul)`);
+    this.onActivity?.("warehouse-withdraw", `${withdrawn.units}u ${assigned.good} from ${warehouse.shipSymbol} (haul)`, undefined, this.symbol);
 
     await this.navigateTo(targetWaypoint);
     await this.ensureDocked();
@@ -982,7 +982,7 @@ export class TraderAgent {
       const res = await this.api.supplyConstruction(this.systemOf(targetWaypoint), targetWaypoint, this.symbol, assigned.good, withdrawn.units);
       this.ship = { ...this.ship, cargo: res.cargo };
       this.log(`hauled ${withdrawn.units}u ${assigned.good} to ${targetWaypoint}`);
-      this.onActivity?.("haul", `${withdrawn.units}u ${assigned.good} to ${targetWaypoint}`);
+      this.onActivity?.("haul", `${withdrawn.units}u ${assigned.good} to ${targetWaypoint}`, undefined, this.symbol);
     } catch (err) {
       // Delivery failed this tick (mission already complete, site unreachable,
       // etc). The cargo stays in the hold; clearLeftoverCargo sweeps it to

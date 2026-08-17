@@ -30,7 +30,7 @@ export interface AgentOptions {
   /** Called with this ship when it holds cargo. Returns a destination to fly to, `true` if handled, or falsy if nothing to do. */
   deliverCargo?: (ship: Ship) => Promise<string | true | null | undefined>;
   /** Called for notable events (extract, sell, refuel, navigate) for the live feed. */
-  onActivity?: (kind: string, detail: string, credits?: number) => void;
+  onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Shared survey registry: surveyor scouts deposit, miners consume. */
@@ -241,7 +241,7 @@ export class ShipAgent {
     try {
       const arrival = await this.api.navigateShip(this.symbol, waypoint);
       this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
-      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`);
+      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.symbol);
       const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
       if (wait > 0) {
         this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
@@ -612,7 +612,7 @@ export class ShipAgent {
       pricePerUnit: bought.transaction.pricePerUnit,
       total: bought.transaction.totalPrice,
     });
-    this.onActivity?.("buy", `${units}u ${route.good} @ ${bought.transaction.pricePerUnit}c at ${route.buyAt}`, -bought.transaction.totalPrice);
+    this.onActivity?.("buy", `${units}u ${route.good} @ ${bought.transaction.pricePerUnit}c at ${route.buyAt}`, -bought.transaction.totalPrice, this.symbol);
     await this.navigateTo(route.sellAt);
     await this.ensureDocked();
     this.currentStep = { kind: "transacting", action: "sell", good: route.good };
@@ -631,7 +631,7 @@ export class ShipAgent {
     });
     const gain = sold.transaction.totalPrice - bought.transaction.totalPrice;
     this.log(`arbitrage: sold ${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c (gain ${gain}c)`);
-    this.onActivity?.("sell", `${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt}`, sold.transaction.totalPrice);
+    this.onActivity?.("sell", `${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt}`, sold.transaction.totalPrice, this.symbol);
     return true;
   }
   async tick(): Promise<boolean> {
@@ -807,6 +807,8 @@ export class ShipAgent {
           this.onActivity?.(
             "refine",
             `+${made?.units ?? 0}u ${made?.tradeSymbol ?? "?"} (from ${used?.units ?? 0}u ${used?.tradeSymbol ?? "?"}) (${this.ship.cargo.units}/${this.ship.cargo.capacity})`,
+            undefined,
+            this.symbol,
           );
           await this.waitCooldown();
         } catch (err) {
@@ -839,7 +841,7 @@ export class ShipAgent {
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo, cooldown: res.cooldown };
         const got = res.extraction.yield;
-        this.onActivity?.("extract", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`);
+        this.onActivity?.("extract", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`, undefined, this.symbol);
         this.log(`extracted ${got.units}u ${got.symbol}`);
         await this.waitCooldown();
       } catch (err) {
@@ -941,7 +943,7 @@ export class ShipAgent {
       const survey = await this.createAndPickSurvey();
       if (survey) {
         this.surveyedFields.add(target.symbol);
-        this.onActivity?.("survey", `deposited ${survey.deposits.map((d) => d.symbol).join(",")} at ${target.symbol}`);
+        this.onActivity?.("survey", `deposited ${survey.deposits.map((d) => d.symbol).join(",")} at ${target.symbol}`, undefined, this.symbol);
       }
       return true;
     }
@@ -1095,7 +1097,7 @@ export class ShipAgent {
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo, cooldown: res.cooldown };
         const got = res.extraction.yield;
-        this.onActivity?.("extract", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`);
+        this.onActivity?.("extract", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`, undefined, this.symbol);
         this.log(`extracted ${got.units}u ${got.symbol}`);
         await this.waitCooldown();
       } catch (err) {

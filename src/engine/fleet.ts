@@ -83,7 +83,7 @@ export interface FleetOptions {
     total: number;
   }) => void;
   /** Called for notable events for the live feed. */
-  onActivity?: (kind: string, detail: string, credits?: number) => void;
+  onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   minCashReserve?: number;
   /** This tenant's own Discord relay, if they've configured a webhook — never a shared/global one. See discord.ts's class doc comment. */
   discord?: DiscordRelay;
@@ -231,6 +231,13 @@ export class FleetManager {
     if (this.tenantId) this.paused = (await this.store?.getFleetFlag(this.tenantId, "paused")) === "true";
     if (this.tenantId && this.store) await this.shipRegistry.loadAllClaims(this.tenantId, this.store);
     await this.doctrine.reload();
+    if (this.store && this.tenantId) {
+      this.doctrine.setFireCallback((key) => {
+        this.store!.recordDoctrineFire(this.tenantId!, key).catch((err) =>
+          this.log(`Failed to record doctrine fire for ${key}: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      });
+    }
     const agent = await this.api.getMyAgent();
     this.credits = agent.credits;
     this.systemSymbol = agent.headquarters.slice(0, agent.headquarters.lastIndexOf("-"));

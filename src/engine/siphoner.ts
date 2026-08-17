@@ -28,7 +28,7 @@ export interface SiphonerOptions {
     total: number;
   }) => void;
   /** Called for notable events (siphon, sell, refuel, navigate) for the live feed. */
-  onActivity?: (kind: string, detail: string, credits?: number) => void;
+  onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
@@ -265,7 +265,7 @@ export class SiphonerAgent {
     try {
       const arrival = await this.api.navigateShip(this.symbol, waypoint);
       this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
-      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`);
+      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.symbol);
       const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
       if (wait > 0) {
         this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
@@ -298,7 +298,7 @@ export class SiphonerAgent {
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo, cooldown: res.cooldown };
         const got = res.siphon.yield;
-        this.onActivity?.("siphon", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`);
+        this.onActivity?.("siphon", `+${got.units}u ${got.symbol} (${this.ship.cargo.units}/${this.ship.cargo.capacity})`, undefined, this.symbol);
         this.log(`siphoned ${got.units}u ${got.symbol}`);
         await this.waitCooldown();
       } catch (err) {
@@ -343,7 +343,7 @@ export class SiphonerAgent {
         this.log(
           `sold ${item.units}u ${item.symbol} @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`,
         );
-        this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice);
+        this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice, this.symbol);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.log(`sell failed: ${msg}`);

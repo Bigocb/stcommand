@@ -28,7 +28,7 @@ export interface ScoutOptions {
     total: number;
   }) => void;
   /** Called for notable events (chart, refuel, navigate) for the live feed. */
-  onActivity?: (kind: string, detail: string, credits?: number) => void;
+  onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Called with the results of a sensor scan so the fleet can ingest them. */
@@ -185,7 +185,7 @@ export class ScoutAgent {
     try {
       const arrival = await this.api.navigateShip(this.symbol, waypoint);
       this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
-      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`);
+      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.symbol);
       const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
       if (wait > 0) {
         this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
@@ -268,7 +268,7 @@ export class ScoutAgent {
         units: res.fuel.current,
         total: res.transaction.totalPrice,
       });
-      this.onActivity?.("refuel", `${this.symbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice);
+      this.onActivity?.("refuel", `${this.symbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice, this.symbol);
       this.ship = { ...this.ship, fuel: res.fuel };
       return true;
     }
@@ -311,13 +311,13 @@ export class ScoutAgent {
       coverCooldown(res);
       this.onScan?.({ systems: res.systems });
       this.log(`sensor scan: revealed ${res.systems.length} systems`);
-      this.onActivity?.("scan", `sensor scan revealed ${res.systems.length} systems`);
+      this.onActivity?.("scan", `sensor scan revealed ${res.systems.length} systems`, undefined, this.symbol);
     } else {
       const res = await this.api.scanWaypoints(this.symbol);
       coverCooldown(res);
       this.onScan?.({ waypoints: res.waypoints });
       this.log(`sensor scan: revealed ${res.waypoints.length} waypoints`);
-      this.onActivity?.("scan", `sensor scan revealed ${res.waypoints.length} waypoints`);
+      this.onActivity?.("scan", `sensor scan revealed ${res.waypoints.length} waypoints`, undefined, this.symbol);
     }
     this.scanSystemsNext = !this.scanSystemsNext;
     this.lastScanAt = Date.now();
@@ -354,7 +354,7 @@ export class ScoutAgent {
       this.charted.add(target);
       const traits = (res.waypoint.traits ?? []).map((t) => t.symbol).join(", ");
       this.log(`charted ${target} (${res.waypoint.type})${traits ? `: ${traits}` : ""}`);
-      this.onActivity?.("chart", `charted ${target}${traits ? `: ${traits}` : ""}`);
+      this.onActivity?.("chart", `charted ${target}${traits ? `: ${traits}` : ""}`, undefined, this.symbol);
       if (this.manualGoal === target) this.manualGoal = null;
       return true;
     } catch (err) {

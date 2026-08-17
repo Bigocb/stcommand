@@ -152,11 +152,16 @@ const DEFAULTS: DoctrineRule[] = [
  */
 export class Doctrine {
   private cache = new Map<string, { value: number; enabled: boolean }>();
+  private onFire?: (key: string) => void;
 
   constructor(
     private readonly store?: Store,
     private readonly tenantId?: string,
   ) {}
+
+  setFireCallback(onFire: (key: string) => void): void {
+    this.onFire = onFire;
+  }
 
   async reload(): Promise<void> {
     this.cache.clear();
@@ -198,6 +203,7 @@ export class Doctrine {
    * unconstrained behaviour.
    */
   value(key: string, whenOff?: number): number {
+    this.onFire?.(key);
     const base = DEFAULTS.find((d) => d.key === key);
     const override = this.cache.get(key);
     const enabled = override?.enabled ?? base?.enabled ?? true;
@@ -211,6 +217,7 @@ export class Doctrine {
   }
 
   isEnabled(key: string): boolean {
+    this.onFire?.(key);
     const base = DEFAULTS.find((d) => d.key === key);
     return this.cache.get(key)?.enabled ?? base?.enabled ?? true;
   }

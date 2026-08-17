@@ -38,7 +38,7 @@ interface MissionOptions {
    *  every call site. */
   tenantId?: string;
   log?: (msg: string) => void;
-  onActivity?: (kind: string, detail: string, credits?: number) => void;
+  onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Resolve current position/fuel for a ship. */
   getShip?: (symbol: string) => Promise<Ship>;
   /** Estimate fuel between two waypoints. */
@@ -165,7 +165,7 @@ export class MissionManager {
     this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
     await this.persist(mission);
     this.log(`mission started: supply ${waypointSymbol} (${mats.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
-    this.onActivity?.("mission", `mission started: supply ${waypointSymbol}`, 0);
+    this.onActivity?.("mission", `mission started: supply ${waypointSymbol}`, 0, undefined);
   }
 
   /** Full list of known missions, newest first. */
@@ -279,7 +279,7 @@ export class MissionManager {
     }
     await this.persist(mission);
     this.log(`mission ${waypointSymbol}: carrier manually set to ${shipSymbol}`);
-    this.onActivity?.("mission", `${shipSymbol} assigned to ${waypointSymbol} by operator`, 0);
+    this.onActivity?.("mission", `${shipSymbol} assigned to ${waypointSymbol} by operator`, 0, shipSymbol);
   }
 
   /** Pause a mission: stop sourcing/spending, release the carrier to autonomy. */
@@ -335,7 +335,7 @@ export class MissionManager {
       this.releaseCarrier(mission);
       if (this.tenantId) await this.store?.completeMission(this.tenantId, mission.targetWaypoint);
       this.log(`MISSION COMPLETE: ${mission.targetWaypoint}`);
-      this.onActivity?.("mission", `mission complete: ${mission.targetWaypoint}`, 0);
+      this.onActivity?.("mission", `mission complete: ${mission.targetWaypoint}`, 0, undefined);
       return;
     }
     // Assign a carrier only once we know there's real work to do (a market that
@@ -353,7 +353,7 @@ export class MissionManager {
       this.suspend?.(carrier);
       this.log(`mission ${mission.targetWaypoint}: assigned carrier ${carrier}`);
       await this.persist(mission);
-      this.onActivity?.("mission", `assigned ${carrier} to ${mission.targetWaypoint}`, 0);
+      this.onActivity?.("mission", `assigned ${carrier} to ${mission.targetWaypoint}`, 0, carrier);
     }
 
     await this.stepCarrier(mission, t);
@@ -440,7 +440,7 @@ export class MissionManager {
       if (toSupply > 0) {
         await this.api.supplyConstruction(mission.targetSystem, mission.targetWaypoint, ship.symbol, neededHeld.mat.tradeSymbol, toSupply);
         this.log(`mission ${mission.targetWaypoint}: supplied ${toSupply}u ${neededHeld.mat.tradeSymbol}`);
-        this.onActivity?.("mission", `${ship.symbol} supplied ${toSupply}u ${neededHeld.mat.tradeSymbol} to ${mission.targetWaypoint}`, 0);
+        this.onActivity?.("mission", `${ship.symbol} supplied ${toSupply}u ${neededHeld.mat.tradeSymbol} to ${mission.targetWaypoint}`, 0, ship.symbol);
       }
       t.step = "source";
       t.currentMaterial = undefined;
@@ -494,7 +494,7 @@ export class MissionManager {
         if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
         await this.api.supplyConstruction(mission.targetSystem, mission.targetWaypoint, ship.symbol, material, toSupply);
         this.log(`mission ${mission.targetWaypoint}: supplied ${toSupply}u ${material}`);
-        this.onActivity?.("mission", `${ship.symbol} supplied ${toSupply}u ${material} to ${mission.targetWaypoint}`, 0);
+        this.onActivity?.("mission", `${ship.symbol} supplied ${toSupply}u ${material} to ${mission.targetWaypoint}`, 0, ship.symbol);
       }
       t.step = "source";
       t.currentMaterial = undefined; // move to next material (or end)

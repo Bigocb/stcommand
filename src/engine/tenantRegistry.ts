@@ -169,8 +169,8 @@ export class TenantRegistry {
       discord,
       scheduler,
       recordLedger: (e) => store.recordLedger(tenantId, e),
-      onActivity: (kind, detail, credits) =>
-        store.recordActivity(tenantId, { timestamp: new Date().toISOString(), shipSymbol: "fleet", kind, detail, credits }),
+      onActivity: (kind, detail, credits, shipSymbol) =>
+        store.recordActivity(tenantId, { timestamp: new Date().toISOString(), shipSymbol: shipSymbol ?? "fleet", kind, detail, credits }),
       minCashReserve: 20_000,
     });
     // The SpaceTraders API occasionally returns transient 500s during the burst

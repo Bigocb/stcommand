@@ -1166,4 +1166,29 @@ export class Store {
         .reverse();
     });
   }
+
+  /** Record a doctrine rule firing. */
+  async recordDoctrineFire(tenantId: string, ruleKey: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO doctrine_fires (tenant_id, rule_key, fire_count, last_fired) VALUES ($1, $2, 1, now())
+         ON CONFLICT (tenant_id, rule_key) DO UPDATE SET fire_count = fire_count + 1, last_fired = now()`,
+        [tenantId, ruleKey],
+      ),
+    );
+  }
+
+  /** Get doctrine fire stats for all rules. */
+  async getDoctrineFires(tenantId: string): Promise<{ ruleKey: string; fireCount: number; lastFired: string | null }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ rule_key: string; fire_count: number; last_fired: Date | null }>(
+        `SELECT rule_key, fire_count, last_fired FROM doctrine_fires ORDER BY fire_count DESC`,
+      );
+      return res.rows.map((r) => ({
+        ruleKey: r.rule_key,
+        fireCount: r.fire_count,
+        lastFired: r.last_fired?.toISOString() ?? null,
+      }));
+    });
+  }
 }

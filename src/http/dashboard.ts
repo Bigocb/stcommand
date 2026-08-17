@@ -192,6 +192,17 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  router.get("/doctrine/stats", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      const stats = await w.store.getDoctrineFires(w.tenantId);
+      res.json({ stats });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /* ── Keeper stations ─────────────────────────────────────────
      Which buy markets get a stationed keeper + the current assignments. */
   router.get("/keeper/markets", async (req, res) => {
