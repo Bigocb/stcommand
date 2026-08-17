@@ -2370,6 +2370,36 @@ function renderMap(ships) {
   }
   const sx = (x) => pad + ((x - minX) / (maxX - minX || 1)) * (w - pad * 2);
   const sy = (y) => pad + ((y - minY) / (maxY - minY || 1)) * (h - pad * 2);
+
+  // SpaceTraders routinely puts several waypoints at the exact same x/y — a
+  // gas giant and the stations orbiting it share one coordinate. Left as-is
+  // they'd render as one stacked, unreadable blob. Each member of a shared
+  // coordinate gets a small ring offset instead, computed in this pre-scale
+  // coordinate space — since #map-view (below) gets scale(mapZoom) applied
+  // as one group, that fixed offset grows right along with everything else
+  // as the operator zooms in, so a cluster that reads as one dot at a
+  // distance visibly separates into its real members up close, with no
+  // separate zoom-aware logic needed here.
+  const byCoord = new Map();
+  for (const p of waypoints) {
+    const key = `${p.x},${p.y}`;
+    if (!byCoord.has(key)) byCoord.set(key, []);
+    byCoord.get(key).push(p);
+  }
+  const posBySymbol = new Map();
+  for (const group of byCoord.values()) {
+    const baseX = sx(group[0].x), baseY = sy(group[0].y);
+    if (group.length === 1) {
+      posBySymbol.set(group[0].symbol, { x: baseX, y: baseY });
+      continue;
+    }
+    const ringR = 6 + Math.min(group.length, 6);
+    group.forEach((p, i) => {
+      const angle = (2 * Math.PI * i) / group.length;
+      posBySymbol.set(p.symbol, { x: baseX + ringR * Math.cos(angle), y: baseY + ringR * Math.sin(angle) });
+    });
+  }
+
   let out = `<g id="map-view">`;
 
   const cx = (minX + maxX) / 2;
@@ -2377,19 +2407,19 @@ function renderMap(ships) {
   out += `<text class="syslabel" x="${sx(cx)}" y="${sy(cy)}" text-anchor="middle" dominant-baseline="middle">${sys}</text>`;
 
   for (const c of jumpConnections) {
-    const a = bySymbol.get(c.from);
-    const b = bySymbol.get(c.to);
+    const a = posBySymbol.get(c.from);
+    const b = posBySymbol.get(c.to);
     if (a && b) {
-      out += `<path class="jump" d="M ${sx(a.x)} ${sy(a.y)} L ${sx(b.x)} ${sy(b.y)}"></path>`;
+      out += `<path class="jump" d="M ${a.x} ${a.y} L ${b.x} ${b.y}"></path>`;
     }
   }
 
   const routes = tradeRoutes.slice(0, 6);
   routes.forEach((r, i) => {
-    const a = bySymbol.get(r.cheapestMarket);
-    const b = bySymbol.get(r.expensiveMarket);
+    const a = posBySymbol.get(r.cheapestMarket);
+    const b = posBySymbol.get(r.expensiveMarket);
     if (!a || !b) return;
-    const ax = sx(a.x), ay = sy(a.y), bx = sx(b.x), by = sy(b.y);
+    const ax = a.x, ay = a.y, bx = b.x, by = b.y;
     const dx = bx - ax, dy = by - ay;
     const len = Math.hypot(dx, dy) || 1;
     const off = Math.min(len * 0.2, 42);
@@ -2404,29 +2434,30 @@ function renderMap(ships) {
     const isGate = p.type === "JUMP_GATE";
     const isFuel = p.type === "FUEL_STATION";
     const cls = isMarket ? "market" : isFuel ? "fuel" : isAsteroid ? "asteroid" : "wp";
+    const pos = posBySymbol.get(p.symbol);
     if (isGate) {
-      out += `<rect class="gate" x="${sx(p.x) - 2.5}" y="${sy(p.y) - 2.5}" width="5" height="5" transform="rotate(45 ${sx(p.x)} ${sy(p.y)})" data-wp="${p.symbol}"><title>${p.symbol}</title></rect>`;
+      out += `<rect class="gate" x="${pos.x - 2.5}" y="${pos.y - 2.5}" width="5" height="5" transform="rotate(45 ${pos.x} ${pos.y})" data-wp="${p.symbol}"><title>${p.symbol}</title></rect>`;
     } else {
-      out += `<circle class="${cls}" cx="${sx(p.x)}" cy="${sy(p.y)}" r="${isMarket ? 2.8 : 2}" data-wp="${p.symbol}">`;
+      out += `<circle class="${cls}" cx="${pos.x}" cy="${pos.y}" r="${isMarket ? 2.8 : 2}" data-wp="${p.symbol}">`;
       if (isMarket) out += `<title>${p.symbol}</title>`;
       out += `</circle>`;
     }
     if (isMarket || isGate) {
-      out += `<text class="wplabel" x="${sx(p.x) + 6}" y="${sy(p.y) + 3}">${shortWp(p.symbol)}</text>`;
+      out += `<text class="wplabel" x="${pos.x + 6}" y="${pos.y + 3}">${shortWp(p.symbol)}</text>`;
     }
   }
   shipScreenPos.clear();
   for (const s of ships) {
-    const p = bySymbol.get(s.nav.waypointSymbol);
-    if (!p) continue;
-    const x = sx(p.x), y = sy(p.y);
+    const pos = posBySymbol.get(s.nav.waypointSymbol);
+    if (!pos) continue;
+    const { x, y } = pos;
     shipScreenPos.set(s.symbol, { x, y });
     const docked = s.nav.status === "DOCKED";
     const sel = s.symbol === selectedShip;
     if (sel) {
       out += `<circle class="sel-halo" cx="${x}" cy="${y}" r="22"></circle><circle class="sel-ring" cx="${x}" cy="${y}" r="22"></circle>`;
     }
-    out += `<g class="ship ${docked ? "docked" : ""}${sel ? " selected" : ""}" transform="translate(${x} ${y})" data-wp="${p.symbol}" data-ship="${s.symbol}">
+    out += `<g class="ship ${docked ? "docked" : ""}${sel ? " selected" : ""}" transform="translate(${x} ${y})" data-wp="${s.nav.waypointSymbol}" data-ship="${s.symbol}">
       <path d="M0,-5 L4,4 L0,2 L-4,4 Z" transform="rotate(${docked ? 0 : 45})"><title>${s.symbol} — ${s.nav.status}</title></path>
     </g>`;
   }
