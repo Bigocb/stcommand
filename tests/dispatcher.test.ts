@@ -67,3 +67,47 @@ describe("RouteDispatcher: contractBuy assignments", () => {
     assert.equal(d.assignmentFor("SHIP-2"), undefined, "IRON_ORE is reserved by SHIP-1's manual override, in every role");
   });
 });
+
+describe("RouteDispatcher: cross-system direct routes", () => {
+  it("never assigns a cross-system route as 'direct' — TraderAgent.viableRoute() refuses to fly one", () => {
+    const d = new RouteDispatcher();
+    const crossSystem = {
+      good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
+      sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
+      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+    };
+
+    d.recompute([crossSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }]);
+
+    assert.equal(d.assignmentFor("SHIP-1"), undefined, "no ship should be assigned a route no trader can actually fly");
+  });
+
+  it("still assigns a same-system route as 'direct', unaffected", () => {
+    const d = new RouteDispatcher();
+    const sameSystem = {
+      good: "COPPER", buyAt: "X1-TQ19-H48", buySystem: "X1-TQ19", buyPrice: 255,
+      sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
+      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+    };
+
+    d.recompute([sameSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }]);
+
+    const a = d.assignmentFor("SHIP-1");
+    assert.equal(a?.role, "direct");
+    assert.equal(a?.good, "COPPER");
+  });
+
+  it("a cross-system route with a warehouse target can still be assigned as buy/sell (single-leg roles, unaffected by the direct-only restriction)", () => {
+    const d = new RouteDispatcher();
+    const crossSystem = {
+      good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
+      sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
+      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+    };
+
+    d.recompute([crossSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }], [{ good: "COPPER", target: 100, balance: 0 }]);
+
+    const a = d.assignmentFor("SHIP-1");
+    assert.equal(a?.role, "buy", "buy/sell legs are single-system-side, not a same-ship round trip — the cross-system restriction only applies to 'direct'");
+  });
+});

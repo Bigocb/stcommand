@@ -379,6 +379,14 @@ export class RouteDispatcher {
       seenGood.add(route.good);
       const target = targetsByGood.get(route.good);
       if (!target) {
+        // A "direct" assignment is one trader flying the whole round trip
+        // itself — TraderAgent.viableRoute() refuses to ever fly a
+        // cross-system direct leg (a single ship jumping there and back
+        // isn't what this role models; see that method's own comment), so
+        // assigning one here just burns the good's assignment slot for a
+        // full minute on a route no trader will actually take, while the
+        // dashboard shows it as "assigned" and profitable. Same-system only.
+        if (route.buySystem !== route.sellSystem) continue;
         work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip });
