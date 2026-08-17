@@ -1220,13 +1220,18 @@ export class Store {
     limitPerRule = 6,
   ): Promise<{ ruleKey: string; ships: string[] }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
+      // Same fix as pruneShipPositionHistory()/getShipPositionHistory(): the
+      // query must reference every placeholder in the params array, or
+      // Postgres can't infer that placeholder's type at all — tenantId
+      // isn't (and doesn't need to be) referenced in the query text, RLS
+      // already scopes it via withTenant's SET LOCAL.
       const res = await c.query<{ rule_key: string; ship_symbol: string; last_fired: Date }>(
         `SELECT rule_key, ship_symbol, max(fired_at) AS last_fired
          FROM doctrine_fire_log
-         WHERE fired_at >= $2
+         WHERE fired_at >= $1
          GROUP BY rule_key, ship_symbol
          ORDER BY rule_key, last_fired DESC`,
-        [tenantId, sinceIso],
+        [sinceIso],
       );
       const byRule = new Map<string, string[]>();
       for (const r of res.rows) {
@@ -1263,12 +1268,13 @@ export class Store {
     sinceIso: string,
   ): Promise<{ shipSymbol: string; timestamp: string; waypointSymbol: string; x: number; y: number; status: string }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
+      // Same $1-must-be-referenced fix as pruneShipPositionHistory() below.
       const res = await c.query<{ ship_symbol: string; timestamp: Date; waypoint_symbol: string; x: number; y: number; status: string }>(
         `SELECT ship_symbol, timestamp, waypoint_symbol, x, y, status
          FROM ship_position_history
-         WHERE timestamp >= $2
+         WHERE timestamp >= $1
          ORDER BY timestamp ASC`,
-        [tenantId, sinceIso],
+        [sinceIso],
       );
       return res.rows.map((r) => ({
         shipSymbol: r.ship_symbol,
