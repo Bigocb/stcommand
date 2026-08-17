@@ -2756,7 +2756,14 @@ function showWaypointTip(symbol) {
   const shipsHere = (state?.ships ?? []).filter((s) => s.nav.waypointSymbol === symbol);
   const snaps = marketSnapshots.filter((m) => m.waypointSymbol === symbol);
   const offers = loadoutScores.filter((s) => s.yardSymbol === symbol);
-  const traits = (wp.traits ?? []).map((t) => t.replace(/_/g, " ").toLowerCase());
+  // marketplace/shipyard sort first so they can never be the ones bumped
+  // off the visible list by the +N truncation below — those two are also
+  // the traits the dot/ring overlay and the sections further down key off
+  // of, so silently hiding them made the tooltip look self-contradictory
+  // (dot says market, chip list doesn't).
+  const traits = (wp.traits ?? [])
+    .map((t) => t.replace(/_/g, " ").toLowerCase())
+    .sort((a, b) => (b === "marketplace" || b === "shipyard" ? 1 : 0) - (a === "marketplace" || a === "shipyard" ? 1 : 0));
   const isMarket = traits.includes("marketplace");
   const isYard = traits.includes("shipyard");
   const isAsteroid = ["asteroid", "asteroid field", "engineered asteroid"].includes(wp.type.replace(/_/g, " ").toLowerCase());
