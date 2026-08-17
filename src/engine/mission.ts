@@ -49,8 +49,14 @@ interface MissionOptions {
   dispatchShip?: (shipSymbol: string, waypointSymbol: string) => Promise<void>;
   /** Pick an idle cargo-capable ship to run this mission. */
   pickCarrier?: (exclude: Set<string>, targetWaypoint?: string) => Promise<string | undefined>;
-  /** Suspend/resume a ship's autonomous agent while it works the mission. */
-  suspend?: (shipSymbol: string) => void;
+  /**
+   * Suspend/resume a ship's autonomous agent while it works the mission.
+   * `suspend` resolves once any loop iteration already in flight for that
+   * ship has finished — callers must await it before mutating the ship's nav
+   * state directly (via `dispatchShip`), or risk racing a tick that's still
+   * mid-flight against stale cached ship state ("not currently docked" errors).
+   */
+  suspend?: (shipSymbol: string) => void | Promise<void>;
   resume?: (shipSymbol: string) => void;
   /** Sources known to sell a trade good, cheapest first: { waypoint, purchasePrice, tradeVolume }. */
   listBuyers?: (tradeSymbol: string) => Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]>;
@@ -146,7 +152,7 @@ export class MissionManager {
         return;
       }
       this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
-      if (mission.assignedShip) this.suspend?.(mission.assignedShip);
+      if (mission.assignedShip) await this.suspend?.(mission.assignedShip);
       this.log(`mission resumed (from prior state): supply ${waypointSymbol}`);
       return;
     }
@@ -273,7 +279,7 @@ export class MissionManager {
       this.log(`mission ${waypointSymbol}: released ${mission.assignedShip} (reassigned)`);
     }
     mission.assignedShip = shipSymbol;
-    this.suspend?.(shipSymbol);
+    await this.suspend?.(shipSymbol);
     if (!this.paused.has(waypointSymbol)) {
       this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
     }
@@ -350,7 +356,7 @@ export class MissionManager {
       const carrier = await this.pickCarrier?.(this.committedShips(), mission.targetWaypoint);
       if (!carrier) return; // no free ship; retry next tick
       mission.assignedShip = carrier;
-      this.suspend?.(carrier);
+      await this.suspend?.(carrier);
       this.log(`mission ${mission.targetWaypoint}: assigned carrier ${carrier}`);
       await this.persist(mission);
       this.onActivity?.("mission", `assigned ${carrier} to ${mission.targetWaypoint}`, 0, carrier);

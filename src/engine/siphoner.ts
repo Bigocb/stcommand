@@ -57,6 +57,10 @@ export class SiphonerAgent {
   private markets: MarketSnapshot[] = [];
   private ship: Ship;
   private suspended = false;
+  /** The currently in-flight tick(), if any — suspend() awaits this so a caller
+   *  about to mutate this ship's nav state directly (rescue/mission dispatch)
+   *  can't race a tick that's already mid-flight against stale cached state. */
+  private inFlight: Promise<unknown> | null = null;
   /** Manual override: park at this waypoint and hold until released. */
   private manualGoal: string | null = null;
   running = false;
@@ -98,8 +102,13 @@ export class SiphonerAgent {
     return this.suspended;
   }
 
-  suspend(): void {
+  /** Awaits any tick already in flight before returning — see agent.ts's
+   *  `suspend()` for why: without it, a caller that immediately mutates this
+   *  ship's nav state directly via the raw API can race a tick that's already
+   *  mid-flight against stale cached ship state. */
+  async suspend(): Promise<void> {
     this.suspended = true;
+    if (this.inFlight) await this.inFlight.catch(() => {});
   }
 
   resume(): void {
@@ -452,13 +461,17 @@ export class SiphonerAgent {
       ticks += 1;
       if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
-        const made = await this.tick();
+        const p = this.tick();
+        this.inFlight = p;
+        const made = await p;
         if (!made) {
           await sleep(30_000);
         }
       } catch (err) {
         this.log(`siphoner error: ${err instanceof Error ? err.message : String(err)}`);
         await sleep(10_000);
+      } finally {
+        this.inFlight = null;
       }
     }
     this.running = false;

@@ -24,6 +24,23 @@ export interface ClientOptions {
   retryBackoffMs?: number;
   /** Called with the seconds to wait when the server asks us to back off. */
   onRateLimited?: (retryAfterSec: number, attempt: number) => void;
+  /**
+   * Share one token bucket across multiple `Client` instances instead of each
+   * getting its own. SpaceTraders enforces its rate limit per IP address, not
+   * per account token — a multi-tenant process making requests for N tenants
+   * from one IP is really N Clients sharing one real ceiling. Each Client
+   * self-throttling to 1.5 req/s independently (the per-Client default below)
+   * only holds that ceiling for a single tenant; with N tenants active it
+   * admits up to N * 1.5 req/s from the same IP, which is exactly what
+   * produces sustained 429s once several tenants have ships running at once.
+   * `TenantRegistry` constructs one `RateLimiter` per process and passes it
+   * here for every tenant's `Client` so they all draw from the same budget.
+   * Omitted (the default), a Client gets its own private limiter — what every
+   * test and one-off caller (e.g. the login/register token-verification
+   * Client in gate.ts) wants, since those aren't part of the shared fleet
+   * workload this exists to protect.
+   */
+  sharedLimiter?: RateLimiter;
 }
 
 type RequestOptions = {
@@ -36,7 +53,7 @@ type RequestOptions = {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Simple token-bucket limiter to stay under the API's per-second cap. */
-class RateLimiter {
+export class RateLimiter {
   private tokens: number;
   private last = Date.now();
   constructor(
@@ -93,7 +110,12 @@ export class Client {
     // 429 costing a real retry round-trip instead of just consuming a
     // token). straders' original fleet ran at 1.5/s specifically because
     // of this; matching that here.
-    this.limiter = new RateLimiter(1.5, 30);
+    //
+    // A `sharedLimiter` (see ClientOptions' doc comment) takes precedence: the
+    // real ceiling is per-IP, not per-Client, so a multi-tenant process must
+    // have its tenants' Clients draw from one shared budget rather than each
+    // independently believing it has the full 1.5 req/s to itself.
+    this.limiter = opts.sharedLimiter ?? new RateLimiter(1.5, 30);
   }
 
   withToken(token: string): Client {
@@ -107,6 +129,10 @@ export class Client {
       maxRetries: this.maxRetries,
       retryBackoffMs: this.retryBackoffMs,
       onRateLimited: this.onRateLimited,
+      // Always this instance's actual limiter, not just whatever sharedLimiter
+      // it was constructed with — a withToken() clone must draw from the same
+      // budget as its parent even when the parent got a private one by default.
+      sharedLimiter: this.limiter,
     };
   }
 

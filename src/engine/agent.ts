@@ -133,6 +133,11 @@ export class ShipAgent {
   private goal: ShipGoal = { kind: "idle" };
   private manualGoal: ShipGoal | null = null;
   private suspended = false;
+  /** The currently in-flight loop iteration (tick/surveyScout/tourScout/keeperPoll), if any.
+   *  suspend() awaits this so a caller that's about to mutate this ship's nav state directly
+   *  via the raw API (rescue tender dispatch, mission carrier handoff) can't race an iteration
+   *  that's already mid-flight against stale cached ship state. */
+  private inFlight: Promise<unknown> | null = null;
   private surveyedFields = new Set<string>();
   /** Operator-chosen asteroid field; overrides the ship's own nearest-field pick. */
   private pinnedMiningTarget?: string;
@@ -301,12 +306,19 @@ export class ShipAgent {
     return false;
   }
 
+  /** Estimated proceeds from selling the current cargo at the best reachable
+   *  price per item — used only for the pre-sale log line, so it should
+   *  reflect what the ship is actually about to get, not an arbitrary quote.
+   *  Previously used the price from whichever market in `this.markets`
+   *  happened to be listed first with any quote for the good at all — often
+   *  an EXPORT market (typically near-zero sellPrice, since that's where the
+   *  good is already abundant), producing a misleadingly low "~0c" estimate
+   *  even when the ship was about to sell for real money at the actual
+   *  best-paying reachable market `pickSellTarget()` picks. */
   private cargoValue(): number {
     let total = 0;
     for (const item of this.ship.cargo.inventory) {
-      const m = this.markets.find((mm) => mm.tradeGoods[item.symbol]);
-      const price = m?.tradeGoods[item.symbol]?.sellPrice ?? 0;
-      total += price * item.units;
+      total += this.bestReachableSellPrice(item.symbol) * item.units;
     }
     return total;
   }
@@ -409,9 +421,17 @@ export class ShipAgent {
     // B7 at 303 fuel vs an 80-tank ship) — that just loops on "cannot navigate".
     const pool = reachable.length > 0 ? reachable : [];
     if (pool.length === 0) return undefined;
+    // Rank by sellPrice — what this market pays the ship for the good — not
+    // purchasePrice, which is what buying FROM that market would cost and has
+    // no bearing on a sell decision. Sorting by purchasePrice here picked
+    // whichever reachable market was most expensive to buy from, which can
+    // easily be a market that pays poorly to sell to; that produced real
+    // near-zero-proceeds sales (a market with a high purchasePrice but a low
+    // sellPrice looked "best" and won the sort, when it was actually one of
+    // the worst places to sell).
     pool.sort((a, b) => {
-      const pa = a.tradeGoods[good.symbol]?.purchasePrice ?? 0;
-      const pb = b.tradeGoods[good.symbol]?.purchasePrice ?? 0;
+      const pa = a.tradeGoods[good.symbol]?.sellPrice ?? 0;
+      const pb = b.tradeGoods[good.symbol]?.sellPrice ?? 0;
       return pb - pa;
     });
     return pool[0]?.symbol;
@@ -1178,13 +1198,17 @@ export class ShipAgent {
       ticks += 1;
       if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
-        const made = await this.tick();
+        const p = this.tick();
+        this.inFlight = p;
+        const made = await p;
         if (!made) {
           await sleep(30_000);
         }
       } catch (err) {
         this.log(`agent error: ${err instanceof Error ? err.message : String(err)}`);
         await sleep(10_000);
+      } finally {
+        this.inFlight = null;
       }
     }
     this.running = false;
@@ -1198,13 +1222,17 @@ export class ShipAgent {
       ticks += 1;
       if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
-        const made = await this.surveyScout();
+        const p = this.surveyScout();
+        this.inFlight = p;
+        const made = await p;
         if (!made) {
           await sleep(30_000);
         }
       } catch (err) {
         this.log(`surveyor error: ${err instanceof Error ? err.message : String(err)}`);
         await sleep(10_000);
+      } finally {
+        this.inFlight = null;
       }
     }
     this.running = false;
@@ -1218,11 +1246,15 @@ export class ShipAgent {
       ticks += 1;
       if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
-        const made = await this.tourScout();
+        const p = this.tourScout();
+        this.inFlight = p;
+        const made = await p;
         if (!made) await sleep(30_000);
       } catch (err) {
         this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
         await sleep(10_000);
+      } finally {
+        this.inFlight = null;
       }
     }
     this.running = false;
@@ -1273,11 +1305,15 @@ export class ShipAgent {
       ticks += 1;
       if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
-        const snapshotted = await this.keeperPoll();
+        const p = this.keeperPoll();
+        this.inFlight = p;
+        const snapshotted = await p;
         await sleep(snapshotted ? 5 * 60_000 : 30_000);
       } catch (err) {
         this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
         await sleep(10_000);
+      } finally {
+        this.inFlight = null;
       }
     }
     this.running = false;
@@ -1450,9 +1486,17 @@ export class ShipAgent {
     this.log("mining unpinned; choosing its own field again");
   }
 
-  /** Prevent the agent from acting while the fleet coordinates it manually (e.g. rescues). */
-  suspend(): void {
+  /**
+   * Prevent the agent from acting while the fleet coordinates it manually
+   * (e.g. rescues). Awaits any loop iteration already in flight before
+   * returning — without this, a caller that immediately starts mutating this
+   * ship's nav state directly via the raw API (rescue tender dispatch,
+   * mission carrier handoff) can race a `tick()` that's already mid-flight
+   * against stale cached ship state, producing "not currently docked" errors.
+   */
+  async suspend(): Promise<void> {
     this.suspended = true;
+    if (this.inFlight) await this.inFlight.catch(() => {});
     this.log("suspended");
   }
 

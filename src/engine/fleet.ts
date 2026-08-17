@@ -57,7 +57,10 @@ interface ControlledAgent {
   isSuspended(): boolean;
   dispatchTo(waypointSymbol: string): void | Promise<void>;
   release(): void;
-  suspend(): void;
+  /** Async: resolves once any loop iteration already in flight has finished,
+   *  so callers can safely mutate this ship's nav state directly right after
+   *  awaiting this — see agent.ts's `suspend()` doc comment for the race this closes. */
+  suspend(): void | Promise<void>;
   resume(): void;
   /** Optional: real agent classes all implement this (see agentStep.ts); test fakes that don't are treated as always idle. */
   getStep?(): AgentStep;
@@ -231,13 +234,6 @@ export class FleetManager {
     if (this.tenantId) this.paused = (await this.store?.getFleetFlag(this.tenantId, "paused")) === "true";
     if (this.tenantId && this.store) await this.shipRegistry.loadAllClaims(this.tenantId, this.store);
     await this.doctrine.reload();
-    if (this.store && this.tenantId) {
-      this.doctrine.setFireCallback((key) => {
-        this.store!.recordDoctrineFire(this.tenantId!, key).catch((err) =>
-          this.log(`Failed to record doctrine fire for ${key}: ${err instanceof Error ? err.message : String(err)}`),
-        );
-      });
-    }
     const agent = await this.api.getMyAgent();
     this.credits = agent.credits;
     this.systemSymbol = agent.headquarters.slice(0, agent.headquarters.lastIndexOf("-"));
@@ -487,6 +483,7 @@ export class FleetManager {
       getCredits: () => this.credits,
       maxLossPct: this.doctrine.value("maxLossPct", 100),
       marginFloor: this.doctrine.value("marginFloor", 0),
+      recordDoctrineFire: (key) => this.doctrine.recordFire(key, shipSymbol),
       getWarehouseShip: () => this.getWarehouseShip(),
       warehouseBalance: async (good) => {
         if (!this.tenantId) return 0;
@@ -1945,8 +1942,8 @@ export class FleetManager {
     return false;
   }
 
-  private suspendAgent(symbol: string): void {
-    this.controlledAgent(symbol)?.suspend();
+  private async suspendAgent(symbol: string): Promise<void> {
+    await this.controlledAgent(symbol)?.suspend();
     // Free the route immediately rather than leaving it reserved until the next
     // recompute (up to a minute later) for a ship that has already stopped
     // trading. dispatcherTraders() keeps it released for as long as it's
@@ -3084,9 +3081,13 @@ export class FleetManager {
     );
 
     // Suspend the tender's agent so it holds position and doesn't fight the rescue.
+    // Awaited: stepRescue() starts mutating the tender's nav state directly via
+    // the raw API on the very next coordinator tick, so a tick already in flight
+    // for this ship must finish first or it can race that mutation against its
+    // own stale cached ship state ("not currently docked" errors).
     const miner = this.miners.get(tender.sym);
     const trader = this.traders.get(tender.sym);
-    if (miner) { miner.suspend(); } else if (trader) { trader.suspend(); }
+    if (miner) { await miner.suspend(); } else if (trader) { await trader.suspend(); }
 
     this.log(`dispatching fuel tender ${tender.sym} to rescue ${s.symbol}: buy ${Math.max(0, fuelUnits - heldFuel)}u FUEL at ${market.sym} (${heldFuel}u already held), fly to ${s.waypointSymbol}`);
     return {

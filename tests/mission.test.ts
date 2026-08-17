@@ -27,7 +27,7 @@ describe("MissionManager.assignCarrier", () => {
     const resumed: string[] = [];
     const mgr = new MissionManager({
       api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]),
-      suspend: (s) => suspended.push(s),
+      suspend: (s) => { suspended.push(s); },
       resume: (s) => resumed.push(s),
     });
     await mgr.startConstruction("X1-A-I1");
@@ -42,7 +42,7 @@ describe("MissionManager.assignCarrier", () => {
     const resumed: string[] = [];
     const mgr = new MissionManager({
       api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]),
-      suspend: (s) => suspended.push(s),
+      suspend: (s) => { suspended.push(s); },
       resume: (s) => resumed.push(s),
     });
     await mgr.startConstruction("X1-A-I1");
@@ -62,7 +62,7 @@ describe("MissionManager.assignCarrier", () => {
     const suspended: string[] = [];
     const mgr = new MissionManager({
       api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]),
-      suspend: (s) => suspended.push(s),
+      suspend: (s) => { suspended.push(s); },
       resume: () => {},
     });
     await mgr.startConstruction("X1-A-I1");

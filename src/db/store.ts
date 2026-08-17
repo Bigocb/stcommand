@@ -1197,4 +1197,96 @@ export class Store {
       }));
     });
   }
+
+  /** Log one doctrine rule firing against a specific ship — see doctrine_fire_log's
+   *  migration comment for why this is a separate event log from doctrine_fires'
+   *  aggregate counter: Book mode's clause hover needs the real hulls a rule
+   *  governed, not just a count. */
+  async recordDoctrineFireEvent(tenantId: string, ruleKey: string, shipSymbol: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO doctrine_fire_log (tenant_id, rule_key, ship_symbol, fired_at) VALUES ($1, $2, $3, now())`,
+        [tenantId, ruleKey, shipSymbol],
+      ),
+    );
+  }
+
+  /** Distinct ships that fired each rule since `sinceIso`, most-recent first,
+   *  capped at `limitPerRule` hulls per rule — what Book mode's clause hover
+   *  highlights on the field. Rules with no fires in the window are omitted. */
+  async getDoctrineFireShips(
+    tenantId: string,
+    sinceIso: string,
+    limitPerRule = 6,
+  ): Promise<{ ruleKey: string; ships: string[] }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ rule_key: string; ship_symbol: string; last_fired: Date }>(
+        `SELECT rule_key, ship_symbol, max(fired_at) AS last_fired
+         FROM doctrine_fire_log
+         WHERE fired_at >= $2
+         GROUP BY rule_key, ship_symbol
+         ORDER BY rule_key, last_fired DESC`,
+        [tenantId, sinceIso],
+      );
+      const byRule = new Map<string, string[]>();
+      for (const r of res.rows) {
+        const ships = byRule.get(r.rule_key) ?? [];
+        if (ships.length < limitPerRule) ships.push(r.ship_symbol);
+        byRule.set(r.rule_key, ships);
+      }
+      return [...byRule.entries()].map(([ruleKey, ships]) => ({ ruleKey, ships }));
+    });
+  }
+
+  /** Snapshot one ship's position — periodic sample the replay scrubber plays back. */
+  async recordShipPosition(
+    tenantId: string,
+    shipSymbol: string,
+    waypointSymbol: string,
+    x: number,
+    y: number,
+    status: string,
+  ): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO ship_position_history (tenant_id, ship_symbol, timestamp, waypoint_symbol, x, y, status)
+         VALUES ($1, $2, now(), $3, $4, $5, $6)`,
+        [tenantId, shipSymbol, waypointSymbol, x, y, status],
+      ),
+    );
+  }
+
+  /** Every position sample recorded since `sinceIso`, oldest first — one row per
+   *  ship per refresh cycle. The frontend groups these into scrubber frames. */
+  async getShipPositionHistory(
+    tenantId: string,
+    sinceIso: string,
+  ): Promise<{ shipSymbol: string; timestamp: string; waypointSymbol: string; x: number; y: number; status: string }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ ship_symbol: string; timestamp: Date; waypoint_symbol: string; x: number; y: number; status: string }>(
+        `SELECT ship_symbol, timestamp, waypoint_symbol, x, y, status
+         FROM ship_position_history
+         WHERE timestamp >= $2
+         ORDER BY timestamp ASC`,
+        [tenantId, sinceIso],
+      );
+      return res.rows.map((r) => ({
+        shipSymbol: r.ship_symbol,
+        timestamp: r.timestamp.toISOString(),
+        waypointSymbol: r.waypoint_symbol,
+        x: r.x,
+        y: r.y,
+        status: r.status,
+      }));
+    });
+  }
+
+  /** Delete position samples older than `beforeIso` — called opportunistically
+   *  from the same refresh cycle that records new ones, so the table stays
+   *  bounded (~24h of samples at STATE_REFRESH_MS cadence) without a cron. */
+  async pruneShipPositionHistory(tenantId: string, beforeIso: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(`DELETE FROM ship_position_history WHERE timestamp < $2`, [tenantId, beforeIso]),
+    );
+  }
 }

@@ -152,15 +152,32 @@ const DEFAULTS: DoctrineRule[] = [
  */
 export class Doctrine {
   private cache = new Map<string, { value: number; enabled: boolean }>();
-  private onFire?: (key: string) => void;
 
   constructor(
     private readonly store?: Store,
     private readonly tenantId?: string,
   ) {}
 
-  setFireCallback(onFire: (key: string) => void): void {
-    this.onFire = onFire;
+  /**
+   * Record that a rule actually changed a decision — a route rejected for
+   * margin, a sale blocked for loss, a price treated as stale. Deliberately
+   * explicit, called from the specific engine call sites where that's true
+   * (see doctrine.ts's own file header for the three seeded so far), not a
+   * blanket hook on `value()`/`isEnabled()`: those are read many times per
+   * tick by code that never acts on what they return, so wrapping them would
+   * count "how often was this consulted" rather than "how often did this
+   * rule change anything" — and would have no ship to attribute the fire to,
+   * since `value()`/`isEnabled()` take no ship-context argument.
+   *
+   * `shipSymbol`, when given, is logged to `doctrine_fire_log` too — the
+   * per-event record Book mode's clause hover reads to highlight the real
+   * hulls a rule governed. Fire-and-forget: a failed write here must never
+   * block the engine decision it's just reporting on.
+   */
+  recordFire(key: string, shipSymbol?: string): void {
+    if (!this.store || !this.tenantId) return;
+    this.store.recordDoctrineFire(this.tenantId, key).catch(() => {});
+    if (shipSymbol) this.store.recordDoctrineFireEvent(this.tenantId, key, shipSymbol).catch(() => {});
   }
 
   async reload(): Promise<void> {
@@ -203,7 +220,6 @@ export class Doctrine {
    * unconstrained behaviour.
    */
   value(key: string, whenOff?: number): number {
-    this.onFire?.(key);
     const base = DEFAULTS.find((d) => d.key === key);
     const override = this.cache.get(key);
     const enabled = override?.enabled ?? base?.enabled ?? true;
@@ -217,7 +233,6 @@ export class Doctrine {
   }
 
   isEnabled(key: string): boolean {
-    this.onFire?.(key);
     const base = DEFAULTS.find((d) => d.key === key);
     return this.cache.get(key)?.enabled ?? base?.enabled ?? true;
   }

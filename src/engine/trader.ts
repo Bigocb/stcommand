@@ -73,6 +73,9 @@ export interface TraderOptions {
    * Default 90.
    */
   intelMaxAgeMin?: () => number;
+  /** Called at the specific moments marginFloor/maxLossPct/snapshotMaxAgeMin
+   *  actually change this ship's decision — see doctrine.ts's `recordFire()`. */
+  recordDoctrineFire?: (key: string) => void;
   /** Where the warehouse ship is parked, if one is designated — the rendezvous point for buy/sell-role legs. */
   getWarehouseShip?: () => { shipSymbol: string; waypointSymbol: string } | undefined;
   /** Units of a good currently held in the warehouse, for sizing a sell-role withdrawal. */
@@ -124,6 +127,7 @@ export class TraderAgent {
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
   private readonly intelMaxAgeMin: () => number;
+  private readonly recordDoctrineFire?: TraderOptions["recordDoctrineFire"];
   private readonly atlas?: GalaxyAtlas;
   private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
   private readonly warehouseBalance?: TraderOptions["warehouseBalance"];
@@ -141,6 +145,10 @@ export class TraderAgent {
   private observedAt = new Map<string, number>();
   private manualWaypoint: string | null = null;
   private suspended = false;
+  /** The currently in-flight tick(), if any — suspend() awaits this so a caller
+   *  about to mutate this ship's nav state directly (rescue/mission dispatch)
+   *  can't race a tick that's already mid-flight against stale cached state. */
+  private inFlight: Promise<unknown> | null = null;
   /** Good → cost basis per unit for cargo currently in the hold. */
   private heldCost = new Map<string, number>();
   /** Routes rejected by the live buy-price guard this tick (good@buyAt). */
@@ -172,6 +180,7 @@ export class TraderAgent {
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
+    this.recordDoctrineFire = opts.recordDoctrineFire;
     this.atlas = opts.atlas;
     this.getWarehouseShip = opts.getWarehouseShip;
     this.warehouseBalance = opts.warehouseBalance;
@@ -206,9 +215,16 @@ export class TraderAgent {
     }
   }
 
-  /** Prevent the agent from acting while the fleet coordinates it manually (e.g. rescues). */
-  suspend(): void {
+  /**
+   * Prevent the agent from acting while the fleet coordinates it manually
+   * (e.g. rescues). Awaits any tick already in flight before returning — see
+   * agent.ts's `suspend()` for why this matters: without it, a caller that
+   * immediately mutates this ship's nav state directly via the raw API can
+   * race a tick that's already mid-flight against stale cached ship state.
+   */
+  async suspend(): Promise<void> {
     this.suspended = true;
+    if (this.inFlight) await this.inFlight.catch(() => {});
     this.log("suspended");
   }
 
@@ -490,7 +506,10 @@ export class TraderAgent {
     const sell = this.priceTable.get(r.sellAt)?.get(r.good);
     if (!buy || !sell || buy.buy <= 0) return undefined;
     const margin = sell.sell - buy.buy;
-    if (margin <= this.marginFloor) return undefined;
+    if (margin <= this.marginFloor) {
+      this.recordDoctrineFire?.("marginFloor");
+      return undefined;
+    }
     const credits = this.getCredits?.() ?? Infinity;
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
     const volume = Math.min(buy.volume, sell.volume, this.ship.cargo.capacity, affordable);
@@ -526,7 +545,10 @@ export class TraderAgent {
       // that may be under construction, so they'd fail at navigation.
       if (this.systemOf(buy.waypoint) !== this.systemOf(sell.waypoint)) continue;
       const margin = sell.sell - buy.buy;
-      if (margin <= this.marginFloor) continue;
+      if (margin <= this.marginFloor) {
+        this.recordDoctrineFire?.("marginFloor");
+        continue;
+      }
       const fuel = this.distBetween(buy.waypoint, sell.waypoint);
       const credits = this.getCredits?.() ?? Infinity;
       const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
@@ -606,6 +628,7 @@ export class TraderAgent {
     const cutoff = Date.now() - this.intelMaxAgeMin() * 60_000;
     for (const [wp, table] of this.observed) {
       if ((this.observedAt.get(wp) ?? 0) < cutoff) {
+        this.recordDoctrineFire?.("snapshotMaxAgeMin");
         this.observed.delete(wp);
         this.observedAt.delete(wp);
         continue;
@@ -645,6 +668,7 @@ export class TraderAgent {
     try {
       const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
       if (live !== undefined && (await this.exceedsLossFloor(item.symbol, live))) {
+        this.recordDoctrineFire?.("maxLossPct");
         this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
         return true;
       }
@@ -715,6 +739,7 @@ export class TraderAgent {
       if (liveBuy !== undefined && liveBuy > route.buyPrice) {
         const liveMargin = route.sellPrice - liveBuy;
         if (liveMargin < this.marginFloor) {
+          this.recordDoctrineFire?.("marginFloor");
           this.log(
             `skipping buy: ${route.good} at ${route.buyAt} is now ${liveBuy}c (snapshot ${route.buyPrice}c), margin ${liveMargin}c below floor ${this.marginFloor}c`
           );
@@ -757,6 +782,7 @@ export class TraderAgent {
       await this.ensureDocked();
       const live = await this.liveSellPrice(route.sellAt, route.good);
       if (live !== undefined && (await this.exceedsLossFloor(route.good, live))) {
+        this.recordDoctrineFire?.("maxLossPct");
         this.log(`holding ${units}u ${route.good}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(route.good)}c)`);
         return true;
       }
@@ -910,6 +936,7 @@ export class TraderAgent {
     await this.ensureDocked();
     const live = await this.liveSellPrice(sellAt, assigned.good);
     if (live !== undefined && await this.exceedsLossFloor(assigned.good, live)) {
+      this.recordDoctrineFire?.("maxLossPct");
       this.log(`holding ${withdrawn.units}u ${assigned.good}: live sell ${live}c is below loss floor (cost ${withdrawn.avgCost}c)`);
       return true;
     }
@@ -1036,7 +1063,9 @@ export class TraderAgent {
       ticks += 1;
       if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
-        const made = await this.tick();
+        const p = this.tick();
+        this.inFlight = p;
+        const made = await p;
         if (!made) await sleep(30_000);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1045,6 +1074,8 @@ export class TraderAgent {
         // tender rescue needs this flag to find us.
         if (/fuel/i.test(msg)) this.markStranded();
         await sleep(10_000);
+      } finally {
+        this.inFlight = null;
       }
     }
     this.running = false;

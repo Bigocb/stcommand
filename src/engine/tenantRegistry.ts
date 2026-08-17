@@ -1,5 +1,5 @@
 import type pg from "pg";
-import { Client, SpaceTradersAPI } from "../core/client.js";
+import { Client, RateLimiter, SpaceTradersAPI } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { ContractManager } from "./contract.js";
@@ -52,6 +52,21 @@ const RUN_FOREVER_TICKS = 1_000_000;
 export class TenantRegistry {
   private readonly workers = new Map<string, TenantWorker>();
   private readonly starting = new Map<string, Promise<TenantWorker>>();
+  /**
+   * One token bucket for every tenant's Client this process ever builds.
+   * SpaceTraders enforces its rate limit per IP address, not per agent
+   * token — a multi-tenant process serving N tenants from one IP is really N
+   * Clients sharing one real ceiling. Each Client self-throttling to 1.5
+   * req/s independently (the default when no `sharedLimiter` is given — see
+   * client.ts's `ClientOptions` doc comment) only holds that ceiling for a
+   * single tenant; with N tenants active it admits up to N * 1.5 req/s from
+   * the same IP, which is exactly what produced sustained 429s in production
+   * once several tenants had ships running at once. One shared bucket here
+   * means the whole process — every tenant combined — actually stays under
+   * the real per-IP ceiling instead of each tenant believing it has the full
+   * budget to itself.
+   */
+  private readonly apiLimiter = new RateLimiter(1.5, 30);
 
   constructor(
     private readonly pool: pg.Pool,
@@ -60,7 +75,11 @@ export class TenantRegistry {
     /** Injectable so tests can substitute a fake API instead of hitting the real SpaceTraders API. */
     private readonly buildApi: (token: string) => SpaceTradersAPI = (token) =>
       new SpaceTradersAPI(
-        new Client({ token, onRateLimited: (sec, attempt) => this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`) }),
+        new Client({
+          token,
+          sharedLimiter: this.apiLimiter,
+          onRateLimited: (sec, attempt) => this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`),
+        }),
         token,
       ),
   ) {}
@@ -244,6 +263,18 @@ export class TenantRegistry {
           jumpConnections: fleet.getGalaxy().jumpConnections(),
           totals: await store.ledgerTotals(tenantId),
         });
+
+        // Replay scrubber: one position sample per ship per refresh cycle.
+        // Looked up across every known system (not just home), since a ship
+        // mid-jump-route sits in a system `mappedWaypoints` doesn't cover.
+        const posBySymbol = new Map<string, { x: number; y: number }>();
+        for (const s of systems) for (const w of s.waypoints) posBySymbol.set(w.symbol, { x: w.x, y: w.y });
+        for (const ship of ships) {
+          const pos = posBySymbol.get(ship.nav.waypointSymbol);
+          if (!pos) continue;
+          await store.recordShipPosition(tenantId, ship.symbol, ship.nav.waypointSymbol, pos.x, pos.y, ship.nav.status);
+        }
+        await store.pruneShipPositionHistory(tenantId, new Date(Date.now() - 24 * 3600_000).toISOString());
       } catch (err) {
         log(`state refresh error: ${err instanceof Error ? err.message : String(err)}`);
       }

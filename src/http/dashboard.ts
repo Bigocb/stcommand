@@ -203,6 +203,37 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  /** Which real hulls fired each doctrine rule "this watch" (default 2h) —
+   *  what Book mode's clause hover highlights on the field. Separate from
+   *  /doctrine/stats' aggregate counts, which stay all-time. */
+  router.get("/doctrine/fire-ships", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const hours = Math.min(24, Math.max(0.25, Number(req.query.hours) || 2));
+    try {
+      const since = new Date(Date.now() - hours * 3600_000).toISOString();
+      const ships = await w.store.getDoctrineFireShips(w.tenantId, since);
+      res.json({ ships });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Position history for the replay scrubber — every sample recorded in the
+   *  requested window (default 12h, matching the mockup's scrub range). */
+  router.get("/replay", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const hours = Math.min(24, Math.max(0.1, Number(req.query.hours) || 12));
+    try {
+      const since = new Date(Date.now() - hours * 3600_000).toISOString();
+      const samples = await w.store.getShipPositionHistory(w.tenantId, since);
+      res.json({ since, samples });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /* ── Keeper stations ─────────────────────────────────────────
      Which buy markets get a stationed keeper + the current assignments. */
   router.get("/keeper/markets", async (req, res) => {
