@@ -421,28 +421,31 @@
     border:1px solid var(--hairline);
   }
   #map { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:2; }
-  #map path.route { fill:none; stroke:var(--accent); stroke-width:1; opacity:0.18; vector-effect:non-scaling-stroke; }
-  #map path.route.active { opacity:0.6; stroke-dasharray:5 5; animation:route-flow 1.2s linear infinite; }
-  #map path.jump { fill:none; stroke:var(--teal); stroke-width:1; opacity:0.4; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
+  #map path.route { fill:none; stroke:var(--accent); stroke-width:1.6; opacity:0.4; vector-effect:non-scaling-stroke; }
+  #map path.route.active { opacity:0.85; stroke-dasharray:5 5; animation:route-flow 1.2s linear infinite; }
+  #map path.jump { fill:none; stroke:var(--teal); stroke-width:1.4; opacity:0.55; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
   @keyframes route-flow { to { stroke-dashoffset:-10; } }
-  #map circle.wp { fill:var(--ice); opacity:0.45; r:calc(2px / var(--map-zoom,1)); }
-  #map circle.asteroid { fill:none; stroke:var(--ice); stroke-width:1; opacity:0.55; vector-effect:non-scaling-stroke; r:calc(2.6px / var(--map-zoom,1)); }
-  #map circle.market { fill:var(--accent); filter:drop-shadow(0 0 4px var(--accent)); r:calc(2.8px / var(--map-zoom,1)); }
-  #map circle.fuel { fill:var(--teal); opacity:0.8; filter:drop-shadow(0 0 3px var(--teal)); r:calc(2.4px / var(--map-zoom,1)); }
-  #map rect.gate { fill:var(--teal); opacity:0.85; filter:drop-shadow(0 0 4px var(--teal)); }
-  #map text.wplabel { fill:var(--dim); font-family:var(--mono); font-size:calc(7px / var(--map-zoom,1)); pointer-events:none; opacity:0.45; }
-  #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--ice); }
-  #map text.syslabel { fill:var(--violet); font-family:var(--disp); font-size:calc(18px / var(--map-zoom,1)); opacity:0.22; pointer-events:none; }
-  #map .ship { filter:drop-shadow(0 0 5px var(--accent)); cursor:pointer; }
-  #map .ship path { fill:var(--star); stroke:var(--ink); stroke-width:1; }
+  /* Sized for the field's full-bleed scale (previously tuned for a map that
+     shared the screen with two grid panes — the same absolute pixel sizes
+     read as near-invisible now that the map fills the whole viewport). */
+  #map circle.wp { fill:var(--ice); opacity:0.65; r:calc(3px / var(--map-zoom,1)); }
+  #map circle.asteroid { fill:none; stroke:var(--ice); stroke-width:1.4; opacity:0.75; vector-effect:non-scaling-stroke; r:calc(4px / var(--map-zoom,1)); }
+  #map circle.market { fill:var(--accent); filter:drop-shadow(0 0 6px var(--accent)); r:calc(4.5px / var(--map-zoom,1)); }
+  #map circle.fuel { fill:var(--teal); opacity:0.9; filter:drop-shadow(0 0 5px var(--teal)); r:calc(4px / var(--map-zoom,1)); }
+  #map rect.gate { fill:var(--teal); opacity:0.9; filter:drop-shadow(0 0 6px var(--teal)); }
+  #map text.wplabel { fill:var(--ice); font-family:var(--mono); font-size:calc(10px / var(--map-zoom,1)); pointer-events:none; opacity:0.7; }
+  #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--bone); }
+  #map text.syslabel { fill:var(--violet); font-family:var(--brand); font-size:calc(22px / var(--map-zoom,1)); opacity:0.16; pointer-events:none; }
+  #map .ship { filter:drop-shadow(0 0 6px var(--accent)); cursor:pointer; transform-box:fill-box; transform-origin:center; }
+  #map .ship path { fill:var(--star); stroke:var(--ink); stroke-width:1; transform:scale(1.7); }
   #map .ship.docked path { fill:var(--star); }
   #map .ship.selected path { fill:var(--accent); }
-  #map .ship.selected { filter:drop-shadow(0 0 7px var(--accent)); }
-  #map circle.sel-halo { fill:var(--accent); opacity:0.08; pointer-events:none; }
-  #map circle.sel-ring { fill:none; stroke:var(--accent); opacity:0.45; stroke-width:1; pointer-events:none; }
-  .map-hud { position:absolute; top:10px; left:12px; z-index:3; font-family:var(--disp); font-size:11px; letter-spacing:0.16em; color:var(--dim); pointer-events:none; }
+  #map .ship.selected { filter:drop-shadow(0 0 9px var(--accent)); }
+  #map circle.sel-halo { fill:var(--accent); opacity:0.1; pointer-events:none; }
+  #map circle.sel-ring { fill:none; stroke:var(--accent); opacity:0.5; stroke-width:1.4; pointer-events:none; }
+  .map-hud { position:absolute; top:12px; left:306px; z-index:3; font-family:var(--chrome); font-size:11px; letter-spacing:0.16em; color:var(--dim); pointer-events:none; }
   .map-hud b { color:var(--ice); font-weight:400; }
-  .system-strip { position:absolute; top:32px; left:12px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 24px); }
+  .system-strip { position:absolute; top:34px; left:306px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 590px); }
   .system-strip button { background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice); font-family:var(--mono); font-size:10px; padding:3px 9px; cursor:pointer; }
   .system-strip button.active { border-color:var(--accent); color:var(--accent); }
   .map-legend { position:absolute; bottom:10px; left:12px; z-index:3; display:flex; gap:14px; font-size:8px; color:var(--dim); letter-spacing:0.12em; text-transform:uppercase; pointer-events:none; }
@@ -770,7 +773,7 @@
       <button data-view="markets" aria-pressed="false">Markets</button>
       <button data-view="ops" aria-pressed="false">Ops</button>
     </div>
-    <div class="field-book-toggle" id="field-book-toggle" role="group" aria-label="Layout mode" style="display:none">
+    <div class="field-book-toggle" id="field-book-toggle" role="group" aria-label="Layout mode">
       <button class="active" data-mode="field" title="Field mode: map-first with rails">Field</button>
       <button data-mode="book" title="Book mode: doctrine overlay">Book</button>
     </div>
@@ -3603,22 +3606,23 @@ function setFieldBookMode(mode) {
   if (mode === "book") renderBook();
 }
 
+/** Always visible in the header — same reasoning as the view switcher and
+ *  hue picker beside it: a control that only sometimes exists makes the
+ *  header itself feel inconsistent between pages. Bridge is the only view it
+ *  actually applies to, so clicking it from elsewhere jumps to Bridge first. */
 function updateFieldBookToggleVisibility() {
-  const toggle = $("field-book-toggle");
   const view = $("views").querySelector(".view.on");
-  if (toggle) {
-    toggle.style.display = view?.dataset.view === "bridge" ? "flex" : "none";
-    if (view?.dataset.view === "bridge") {
-      setFieldBookMode(fieldBookMode);
-    }
-  }
+  if (view?.dataset.view === "bridge") setFieldBookMode(fieldBookMode);
 }
 
 // Wire up field/book toggle buttons
 const fbToggle = $("field-book-toggle");
 if (fbToggle) {
   fbToggle.querySelectorAll("button").forEach((b) => {
-    b.addEventListener("click", () => setFieldBookMode(b.dataset.mode));
+    b.addEventListener("click", () => {
+      if (currentView !== "bridge") setView("bridge");
+      setFieldBookMode(b.dataset.mode);
+    });
   });
 }
 
