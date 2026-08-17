@@ -482,6 +482,12 @@
   #map circle.sel-ring { fill:none; stroke:var(--accent); opacity:0.5; stroke-width:1.4; pointer-events:none; }
   .map-hud { position:absolute; top:12px; left:306px; z-index:3; font-family:var(--chrome); font-size:11px; letter-spacing:0.16em; color:var(--dim); pointer-events:none; }
   .map-hud b { color:var(--ice); font-weight:400; }
+  .map-fit-btn {
+    position:absolute; top:10px; right:302px; z-index:6;
+    background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice);
+    font-family:var(--chrome); font-size:9px; letter-spacing:0.08em; padding:4px 9px; cursor:pointer;
+  }
+  .map-fit-btn:hover { border-color:var(--accent); color:var(--accent); }
   .system-strip { position:absolute; top:34px; left:306px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 590px); }
   .system-strip button { background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice); font-family:var(--mono); font-size:10px; padding:3px 9px; cursor:pointer; }
   .system-strip button.active { border-color:var(--accent); color:var(--accent); }
@@ -806,6 +812,7 @@
     <div class="grow"></div>
     <div class="views-switch" id="view-switch" role="group" aria-label="View">
       <button data-view="bridge" aria-pressed="true">Bridge</button>
+      <button data-view="fleet" aria-pressed="false">Fleet</button>
       <button data-view="markets" aria-pressed="false">Markets</button>
       <button data-view="tradeops" aria-pressed="false">Trade Ops</button>
       <button data-view="ops" aria-pressed="false">Ops</button>
@@ -836,6 +843,7 @@
       <div class="field-stage" id="field-stage">
         <div class="map-wrap" id="map-wrap">
           <div class="map-hud" id="map-hud">Sector <b>—</b></div>
+          <button class="map-fit-btn" id="map-fit" title="Fit whole system">⛶ Fit</button>
           <div class="system-strip" id="system-strip"></div>
           <div class="map-gallery" id="map-gallery"></div>
           <svg id="map"></svg>
@@ -889,6 +897,14 @@
         </div>
         <button class="ticker-expand" id="ticker-expand" aria-expanded="false" aria-label="Expand shift log">▲</button>
         <div class="ticker" id="ticker"></div>
+      </div>
+    </section>
+
+    <!-- ══ FLEET ══ -->
+    <section class="view view-fleet" data-view="fleet">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="fleet-count">—</span></div>
+        <div class="pane-b"><table id="fleet-table"></table></div>
       </div>
     </section>
 
@@ -1412,6 +1428,10 @@ function setView(name) {
 }
 
 function loadViewData(name) {
+  // Fleet needs no fetch of its own — fleetRows() reads state/bridge/
+  // fleetStatus, already kept current by the 5s polling loop — just render
+  // what's already there on entry.
+  if (name === "fleet") renderFleetTable();
   if (name === "markets") { loadMarkets(); loadGoods(); }
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
   if (name === "ops") loadOps();
@@ -1434,7 +1454,7 @@ function initViewSwitch() {
       return;
     }
     if (e.target.matches("input, select, textarea")) return;
-    const map = { "1": "bridge", "2": "markets", "3": "tradeops", "4": "ops" };
+    const map = { "1": "bridge", "2": "fleet", "3": "markets", "4": "tradeops", "5": "ops" };
     if (map[e.key]) setView(map[e.key]);
   });
 }
@@ -2115,15 +2135,47 @@ $("mobile-fleet").addEventListener("click", (e) => {
   if (row) { selectedShip = row.dataset.ship; openShipDetails(selectedShip); }
 });
 
-/** Field mode dropped the standalone fleet table (see the design doc's own
- *  principle: "selection replaces navigation" — the map is the fleet browser
- *  now, via renderMap()'s ship click handler). fleetRows() is still real
- *  data the mobile view's own #mobile-fleet list renders from separately;
- *  this stays as a guarded no-op so its other call sites don't need removing
- *  one by one. */
+/** The Fleet tab's roster — every hull, sortable by any column. Field mode's
+ *  map is the primary "browse ships" surface for spatial selection, but it
+ *  can't show the whole fleet's status at a glance the way a table can, so
+ *  this is back as its own tab rather than folded away. */
 function renderFleetTable() {
   const el = $("fleet-table");
   if (!el) return;
+  const rows = fleetRows();
+  const countEl = $("fleet-count");
+  if (countEl) countEl.textContent = `${rows.length} hulls`;
+  if (!rows.length) { el.innerHTML = '<tbody><tr><td class="empty">No ships in the register.</td></tr></tbody>'; return; }
+
+  const { key, dir } = fleetSort;
+  rows.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    return (typeof av === "number" ? av - bv : String(av).localeCompare(String(bv))) * dir;
+  });
+
+  el.innerHTML = `
+    <thead><tr>${FLEET_COLS.map((c) =>
+      `<th class="${c.num ? "num " : ""}${key === c.key ? "sorted" : ""}" data-key="${c.key}">${c.label}${key === c.key ? (dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `
+      <tr class="${r.stranded ? "warn " : ""}${selectedShip === r.symbol ? "sel" : ""}" data-ship="${escapeAttr(r.symbol)}">
+        <td><span class="sym">${escapeHtml(shortWp(r.symbol))}</span></td>
+        <td>${escapeHtml(r.role)}${r.manual ? ' <span style="color:var(--accent)">·M</span>' : ""}</td>
+        <td class="num ${r.net > 0 ? "rate-up" : r.net < 0 ? "rate-down" : "rate-zero"}">${r.net ? signed(r.net) : "0"}</td>
+        <td class="gauge"><span class="meter"><i style="width:${r.fuelCap ? (r.fuel / r.fuelCap) * 100 : 0}%"></i></span>${r.fuel}</td>
+        <td class="gauge"><span class="meter c"><i style="width:${r.cargoCap ? (r.cargo / r.cargoCap) * 100 : 0}%"></i></span>${r.cargoCap ? `${r.cargo}/${r.cargoCap}` : "—"}</td>
+        <td><span class="goal">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}</span></td>
+      </tr>`).join("")}</tbody>`;
+
+  el.querySelectorAll("th[data-key]").forEach((th) => th.addEventListener("click", () => {
+    const k = th.dataset.key;
+    fleetSort = { key: k, dir: fleetSort.key === k ? -fleetSort.dir : -1 };
+    renderFleetTable();
+  }));
+  el.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => {
+    selectedShip = tr.dataset.ship;
+    openShipDetails(selectedShip);
+    setView("bridge");
+  }));
 }
 
 function renderTicker() {
@@ -2349,12 +2401,12 @@ function renderMap(ships, trails = new Map()) {
 
   const bySymbol = new Map(waypoints.map((p) => [p.symbol, p]));
 
-  const active = new Set([state.agent.headquarters]);
-  for (const s of ships) active.add(s.nav.waypointSymbol);
-  for (const r of tradeRoutes) { active.add(r.cheapestMarket); active.add(r.expensiveMarket); }
-  const focus = waypoints.filter((p) => active.has(p.symbol));
-  const pool = focus.length >= 3 ? focus : waypoints;
-
+  // Frame the whole system by default — not just "active" waypoints (ships,
+  // headquarters, trade route endpoints). Cropping to active-only used to
+  // leave most of a system permanently out of view whenever ships happened
+  // to cluster in one area, with no way to see the rest since zoom couldn't
+  // go below 1x either (fixed below).
+  const pool = waypoints;
   const xs = pool.map((p) => p.x);
   const ys = pool.map((p) => p.y);
   let minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -2532,13 +2584,18 @@ function initMapInteractions() {
   const svg = $("map");
   const wrap = svg.parentElement;
 
+  $("map-fit")?.addEventListener("click", resetMapView);
+
   wrap.addEventListener("wheel", (e) => {
     e.preventDefault();
     const rect = wrap.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
     const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
-    const next = Math.min(8, Math.max(1, mapZoom * factor));
+    // Floor lowered from 1 to 0.5 — the default view now already fits the
+    // whole system at 1x (see renderMap()'s pool comment), so this is just
+    // breathing room for zooming out a bit further, not the fix itself.
+    const next = Math.min(8, Math.max(0.5, mapZoom * factor));
     mapPanX = mx - ((mx - mapPanX) / mapZoom) * next;
     mapPanY = my - ((my - mapPanY) / mapZoom) * next;
     mapZoom = next;
