@@ -275,6 +275,10 @@ export class TraderAgent {
     if (this.ship.nav.status === "IN_ORBIT") {
       await this.api.dockShip(this.symbol);
       await this.refresh();
+      // Record the market whenever we dock, not just during the autonomous
+      // flow — a manually-dispatched trader (manual-hold) otherwise never
+      // snapshots the market it's parked at. Mirrors ShipAgent.ensureDocked().
+      if (this.recordMarket) await this.recordMarket(this.ship.nav.waypointSymbol);
     }
   }
 
