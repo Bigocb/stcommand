@@ -149,3 +149,134 @@ describe("TraderAgent.tick: clearLeftoverCargo respects protectedGoods", () => {
     assert.deepEqual(sold, ["COPPER_ORE"]);
   });
 });
+
+describe("TraderAgent.discoverPrices: reachability", () => {
+  it("picks a same-system market without ever calling getConstruction", async () => {
+    const ship = makeShip();
+    let constructionChecked = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getConstruction: async () => { constructionChecked = true; return { isComplete: true } as any; },
+      } as any,
+      getMarketSnapshots: async () => [{ waypointSymbol: "X1-A-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
+    });
+    (trader as any).navigateTo = async () => {};
+    (trader as any).refuelAt = async () => {};
+    (trader as any).observeMarket = async () => {};
+
+    const made = await (trader as any).discoverPrices([]);
+
+    assert.equal(made, true);
+    assert.equal(constructionChecked, false, "same-system reachability must not need a construction check at all");
+  });
+
+  it("skips a cross-system market when no gate connection is known", async () => {
+    const ship = makeShip();
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      getMarketSnapshots: async () => [{ waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
+      atlas: { gatesTo: () => [] } as any,
+    });
+    let navigated = false;
+    (trader as any).navigateTo = async () => { navigated = true; };
+
+    const made = await (trader as any).discoverPrices([]);
+
+    assert.equal(made, false, "with no reachable market at all, this must report no progress — that's what gives nextTask() its 30s backoff instead of looping with zero delay");
+    assert.equal(navigated, false);
+  });
+
+  it("skips a cross-system market whose gate is still under construction", async () => {
+    const ship = makeShip();
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getConstruction: async () => ({ isComplete: false, materials: [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 10 }] } as any),
+      } as any,
+      getMarketSnapshots: async () => [{ waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
+      atlas: { gatesTo: () => ["X1-A-GATE"] } as any,
+    });
+    let navigated = false;
+    (trader as any).navigateTo = async () => { navigated = true; };
+
+    const made = await (trader as any).discoverPrices([]);
+
+    assert.equal(made, false, "an under-construction gate must not be treated as reachable, even though atlas.gatesTo() found a connection");
+    assert.equal(navigated, false);
+  });
+
+  it("uses a cross-system market once its gate is complete", async () => {
+    const ship = makeShip();
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getConstruction: async () => ({ isComplete: true, materials: [] } as any),
+      } as any,
+      getMarketSnapshots: async () => [{ waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
+      atlas: { gatesTo: () => ["X1-A-GATE"] } as any,
+    });
+    let navigatedTo: string | undefined;
+    (trader as any).navigateTo = async (wp: string) => { navigatedTo = wp; };
+    (trader as any).refuelAt = async () => {};
+    (trader as any).observeMarket = async () => {};
+
+    const made = await (trader as any).discoverPrices([]);
+
+    assert.equal(made, true);
+    assert.equal(navigatedTo, "X1-B-A2");
+  });
+
+  it("treats a gate with no construction record (already built) as reachable", async () => {
+    const ship = makeShip();
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getConstruction: async () => { throw new Error("404: no construction record"); },
+      } as any,
+      getMarketSnapshots: async () => [{ waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
+      atlas: { gatesTo: () => ["X1-A-GATE"] } as any,
+    });
+    let navigatedTo: string | undefined;
+    (trader as any).navigateTo = async (wp: string) => { navigatedTo = wp; };
+    (trader as any).refuelAt = async () => {};
+    (trader as any).observeMarket = async () => {};
+
+    const made = await (trader as any).discoverPrices([]);
+
+    assert.equal(made, true);
+    assert.equal(navigatedTo, "X1-B-A2");
+  });
+
+  it("prefers a reachable preferred market over an unreachable one, instead of dropping preferred cross-system markets outright", async () => {
+    const ship = makeShip();
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getConstruction: async () => ({ isComplete: true, materials: [] } as any),
+      } as any,
+      getMarketSnapshots: async () => [
+        { waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 },
+        { waypointSymbol: "X1-A-A9", goodSymbol: "COPPER", purchasePrice: 3, sellPrice: 6, tradeVolume: 10 },
+      ],
+      atlas: { gatesTo: () => ["X1-A-GATE"] } as any,
+    });
+    let navigatedTo: string | undefined;
+    (trader as any).navigateTo = async (wp: string) => { navigatedTo = wp; };
+    (trader as any).refuelAt = async () => {};
+    (trader as any).observeMarket = async () => {};
+
+    // The caller's preferred market is the cross-system one — a completed
+    // gate makes it reachable, so it must win over the same-system market
+    // even though it's listed second, since "preferred" comes first.
+    const made = await (trader as any).discoverPrices(["X1-B-A2"]);
+
+    assert.equal(made, true);
+    assert.equal(navigatedTo, "X1-B-A2");
+  });
+});

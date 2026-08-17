@@ -723,16 +723,64 @@ export class TraderAgent {
   }
 
   /**
+   * Whether this ship can actually get to `waypoint` right now: same system
+   * (no gate needed), or a cross-system gate that's both known AND not
+   * still under construction. atlas.gatesTo() only reports a gate's
+   * *connections* — JumpGate objects carry no construction status at all,
+   * that lives on the waypoint (isUnderConstruction) — so a gate symbol
+   * being known doesn't mean the jump will actually succeed; a genuinely
+   * observed case (a home-system gate mid-build) had a real gate connection
+   * on record while still being unusable. Same isComplete check
+   * fleet.ts's exploreSystem() already uses, so both places agree on what
+   * "reachable" means.
+   */
+  private async canReachMarket(waypoint: string): Promise<boolean> {
+    const targetSystem = this.systemOf(waypoint);
+    const hereSystem = this.ship.nav.systemSymbol;
+    if (targetSystem === hereSystem) return true;
+    const gate = this.atlas?.gatesTo(hereSystem, targetSystem)[0];
+    if (!gate) return false;
+    try {
+      const constr = await this.api.getConstruction(hereSystem, gate);
+      return constr.isComplete;
+    } catch {
+      return true; // no construction record: the gate is already built
+    }
+  }
+
+  /**
    * No profitable route right now: refresh prices instead of sleeping and
    * retrying the same dead route forever. `preferred` is checked first (the
    * markets the caller actually wanted fresh intel on), then any other known
-   * market.
+   * market — same-system candidates before cross-system ones, so the common
+   * case never even calls canReachMarket()'s gate-construction check.
+   *
+   * Previously this picked *any* known market fleet-wide with no reachability
+   * check at all, so a market in a system with no completed gate connection
+   * got picked, jumpToSystem() silently no-op'd (logged "no jump gate...",
+   * didn't throw), and this function still returned true — reporting the
+   * tick as having made progress, which chained the next attempt with ZERO
+   * backoff (nextTask() only backs off when made=false). That's a busy loop,
+   * not just a slow retry, and it picks the exact same unreachable market
+   * again every pass since knownMarkets' ordering doesn't change.
    */
   private async discoverPrices(preferred: string[]): Promise<boolean> {
-    const knownMarkets = [...new Set(((await this.getMarketSnapshots?.()) ?? []).map((s) => s.waypointSymbol))];
     const here = this.ship.nav.waypointSymbol;
-    const target = preferred.filter((m) => m && m !== here).find((m) => knownMarkets.includes(m)) ?? knownMarkets.find((m) => m !== here) ?? knownMarkets[0];
+    const hereSystem = this.ship.nav.systemSymbol;
+    const knownMarkets = [...new Set(((await this.getMarketSnapshots?.()) ?? []).map((s) => s.waypointSymbol))].filter((m) => m !== here);
+    const sameSystem = knownMarkets.filter((m) => this.systemOf(m) === hereSystem);
+    const crossSystem = knownMarkets.filter((m) => this.systemOf(m) !== hereSystem);
+    const candidates = [...preferred.filter((m) => m && m !== here && knownMarkets.includes(m)), ...sameSystem, ...crossSystem];
+
+    let target: string | undefined;
+    for (const m of candidates) {
+      if (await this.canReachMarket(m)) {
+        target = m;
+        break;
+      }
+    }
     if (!target) return false;
+
     this.log("discovering prices...");
     // Navigate to the market first, then refuel there — refueling at the
     // current spot fails if it's an asteroid with no fuel market.
