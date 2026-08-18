@@ -14,6 +14,14 @@ export interface StrandedLike {
   symbol: string;
   waypointSymbol: string;
   reason?: string;
+  /** Whether a fuel tender is genuinely en route right now — distinct from
+   *  "stranded", which alone can't tell the operator "rescue is coming"
+   *  from "rescue will never come without you stepping in". */
+  rescueActive?: boolean;
+  /** Human-readable rescue status: what tender is doing, or why none could
+   *  be found. Replaces the old hardcoded "dispatches automatically"
+   *  claim, which stayed on screen even when no tender was possible. */
+  rescueDetail?: string;
 }
 
 export interface EarningLike {
@@ -109,6 +117,16 @@ export function buildTriage(input: {
   const triage: TriageItem[] = [];
 
   for (const s of input.stranded) {
+    // Previously always claimed "Fuel tender dispatches automatically" —
+    // true when one was found, actively misleading when the fleet had no
+    // viable tender at all: the operator had no way to distinguish "rescue
+    // is coming" from "rescue will never come without you stepping in",
+    // which is exactly how a ship stayed stranded for hours unnoticed.
+    const engineWillAct = s.rescueActive
+      ? s.rescueDetail ?? "Fuel tender en route"
+      : s.rescueDetail?.startsWith("no rescue possible")
+        ? `${s.rescueDetail} — needs your help`
+        : s.rescueDetail ?? null;
     triage.push({
       id: `stranded:${s.symbol}`,
       severity: 1,
@@ -116,7 +134,7 @@ export function buildTriage(input: {
       detail: s.reason ?? `No fuel at ${s.waypointSymbol}.`,
       costPerHour: -Math.round(estimateCost(s.symbol, roleOf.get(s.symbol))),
       shipSymbol: s.symbol,
-      engineWillAct: "Fuel tender dispatches automatically",
+      engineWillAct,
       actions: [
         { label: "Refuel now", kind: "refuel", body: { shipSymbol: s.symbol } },
         { label: "Take manual control", kind: "hold", body: { shipSymbol: s.symbol } },

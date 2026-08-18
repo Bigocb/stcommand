@@ -926,3 +926,36 @@ describe("FleetManager.init: promotion respects manual role overrides", () => {
     assert.ok((fleet as any).traders.has("SHIP-BIG"), "with no override, largest-cargo promotion must still work exactly as before");
   });
 });
+
+describe("FleetManager.rescueStatusFor: surfacing real rescue status", () => {
+  it("reports an active tender's phase when a plan exists", () => {
+    const fleet = makeFleet([]);
+    (fleet as any).rescuePlans.set("SHIP-1", { strandedSymbol: "SHIP-1", strandedWaypoint: "X1-A-A1", tenderSymbol: "SHIP-2", market: "X1-A-A2", fuelUnits: 10, phase: "transit" });
+
+    const status = (fleet as any).rescueStatusFor("SHIP-1");
+
+    assert.equal(status.rescueActive, true);
+    assert.match(status.rescueDetail, /SHIP-2/);
+    assert.match(status.rescueDetail, /en route/);
+  });
+
+  it("reports the recorded failure reason when rescue planning couldn't find a tender", () => {
+    const fleet = makeFleet([]);
+    (fleet as any).rescueFailures.set("SHIP-1", "no other ship free to tender");
+
+    const status = (fleet as any).rescueStatusFor("SHIP-1");
+
+    assert.equal(status.rescueActive, false);
+    assert.match(status.rescueDetail, /no rescue possible/);
+    assert.match(status.rescueDetail, /no other ship free to tender/);
+  });
+
+  it("defaults to 'evaluating' when rescue hasn't been attempted yet this tick", () => {
+    const fleet = makeFleet([]);
+
+    const status = (fleet as any).rescueStatusFor("SHIP-1");
+
+    assert.equal(status.rescueActive, false);
+    assert.equal(status.rescueDetail, "evaluating rescue options");
+  });
+});

@@ -171,6 +171,11 @@ export class FleetManager {
   private gateBlockedSystems = new Set<string>();
   private lastExploreTick = 0;
   private rescuePlans = new Map<string, TenderPlan>();
+  /** Why the last rescue-planning attempt for a ship failed to produce a
+   *  TenderPlan at all — see makeRescuePlan()'s own comment on why this
+   *  needs to be surfaced rather than just logged. Cleared once a plan is
+   *  found (or the ship recovers on its own; see getStrandedShips()). */
+  private rescueFailures = new Map<string, string>();
   private maxCargoCapacity = 0;
   private credits = 0;
   private lastCreditsFetch = 0;
@@ -2791,8 +2796,27 @@ export class FleetManager {
   }
 
   /** Detect ships stranded without enough fuel to reach any known market. */
-  getStrandedShips(): { symbol: string; waypointSymbol: string; fuel: number; reason: string }[] {
-    const stranded: { symbol: string; waypointSymbol: string; fuel: number; reason: string }[] = [];
+  /**
+   * What's actually happening about a stranded ship's rescue, right now —
+   * distinct from `reason` (why it's stranded). Previously the dashboard
+   * had no way to tell "a tender is genuinely en route" from "no tender
+   * will ever come without operator intervention"; both looked identical
+   * (just "stranded"). See makeRescuePlan()'s own comment for the incident
+   * this closes.
+   */
+  private rescueStatusFor(shipSymbol: string): { rescueActive: boolean; rescueDetail: string } {
+    const plan = this.rescuePlans.get(shipSymbol);
+    if (plan) {
+      const phaseLabel = { buy: "buying fuel", transit: "en route", transfer: "transferring fuel", done: "delivering" }[plan.phase];
+      return { rescueActive: true, rescueDetail: `fuel tender ${plan.tenderSymbol} dispatched (${phaseLabel})` };
+    }
+    const failure = this.rescueFailures.get(shipSymbol);
+    if (failure) return { rescueActive: false, rescueDetail: `no rescue possible: ${failure}` };
+    return { rescueActive: false, rescueDetail: "evaluating rescue options" };
+  }
+
+  getStrandedShips(): { symbol: string; waypointSymbol: string; fuel: number; reason: string; rescueActive: boolean; rescueDetail: string }[] {
+    const stranded: { symbol: string; waypointSymbol: string; fuel: number; reason: string; rescueActive: boolean; rescueDetail: string }[] = [];
     for (const ship of [...this.miners.values(), ...this.traders.values()]) {
       const s = ship.getShip();
       if (s.fuel.capacity <= 0) continue;
@@ -2805,6 +2829,7 @@ export class FleetManager {
           waypointSymbol: s.nav.waypointSymbol,
           fuel: s.fuel.current,
           reason: "marked stranded (insufficient fuel to reach a market)",
+          ...this.rescueStatusFor(s.symbol),
         });
         continue;
       }
@@ -2818,6 +2843,7 @@ export class FleetManager {
         waypointSymbol: s.nav.waypointSymbol,
         fuel: s.fuel.current,
         reason: "0 fuel and not at a market",
+        ...this.rescueStatusFor(s.symbol),
       });
     }
     return stranded;
@@ -3039,6 +3065,13 @@ export class FleetManager {
    *  then by dispatching a fuel tender to ferry FUEL to them. */
   private async rescueStranded(): Promise<void> {
     const stranded = this.getStrandedShips();
+    // A ship no longer on the stranded list recovered some other way (the
+    // trader's own stranded flag self-clears once it has real fuel again —
+    // see TraderAgent.tick() — or a miner's live fuel check simply stopped
+    // matching). Drop any stale failure reason so it can't resurface if the
+    // ship strands again later for a genuinely different reason.
+    const strandedSymbols = new Set(stranded.map((s) => s.symbol));
+    for (const sym of [...this.rescueFailures.keys()]) if (!strandedSymbols.has(sym)) this.rescueFailures.delete(sym);
     for (const s of stranded) {
       try {
         const ship = await this.api.getShip(s.symbol);
@@ -3057,7 +3090,18 @@ export class FleetManager {
     }
   }
 
-  /** Find a tender that can reach the nearest market to the stranded ship, and plan the ferry. */
+  /**
+   * Find a tender that can reach the nearest market to the stranded ship, and plan the ferry.
+   *
+   * Every early-return here also records into `rescueFailures` — this used
+   * to only `this.log(...)` the reason, which meant a ship that genuinely
+   * had no viable tender anywhere in the fleet (every candidate's tank too
+   * small, or mid-transit, or nothing with cargo room) failed silently,
+   * every ~2s, forever: the dashboard's stranded banner just said
+   * "stranded" with no way to tell "rescue is coming" from "rescue will
+   * never come without you stepping in" — which is exactly the gap that
+   * left a ship stranded for hours with no visible explanation.
+   */
   private async makeRescuePlan(s: { symbol: string; waypointSymbol: string; fuel: number }): Promise<TenderPlan | undefined> {
     const systemSymbol = s.waypointSymbol.slice(0, s.waypointSymbol.lastIndexOf("-"));
     const known = this.galaxy.getSystem(systemSymbol);
@@ -3078,7 +3122,9 @@ export class FleetManager {
       .map((sym) => ({ sym, dist: this.estimatedFuelBetween(s.waypointSymbol, sym) }))
       .sort((a, b) => a.dist - b.dist);
     if (markets.length === 0) {
-      this.log(`no fuel tender possible for ${s.symbol}: no market known in ${systemSymbol}`);
+      const reason = `no known market in ${systemSymbol} to source fuel from`;
+      this.log(`no fuel tender possible for ${s.symbol}: ${reason}`);
+      this.rescueFailures.set(s.symbol, reason);
       return undefined;
     }
     const strandedCap = this.cachedShip(s.symbol)?.fuel.capacity ?? 20;
@@ -3136,9 +3182,14 @@ export class FleetManager {
       break;
     }
     if (!tender || !market) {
-      this.log(`no fuel tender available for ${s.symbol} in ${systemSymbol}`);
+      const reason = candidates.length === 0
+        ? "no other ship free to tender (all are manual, in transit, at the same waypoint, or have no cargo hold)"
+        : "no candidate ship can make the round trip (not enough fuel, or tank too small for the distance)";
+      this.log(`no fuel tender available for ${s.symbol} in ${systemSymbol}: ${reason}`);
+      this.rescueFailures.set(s.symbol, reason);
       return undefined;
     }
+    this.rescueFailures.delete(s.symbol);
     // Count any FUEL the tender is already hauling, so an interrupted rescue can resume
     // without needing cargo room to re-buy.
     const heldFuel = tender.ship.cargo.inventory?.find((i) => i.symbol === "FUEL")?.units ?? 0;
