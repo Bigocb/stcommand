@@ -1168,6 +1168,16 @@ export class TraderAgent {
       return false;
     }
     await this.refresh();
+    // The only other place this clears is a completed fuel-tender rescue
+    // (fleet.ts) — so a ship that recovers any other way (an operator's
+    // manual Refuel, docking somewhere it could top off, or the original
+    // error simply not having been about navigation fuel at all — see
+    // nextTask()'s /fuel/i match, which catches things like "Trade good
+    // FUEL is not available at X" too) kept showing as stranded on the
+    // dashboard forever, with no tender ever coming to "fix" it because
+    // there was nothing left to fix. Real fuel is the ground truth here,
+    // not the flag.
+    if (this.stranded && this.ship.fuel.current > 0) this.clearStranded();
     // If manually dispatched, hold at the target until released.
     if (this.manualWaypoint) {
       if (this.ship.nav.waypointSymbol !== this.manualWaypoint || this.ship.nav.status === "IN_TRANSIT") {

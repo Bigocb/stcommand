@@ -304,3 +304,32 @@ describe("TraderAgent.discoverPrices: reachability", () => {
     assert.equal(navigatedTo, "X1-B-A2");
   });
 });
+
+describe("TraderAgent: stranded flag self-clears once fuel is real again", () => {
+  it("clears on the next tick once fuel.current > 0, without needing a tender rescue", async () => {
+    const ship = makeShip();
+    ship.fuel = { current: 100, capacity: 100 } as any; // e.g. an operator's manual Refuel, or the ship topped off itself
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+    });
+    trader.markStranded();
+    assert.equal(trader.isStranded(), true, "sanity: starts stranded");
+
+    await trader.tick();
+
+    assert.equal(trader.isStranded(), false, "real fuel is the ground truth — the dashboard must not keep reporting a rescued/refueled ship as stranded forever");
+  });
+
+  it("stays stranded while fuel.current is genuinely still 0", async () => {
+    const ship = makeShip();
+    ship.fuel = { current: 0, capacity: 100 } as any;
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+    });
+    trader.markStranded();
+
+    await trader.tick();
+
+    assert.equal(trader.isStranded(), true, "must not clear itself while the ship genuinely still can't move");
+  });
+});
