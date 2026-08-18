@@ -143,6 +143,11 @@ export class FleetManager {
   private keepers = new Map<string, ShipAgent>();
   /** Keeper ship → market it polls. Mutable so the fleet can reassign keepers. */
   private keeperMarkets = new Map<string, string>();
+  /** Ships whose role was set deliberately via setShipRole()/a persisted
+   *  override — never repurposed by opportunistic systems (autoExplore,
+   *  promotion, etc.). Survives restarts: rehydrated from fleet_state in
+   *  init()/restorePersistedManualRoles(). */
+  private manualRoleShips = new Set<string>();
   private idleShips = new Map<string, Ship>();
   /**
    * The warehouse ship (docs/warehousing-plan.md §2): one designated hull,
@@ -990,6 +995,10 @@ export class FleetManager {
     for (const r of rows) {
       if (!MANUAL_ROLES.has(r.role as ManualRole)) continue; // unknown/stale role value; ignore rather than crash
       const role = r.role as ManualRole;
+      // Every persisted row is a deliberate role decision — protect it from
+      // opportunistic repurposing (autoExplore, promotion) even when assignRole()
+      // already derives the same role and the re-apply below is a no-op.
+      this.manualRoleShips.add(r.shipSymbol);
       if (this.roleOf(r.shipSymbol) === role) continue; // assignRole() already agrees; nothing to redo
       const ship = ships.find((s) => s.symbol === r.shipSymbol);
       if (!ship) continue; // scrapped while we were down; row is now inert
@@ -1649,6 +1658,7 @@ export class FleetManager {
     const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
     this.clearRoleMaps(shipSymbol);
     const resolvedKeeperMarket = this.installRoleAgent(ship, role, keeperMarket);
+    this.manualRoleShips.add(shipSymbol);
     this.log(`role: ${role} ${shipSymbol} (manual override)`);
 
     // Temporary diagnostic: bracketing the persist call so we can see in
@@ -3295,7 +3305,13 @@ export class FleetManager {
     const dedicated: ScoutCandidate[] = [
       ...[...this.tours.entries()].map(([s, a]) => ({ s, a, fuel: a.getShip().fuel.capacity })),
       ...[...this.scouts.entries()].map(([s, a]) => ({ s, a, fuel: a.getShip().fuel.capacity })),
-    ].filter((c) => idle(c.a)).sort((a, b) => rank(a.fuel) - rank(b.fuel));
+    ]
+      // Never pull a ship whose role was deliberately overridden (manual role,
+      // operator hold) off its assigned job to scout — same protection the
+      // promotion and keeper logic already give them.
+      .filter((c) => !this.manualRoleShips.has(c.s) && !c.a.isManual())
+      .filter((c) => idle(c.a))
+      .sort((a, b) => rank(a.fuel) - rank(b.fuel));
     const scout = dedicated[0];
     if (!scout) return;
     try {
