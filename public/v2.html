@@ -485,7 +485,14 @@
   #map circle.fuel { fill:var(--teal); opacity:0.9; filter:drop-shadow(0 0 5px var(--teal)); }
   #map rect.wp-station { fill:var(--bone); opacity:0.8; filter:drop-shadow(0 0 4px rgba(230,224,209,0.3)); }
   #map rect.gate { fill:var(--teal); opacity:0.9; filter:drop-shadow(0 0 6px var(--teal)); }
-  #map circle.market-dot { fill:none; stroke:var(--buff); stroke-width:0.55; opacity:0.85; }
+  /* A market is a border on the waypoint's own shape (added as an extra
+     class alongside its type class in drawWaypointGlyph()), not a separate
+     marker element — --buff rather than --accent since accent rotates with
+     the operator's theme choice and is otherwise reserved for selection. */
+  /* circle.market/rect.market — matches the id+type+class specificity of
+     the shape rules above (asteroid/phenomenon set their own stroke), so
+     this reliably overrides regardless of which shape it lands on. */
+  #map circle.market, #map rect.market { stroke:var(--buff); stroke-width:1; }
   #map text.wplabel { fill:var(--ice); font-family:var(--mono); font-size:calc(10px / var(--map-zoom,1)); pointer-events:none; opacity:0.7; }
   #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--bone); }
   #map text.syslabel { fill:var(--violet); font-family:var(--brand); font-size:calc(22px / var(--map-zoom,1)); opacity:0.16; pointer-events:none; }
@@ -2724,26 +2731,30 @@ const WP_GLYPH = {
   __default: { shape: "circle", r: 2.5, cls: "wp" },
 };
 
-function drawWaypointGlyph(g, pos, symbol) {
+function drawWaypointGlyph(g, pos, symbol, isMarket) {
   const { x, y } = pos;
   const title = `<title>${symbol}</title>`;
+  // A market is a border on the waypoint's own shape, not a separate marker
+  // drawn on top of it — one glyph, one outline, no extra element to
+  // position/cluster/collide with anything else.
+  const cls = isMarket ? `${g.cls} market` : g.cls;
   if (g.shape === "gate") {
-    return `<rect class="${g.cls}" x="${x - g.r}" y="${y - g.r}" width="${g.r * 2}" height="${g.r * 2}" transform="rotate(45 ${x} ${y})" data-wp="${symbol}">${title}</rect>`;
+    return `<rect class="${cls}" x="${x - g.r}" y="${y - g.r}" width="${g.r * 2}" height="${g.r * 2}" transform="rotate(45 ${x} ${y})" data-wp="${symbol}">${title}</rect>`;
   }
   if (g.shape === "diamond") {
-    return `<rect class="${g.cls}" x="${x - g.r}" y="${y - g.r}" width="${g.r * 2}" height="${g.r * 2}" transform="rotate(45 ${x} ${y})" data-wp="${symbol}">${title}</rect>`;
+    return `<rect class="${cls}" x="${x - g.r}" y="${y - g.r}" width="${g.r * 2}" height="${g.r * 2}" transform="rotate(45 ${x} ${y})" data-wp="${symbol}">${title}</rect>`;
   }
   if (g.shape === "ringed") {
-    return `<g data-wp="${symbol}">${title}<ellipse class="${g.cls}-ring" cx="${x}" cy="${y}" rx="${g.r * 1.7}" ry="${g.r * 0.55}" transform="rotate(-24 ${x} ${y})"></ellipse><circle class="${g.cls}" cx="${x}" cy="${y}" r="${g.r * 0.75}"></circle></g>`;
+    return `<g data-wp="${symbol}">${title}<ellipse class="${g.cls}-ring" cx="${x}" cy="${y}" rx="${g.r * 1.7}" ry="${g.r * 0.55}" transform="rotate(-24 ${x} ${y})"></ellipse><circle class="${cls}" cx="${x}" cy="${y}" r="${g.r * 0.75}"></circle></g>`;
   }
   if (g.shape === "asteroid") {
-    return `<circle class="${g.cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
+    return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
   }
   if (g.shape === "phenomenon") {
-    return `<circle class="${g.cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
+    return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
   }
   // circle — planet, moon, fuel station, and the unknown-type fallback
-  return `<circle class="${g.cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
+  return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
 }
 
 // One shared hull shape for every ship, regardless of role — the earlier
@@ -2908,20 +2919,7 @@ function renderMap(ships, trails = new Map()) {
     const isMarket = p.traits && p.traits.includes("MARKETPLACE");
     const pos = posBySymbol.get(p.symbol);
     const g = WP_GLYPH[p.type] ?? WP_GLYPH.__default;
-    out += drawWaypointGlyph(g, pos, p.symbol);
-    if (isMarket) {
-      // Centered on the glyph itself, not offset to a corner — a corner
-      // offset could visually drift onto a neighboring waypoint's own glyph
-      // in a tight cluster, making the dot look like it belonged to the
-      // wrong waypoint. A hollow ring rather than a filled dot, and colored
-      // with the fixed --buff "structure/places" hue rather than --accent —
-      // --accent is user-rotatable (Rubine/Violet/Ice/Amber), so a filled
-      // accent dot swung in prominence and color with whatever hue was
-      // picked and read as loud/attention-grabbing (accent's actual job
-      // elsewhere is selection) rather than a quiet place attribute.
-      const dotR = Math.max(1, g.r * 0.28);
-      out += `<circle class="market-dot" cx="${pos.x}" cy="${pos.y}" r="${dotR}"></circle>`;
-    }
+    out += drawWaypointGlyph(g, pos, p.symbol, isMarket);
     if (isMarket || g.labeled) {
       const dir = labelDir.get(p.symbol) ?? { dx: 1, dy: 0 };
       const off = g.r + 5;
