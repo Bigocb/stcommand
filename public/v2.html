@@ -2894,24 +2894,12 @@ function renderMap(ships, trails = new Map()) {
   // A rotated square's corners reach further than its nominal r (roughly
   // r*sqrt(2)), so a diamond/gate needs more breathing room than a circle of
   // the same r or its members visibly overlap — derive spacing from each
-  // member's real glyph footprint rather than a flat constant.
-  //
-  // This deliberately does NOT try to also avoid a cluster's ring reaching
-  // toward an unrelated nearby waypoint (a version of this capped ring
-  // radius against nearby neighbors — first against raw distance, then
-  // against distance minus both footprints). Every attempt fixed the
-  // specific case in front of it and broke the common one: this system has
-  // both tight local clusters *and* those clusters sitting near each other,
-  // and a single scalar ring radius per cluster can't satisfy "spread my
-  // own members apart" and "don't reach my neighbor" at the same time once
-  // neighbors are close enough — the tightened version collapsed ring
-  // radius toward its floor for nearly every cluster in a dense region,
-  // which is worse (moons rendering inside their own planet) than the
-  // original, rarer cross-cluster crowding it was trying to fix. If that
-  // cross-cluster case needs solving later, the real fix is a relaxation
-  // pass over every rendered glyph (push apart anything overlapping,
-  // regardless of shared-coordinate grouping), not another formula patch
-  // here.
+  // waypoint's real glyph footprint rather than a flat constant. Shared by
+  // the ring-offset step below and the general relaxation pass after it.
+  const effR = (p) => {
+    const wg = WP_GLYPH[p.type] ?? WP_GLYPH.__default;
+    return wg.shape === "diamond" || wg.shape === "gate" ? wg.r * 1.45 : wg.r;
+  };
   for (const group of byCoord.values()) {
     const baseX = sx(group[0].x), baseY = sy(group[0].y);
     if (group.length === 1) {
@@ -2919,10 +2907,6 @@ function renderMap(ships, trails = new Map()) {
       labelDir.set(group[0].symbol, { dx: 1, dy: 0 });
       continue;
     }
-    const effR = (p) => {
-      const wg = WP_GLYPH[p.type] ?? WP_GLYPH.__default;
-      return wg.shape === "diamond" || wg.shape === "gate" ? wg.r * 1.45 : wg.r;
-    };
     const maxEffR = Math.max(...group.map(effR));
     const ringR = maxEffR * 1.7 + Math.min(group.length, 6) * 1.4;
     group.forEach((p, i) => {
@@ -2931,6 +2915,52 @@ function renderMap(ships, trails = new Map()) {
       posBySymbol.set(p.symbol, { x: baseX + ringR * dx, y: baseY + ringR * dy });
       labelDir.set(p.symbol, { dx, dy });
     });
+  }
+
+  // General relaxation pass: the ring-offset above only ever considered a
+  // waypoint's own same-coordinate siblings, so two *different* clusters (or
+  // a cluster and a lone waypoint) sitting near each other could still end
+  // up visibly overlapping — confirmed live (A1's cluster reaching into
+  // CZ5C). A closed-form cap tried to prevent that by shrinking ring radius
+  // near a neighbor and consistently broke the common case instead (see git
+  // history) — a cluster's own internal spacing and its distance to
+  // unrelated neighbors are two different constraints that don't reduce to
+  // one number. This instead runs a handful of iterations over *every*
+  // waypoint pair, nudging any two that are still overlapping apart along
+  // their connecting line — self-correcting for whatever density a given
+  // system actually has, rather than a formula trying to predict it.
+  // O(n^2) per iteration but n is a waypoint count (tens, not thousands),
+  // so a few iterations is trivial even at the 1s map redraw cadence.
+  const relaxEntries = waypoints.map((p) => ({ symbol: p.symbol, r: effR(p), ...posBySymbol.get(p.symbol) }));
+  const displacement = new Map(relaxEntries.map((e) => [e.symbol, { dx: 0, dy: 0 }]));
+  for (let iter = 0; iter < 4; iter++) {
+    for (let i = 0; i < relaxEntries.length; i++) {
+      for (let j = i + 1; j < relaxEntries.length; j++) {
+        const a = relaxEntries[i], b = relaxEntries[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let dist = Math.hypot(dx, dy);
+        const minDist = a.r + b.r + 1.5;
+        if (dist >= minDist) continue;
+        if (dist < 0.01) { dx = 1; dy = 0; dist = 1; } // coincident — pick a direction
+        const push = ((minDist - dist) / dist) * 0.5;
+        const ox = dx * push, oy = dy * push;
+        a.x -= ox; a.y -= oy;
+        b.x += ox; b.y += oy;
+        const da = displacement.get(a.symbol), db = displacement.get(b.symbol);
+        da.dx -= ox; da.dy -= oy;
+        db.dx += ox; db.dy += oy;
+      }
+    }
+  }
+  for (const e of relaxEntries) {
+    posBySymbol.set(e.symbol, { x: e.x, y: e.y });
+    const d = displacement.get(e.symbol);
+    const mag = Math.hypot(d.dx, d.dy);
+    // Only re-point the label if relaxation actually moved this waypoint by
+    // more than a rounding error — an untouched point keeps whichever
+    // direction the ring-offset step (or its "straight right" default) gave
+    // it, rather than snapping to an arbitrary near-zero vector.
+    if (mag > 0.5) labelDir.set(e.symbol, { dx: d.dx / mag, dy: d.dy / mag });
   }
 
   let out = `<g id="map-view">`;
