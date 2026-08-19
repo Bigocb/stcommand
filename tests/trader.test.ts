@@ -162,6 +162,13 @@ describe("TraderAgent.discoverPrices: reachability", () => {
       } as any,
       getMarketSnapshots: async () => [{ waypointSymbol: "X1-A-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
     });
+    // canReachMarket()'s same-system branch now also checks the leg fits in
+    // the tank (distBetween(here, waypoint) <= fuel.capacity) — distBetween()
+    // falls back to a conservative 1000 for a waypoint with no known
+    // position, which would wrongly read as "too far" for a synthetic test
+    // waypoint with a real, small ship fuel capacity. Register real
+    // close-together positions so the distance is genuinely small.
+    trader.withWorld([{ symbol: "X1-A-A1", x: 0, y: 0 }, { symbol: "X1-A-A2", x: 1, y: 1 }]);
     (trader as any).navigateTo = async () => {};
     (trader as any).refuelAt = async () => {};
     (trader as any).observeMarket = async () => {};
@@ -265,6 +272,9 @@ describe("TraderAgent.discoverPrices: reachability", () => {
       api: { getCallCount: () => 0, getShip: async () => ship } as any,
       getMarketSnapshots: async () => [], // nothing known yet — no other ship has priced this market
     });
+    // See the capacity-check comment in the "picks a same-system market"
+    // test above — same fix needed here.
+    trader.withWorld([{ symbol: "X1-A-A1", x: 0, y: 0 }, { symbol: "X1-A-A9", x: 1, y: 1 }]);
     let navigatedTo: string | undefined;
     (trader as any).navigateTo = async (wp: string) => { navigatedTo = wp; };
     (trader as any).refuelAt = async () => {};
