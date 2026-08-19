@@ -497,7 +497,15 @@
      soft/glowy rather than a crisp border even at 1.7px. Brightened just
      for this stroke rather than changing --buff globally (used elsewhere
      for structure labels where the muted tone is correct). */
-  #map circle.market, #map rect.market { stroke:color-mix(in oklch, var(--buff), white 40%); stroke-width:2.2; }
+  #map circle.market, #map rect.market, #map ellipse.market { stroke:color-mix(in oklch, var(--buff), white 40%); stroke-width:2.2; }
+  /* Shipyard: a second, slightly larger concentric ring rather than fighting
+     the market outline for the same shape's one stroke — a waypoint can be
+     both at once. No data-wp of its own (the shape underneath already
+     carries hover), so vector-effect needs restating here. */
+  #map circle.yard-ring {
+    fill:none; stroke:color-mix(in oklch, var(--teal), white 25%); stroke-width:1.6; opacity:0.9;
+    vector-effect:non-scaling-stroke; pointer-events:none;
+  }
   #map text.wplabel { fill:var(--ice); font-family:var(--mono); font-size:calc(10px / var(--map-zoom,1)); pointer-events:none; opacity:0.7; }
   #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--bone); }
   #map text.syslabel { fill:var(--violet); font-family:var(--brand); font-size:calc(22px / var(--map-zoom,1)); opacity:0.16; pointer-events:none; }
@@ -540,6 +548,7 @@
   .map-legend .sw.planet { background:var(--ice); border-radius:50%; opacity:0.85; }
   .map-legend .sw.station { background:var(--bone); transform:rotate(45deg); }
   .map-legend .sw.market { background:none; border:1px solid var(--buff); border-radius:50%; width:5px; height:5px; margin:1px 5px 1px 1px; }
+  .map-legend .sw.yard { background:none; border:1px solid var(--teal); border-radius:50%; width:5px; height:5px; margin:1px 5px 1px 1px; }
   .map-legend .sw.asteroid { border:1px solid var(--ice); border-radius:50%; }
   .map-legend .sw.fuel { background:var(--teal); border-radius:50%; }
   .map-legend .sw.ship { background:var(--accent); clip-path:polygon(50% 0,100% 100%,0 100%); }
@@ -1020,6 +1029,7 @@
             <span><span class="sw asteroid"></span>Asteroid</span>
             <span><span class="sw fuel"></span>Fuel</span>
             <span><span class="sw market"></span>Market</span>
+            <span><span class="sw yard"></span>Shipyard</span>
             <span><span class="sw ship"></span>Ship</span>
           </div>
         </div>
@@ -2736,30 +2746,41 @@ const WP_GLYPH = {
   __default: { shape: "circle", r: 2.5, cls: "wp" },
 };
 
-function drawWaypointGlyph(g, pos, symbol, isMarket) {
+function drawWaypointGlyph(g, pos, symbol, isMarket, isYard) {
   const { x, y } = pos;
   const title = `<title>${symbol}</title>`;
   // A market is a border on the waypoint's own shape, not a separate marker
   // drawn on top of it — one glyph, one outline, no extra element to
   // position/cluster/collide with anything else.
   const cls = isMarket ? `${g.cls} market` : g.cls;
+  // Shipyard can't share the same trick — a shape only has one `stroke`, and
+  // a waypoint can be both a market and a shipyard at once — so it's a
+  // second, slightly larger concentric ring instead of fighting the market
+  // outline for the same property. Rarer than markets in practice, so the
+  // extra element is cheap.
+  const yardRing = isYard ? `<circle class="yard-ring" cx="${x}" cy="${y}" r="${g.r + 2.4}"></circle>` : "";
   if (g.shape === "gate") {
-    return `<rect class="${cls}" x="${x - g.r}" y="${y - g.r}" width="${g.r * 2}" height="${g.r * 2}" transform="rotate(45 ${x} ${y})" data-wp="${symbol}">${title}</rect>`;
+    return `<rect class="${cls}" x="${x - g.r}" y="${y - g.r}" width="${g.r * 2}" height="${g.r * 2}" transform="rotate(45 ${x} ${y})" data-wp="${symbol}">${title}</rect>${yardRing}`;
   }
   if (g.shape === "diamond") {
-    return `<rect class="${cls}" x="${x - g.r}" y="${y - g.r}" width="${g.r * 2}" height="${g.r * 2}" transform="rotate(45 ${x} ${y})" data-wp="${symbol}">${title}</rect>`;
+    return `<rect class="${cls}" x="${x - g.r}" y="${y - g.r}" width="${g.r * 2}" height="${g.r * 2}" transform="rotate(45 ${x} ${y})" data-wp="${symbol}">${title}</rect>${yardRing}`;
   }
   if (g.shape === "ringed") {
-    return `<g data-wp="${symbol}">${title}<ellipse class="${g.cls}-ring" cx="${x}" cy="${y}" rx="${g.r * 1.7}" ry="${g.r * 0.55}" transform="rotate(-24 ${x} ${y})"></ellipse><circle class="${cls}" cx="${x}" cy="${y}" r="${g.r * 0.75}"></circle></g>`;
+    // The whole body — outer ring ellipse and inner circle both — gets the
+    // market outline here, not just the inner circle, so a gas-giant market
+    // reads as clearly outlined as every other type instead of a smaller
+    // accent buried inside a bigger unmarked shape.
+    const ringCls = isMarket ? `${g.cls}-ring market` : `${g.cls}-ring`;
+    return `<g data-wp="${symbol}">${title}<ellipse class="${ringCls}" cx="${x}" cy="${y}" rx="${g.r * 1.7}" ry="${g.r * 0.55}" transform="rotate(-24 ${x} ${y})"></ellipse><circle class="${cls}" cx="${x}" cy="${y}" r="${g.r * 0.75}"></circle>${yardRing}</g>`;
   }
   if (g.shape === "asteroid") {
-    return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
+    return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>${yardRing}`;
   }
   if (g.shape === "phenomenon") {
-    return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
+    return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>${yardRing}`;
   }
   // circle — planet, moon, fuel station, and the unknown-type fallback
-  return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
+  return `<circle class="${cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>${yardRing}`;
 }
 
 // One shared hull shape for every ship, regardless of role — the earlier
@@ -2866,8 +2887,18 @@ function renderMap(ships, trails = new Map()) {
   // of stacking them all to the right, where they'd overlap.
   const posBySymbol = new Map();
   const labelDir = new Map();
-  for (const group of byCoord.values()) {
-    const baseX = sx(group[0].x), baseY = sy(group[0].y);
+  // Base screen point per coordinate group, computed up front — a cluster's
+  // ring radius needs to know how far away the *nearest other* waypoint or
+  // cluster is, not just how many of its own members it needs to fit,
+  // otherwise a big cluster's ring can reach past its own members and into
+  // a lone neighboring waypoint that was never part of the overlap problem
+  // it was trying to solve (confirmed live: A1's 4-member cluster reaching
+  // into CZ5C, 19 world units away with no cluster of its own).
+  const groupEntries = [...byCoord.values()].map((group) => ({
+    group, baseX: sx(group[0].x), baseY: sy(group[0].y),
+  }));
+  for (const entry of groupEntries) {
+    const { group, baseX, baseY } = entry;
     if (group.length === 1) {
       posBySymbol.set(group[0].symbol, { x: baseX, y: baseY });
       labelDir.set(group[0].symbol, { dx: 1, dy: 0 });
@@ -2883,7 +2914,14 @@ function renderMap(ships, trails = new Map()) {
       return wg.shape === "diamond" || wg.shape === "gate" ? wg.r * 1.45 : wg.r;
     };
     const maxEffR = Math.max(...group.map(effR));
-    const ringR = maxEffR * 1.7 + Math.min(group.length, 6) * 1.4;
+    let ringR = maxEffR * 1.7 + Math.min(group.length, 6) * 1.4;
+    let nearestOther = Infinity;
+    for (const other of groupEntries) {
+      if (other === entry) continue;
+      const d = Math.hypot(other.baseX - baseX, other.baseY - baseY);
+      if (d < nearestOther) nearestOther = d;
+    }
+    if (Number.isFinite(nearestOther)) ringR = Math.min(ringR, nearestOther * 0.42);
     group.forEach((p, i) => {
       const angle = (2 * Math.PI * i) / group.length;
       const dx = Math.cos(angle), dy = Math.sin(angle);
@@ -2922,10 +2960,11 @@ function renderMap(ships, trails = new Map()) {
 
   for (const p of waypoints) {
     const isMarket = p.traits && p.traits.includes("MARKETPLACE");
+    const isYard = p.traits && p.traits.includes("SHIPYARD");
     const pos = posBySymbol.get(p.symbol);
     const g = WP_GLYPH[p.type] ?? WP_GLYPH.__default;
-    out += drawWaypointGlyph(g, pos, p.symbol, isMarket);
-    if (isMarket || g.labeled) {
+    out += drawWaypointGlyph(g, pos, p.symbol, isMarket, isYard);
+    if (isMarket || isYard || g.labeled) {
       const dir = labelDir.get(p.symbol) ?? { dx: 1, dy: 0 };
       const off = g.r + 5;
       const anchor = dir.dx < -0.15 ? "end" : dir.dx > 0.15 ? "start" : "middle";
