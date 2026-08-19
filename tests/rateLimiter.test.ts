@@ -104,11 +104,11 @@ describe("Production defaults use a tight burst cap", () => {
     }
   });
 
-  it("Scheduler with no options uses the same tight burst", async () => {
+  it("Scheduler with no options uses a burst large enough to admit the biggest task", async () => {
     const sched = new Scheduler();
     let ran = 0;
-    // Enqueue 5 tiny priority-0 tasks; with burst=2 only the first two run
-    // on the first pass, the rest are preserved for later passes.
+    // Enqueue 5 tiny priority-0 tasks; the default burst must be >= the largest
+    // estimatedCalls (5, the rescue task) so no task is starved by admission.
     for (let i = 0; i < 5; i += 1) {
       sched.enqueue({
         id: `t${i}`,
@@ -122,7 +122,24 @@ describe("Production defaults use a tight burst cap", () => {
       });
     }
     await sched.runOnce();
-    assert.equal(ran, 2, "default burst=2 should admit exactly 2 tasks in the first pass");
-    assert.equal(sched.size(), 3, "remaining 3 tasks should stay queued");
+    assert.equal(ran, 5, "default burst must admit every task in the first pass");
+    assert.equal(sched.size(), 0, "all tasks should have run");
+  });
+
+  it("a miner/trader task (estimatedCalls=3) is not starved by the default budget", async () => {
+    const sched = new Scheduler();
+    let ran = false;
+    sched.enqueue({
+      id: "miner",
+      priority: 2,
+      estimatedCalls: 3,
+      earliestRunAt: 0,
+      run: async () => {
+        ran = true;
+        return { actualCalls: 3 };
+      },
+    });
+    await sched.runOnce();
+    assert.ok(ran, "a task with estimatedCalls=3 must be admitted under the default budget");
   });
 });
