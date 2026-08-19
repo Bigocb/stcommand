@@ -769,9 +769,72 @@
     .views-switch { display:none; }
     main#views > .view { display:none !important; }
     .view-mobile {
-      display:flex !important; flex-direction:column; gap:8px;
-      overflow-y:auto; -webkit-overflow-scrolling:touch; padding-bottom:12px;
+      display:flex !important; flex-direction:column; flex:1; min-height:0;
+      overflow:hidden;
     }
+    .m-shell { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding-bottom:12px; }
+    .m-screen { display:none; }
+    .m-screen.on { display:flex; flex-direction:column; gap:8px; }
+    .m-tabbar { display:flex; flex-shrink:0; border-top:1px solid var(--hairline); background:var(--panel-2); }
+    .m-tabbar button {
+      flex:1; background:transparent; border:none; color:var(--dim);
+      font-family:var(--disp); font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
+      padding:10px 4px; min-height:44px; cursor:pointer;
+    }
+    .m-tabbar button[aria-pressed="true"] { color:var(--accent); background:var(--accent-soft); }
+    .m-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; background:var(--panel-2); border:1px solid var(--hairline); }
+    .m-credits { font-size:18px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
+    .m-rate { font-size:10px; color:var(--dim); }
+    .m-alert-badge { font-family:var(--chrome); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--accent); background:var(--accent-soft); border:1px solid var(--rule); padding:6px 10px; }
+    .m-body { display:flex; flex-direction:column; gap:8px; padding:0 12px; }
+    .m-hero { border:1px solid var(--rule); border-left:3px solid var(--accent); background:var(--panel-2); padding:14px 14px; display:flex; flex-direction:column; gap:8px; }
+    .m-hero-tag { font-family:var(--chrome); font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--accent); }
+    .m-hero-headline { font-size:14px; line-height:1.5; color:var(--bone); }
+    .m-hero-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .m-hero-actions button { font-size:12.5px; padding:11px 14px; min-height:42px; }
+    .m-section-h { font-family:var(--chrome); font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--dim); display:flex; align-items:baseline; gap:8px; margin-top:4px; }
+    .m-section-h span { color:var(--ice); }
+    .m-fleet-strip { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+    .m-ship-chip { flex:0 0 96px; background:var(--panel-2); border:1px solid var(--hairline); padding:8px; display:flex; flex-direction:column; gap:4px; cursor:pointer; }
+    .m-ship-chip .sym { font-size:10px; color:var(--bone); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .m-ship-chip .role { font-size:9px; color:var(--dim); }
+    .m-ship-chip .bar { height:3px; background:var(--glass); border-radius:2px; overflow:hidden; }
+    .m-ship-chip .bar i { display:block; height:100%; background:var(--accent); }
+    .m-ship-chip .bar.f i { background:var(--teal); }
+    .m-activity { display:flex; flex-direction:column; gap:6px; }
+    .m-activity-line { display:flex; gap:8px; font-size:12px; color:var(--ice); padding:6px 0; border-bottom:1px solid var(--hairline); }
+    .m-activity-line .when { color:var(--dim); flex-shrink:0; }
+    .m-activity-line .txt b.neg { color:var(--red); }
+    /* Map & Book tabs reveal the desktop Bridge view (the real map / the
+       standing-orders sheet) instead of containing their own copy. The
+       Bridge view is absolutely positioned to fill the area, with the tab
+       bar overlaid on top so it stays reachable. */
+    body.mobile-map-active .m-shell,
+    body.mobile-book-active .m-shell { display:none; }
+    body.mobile-map-active .view-mobile,
+    body.mobile-book-active .view-mobile { position:relative; z-index:2; }
+    body.mobile-map-active main#views > .view.view-bridge,
+    body.mobile-book-active main#views > .view.view-bridge {
+      position:absolute; inset:0; z-index:1; display:flex !important;
+    }
+    body.mobile-map-active .view-bridge .ticker-bar,
+    body.mobile-book-active .view-bridge .ticker-bar,
+    body.mobile-map-active .view-bridge .scrub,
+    body.mobile-book-active .view-bridge .scrub { display:none; }
+    /* Map tab: no rails on a phone, and the HUD/legend/fit button shift back
+       to the un-shifted left edge (they're offset by left:306px to clear the
+       desktop rail). */
+    body.mobile-map-active .view-bridge .rail { display:none; }
+    body.mobile-map-active .map-hud { left:12px; top:12px; }
+    body.mobile-map-active .system-strip { left:12px; top:34px; max-width:calc(100% - 24px); }
+    body.mobile-map-active .map-fit-btn { right:12px; top:10px; padding:8px 12px; min-height:38px; font-size:10px; }
+    body.mobile-map-active .map-legend { left:12px; bottom:10px; }
+    body.mobile-map-active .map-gallery { left:12px; bottom:34px; }
+    /* Book tab: the sheet fills the stage; the dimmed map behind it is fine. */
+    body.mobile-book-active .view-bridge .field-stage { flex:1; }
+    body.mobile-book-active .sheet { width:100%; height:100%; top:0; bottom:0; left:0; transform:none; border:none; grid-template-columns:1fr; }
+    body.mobile-book-active .sheet .marg { display:none; }
+    body.mobile-book-active .sheet .page { padding:18px 16px; }
     /* .pane/.pane-b are sized for the desktop CSS grid, where each pane is
        one bounded grid cell and scrolls its own overflow. The mobile page is
        a plain vertical stack instead — panes must grow to fit their content
@@ -1064,88 +1127,101 @@
 
     <!-- ══ MOBILE ══ -->
     <section class="view-mobile" id="mobile-view">
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Alerts<span class="count" id="mobile-triage-count">—</span></div>
-        <div class="pane-b" id="mobile-triage"></div>
-      </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="mobile-fleet-count">—</span></div>
-        <div class="pane-b" id="mobile-fleet"></div>
-      </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Contracts<span class="count" id="mobile-contract-count">—</span></div>
-        <div class="pane-b" id="mobile-contracts"></div>
-      </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Construction missions<span class="count">gate supply</span></div>
-        <div class="pane-b">
-          <div class="dispatch-toolbar">
-            <input type="text" id="mobile-mission-waypoint" placeholder="X1-BY69-I59" aria-label="Site waypoint" />
-            <button class="btn" id="mobile-mission-start">Start</button>
+      <div class="m-shell">
+        <!-- Bridge screen -->
+        <div class="m-screen" data-mscreen="bridge">
+          <div class="m-topbar">
+            <div>
+              <div class="m-credits" id="m-credits">—</div>
+              <div class="m-rate" id="m-rate">—</div>
+            </div>
+            <div class="m-alert-badge" id="m-alert-badge">—</div>
           </div>
-          <div id="mobile-missions"></div>
+          <div class="m-body">
+            <div class="m-hero" id="m-hero"><!-- top triage item, rendered by JS --></div>
+            <div class="m-section-h">Fleet<span id="m-fleet-strip-count">—</span></div>
+            <div class="m-fleet-strip" id="m-fleet-strip"></div>
+            <div class="m-section-h">Recent</div>
+            <div class="m-activity" id="m-activity"></div>
+          </div>
         </div>
-      </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Top routes<span class="count">profit per trip, net of fuel</span></div>
-        <div class="pane-b" id="mobile-routes"></div>
-      </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Yards &amp; outfitting<span class="count">value per credit</span></div>
-        <div class="pane-b"><div class="intel" id="mobile-shipyard-intel"></div></div>
-      </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="mobile-warehouse-count">—</span></div>
-        <div class="pane-b">
-          <div class="warehouse-summary" id="mobile-warehouse-summary"></div>
-          <div id="mobile-warehouse-warning"></div>
-          <div class="dispatch-toolbar">
-            <select id="mobile-warehouse-ship" aria-label="Warehouse ship"></select>
-            <input id="mobile-warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
-            <div class="btn-row">
-              <button class="btn" id="mobile-warehouse-designate">Designate</button>
-              <button class="btn ghost" id="mobile-warehouse-release">Release</button>
+
+        <!-- Fleet screen: reuse existing mobile fleet markup/IDs as-is -->
+        <div class="m-screen" data-mscreen="fleet">
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="mobile-fleet-count">—</span></div>
+            <div class="pane-b" id="mobile-fleet"></div>
+          </div>
+        </div>
+
+        <!-- Map screen: intentionally near-empty — it works by revealing
+             .view-bridge's real map, not by containing its own -->
+        <div class="m-screen" data-mscreen="map"></div>
+
+        <!-- Ops screen: reuse existing Contracts / Missions / Warehouse panes
+             as-is, just grouped under this tab -->
+        <div class="m-screen" data-mscreen="ops">
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Contracts<span class="count" id="mobile-contract-count">—</span></div>
+            <div class="pane-b" id="mobile-contracts"></div>
+          </div>
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Construction missions<span class="count">gate supply</span></div>
+            <div class="pane-b">
+              <div class="dispatch-toolbar">
+                <input type="text" id="mobile-mission-waypoint" placeholder="X1-BY69-I59" aria-label="Site waypoint" />
+                <button class="btn" id="mobile-mission-start">Start</button>
+              </div>
+              <div id="mobile-missions"></div>
             </div>
           </div>
-          <div class="dispatch-toolbar">
-            <select id="mobile-warehouse-good" aria-label="Good"></select>
-            <input id="mobile-warehouse-units" type="number" min="1" placeholder="Units" />
-            <input id="mobile-warehouse-price" type="number" min="0" placeholder="Price/unit" />
-            <select id="mobile-warehouse-direction" aria-label="Direction">
-              <option value="deposit">Deposit</option>
-              <option value="withdraw">Withdraw</option>
-            </select>
-            <button class="btn ghost" id="mobile-warehouse-adjust">Adjust</button>
-          </div>
-          <div id="mobile-warehouse-goods"></div>
-          <div class="warehouse-targets-h">Curated goods <span>— only these are bought/sold through the warehouse</span></div>
-          <div class="dispatch-toolbar">
-            <input id="mobile-warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
-            <input id="mobile-warehouse-target-units" type="number" min="1" placeholder="Target units" />
-            <label class="warehouse-target-mission"><input type="checkbox" id="mobile-warehouse-target-mission" /> Buy for mission</label>
-            <button class="btn ghost" id="mobile-warehouse-target-add">Add</button>
-          </div>
-          <div id="mobile-warehouse-targets"></div>
-        </div>
-      </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Dispatch<span class="count">who runs what</span></div>
-        <div class="pane-b">
-          <div id="mobile-dispatch"></div>
-          <div class="dispatch-toolbar">
-            <select id="mobile-dispatch-ship" aria-label="Trader ship"></select>
-            <select id="mobile-dispatch-good" aria-label="Trade good"></select>
-            <div class="btn-row">
-              <button class="btn" id="mobile-dispatch-assign">Assign</button>
-              <button class="btn ghost" id="mobile-dispatch-clear">Auto</button>
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="mobile-warehouse-count">—</span></div>
+            <div class="pane-b">
+              <div class="warehouse-summary" id="mobile-warehouse-summary"></div>
+              <div id="mobile-warehouse-warning"></div>
+              <div class="dispatch-toolbar">
+                <select id="mobile-warehouse-ship" aria-label="Warehouse ship"></select>
+                <input id="mobile-warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
+                <div class="btn-row">
+                  <button class="btn" id="mobile-warehouse-designate">Designate</button>
+                  <button class="btn ghost" id="mobile-warehouse-release">Release</button>
+                </div>
+              </div>
+              <div class="dispatch-toolbar">
+                <select id="mobile-warehouse-good" aria-label="Good"></select>
+                <input id="mobile-warehouse-units" type="number" min="1" placeholder="Units" />
+                <input id="mobile-warehouse-price" type="number" min="0" placeholder="Price/unit" />
+                <select id="mobile-warehouse-direction" aria-label="Direction">
+                  <option value="deposit">Deposit</option>
+                  <option value="withdraw">Withdraw</option>
+                </select>
+                <button class="btn ghost" id="mobile-warehouse-adjust">Adjust</button>
+              </div>
+              <div id="mobile-warehouse-goods"></div>
+              <div class="warehouse-targets-h">Curated goods <span>— only these are bought/sold through the warehouse</span></div>
+              <div class="dispatch-toolbar">
+                <input id="mobile-warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+                <input id="mobile-warehouse-target-units" type="number" min="1" placeholder="Target units" />
+                <label class="warehouse-target-mission"><input type="checkbox" id="mobile-warehouse-target-mission" /> Buy for mission</label>
+                <button class="btn ghost" id="mobile-warehouse-target-add">Add</button>
+              </div>
+              <div id="mobile-warehouse-targets"></div>
             </div>
           </div>
         </div>
+
+        <!-- Book screen -->
+        <div class="m-screen" data-mscreen="book" id="m-book-screen"></div>
       </div>
-      <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Doctrine<span class="count" id="mobile-doctrine-count">—</span></div>
-        <div class="pane-b" id="mobile-doctrine"></div>
-      </div>
+
+      <nav class="m-tabbar" id="m-tabbar">
+        <button data-mtab="bridge" aria-pressed="true">Bridge</button>
+        <button data-mtab="fleet">Fleet</button>
+        <button data-mtab="map">Map</button>
+        <button data-mtab="ops">Ops</button>
+        <button data-mtab="book">Book</button>
+      </nav>
     </section>
 
   </main>
@@ -1284,6 +1360,7 @@ let loadoutScores = [];
 let chatBusy = false;
 let fleetSort = { key: "net", dir: -1 };
 let currentView = "bridge";
+let mobileView = "bridge"; // "bridge" | "fleet" | "map" | "ops" | "book"
 
 /* ── replay scrubber ──────────────────────────
    Real playback over GET /api/replay's position samples (see
@@ -1505,6 +1582,28 @@ function initViewSwitch() {
   });
 }
 
+/* ── mobile app shell ────────────────────────
+   Independent of desktop's currentView/setView: mobile gets its own tiny
+   state machine driven by the bottom tab bar, not by setView(). They're
+   allowed to disagree (a phone on "map" while desktop sits on "markets" is
+   fine). */
+function setMobileView(name) {
+  mobileView = name;
+  document.querySelectorAll(".m-screen").forEach((s) => s.classList.toggle("on", s.dataset.mscreen === name));
+  document.querySelectorAll("#m-tabbar button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mtab === name)));
+  document.body.classList.toggle("mobile-map-active", name === "map");
+  document.body.classList.toggle("mobile-book-active", name === "book");
+  if (name === "map") { setFieldBookMode("field"); requestAnimationFrame(renderMapLiveOrScrub); }
+  if (name === "book") setFieldBookMode("book");
+}
+
+function initMobileTabbar() {
+  $("m-tabbar").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-mtab]");
+    if (btn) setMobileView(btn.dataset.mtab);
+  });
+}
+
 /* ── loaders ──────────────────────────────── */
 async function loadState() {
   try {
@@ -1522,6 +1621,7 @@ async function loadState() {
     // the next 5s poll. Whichever of the two finishes last repaints it.
     renderFleetTable();
     renderMobileFleet();
+    renderMobileFleetStrip();
     if (currentView === "bridge") renderMapLiveOrScrub();
   } catch (e) { console.error(e); }
 }
@@ -1539,6 +1639,8 @@ async function loadBridge() {
     renderTriage();
     renderFleetTable();
     renderMobileFleet();
+    renderMobileFleetStrip();
+    renderMobileHero();
     renderFleetSummary();
   } catch (e) { console.error(e); }
 }
@@ -1548,6 +1650,7 @@ async function loadActivity() {
     const res = await fetch("/api/activity");
     activity = (await res.json()).activity ?? [];
     renderTicker();
+    renderMobileActivity();
     // The shift-log drawer (Bridge's ticker-expand) is cheap to keep current
     // even while collapsed — just re-rendering already-fetched data, no
     // extra network cost — so it's always up to date whenever it's opened.
@@ -2004,6 +2107,7 @@ function renderTopbar() {
   $("forgone").textContent = forgone ? signed(forgone) + "/hr" : "—";
   renderSpark(bridge.series ?? []);
   updateModeToggle();
+  renderMobileTopbar();
 }
 
 function renderSpark(series) {
@@ -2188,6 +2292,79 @@ $("mobile-fleet").addEventListener("click", (e) => {
   const row = e.target.closest(".mobile-fleet-row[data-ship]");
   if (row) { selectedShip = row.dataset.ship; openShipDetails(selectedShip); }
 });
+
+/** Bridge screen's hero card: the single highest-priority triage item,
+ *  reusing bridge.triage exactly as renderTriage() does, just rendering
+ *  only the first entry into #m-hero instead of the whole list. */
+function renderMobileHero() {
+  const el = $("m-hero");
+  if (!el) return;
+  const top = (bridge.triage ?? [])[0];
+  if (!top) { el.innerHTML = '<div class="empty">Nothing needs you. The engine has it.</div>'; return; }
+  el.innerHTML = `
+    <div class="m-hero-tag">Needs you first</div>
+    <div class="m-hero-headline">${escapeHtml(top.detail)}</div>
+    <div class="m-hero-actions">
+      ${(top.actions ?? []).map((a) =>
+        `<button class="${a.kind === "details" ? "" : "pri"}" data-kind="${escapeAttr(a.kind)}" data-body='${escapeAttr(JSON.stringify(a.body ?? {}))}'>${escapeHtml(a.label)}</button>`).join("")}
+    </div>`;
+  el.querySelectorAll("button[data-kind]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const kind = b.dataset.kind;
+      const body = b.dataset.body ? JSON.parse(b.dataset.body) : {};
+      if (kind === "details") return openShipDetails(body.shipSymbol);
+      const path = { refuel: "/api/fleet/refuel", hold: "/api/fleet/hold", release: "/api/fleet/release" }[kind];
+      if (!path) return;
+      b.disabled = true;
+      try {
+        await api("POST", path, body);
+        showToastGlobal(`${body.shipSymbol}: ${kind} sent`);
+        await loadBridge();
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+}
+
+/** Bridge screen's fleet strip: same row data as renderMobileFleet(), laid
+ *  out as horizontally-scrolling chips instead of stacked rows. */
+function renderMobileFleetStrip() {
+  const el = $("m-fleet-strip");
+  if (!el) return;
+  const rows = fleetRows();
+  $("m-fleet-strip-count").textContent = `${rows.length} hulls`;
+  el.innerHTML = rows.map((r) => `
+    <div class="m-ship-chip" data-ship="${escapeAttr(r.symbol)}">
+      <div class="sym">${escapeHtml(r.symbol)}</div>
+      <div class="role">${escapeHtml(r.role)}</div>
+      <div class="bar f"><i style="width:${r.fuelCap ? (r.fuel / r.fuelCap) * 100 : 0}%"></i></div>
+      <div class="bar"><i style="width:${r.cargoCap ? (r.cargo / r.cargoCap) * 100 : 0}%"></i></div>
+    </div>`).join("");
+  el.querySelectorAll(".m-ship-chip").forEach((c) => c.addEventListener("click", () => openShipDetails(c.dataset.ship)));
+}
+
+/** Bridge screen's activity feed — the same recent fleet activity the
+ *  desktop ticker shows, as a vertical list. */
+function renderMobileActivity() {
+  const el = $("m-activity");
+  if (!el) return;
+  if (!activity.length) { el.innerHTML = '<div class="empty">Waiting for fleet activity.</div>'; return; }
+  el.innerHTML = activity.slice(0, 12).map((a) => `
+    <div class="m-activity-line">
+      <span class="when">${fmtTime(a.timestamp)}</span>
+      <span class="txt">${escapeHtml(a.detail)}${a.credits == null ? "" : ` <b class="${a.credits < 0 ? "neg" : ""}">${signed(a.credits)}</b>`}</span>
+    </div>`).join("");
+}
+
+/** Bridge screen's header — credits, net rate, alert count, mirroring the
+ *  desktop topbar's data. */
+function renderMobileTopbar() {
+  const credits = $("m-credits");
+  if (credits) credits.textContent = fmt(state?.agent?.credits ?? bridge.credits ?? 0);
+  const rate = $("m-rate");
+  if (rate) rate.textContent = signed(bridge.rate ?? 0) + "/hr";
+  const badge = $("m-alert-badge");
+  if (badge) badge.textContent = `${(bridge.triage ?? []).length} alert${(bridge.triage ?? []).length === 1 ? "" : "s"}`;
+}
 
 /** Compact one-line-per-ship "what is it doing" strip above the fleet table —
  *  the same summary the coordinator logs each tick, so the UI and the log
@@ -2791,6 +2968,42 @@ function initMapInteractions() {
   });
   window.addEventListener("mouseup", () => { dragState = null; });
   wrap.addEventListener("dblclick", resetMapView);
+
+  // Touch: single-finger drag pans, two-finger pinch zooms — same
+  // mapPanX/mapPanY/mapZoom + applyMapView() state the mouse handlers use.
+  let touchState = null; // { mode:"pan", x, y, px, py } | { mode:"pinch", d0, z0, cx, cy, px, py }
+  wrap.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      touchState = { mode: "pan", x: t.clientX, y: t.clientY, px: mapPanX, py: mapPanY };
+    } else if (e.touches.length === 2) {
+      const [a, b] = e.touches;
+      const d0 = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
+      const rect = wrap.getBoundingClientRect();
+      touchState = { mode: "pinch", d0, z0: mapZoom, cx: cx - rect.left, cy: cy - rect.top, px: mapPanX, py: mapPanY };
+    }
+  }, { passive: true });
+  wrap.addEventListener("touchmove", (e) => {
+    if (!touchState) return;
+    e.preventDefault();
+    if (touchState.mode === "pan" && e.touches.length === 1) {
+      const t = e.touches[0];
+      mapPanX = touchState.px + (t.clientX - touchState.x);
+      mapPanY = touchState.py + (t.clientY - touchState.y);
+      applyMapView();
+    } else if (touchState.mode === "pinch" && e.touches.length === 2) {
+      const [a, b] = e.touches;
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const next = Math.min(8, Math.max(0.5, touchState.z0 * (d / touchState.d0)));
+      mapPanX = touchState.cx - ((touchState.cx - touchState.px) / touchState.z0) * next;
+      mapPanY = touchState.cy - ((touchState.cy - touchState.py) / touchState.z0) * next;
+      mapZoom = next;
+      applyMapView();
+    }
+  }, { passive: false });
+  wrap.addEventListener("touchend", () => { touchState = null; });
+  wrap.addEventListener("touchcancel", () => { touchState = null; });
 }
 
 function showWaypointTip(symbol) {
@@ -3561,8 +3774,6 @@ async function dispatchClear(shipSelId) {
 }
 $("dispatch-assign").addEventListener("click", () => dispatchAssign("dispatch-ship", "dispatch-good"));
 $("dispatch-clear").addEventListener("click", () => dispatchClear("dispatch-ship"));
-$("mobile-dispatch-assign").addEventListener("click", () => dispatchAssign("mobile-dispatch-ship", "mobile-dispatch-good"));
-$("mobile-dispatch-clear").addEventListener("click", () => dispatchClear("mobile-dispatch-ship"));
 $("keeper-save").addEventListener("click", saveKeepers);
 $("keeper-cover").addEventListener("click", async () => {
   const next = !keeperCoverList;
@@ -3824,6 +4035,7 @@ initViewSwitch();
 initModeToggle();
 initMapInteractions();
 initCopilot();
+initMobileTabbar();
 
 $("auth-form-login").addEventListener("submit", (e) => {
   e.preventDefault();

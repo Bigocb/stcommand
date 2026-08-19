@@ -65,7 +65,7 @@ async function main(): Promise<void> {
 
   app.use("/api", createDashboardRouter(registry, pool));
 
-  app.use(express.static(PUBLIC_DIR));
+  app.use(express.static(PUBLIC_DIR, { index: "v2.html" }));
 
   const port = Number(process.env.PORT ?? 3000);
   const server = app.listen(port, () => log(`Standing Orders listening on :${port}`));
