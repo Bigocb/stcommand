@@ -492,7 +492,12 @@
   /* circle.market/rect.market — matches the id+type+class specificity of
      the shape rules above (asteroid/phenomenon set their own stroke), so
      this reliably overrides regardless of which shape it lands on. */
-  #map circle.market, #map rect.market { stroke:var(--buff); stroke-width:1.7; }
+  /* --buff itself is fairly low-contrast against both the void background
+     and the pale glyph fills, so a stroke in the raw token color read as
+     soft/glowy rather than a crisp border even at 1.7px. Brightened just
+     for this stroke rather than changing --buff globally (used elsewhere
+     for structure labels where the muted tone is correct). */
+  #map circle.market, #map rect.market { stroke:color-mix(in oklch, var(--buff), white 40%); stroke-width:2.2; }
   #map text.wplabel { fill:var(--ice); font-family:var(--mono); font-size:calc(10px / var(--map-zoom,1)); pointer-events:none; opacity:0.7; }
   #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--bone); }
   #map text.syslabel { fill:var(--violet); font-family:var(--brand); font-size:calc(22px / var(--map-zoom,1)); opacity:0.16; pointer-events:none; }
