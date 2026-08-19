@@ -2762,6 +2762,27 @@ function shipGlyphMarkup(role, docked) {
   return `<path class="hull" d="M0,-2.6 L2.1,2.1 L0,1.1 L-2.1,2.1 Z" transform="rotate(${rot})"></path>`;
 }
 
+/** World-space position of an in-transit ship, linearly interpolated between
+ *  its route's origin and destination by elapsed time — or null for a ship
+ *  that isn't traveling (or is missing route timing, e.g. an older cached
+ *  state snapshot from before a fresh nav). No speed/flight-mode modeling:
+ *  the API's own departureTime/arrival window already reflects whichever
+ *  mode (drift/cruise/burn) the flight actually used, so lerping between
+ *  the two timestamps tracks it correctly for free. */
+function shipTransitLerp(ship) {
+  if (ship.nav.status !== "IN_TRANSIT") return null;
+  const r = ship.nav.route;
+  if (!r?.departureTime || !r?.arrival || !r.origin || !r.destination) return null;
+  const t0 = new Date(r.departureTime).getTime();
+  const t1 = new Date(r.arrival).getTime();
+  if (!(t1 > t0)) return null;
+  const frac = Math.min(1, Math.max(0, (Date.now() - t0) / (t1 - t0)));
+  return {
+    x: r.origin.x + (r.destination.x - r.origin.x) * frac,
+    y: r.origin.y + (r.destination.y - r.origin.y) * frac,
+  };
+}
+
 function renderMap(ships, trails = new Map()) {
   const svg = $("map");
   const w = svg.clientWidth || 800;
@@ -2917,7 +2938,17 @@ function renderMap(ships, trails = new Map()) {
 
   shipScreenPos.clear();
   for (const s of ships) {
-    const pos = posBySymbol.get(s.nav.waypointSymbol);
+    // nav.waypointSymbol is already the *destination* the instant a ship
+    // departs — SpaceTraders doesn't wait for arrival to update it — so an
+    // in-transit ship drawn at posBySymbol.get(waypointSymbol) has always
+    // just sat at its destination for the whole flight instead of visibly
+    // traveling. route.departureTime/arrival/origin/destination are on every
+    // ship object untouched (confirmed: listAllShips() -> state.update()
+    // does no narrowing), so a straight lerp between them — no speed or
+    // flight-mode math needed, whatever mode was used already shaped the
+    // arrival timestamp — gives a real interpolated position instead.
+    const worldPos = shipTransitLerp(s);
+    const pos = worldPos ? { x: sx(worldPos.x), y: sy(worldPos.y) } : posBySymbol.get(s.nav.waypointSymbol);
     if (!pos) continue;
     const { x, y } = pos;
     shipScreenPos.set(s.symbol, { x, y });
@@ -3786,6 +3817,10 @@ every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepe
 every(20000, () => { if (currentView === "ops") loadOps(); });
 every(30000, () => { if (currentView === "bridge") loadNarrative(); });
 every(15000, () => { if (isMobile()) loadMobilePanels(); });
+// Ship-position interpolation needs to redraw more often than the 20s state
+// poll to actually look like motion, but only while the map is the thing on
+// screen — no reason to rebuild the SVG for a tab nobody's looking at.
+every(1000, () => { if ((!isMobile() && currentView === "bridge") || (isMobile() && mobileView === "map")) renderMapLiveOrScrub(); });
 
 setInterval(() => {
   if (document.hidden || !authed) return;
