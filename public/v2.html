@@ -1477,7 +1477,14 @@ function renderScrubFrame() {
  *  calling renderMap(state.ships) itself, so a scrub in progress isn't
  *  silently overwritten by the next periodic state refresh. */
 function renderMapLiveOrScrub() {
-  if (scrubLive) renderMap(state?.ships ?? []);
+  // state starts null and isn't populated until the first /api/state
+  // response lands — renderMap() itself reads state.agent.headquarters
+  // unconditionally (for the sector label), so calling it any earlier throws.
+  // Previously rare (this only ran from specific event-driven call sites);
+  // the 1s ship-motion redraw timer below calls this often enough during
+  // that brief boot window to hit it in practice, not just in theory.
+  if (!state) return;
+  if (scrubLive) renderMap(state.ships ?? []);
   else renderScrubFrame();
 }
 
