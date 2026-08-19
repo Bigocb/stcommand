@@ -492,7 +492,7 @@
   /* circle.market/rect.market — matches the id+type+class specificity of
      the shape rules above (asteroid/phenomenon set their own stroke), so
      this reliably overrides regardless of which shape it lands on. */
-  #map circle.market, #map rect.market { stroke:var(--buff); stroke-width:1; }
+  #map circle.market, #map rect.market { stroke:var(--buff); stroke-width:1.7; }
   #map text.wplabel { fill:var(--ice); font-family:var(--mono); font-size:calc(10px / var(--map-zoom,1)); pointer-events:none; opacity:0.7; }
   #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--bone); }
   #map text.syslabel { fill:var(--violet); font-family:var(--brand); font-size:calc(22px / var(--map-zoom,1)); opacity:0.16; pointer-events:none; }
