@@ -816,8 +816,15 @@
        bar overlaid on top so it stays reachable. */
     body.mobile-map-active .m-shell,
     body.mobile-book-active .m-shell { display:none; }
+    /* .view-mobile's own box still spans the full stage height (it's a flex
+       item sized by main#views, not by its now-hidden .m-shell content), so
+       at z-index:2 it silently intercepted every tap over the revealed
+       .view-bridge below it — not just where the tab bar visually sits.
+       Only #m-tabbar itself should actually catch pointer events. */
     body.mobile-map-active .view-mobile,
-    body.mobile-book-active .view-mobile { position:relative; z-index:2; }
+    body.mobile-book-active .view-mobile { position:relative; z-index:2; pointer-events:none; }
+    body.mobile-map-active #m-tabbar,
+    body.mobile-book-active #m-tabbar { pointer-events:auto; }
     body.mobile-map-active main#views > .view.view-bridge,
     body.mobile-book-active main#views > .view.view-bridge {
       position:absolute; inset:0; z-index:1; display:flex !important;
@@ -848,7 +855,8 @@
        reveal-the-Bridge-view overlay trick as the Map/Book tabs above, but
        showing the rail full-screen instead of the map. */
     body.mobile-ship-active .m-shell { display:none; }
-    body.mobile-ship-active .view-mobile { position:relative; z-index:2; }
+    body.mobile-ship-active .view-mobile { position:relative; z-index:2; pointer-events:none; }
+    body.mobile-ship-active #m-tabbar { pointer-events:auto; }
     body.mobile-ship-active main#views > .view.view-bridge {
       position:absolute; inset:0; z-index:1; display:flex !important;
     }
