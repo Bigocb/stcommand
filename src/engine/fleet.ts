@@ -2515,6 +2515,49 @@ export class FleetManager {
   }
 
   /**
+   * A compact, human-readable "what is every ship doing right now" summary —
+   * one line per ship, derived from data already in memory (no API calls).
+   * This is what the coordinator logs once per tick and what the dashboard
+   * surfaces, so a ship that's idle/cooldown/transit is visible instead of
+   * silently absent from the log stream. `doing` is a short reason string:
+   * stranded / manual hold / suspended / cooldown Ns / transit → dest /
+   * docked / in orbit / idle.
+   */
+  fleetStatusSummary(): { symbol: string; role: string; waypoint: string; nav: string; fuel: number; fuelCap: number; cargo: number; cargoCap: number; cooldown: number; doing: string }[] {
+    const stranded = new Set(this.getStrandedShips().map((s) => s.symbol));
+    return this.getShipStatuses().map((s) => {
+      const ship = this.shipFor(s.symbol);
+      const agent = this.controlledAgent(s.symbol) ?? this.keepers.get(s.symbol);
+      const nav = ship?.nav?.status ?? s.status;
+      const waypoint = ship?.nav?.waypointSymbol ?? "";
+      const fuel = ship?.fuel?.current ?? 0;
+      const fuelCap = ship?.fuel?.capacity ?? 0;
+      const cargo = ship?.cargo?.units ?? 0;
+      const cargoCap = ship?.cargo?.capacity ?? 0;
+      const cooldown = ship?.cooldown?.remainingSeconds ?? 0;
+      const dest = ship?.nav?.route?.destination?.symbol;
+      let doing: string;
+      if (stranded.has(s.symbol)) doing = "stranded";
+      else if (s.paused) doing = "manual hold";
+      else if (agent?.isSuspended()) doing = "suspended";
+      else if (cooldown > 0) doing = `cooldown ${cooldown}s`;
+      else if (nav === "IN_TRANSIT") doing = dest ? `transit → ${dest}` : "transit";
+      else if (nav === "DOCKED") doing = "docked";
+      else if (nav === "IN_ORBIT") doing = "in orbit";
+      else doing = (nav || "idle").replace(/_/g, " ").toLowerCase();
+      return { symbol: s.symbol, role: s.role, waypoint, nav, fuel, fuelCap, cargo, cargoCap, cooldown, doing };
+    });
+  }
+
+  /** One aggregated log line for the whole fleet, logged once per coordinator tick. */
+  private logFleetStatus(): void {
+    const parts = this.fleetStatusSummary().map(
+      (s) => `${s.symbol}(${s.role})@${s.waypoint ? s.waypoint.slice(-4) : "?"} ${s.doing} f${s.fuel}/${s.fuelCap} c${s.cargo}/${s.cargoCap}`,
+    );
+    this.log(`fleet: ${parts.join(" | ") || "no ships"}`);
+  }
+
+  /**
    * Greenfield Phase 2: persist a lifecycle state per ship — idle | assigned
    * | travelling | returning | docked | transacting — derived from
    * `getShipStatuses()`'s role + live SpaceTraders nav status, so
@@ -2887,6 +2930,7 @@ export class FleetManager {
       await this.syncShipManifests();
       await this.syncShipClaims();
       this.syncSchedulerTasks();
+      this.logFleetStatus();
       return;
     }
     await this.refreshCredits();
@@ -2919,6 +2963,7 @@ export class FleetManager {
     await this.syncShipManifests();
     await this.syncShipClaims();
     this.syncSchedulerTasks();
+    this.logFleetStatus();
   }
 
   /**

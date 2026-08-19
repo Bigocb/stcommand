@@ -66,7 +66,10 @@ export class TenantRegistry {
    * the real per-IP ceiling instead of each tenant believing it has the full
    * budget to itself.
    */
-  private readonly apiLimiter = new RateLimiter(1.5, 30);
+  // Burst is capped to ceil(rate) so the bucket can't dump a large backlog of
+  // requests into a single API-rate window after any idle spell. See the
+  // matching comment in src/core/client.ts for why this matters.
+  private readonly apiLimiter = new RateLimiter(1.5, Math.ceil(1.5));
 
   constructor(
     private readonly pool: pg.Pool,

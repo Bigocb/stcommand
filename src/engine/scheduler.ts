@@ -90,7 +90,15 @@ export class Scheduler {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
-    this.budget = new SchedulerBudget(opts.ratePerSec ?? 1.5, opts.burst ?? 30);
+    //
+    // The burst must be at least as large as the biggest `estimatedCalls` any
+    // task reports, or runOnce()'s `estimatedCalls > budget` admission check
+    // permanently starves that task. The largest today is the rescue task
+    // (estimatedCalls: 5); miners/traders/siphoners are 3. A burst of 5 lets
+    // any single task be admitted; the Client's own limiter (burst 2) is what
+    // actually paces the requests, so this doesn't reintroduce the 429 bursts.
+    const rate = opts.ratePerSec ?? 1.5;
+    this.budget = new SchedulerBudget(rate, opts.burst ?? 5);
     this.isPaused = opts.isPaused ?? (() => false);
   }
 

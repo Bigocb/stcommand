@@ -115,7 +115,13 @@ export class Client {
     // real ceiling is per-IP, not per-Client, so a multi-tenant process must
     // have its tenants' Clients draw from one shared budget rather than each
     // independently believing it has the full 1.5 req/s to itself.
-    this.limiter = opts.sharedLimiter ?? new RateLimiter(1.5, 30);
+    //
+    // Burst is capped to ceil(rate) so the bucket can't dump a large backlog
+    // of requests into a single API-rate window after any idle spell. A burst
+    // of 30 tokens let 30 requests leave in <1ms, which triggered live 429s
+    // from SpaceTraders even though the long-term average was only 1.5 req/s.
+    const rate = 1.5;
+    this.limiter = opts.sharedLimiter ?? new RateLimiter(rate, Math.ceil(rate));
   }
 
   withToken(token: string): Client {

@@ -122,6 +122,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
         earnings: byShip,
         stranded: status.stranded,
         shipStatus: status.ships,
+        summary: w.fleet.fleetStatusSummary(),
         triage,
       });
     } catch (err) {
@@ -629,6 +630,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
       paused: w.fleet.isPaused(),
       running: w.fleet.running,
       ships: w.fleet.getShipStatuses(),
+      summary: w.fleet.fleetStatusSummary(),
       stranded: w.fleet.getStrandedShips(),
     });
   });
