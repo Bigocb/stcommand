@@ -261,13 +261,10 @@ export class FleetManager {
     this.positions = known.waypoints.map((w) => ({ symbol: w.symbol, x: w.x, y: w.y, type: w.type }));
     this.markets = markets ?? [];
 
-    // Survey the home system's shipyards so the dashboard has intel immediately.
-    // (Markets are discovered by the engine's own discovery loop.)
-    try {
-      await this.galaxy.surveyShipyards(this.systemSymbol, this.store);
-    } catch (err) {
-      this.log(`home shipyard survey failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    // Shipyard survey used to run synchronously here, blocking the entire
+    // dashboard on a live API scan. It now runs as a background refresh in
+    // TenantRegistry.boot() after the dashboard is already served; the dashboard
+    // reads shipyards from the persisted inventory table via fleet.getIntel().
 
     const ships = await this.api.listAllShips();
     // Prefer the largest-cargo ship as the arbitrage trader once we have enough miners.

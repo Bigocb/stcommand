@@ -5,7 +5,7 @@ import { FleetState } from "./state.js";
 import { ContractManager } from "./contract.js";
 import { FleetManager } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
-import { MarketIntel } from "./market.js";
+import { MarketIntel, type MarketSnapshot } from "./market.js";
 import { DiscordRelay } from "./discord.js";
 import { Scheduler } from "./scheduler.js";
 import { getTenantToken, getTenantLlmConfig, getTenantDiscordWebhook } from "../db/tenants.js";
@@ -148,24 +148,19 @@ export class TenantRegistry {
       totals: await store.ledgerTotals(tenantId),
     });
 
-    log(`discovering markets in ${systemSymbol} (${waypoints.length} waypoints)...`);
+    // Try to serve the first dashboard load from data already in Postgres.
+    // Ships refresh market snapshots every time they dock, so the DB is
+    // normally up to date; if it's empty (brand-new tenant), fall back to
+    // the old live scan path on this boot only.
     const intel = new MarketIntel(api);
-    const markets = await intel.getSystemMarkets(systemSymbol);
-    for (const m of markets) {
-      for (const g of Object.values(m.tradeGoods)) {
-        await store.recordMarket({
-          systemSymbol: m.systemSymbol,
-          waypointSymbol: m.symbol,
-          goodSymbol: g.symbol,
-          type: g.type,
-          supply: g.supply,
-          purchasePrice: g.purchasePrice,
-          sellPrice: g.sellPrice,
-          tradeVolume: g.tradeVolume,
-        });
-      }
+    let markets = await this.loadCachedMarkets(store, systemSymbol);
+    if (markets.length === 0) {
+      log(`no cached markets for ${systemSymbol}; live-scanning...`);
+      markets = await intel.getSystemMarkets(systemSymbol, waypoints);
+      await this.recordMarkets(store, markets);
+    } else {
+      log(`booted from ${markets.length} cached markets in ${systemSymbol}`);
     }
-    log(`found ${markets.length} markets`);
 
     const contracts = new ContractManager(api, store);
     // This tenant's own relay, never a shared one — see discord.ts's class
@@ -246,6 +241,12 @@ export class TenantRegistry {
     // execution of whatever's been enqueued, on its own independent poll.
     scheduler.run(RUN_FOREVER_TICKS).catch((err) => log(`scheduler run crashed: ${err instanceof Error ? err.message : String(err)}`));
 
+    // Background refresh: markets/shipyards get stale over time and a brand-new
+    // tenant may have started from empty cached data. Refresh them lazily after
+    // the dashboard has already been served, exactly as if a ship had docked and
+    // recorded fresh snapshots. Errors are caught and logged; never awaited.
+    this.backgroundMarketRefresh(log, store, intel, systemSymbol, waypoints, fleet);
+
     const refreshState = async () => {
       try {
         const freshAgent = await api.getMyAgent();
@@ -286,5 +287,76 @@ export class TenantRegistry {
     setInterval(refreshState, STATE_REFRESH_MS).unref();
 
     return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat };
+  }
+
+  private async loadCachedMarkets(store: Store, systemSymbol: string): Promise<MarketSnapshot[]> {
+    const BOOT_MAX_AGE_MIN = 24 * 60; // accept up to 24h old data at boot
+    const rows = await store.freshMarketSnapshots(BOOT_MAX_AGE_MIN);
+    const byWaypoint = new Map<string, MarketSnapshot>();
+    for (const r of rows) {
+      if (r.systemSymbol !== systemSymbol) continue;
+      let snapshot = byWaypoint.get(r.waypointSymbol);
+      if (!snapshot) {
+        snapshot = {
+          symbol: r.waypointSymbol,
+          systemSymbol: r.systemSymbol,
+          tradeGoods: {},
+          imports: [],
+          exports: [],
+          exchange: [],
+          fetchedAt: r.timestamp,
+        };
+        byWaypoint.set(r.waypointSymbol, snapshot);
+      }
+      snapshot.tradeGoods[r.goodSymbol] = {
+        symbol: r.goodSymbol as any,
+        type: r.type as any,
+        supply: r.supply as any,
+        purchasePrice: r.purchasePrice,
+        sellPrice: r.sellPrice,
+        tradeVolume: r.tradeVolume,
+      };
+    }
+    return [...byWaypoint.values()];
+  }
+
+  private async recordMarkets(store: Store, markets: MarketSnapshot[]): Promise<void> {
+    for (const m of markets) {
+      for (const g of Object.values(m.tradeGoods)) {
+        await store.recordMarket({
+          systemSymbol: m.systemSymbol,
+          waypointSymbol: m.symbol,
+          goodSymbol: g.symbol,
+          type: g.type,
+          supply: g.supply,
+          purchasePrice: g.purchasePrice,
+          sellPrice: g.sellPrice,
+          tradeVolume: g.tradeVolume,
+        });
+      }
+    }
+  }
+
+  private backgroundMarketRefresh(
+    log: (msg: string) => void,
+    store: Store,
+    intel: MarketIntel,
+    systemSymbol: string,
+    waypoints: Awaited<ReturnType<SpaceTradersAPI["getAllSystemWaypoints"]>>,
+    fleet: FleetManager,
+  ): void {
+    (async () => {
+      try {
+        log(`background refresh: live-scanning markets in ${systemSymbol}`);
+        const fresh = await intel.getSystemMarkets(systemSymbol, waypoints);
+        await this.recordMarkets(store, fresh);
+        log(`background refresh: recorded ${fresh.length} markets`);
+        log(`background refresh: live-scanning shipyards in ${systemSymbol}`);
+        await fleet.getGalaxy().surveyShipyards(systemSymbol, store);
+        log(`background refresh: shipyards done`);
+      } catch (err) {
+        log(`background refresh error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
   }
 }

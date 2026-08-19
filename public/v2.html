@@ -2634,11 +2634,15 @@ window.addEventListener("resize", () => {
 /* ── co-pilot drawer ──────────────────────── */
 function initCopilot() {
   const drawer = $("copilot"), toggle = $("copilot-toggle");
+  let chatLoaded = false;
   const setOpen = (open) => {
     drawer.classList.toggle("open", open);
     toggle.classList.toggle("on", open);
     toggle.setAttribute("aria-expanded", String(open));
-    if (open) $("chat-input").focus();
+    if (open) {
+      $("chat-input").focus();
+      if (!chatLoaded) { chatLoaded = true; loadChatHistory(); }
+    }
   };
   toggle.addEventListener("click", () => setOpen(!drawer.classList.contains("open")));
   $("copilot-close").addEventListener("click", () => setOpen(false));
@@ -4128,9 +4132,8 @@ function boot() {
   loadDoctrine();
   loadNarrative();
   loadOps();
-  loadChatHistory();
   loadReplay();
-  if (isMobile()) loadMobilePanels();
+  if (isMobile()) { loadDispatch(); loadWarehouse(); }
   initScrubber();
   initShiftLogDrawer();
   // Populate Book's sheet once up front regardless of starting mode — it's

@@ -38,9 +38,11 @@ export class MarketIntel {
 
   constructor(private readonly api: SpaceTradersAPI) {}
 
-  /** Fetch the full list of markets in a system, caching by system. */
-  async getSystemMarkets(systemSymbol: string): Promise<MarketSnapshot[]> {
-    const waypoints = await this.api.getAllSystemWaypoints(systemSymbol);
+  /** Fetch the full list of markets in a system, caching by system.
+   *  If `knownWaypoints` is provided, skip re-fetching them — useful when
+   *  the caller already needed the full waypoint list for another purpose. */
+  async getSystemMarkets(systemSymbol: string, knownWaypoints?: Waypoint[]): Promise<MarketSnapshot[]> {
+    const waypoints = knownWaypoints ?? await this.api.getAllSystemWaypoints(systemSymbol);
     const marketWaypoints = waypoints.filter((w) => w.traits.some((t) => t.symbol === "MARKETPLACE"));
     const snapshots: MarketSnapshot[] = [];
     for (const wp of marketWaypoints) {
