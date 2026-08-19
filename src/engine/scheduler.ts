@@ -90,7 +90,10 @@ export class Scheduler {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
-    this.budget = new SchedulerBudget(opts.ratePerSec ?? 1.5, opts.burst ?? 30);
+    // Keep the burst cap tight so an idle fleet can't admit a huge backlog
+    // that would all hit the API in the same rate-limit window.
+    const rate = opts.ratePerSec ?? 1.5;
+    this.budget = new SchedulerBudget(rate, opts.burst ?? Math.ceil(rate));
     this.isPaused = opts.isPaused ?? (() => false);
   }
 
