@@ -333,3 +333,104 @@ describe("TraderAgent: stranded flag self-clears once fuel is real again", () =>
     assert.equal(trader.isStranded(), true, "must not clear itself while the ship genuinely still can't move");
   });
 });
+
+describe("TraderAgent.viableRoute: fuel tank capacity bounds", () => {
+  function makeTraderAt(waypoint: string, fuelCapacity: number) {
+    const ship = makeShip();
+    ship.nav = { status: "DOCKED", waypointSymbol: waypoint, systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: fuelCapacity, capacity: fuelCapacity } as any;
+    return new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+    });
+  }
+
+  function seedPrices(trader: TraderAgent, buyAt: string, sellAt: string, good = "COPPER_ORE") {
+    (trader as any).priceTable.set(buyAt, new Map([
+      [good, { buy: 10, sell: 12, volume: 40 }],
+      ["FUEL", { buy: 72, sell: 72, volume: 100 }],
+    ]));
+    (trader as any).priceTable.set(sellAt, new Map([
+      [good, { buy: 8, sell: 30, volume: 40 }],
+    ]));
+  }
+
+  it("rejects the route when here → buyAt exceeds the ship's fuel capacity", () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 70, y: 0 },
+      { symbol: "X1-A-A3", x: 5, y: 0 },
+    ]);
+    seedPrices(trader, "X1-A-A2", "X1-A-A3");
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+
+    assert.equal(route, undefined, "a leg longer than the fuel tank capacity can never be flown, even with a full tank");
+  });
+
+  it("rejects the route when buyAt → sellAt exceeds the ship's fuel capacity", () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 5, y: 0 },
+      { symbol: "X1-A-A3", x: 70, y: 0 },
+    ]);
+    seedPrices(trader, "X1-A-A2", "X1-A-A3");
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+
+    assert.equal(route, undefined, "the loaded return leg must also fit in the tank");
+  });
+
+  it("accepts the route when both legs fit within the ship's fuel capacity", () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 10, y: 0 },
+      { symbol: "X1-A-A3", x: 20, y: 0 },
+    ]);
+    seedPrices(trader, "X1-A-A2", "X1-A-A3");
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+
+    assert.ok(route, "a profitable route whose legs both fit in the tank must be viable");
+    assert.equal(route.good, "COPPER_ORE");
+    assert.equal(route.buyAt, "X1-A-A2");
+    assert.equal(route.sellAt, "X1-A-A3");
+  });
+});
+
+describe("TraderAgent.canReachMarket: same-system fuel capacity", () => {
+  function makeTraderAt(waypoint: string, fuelCapacity: number) {
+    const ship = makeShip();
+    ship.nav = { status: "DOCKED", waypointSymbol: waypoint, systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: fuelCapacity, capacity: fuelCapacity } as any;
+    return new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+    });
+  }
+
+  it("returns false for a same-system market farther than the ship's fuel capacity", async () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 70, y: 0 },
+    ]);
+
+    const reachable = await (trader as any).canReachMarket("X1-A-A2");
+
+    assert.equal(reachable, false, "a same-system market beyond tank capacity is not reachable by navigate");
+  });
+
+  it("returns true for a same-system market within the ship's fuel capacity", async () => {
+    const trader = makeTraderAt("X1-A-A1", 100);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 30, y: 0 },
+    ]);
+
+    const reachable = await (trader as any).canReachMarket("X1-A-A2");
+
+    assert.equal(reachable, true, "a same-system market within tank capacity is reachable");
+  });
+});

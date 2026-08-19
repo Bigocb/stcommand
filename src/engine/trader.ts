@@ -519,6 +519,16 @@ export class TraderAgent {
     // Same-system only: a cross-system leg needs a jump gate that may be under
     // construction, so it would fail at navigation.
     if (this.systemOf(r.buyAt) !== this.systemOf(r.sellAt)) return undefined;
+    // A leg whose distance exceeds the ship's own fuel tank capacity can never
+    // be flown, no matter how full the tank is — this is distinct from "not
+    // enough fuel right now" (which a refuel fixes). Confirmed in production:
+    // a full (80/80) ship still got "requires 16 more fuel for navigation"
+    // trying to fly a leg that needed 96. Check both legs a "direct" route
+    // actually requires: here → buyAt, and buyAt → sellAt.
+    if (this.ship.fuel.capacity > 0) {
+      if (this.distBetween(this.ship.nav.waypointSymbol, r.buyAt) > this.ship.fuel.capacity) return undefined;
+      if (this.distBetween(r.buyAt, r.sellAt) > this.ship.fuel.capacity) return undefined;
+    }
     const buy = this.priceTable.get(r.buyAt)?.get(r.good);
     const sell = this.priceTable.get(r.sellAt)?.get(r.good);
     if (!buy || !sell || buy.buy <= 0) return undefined;
@@ -741,7 +751,14 @@ export class TraderAgent {
   private async canReachMarket(waypoint: string): Promise<boolean> {
     const targetSystem = this.systemOf(waypoint);
     const hereSystem = this.ship.nav.systemSymbol;
-    if (targetSystem === hereSystem) return true;
+    if (targetSystem === hereSystem) {
+      // Reachable requires more than "no gate needed" — the leg still has to
+      // fit in the tank. Same class of bug as viableRoute()'s own capacity
+      // check: a same-system market can still be farther than this ship can
+      // ever carry enough fuel to reach.
+      if (this.ship.fuel.capacity > 0 && this.distBetween(this.ship.nav.waypointSymbol, waypoint) > this.ship.fuel.capacity) return false;
+      return true;
+    }
     const gate = this.atlas?.gatesTo(hereSystem, targetSystem)[0];
     if (!gate) return false;
     try {
