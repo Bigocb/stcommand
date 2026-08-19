@@ -2963,11 +2963,24 @@ function renderMap(ships, trails = new Map()) {
   // shared shape/size (see shipGlyphMarkup), so unlike the waypoint version
   // this doesn't need a per-glyph effective-radius lookup — one fixed ring
   // size for every cluster.
+  // Two stationary ships at the same waypoint should always land in the same
+  // cluster, but grouping by a *rounded* screen pixel can split them apart:
+  // a ship that just arrived is drawn via shipTransitLerp() at frac≈1, whose
+  // lerp arithmetic (origin + (destination-origin)*1) isn't always bit-
+  // identical to the destination's own cached posBySymbol value, so a tiny
+  // floating-point epsilon can land the two ships' *rounded* coordinates on
+  // opposite sides of a rounding boundary. Grouping stationary ships by
+  // their actual waypoint symbol sidesteps that entirely; only genuinely
+  // in-transit ships (no shared waypoint identity to key off — they're
+  // literally between two points) fall back to the rounded-pixel grouping,
+  // for the much rarer case of two flights coinciding mid-route.
   const shipsByCoord = new Map();
-  for (const [sym, pos] of rawShipPos) {
-    const key = `${Math.round(pos.x)},${Math.round(pos.y)}`;
+  for (const s of ships) {
+    const pos = rawShipPos.get(s.symbol);
+    if (!pos) continue;
+    const key = s.nav.status === "IN_TRANSIT" ? `xy:${Math.round(pos.x)},${Math.round(pos.y)}` : `wp:${s.nav.waypointSymbol}`;
     if (!shipsByCoord.has(key)) shipsByCoord.set(key, []);
-    shipsByCoord.get(key).push(sym);
+    shipsByCoord.get(key).push(s.symbol);
   }
   const clusteredShipPos = new Map();
   for (const group of shipsByCoord.values()) {
