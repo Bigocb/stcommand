@@ -422,6 +422,15 @@
   .pane-b::-webkit-scrollbar { width:4px; } .pane-b::-webkit-scrollbar-thumb { background:var(--hairline); }
   .empty { color:var(--dim); font-size:11px; padding:18px 0; text-align:center; font-style:italic; }
 
+  .fleet-summary { display:flex; flex-wrap:wrap; gap:4px; padding:0 0 8px; }
+  .fleet-summary .fs-chip { display:inline-flex; align-items:center; gap:4px; font-size:9px; color:var(--ice); background:var(--glass); border:1px solid var(--hairline); padding:2px 6px; border-radius:3px; white-space:nowrap; }
+  .fleet-summary .fs-chip b { color:var(--bone); font-weight:600; }
+  .fleet-summary .fs-chip i { font-style:normal; color:var(--dim); }
+  .fleet-summary .fs-chip.warn { border-color:rgba(231,111,81,0.5); color:var(--warn); }
+  .fleet-summary .fs-chip.warn i { color:var(--warn); }
+  .fleet-summary .fs-chip.hold { border-color:rgba(233,196,106,0.4); }
+  .fleet-summary .fs-chip.hold i { color:var(--accent); }
+
   .btn {
     font-family:var(--disp); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; padding:4px 9px;
     background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer; transition:all .15s;
@@ -941,7 +950,7 @@
     <section class="view view-fleet" data-view="fleet">
       <div class="pane">
         <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="fleet-count">—</span></div>
-        <div class="pane-b"><table id="fleet-table"></table></div>
+        <div class="pane-b"><div id="fleet-summary" class="fleet-summary"></div><table id="fleet-table"></table></div>
       </div>
     </section>
 
@@ -1250,7 +1259,7 @@ async function logout() {
 /* ── shared state ─────────────────────────── */
 let state = null;
 let bridge = { triage: [], earnings: [], shipStatus: [], stranded: [], series: [] };
-let fleetStatus = { paused: false, ships: [], stranded: [] };
+let fleetStatus = { paused: false, ships: [], stranded: [], summary: [] };
 let waypoints = [];
 let systems = [];
 let jumpConnections = [];
@@ -1524,12 +1533,13 @@ async function loadBridge() {
     const data = await res.json();
     if (data.error) return;
     bridge = data;
-    fleetStatus = { paused: data.paused, ships: data.shipStatus ?? [], stranded: data.stranded ?? [] };
+    fleetStatus = { paused: data.paused, ships: data.shipStatus ?? [], stranded: data.stranded ?? [], summary: data.summary ?? [] };
     renderTopbar();
     renderStrandedBanner();
     renderTriage();
     renderFleetTable();
     renderMobileFleet();
+    renderFleetSummary();
   } catch (e) { console.error(e); }
 }
 
@@ -2171,6 +2181,21 @@ $("mobile-fleet").addEventListener("click", (e) => {
   const row = e.target.closest(".mobile-fleet-row[data-ship]");
   if (row) { selectedShip = row.dataset.ship; openShipDetails(selectedShip); }
 });
+
+/** Compact one-line-per-ship "what is it doing" strip above the fleet table —
+ *  the same summary the coordinator logs each tick, so the UI and the log
+ *  agree on why every ship is (or isn't) acting. */
+function renderFleetSummary() {
+  const el = $("fleet-summary");
+  if (!el) return;
+  const rows = fleetStatus.summary ?? [];
+  if (!rows.length) { el.innerHTML = ""; return; }
+  el.innerHTML = rows.map((r) => {
+    const cls = r.doing === "stranded" ? "warn" : r.doing === "manual hold" || r.doing === "suspended" ? "hold" : "";
+    return `<span class="fs-chip ${cls}" title="${escapeAttr(`${r.symbol} · ${r.role} · ${r.waypoint} · fuel ${r.fuel}/${r.fuelCap} · cargo ${r.cargo}/${r.cargoCap}`)}">
+      <b>${escapeHtml(shortWp(r.symbol))}</b> <i>${escapeHtml(r.doing)}</i></span>`;
+  }).join("");
+}
 
 /** The Fleet tab's roster — every hull, sortable by any column. Field mode's
  *  map is the primary "browse ships" surface for spatial selection, but it
