@@ -3211,7 +3211,17 @@ function openShipDetails(shipSymbol) {
   // hidden on mobile unless one of the mobile-*-active overlay modes is on
   // (see the Map/Book tab CSS) — without this, every tap from the Bridge
   // hero strip, Fleet tab, or triage list populated #manifest invisibly.
-  if (isMobile()) document.body.classList.add("mobile-ship-active");
+  if (isMobile()) {
+    document.body.classList.add("mobile-ship-active");
+    // fieldBookMode persists in localStorage independent of which mobile tab
+    // is open — if the operator had last used Book mode (desktop toggle or
+    // the mobile Book tab), .field-stage.book-mode's CSS sets the rail
+    // (which #manifest lives in) to opacity:0/pointer-events:none, so the
+    // sheet showed through instead of ship details even though .view-bridge
+    // itself was correctly visible. Force back to field mode, same as the
+    // Map tab already does in setMobileView().
+    if (fieldBookMode !== "field") setFieldBookMode("field");
+  }
   const modal = $("manifest");
   const shipSystem = ship.nav.systemSymbol;
   const hereWp = waypoints.find((w) => w.symbol === ship.nav.waypointSymbol);
