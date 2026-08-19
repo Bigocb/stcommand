@@ -427,3 +427,49 @@ height: 844}`), authenticated with a real agent token:
       looks.
 - [ ] No new console errors on either viewport size.
 - [ ] `node --check` on the extracted script block passes.
+
+---
+
+## Appendix A — Make v2 the default page
+
+Unrelated to the mobile redesign above — a separate, much smaller change
+bundled into this handoff because it was asked for at the same time. Do this
+one first; it's independent and low-risk, and there's no reason to gate it on
+the mobile work above.
+
+**Current behavior:** `src/cli/index.ts` serves the frontend with
+`app.use(express.static(PUBLIC_DIR));` (around line 68) and no explicit route
+for `/`. Express's static middleware defaults to serving `index.html` for a
+directory request, so `GET /` currently returns `public/index.html` — the
+older, pre-Field&Book frontend — while the current one
+(`public/v2.html`, everything this plan and `docs/field-and-book-plan.md`
+describe) only loads if a visitor explicitly navigates to `/v2.html`.
+
+**The fix** is one line — change the static middleware's `index` option:
+
+```diff
+- app.use(express.static(PUBLIC_DIR));
++ app.use(express.static(PUBLIC_DIR, { index: "v2.html" }));
+```
+
+This makes `GET /` (and any other directory-style request under `PUBLIC_DIR`)
+resolve to `v2.html` instead of `index.html`. Both files stay exactly where
+they are and stay directly reachable by explicit path
+(`/index.html`, `/v2.html`) — nothing is deleted, no route is removed, this
+only changes which one answers an *implicit* `/`.
+
+**File touched:** `src/cli/index.ts` only (this is the one exception to this
+plan's §0 rule of "frontend only, `public/v2.html` only" — everything else in
+this document still applies as written).
+
+**Verification:**
+1. `npm run typecheck` — should pass untouched (this is a one-line config
+   change, not a type-level change).
+2. Start the server locally (or check after deploy) and confirm `GET /`
+   returns `v2.html`'s content (check for `<title>Standing Orders —
+   Command</title>` or any v2-only element id, not something specific to
+   `index.html`).
+3. Confirm `GET /index.html` still works and still serves the old page —
+   don't delete or redirect it away as part of this change. If/when
+   `index.html` is meant to be retired entirely, that's a separate, explicit
+   decision to make later, not a side effect of this default-page switch.
