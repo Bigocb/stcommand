@@ -775,7 +775,12 @@
     .m-shell { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding-bottom:12px; }
     .m-screen { display:none; }
     .m-screen.on { display:flex; flex-direction:column; gap:8px; }
-    .m-tabbar { display:flex; flex-shrink:0; border-top:1px solid var(--hairline); background:var(--panel-2); }
+    /* margin-top:auto pins this to the bottom of .view-mobile's flex column
+       regardless of whether .m-shell is present — .m-shell is display:none
+       (not just hidden) on the Map/Book tabs, which removes it from the flex
+       layout entirely, so without this the tabbar collapses to the *top* of
+       the column instead of staying put. */
+    .m-tabbar { display:flex; flex-shrink:0; margin-top:auto; border-top:1px solid var(--hairline); background:var(--panel-2); }
     .m-tabbar button {
       flex:1; background:transparent; border:none; color:var(--dim);
       font-family:var(--disp); font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
@@ -835,6 +840,30 @@
     body.mobile-book-active .sheet { width:100%; height:100%; top:0; bottom:0; left:0; transform:none; border:none; grid-template-columns:1fr; }
     body.mobile-book-active .sheet .marg { display:none; }
     body.mobile-book-active .sheet .page { padding:18px 16px; }
+    /* Ship-details sheet: openShipDetails() always populates #manifest
+       (inside the desktop Bridge view's left rail) regardless of which
+       mobile tab is open — without this, the rail (and #manifest within it)
+       stays covered by main#views' blanket "hide every .view on mobile"
+       rule, so tapping a ship silently did nothing visible. Same
+       reveal-the-Bridge-view overlay trick as the Map/Book tabs above, but
+       showing the rail full-screen instead of the map. */
+    body.mobile-ship-active .m-shell { display:none; }
+    body.mobile-ship-active .view-mobile { position:relative; z-index:2; }
+    body.mobile-ship-active main#views > .view.view-bridge {
+      position:absolute; inset:0; z-index:1; display:flex !important;
+    }
+    body.mobile-ship-active .view-bridge .ticker-bar,
+    body.mobile-ship-active .view-bridge .scrub,
+    body.mobile-ship-active .view-bridge #map,
+    body.mobile-ship-active .view-bridge .map-hud,
+    body.mobile-ship-active .view-bridge .system-strip,
+    body.mobile-ship-active .view-bridge .map-legend,
+    body.mobile-ship-active .view-bridge .map-gallery,
+    body.mobile-ship-active .view-bridge .map-fit-btn,
+    body.mobile-ship-active .view-bridge .rail-r { display:none; }
+    body.mobile-ship-active .view-bridge .rail-l {
+      left:8px; right:8px; top:8px; bottom:8px; width:auto;
+    }
     /* .pane/.pane-b are sized for the desktop CSS grid, where each pane is
        one bounded grid cell and scrolls its own overflow. The mobile page is
        a plain vertical stack instead — panes must grow to fit their content
@@ -1591,6 +1620,9 @@ function setMobileView(name) {
   mobileView = name;
   document.querySelectorAll(".m-screen").forEach((s) => s.classList.toggle("on", s.dataset.mscreen === name));
   document.querySelectorAll("#m-tabbar button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mtab === name)));
+  // A ship-details sheet opened from a previous tab shouldn't stick around
+  // covering whichever tab was just switched to.
+  document.body.classList.remove("mobile-ship-active");
   document.body.classList.toggle("mobile-map-active", name === "map");
   document.body.classList.toggle("mobile-book-active", name === "book");
   if (name === "map") { setFieldBookMode("field"); requestAnimationFrame(renderMapLiveOrScrub); }
@@ -2177,6 +2209,9 @@ function showRailTriage() {
   const t = $("triage"), m = $("manifest");
   if (t) t.style.display = "";
   if (m) m.style.display = "none";
+  // No-op on desktop; on mobile this is "back" out of the ship-details
+  // sheet opened by openShipDetails() below.
+  document.body.classList.remove("mobile-ship-active");
   const title = $("rail-left-title");
   if (title) title.textContent = "Triage";
   const items = bridge.triage ?? [];
@@ -3172,6 +3207,11 @@ function openShipDetails(shipSymbol) {
   const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
   if (!ship) return;
   selectedShip = shipSymbol;
+  // #manifest lives inside the desktop Bridge view's left rail, which stays
+  // hidden on mobile unless one of the mobile-*-active overlay modes is on
+  // (see the Map/Book tab CSS) — without this, every tap from the Bridge
+  // hero strip, Fleet tab, or triage list populated #manifest invisibly.
+  if (isMobile()) document.body.classList.add("mobile-ship-active");
   const modal = $("manifest");
   const shipSystem = ship.nav.systemSymbol;
   const hereWp = waypoints.find((w) => w.symbol === ship.nav.waypointSymbol);
