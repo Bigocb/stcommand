@@ -491,10 +491,19 @@
   #map text.syslabel { fill:var(--violet); font-family:var(--brand); font-size:calc(22px / var(--map-zoom,1)); opacity:0.16; pointer-events:none; }
   #map .ship { filter:drop-shadow(0 0 3px var(--accent)); cursor:pointer; transform-box:fill-box; transform-origin:center; }
   #map .ship .hull { fill:var(--star); stroke:var(--ink); stroke-width:0.6; }
-  #map .ship .hull-accent { fill:var(--ink); }
-  #map .ship.docked .hull { fill:var(--star); }
+  /* One shared hull shape, colored by role group — same grouping the old
+     per-role shapes used (miner alone; scout+tour; surveyor+siphoner;
+     keeper+warehouse). Trader has no rule here and falls through to the
+     base .hull fill above, since it's the most common role and was already
+     the unmarked default before roles had any visual distinction at all. */
+  #map .ship .hull.role-miner { fill:var(--buff); }
+  #map .ship .hull.role-scout, #map .ship .hull.role-tour { fill:var(--violet); }
+  #map .ship .hull.role-surveyor, #map .ship .hull.role-siphoner { fill:var(--teal); }
+  #map .ship .hull.role-keeper, #map .ship .hull.role-warehouse { fill:var(--bone); }
+  /* Selection always wins over role color — same specificity as the role
+     rules above (three class selectors each), so this must stay after them
+     in source order. */
   #map .ship.selected .hull { fill:var(--accent); }
-  #map .ship.selected .hull-accent { fill:var(--ink); }
   #map .ship.selected { filter:drop-shadow(0 0 6px var(--accent)); }
   /* Fixed screen size regardless of zoom, like text.wplabel — at r="22" in
      raw SVG units this was calibrated for the default view and turned into
@@ -2737,36 +2746,23 @@ function drawWaypointGlyph(g, pos, symbol) {
   return `<circle class="${g.cls}" cx="${x}" cy="${y}" r="${g.r}" data-wp="${symbol}">${title}</circle>`;
 }
 
-// Ship glyphs by role family — a handful of distinct shapes, not one bespoke
-// sprite per SpaceTraders ship frame (16 of those; most fleets only ever run
-// a few in practice, and frame type isn't what's operationally meaningful on
-// this map anyway — role already drives color/behavior everywhere else in
-// the app). Rotation on the arrow-family shapes when in transit is a
-// "moving" tilt, not a tracked real heading — SpaceTraders doesn't expose
-// one. All paths sit in the same small local coordinate space so switching
-// families never changes a ship's on-map footprint.
-const SHIP_FAMILY = {
-  miner: "diamond", trader: "arrow", scout: "slim", tour: "slim",
-  surveyor: "arrow-dot", siphoner: "arrow-dot", keeper: "block", warehouse: "block",
-};
-
-// Local coordinate spans are deliberately smaller than WP_GLYPH's radii
+// One shared hull shape for every ship, regardless of role — the earlier
+// per-role shape family (diamond/arrow/slim/block) made a busy map read as
+// a zoo of icons rather than a fleet. Role is now carried by color alone
+// (see the role-* CSS rules below), grouped the same way the old shape
+// families were: miner stands alone, scout/tour together, surveyor/siphoner
+// together, keeper/warehouse together — trader (the most common role) is
+// the unmarked default, same fill as an unselected/role-less hull always
+// had. Local coordinate span is deliberately smaller than WP_GLYPH's radii
 // (max ~4.5 here vs. up to 6.5 for a gas giant) so ships read as the
-// smaller, moving thing against the larger, fixed waypoints — scale
-// lives in the path data itself rather than a CSS transform, since a
-// CSS transform on the same element would replace (not compose with)
-// the inline rotate() attribute used for the moving-ship tilt.
+// smaller, moving thing against the larger, fixed waypoints — scale lives
+// in the path data itself rather than a CSS transform, since a CSS
+// transform on the same element would replace (not compose with) the
+// inline rotate() attribute used below for the moving-ship tilt (not a
+// tracked real heading — SpaceTraders doesn't expose one).
 function shipGlyphMarkup(role, docked) {
-  const family = SHIP_FAMILY[role] ?? "arrow";
   const rot = docked ? 0 : 45;
-  if (family === "diamond") return `<path class="hull" d="M0,-2.4 L2.4,0 L0,2.4 L-2.4,0 Z" transform="rotate(${rot})"></path>`;
-  if (family === "slim") return `<path class="hull" d="M0,-3.2 L1.1,2.1 L0,1.1 L-1.1,2.1 Z" transform="rotate(${rot})"></path>`;
-  if (family === "block") return `<path class="hull" d="M-1.9,-1.9 L1.9,-1.9 L1.9,1.9 L-1.9,1.9 Z" transform="rotate(${rot})"></path>`;
-  if (family === "arrow-dot") {
-    return `<g transform="rotate(${rot})"><path class="hull" d="M0,-2.6 L2.1,2.1 L0,1.1 L-2.1,2.1 Z"></path><circle class="hull-accent" cx="0" cy="1.9" r="0.7"></circle></g>`;
-  }
-  // arrow — trader and the role-less default
-  return `<path class="hull" d="M0,-2.6 L2.1,2.1 L0,1.1 L-2.1,2.1 Z" transform="rotate(${rot})"></path>`;
+  return `<path class="hull role-${role ?? "trader"}" d="M0,-2.6 L2.1,2.1 L0,1.1 L-2.1,2.1 Z" transform="rotate(${rot})"></path>`;
 }
 
 /** World-space position of an in-transit ship, linearly interpolated between
