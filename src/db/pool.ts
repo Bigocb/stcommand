@@ -40,6 +40,15 @@ export function createPool(connectionString: string): pg.Pool {
     connectionString,
     options: "-c search_path=stcommand",
     ssl: isLocal ? undefined : { rejectUnauthorized: false },
+    // pg's own default (10) was confirmed in production as a real
+    // bottleneck: a dashboard login's own burst of ~9 parallel API requests
+    // already uses most of a 10-connection pool, and coincides with the
+    // engine's background market/shipyard refresh also wanting connections
+    // — logs showed pool.connect() taking 500-800ms with total=10 idle=0
+    // and requests queued waiting. This alone doesn't fix the root cause
+    // (Store.recordMarkets() batching real connection *usage* down, see its
+    // own comment) — it's headroom on top of that, not a substitute for it.
+    max: 20,
   });
 }
 

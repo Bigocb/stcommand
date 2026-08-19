@@ -480,6 +480,53 @@ describe("Store shared galaxy tables (no tenant scoping)", () => {
     assert.equal(row?.purchasePrice, 6, "latestMarketSnapshots must read the projection, reflecting the newest write");
   });
 
+  it("recordMarkets bulk-inserts several rows in one call, matching recordMarket() one-at-a-time", async () => {
+    const sys = `X1-BULK${Date.now()}`;
+    const wpA = `${sys}-A1`;
+    const wpB = `${sys}-A2`;
+    await store.recordMarkets([
+      { systemSymbol: sys, waypointSymbol: wpA, goodSymbol: "IRON_ORE", type: "EXPORT", supply: "HIGH", purchasePrice: 5, sellPrice: 9, tradeVolume: 20 },
+      { systemSymbol: sys, waypointSymbol: wpA, goodSymbol: "COPPER_ORE", type: "EXPORT", supply: "MODERATE", purchasePrice: 7, sellPrice: 12, tradeVolume: 15 },
+      { systemSymbol: sys, waypointSymbol: wpB, goodSymbol: "FUEL", type: "IMPORT", supply: "LOW", purchasePrice: 40, sellPrice: 55, tradeVolume: 5 },
+    ]);
+
+    const snaps = await store.latestMarketSnapshots();
+    const rowA1 = snaps.find((s) => s.waypointSymbol === wpA && s.goodSymbol === "IRON_ORE");
+    const rowA2 = snaps.find((s) => s.waypointSymbol === wpA && s.goodSymbol === "COPPER_ORE");
+    const rowB = snaps.find((s) => s.waypointSymbol === wpB && s.goodSymbol === "FUEL");
+    assert.equal(rowA1?.purchasePrice, 5);
+    assert.equal(rowA2?.purchasePrice, 7);
+    assert.equal(rowB?.purchasePrice, 40);
+
+    const historyRows = await pool.query(
+      `SELECT count(*)::int AS n FROM market_snapshots WHERE waypoint_symbol IN ($1, $2)`,
+      [wpA, wpB],
+    );
+    assert.equal(historyRows.rows[0].n, 3, "every row in the batch must land in the history table");
+  });
+
+  it("recordMarkets re-upserts market_latest correctly on a second bulk call, same as recordMarket()'s ON CONFLICT behavior", async () => {
+    const sys = `X1-BULK2${Date.now()}`;
+    const wp = `${sys}-A1`;
+    await store.recordMarkets([
+      { systemSymbol: sys, waypointSymbol: wp, goodSymbol: "IRON_ORE", type: "EXPORT", supply: "MODERATE", purchasePrice: 8, sellPrice: 12, tradeVolume: 20 },
+    ]);
+    await store.recordMarkets([
+      { systemSymbol: sys, waypointSymbol: wp, goodSymbol: "IRON_ORE", type: "EXPORT", supply: "HIGH", purchasePrice: 6, sellPrice: 11, tradeVolume: 25 },
+    ]);
+
+    const projectionRows = await pool.query(
+      `SELECT count(*)::int AS n, max(purchase_price) AS price FROM market_latest WHERE waypoint_symbol = $1 AND good_symbol = 'IRON_ORE'`,
+      [wp],
+    );
+    assert.equal(projectionRows.rows[0].n, 1, "the projection must still upsert in place across two bulk calls");
+    assert.equal(projectionRows.rows[0].price, 6);
+  });
+
+  it("recordMarkets is a no-op for an empty array (no query, no error)", async () => {
+    await assert.doesNotReject(() => store.recordMarkets([]));
+  });
+
   it("bestTrades ranks by margin and finds the actual cheapest/priciest waypoints", async () => {
     const sys = `X1-BT${Date.now()}`;
     await store.recordMarket({ systemSymbol: sys, waypointSymbol: `${sys}-CHEAP`, goodSymbol: "ORE", type: "EXPORT", supply: "HIGH", purchasePrice: 10, sellPrice: 5, tradeVolume: 10 });

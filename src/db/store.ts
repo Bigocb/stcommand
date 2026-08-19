@@ -643,30 +643,61 @@ export class Store {
   // for every tenant on the same server reset. See the class doc comment.
 
   async recordMarket(m: Omit<MarketRow, "timestamp">): Promise<void> {
+    await this.recordMarkets([m]);
+  }
+
+  /**
+   * Bulk version of recordMarket() — one pool checkout and one multi-row
+   * INSERT per table, instead of one checkout per good. A single market
+   * scan (background refresh or boot) can be 100-150+ individual goods
+   * across every market in a system; at one recordMarket() call each, that
+   * was 100-150+ separate pool.connect() calls landing in a tight loop —
+   * confirmed in production as the actual cause of dashboard requests
+   * queuing for a free connection (pool maxed at 10, some checkouts taking
+   * 500-800ms, real Store work waiting behind them). Chunked defensively —
+   * not needed at today's fleet sizes, but caps how large a single INSERT
+   * ever gets if a much bigger system is ever scanned.
+   */
+  async recordMarkets(rows: Omit<MarketRow, "timestamp">[]): Promise<void> {
+    if (rows.length === 0) return;
+    const CHUNK = 200;
     await withPool(this.pool, async (c) => {
-      await c.query(
-        `INSERT INTO market_snapshots (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
-        [m.systemSymbol, m.waypointSymbol, m.goodSymbol, m.type, m.supply, m.purchasePrice, m.sellPrice, m.tradeVolume],
-      );
-      // Greenfield Phase 1 read model: keep market_latest in lockstep with
-      // the append-only history table so latestMarketSnapshots/
-      // freshMarketSnapshots/bestTrades/tradeLegs can read one row per
-      // waypoint+good directly instead of re-deriving it with a
-      // ROW_NUMBER() OVER (PARTITION BY ...) scan of the whole history.
-      await c.query(
-        `INSERT INTO market_latest (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
-         ON CONFLICT (waypoint_symbol, good_symbol) DO UPDATE SET
-           system_symbol = excluded.system_symbol,
-           type = excluded.type,
-           supply = excluded.supply,
-           purchase_price = excluded.purchase_price,
-           sell_price = excluded.sell_price,
-           trade_volume = excluded.trade_volume,
-           timestamp = excluded.timestamp`,
-        [m.systemSymbol, m.waypointSymbol, m.goodSymbol, m.type, m.supply, m.purchasePrice, m.sellPrice, m.tradeVolume],
-      );
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const chunk = rows.slice(i, i + CHUNK);
+        const historyValues: string[] = [];
+        const latestValues: string[] = [];
+        const params: unknown[] = [];
+        chunk.forEach((m, idx) => {
+          const base = idx * 8;
+          const p = Array.from({ length: 8 }, (_, k) => `$${base + k + 1}`);
+          historyValues.push(`(${p[0]}, ${p[1]}, ${p[2]}, ${p[3]}, ${p[4]}, ${p[5]}, ${p[6]}, ${p[7]}, now())`);
+          latestValues.push(`(${p[0]}, ${p[1]}, ${p[2]}, ${p[3]}, ${p[4]}, ${p[5]}, ${p[6]}, ${p[7]}, now())`);
+          params.push(m.systemSymbol, m.waypointSymbol, m.goodSymbol, m.type, m.supply, m.purchasePrice, m.sellPrice, m.tradeVolume);
+        });
+        await c.query(
+          `INSERT INTO market_snapshots (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
+           VALUES ${historyValues.join(", ")}`,
+          params,
+        );
+        // Greenfield Phase 1 read model: keep market_latest in lockstep with
+        // the append-only history table so latestMarketSnapshots/
+        // freshMarketSnapshots/bestTrades/tradeLegs can read one row per
+        // waypoint+good directly instead of re-deriving it with a
+        // ROW_NUMBER() OVER (PARTITION BY ...) scan of the whole history.
+        await c.query(
+          `INSERT INTO market_latest (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
+           VALUES ${latestValues.join(", ")}
+           ON CONFLICT (waypoint_symbol, good_symbol) DO UPDATE SET
+             system_symbol = excluded.system_symbol,
+             type = excluded.type,
+             supply = excluded.supply,
+             purchase_price = excluded.purchase_price,
+             sell_price = excluded.sell_price,
+             trade_volume = excluded.trade_volume,
+             timestamp = excluded.timestamp`,
+          params,
+        );
+      }
     });
   }
 

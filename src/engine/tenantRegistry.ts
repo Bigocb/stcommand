@@ -321,20 +321,24 @@ export class TenantRegistry {
   }
 
   private async recordMarkets(store: Store, markets: MarketSnapshot[]): Promise<void> {
-    for (const m of markets) {
-      for (const g of Object.values(m.tradeGoods)) {
-        await store.recordMarket({
-          systemSymbol: m.systemSymbol,
-          waypointSymbol: m.symbol,
-          goodSymbol: g.symbol,
-          type: g.type,
-          supply: g.supply,
-          purchasePrice: g.purchasePrice,
-          sellPrice: g.sellPrice,
-          tradeVolume: g.tradeVolume,
-        });
-      }
-    }
+    // One bulk call instead of one store.recordMarket() per good — a full
+    // system scan is 100-150+ goods across every market, which at one pool
+    // checkout each was confirmed in production to starve the connection
+    // pool (max 10) right when the dashboard's own request burst also
+    // wants connections. See Store.recordMarkets()'s own comment.
+    const rows = markets.flatMap((m) =>
+      Object.values(m.tradeGoods).map((g) => ({
+        systemSymbol: m.systemSymbol,
+        waypointSymbol: m.symbol,
+        goodSymbol: g.symbol,
+        type: g.type,
+        supply: g.supply,
+        purchasePrice: g.purchasePrice,
+        sellPrice: g.sellPrice,
+        tradeVolume: g.tradeVolume,
+      })),
+    );
+    await store.recordMarkets(rows);
   }
 
   private backgroundMarketRefresh(
