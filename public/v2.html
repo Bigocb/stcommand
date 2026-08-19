@@ -497,7 +497,16 @@
      soft/glowy rather than a crisp border even at 1.7px. Brightened just
      for this stroke rather than changing --buff globally (used elsewhere
      for structure labels where the muted tone is correct). */
-  #map circle.market, #map rect.market, #map ellipse.market { stroke:color-mix(in oklch, var(--buff), white 40%); stroke-width:2.2; }
+  #map circle.market, #map rect.market, #map ellipse.market { stroke:color-mix(in oklch, var(--buff), white 40%); stroke-width:2.2; opacity:0.85; }
+  /* Two type-specific gaps the bright market outline exposed: wp-moon's base
+     opacity (0.45) and phenomenon's (0.3) are both low enough that the ring
+     read as "just an outline, no glyph inside" once it had something bright
+     to compete with — the opacity override above covers those. But
+     asteroid-shaped waypoints (confirmed live: an ENGINEERED_ASTEROID
+     market) have no fill at all by design (stroke-only), so opacity alone
+     doesn't help; this needs its own higher-specificity rule to actually
+     add a fill rather than just adjust one. */
+  #map circle.asteroid.market { fill:var(--ice); opacity:0.5; }
   /* Shipyard: a second, slightly larger concentric ring rather than fighting
      the market outline for the same shape's one stroke — a waypoint can be
      both at once. No data-wp of its own (the shape underneath already
