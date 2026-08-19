@@ -1606,8 +1606,15 @@ async function loadDispatch() {
 }
 
 function renderDispatch() {
-  // Populate the ship dropdown from trader ships in state.
-  const traders = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 40);
+  // Populate the ship dropdown from ships the engine has actually assigned
+  // the trader role — previously guessed by cargo capacity >= 40, which both
+  // wrongly included a non-trader ship with a big hold and wrongly excluded
+  // a real trader under that threshold. That second case had no fix from
+  // the UI at all: a ship manually assigned a route (e.g. the command ship,
+  // set to trader) but whose cargo capacity happened to sit below 40 could
+  // never appear in this dropdown, so there was no way to select it here to
+  // clear the assignment either.
+  const traders = (bridge.shipStatus ?? []).filter((s) => s.role === "trader");
   const shipOptions = traders.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
   for (const id of ["dispatch-ship", "mobile-dispatch-ship"]) {
     const sel = $(id);
