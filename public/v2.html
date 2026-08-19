@@ -2736,8 +2736,8 @@ const WP_GLYPH = {
   // same coordinate (confirmed: A4 shares A1's x/y, F49 shares F48's), so it
   // was fighting the planet for the same footprint and needing more cluster
   // ring separation than a genuinely smaller, orbiting structure should.
-  ORBITAL_STATION: { shape: "diamond", r: 3.2, cls: "wp-station", labeled: true },
-  ASTEROID_BASE: { shape: "diamond", r: 3.2, cls: "wp-station", labeled: true },
+  ORBITAL_STATION: { shape: "diamond", r: 2.3, cls: "wp-station", labeled: true },
+  ASTEROID_BASE: { shape: "diamond", r: 2.3, cls: "wp-station", labeled: true },
   JUMP_GATE: { shape: "gate", r: 5, cls: "gate", labeled: true },
   ASTEROID_FIELD: { shape: "asteroid", r: 4.5, cls: "asteroid" },
   ASTEROID: { shape: "asteroid", r: 4, cls: "asteroid" },
@@ -2895,40 +2895,36 @@ function renderMap(ships, trails = new Map()) {
   // r*sqrt(2)), so a diamond/gate needs more breathing room than a circle of
   // the same r or its members visibly overlap — derive spacing from each
   // member's real glyph footprint rather than a flat constant.
-  const effR = (p) => {
-    const wg = WP_GLYPH[p.type] ?? WP_GLYPH.__default;
-    return wg.shape === "diamond" || wg.shape === "gate" ? wg.r * 1.45 : wg.r;
-  };
-  // Base screen point and footprint radius per coordinate group, computed up
-  // front — a cluster's ring radius needs to know both how far away the
-  // *nearest other* waypoint or cluster is AND how big that neighbor's own
-  // glyph is, not just how many of its own members it needs to fit itself.
-  // Capping against raw base-to-base distance alone (an earlier version of
-  // this) still left a small residual overlap: it reserved no room at all
-  // for the neighbor's own radius, just a flat percentage of the full gap.
-  const groupEntries = [...byCoord.values()].map((group) => ({
-    group, baseX: sx(group[0].x), baseY: sy(group[0].y), footprint: Math.max(...group.map(effR)),
-  }));
-  for (const entry of groupEntries) {
-    const { group, baseX, baseY } = entry;
+  //
+  // This deliberately does NOT try to also avoid a cluster's ring reaching
+  // toward an unrelated nearby waypoint (a version of this capped ring
+  // radius against nearby neighbors — first against raw distance, then
+  // against distance minus both footprints). Every attempt fixed the
+  // specific case in front of it and broke the common one: this system has
+  // both tight local clusters *and* those clusters sitting near each other,
+  // and a single scalar ring radius per cluster can't satisfy "spread my
+  // own members apart" and "don't reach my neighbor" at the same time once
+  // neighbors are close enough — the tightened version collapsed ring
+  // radius toward its floor for nearly every cluster in a dense region,
+  // which is worse (moons rendering inside their own planet) than the
+  // original, rarer cross-cluster crowding it was trying to fix. If that
+  // cross-cluster case needs solving later, the real fix is a relaxation
+  // pass over every rendered glyph (push apart anything overlapping,
+  // regardless of shared-coordinate grouping), not another formula patch
+  // here.
+  for (const group of byCoord.values()) {
+    const baseX = sx(group[0].x), baseY = sy(group[0].y);
     if (group.length === 1) {
       posBySymbol.set(group[0].symbol, { x: baseX, y: baseY });
       labelDir.set(group[0].symbol, { dx: 1, dy: 0 });
       continue;
     }
-    let ringR = entry.footprint * 1.7 + Math.min(group.length, 6) * 1.4;
-    for (const other of groupEntries) {
-      if (other === entry) continue;
-      const d = Math.hypot(other.baseX - baseX, other.baseY - baseY);
-      // Split the gap 50/50 with the neighbor (it may be running this same
-      // calculation back toward us) and reserve both sides' glyph radii
-      // out of each half explicitly, rather than a flat percentage of the
-      // raw distance — a flat percentage alone still left a small residual
-      // overlap in practice (confirmed live) since it didn't account for
-      // how much of the gap either glyph's own footprint actually eats.
-      const allowed = d * 0.5 - entry.footprint - other.footprint;
-      if (allowed < ringR) ringR = Math.max(2, allowed);
-    }
+    const effR = (p) => {
+      const wg = WP_GLYPH[p.type] ?? WP_GLYPH.__default;
+      return wg.shape === "diamond" || wg.shape === "gate" ? wg.r * 1.45 : wg.r;
+    };
+    const maxEffR = Math.max(...group.map(effR));
+    const ringR = maxEffR * 1.7 + Math.min(group.length, 6) * 1.4;
     group.forEach((p, i) => {
       const angle = (2 * Math.PI * i) / group.length;
       const dx = Math.cos(angle), dy = Math.sin(angle);
