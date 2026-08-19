@@ -41,14 +41,14 @@ async function makeTenant(): Promise<string> {
 }
 
 /** A minimal stand-in for the agent classes FleetManager holds in its role maps. */
-function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 40, cargoUnits = 0) {
+function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 40, cargoUnits = 0, fuelCurrent = 100, fuelCapacity = 100) {
   let nav = { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) };
   let manual = false;
   let suspended = false;
   let pinned: string | undefined;
   return {
     symbol,
-    getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: cargoUnits, inventory: [] } }),
+    getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: cargoUnits, inventory: [] }, fuel: { current: fuelCurrent, capacity: fuelCapacity } }),
     isManual: () => manual,
     isSuspended: () => suspended,
     dispatchTo: async (wp: string) => {
@@ -73,6 +73,22 @@ function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 4
     unpinMining: () => {
       pinned = undefined;
     },
+  };
+}
+
+/** Helper for rescue tests: inject known markets and positions into fleet state. */
+function stubMarketSystem(fleet: FleetManager, systemSymbol: string, waypointCoords: Record<string, { x: number; y: number }>) {
+  const waypoints = Object.keys(waypointCoords);
+  (fleet as any).markets = waypoints.map((symbol) => ({ symbol, systemSymbol, tradeGoods: {} }));
+  (fleet as any).positions = waypoints.map((symbol) => ({ symbol, ...waypointCoords[symbol], type: "MOON" }));
+  (fleet as any).galaxy = {
+    getSystem: (sys: string) =>
+      sys === systemSymbol
+        ? {
+            symbol: systemSymbol,
+            waypoints: waypoints.map((symbol) => ({ symbol, type: "MOON", traits: [{ symbol: "MARKETPLACE" }] })),
+          }
+        : undefined,
   };
 }
 
@@ -957,5 +973,130 @@ describe("FleetManager.rescueStatusFor: surfacing real rescue status", () => {
 
     assert.equal(status.rescueActive, false);
     assert.equal(status.rescueDetail, "evaluating rescue options");
+  });
+});
+
+describe("FleetManager.makeRescuePlan: full-cargo tender exclusion", () => {
+  it("never picks a ship with a full cargo hold as a fuel tender", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const fullTender = makeFakeAgent("FULL", "X1-A-A3", 15, 15, 100, 100);
+    const freeTender = makeFakeAgent("FREE", "X1-A-A3", 40, 0, 100, 100);
+    const fleet = makeFleet([stranded, fullTender, freeTender]);
+    stubMarketSystem(fleet, "X1-A", {
+      "X1-A-A1": { x: 0, y: 0 },
+      "X1-A-A2": { x: 5, y: 0 },
+      "X1-A-A3": { x: 10, y: 0 },
+    });
+
+    const plan = await (fleet as any).makeRescuePlan({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+
+    assert.ok(plan, "a rescue plan should be possible because a free tender exists");
+    assert.equal(plan.tenderSymbol, "FREE", "a full-cargo ship must never be selected as a fuel tender");
+  });
+
+  it("returns undefined and records a failure when every candidate has a full cargo hold", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const fullA = makeFakeAgent("FULL-A", "X1-A-A3", 15, 15, 100, 100);
+    const fullB = makeFakeAgent("FULL-B", "X1-A-A4", 40, 40, 100, 100);
+    const fleet = makeFleet([stranded, fullA, fullB]);
+    stubMarketSystem(fleet, "X1-A", {
+      "X1-A-A1": { x: 0, y: 0 },
+      "X1-A-A2": { x: 5, y: 0 },
+      "X1-A-A3": { x: 10, y: 0 },
+      "X1-A-A4": { x: 15, y: 0 },
+    });
+
+    const plan = await (fleet as any).makeRescuePlan({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+
+    assert.equal(plan, undefined, "no viable tender exists when every candidate's cargo is full");
+    const failure = (fleet as any).rescueFailures.get("STRANDED");
+    assert.ok(failure, "a failure reason must be recorded");
+    assert.match(failure, /full.*cargo|cargo.*full|no other ship free/i, "the recorded reason must point at the cargo-full problem");
+  });
+});
+
+describe("FleetManager.tenderRescueStep: abandon stuck plans after repeated failures", () => {
+  it("keeps the plan and increments the failure counter on the first two stepRescue failures", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
+    const fleet = makeFleet([stranded, tender]);
+    stubMarketSystem(fleet, "X1-A", {
+      "X1-A-A1": { x: 0, y: 0 },
+      "X1-A-A2": { x: 5, y: 0 },
+    });
+    tender.suspend();
+    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10, phase: "buy" };
+    (fleet as any).rescuePlans.set("STRANDED", plan);
+
+    let failures = 0;
+    (fleet as any).stepRescue = async () => {
+      failures += 1;
+      throw new Error("cargo full");
+    };
+
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+    assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "plan must survive the first failure");
+    assert.equal((fleet as any).rescueStepFailures.get("STRANDED"), 1);
+    assert.equal(tender.isSuspended(), true, "tender stays suspended while the plan is live");
+
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+    assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "plan must survive the second failure");
+    assert.equal((fleet as any).rescueStepFailures.get("STRANDED"), 2);
+    assert.equal(tender.isSuspended(), true, "tender still suspended after two failures");
+    assert.equal(failures, 2);
+  });
+
+  it("abandons the plan and resumes the tender after three stepRescue failures", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
+    const fleet = makeFleet([stranded, tender]);
+    stubMarketSystem(fleet, "X1-A", {
+      "X1-A-A1": { x: 0, y: 0 },
+      "X1-A-A2": { x: 5, y: 0 },
+    });
+    tender.suspend();
+    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10, phase: "buy" };
+    (fleet as any).rescuePlans.set("STRANDED", plan);
+
+    (fleet as any).stepRescue = async () => {
+      throw new Error("cargo full");
+    };
+
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+
+    assert.equal((fleet as any).rescuePlans.has("STRANDED"), false, "plan must be deleted after three failures");
+    assert.equal((fleet as any).rescueStepFailures.has("STRANDED"), false, "failure counter must be cleared after abandonment");
+    assert.equal(tender.isSuspended(), false, "tender must be resumed when the plan is abandoned");
+    const failure = (fleet as any).rescueFailures.get("STRANDED");
+    assert.ok(failure, "a persistent failure reason must be recorded");
+    assert.match(failure, /cargo full/);
+  });
+
+  it("resets the failure counter after a successful stepRescue", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
+    const fleet = makeFleet([stranded, tender]);
+    stubMarketSystem(fleet, "X1-A", {
+      "X1-A-A1": { x: 0, y: 0 },
+      "X1-A-A2": { x: 5, y: 0 },
+    });
+    tender.suspend();
+    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10, phase: "buy" };
+    (fleet as any).rescuePlans.set("STRANDED", plan);
+
+    let calls = 0;
+    (fleet as any).stepRescue = async () => {
+      calls += 1;
+      if (calls < 2) throw new Error("transient");
+    };
+
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+    assert.equal((fleet as any).rescueStepFailures.get("STRANDED"), 1);
+
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+    assert.equal((fleet as any).rescueStepFailures.has("STRANDED"), false, "failure counter must reset on success");
+    assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "plan must remain after a successful recovery step");
   });
 });

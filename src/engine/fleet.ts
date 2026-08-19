@@ -176,6 +176,13 @@ export class FleetManager {
    *  needs to be surfaced rather than just logged. Cleared once a plan is
    *  found (or the ship recovers on its own; see getStrandedShips()). */
   private rescueFailures = new Map<string, string>();
+  /** Consecutive stepRescue() failures for a stranded ship's current tender
+   *  plan — see tenderRescueStep()'s own comment for why this exists: without
+   *  it, a plan that fails for a persistent reason (e.g. the tender's cargo
+   *  filled up between planning and buying) retried the identical failing
+   *  step forever, since nothing previously dropped a plan except reaching
+   *  phase==="done". */
+  private rescueStepFailures = new Map<string, number>();
   private maxCargoCapacity = 0;
   private credits = 0;
   private lastCreditsFetch = 0;
@@ -3185,7 +3192,11 @@ export class FleetManager {
         if (sym === s.symbol) return false;
         if (ship.nav.status === "IN_TRANSIT") return false;
         if (ship.nav.waypointSymbol === s.waypointSymbol) return false;
-        if (ship.cargo.capacity <= 0) return false; // can't ferry any fuel
+        // A ship with a full cargo hold can't buy any FUEL to ferry — same
+        // failure mode as having no cargo hold at all, just discovered later
+        // (mid-rescue, as a purchaseCargo "exceeds max limit" error) instead of
+        // up front. Reject it here so a full ship is never picked as a tender.
+        if (ship.cargo.capacity - ship.cargo.units <= 0) return false;
         return true;
       })
       .sort((a, b) => b.ship.fuel.current - a.ship.fuel.current);
@@ -3275,7 +3286,33 @@ export class FleetManager {
       if (plan) this.rescuePlans.set(s.symbol, plan);
       if (!plan) return;
     }
-    await this.stepRescue(plan);
+    try {
+      await this.stepRescue(plan);
+      this.rescueStepFailures.delete(s.symbol);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const failures = (this.rescueStepFailures.get(s.symbol) ?? 0) + 1;
+      if (failures >= 3) {
+        // This plan is broken (not just unlucky) — give up on it rather than
+        // retrying the identical failing step forever (the actual deadlock:
+        // a full-cargo tender's buy step throws every single time, and
+        // nothing previously ever dropped the plan except phase==="done").
+        // Release the tender and drop the plan so the next rescue cycle
+        // calls makeRescuePlan() fresh, which (with Fix 1) will skip this
+        // tender and try a different one.
+        this.log(`rescue for ${s.symbol}: abandoning tender ${plan.tenderSymbol} after ${failures} failed attempts (${msg})`);
+        this.rescueFailures.set(s.symbol, `tender ${plan.tenderSymbol} failed repeatedly: ${msg}`);
+        this.rescuePlans.delete(s.symbol);
+        this.rescueStepFailures.delete(s.symbol);
+        const miner = this.miners.get(plan.tenderSymbol);
+        const trader = this.traders.get(plan.tenderSymbol);
+        if (miner) { miner.resume(); } else if (trader) { trader.resume(); }
+      } else {
+        this.rescueStepFailures.set(s.symbol, failures);
+        this.log(`rescue step for ${s.symbol} failed (attempt ${failures}/3, tender ${plan.tenderSymbol}): ${msg}`);
+      }
+      return;
+    }
     if (plan.phase === "done") {
       this.rescuePlans.delete(s.symbol);
       const miner = this.miners.get(plan.tenderSymbol);
