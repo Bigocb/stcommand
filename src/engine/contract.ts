@@ -146,6 +146,19 @@ export class ContractManager {
     return best;
   }
 
+  /**
+   * Ask the HQ for a new contract via `shipSymbol` — presence at any
+   * waypoint with a faction is all negotiating requires, not the flagship
+   * or any particular role. Only ever useful when listActive() is empty:
+   * the API allows at most one ongoing or offered contract at a time, and
+   * rejects the call otherwise.
+   */
+  async negotiate(shipSymbol: string): Promise<Contract> {
+    const { contract } = await this.api.negotiateContract(shipSymbol);
+    this.invalidate();
+    return contract;
+  }
+
   /** Accept a specific contract by id. */
   async acceptById(contractId: string): Promise<Contract> {
     const active = await this.listActive();

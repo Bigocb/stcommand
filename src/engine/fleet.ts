@@ -186,6 +186,7 @@ export class FleetManager {
   private maxCargoCapacity = 0;
   private credits = 0;
   private lastCreditsFetch = 0;
+  private lastNegotiateAttempt = 0;
   /** Centralized route dispatcher: distinct route per trader + operator overrides. */
   readonly dispatcher = new RouteDispatcher();
   /** Greenfield Phase 4: mirrors this fleet's own ownership decisions — see shipRegistry.ts and syncShipClaims(). */
@@ -2918,6 +2919,38 @@ export class FleetManager {
     }
   }
 
+  /**
+   * The API allows at most one ongoing or offered contract at a time — this
+   * only ever does anything when the fleet genuinely has none, which
+   * `listActive()`'s own 30s cache makes cheap to check every tick. Prefers
+   * an idle ship (nothing else to interrupt); otherwise any non-manual ship
+   * that isn't mid-transit works, since negotiating just needs presence at
+   * a waypoint with a faction, not any particular role or the flagship.
+   * A 60s cooldown after a failed attempt (no eligible ship right now, or
+   * the API rejected it) stops a persistent failure from retrying every 2s
+   * tick indefinitely.
+   */
+  private async maybeNegotiateContract(): Promise<void> {
+    if (!this.contracts) return;
+    const active = await this.contracts.listActive();
+    if (active.length > 0) return;
+    if (Date.now() - this.lastNegotiateAttempt < 60_000) return;
+
+    const statuses = this.getShipStatuses();
+    const candidate =
+      statuses.find((s) => s.role === "idle" && s.status !== "IN_TRANSIT") ??
+      statuses.find((s) => s.status !== "IN_TRANSIT" && !s.paused);
+    if (!candidate) return;
+
+    this.lastNegotiateAttempt = Date.now();
+    try {
+      const contract = await this.contracts.negotiate(candidate.symbol);
+      this.log(`negotiated contract ${contract.id} via ${candidate.symbol}`);
+    } catch (err) {
+      this.log(`negotiateContract via ${candidate.symbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /** One coordination pass over the whole fleet. */
   async tick(): Promise<void> {
     if (this.paused) {
@@ -2941,6 +2974,7 @@ export class FleetManager {
     if (this.contracts) {
       await this.contracts.fulfillCompleted();
       await this.contracts.acceptBest();
+      await this.maybeNegotiateContract();
     }
     // Centralized route dispatch: recompute distinct per-trader assignments.
     const routes = await this.computeDispatchRoutes();

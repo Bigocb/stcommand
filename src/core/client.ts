@@ -300,6 +300,16 @@ export class SpaceTradersAPI {
     );
   }
 
+  /** The ship just needs to be at any waypoint with a faction present — not
+   *  specifically the agent's HQ. An agent can only have one ongoing or
+   *  offered contract at a time, so this only ever makes sense to call when
+   *  none exists. */
+  negotiateContract(shipSymbol: string) {
+    return this.client.post<{ contract: components["schemas"]["Contract"] }>(
+      `/my/ships/${shipSymbol}/negotiate/contract`,
+    );
+  }
+
   getSystem(systemSymbol: string) {
     return this.client.get<components["schemas"]["System"]>(`/systems/${systemSymbol}`);
   }

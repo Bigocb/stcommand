@@ -26,8 +26,9 @@ function makeContract(overrides: Partial<Contract> & { id: string }): Contract {
   } as Contract;
 }
 
-function makeApi(contracts: Contract[]) {
+function makeApi(contracts: Contract[], opts?: { negotiated?: Contract }) {
   const accepted: string[] = [];
+  const negotiatedFor: string[] = [];
   return {
     api: {
       getContracts: async () => contracts,
@@ -39,8 +40,15 @@ function makeApi(contracts: Contract[]) {
       },
       fulfillContract: async () => {},
       deliverContract: async () => {},
+      negotiateContract: async (shipSymbol: string) => {
+        negotiatedFor.push(shipSymbol);
+        if (!opts?.negotiated) throw new Error("no contract configured for this test's negotiateContract mock");
+        contracts.push(opts.negotiated);
+        return { contract: opts.negotiated };
+      },
     } as any,
     accepted,
+    negotiatedFor,
   };
 }
 
@@ -194,6 +202,35 @@ describe("ContractManager.acceptBest", () => {
 
     assert.equal(result, undefined);
     assert.deepEqual(accepted, []);
+  });
+});
+
+describe("ContractManager.negotiate", () => {
+  it("calls negotiateContract with the given ship and returns the new contract", async () => {
+    const fresh = makeContract({ id: "new-1" });
+    const { api, negotiatedFor } = makeApi([], { negotiated: fresh });
+    const cm = new ContractManager(api);
+
+    const result = await cm.negotiate("SHIP-1");
+
+    assert.deepEqual(negotiatedFor, ["SHIP-1"]);
+    assert.equal(result.id, "new-1");
+  });
+
+  it("invalidates the cache so the negotiated contract shows up immediately, not after the TTL", async () => {
+    const fresh = makeContract({ id: "new-1" });
+    const { api } = makeApi([], { negotiated: fresh });
+    const cm = new ContractManager(api);
+
+    await cm.listActive(); // warms the cache with the empty list
+    await cm.negotiate("SHIP-1");
+    const active = await cm.listActive();
+
+    assert.deepEqual(
+      active.map((c) => c.id),
+      ["new-1"],
+      "listActive() must reflect the negotiated contract right away, not the pre-negotiate cached snapshot",
+    );
   });
 });
 
