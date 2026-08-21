@@ -2020,6 +2020,18 @@ function openTradePanel(shipSymbol) {
   });
 }
 
+function roleMismatchReason(role, ship) {
+  const mountSymbols = (ship.mounts ?? []).map((m) => m.symbol);
+  const frame = ship.frame?.symbol ?? "";
+  if (role === "miner" && !mountSymbols.some((s) => s.startsWith("MOUNT_MINING_LASER"))) return "no mining laser mounted";
+  if (role === "surveyor" && !mountSymbols.some((s) => s.startsWith("MOUNT_SURVEYOR"))) return "no surveyor mounted";
+  if (role === "siphoner" && !mountSymbols.some((s) => s.startsWith("MOUNT_GAS_SIPHON"))) return "no gas siphon mounted";
+  if (role === "tour" && frame !== "FRAME_SHUTTLE") return "not a shuttle frame";
+  if (role === "keeper" && ship.registration?.role !== "SATELLITE" && frame !== "FRAME_PROBE") return "not a probe/satellite hull";
+  if (role === "trader" && (ship.cargo?.capacity ?? 0) < 15) return "cargo capacity under 15";
+  return null;
+}
+
 function openShipDetails(shipSymbol) {
   const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
   if (!ship) return;
@@ -2109,9 +2121,9 @@ function openShipDetails(shipSymbol) {
         <button class="pin-mine" data-ship="${shipSymbol}">Mine here</button>
       </div>` : ""}
     </div>
-    ${ship.registration.role === "COMMAND" ? `<div class="loadout-section"><h4>Role</h4>
+    <div class="loadout-section"><h4>Role</h4>
       <div class="jump-row">
-        <span class="tgt"><b>Current: ${st?.role ?? "idle"}</b> <span class="d" style="color:var(--dim);font-size:9px">the flagship is never auto-converted — change it manually here</span></span>
+        <span class="tgt"><b>Current: ${st?.role ?? "idle"}</b> <span class="d" style="color:var(--dim);font-size:9px">${ship.registration.role === "COMMAND" ? "the flagship is never auto-converted — change it manually here" : "manual changes stick — the engine won't auto-reassign this ship"}</span></span>
       </div>
       <div class="jump-row">
         <select class="role-select" aria-label="Role" style="flex:1;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px">
@@ -2119,10 +2131,13 @@ function openShipDetails(shipSymbol) {
         </select>
         <button class="set-role" data-ship="${shipSymbol}">Change</button>
       </div>
+      <div class="jump-row role-mismatch-warn" style="display:none">
+        <span class="tgt" style="color:var(--warn,#e0a030);font-size:9px"></span>
+      </div>
       <div class="jump-row role-keeper-market" style="display:none">
         <input type="text" class="role-keeper-wp" placeholder="keeper market waypoint (skip if already there)" style="width:100%;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px" />
       </div>
-    </div>` : ""}
+    </div>
     <div class="loadout-section"><h4>Cargo hold</h4>
       ${(ship.cargo.inventory ?? []).length
         ? `<div class="loadout-grid">${(ship.cargo.inventory ?? []).map((i) =>
@@ -2227,9 +2242,17 @@ function openShipDetails(shipSymbol) {
     });
   });
   modal.querySelectorAll(".role-select").forEach((sel) => {
+    const targetShip = (state?.ships ?? []).find((s) => s.symbol === modal.querySelector(".set-role")?.dataset.ship);
     const toggle = () => {
       const row = modal.querySelector(".role-keeper-market");
       if (row) row.style.display = sel.value === "keeper" ? "" : "none";
+      const warnRow = modal.querySelector(".role-mismatch-warn");
+      const reason = targetShip ? roleMismatchReason(sel.value, targetShip) : null;
+      if (warnRow) {
+        warnRow.style.display = reason ? "" : "none";
+        const span = warnRow.querySelector(".tgt");
+        if (span) span.textContent = reason ? `⚠ ${reason} — the ship won't be able to do this role's job` : "";
+      }
     };
     sel.addEventListener("change", toggle);
     toggle();
