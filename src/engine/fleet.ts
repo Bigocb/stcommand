@@ -3352,9 +3352,17 @@ export class FleetManager {
         this.rescueFailures.set(s.symbol, `tender ${plan.tenderSymbol} failed repeatedly: ${msg}`);
         this.rescuePlans.delete(s.symbol);
         this.rescueStepFailures.delete(s.symbol);
-        const miner = this.miners.get(plan.tenderSymbol);
-        const trader = this.traders.get(plan.tenderSymbol);
-        if (miner) { miner.resume(); } else if (trader) { trader.resume(); }
+        // controlledAgent() checks every role map, not just miner/trader — a
+        // tender suspended under one role that the dispatcher then reassigns
+        // mid-rescue (confirmed live: a miner pulled into fuel-trading
+        // duty) was found in neither map here, so it never got resumed at
+        // all. release() alongside resume() for the same reason as
+        // resumeAgent(): a stuck manual-dispatch goal is possible via the
+        // same "was this ship dispatched anywhere while suspended" question,
+        // and it's a no-op when there's nothing to release.
+        const tender = this.controlledAgent(plan.tenderSymbol);
+        tender?.resume();
+        tender?.release();
       } else {
         this.rescueStepFailures.set(s.symbol, failures);
         this.log(`rescue step for ${s.symbol} failed (attempt ${failures}/3, tender ${plan.tenderSymbol}): ${msg}`);
@@ -3363,9 +3371,11 @@ export class FleetManager {
     }
     if (plan.phase === "done") {
       this.rescuePlans.delete(s.symbol);
-      const miner = this.miners.get(plan.tenderSymbol);
-      const trader = this.traders.get(plan.tenderSymbol);
-      if (miner) { miner.resume(); } else if (trader) { trader.resume(); }
+      // Same fix as the abandonment path above: check every role map via
+      // controlledAgent(), and release() alongside resume().
+      const tender = this.controlledAgent(plan.tenderSymbol);
+      tender?.resume();
+      tender?.release();
     }
   }
 

@@ -1116,4 +1116,35 @@ describe("FleetManager.tenderRescueStep: abandon stuck plans after repeated fail
     assert.equal((fleet as any).rescueStepFailures.has("STRANDED"), false, "failure counter must reset on success");
     assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "plan must remain after a successful recovery step");
   });
+
+  it("resumes and releases a tender parked in a non-default role map when the rescue completes", async () => {
+    // Confirmed live: a ship suspended as a rescue tender while it was a
+    // miner, then reassigned to trader duty by the dispatcher before the
+    // rescue finished, was found in neither role map by the old miner-or-
+    // trader lookup — it never got resumed at all, leaving it permanently
+    // suspended (stuck reporting stale cached state and not ticking, since
+    // TraderAgent/ShipAgent.tick() bail out immediately while suspended).
+    // Parking the tender in `surveyors` here stands in for "some role map
+    // the old lookup never checked".
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
+    const fleet = makeFleet([stranded]);
+    (fleet as any).surveyors.set("TENDER", tender);
+    stubMarketSystem(fleet, "X1-A", {
+      "X1-A-A1": { x: 0, y: 0 },
+      "X1-A-A2": { x: 5, y: 0 },
+    });
+    tender.suspend();
+    await tender.dispatchTo("X1-A-A1"); // stand-in for navigation the rescue itself drove
+    assert.equal(tender.isManual(), true, "sanity check: dispatchTo set the manual goal");
+
+    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10, phase: "done" };
+    (fleet as any).rescuePlans.set("STRANDED", plan);
+    (fleet as any).stepRescue = async () => {};
+
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+
+    assert.equal(tender.isSuspended(), false, "a tender in any role map must be resumed when the rescue completes");
+    assert.equal(tender.isManual(), false, "release() must also clear a manual-dispatch goal picked up mid-rescue");
+  });
 });
