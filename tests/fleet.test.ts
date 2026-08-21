@@ -232,6 +232,23 @@ describe("FleetManager dispatcher eligibility", () => {
       ["SHIP-1"],
     );
   });
+
+  it("resuming also clears a manual-dispatch goal, not just suspension", async () => {
+    // resumeAgent() is MissionManager's `resume` callback — its only
+    // caller — fired when a carrier is released back to autonomy. A carrier
+    // is routed around mid-mission via dispatchShip() (source market ->
+    // target waypoint, repeated), which sets the same manual-dispatch goal
+    // an operator's own hold/dispatch would. Confirmed live: resume() alone
+    // only cleared isSuspended(), so a ship dropped as carrier stayed stuck
+    // reporting "manual hold" forever afterward with no operator action —
+    // isManual() never went back to false.
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([a]);
+    await a.dispatchTo("X1-A-A2"); // stand-in for a mid-mission dispatchShip() call
+    assert.equal(a.isManual(), true, "sanity check: dispatchTo sets the manual goal");
+    (fleet as any).resumeAgent("SHIP-1");
+    assert.equal(a.isManual(), false, "resuming a carrier must release its manual-dispatch goal too");
+  });
 });
 
 describe("FleetManager restart persistence", () => {

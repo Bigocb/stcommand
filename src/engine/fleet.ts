@@ -2031,8 +2031,25 @@ export class FleetManager {
     this.dispatcher.release(symbol);
   }
 
+  /**
+   * The mission system's `resume` callback — its only caller — fires when a
+   * carrier is released back to autonomy (mission paused/complete, or a new
+   * carrier takes over). A carrier is dispatched around via `dispatchShip()`
+   * mid-mission (source market → target waypoint, repeated), which sets the
+   * ship's manual-dispatch goal exactly like an operator's own "hold"/
+   * "dispatch" would. `resume()` alone only clears the *suspension* half
+   * (`agent.suspend()`, set once at assignment) — it never touched that
+   * goal, so a ship dropped as carrier stayed permanently stuck reporting
+   * "manual hold" afterward even though the mission had genuinely moved on.
+   * Confirmed live: two "tour" ships repeatedly ended up stuck in manual
+   * hold with no operator action, cycling back in whenever pickCarrier()
+   * picked them again. `release()` is a no-op when there's no manual goal
+   * set, so this is safe for every other resume path too.
+   */
   private resumeAgent(symbol: string): void {
-    this.controlledAgent(symbol)?.resume();
+    const agent = this.controlledAgent(symbol);
+    agent?.resume();
+    agent?.release();
   }
 
   /** Known markets that sell a trade good, cheapest first (for mission sourcing). */
