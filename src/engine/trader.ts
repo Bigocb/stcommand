@@ -1217,17 +1217,32 @@ export class TraderAgent {
     if (this.ship.cargo.units > 0 && this.deliverCargo) {
       const result = await this.deliverCargo(this.ship);
       if (typeof result === "string") {
-        // navigateTo() self-manages refueling (see its own comment) — no
-        // separate pre-check needed, unlike ShipAgent's refuelIfNeeded()
-        // gate.
-        this.log(`delivering cargo → ${result}`);
-        await this.navigateTo(result);
-        await this.ensureDocked();
-        await this.deliverCargo(this.ship);
-        await this.refresh();
-        return true;
-      }
-      if (result === true) {
+        // Confirmed live: deliverVia() picks the contract's destination for
+        // *any* ship carrying a matching good, with no distance check at all
+        // — unlike viableRoute()'s ordinary route candidates, which reject a
+        // leg the tank can never cover regardless of fuel level (see that
+        // guard's own comment for the same "full tank, still fails" failure
+        // signature). A ship whose own arbitrage trade happened to pick up a
+        // good a contract also wants got yanked toward a destination outside
+        // its single-hop range, threw a raw "requires N more fuel" error,
+        // and got mislabeled stranded below even at full tank. Apply the
+        // same guard here: skip this delivery attempt (not the cargo — just
+        // this tick's routing) rather than steering into a leg that can
+        // never succeed, and fall through to normal route logic instead.
+        if (this.ship.fuel.capacity > 0 && this.distBetween(this.ship.nav.waypointSymbol, result) > this.ship.fuel.capacity) {
+          this.log(`contract delivery to ${result} is out of single-hop range; skipping for now`);
+        } else {
+          // navigateTo() self-manages refueling (see its own comment) — no
+          // separate pre-check needed, unlike ShipAgent's refuelIfNeeded()
+          // gate.
+          this.log(`delivering cargo → ${result}`);
+          await this.navigateTo(result);
+          await this.ensureDocked();
+          await this.deliverCargo(this.ship);
+          await this.refresh();
+          return true;
+        }
+      } else if (result === true) {
         await this.refresh();
         return true;
       }
@@ -1263,9 +1278,17 @@ export class TraderAgent {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.log(`trader error: ${msg}`);
-        // If navigation failed for lack of fuel, we're stranded — the fleet's
-        // tender rescue needs this flag to find us.
-        if (/fuel/i.test(msg)) this.markStranded();
+        // Any error whose message merely contains "fuel" used to trigger this
+        // — but "Navigate request failed: requires N more fuel" fires just as
+        // readily on a full tank attempting a leg that's simply outside its
+        // single-hop range (confirmed live: a 400/400 ship hit this) as it
+        // does on a ship that's genuinely near-empty with nowhere reachable.
+        // The tender-rescue system this flag drives is for the latter only —
+        // sending a tender to a full-tank ship wastes the trip and, worse,
+        // used to send that same ship right back at the identical
+        // unreachable leg next tick, re-triggering this forever. Low current
+        // fuel is the actual signal "stranded" is supposed to mean.
+        if (/fuel/i.test(msg) && this.ship.fuel.current <= this.ship.fuel.capacity * 0.1) this.markStranded();
         await sleep(10_000);
       } finally {
         this.inFlight = null;

@@ -219,6 +219,34 @@ describe("MissionManager persistence", () => {
     assert.equal(found?.paused, true);
   });
 
+  it("list() reports a persisted paused mission correctly even before startConstruction() reloads it", async () => {
+    // Confirmed live: FleetManager never called startConstruction() again at
+    // boot, so a fresh process's this.paused (only ever populated by
+    // startConstruction()'s restore branch) was empty for every mission that
+    // existed before the restart. list()'s old fallback — `this.paused.has(...)`
+    // unconditionally, even for a mission it fell back to reading from the
+    // persisted row because it wasn't in this.active — reported every such
+    // mission as unpaused, regardless of what the operator had actually set.
+    // That's precisely the bug: an operator's pause silently didn't survive
+    // a restart, and the dashboard couldn't even show it as paused.
+    const mgr = new MissionManager({
+      api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]),
+      store,
+      tenantId: tenantA,
+      suspend: () => {},
+      resume: () => {},
+    });
+    await mgr.startConstruction("X1-A-P3");
+    await mgr.pause("X1-A-P3");
+
+    // A fresh instance that never re-runs startConstruction("X1-A-P3") at
+    // all — list() must fall back to the persisted row's own paused column,
+    // not silently report false.
+    const fresh = new MissionManager({ api: makeApi([]), store, tenantId: tenantA });
+    const found = (await fresh.list()).find((m) => m.targetWaypoint === "X1-A-P3");
+    assert.equal(found?.paused, true, "a mission list() falls back to from the DB must still report its real paused state");
+  });
+
   it("a tenant's missions are invisible to another tenant", async () => {
     const mgrA = new MissionManager({
       api: makeApi([{ tradeSymbol: "IRON", required: 10, fulfilled: 0 }]),

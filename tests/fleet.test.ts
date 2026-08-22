@@ -1071,6 +1071,31 @@ describe("FleetManager.init: promotion respects manual role overrides", () => {
     const status = restarted.getShipStatuses().find((s) => s.symbol === "SHIP-TOUR");
     assert.equal(status?.paused, false, "the stale hold must not be replayed on top of the reassigned role");
   });
+
+  it("a paused mission stays paused across a restart instead of quietly resuming", async () => {
+    // Confirmed live: nothing in init() ever called missions.startConstruction()
+    // again for a mission that existed before the restart, so
+    // MissionManager's in-memory active/paused state — and everything gated
+    // on it, including tick()'s own sourcing loop — came back completely
+    // empty. An operator's explicit pause looked identical to "the fleet
+    // forgot this mission ever existed" and the mission just resumed
+    // sourcing on its own, with the dashboard unable to even show it as
+    // paused.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const ship = makeRawShip("SHIP-CARRIER", { cargoCapacity: 40 });
+
+    const firstBoot = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
+    await firstBoot.init();
+    await firstBoot.missions.startConstruction("X1-TEST-I55", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 10 }]);
+    await firstBoot.missions.pause("X1-TEST-I55");
+
+    const restarted = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
+    await restarted.init();
+
+    const found = (await restarted.missions.list()).find((m) => m.targetWaypoint === "X1-TEST-I55");
+    assert.equal(found?.paused, true, "the mission must still exist and still be paused after the restart, with no operator action needed to keep it that way");
+  });
 });
 
 describe("FleetManager.rescueStatusFor: surfacing real rescue status", () => {

@@ -380,6 +380,33 @@ export class FleetManager {
         this.log(`restore manual dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    // Rehydrate MissionManager's in-memory active/paused state from whatever
+    // survived to the DB. Nothing previously called startConstruction() here
+    // at boot at all — it's only ever invoked by the operator's explicit
+    // "start mission" action — so after every restart this.active (and
+    // therefore this.paused, which only startConstruction()'s restore branch
+    // ever populates) came back completely empty. Two consequences, both
+    // reported live: an operator's pause silently didn't survive a restart
+    // (tick() skips this.active.values(), which was empty, so a "paused"
+    // mission looked identical to a forgotten one and just resumed sourcing
+    // from scratch), and the dashboard couldn't even show it as paused
+    // (list()'s `paused: this.paused.has(...)` read the same empty set).
+    // startConstruction() itself is naturally idempotent per waypoint
+    // (`if (this.active.has(waypointSymbol)) return;`), so restoring every
+    // still-active mission here is exactly the boot-time counterpart to
+    // restorePersistedManualRoles() above, for the one piece of state that
+    // had no such counterpart before.
+    if (this.tenantId) {
+      const knownMissions = (await this.store?.latestMissions(this.tenantId)) ?? [];
+      for (const m of knownMissions) {
+        if (m.status !== "active") continue;
+        try {
+          await this.missions.startConstruction(m.targetWaypoint);
+        } catch (err) {
+          this.log(`restore mission ${m.targetWaypoint} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
     // Persist the just-restored roles/statuses immediately rather than
     // waiting for the first coordinator tick (~2s away) — a dashboard read
     // that lands in that gap should see this boot's state, not the previous

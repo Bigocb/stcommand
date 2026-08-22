@@ -58,6 +58,15 @@ describe("TraderAgent.tick: contract delivery priority", () => {
       } as any,
       deliverCargo: async (s) => (s.nav.waypointSymbol === "X1-A-A2" ? true : "X1-A-A2"),
     });
+    // Real, close-together coordinates: the delivery-reachability guard
+    // (trader.ts's contract-delivery branch) treats an unknown distance as
+    // "can't confirm it's reachable" and skips, same as an actually-too-far
+    // leg — this test cares about routing precedence, not distance, so it
+    // needs real positions to fall through that guard cleanly.
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 1, y: 1 },
+    ]);
     // Avoid needing a full navigateTo()/waitForArrival() simulation — this
     // test only cares that deliverCargo's routing wins over clearLeftoverCargo,
     // not the mechanics of flying there.
@@ -341,6 +350,40 @@ describe("TraderAgent: stranded flag self-clears once fuel is real again", () =>
     await trader.tick();
 
     assert.equal(trader.isStranded(), true, "must not clear itself while the ship genuinely still can't move");
+  });
+});
+
+describe("TraderAgent.runLoop: a fuel-mentioning error only strands a genuinely low-fuel ship", () => {
+  // Confirmed live: a full-tank trader whose contract delivery (or any other
+  // navigateTo() call) targets a leg outside single-hop range throws
+  // "requires N more fuel for navigation" — the old blanket /fuel/i match
+  // treated that identically to a real 0-fuel stranding, sending a tender
+  // rescue after a ship that didn't need one and that would hit the exact
+  // same unreachable leg again next tick.
+  it("does not mark stranded when the fuel error fires on a full tank", async () => {
+    const ship = makeShip();
+    ship.fuel = { current: 100, capacity: 100 } as any;
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+    });
+    (trader as any).tick = async () => { throw new Error("Navigate request failed. Ship requires 358 more fuel for navigation."); };
+
+    await trader.runLoop(1);
+
+    assert.equal(trader.isStranded(), false, "a full tank means this leg is simply out of range, not a real stranding");
+  });
+
+  it("still marks stranded when the same error fires on a genuinely near-empty tank", async () => {
+    const ship = makeShip();
+    ship.fuel = { current: 2, capacity: 100 } as any;
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+    });
+    (trader as any).tick = async () => { throw new Error("Navigate request failed. Ship requires 8 more fuel for navigation."); };
+
+    await trader.runLoop(1);
+
+    assert.equal(trader.isStranded(), true, "a near-empty tank on the same error is a real stranding the tender rescue must still catch");
   });
 });
 

@@ -184,12 +184,20 @@ export class MissionManager {
       status: m.status,
       assignedShip: m.assignedShip ?? undefined,
       materials: m.materials,
+      paused: m.paused,
     }));
-    // Paused is live state, not something the persisted row can be trusted for
-    // — the operator can pause and resume between writes. The UI needs it to
-    // know which button to offer.
+    // this.paused is authoritative for anything already in this.active — the
+    // operator can pause/resume between writes, and that in-memory Set is
+    // exactly what pause()/resumeMission() maintain live. But a mission that
+    // hasn't been loaded into this.active yet (the gap between process start
+    // and init()'s mission-restore pass, or if that restore ever fails for
+    // one waypoint) has no entry in this.paused either — falling back to
+    // `false` there previously made a mission the operator explicitly paused
+    // report as running again after every restart, which is exactly what was
+    // reported live. The persisted row's own `paused` column is the correct
+    // answer for that case, since it's exactly what pause() wrote.
     return [...this.active.values(), ...persisted.filter((p) => !this.active.has(p.targetWaypoint))]
-      .map((m) => ({ ...m, paused: this.paused.has(m.targetWaypoint) }));
+      .map((m) => ({ ...m, paused: this.active.has(m.targetWaypoint) ? this.paused.has(m.targetWaypoint) : (m.paused ?? false) }));
   }
 
   /** Are any ships currently committed to missions? (fleet should not reassign them) */
