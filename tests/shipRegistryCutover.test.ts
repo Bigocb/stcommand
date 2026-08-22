@@ -197,3 +197,37 @@ describe("maybeAssignKeepers respects a claim the idle() filter alone would have
     (fleet as any).keepers.get("MINER-1")?.stop();
   });
 });
+
+describe("syncShipClaims recognizes an active rescue tender", () => {
+  it("does not overwrite a rescue claim back to auto on the same tick it was made", async () => {
+    // Confirmed by code review (docs/ship-control-state-audit.md, Phase 2):
+    // makeRescuePlan() claims "rescue" the moment a tender is picked, but
+    // syncShipClaims() runs later in the same tick and, before this fix,
+    // had no way to know the ship was tendering — it derived "auto" (not
+    // paused, not a mission carrier, not a keeper) and overwrote the fresh
+    // "rescue" claim with preempt:true immediately.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId);
+    const tender = makeFakeAgent("TENDER-1");
+    (fleet as any).traders.set("TENDER-1", tender);
+    tender.suspend();
+    fleet.shipRegistry.claim("TENDER-1", "rescue", "trader");
+    (fleet as any).rescuePlans.set("STRANDED-1", {
+      strandedSymbol: "STRANDED-1",
+      strandedWaypoint: "X1-A-A1",
+      tenderSymbol: "TENDER-1",
+      market: "X1-A-A2",
+      fuelUnits: 10,
+      phase: "transit",
+    });
+
+    await (fleet as any).syncShipClaims();
+
+    assert.equal(
+      fleet.shipRegistry.ownerOf("TENDER-1")?.owner,
+      "rescue",
+      "an active tender's claim must survive the tick's own registry mirror, not be relabeled auto",
+    );
+  });
+});

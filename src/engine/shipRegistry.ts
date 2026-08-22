@@ -34,7 +34,16 @@ import type { Store } from "../db/store.js";
  * has run stable in parallel — see README's Greenfield section.
  */
 
-export type Owner = "operator" | "mission" | "warehouse" | "keeper" | "auto";
+// "rescue" added for Phase 2 of docs/ship-control-state-audit.md: a fuel
+// tender is a fleet subsystem driving a ship via raw API calls exactly like
+// a mission carrier, and it never claimed through the registry at all before
+// this — meaning syncShipClaims()'s once-per-tick mirror had no way to know
+// a suspended tender wasn't just "auto" (free), and would relabel it that
+// way on the very next tick, making availableFor() treat it as claimable by
+// a mission or keeper. Ranked above mission (a stranded ship is more urgent
+// than delaying a delivery) but below operator (an explicit hold always
+// wins, same rule as everywhere else).
+export type Owner = "operator" | "rescue" | "mission" | "warehouse" | "keeper" | "auto";
 export type ShipRole = "miner" | "trader" | "surveyor" | "tour" | "keeper" | "scout" | "siphoner" | "warehouse" | "idle";
 
 export interface Claim {
@@ -45,7 +54,7 @@ export interface Claim {
   since: string; // ISO
 }
 
-const PRECEDENCE: Record<Owner, number> = { operator: 0, mission: 1, warehouse: 2, keeper: 3, auto: 4 };
+const PRECEDENCE: Record<Owner, number> = { operator: 0, rescue: 1, mission: 2, warehouse: 3, keeper: 4, auto: 5 };
 
 export class ShipRegistry {
   private claims = new Map<string, Claim>();

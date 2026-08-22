@@ -2799,6 +2799,16 @@ export class FleetManager {
     if (!this.tenantId || !this.store) return;
     const warehouseSymbol = this.warehouseShip?.shipSymbol;
     const committed = this.missions.committedShips();
+    // Phase 2 (docs/ship-control-state-audit.md): a fuel tender now claims
+    // "rescue" the moment it's picked (see makeRescuePlan()), but this mirror
+    // runs later in the same tick and previously had no concept of "rescue"
+    // at all — it would derive "auto" for a suspended tender (not paused,
+    // not a mission carrier, not a keeper) and overwrite the claim it had
+    // just been given, with preempt:true, on the very same tick. Reading
+    // rescuePlans directly here is the ground truth for "is this ship
+    // actively tendering right now", same idea as `committed` below for
+    // missions.
+    const tendering = new Set([...this.rescuePlans.values()].map((p) => p.tenderSymbol));
     for (const s of this.getShipStatuses()) {
       // The warehouse ship must be checked before `s.paused`: designating
       // it uses the exact same dispatchTo()/manual-hold mechanism as an
@@ -2815,11 +2825,13 @@ export class FleetManager {
         ? "warehouse"
         : s.paused
           ? "operator"
-          : committed.has(s.symbol)
-            ? "mission"
-            : s.role === "keeper"
-              ? "keeper"
-              : "auto";
+          : tendering.has(s.symbol)
+            ? "rescue"
+            : committed.has(s.symbol)
+              ? "mission"
+              : s.role === "keeper"
+                ? "keeper"
+                : "auto";
       this.shipRegistry.claim(s.symbol, owner, s.role as ShipClaimRole, { status: s.status }, { preempt: true });
     }
     await this.shipRegistry.persistDirtyState(this.tenantId, this.store);
@@ -3281,12 +3293,20 @@ export class FleetManager {
     const strandedCap = this.cachedShip(s.symbol)?.fuel.capacity ?? 20;
 
     // Find a parked ship in the same system (most fuel first) that can actually get to a market.
-    const candidates = [
-      ...[...this.miners.entries()].filter(([, a]) => !a.isManual()),
-      ...[...this.traders.entries()].filter(([, a]) => !a.isManual()),
-    ]
+    // availableFor("rescue") replaces a bare !isManual() check here — that
+    // check alone never excluded an *isSuspended()* ship (already tendering
+    // for a different rescue, or a mission carrier mid-flight), so either
+    // could have been picked as a second tender out from under whatever
+    // already had it. See docs/ship-control-state-audit.md, Phase 2.
+    const available = this.availableFor("rescue");
+    const candidates = [...this.miners.entries(), ...this.traders.entries()]
+      .filter(([sym]) => available.has(sym))
       .map(([sym, a]) => ({ sym, ship: a.getShip() as Ship }))
-      .concat([...this.idleShips.entries()].map(([sym, ship]) => ({ sym, ship })))
+      .concat(
+        [...this.idleShips.entries()]
+          .filter(([sym]) => available.has(sym))
+          .map(([sym, ship]) => ({ sym, ship })),
+      )
       .filter(({ sym, ship }) => {
         if (sym === s.symbol) return false;
         if (ship.nav.status === "IN_TRANSIT") return false;
@@ -3365,6 +3385,14 @@ export class FleetManager {
     const miner = this.miners.get(tender.sym);
     const trader = this.traders.get(tender.sym);
     if (miner) { await miner.suspend(); } else if (trader) { await trader.suspend(); }
+    // Claim through the registry too, not just suspend() (Phase 2) — the
+    // candidate was already filtered through availableFor("rescue") above,
+    // so this should always succeed; logged rather than aborted if it
+    // somehow doesn't, since the tender is already suspended and mid-plan by
+    // this point and abandoning here would leave it stuck for no benefit.
+    if (!this.shipRegistry.claim(tender.sym, "rescue", this.roleOf(tender.sym))) {
+      this.log(`rescue tender ${tender.sym}: registry claim unexpectedly lost to ${this.shipRegistry.ownerOf(tender.sym)?.owner} — proceeding anyway, already suspended`);
+    }
 
     this.log(`dispatching fuel tender ${tender.sym} to rescue ${s.symbol}: buy ${Math.max(0, fuelUnits - heldFuel)}u FUEL at ${market.sym} (${heldFuel}u already held), fly to ${s.waypointSymbol}`);
     return {
@@ -3414,6 +3442,7 @@ export class FleetManager {
         const tender = this.controlledAgent(plan.tenderSymbol);
         tender?.resume();
         tender?.release();
+        this.shipRegistry.release(plan.tenderSymbol, "rescue");
       } else {
         this.rescueStepFailures.set(s.symbol, failures);
         this.log(`rescue step for ${s.symbol} failed (attempt ${failures}/3, tender ${plan.tenderSymbol}): ${msg}`);
@@ -3427,6 +3456,7 @@ export class FleetManager {
       const tender = this.controlledAgent(plan.tenderSymbol);
       tender?.resume();
       tender?.release();
+      this.shipRegistry.release(plan.tenderSymbol, "rescue");
     }
   }
 

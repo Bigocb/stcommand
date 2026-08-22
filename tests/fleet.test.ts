@@ -1085,6 +1085,34 @@ describe("FleetManager.makeRescuePlan: full-cargo tender exclusion", () => {
     assert.ok(failure, "a failure reason must be recorded");
     assert.match(failure, /full.*cargo|cargo.*full|no other ship free/i, "the recorded reason must point at the cargo-full problem");
   });
+
+  it("never picks an already-suspended ship (e.g. tendering elsewhere) and claims the one it does pick", async () => {
+    // Confirmed live-adjacent by code review (docs/ship-control-state-audit.md,
+    // Phase 2): candidate selection here used to check only !isManual(),
+    // never isSuspended() — a ship already committed as a mission carrier or
+    // a rescue tender for a *different* stranded ship could be picked again.
+    // availableFor("rescue") now excludes it the same way it excludes a
+    // manually-held ship.
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const busy = makeFakeAgent("BUSY", "X1-A-A3", 40, 0, 100, 100);
+    const free = makeFakeAgent("FREE", "X1-A-A3", 40, 0, 100, 100);
+    const fleet = makeFleet([stranded, busy, free]);
+    busy.suspend();
+    stubMarketSystem(fleet, "X1-A", {
+      "X1-A-A1": { x: 0, y: 0 },
+      "X1-A-A2": { x: 5, y: 0 },
+      "X1-A-A3": { x: 10, y: 0 },
+    });
+
+    const plan = await (fleet as any).makeRescuePlan({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+
+    assert.equal(plan?.tenderSymbol, "FREE", "a suspended ship must never be selected as a fuel tender");
+    assert.equal(
+      (fleet as any).shipRegistry.ownerOf("FREE")?.owner,
+      "rescue",
+      "the chosen tender must be claimed through the registry, not just suspended",
+    );
+  });
 });
 
 describe("FleetManager.tenderRescueStep: abandon stuck plans after repeated failures", () => {
