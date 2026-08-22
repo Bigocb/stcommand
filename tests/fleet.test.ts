@@ -1046,6 +1046,31 @@ describe("FleetManager.init: promotion respects manual role overrides", () => {
 
     assert.ok((fleet as any).traders.has("SHIP-BIG"), "with no override, largest-cargo promotion must still work exactly as before");
   });
+
+  it("a role reassigned away from a stale hold does not get re-held on the next restart", async () => {
+    // Confirmed live (reported after Phase 3 shipped): an operator holdShip()'d
+    // a ship, then later setShipRole()'d it to "tour" — which took effect
+    // immediately (isManual() false on the freshly-installed agent) but, before
+    // this fix, never cleared the persisted shipManualState.holdWaypoint flag.
+    // On Render that flag gets replayed by init()'s restore loop on every idle
+    // spin-down/cold-start, not just deploys, so the ship kept silently
+    // reverting to "manual hold" with no operator action in between.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const ship = makeRawShip("SHIP-TOUR", { cargoCapacity: 40 });
+
+    const firstBoot = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
+    await firstBoot.init();
+    await firstBoot.holdShip("SHIP-TOUR");
+    await firstBoot.setShipRole("SHIP-TOUR", "tour");
+
+    const restarted = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
+    await restarted.init();
+
+    assert.ok((restarted as any).tours.has("SHIP-TOUR"), "the tour role must survive the restart");
+    const status = restarted.getShipStatuses().find((s) => s.symbol === "SHIP-TOUR");
+    assert.equal(status?.paused, false, "the stale hold must not be replayed on top of the reassigned role");
+  });
 });
 
 describe("FleetManager.rescueStatusFor: surfacing real rescue status", () => {

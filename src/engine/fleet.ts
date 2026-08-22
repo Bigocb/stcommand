@@ -1687,6 +1687,19 @@ export class FleetManager {
       throw new Error(`${shipSymbol} is suspended (mission or rescue in progress) — can't change its role until that finishes`);
     }
     const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
+    // The persisted `shipManualState.holdWaypoint` flag (set by holdShip(),
+    // cleared by releaseShip()/releaseTo()) lives independently of role
+    // assignment. Reassigning a ship's role here — the freshly-installed
+    // agent starts unheld (isManual()=false) — did not used to clear it, so
+    // it survived invisibly until the next process restart, at which point
+    // init()'s restore loop replayed holdShip() from the stale flag and put
+    // the ship right back into "manual hold", silently overriding the role
+    // just assigned. On Render this bites every idle spin-down/cold-start
+    // cycle, not just deploys, which is what made two tour ships look like
+    // they kept re-holding themselves with no operator action. An explicit
+    // role assignment is itself an explicit operator decision and must
+    // supersede a stale hold, same as releaseTo() clearing it on handback.
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: null });
     this.clearRoleMaps(shipSymbol);
     const resolvedKeeperMarket = this.installRoleAgent(ship, role, keeperMarket);
     this.manualRoleShips.add(shipSymbol);
