@@ -728,6 +728,39 @@ describe("FleetManager.availableFor", () => {
   });
 });
 
+describe("FleetManager.releaseTo (unified handback path)", () => {
+  // Phase 3 of docs/ship-control-state-audit.md: releaseShip(), resumeAgent()
+  // (mission handback), and both tenderRescueStep() resume paths (rescue
+  // handback) used to each hand-roll their own
+  // resume()/release()/dispatcher.release()/registry.release() sequence —
+  // three near-identical copies that had already drifted (one missed
+  // dispatcher.release(), another missed the registry call entirely, which
+  // was the root cause of both live bugs this audit started from). This
+  // exercises the single method they all now call through.
+  it("resumes, un-holds, and drops the registry claim together, regardless of which owner is releasing", () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent]);
+    agent.suspend();
+    (fleet as any).shipRegistry.claim("SHIP-1", "rescue", "trader");
+
+    (fleet as any).releaseTo("SHIP-1", "rescue");
+
+    assert.equal(agent.isSuspended(), false, "a rescue-suspended ship must be resumed on handback");
+    assert.equal(agent.isManual(), false, "any manual-dispatch goal picked up mid-rescue must be released too");
+    assert.equal(fleet.shipRegistry.ownerOf("SHIP-1"), undefined, "the registry claim must be dropped, not left to the next tick's sync to clean up");
+  });
+
+  it("only releases a claim actually held by the given owner, matching ShipRegistry.release semantics", () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent]);
+    (fleet as any).shipRegistry.claim("SHIP-1", "operator", "trader");
+
+    (fleet as any).releaseTo("SHIP-1", "mission");
+
+    assert.equal(fleet.shipRegistry.ownerOf("SHIP-1")?.owner, "operator", "a mission handback must not be able to release someone else's (operator's) claim");
+  });
+});
+
 describe("FleetManager warehouse API surface", () => {
   it("warehouseGoods and warehouseValue reflect the store", async () => {
     const tenantId = await makeTenant();

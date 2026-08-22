@@ -2052,24 +2052,48 @@ export class FleetManager {
   }
 
   /**
-   * The mission system's `resume` callback — its only caller — fires when a
-   * carrier is released back to autonomy (mission paused/complete, or a new
-   * carrier takes over). A carrier is dispatched around via `dispatchShip()`
-   * mid-mission (source market → target waypoint, repeated), which sets the
-   * ship's manual-dispatch goal exactly like an operator's own "hold"/
-   * "dispatch" would. `resume()` alone only clears the *suspension* half
-   * (`agent.suspend()`, set once at assignment) — it never touched that
-   * goal, so a ship dropped as carrier stayed permanently stuck reporting
-   * "manual hold" afterward even though the mission had genuinely moved on.
-   * Confirmed live: two "tour" ships repeatedly ended up stuck in manual
-   * hold with no operator action, cycling back in whenever pickCarrier()
-   * picked them again. `release()` is a no-op when there's no manual goal
-   * set, so this is safe for every other resume path too.
+   * The one path back to autonomy from every kind of borrowed control —
+   * operator hold/dispatch, mission carrier duty, rescue tender duty.
+   * docs/ship-control-state-audit.md, Phase 3: every caller used to hand-
+   * roll its own subset of {agent.resume(), agent.release(),
+   * dispatcher.release(), shipRegistry.release(), the persisted manual-
+   * state flags} — the exact shape of the bugs fixed in Phases 0-2 was one
+   * of those pieces getting left out. There is now only one thing to call,
+   * and it always clears all of them, so a *new* borrower forgetting a
+   * piece on the way out is no longer possible by construction.
+   *
+   * `owner` is the claim this release is entitled to — ShipRegistry.release()
+   * is already a no-op unless the ship's current claim actually belongs to
+   * `owner`, so calling this from the "wrong" context just doesn't touch a
+   * claim it doesn't hold, rather than needing a guard here too.
    */
-  private resumeAgent(symbol: string): void {
-    const agent = this.controlledAgent(symbol);
+  private async releaseTo(shipSymbol: string, owner: ShipClaimOwner): Promise<void> {
+    const agent = this.controlledAgent(shipSymbol);
     agent?.resume();
     agent?.release();
+    // Free the route immediately rather than leaving it reserved until the
+    // next recompute — same reasoning as suspendAgent()'s own call to this;
+    // usually already a no-op here since suspending already released it, but
+    // cheap and correct if some future borrower doesn't suspend first.
+    this.dispatcher.release(shipSymbol);
+    this.shipRegistry.release(shipSymbol, owner);
+    // agent.release() above already unpins mining/clears the in-memory
+    // manual goal (see ShipAgent.release) — this clears the *persisted*
+    // mirror of the same thing, so a restart doesn't resurrect a hold this
+    // ship no longer has.
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null });
+  }
+
+  /**
+   * The mission system's `resume` callback — its only caller — fires when a
+   * carrier is released back to autonomy (mission paused/complete, or a new
+   * carrier takes over). Fire-and-forget: mission.ts's own call sites never
+   * awaited this before either (`resume` is declared as a sync callback),
+   * and the DB write inside releaseTo() is best-effort persistence, not
+   * something anything currently blocks on.
+   */
+  private resumeAgent(symbol: string): void {
+    void this.releaseTo(symbol, "mission");
   }
 
   /** Known markets that sell a trade good, cheapest first (for mission sourcing). */
@@ -2542,24 +2566,13 @@ export class FleetManager {
     await this.updateShipManualState(shipSymbol, { minePin: null });
   }
 
+  /** The dashboard's explicit "release to autonomy" action — the one
+   *  case where "ship isn't under fleet control" should surface as a real
+   *  error to the operator, unlike releaseTo()'s other, best-effort
+   *  internal callers. */
   async releaseShip(shipSymbol: string): Promise<void> {
-    const agent = this.controlledAgent(shipSymbol);
-    if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
-    // A ship suspended for a rescue/mission must also be un-suspended, or it
-    // would sit idle forever after being "returned to auto".
-    agent.release();
-    agent.resume();
-    // agent.release() also unpins mining (see ShipAgent.release), so both
-    // halves of the manual state clear together here.
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null });
-    // Cutover (Greenfield Phase 4): drop the operator claim immediately —
-    // release() only clears it if it's actually still "operator"'s, so this
-    // is a safe no-op if the ship wasn't actually held. The ship falls back
-    // to unclaimed until the next tick's syncShipClaims() re-establishes it
-    // as "auto", same self-healing syncShipClaims() already did before this
-    // cutover — inline calls just make the transition immediate instead of
-    // waiting up to one tick.
-    this.shipRegistry.release(shipSymbol, "operator");
+    if (!this.controlledAgent(shipSymbol)) throw new Error(`ship ${shipSymbol} is not under fleet control`);
+    await this.releaseTo(shipSymbol, "operator");
   }
 
   getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string }[] {
@@ -3431,18 +3444,13 @@ export class FleetManager {
         this.rescueFailures.set(s.symbol, `tender ${plan.tenderSymbol} failed repeatedly: ${msg}`);
         this.rescuePlans.delete(s.symbol);
         this.rescueStepFailures.delete(s.symbol);
-        // controlledAgent() checks every role map, not just miner/trader — a
-        // tender suspended under one role that the dispatcher then reassigns
-        // mid-rescue (confirmed live: a miner pulled into fuel-trading
-        // duty) was found in neither map here, so it never got resumed at
-        // all. release() alongside resume() for the same reason as
-        // resumeAgent(): a stuck manual-dispatch goal is possible via the
-        // same "was this ship dispatched anywhere while suspended" question,
-        // and it's a no-op when there's nothing to release.
-        const tender = this.controlledAgent(plan.tenderSymbol);
-        tender?.resume();
-        tender?.release();
-        this.shipRegistry.release(plan.tenderSymbol, "rescue");
+        // releaseTo() looks the ship up via controlledAgent() (every role
+        // map, not just miner/trader — a tender suspended under one role
+        // that the dispatcher then reassigns mid-rescue, confirmed live: a
+        // miner pulled into fuel-trading duty, was found in neither map
+        // here before this, so it never got resumed at all) and clears
+        // resume/release/dispatcher/registry/manual-state together.
+        await this.releaseTo(plan.tenderSymbol, "rescue");
       } else {
         this.rescueStepFailures.set(s.symbol, failures);
         this.log(`rescue step for ${s.symbol} failed (attempt ${failures}/3, tender ${plan.tenderSymbol}): ${msg}`);
@@ -3451,12 +3459,8 @@ export class FleetManager {
     }
     if (plan.phase === "done") {
       this.rescuePlans.delete(s.symbol);
-      // Same fix as the abandonment path above: check every role map via
-      // controlledAgent(), and release() alongside resume().
-      const tender = this.controlledAgent(plan.tenderSymbol);
-      tender?.resume();
-      tender?.release();
-      this.shipRegistry.release(plan.tenderSymbol, "rescue");
+      // Same as the abandonment path above.
+      await this.releaseTo(plan.tenderSymbol, "rescue");
     }
   }
 
