@@ -2858,6 +2858,19 @@ export class FleetManager {
               : s.role === "keeper"
                 ? "keeper"
                 : "auto";
+      // Phase 4 (docs/ship-control-state-audit.md), the "smaller alternative":
+      // a full rewrite of every agent's run-loop gating onto a registry read
+      // was judged too risky to do blind (no live-game test coverage). This
+      // is the cheap version — a mission/rescue owner is *supposed* to mean
+      // the agent is suspended (a subsystem is driving it via raw API calls,
+      // not its own tick()); if it isn't, that's exactly the "partial
+      // handback" pattern behind every bug this audit started from, just not
+      // yet a fourth instance of it. Detection only — never corrects, never
+      // gates — so it can't introduce a new way to strand a ship.
+      const agent = this.controlledAgent(s.symbol);
+      if ((owner === "mission" || owner === "rescue") && agent && !agent.isSuspended()) {
+        this.log(`ship control drift: ${s.symbol} claimed as "${owner}" but its agent reports isSuspended()=false — a subsystem may be driving it without having suspended it first`);
+      }
       this.shipRegistry.claim(s.symbol, owner, s.role as ShipClaimRole, { status: s.status }, { preempt: true });
     }
     await this.shipRegistry.persistDirtyState(this.tenantId, this.store);

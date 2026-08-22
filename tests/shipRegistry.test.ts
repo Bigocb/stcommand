@@ -139,12 +139,12 @@ describe("ShipRegistry persistence (real Postgres)", () => {
 });
 
 /** A minimal stand-in for the agent classes FleetManager holds in its role maps. */
-function makeFakeAgent(symbol: string, status: string, manual = false) {
+function makeFakeAgent(symbol: string, status: string, manual = false, suspended = false) {
   return {
     symbol,
     getShip: () => ({ symbol, nav: { status, waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units: 0, inventory: [] } }),
     isManual: () => manual,
-    isSuspended: () => false,
+    isSuspended: () => suspended,
     pinnedField: () => undefined,
   };
 }
@@ -198,5 +198,33 @@ describe("FleetManager.syncShipClaims", () => {
     const fleet = new FleetManager({ api: {} as any });
     (fleet as any).traders.set("SHIP-1", makeFakeAgent("SHIP-1", "DOCKED"));
     await assert.doesNotReject(() => (fleet as any).syncShipClaims());
+  });
+
+  it("logs drift when a mission-committed ship's agent isn't actually suspended (Phase 4 detection)", async () => {
+    // The cheap alternative to a full Phase 4 rewrite (docs/ship-control-state-audit.md):
+    // detect a subsystem driving a ship without having suspended it first —
+    // the exact "partial handback" pattern behind every bug this audit
+    // started from — without touching any agent's run-loop gating.
+    const tenantId = await makeTenant();
+    const logs: string[] = [];
+    const fleet = new FleetManager({ api: {} as any, store, tenantId, log: (m) => logs.push(m) });
+    (fleet as any).traders.set("CARRIER-1", makeFakeAgent("CARRIER-1", "IN_TRANSIT", false, false));
+    (fleet as any).missions.committedShips = () => new Set(["CARRIER-1"]);
+
+    await (fleet as any).syncShipClaims();
+
+    assert.ok(logs.some((m) => m.includes("ship control drift") && m.includes("CARRIER-1")), "must log a drift warning for a mission-owned ship that isn't suspended");
+  });
+
+  it("does not log drift when a mission-committed ship's agent is properly suspended", async () => {
+    const tenantId = await makeTenant();
+    const logs: string[] = [];
+    const fleet = new FleetManager({ api: {} as any, store, tenantId, log: (m) => logs.push(m) });
+    (fleet as any).traders.set("CARRIER-1", makeFakeAgent("CARRIER-1", "IN_TRANSIT", false, true));
+    (fleet as any).missions.committedShips = () => new Set(["CARRIER-1"]);
+
+    await (fleet as any).syncShipClaims();
+
+    assert.ok(!logs.some((m) => m.includes("ship control drift")), "a properly-suspended mission carrier must not be flagged");
   });
 });
