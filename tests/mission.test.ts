@@ -58,6 +58,28 @@ describe("MissionManager.assignCarrier", () => {
     await assert.rejects(() => mgr.assignCarrier("X1-A-NOWHERE", "SHIP-1"), /no active mission/);
   });
 
+  it("pausing a mission that already has a carrier clears it from committedShips()", async () => {
+    // Confirmed live: pause() resumed the carrier's agent but never cleared
+    // mission.assignedShip, so committedShips() kept reporting it forever —
+    // which meant FleetManager.syncShipClaims() re-claimed the ship as
+    // owner "mission" on every tick, and since mission outranks warehouse
+    // in ShipRegistry's precedence, that ship could never be designated the
+    // warehouse ship again for as long as the mission stayed paused.
+    const mgr = new MissionManager({
+      api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]),
+      suspend: () => {},
+      resume: () => {},
+    });
+    await mgr.startConstruction("X1-A-I1");
+    await mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    assert.deepEqual([...mgr.committedShips()], ["SHIP-1"]);
+
+    await mgr.pause("X1-A-I1");
+
+    assert.deepEqual([...mgr.committedShips()], [], "a paused mission must not hold its former carrier committed");
+    assert.equal((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.assignedShip, undefined);
+  });
+
   it("assigning a carrier to a paused mission does not restart its sourcing state or spend", async () => {
     const suspended: string[] = [];
     const mgr = new MissionManager({

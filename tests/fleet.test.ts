@@ -840,6 +840,23 @@ describe("FleetManager.setShipRole", () => {
     assert.ok(!(fleet as any).traders.has("COMMAND-1"));
     assert.ok((fleet as any).scouts.has("COMMAND-1"));
   });
+
+  it("refuses to change the role of a suspended ship", async () => {
+    // Confirmed live: clearRoleMaps() stops and drops the current agent, and
+    // installRoleAgent() builds a brand-new one that starts with
+    // suspended=false — silently discarding a live suspension (set by a
+    // mission or rescue tender that's mid-flight controlling this ship via
+    // raw API calls, not through the agent). That reintroduces the exact
+    // "not currently docked" race suspend() exists to prevent.
+    const command = makeFakeAgent("COMMAND-1", "X1-A-A1");
+    const fleet = makeFleet([command]);
+    command.suspend();
+
+    await assert.rejects(() => fleet.setShipRole("COMMAND-1", "scout"), /suspended/);
+
+    assert.ok((fleet as any).traders.has("COMMAND-1"), "the ship must stay under its current agent, untouched");
+    assert.ok(!(fleet as any).scouts.has("COMMAND-1"));
+  });
 });
 
 describe("FleetManager.restorePersistedManualRoles (setShipRole surviving a restart)", () => {

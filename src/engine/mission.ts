@@ -296,6 +296,16 @@ export class MissionManager {
     if (mission.assignedShip) {
       this.resume?.(mission.assignedShip);
       this.log(`mission ${waypointSymbol}: paused, released ${mission.assignedShip}`);
+      // Actually let go, not just resume — leaving assignedShip set kept the
+      // ship permanently reported by committedShips() (nothing ever clears
+      // it while the mission sits paused), which meant syncShipClaims() re-
+      // claimed it as owner "mission" on every subsequent tick and — since
+      // mission outranks warehouse in ShipRegistry's precedence — silently
+      // made that ship un-designatable as the warehouse ship for as long as
+      // the mission stayed paused. Confirmed live and by a targeted test.
+      // resumeMission() already handles a cleared assignedShip correctly:
+      // step()'s "no carrier assigned yet" branch just picks a fresh one.
+      mission.assignedShip = undefined;
     }
     this.tasks.delete(waypointSymbol);
     await this.persist({ ...mission, paused: true });

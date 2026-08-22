@@ -1665,6 +1665,18 @@ export class FleetManager {
    * derived role (from assignRole()) disagrees with it.
    */
   async setShipRole(shipSymbol: string, role: ManualRole, keeperMarket?: string): Promise<void> {
+    // clearRoleMaps() below stops the current agent and drops it; installRoleAgent()
+    // then constructs a brand-new one, which starts with suspended=false —
+    // silently discarding a live suspension instead of ever resolving it. A
+    // suspended ship is mid-flight under a mission or rescue tender's direct
+    // (non-agent) API calls; swapping its agent out from under that reintroduces
+    // exactly the "not currently docked" race suspend() exists to prevent (see
+    // ShipAgent.suspend()'s own doc comment). Refuse instead of guessing how to
+    // transplant state across what can be a totally different agent class
+    // (e.g. miner -> trader).
+    if (this.controlledAgent(shipSymbol)?.isSuspended()) {
+      throw new Error(`${shipSymbol} is suspended (mission or rescue in progress) — can't change its role until that finishes`);
+    }
     const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
     this.clearRoleMaps(shipSymbol);
     const resolvedKeeperMarket = this.installRoleAgent(ship, role, keeperMarket);
