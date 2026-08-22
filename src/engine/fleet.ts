@@ -582,9 +582,18 @@ export class FleetManager {
    * building site, doing nothing with it.
    */
   private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean }[] {
+    // "auto" is the weakest owner in ShipRegistry's precedence, so
+    // availableFor("auto") answers exactly "not held, not suspended, not
+    // committed to a mission/warehouse/keeper claim" — same intent as the
+    // old !isManual() && !isSuspended() check, now backed by the one shared
+    // definition (see docs/ship-control-state-audit.md, Phase 1). The
+    // explicit warehouseShip filter below is now redundant (the warehouse
+    // ship's claim already excludes it here) but kept as cheap defense-in-
+    // depth rather than trusting that alone.
+    const available = this.availableFor("auto");
     return [...this.traders.entries()]
       .filter(([sym]) => sym !== this.warehouseShip?.shipSymbol)
-      .filter(([, a]) => !a.isManual() && !a.isSuspended())
+      .filter(([sym]) => available.has(sym))
       .map(([sym, a]) => ({
         shipSymbol: sym,
         capacity: a.getShip().cargo?.capacity ?? 0,
@@ -1878,18 +1887,17 @@ export class FleetManager {
 
   /** Pick an idle cargo-capable ship to run a mission, preferring the largest hold. */
   private async pickMissionCarrier(exclude: Set<string>, targetWaypoint?: string): Promise<string | undefined> {
-    // Cutover (Greenfield Phase 4): notBusy() already excludes manual ships;
-    // this adds the registry's view on top, which also catches a ship the
-    // dashboard just designated as the warehouse ship this same tick (not
-    // yet reflected in isManual()/isSuspended() the way an operator hold is).
-    const notClaimedAgainstMission = (sym: string) => {
-      const owner = this.shipRegistry.ownerOf(sym)?.owner;
-      return owner === undefined || owner !== "operator";
-    };
-    const notBusy = (a: ShipAgent | TraderAgent) => !a.isManual() && !a.isSuspended();
+    // One shared availability check (docs/ship-control-state-audit.md, Phase
+    // 1) replaces the old pair here: availableFor("mission") already means
+    // "not held by an operator, and not manual/suspended" (mission outranks
+    // warehouse/keeper/auto, so a ship claimed by any of those is still
+    // available to a mission; only operator beats it) — same result as the
+    // old notBusy() + notClaimedAgainstMission() combination, minus the
+    // duplicate logic.
+    const available = this.availableFor("mission");
     const candidates: { sym: string; cargo: number }[] = [];
-    for (const [s, a] of this.miners) if (!exclude.has(s) && notBusy(a) && notClaimedAgainstMission(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
-    for (const [s, a] of this.traders) if (!exclude.has(s) && notBusy(a) && notClaimedAgainstMission(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
+    for (const [s, a] of this.miners) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
+    for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
     // A carrier must be able to reach the target on a full tank (it can refuel at
     // markets along the way, but never beyond its tank). Skip ships that can't —
     // otherwise the mission loops on "cannot navigate" forever.
@@ -2224,6 +2232,32 @@ export class FleetManager {
       this.scouts.get(shipSymbol) ??
       this.siphoners.get(shipSymbol)
     );
+  }
+
+  /**
+   * Ships `owner` could legally claim right now — the one definition of
+   * "available", replacing three independent ones that used to each check
+   * `!isManual() && !isSuspended()` plus their own extra conditions
+   * (`dispatcherTraders`, `pickMissionCarrier`, `maybeAssignKeepers`). See
+   * docs/ship-control-state-audit.md, Phase 1.
+   *
+   * Backed by ShipRegistry.available(), which answers from `syncShipClaims()`'s
+   * once-per-tick snapshot — up to one tick (~2s) stale relative to a fresh
+   * isManual()/isSuspended() read, same staleness the registry's own doc
+   * comment already calls out. A ship with no claim recorded yet (the very
+   * first tick after boot, or a ship purchased this same tick, before
+   * syncShipClaims() has run even once) falls back to a direct agent check
+   * instead of being misreported as unavailable — this is a narrow gap-filler
+   * for "no claim exists yet", not a second definition of "busy".
+   */
+  private availableFor(owner: ShipClaimOwner): Set<string> {
+    const out = new Set(this.shipRegistry.available(owner));
+    for (const s of this.getShipStatuses()) {
+      if (out.has(s.symbol) || this.shipRegistry.ownerOf(s.symbol)) continue;
+      const agent = this.controlledAgent(s.symbol);
+      if (agent && !agent.isManual() && !agent.isSuspended()) out.add(s.symbol);
+    }
+    return out;
   }
 
   /** This ship's current role, whichever map actually holds it — same lookup `getShipStatuses()` does inline, factored out for the ShipRegistry claim() call sites below. */
@@ -3056,9 +3090,14 @@ export class FleetManager {
     // mining laser, which is otherwise the only way it could even end up in
     // `this.miners` at all (assignRole() only routes a COMMAND-role ship to
     // `traders`, not `miners`, when it isn't mining-equipped).
-    const idle = (a: ShipAgent) => !a.isManual() && !a.isSuspended() && (a.getShip().cargo?.units ?? 0) === 0 && a.getShip().registration?.role !== "COMMAND";
-    const miners = [...this.miners.entries()].filter(([, a]) => idle(a));
-    const shuttles = [...this.tours.entries()].filter(([, a]) => idle(a));
+    // availableFor("keeper") replaces the old !isManual() && !isSuspended()
+    // half of this check (docs/ship-control-state-audit.md, Phase 1); cargo-
+    // empty and not-COMMAND stay as genuinely keeper-specific predicates
+    // layered on top, not folded into the shared availability answer.
+    const available = this.availableFor("keeper");
+    const idle = (sym: string, a: ShipAgent) => available.has(sym) && (a.getShip().cargo?.units ?? 0) === 0 && a.getShip().registration?.role !== "COMMAND";
+    const miners = [...this.miners.entries()].filter(([sym, a]) => idle(sym, a));
+    const shuttles = [...this.tours.entries()].filter(([sym, a]) => idle(sym, a));
     for (;;) {
       const need = await this.priorityUncovered();
       if (need.length === 0) break;

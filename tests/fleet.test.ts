@@ -690,6 +690,44 @@ describe("FleetManager dispatcherTraders", () => {
   });
 });
 
+describe("FleetManager.availableFor", () => {
+  // The one shared availability check that replaced three independent
+  // isManual()/isSuspended() checks in dispatcherTraders(), pickMissionCarrier(),
+  // and maybeAssignKeepers() — see docs/ship-control-state-audit.md, Phase 1.
+  // None of these ships have gone through syncShipClaims() (no tenant/store
+  // wired up here), so this specifically exercises the "no claim recorded
+  // yet" fallback path, not the registry-claim path — see the other
+  // describe blocks above/below for the registry-backed callers still
+  // behaving correctly through that fallback.
+  it("excludes a manually-held ship and a suspended ship, includes a free one", async () => {
+    const free = makeFakeAgent("FREE-1", "X1-A-A1");
+    const held = makeFakeAgent("HELD-1", "X1-A-A1");
+    const suspended = makeFakeAgent("SUSP-1", "X1-A-A1");
+    const fleet = makeFleet([free, held, suspended]);
+    await held.dispatchTo("X1-A-A2");
+    suspended.suspend();
+
+    const available = (fleet as any).availableFor("auto") as Set<string>;
+
+    assert.equal(available.has("FREE-1"), true);
+    assert.equal(available.has("HELD-1"), false);
+    assert.equal(available.has("SUSP-1"), false);
+  });
+
+  it("a claim recorded in the registry overrides the direct fallback check", () => {
+    const ship = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([ship]);
+    // Ship is free by isManual()/isSuspended(), but explicitly claimed by a
+    // stronger owner (operator) in the registry — mission must not treat it
+    // as available even though the fallback path alone would say yes.
+    (fleet as any).shipRegistry.claim("SHIP-1", "operator", "trader");
+
+    const available = (fleet as any).availableFor("mission") as Set<string>;
+
+    assert.equal(available.has("SHIP-1"), false, "an operator claim in the registry must win over the direct fallback check");
+  });
+});
+
 describe("FleetManager warehouse API surface", () => {
   it("warehouseGoods and warehouseValue reflect the store", async () => {
     const tenantId = await makeTenant();
