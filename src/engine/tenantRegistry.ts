@@ -8,7 +8,7 @@ import { ChatAgent } from "./agentChat.js";
 import { MarketIntel, type MarketSnapshot } from "./market.js";
 import { DiscordRelay } from "./discord.js";
 import { Scheduler } from "./scheduler.js";
-import { getTenantToken, getTenantLlmConfig, getTenantDiscordWebhook } from "../db/tenants.js";
+import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook } from "../db/tenants.js";
 
 export interface TenantWorker {
   tenantId: string;
@@ -90,6 +90,36 @@ export class TenantRegistry {
   /** An already-booted worker, if one exists — never triggers a boot. */
   get(tenantId: string): TenantWorker | undefined {
     return this.workers.get(tenantId);
+  }
+
+  /**
+   * Set (or clear, by passing undefined) a tenant's co-pilot LLM config and
+   * apply it to the live worker immediately — same "no restart needed"
+   * contract as DiscordRelay.setWebhook(), but the co-pilot has no
+   * lower-level setter to mutate (ChatAgent's constructor is where
+   * apiKey/model/baseUrl get wired to the underlying ChatLLM), so this
+   * replaces `worker.chat` outright rather than reconfiguring it in place.
+   * A worker that hasn't booted yet in this process just picks up the new
+   * config the normal way, from getTenantLlmConfig() in getOrCreate() above.
+   */
+  async setLlmConfig(tenantId: string, config: { provider: string; baseUrl?: string; model: string; apiKey: string } | undefined): Promise<void> {
+    await setTenantLlmConfig(this.pool, tenantId, config);
+    const worker = this.workers.get(tenantId);
+    if (!worker) return;
+    worker.chat = config
+      ? new ChatAgent({
+          state: worker.state,
+          store: worker.store,
+          fleet: worker.fleet,
+          api: worker.api,
+          tenantId: worker.tenantId,
+          agentSymbol: worker.agentSymbol,
+          apiKey: config.apiKey,
+          model: config.model,
+          baseUrl: config.baseUrl,
+          onEvent: (e) => this.log(tenantId, `[copilot] ${e.type}: ${e.detail}`),
+        })
+      : undefined;
   }
 
   /** Get a tenant's worker, booting it (once) if this process hasn't seen it yet. */

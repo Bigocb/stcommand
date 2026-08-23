@@ -2063,6 +2063,15 @@ async function renderBook() {
         <button class="btn ghost" id="discord-save">Save</button>
         <div class="ok" id="discord-ok"></div>
       </div>
+      <div class="book-settings" id="copilot-settings">
+        <span class="l">Co-pilot</span>
+        <input type="text" id="copilot-baseurl" placeholder="Endpoint (blank = OpenAI default)" />
+        <input type="text" id="copilot-model" placeholder="Model (e.g. gpt-4o-mini)" />
+        <input type="password" id="copilot-key" placeholder="API key" />
+        <button class="btn ghost" id="copilot-save">Save</button>
+        <button class="btn ghost" id="copilot-clear">Clear</button>
+        <div class="ok" id="copilot-ok"></div>
+      </div>
     </div>
     <div class="marg">${margHtml}</div>`;
 
@@ -2088,6 +2097,7 @@ async function renderBook() {
   // this dynamic innerHTML), so the listener from initDiscord() needs
   // re-attaching each time too, not just once at boot.
   initDiscord();
+  initCopilotSettings();
 }
 
 /** Click-to-edit for a book clause's value chip: swaps the button for a
@@ -2577,6 +2587,47 @@ function initDiscord() {
       await api("POST", "/api/discord", { webhookUrl: url });
       $("discord-ok").textContent = "Relay set.";
     } catch (e) { $("discord-ok").textContent = e.message; $("discord-ok").style.color = "var(--red)"; }
+  });
+}
+
+/** Co-pilot LLM settings — recreated each renderBook() call like Discord's,
+ *  so this both wires the buttons and prefills endpoint/model from whatever
+ *  is already saved (the key itself is never sent back, so that field always
+ *  starts blank — "configured" state is shown via the placeholder instead). */
+async function initCopilotSettings() {
+  const baseUrlEl = $("copilot-baseurl"), modelEl = $("copilot-model"), keyEl = $("copilot-key"), okEl = $("copilot-ok");
+  if (!baseUrlEl) return;
+  try {
+    const cfg = await api("GET", "/api/settings/llm");
+    baseUrlEl.value = cfg.baseUrl ?? "";
+    modelEl.value = cfg.model ?? "";
+    keyEl.placeholder = cfg.configured ? "Key set — leave blank to keep it" : "API key";
+    if (cfg.configured) okEl.textContent = `Active (${cfg.model}).`;
+  } catch (e) { /* engine not ready yet — leave the form blank */ }
+
+  $("copilot-save").addEventListener("click", async () => {
+    const model = modelEl.value.trim();
+    const apiKey = keyEl.value.trim();
+    if (!model) { okEl.textContent = "Model required."; okEl.style.color = "var(--red)"; return; }
+    if (!apiKey) { okEl.textContent = "API key required (first-time setup)."; okEl.style.color = "var(--red)"; return; }
+    try {
+      await api("POST", "/api/settings/llm", { baseUrl: baseUrlEl.value.trim() || undefined, model, apiKey });
+      okEl.style.color = "var(--green)";
+      okEl.textContent = "Co-pilot enabled.";
+      keyEl.value = "";
+      keyEl.placeholder = "Key set — leave blank to keep it";
+    } catch (e) { okEl.style.color = "var(--red)"; okEl.textContent = e.message; }
+  });
+  $("copilot-clear").addEventListener("click", async () => {
+    try {
+      await api("POST", "/api/settings/llm", {});
+      okEl.style.color = "var(--dim)";
+      okEl.textContent = "Co-pilot disabled.";
+      baseUrlEl.value = "";
+      modelEl.value = "";
+      keyEl.value = "";
+      keyEl.placeholder = "API key";
+    } catch (e) { okEl.style.color = "var(--red)"; okEl.textContent = e.message; }
   });
 }
 
@@ -3387,7 +3438,7 @@ function roleMismatchReason(role, ship) {
   if (role === "miner" && !mountSymbols.some((s) => s.startsWith("MOUNT_MINING_LASER"))) return "no mining laser mounted";
   if (role === "surveyor" && !mountSymbols.some((s) => s.startsWith("MOUNT_SURVEYOR"))) return "no surveyor mounted";
   if (role === "siphoner" && !mountSymbols.some((s) => s.startsWith("MOUNT_GAS_SIPHON"))) return "no gas siphon mounted";
-  if (role === "tour" && frame !== "FRAME_SHUTTLE") return "not a shuttle frame";
+  if (role === "tour" && frame !== "FRAME_SHUTTLE" && ship.registration?.role !== "COMMAND") return "not a shuttle or command frame";
   if (role === "keeper" && ship.registration?.role !== "SATELLITE" && frame !== "FRAME_PROBE") return "not a probe/satellite hull";
   if (role === "trader" && (ship.cargo?.capacity ?? 0) < 15) return "cargo capacity under 15";
   return null;

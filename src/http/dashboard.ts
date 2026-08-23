@@ -3,7 +3,7 @@ import type pg from "pg";
 import { generateLog } from "../engine/narrative.js";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
 import { buildTriage } from "../engine/triage.js";
-import { setTenantDiscordWebhook } from "../db/tenants.js";
+import { setTenantDiscordWebhook, getTenantLlmConfig } from "../db/tenants.js";
 import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
 
 /**
@@ -953,6 +953,46 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     try {
       await setTenantDiscordWebhook(pool, w.tenantId, webhookUrl);
       w.discord.setWebhook(webhookUrl);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Current co-pilot config, minus the key — just enough for Settings to show state and let the operator clear it. */
+  router.get("/settings/llm", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      const config = await getTenantLlmConfig(pool, w.tenantId);
+      res.json({
+        configured: !!config,
+        provider: config?.provider ?? null,
+        baseUrl: config?.baseUrl ?? null,
+        model: config?.model ?? null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Sets (or clears, by omitting apiKey) this tenant's co-pilot LLM config — persisted, and applied to the live worker immediately, no restart needed. */
+  router.post("/settings/llm", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { provider, baseUrl, model, apiKey } = req.body ?? {};
+    try {
+      if (typeof apiKey === "string" && apiKey.trim()) {
+        if (typeof model !== "string" || !model.trim()) return res.status(400).json({ error: "model required" });
+        await registry.setLlmConfig(w.tenantId, {
+          provider: typeof provider === "string" && provider.trim() ? provider.trim() : "custom",
+          baseUrl: typeof baseUrl === "string" && baseUrl.trim() ? baseUrl.trim() : undefined,
+          model: model.trim(),
+          apiKey: apiKey.trim(),
+        });
+      } else {
+        await registry.setLlmConfig(w.tenantId, undefined);
+      }
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
