@@ -287,10 +287,14 @@
   .sheet .sig .t { font-family:var(--book); font-style:italic; font-size:14px; color:var(--dim); }
   .sheet .sig .st { margin-left:auto; font-family:var(--chrome); font-weight:800; text-transform:uppercase;
     letter-spacing:0.16em; font-size:10px; color:var(--green); border:1px solid var(--rule); padding:5px 12px; }
-  .book-settings { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule-soft); display:flex; align-items:center; gap:8px; }
+  .book-settings { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule-soft); display:flex; align-items:center; gap:8px; flex-wrap:wrap; row-gap:8px; }
   .book-settings .l { font-family:var(--chrome); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); flex-shrink:0; }
-  .book-settings input { flex:1; min-width:0; background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:5px 8px; }
-  .book-settings .ok { font-size:9px; color:var(--green); flex-shrink:0; }
+  .book-settings input { flex:1; min-width:120px; background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:5px 8px; }
+  .book-settings .ok { font-size:9px; color:var(--green); flex-shrink:0; flex-basis:100%; }
+  /* Book mode's last block, sitting right above the Bridge ticker — without
+     this it renders flush against the ticker bar with no breathing room,
+     making the row look cut off rather than just at the bottom of the page. */
+  .sheet .page { padding-bottom:28px; }
   .sheet .mnote { border-bottom:1px solid var(--rule-soft); padding:0 0 13px; margin-bottom:13px; }
   .sheet .mnote:last-child { border-bottom:none; }
   .sheet .mnote .ml { font-size:9px; letter-spacing:0.17em; text-transform:uppercase; color:var(--dim); margin-bottom:5px; font-family:var(--chrome); font-weight:600; }
@@ -2065,8 +2069,8 @@ async function renderBook() {
       </div>
       <div class="book-settings" id="copilot-settings">
         <span class="l">Co-pilot</span>
-        <input type="text" id="copilot-baseurl" placeholder="Endpoint (blank = OpenAI default)" />
-        <input type="text" id="copilot-model" placeholder="Model (e.g. gpt-4o-mini)" />
+        <input type="text" id="copilot-baseurl" placeholder="Endpoint (optional)" />
+        <input type="text" id="copilot-model" placeholder="Model" />
         <input type="password" id="copilot-key" placeholder="API key" />
         <button class="btn ghost" id="copilot-save">Save</button>
         <button class="btn ghost" id="copilot-clear">Clear</button>
