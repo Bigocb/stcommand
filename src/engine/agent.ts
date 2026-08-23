@@ -1338,7 +1338,17 @@ export class ShipAgent {
    * production, so `nextTourTask()` sits at telemetry's priority 4.
    */
   nextTask(earliestRunAt = Date.now()): Task {
-    this.running = true; // idempotent whether this is a fresh enqueue or a chained call — see TraderAgent.nextTask()'s comment
+    // Deliberately does NOT set this.running = true here — every external
+    // enqueue site already does that immediately before calling this (see
+    // fleet.ts's setShipRole()/syncSchedulerTasks()). This method is also
+    // called internally, from within its own run()'s `next: this.nextTask(...)`
+    // chaining — if it reset running=true unconditionally there too, a
+    // stop() landing while a task is mid-flight (tick() can run 10s of
+    // seconds) would get silently undone the moment that in-flight call
+    // finishes and chains its own next task, resurrecting a supposedly-
+    // stopped agent into an immortal loop. Confirmed live: a ship converted
+    // from miner to tour kept mining indefinitely, in parallel with its new
+    // tour duty, because of exactly this race.
     return {
       id: `${this.symbol}-mine`,
       shipSymbol: this.symbol,
@@ -1365,7 +1375,7 @@ export class ShipAgent {
   }
 
   nextSurveyTask(earliestRunAt = Date.now()): Task {
-    this.running = true;
+    // See nextTask()'s comment: not set here, only by external enqueue sites.
     return {
       id: `${this.symbol}-survey`,
       shipSymbol: this.symbol,
@@ -1389,7 +1399,7 @@ export class ShipAgent {
   }
 
   nextTourTask(earliestRunAt = Date.now()): Task {
-    this.running = true;
+    // See nextTask()'s comment: not set here, only by external enqueue sites.
     return {
       id: `${this.symbol}-tour`,
       shipSymbol: this.symbol,
@@ -1414,7 +1424,7 @@ export class ShipAgent {
 
   /** Unlike the other three, a successful keeper poll backs off 5 minutes (KEEPER_POLL_MS-equivalent), not 0 — same as keeperLoop()'s own sleep(5 * 60_000) after a snapshot. */
   nextKeeperTask(earliestRunAt = Date.now()): Task {
-    this.running = true;
+    // See nextTask()'s comment: not set here, only by external enqueue sites.
     return {
       id: `${this.symbol}-keeper`,
       shipSymbol: this.symbol,

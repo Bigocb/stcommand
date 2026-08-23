@@ -11,6 +11,14 @@ import { TraderAgent, type Ship } from "../src/engine/trader.js";
  * buy/sell/route logic is untouched by this phase and has no test coverage
  * here (straders' original trader.test.ts, 591 lines, was never ported —
  * see README's "not yet ported" note, unrelated to this phase).
+ *
+ * Every nextTask() call below sets `trader.running = true` first — matching
+ * every real call site (fleet.ts's setShipRole()/syncSchedulerTasks()),
+ * which always does this immediately before the first enqueue. nextTask()
+ * itself deliberately does not set it (see trader.ts's own comment there):
+ * it's also called internally from its own chained `next: this.nextTask(...)`,
+ * and unconditionally setting running=true there too would silently
+ * resurrect an agent a stop() had just stopped mid-flight.
  */
 
 function makeShip(symbol = "SHIP-1"): Ship {
@@ -25,6 +33,7 @@ function makeShip(symbol = "SHIP-1"): Ship {
 describe("TraderAgent.nextTask", () => {
   it("returns a well-formed trade-priority Task", () => {
     const trader = new TraderAgent(makeShip("SHIP-1"), { api: { getCallCount: () => 0 } as any });
+    trader.running = true;
     const task = trader.nextTask();
     assert.equal(task.id, "SHIP-1-trade");
     assert.equal(task.shipSymbol, "SHIP-1");
@@ -37,6 +46,7 @@ describe("TraderAgent.nextTask", () => {
     let tickCalled = false;
     const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any, shouldRun: () => false });
     (trader as any).tick = async () => { tickCalled = true; return true; };
+    trader.running = true;
 
     const result = await trader.nextTask().run();
 
@@ -50,6 +60,7 @@ describe("TraderAgent.nextTask", () => {
     let calls = 0;
     const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => calls } as any });
     (trader as any).tick = async () => { calls += 2; return true; }; // simulates tick() making 2 real API calls
+    trader.running = true;
 
     const result = await trader.nextTask().run();
 
@@ -61,6 +72,7 @@ describe("TraderAgent.nextTask", () => {
   it("when tick() found nothing to do (made=false), backs off ~30s — same as runLoop()'s idle sleep", async () => {
     const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (trader as any).tick = async () => false;
+    trader.running = true;
 
     const result = await trader.nextTask().run();
 
@@ -71,6 +83,7 @@ describe("TraderAgent.nextTask", () => {
   it("when tick() throws, backs off ~10s and does not propagate the error — same as runLoop()'s catch", async () => {
     const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (trader as any).tick = async () => { throw new Error("boom"); };
+    trader.running = true;
 
     const result = await trader.nextTask().run();
 
@@ -78,20 +91,56 @@ describe("TraderAgent.nextTask", () => {
     assert.ok(delay > 5_000 && delay <= 10_000, `expected ~10s backoff, got ${delay}ms`);
   });
 
-  it("a fuel-related error marks the ship stranded, same as runLoop()'s error handling", async () => {
-    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+  it("a fuel-related error on a genuinely low-fuel ship marks it stranded, same as runLoop()'s error handling", async () => {
+    const ship = makeShip();
+    ship.fuel = { current: 2, capacity: 100 } as any;
+    const trader = new TraderAgent(ship, { api: { getCallCount: () => 0 } as any });
     (trader as any).tick = async () => { throw new Error("insufficient fuel for this trip"); };
+    trader.running = true;
 
     assert.ok(!trader.isStranded());
     await trader.nextTask().run();
     assert.ok(trader.isStranded());
   });
 
-  it("a non-fuel error does not mark the ship stranded", async () => {
-    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
-    (trader as any).tick = async () => { throw new Error("market unavailable"); };
+  it("a fuel-related error on a full-tank ship does not mark it stranded — the leg is out of range, not a real stranding", async () => {
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any }); // makeShip() defaults to a full 100/100 tank
+    (trader as any).tick = async () => { throw new Error("requires 16 more fuel for navigation"); };
+    trader.running = true;
 
     await trader.nextTask().run();
     assert.ok(!trader.isStranded());
+  });
+
+  it("a non-fuel error does not mark the ship stranded", async () => {
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+    (trader as any).tick = async () => { throw new Error("market unavailable"); };
+    trader.running = true;
+
+    await trader.nextTask().run();
+    assert.ok(!trader.isStranded());
+  });
+
+  it("does not resurrect a stopped trader when an in-flight run() completes and chains its own next task", async () => {
+    // The actual bug this file's callers must never reintroduce: nextTask()
+    // must not set running=true itself, or a stop() landing while a task is
+    // mid-flight gets silently undone the moment that in-flight call
+    // resolves and chains forward — confirmed live as a ship converted from
+    // miner to tour that kept mining indefinitely in parallel with its new
+    // role.
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+    (trader as any).tick = async () => {
+      trader.stop(); // simulates setShipRole() converting this ship mid-tick
+      return true;
+    };
+    trader.running = true;
+
+    const result = await trader.nextTask().run();
+    // result.next is just an inert descriptor at this point — nextTask()
+    // itself never checks `running` (only a task's own run() does, the next
+    // time the scheduler actually invokes it). The real invariant is that
+    // invoking that descriptor's run() must find the chain stopped.
+    const next = await result.next!.run();
+    assert.equal(next.next, undefined, "a stop() during the in-flight tick() must end the chain the next time it's actually run, not silently resume it");
   });
 });

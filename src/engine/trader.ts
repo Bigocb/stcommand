@@ -1276,19 +1276,7 @@ export class TraderAgent {
         const made = await p;
         if (!made) await sleep(30_000);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.log(`trader error: ${msg}`);
-        // Any error whose message merely contains "fuel" used to trigger this
-        // — but "Navigate request failed: requires N more fuel" fires just as
-        // readily on a full tank attempting a leg that's simply outside its
-        // single-hop range (confirmed live: a 400/400 ship hit this) as it
-        // does on a ship that's genuinely near-empty with nowhere reachable.
-        // The tender-rescue system this flag drives is for the latter only —
-        // sending a tender to a full-tank ship wastes the trip and, worse,
-        // used to send that same ship right back at the identical
-        // unreachable leg next tick, re-triggering this forever. Low current
-        // fuel is the actual signal "stranded" is supposed to mean.
-        if (/fuel/i.test(msg) && this.ship.fuel.current <= this.ship.fuel.capacity * 0.1) this.markStranded();
+        this.handleTickError(err);
         await sleep(10_000);
       } finally {
         this.inFlight = null;
@@ -1299,6 +1287,29 @@ export class TraderAgent {
 
   stop(): void {
     this.running = false;
+  }
+
+  /**
+   * Shared by runLoop()'s catch and nextTask()'s (the scheduler-driven path
+   * that's actually live in production, since fleet.ts runs ships through
+   * the scheduler, not runLoop()) — kept as one method after the two copies
+   * were found to have silently drifted: nextTask()'s still had the old
+   * blanket check after runLoop()'s was fixed. Any error whose message
+   * merely contains "fuel" used to mark the ship stranded — but "Navigate
+   * request failed: requires N more fuel" fires just as readily on a full
+   * tank attempting a leg that's simply outside its single-hop range
+   * (confirmed live: a 400/400 ship hit this) as it does on a ship that's
+   * genuinely near-empty with nowhere reachable. The tender-rescue system
+   * this flag drives is for the latter only — sending a tender to a
+   * full-tank ship wastes the trip and, worse, used to send that same ship
+   * right back at the identical unreachable leg next tick, re-triggering
+   * this forever. Low current fuel is the actual signal "stranded" is
+   * supposed to mean.
+   */
+  private handleTickError(err: unknown): void {
+    const msg = err instanceof Error ? err.message : String(err);
+    this.log(`trader error: ${msg}`);
+    if (/fuel/i.test(msg) && this.ship.fuel.current <= this.ship.fuel.capacity * 0.1) this.markStranded();
   }
 
   /**
@@ -1321,11 +1332,17 @@ export class TraderAgent {
    * README's Greenfield section.
    */
   nextTask(earliestRunAt = Date.now()): Task {
-    // Marks the chain "live" whether this is the first call (a fresh
-    // enqueue) or a chained one — idempotent, and means a caller can never
-    // forget to flip this before scheduling, the way runLoop()'s own
-    // `this.running = true` at entry couldn't be forgotten either.
-    this.running = true;
+    // Confirmed live: this used to unconditionally set this.running = true
+    // here, on the theory that a caller could never forget to flip it before
+    // scheduling. But this method is also called internally, from within its
+    // own run()'s `next: this.nextTask(...)` chaining — a stop() landing
+    // while a task is mid-flight (tick() can take many seconds) got silently
+    // undone the moment that in-flight call finished and chained its own
+    // next task, resurrecting a supposedly-stopped agent into an immortal
+    // loop running in parallel with whatever replaced it. Every external
+    // enqueue site (fleet.ts's setShipRole()/syncSchedulerTasks()) already
+    // sets this.running = true itself immediately before the first call, so
+    // this doesn't need to and must not do it again on every chain step.
     return {
       id: `${this.symbol}-trade`,
       shipSymbol: this.symbol,
@@ -1353,9 +1370,7 @@ export class TraderAgent {
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
-          const msg = err instanceof Error ? err.message : String(err);
-          this.log(`trader error: ${msg}`);
-          if (/fuel/i.test(msg)) this.markStranded();
+          this.handleTickError(err);
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         }
       },

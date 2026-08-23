@@ -10,6 +10,14 @@ import { SiphonerAgent } from "../src/engine/siphoner.js";
  * approach and same test strategy as tests/traderNextTask.test.ts (Phase
  * 6): stub the wrapped work-unit method, verify Task shape and backoff
  * timing, not real mining/surveying/scouting/siphoning decisions.
+ *
+ * Every nextXTask() call below sets `agent.running = true` first — matching
+ * every real call site (fleet.ts's setShipRole()/syncSchedulerTasks()),
+ * which always does this immediately before the first enqueue. nextXTask()
+ * itself deliberately does not set it (see agent.ts's ShipAgent.nextTask()
+ * comment): it's also called internally from its own chained `next:
+ * this.nextXTask(...)`, and unconditionally setting running=true there would
+ * silently resurrect an agent a stop() had just stopped mid-flight.
  */
 
 function makeShip(symbol = "SHIP-1"): Ship {
@@ -26,6 +34,7 @@ describe("ShipAgent.nextTask (miner role)", () => {
     let calls = 0;
     const agent = new ShipAgent(makeShip("MINER-1"), { api: { getCallCount: () => calls } as any });
     (agent as any).tick = async () => { calls += 2; return true; }; // simulates tick() making 2 real API calls
+    agent.running = true;
     const task = agent.nextTask();
     assert.equal(task.id, "MINER-1-mine");
     assert.equal(task.priority, 2);
@@ -37,6 +46,7 @@ describe("ShipAgent.nextTask (miner role)", () => {
   it("backs off ~30s when tick() finds nothing to do", async () => {
     const agent = new ShipAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (agent as any).tick = async () => false;
+    agent.running = true;
     const result = await agent.nextTask().run();
     const delay = result.next!.earliestRunAt - Date.now();
     assert.ok(delay > 25_000 && delay <= 30_000);
@@ -46,6 +56,7 @@ describe("ShipAgent.nextTask (miner role)", () => {
     let called = false;
     const agent = new ShipAgent(makeShip(), { api: { getCallCount: () => 0 } as any, shouldRun: () => false });
     (agent as any).tick = async () => { called = true; return true; };
+    agent.running = true;
     const result = await agent.nextTask().run();
     assert.ok(!called);
     assert.equal(result.actualCalls, 0);
@@ -55,9 +66,32 @@ describe("ShipAgent.nextTask (miner role)", () => {
   it("an error backs off ~10s without propagating", async () => {
     const agent = new ShipAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (agent as any).tick = async () => { throw new Error("boom"); };
+    agent.running = true;
     const result = await agent.nextTask().run();
     const delay = result.next!.earliestRunAt - Date.now();
     assert.ok(delay > 5_000 && delay <= 10_000);
+  });
+
+  it("does not resurrect a stopped agent when an in-flight run() completes and chains its own next task", async () => {
+    // The actual bug this file's callers must never reintroduce: nextTask()
+    // must not set running=true itself, or a stop() landing while a task is
+    // mid-flight gets silently undone the moment that in-flight call
+    // resolves and chains forward — confirmed live as a ship converted from
+    // miner to tour that kept mining indefinitely in parallel with its new
+    // role.
+    const agent = new ShipAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+    (agent as any).tick = async () => {
+      agent.stop(); // simulates setShipRole() converting this ship mid-tick
+      return true;
+    };
+    agent.running = true;
+    const result = await agent.nextTask().run();
+    // result.next is just an inert descriptor at this point — nextTask()
+    // itself never checks `running` (only a task's own run() does, the next
+    // time the scheduler actually invokes it). The real invariant is that
+    // invoking that descriptor's run() must find the chain stopped.
+    const next = await result.next!.run();
+    assert.equal(next.next, undefined, "a stop() during the in-flight tick() must end the chain the next time it's actually run, not silently resume it");
   });
 });
 
@@ -66,6 +100,7 @@ describe("ShipAgent.nextSurveyTask", () => {
     const agent = new ShipAgent(makeShip("SURV-1"), { api: { getCallCount: () => 0 } as any });
     let called = false;
     (agent as any).surveyScout = async () => { called = true; return true; };
+    agent.running = true;
     const task = agent.nextSurveyTask();
     assert.equal(task.id, "SURV-1-survey");
     assert.equal(task.priority, 3);
@@ -80,6 +115,7 @@ describe("ShipAgent.nextTourTask", () => {
     const agent = new ShipAgent(makeShip("TOUR-1"), { api: { getCallCount: () => 0 } as any });
     let called = false;
     (agent as any).tourScout = async () => { called = true; return false; };
+    agent.running = true;
     const task = agent.nextTourTask();
     assert.equal(task.id, "TOUR-1-tour");
     assert.equal(task.priority, 4);
@@ -94,6 +130,7 @@ describe("ShipAgent.nextKeeperTask", () => {
   it("a successful snapshot backs off 5 minutes, not the usual 0/30s", async () => {
     const agent = new ShipAgent(makeShip("KEEPER-1"), { api: { getCallCount: () => 0 } as any });
     (agent as any).keeperPoll = async () => true;
+    agent.running = true;
     const task = agent.nextKeeperTask();
     assert.equal(task.id, "KEEPER-1-keeper");
     assert.equal(task.priority, 3);
@@ -105,6 +142,7 @@ describe("ShipAgent.nextKeeperTask", () => {
   it("no assigned market backs off ~30s", async () => {
     const agent = new ShipAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (agent as any).keeperPoll = async () => false;
+    agent.running = true;
     const result = await agent.nextKeeperTask().run();
     const delay = result.next!.earliestRunAt - Date.now();
     assert.ok(delay > 25_000 && delay <= 30_000);
@@ -115,6 +153,7 @@ describe("ShipAgent.nextKeeperTask", () => {
     // No market assigned — keeperPoll() itself (unstubbed) must return false
     // via the real (extracted, Phase 7) implementation, proving the
     // extraction didn't change observable behavior.
+    agent.running = true;
     const result = await agent.nextKeeperTask().run();
     const delay = result.next!.earliestRunAt - Date.now();
     assert.ok(delay > 25_000 && delay <= 30_000);
@@ -125,6 +164,7 @@ describe("ScoutAgent.nextTask", () => {
   it("wraps tick(), priority 4, backs off on error without propagating", async () => {
     const agent = new ScoutAgent(makeShip("SCOUT-1"), { api: { getCallCount: () => 0 } as any });
     (agent as any).tick = async () => { throw new Error("boom"); };
+    agent.running = true;
     const task = agent.nextTask();
     assert.equal(task.id, "SCOUT-1-scout");
     assert.equal(task.priority, 4);
@@ -139,6 +179,7 @@ describe("SiphonerAgent.nextTask", () => {
     let calls = 0;
     const agent = new SiphonerAgent(makeShip("SIPH-1"), { api: { getCallCount: () => calls } as any });
     (agent as any).tick = async () => { calls += 2; return true; };
+    agent.running = true;
     const task = agent.nextTask();
     assert.equal(task.id, "SIPH-1-siphon");
     assert.equal(task.priority, 2);

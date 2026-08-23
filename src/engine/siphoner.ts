@@ -483,7 +483,10 @@ export class SiphonerAgent {
 
   /** Scheduler Task producer wrapping tick(), same approach as TraderAgent.nextTask() — see that file's comment. Driven for real by fleet.run() when a Scheduler is wired in (see FleetManager.syncSchedulerTasks()). */
   nextTask(earliestRunAt = Date.now()): Task {
-    this.running = true;
+    // Deliberately not set here — see agent.ts's ShipAgent.nextTask() comment:
+    // every external enqueue site sets this.running=true itself, and setting
+    // it unconditionally here too would let a stop() landing mid-flight get
+    // silently undone the moment the in-flight call chains its own next task.
     return {
       id: `${this.symbol}-siphon`,
       shipSymbol: this.symbol,
