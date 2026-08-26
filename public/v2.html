@@ -3572,7 +3572,8 @@ function openShipDetails(shipSymbol) {
     <div class="loadout-section"><h4>Cargo hold</h4>
       ${(ship.cargo.inventory ?? []).length
         ? `<div class="loadout-grid">${(ship.cargo.inventory ?? []).map((i) =>
-            `<div class="loadout-item"><span class="n">${i.units}u ${i.symbol}</span></div>`
+            `<div class="loadout-item"><span class="n">${i.units}u ${escapeHtml(i.symbol)}</span>
+              <button class="jettison-item" data-ship="${escapeAttr(shipSymbol)}" data-good="${escapeAttr(i.symbol)}" data-units="${i.units}" title="Dump ${i.units}u ${escapeAttr(i.symbol)} — cannot be undone">Jettison</button></div>`
           ).join("")}</div>`
         : `<div class="empty">Hold is empty.</div>`}
     </div>
@@ -3724,6 +3725,19 @@ function openShipDetails(shipSymbol) {
         showToastGlobal(`${b.dataset.ship} choosing its own field again`);
         await loadBridge();
         openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".jettison-item").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const { ship: shipSymbol, good, units } = b.dataset;
+      if (!confirm(`Jettison ${units}u ${good} from ${shipSymbol}? This cannot be undone.`)) return;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/jettison", { shipSymbol, good, units: Number(units) });
+        showToastGlobal(`${shipSymbol} jettisoned ${units}u ${good}`);
+        await loadBridge();
+        openShipDetails(shipSymbol);
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });

@@ -944,6 +944,22 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  router.post("/fleet/jettison", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol, good, units } = req.body ?? {};
+    if (typeof shipSymbol !== "string" || typeof good !== "string" || typeof units !== "number") {
+      return res.status(400).json({ error: "shipSymbol, good, units required" });
+    }
+    try {
+      await w.fleet.jettisonCargo(shipSymbol, good, units);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[dashboard] jettison error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /** Sets this tenant's own webhook — persisted, and applied to the live relay immediately, no restart needed. */
   router.post("/discord", async (req, res) => {
     const w = worker(req);

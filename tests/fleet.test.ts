@@ -173,6 +173,70 @@ describe("FleetManager warehouse ship", () => {
   });
 });
 
+describe("FleetManager.jettisonCargo", () => {
+  function makeAgentWithCargo(symbol: string, inventory: { symbol: string; units: number }[]) {
+    const units = inventory.reduce((sum, i) => sum + i.units, 0);
+    return {
+      symbol,
+      getShip: () => ({ symbol, nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units, inventory } }),
+      isManual: () => false,
+      isSuspended: () => false,
+      dispatchTo: async () => {},
+      release: () => {},
+      suspend: () => {},
+      resume: () => {},
+      stop: () => {},
+      pinnedField: () => undefined,
+    };
+  }
+
+  it("jettisons cargo without requiring a market or dock", async () => {
+    const agent = makeAgentWithCargo("SHIP-1", [{ symbol: "IRON_ORE", units: 10 }]);
+    let jettisoned: { shipSymbol: string; symbol: string; units: number } | undefined;
+    const fleet = new FleetManager({
+      api: {
+        getShip: async () => agent.getShip(),
+        jettisonCargo: async (shipSymbol: string, symbol: string, units: number) => {
+          jettisoned = { shipSymbol, symbol, units };
+          return { cargo: { capacity: 40, units: 0, inventory: [] } };
+        },
+      } as any,
+    });
+    (fleet as any).traders.set("SHIP-1", agent);
+
+    await fleet.jettisonCargo("SHIP-1", "IRON_ORE", 10);
+
+    assert.deepEqual(jettisoned, { shipSymbol: "SHIP-1", symbol: "IRON_ORE", units: 10 });
+  });
+
+  it("caps units jettisoned at what's actually held, not the requested amount", async () => {
+    const agent = makeAgentWithCargo("SHIP-1", [{ symbol: "IRON_ORE", units: 5 }]);
+    let jettisonedUnits: number | undefined;
+    const fleet = new FleetManager({
+      api: {
+        getShip: async () => agent.getShip(),
+        jettisonCargo: async (_s: string, _g: string, units: number) => {
+          jettisonedUnits = units;
+          return { cargo: { capacity: 40, units: 0, inventory: [] } };
+        },
+      } as any,
+    });
+    (fleet as any).traders.set("SHIP-1", agent);
+
+    await fleet.jettisonCargo("SHIP-1", "IRON_ORE", 999);
+
+    assert.equal(jettisonedUnits, 5);
+  });
+
+  it("refuses to jettison a good the ship isn't carrying", async () => {
+    const agent = makeAgentWithCargo("SHIP-1", []);
+    const fleet = new FleetManager({ api: { getShip: async () => agent.getShip() } as any });
+    (fleet as any).traders.set("SHIP-1", agent);
+
+    await assert.rejects(() => fleet.jettisonCargo("SHIP-1", "IRON_ORE", 5), /no IRON_ORE in cargo/);
+  });
+});
+
 describe("FleetManager dispatcher eligibility", () => {
   it("a suspended trader stops reserving its good for the whole fleet", () => {
     // An assignment reserves its good against the entire rest of the fleet.

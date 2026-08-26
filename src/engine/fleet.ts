@@ -1830,6 +1830,17 @@ export class FleetManager {
     this.onActivity?.("sell", `${shipSymbol} sold ${toSell}u ${good} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice);
   }
 
+  /** Dump cargo overboard — no market or dock required, unlike buy/sell. For an operator clearing out dead stock manually; nothing pays for this. */
+  async jettisonCargo(shipSymbol: string, good: string, units: number): Promise<void> {
+    const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
+    const held = ship.cargo.inventory?.find((i) => i.symbol === good);
+    if (!held || held.units <= 0) throw new Error(`${shipSymbol} has no ${good} in cargo`);
+    const toJettison = Math.min(units, held.units);
+    await this.api.jettisonCargo(shipSymbol, good, toJettison);
+    this.log(`${shipSymbol} jettisoned ${toJettison}u ${good}`);
+    this.onActivity?.("jettison", `${shipSymbol} jettisoned ${toJettison}u ${good}`, undefined, shipSymbol);
+  }
+
   /** Install a module/mount from a ship's cargo at the nearest shipyard. */
   async installComponent(shipSymbol: string, componentSymbol: string): Promise<void> {
     const ship = await this.api.getShip(shipSymbol);
