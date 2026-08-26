@@ -2863,11 +2863,35 @@ function drawWaypointGlyph(g, pos, symbol, isMarket, isYard) {
 // smaller, moving thing against the larger, fixed waypoints — scale lives
 // in the path data itself rather than a CSS transform, since a CSS
 // transform on the same element would replace (not compose with) the
-// inline rotate() attribute used below for the moving-ship tilt (not a
-// tracked real heading — SpaceTraders doesn't expose one).
-function shipGlyphMarkup(role, docked) {
-  const rot = docked ? 0 : 45;
+// inline rotate() attribute used below for the ship's heading.
+//
+// `headingDeg` is the real direction of travel (see shipHeadingDeg()) — SVG
+// rotation is continuous, so this needed no per-direction sprite art, just
+// one vector hull pointed by transform. A docked/orbiting ship (no motion)
+// or a mid-transit one with incomplete route data falls back to the old
+// fixed tilt (0 stationary / 45 "moving, direction unknown") rather than
+// pointing nowhere meaningful.
+function shipGlyphMarkup(role, docked, headingDeg) {
+  const rot = headingDeg != null ? headingDeg : docked ? 0 : 45;
   return `<path class="hull role-${role ?? "trader"}" d="M0,-2.6 L2.1,2.1 L0,1.1 L-2.1,2.1 Z" transform="rotate(${rot})"></path>`;
+}
+
+/** Real heading in degrees for a mid-transit ship, or null (docked/orbiting,
+ *  or a route missing origin/destination — an older cached snapshot from
+ *  before a fresh nav). Computed from the same origin/destination points
+ *  shipTransitLerp() already uses to animate position, projected through
+ *  the same screen-space sx/sy the map actually draws with — not raw world
+ *  coordinates — since the map's x/y scale factors aren't necessarily equal
+ *  and a world-space angle can point subtly wrong once drawn. +90 corrects
+ *  for the hull path's own tip sitting at (0,-2.6): "up" at rot=0. */
+function shipHeadingDeg(ship, sx, sy) {
+  if (ship.nav.status !== "IN_TRANSIT") return null;
+  const r = ship.nav.route;
+  if (!r?.origin || !r?.destination) return null;
+  const dx = sx(r.destination.x) - sx(r.origin.x);
+  const dy = sy(r.destination.y) - sy(r.origin.y);
+  if (dx === 0 && dy === 0) return null;
+  return (Math.atan2(dy, dx) * 180) / Math.PI + 90;
 }
 
 /** World-space position of an in-transit ship, linearly interpolated between
@@ -3148,8 +3172,9 @@ function renderMap(ships, trails = new Map()) {
       out += `<circle class="sel-halo" cx="${x}" cy="${y}" r="22"></circle><circle class="sel-ring" cx="${x}" cy="${y}" r="22"></circle>`;
     }
     const role = (fleetStatus.ships ?? []).find((r) => r.symbol === s.symbol)?.role;
+    const heading = shipHeadingDeg(s, sx, sy);
     out += `<g class="ship ${docked ? "docked" : ""}${sel ? " selected" : ""}" transform="translate(${x} ${y})" data-wp="${s.nav.waypointSymbol}" data-ship="${s.symbol}">
-      ${shipGlyphMarkup(role, docked)}<title>${s.symbol} — ${s.nav.status}</title>
+      ${shipGlyphMarkup(role, docked, heading)}<title>${s.symbol} — ${s.nav.status}</title>
     </g>`;
   }
   svg.innerHTML = out + `</g>`;
