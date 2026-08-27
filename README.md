@@ -8,6 +8,18 @@ See [`docs/architecture-plan.md`](docs/architecture-plan.md) for the full
 design: why Postgres + Row-Level Security instead of per-tenant SQLite files,
 how bring-your-own-LLM-key settings work, and hosting on Render.
 
+## Documentation
+
+- [`CONTEXT.md`](CONTEXT.md) — the shared domain language: tenancy, ship
+  ownership/claims, ship state and cargo manifest, dispatch/trading,
+  missions vs. contracts, the scheduler, and the additive/dual-write
+  migration discipline this codebase's engine changes follow.
+- [`docs/adr/`](docs/adr) — one-decision-per-file records of why the
+  architecture is shaped the way it is (Postgres + RLS, session auth,
+  ShipRegistry, the Scheduler, the dual-write discipline itself).
+- [`docs/architecture-plan.md`](docs/architecture-plan.md) — the original
+  tenancy/storage design narrative these ADRs formalize.
+
 ## Status
 
 **Phase 0 (repo scaffold): done.** Postgres schema, every tenant-scoped table
