@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -144,6 +144,13 @@ export class ShipAgent {
   private marketTourIndex = 0;
   running = false;
   private currentStep: AgentStep = IDLE_STEP;
+  /** True only for the exact duration of a nextTask()-family run() closure's
+   *  call into tick()/surveyScout()/tourScout()/keeperPoll() — see
+   *  agentStep.ts's NavigationPending doc comment for why this is scoped
+   *  this narrowly rather than a flag set once and left true: dispatchTo()
+   *  also reaches navigateTo(), directly from fleet.ts, never through any of
+   *  those four methods, and must keep blocking exactly as before. */
+  private schedulerDriven = false;
 
   /** What this ship is doing right now, if it's mid-navigation or mid-transaction — see agentStep.ts. */
   getStep(): AgentStep {
@@ -220,6 +227,18 @@ export class ShipAgent {
 
   /** Wait until the ship has finished its current transit. */
   private async waitForArrival(): Promise<void> {
+    if (this.schedulerDriven) {
+      // Always refresh before deciding: whatever route this.ship currently
+      // carries isn't guaranteed to be from *this* transit (ensureInOrbit()/
+      // ensureDocked() call this using whatever this.ship already holds, not
+      // a value this method itself just fetched) — a single non-blocking
+      // check has no retry loop to self-correct that the way the blocking
+      // version below does, so it must get real, current data first.
+      await this.refresh();
+      if (this.ship.nav.status !== "IN_TRANSIT") return;
+      const wait = new Date(this.ship.nav.route.arrival).getTime() - Date.now();
+      throw new NavigationPending(Date.now() + wait);
+    }
     for (;;) {
       const arrival = new Date(this.ship.nav.route.arrival).getTime();
       const wait = arrival - Date.now();
@@ -247,22 +266,34 @@ export class ShipAgent {
       const arrival = await this.api.navigateShip(this.symbol, waypoint);
       this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
       this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.symbol);
-      const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
-      if (wait > 0) {
-        this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
-        await sleep(wait + 1000);
+      if (this.schedulerDriven) {
+        const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
+        if (wait > 0) throw new NavigationPending(Date.now() + wait);
+        await this.refresh();
+      } else {
+        const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
+        if (wait > 0) {
+          this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
+          await sleep(wait + 1000);
+        }
+        await this.refresh();
       }
-      await this.refresh();
+      this.currentStep = IDLE_STEP;
     } catch (err) {
+      if (err instanceof NavigationPending) {
+        // Leave currentStep as "navigating" — the ship genuinely still is;
+        // see trader.ts's identical navigateTo() catch for why.
+        throw err;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       if (/already located at the destination|already at the destination/i.test(msg)) {
         // Stale cached nav state — the ship is already there. Refresh and continue.
         await this.refresh();
+        this.currentStep = IDLE_STEP;
         return;
       }
-      throw err;
-    } finally {
       this.currentStep = IDLE_STEP;
+      throw err;
     }
   }
 
@@ -1362,13 +1393,17 @@ export class ShipAgent {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
+        this.schedulerDriven = true;
         try {
           const made = await this.tick();
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
+          if (err instanceof NavigationPending) return { actualCalls, next: this.nextTask(err.resumeAt) };
           this.log(`agent error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
+        } finally {
+          this.schedulerDriven = false;
         }
       },
     };
@@ -1386,13 +1421,17 @@ export class ShipAgent {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextSurveyTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
+        this.schedulerDriven = true;
         try {
           const made = await this.surveyScout();
           return { actualCalls: this.api.getCallCount() - before, next: this.nextSurveyTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
+          if (err instanceof NavigationPending) return { actualCalls, next: this.nextSurveyTask(err.resumeAt) };
           this.log(`surveyor error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextSurveyTask(Date.now() + 10_000) };
+        } finally {
+          this.schedulerDriven = false;
         }
       },
     };
@@ -1410,13 +1449,17 @@ export class ShipAgent {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTourTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
+        this.schedulerDriven = true;
         try {
           const made = await this.tourScout();
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTourTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
+          if (err instanceof NavigationPending) return { actualCalls, next: this.nextTourTask(err.resumeAt) };
           this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextTourTask(Date.now() + 10_000) };
+        } finally {
+          this.schedulerDriven = false;
         }
       },
     };
@@ -1435,13 +1478,17 @@ export class ShipAgent {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
+        this.schedulerDriven = true;
         try {
           const snapshotted = await this.keeperPoll();
           return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted ? 5 * 60_000 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
+          if (err instanceof NavigationPending) return { actualCalls, next: this.nextKeeperTask(err.resumeAt) };
           this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextKeeperTask(Date.now() + 10_000) };
+        } finally {
+          this.schedulerDriven = false;
         }
       },
     };

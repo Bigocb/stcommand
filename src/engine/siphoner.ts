@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -65,6 +65,12 @@ export class SiphonerAgent {
   private manualGoal: string | null = null;
   running = false;
   private currentStep: AgentStep = IDLE_STEP;
+  /** True only for the exact duration of nextTask()'s run() closure's call
+   *  into tick() — see agentStep.ts's NavigationPending doc comment for why
+   *  this is scoped this narrowly rather than a flag set once and left true:
+   *  dispatchTo()-style manual dispatch also reaches navigateTo(), never
+   *  through tick(), and must keep blocking exactly as before. */
+  private schedulerDriven = false;
 
   /** What this ship is doing right now, if it's mid-navigation or mid-transaction — see agentStep.ts. */
   getStep(): AgentStep {
@@ -163,6 +169,18 @@ export class SiphonerAgent {
 
   /** Wait until the ship has finished its current transit. */
   private async waitForArrival(): Promise<void> {
+    if (this.schedulerDriven) {
+      // Always refresh before deciding: whatever route this.ship currently
+      // carries isn't guaranteed to be from *this* transit (ensureInOrbit()/
+      // ensureDocked() call this using whatever this.ship already holds, not
+      // a value this method itself just fetched) — a single non-blocking
+      // check has no retry loop to self-correct that the way the blocking
+      // version below does, so it must get real, current data first.
+      await this.refresh();
+      if (this.ship.nav.status !== "IN_TRANSIT") return;
+      const wait = new Date(this.ship.nav.route.arrival).getTime() - Date.now();
+      throw new NavigationPending(Date.now() + wait);
+    }
     for (;;) {
       const arrival = new Date(this.ship.nav.route.arrival).getTime();
       const wait = arrival - Date.now();
@@ -275,23 +293,43 @@ export class SiphonerAgent {
       const arrival = await this.api.navigateShip(this.symbol, waypoint);
       this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
       this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.symbol);
-      const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
-      if (wait > 0) {
-        this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
-        await sleep(wait + 1000);
+      if (this.schedulerDriven) {
+        const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
+        if (wait > 0) throw new NavigationPending(Date.now() + wait);
+        await this.refresh();
+      } else {
+        const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
+        if (wait > 0) {
+          this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
+          await sleep(wait + 1000);
+        }
+        await this.refresh();
       }
-      await this.refresh();
+      this.currentStep = IDLE_STEP;
       return true;
     } catch (err) {
+      // Not a real navigation failure: tick() just started a transit, and
+      // this "boolean success/failure" method has no way to express "still
+      // in progress" through its return type — must propagate as a throw,
+      // same as every other agent class's navigateTo(). This is the one
+      // call site that used to swallow it (an unconditional `return false`
+      // below, before this guard existed) — see docs/eta-scheduled-ship-
+      // waits.md's audit for why this file needed special attention.
+      // Deliberately no `finally` in this method: on this one path,
+      // currentStep must stay "navigating" (the ship genuinely still is —
+      // see trader.ts's identical navigateTo() catch for why), so every
+      // OTHER exit resets it explicitly instead of a blanket finally that
+      // would reset it here too.
+      if (err instanceof NavigationPending) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (/already located at the destination|already at the destination/i.test(msg)) {
         await this.refresh();
+        this.currentStep = IDLE_STEP;
         return true;
       }
       this.log(`navigate failed: ${msg}`);
-      return false;
-    } finally {
       this.currentStep = IDLE_STEP;
+      return false;
     }
   }
 
@@ -497,13 +535,17 @@ export class SiphonerAgent {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
+        this.schedulerDriven = true;
         try {
           const made = await this.tick();
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
+          if (err instanceof NavigationPending) return { actualCalls, next: this.nextTask(err.resumeAt) };
           this.log(`siphoner error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
+        } finally {
+          this.schedulerDriven = false;
         }
       },
     };

@@ -23,3 +23,43 @@ export type AgentStep =
   | { kind: "transacting"; action: "buy" | "sell" | "refuel" | "extract" | "siphon" | "survey" | "jettison"; good?: string };
 
 export const IDLE_STEP: AgentStep = { kind: "idle" };
+
+/**
+ * A control-flow signal, not a real error (deliberately does NOT extend
+ * `Error`, so no generic `err instanceof Error` / message-sniffing catch
+ * anywhere in an agent's call chain can mistake it for one — see
+ * docs/eta-scheduled-ship-waits.md for the full design).
+ *
+ * Thrown by `waitForArrival()` (and, in agent.ts/scout.ts/siphoner.ts,
+ * `navigateTo()`'s own duplicate inline wait — see each file's comment on
+ * why those aren't unified with `waitForArrival()` here) instead of
+ * blocking, but only while that agent's `schedulerDriven` flag is set —
+ * true only for the exact duration of a `nextTask()`-family `run()`
+ * closure's call into `tick()`/`surveyScout()`/`tourScout()`/`keeperPoll()`,
+ * never during a manual `dispatchTo()`/`suspend()`-adjacent call, which must
+ * keep blocking exactly as before (a manual dispatch is not scheduler-
+ * driven work with a `Task` to reschedule).
+ *
+ * `resumeAt` is the real arrival time (ms since epoch) reported by the
+ * game's own `nav.route.arrival` — not a guessed backoff. The catching
+ * `nextTask()`-family method reschedules its own chain for exactly then,
+ * instead of the tick that issued the navigate call blocking until it
+ * happens (which, before this, meant one ship's transit could block
+ * `Scheduler.runOnce()`'s strictly sequential loop from reaching any other
+ * ready task — including the priority-0 rescue task — for the whole wait;
+ * see docs/eta-scheduled-ship-waits.md §1).
+ *
+ * Every `catch` block sitting between a `navigateTo()`/`waitForArrival()`
+ * call site and its owning `nextTask()`-family method's own top-level catch
+ * must let an instance of this propagate untouched. Confirmed safe by
+ * construction almost everywhere in this codebase already: every agent
+ * class issues a navigate call *before* entering any narrower `try/catch`
+ * that only wraps the specific transaction call after it (buy/sell/
+ * transfer/deliver), so this simply never reaches those catches. The one
+ * confirmed exception was `SiphonerAgent.navigateTo()`, whose own catch
+ * unconditionally converted any thrown error into `return false` — fixed
+ * there with an explicit re-throw guard.
+ */
+export class NavigationPending {
+  constructor(readonly resumeAt: number) {}
+}

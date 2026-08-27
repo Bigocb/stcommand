@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ShipAgent, type Ship } from "../src/engine/agent.js";
 import { ScoutAgent } from "../src/engine/scout.js";
 import { SiphonerAgent } from "../src/engine/siphoner.js";
+import { NavigationPending } from "../src/engine/agentStep.js";
 
 /**
  * Greenfield Phase 7: the Scheduler Task-producer wrappers on ShipAgent
@@ -93,6 +94,39 @@ describe("ShipAgent.nextTask (miner role)", () => {
     const next = await result.next!.run();
     assert.equal(next.next, undefined, "a stop() during the in-flight tick() must end the chain the next time it's actually run, not silently resume it");
   });
+
+  it("when tick() throws NavigationPending, reschedules at the real arrival time instead of the normal ~10s error backoff (docs/eta-scheduled-ship-waits.md)", async () => {
+    const resumeAt = Date.now() + 45_000;
+    const agent = new ShipAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+    (agent as any).tick = async () => { throw new NavigationPending(resumeAt); };
+    agent.running = true;
+    const result = await agent.nextTask().run();
+    assert.equal(result.next!.earliestRunAt, resumeAt);
+    assert.equal(result.actualCalls, 0);
+  });
+
+  it("waitForArrival() throws NavigationPending carrying the real, freshly-refreshed nav.route.arrival instead of blocking, when scheduler-driven", async () => {
+    const ship = makeShip();
+    (ship as any).nav = { status: "IN_TRANSIT", waypointSymbol: "X1-A-B1", systemSymbol: "X1-A", route: { arrival: "stale-should-never-be-read", departureTime: new Date().toISOString() } };
+    const arrivalMs = Date.now() + 45_000;
+    // waitForArrival() must always refresh before trusting route.arrival — a
+    // single non-blocking check has no retry loop to self-correct stale data
+    // the way the blocking version does. getShip() here returns the *real*
+    // current route; if the implementation skipped the refresh and trusted
+    // the stale "route" set above, this test's timing assertion would fail.
+    const agent = new ShipAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ({ ...ship, nav: { status: "IN_TRANSIT", waypointSymbol: "X1-A-B1", systemSymbol: "X1-A", route: { arrival: new Date(arrivalMs).toISOString(), departureTime: new Date().toISOString() } } }),
+      } as any,
+    });
+    (agent as any).schedulerDriven = true;
+
+    await assert.rejects(
+      () => (agent as any).waitForArrival(),
+      (err: unknown) => err instanceof NavigationPending && Math.abs(err.resumeAt - arrivalMs) < 100,
+    );
+  });
 });
 
 describe("ShipAgent.nextSurveyTask", () => {
@@ -172,6 +206,32 @@ describe("ScoutAgent.nextTask", () => {
     const delay = result.next!.earliestRunAt - Date.now();
     assert.ok(delay > 5_000 && delay <= 10_000);
   });
+
+  it("when tick() throws NavigationPending, reschedules at the real arrival time instead of the normal ~10s error backoff", async () => {
+    const resumeAt = Date.now() + 45_000;
+    const agent = new ScoutAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+    (agent as any).tick = async () => { throw new NavigationPending(resumeAt); };
+    agent.running = true;
+    const result = await agent.nextTask().run();
+    assert.equal(result.next!.earliestRunAt, resumeAt);
+  });
+
+  it("a pending navigation inside sensorScan() propagates as NavigationPending instead of being logged and swallowed as a failed scan (regression: tick()'s catch around sensorScan() used to have no rethrow at all — see docs/eta-scheduled-ship-waits.md's audit)", async () => {
+    const ship = makeShip();
+    (ship as any).nav = { status: "IN_TRANSIT", waypointSymbol: "X1-A-B1", systemSymbol: "X1-A", route: { arrival: new Date(Date.now() + 20_000).toISOString(), departureTime: new Date().toISOString() } };
+    (ship as any).mounts = [{ symbol: "MOUNT_SENSOR_ARRAY_I" }];
+    const agent = new ScoutAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship },
+      scanIntervalMin: 1, // > 0 so canScan() is reachable at all
+    } as any);
+    (agent as any).schedulerDriven = true;
+    // No waypoints seeded via withWorld() -> pickChartTarget() finds nothing
+    // -> tick() falls into the canScan()/sensorScan() branch, whose
+    // ensureInOrbit() call throws NavigationPending because the ship is
+    // IN_TRANSIT above.
+
+    await assert.rejects(() => agent.tick(), (err: unknown) => err instanceof NavigationPending);
+  });
 });
 
 describe("SiphonerAgent.nextTask", () => {
@@ -186,5 +246,37 @@ describe("SiphonerAgent.nextTask", () => {
     const result = await task.run();
     assert.equal(result.actualCalls, 2, "must be the measured delta, not the fixed estimatedCalls heuristic (3)");
     assert.ok(result.next!.earliestRunAt <= Date.now());
+  });
+
+  it("when tick() throws NavigationPending, reschedules at the real arrival time instead of the normal ~10s error backoff", async () => {
+    const resumeAt = Date.now() + 45_000;
+    const agent = new SiphonerAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+    (agent as any).tick = async () => { throw new NavigationPending(resumeAt); };
+    agent.running = true;
+    const result = await agent.nextTask().run();
+    assert.equal(result.next!.earliestRunAt, resumeAt);
+  });
+
+  it("navigateTo() propagates NavigationPending instead of returning false and logging a fake 'navigate failed' (regression: this file's navigateTo() used to catch and swallow ANY error into `return false`, with no rethrow path at all — see docs/eta-scheduled-ship-waits.md's audit)", async () => {
+    const ship = makeShip(); // DOCKED at X1-A-A1
+    (ship as any).nav.status = "IN_ORBIT"; // skip the orbitShip() pre-step, this test only fakes navigateShip()
+    const arrivalMs = Date.now() + 30_000;
+    let fakeNav: any = null;
+    const agent = new SiphonerAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        navigateShip: async () => {
+          fakeNav = { status: "IN_TRANSIT", waypointSymbol: "X1-A-B1", systemSymbol: "X1-A", route: { arrival: new Date(arrivalMs).toISOString(), departureTime: new Date().toISOString() } };
+          return { nav: fakeNav, fuel: { current: 90, capacity: 100 } };
+        },
+        getShip: async () => ({ ...ship, nav: fakeNav }),
+      } as any,
+    }).withWorld([{ symbol: "X1-A-A1", x: 0, y: 0 }, { symbol: "X1-A-B1", x: 5, y: 5 }] as any);
+    (agent as any).schedulerDriven = true;
+
+    await assert.rejects(
+      () => (agent as any).navigateTo("X1-A-B1"),
+      (err: unknown) => err instanceof NavigationPending && Math.abs(err.resumeAt - arrivalMs) < 100,
+    );
   });
 });

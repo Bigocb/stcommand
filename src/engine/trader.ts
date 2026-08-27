@@ -4,7 +4,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
 import type { TraderAssignment } from "./dispatcher.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -168,6 +168,12 @@ export class TraderAgent {
   private stranded = false;
   running = false;
   private currentStep: AgentStep = IDLE_STEP;
+  /** True only for the exact duration of a nextTask()-family run() closure's
+   *  call into tick() — see agentStep.ts's NavigationPending doc comment for
+   *  why this is scoped this narrowly rather than a flag set once and left
+   *  true: dispatchTo() also reaches navigateTo(), directly from fleet.ts,
+   *  never through tick(), and must keep blocking exactly as before. */
+  private schedulerDriven = false;
 
   /** What this ship is doing right now, if it's mid-navigation or mid-transaction — see agentStep.ts. */
   getStep(): AgentStep {
@@ -283,6 +289,24 @@ export class TraderAgent {
   }
 
   private async waitForArrival(): Promise<void> {
+    if (this.schedulerDriven) {
+      // Always refresh before deciding: this.ship.nav.route may be stale —
+      // navigateTo() calls waitForArrival() right after issuing a navigate
+      // without ever updating this.ship with that call's response (it relies
+      // on this refresh instead) — so this.ship.nav.route, unrefreshed,
+      // still describes whatever transit was active *before* that navigate,
+      // always already in the past. The blocking loop below self-corrects
+      // this over its first two iterations (a non-positive wait falls
+      // straight through to a refresh); a single non-blocking check has no
+      // second iteration to do that in, so it must refresh unconditionally
+      // before it can trust route.arrival at all. Confirmed live: without
+      // this, the very first scheduler-driven wait on every single navigate
+      // silently degraded into a 2s poll instead of the real ETA.
+      await this.refresh();
+      if (this.ship.nav.status !== "IN_TRANSIT") return;
+      const wait = new Date(this.ship.nav.route.arrival).getTime() - Date.now();
+      throw new NavigationPending(Date.now() + wait);
+    }
     for (;;) {
       const wait = new Date(this.ship.nav.route.arrival).getTime() - Date.now();
       if (wait > 0) {
@@ -331,8 +355,15 @@ export class TraderAgent {
     try {
       await this.api.navigateShip(this.symbol, waypoint);
       await this.waitForArrival();
-    } finally {
       this.currentStep = IDLE_STEP;
+    } catch (err) {
+      // A NavigationPending throw means the ship is genuinely still
+      // navigating — leave currentStep as "navigating" (don't report idle
+      // while it's really mid-flight) so ship_state keeps reporting the real
+      // target across the suspend; the resumed tick()'s own waitForArrival()
+      // call clears it normally once the ship has actually arrived.
+      if (!(err instanceof NavigationPending)) this.currentStep = IDLE_STEP;
+      throw err;
     }
   }
 
@@ -1365,13 +1396,25 @@ export class TraderAgent {
         // pre-admission budget check), but what actually happened is now
         // truth, not another guess.
         const before = this.api.getCallCount();
+        // Only true for the duration of this call — see agentStep.ts's
+        // NavigationPending doc comment and the schedulerDriven field's own
+        // comment for why this can't just be set once and left true.
+        this.schedulerDriven = true;
         try {
           const made = await this.tick();
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
+          if (err instanceof NavigationPending) {
+            // Not a real error: tick() just started a transit. Resume at the
+            // real arrival time instead of blocking this Task.run() call for
+            // the rest of it — see docs/eta-scheduled-ship-waits.md.
+            return { actualCalls, next: this.nextTask(err.resumeAt) };
+          }
           this.handleTickError(err);
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
+        } finally {
+          this.schedulerDriven = false;
         }
       },
     };
