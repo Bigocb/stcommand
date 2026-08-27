@@ -43,6 +43,16 @@ export async function findOrCreateTenant(pool: pg.Pool, agentSymbol: string, tok
   });
 }
 
+/** Every known tenant. Used at process start to eager-boot every tenant's
+ *  engine instead of waiting for that tenant's first authenticated request —
+ *  see TenantRegistry.bootAll()'s doc comment for why. */
+export async function listAllTenants(pool: pg.Pool): Promise<TenantRow[]> {
+  return withPool(pool, async (c) => {
+    const res = await c.query<{ id: string; agent_symbol: string }>(`SELECT id, agent_symbol FROM tenants`);
+    return res.rows.map((r) => ({ id: r.id, agentSymbol: r.agent_symbol }));
+  });
+}
+
 /** Decrypt and return a tenant's stored SpaceTraders token. */
 export async function getTenantToken(pool: pg.Pool, tenantId: string): Promise<string> {
   return withPool(pool, async (c) => {

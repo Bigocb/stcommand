@@ -161,4 +161,35 @@ describe("TenantRegistry", () => {
     assert.equal(workerB.agentSymbol, symbolB);
     assert.equal(registry.size(), 2);
   });
+
+  it("bootAll boots every known tenant without waiting for a request, isolating one tenant's failure from the rest", async () => {
+    const symbolA = agentSymbol();
+    const symbolB = agentSymbol();
+    const symbolBroken = agentSymbol();
+    const tenantA = await findOrCreateTenant(pool, symbolA, "st-token-a");
+    const tenantB = await findOrCreateTenant(pool, symbolB, "st-token-b");
+    const tenantBroken = await findOrCreateTenant(pool, symbolBroken, "st-token-broken");
+    tenantIds.push(tenantA.id, tenantB.id, tenantBroken.id);
+
+    // The tenants table is shared across this whole test file (cleanup only
+    // runs once, in the top-level `after`), so bootAll() will also try to
+    // boot every tenant earlier tests already created. Reject anything this
+    // test doesn't recognize rather than fabricating a working fake for it —
+    // Promise.allSettled isolation already covers those unrelated tenants
+    // for the purpose of this assertion, and a real fake worker would just
+    // leave an unwanted background loop running against another test's
+    // (possibly since-deleted) tenant row.
+    const registry = makeRegistry((token) => {
+      if (token === "st-token-a") return makeFakeApi(symbolA);
+      if (token === "st-token-b") return makeFakeApi(symbolB);
+      if (token === "st-token-broken") throw new Error("simulated boot failure");
+      throw new Error(`unrecognized token from an unrelated tenant: ${token}`);
+    });
+
+    await registry.bootAll();
+
+    assert.ok(registry.get(tenantA.id), "tenant A must boot even though tenant Broken fails");
+    assert.ok(registry.get(tenantB.id), "tenant B must boot even though tenant Broken fails");
+    assert.equal(registry.get(tenantBroken.id), undefined, "a tenant whose boot throws must not end up registered");
+  });
 });

@@ -18,12 +18,14 @@ function log(msg: string): void {
 /**
  * The multi-tenant server boot sequence. Unlike straders' single-tenant CLI
  * (src/cli/index.ts there boots exactly one fleet against ST_TOKEN and runs
- * it for `maxTicks`), this process serves any number of tenants: it starts
- * with zero booted fleets and lazily boots one per tenant the first time an
- * authenticated request for that tenant arrives (`TenantRegistry.getOrCreate`
- * in the `/api/*` middleware below) — then, per
- * docs/architecture-plan.md §5, that tenant's fleet keeps running for the
- * life of the process regardless of whether they have a request in flight.
+ * it for `maxTicks`), this process serves any number of tenants:
+ * `registry.bootAll()` eager-boots every already-known tenant in the
+ * background as soon as the pool is up (docs/adr/0009), and
+ * `TenantRegistry.getOrCreate` in the `/api/*` middleware below still boots
+ * a brand-new tenant lazily, on their first authenticated request, the
+ * moment they register — then, per docs/architecture-plan.md §5, that
+ * tenant's fleet keeps running for the life of the process regardless of
+ * whether they have a request in flight.
  *
  * Wires the mechanics (gate, session resolution, per-tenant engine boot)
  * together with the full dashboard route surface (src/http/dashboard.ts) —
@@ -46,6 +48,14 @@ async function main(): Promise<void> {
 
   const pool = createPool(databaseUrl);
   const registry = new TenantRegistry(pool, (tenantId, msg) => log(`[tenant ${tenantId.slice(0, 8)}] ${msg}`));
+
+  // Eager-boot every known tenant now, rather than leaving each one idle
+  // until its first authenticated request arrives post-restart — see
+  // TenantRegistry.bootAll()'s doc comment and docs/adr/0009. Fire-and-forget
+  // and never awaited: booting N tenants can take a while (each does a real
+  // SpaceTraders API round-trip), and the gate/login routes must be servable
+  // immediately, not held up behind it.
+  registry.bootAll().catch((err) => log(`eager tenant boot failed: ${err instanceof Error ? err.message : String(err)}`));
 
   const app = express();
   app.use(express.json());

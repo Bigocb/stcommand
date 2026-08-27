@@ -8,7 +8,7 @@ import { ChatAgent } from "./agentChat.js";
 import { MarketIntel, type MarketSnapshot } from "./market.js";
 import { DiscordRelay } from "./discord.js";
 import { Scheduler } from "./scheduler.js";
-import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook } from "../db/tenants.js";
+import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook, listAllTenants } from "../db/tenants.js";
 
 export interface TenantWorker {
   tenantId: string;
@@ -90,6 +90,36 @@ export class TenantRegistry {
   /** An already-booted worker, if one exists — never triggers a boot. */
   get(tenantId: string): TenantWorker | undefined {
     return this.workers.get(tenantId);
+  }
+
+  /**
+   * Boot every known tenant's engine now, instead of waiting for that
+   * tenant's first authenticated request. Without this, a process restart
+   * (a Render redeploy, a crash, host maintenance) leaves every tenant's
+   * fleet sitting idle — silently defeating "a tenant's engine keeps
+   * running whether or not their dashboard tab is open" for however long it
+   * takes someone to hit an authenticated route again. See docs/adr/0009.
+   *
+   * Boots concurrently rather than one at a time — the shared `apiLimiter`
+   * already serializes the real HTTP calls fleet-wide, so there's no
+   * separate throttling concern here. One tenant's boot failing (a revoked
+   * token, a transient DB error) must never block any other tenant from
+   * starting, so this isolates each boot with `Promise.allSettled` rather
+   * than propagating the first rejection: `main()` calling this should log
+   * and continue, not crash the server, over one bad tenant.
+   */
+  async bootAll(): Promise<void> {
+    const tenants = await listAllTenants(this.pool);
+    if (tenants.length === 0) return;
+    this.log("?", `eager-booting ${tenants.length} known tenant${tenants.length === 1 ? "" : "s"}`);
+    const results = await Promise.allSettled(tenants.map((t) => this.getOrCreate(t.id, t.agentSymbol)));
+    const failed = results.filter((r) => r.status === "rejected");
+    for (const [i, r] of results.entries()) {
+      if (r.status === "rejected") {
+        this.log(tenants[i]!.id, `eager boot failed: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
+      }
+    }
+    this.log("?", `eager boot done: ${results.length - failed.length}/${results.length} tenant${results.length === 1 ? "" : "s"} started`);
   }
 
   /**
