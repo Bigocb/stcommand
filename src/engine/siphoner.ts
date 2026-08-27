@@ -4,6 +4,7 @@ import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
+import { chooseFlightMode } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -284,9 +285,22 @@ export class SiphonerAgent {
     }
     await this.ensureInOrbit();
     const need = this.estimatedFuelTo(waypoint);
-    if (this.ship.fuel.capacity > 0 && this.ship.fuel.current < need) {
-      this.log(`cannot navigate to ${waypoint}: need ${need} fuel, have ${this.ship.fuel.current}`);
-      return false;
+    // Flight mode: see flightMode.ts's own comment for the exact policy.
+    // DRIFT is tried here (instead of giving up, as this used to do
+    // unconditionally on an unaffordable-at-CRUISE leg) because the real
+    // navigate call below is the final authority on whether the leg is
+    // actually reachable, DRIFT or not — this never makes stranding worse,
+    // only sometimes avoids it. A patch failure doesn't block the attempt.
+    if (this.ship.fuel.capacity > 0) {
+      const mode = chooseFlightMode(need, this.ship.fuel.current, this.ship.fuel.capacity);
+      if (mode !== this.ship.nav.flightMode) {
+        try {
+          const patched = await this.api.patchShipNav(this.symbol, mode);
+          this.ship = { ...this.ship, nav: patched.nav, fuel: patched.fuel };
+        } catch (err) {
+          this.log(`flight mode change to ${mode} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     }
     this.currentStep = { kind: "navigating", to: waypoint };
     try {

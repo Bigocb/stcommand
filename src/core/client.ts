@@ -410,6 +410,16 @@ export class SpaceTradersAPI {
     }>(`/my/ships/${shipSymbol}/navigate`, { waypointSymbol });
   }
 
+  /** Set a ship's flight mode (DRIFT/STEALTH/CRUISE/BURN) before its next
+   *  navigate call — see src/engine/flightMode.ts for how each agent
+   *  chooses one. The ship must not be IN_TRANSIT for this to apply. */
+  patchShipNav(shipSymbol: string, flightMode: components["schemas"]["ShipNavFlightMode"]) {
+    return this.client.patch<{
+      nav: components["schemas"]["ShipNav"];
+      fuel: components["schemas"]["ShipFuel"];
+    }>(`/my/ships/${shipSymbol}/nav`, { flightMode });
+  }
+
   refuelShip(shipSymbol: string, units?: number, fromCargo = false) {
     return this.client.post<{
       agent: components["schemas"]["Agent"];
