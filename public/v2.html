@@ -2924,6 +2924,17 @@ function shipTransitLerp(ship) {
 let lastRenderedShips = [];
 let mapScale = null;
 let shipAnimHandle = null;
+/** Live motion-trail state (repositionShips()'s own — distinct from the
+ *  replay scrubber's waypoint-history trails passed into renderMap()).
+ *  shipSymbol -> recent screen positions, oldest first, sampled at a fixed
+ *  cadence (not every frame) and capped short: this is a "yes, it's really
+ *  moving" cue for a transit whose per-frame pixel displacement is
+ *  otherwise too small to notice at real game speed, not a flight-path
+ *  record. */
+let liveTrails = new Map();
+let lastTrailSampleAt = new Map();
+const TRAIL_SAMPLE_MIN_MS = 200;
+const TRAIL_MAX_POINTS = 6;
 
 function renderMap(ships, trails = new Map()) {
   lastRenderedShips = ships;
@@ -3233,19 +3244,75 @@ function repositionShips() {
   shipAnimHandle = null;
   const mapVisible = (!isMobile() && currentView === "bridge") || (isMobile() && mobileView === "map");
   if (!mapVisible || !scrubLive || !mapScale || !lastRenderedShips.length) return;
-  const anyTransit = lastRenderedShips.some((s) => s.nav.status === "IN_TRANSIT");
-  if (!anyTransit) return;
   const svg = $("map");
+  const inTransitSymbols = new Set(lastRenderedShips.filter((s) => s.nav.status === "IN_TRANSIT").map((s) => s.symbol));
+  // Prune trail state for any ship that isn't in transit *right now* before
+  // anything else, including the early return just below for "nothing to
+  // animate" — otherwise the pass where the last in-transit ship of the
+  // whole fleet arrives never reaches this at all (anyTransit was false, so
+  // the old code bailed above the loop this used to live at the bottom of),
+  // leaving that ship's sample buffer stale forever. Harmless in the
+  // moment (bounded by fleet size), but a real bug the moment that same
+  // ship starts a new transit later: its old trail would still be sitting
+  // in liveTrails, so the new transit's first few points would jump from
+  // the previous leg's stale tail instead of starting fresh.
+  for (const symbol of [...liveTrails.keys()]) {
+    if (inTransitSymbols.has(symbol)) continue;
+    liveTrails.delete(symbol);
+    lastTrailSampleAt.delete(symbol);
+    svg.querySelector(`[data-trail-for="${symbol}"]`)?.remove();
+  }
+  if (inTransitSymbols.size === 0) return;
+  const view = svg.querySelector("#map-view");
   const { sx, sy } = mapScale;
+  const now = Date.now();
   for (const s of lastRenderedShips) {
     if (s.nav.status !== "IN_TRANSIT") continue;
     const world = shipTransitLerp(s);
     if (!world) continue; // stale/missing route data — leave it at its last drawn position
     const g = svg.querySelector(`[data-ship="${s.symbol}"]`);
     if (!g) continue; // not on the currently-viewed system's map
-    g.setAttribute("transform", `translate(${sx(world.x)} ${sy(world.y)})`);
+    const x = sx(world.x), y = sy(world.y);
+    g.setAttribute("transform", `translate(${x} ${y})`);
     const heading = shipHeadingDeg(s, sx, sy);
     g.querySelector(".hull")?.setAttribute("transform", `rotate(${heading ?? 45})`);
+
+    // Subtle motion trail: sampled at a fixed cadence, not every frame (at
+    // 60fps consecutive points would sit fractions of a pixel apart —
+    // indistinguishable from a solid line, and pointless overhead). Reuses
+    // the scrub trail's own .ship-trail line style for a consistent visual
+    // language, just at a lower opacity ceiling — this is a background
+    // motion cue, not something meant to be read the way a reviewed replay
+    // path is.
+    if (view) {
+      const points = liveTrails.get(s.symbol) ?? [];
+      if (now - (lastTrailSampleAt.get(s.symbol) ?? 0) >= TRAIL_SAMPLE_MIN_MS) {
+        points.push({ x, y });
+        if (points.length > TRAIL_MAX_POINTS) points.shift();
+        liveTrails.set(s.symbol, points);
+        lastTrailSampleAt.set(s.symbol, now);
+      }
+      if (points.length > 1) {
+        let trailGroup = svg.querySelector(`[data-trail-for="${s.symbol}"]`);
+        if (!trailGroup) {
+          // Lazily (re)created here rather than in renderMap()'s own markup:
+          // a full rebuild wipes the whole #map-view subtree (svg.innerHTML
+          // reassignment), but liveTrails' sample data lives outside the DOM
+          // and survives that — this just re-attaches a home for it,
+          // trail continuity across a real data poll is preserved for free.
+          trailGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          trailGroup.setAttribute("data-trail-for", s.symbol);
+          view.insertBefore(trailGroup, g); // directly before this ship's own <g> — renders underneath it
+        }
+        let segments = "";
+        for (let i = 1; i < points.length; i++) {
+          const a = points[i - 1], b = points[i];
+          const opacity = ((i / (points.length - 1)) * 0.32).toFixed(2);
+          segments += `<line class="ship-trail" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" opacity="${opacity}"></line>`;
+        }
+        trailGroup.innerHTML = segments;
+      }
+    }
   }
   shipAnimHandle = requestAnimationFrame(repositionShips);
 }
