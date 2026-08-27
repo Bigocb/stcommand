@@ -42,3 +42,20 @@ export function chooseFlightMode(needFuelAtCruise: number, currentFuel: number, 
   if (currentFuel >= needFuelAtCruise * 2 && currentFuel - needFuelAtCruise * 2 >= capacity * 0.25) return "BURN";
   return "CRUISE";
 }
+
+/** A short, parenthesized clause explaining *why* chooseFlightMode() picked
+ *  what it picked, for the activity-feed line each agent posts on a real
+ *  mode change — otherwise "drift mode" on its own tells the operator
+ *  nothing about whether that's a problem (low fuel) or routine. */
+export function flightModeReason(mode: FlightMode): string {
+  switch (mode) {
+    case "DRIFT":
+      return " — too little fuel for this leg at cruise";
+    case "BURN":
+      return " — fuel to spare, trading it for speed";
+    case "CRUISE":
+      return " — back to normal";
+    default:
+      return "";
+  }
+}

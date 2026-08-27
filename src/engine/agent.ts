@@ -4,7 +4,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
-import { chooseFlightMode } from "./flightMode.js";
+import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -272,6 +272,7 @@ export class ShipAgent {
         try {
           const patched = await this.api.patchShipNav(this.symbol, mode);
           this.ship = { ...this.ship, nav: patched.nav, fuel: patched.fuel };
+          this.onActivity?.("flightmode", `${mode.toLowerCase()} mode${flightModeReason(mode)} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`, undefined, this.symbol);
         } catch (err) {
           this.log(`flight mode change to ${mode} failed: ${err instanceof Error ? err.message : String(err)}`);
         }

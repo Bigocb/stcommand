@@ -375,6 +375,14 @@
   .dispatch-row .route-txt { color:var(--ice); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .dispatch-row .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; }
   .dispatch-row .tag.manual { color:var(--accent); border-color:rgba(233,196,106,0.4); }
+  /* A ship's flight mode, shown only when it isn't the default CRUISE — see
+     fleetRows()/flightModeReason() — so an operator can tell at a glance
+     which ships are conserving fuel (DRIFT, worth a look — it means that
+     ship couldn't afford its last leg at cruise) versus burning it for
+     speed (BURN, routine). */
+  .fm-tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; border:1px solid var(--hairline); padding:1px 5px; margin-left:6px; }
+  .fm-tag.fm-drift { color:var(--red); border-color:rgba(255,91,91,0.4); }
+  .fm-tag.fm-burn { color:var(--teal); border-color:rgba(79,209,197,0.4); }
   .dispatch-row .prof { color:var(--green); font-variant-numeric:tabular-nums; white-space:nowrap; }
   .mobile-fleet-row { cursor:pointer; }
   .mobile-fleet-row:active { background:var(--glass); border-color:var(--accent-soft); }
@@ -474,6 +482,12 @@
   #map path.route.active { opacity:0.85; stroke-dasharray:5 5; animation:route-flow 1.2s linear infinite; }
   #map path.jump { fill:none; stroke:var(--teal); stroke-width:1.4; opacity:0.55; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
   #map line.ship-trail { stroke:var(--star); stroke-width:1.6; vector-effect:non-scaling-stroke; pointer-events:none; }
+  /* Live motion trail (repositionShips()'s own, distinct from the replay
+     scrubber's history trail above): thicker than the base rule so a short,
+     fast-fading tail actually reads as motion at a glance instead of
+     disappearing into the background — the first cut at this (matching the
+     scrub trail's own thinner stroke) turned out too subtle to notice. */
+  #map line.ship-trail.live { stroke-width:2.4; }
   @keyframes route-flow { to { stroke-dashoffset:-10; } }
   /* Sized for the field's full-bleed scale (previously tuned for a map that
      shared the screen with two grid panes — the same absolute pixel sizes
@@ -2354,6 +2368,16 @@ const FLEET_COLS = [
   { key: "goal", label: "Doing" },
 ];
 
+/** A compact "why is this ship not on the default flight mode" badge — see
+ *  src/engine/flightMode.ts for the real decision logic this is just
+ *  surfacing. Empty string (no badge) for CRUISE/STEALTH/undefined, since
+ *  CRUISE is routine and this engine never selects STEALTH itself. */
+function fmTag(flightMode) {
+  if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift">drift</span>`;
+  if (flightMode === "BURN") return `<span class="fm-tag fm-burn">burn</span>`;
+  return "";
+}
+
 function fleetRows() {
   const ships = state?.ships ?? [];
   const earnBy = new Map((bridge.earnings ?? []).map((e) => [e.shipSymbol, e.net]));
@@ -2370,6 +2394,12 @@ function fleetRows() {
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
       goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
       at: s.nav?.waypointSymbol ?? "",
+      // Only ever DRIFT/BURN/CRUISE/STEALTH — undefined for an older cached
+      // snapshot from before flightMode existed on this payload. CRUISE is
+      // the routine default, so it's deliberately not surfaced as a tag
+      // (see fmTag() below) — only a real deviation from it is worth a
+      // glance.
+      flightMode: s.nav?.flightMode,
     };
   });
 }
@@ -2387,7 +2417,7 @@ function renderMobileFleet() {
     <div class="dispatch-row mobile-fleet-row" data-ship="${escapeAttr(r.symbol)}">
       <span class="ship">${escapeHtml(r.symbol)}</span>
       <span class="good" style="min-width:0">${escapeHtml(r.role)}</span>
-      <span class="route-txt">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}</span>
+      <span class="route-txt">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}${fmTag(r.flightMode)}</span>
       <span class="prof">${signed(r.net)}/hr</span>
       <span class="chev">›</span>
     </div>`).join("");
@@ -2513,7 +2543,7 @@ function renderFleetTable() {
         <td class="num ${r.net > 0 ? "rate-up" : r.net < 0 ? "rate-down" : "rate-zero"}">${r.net ? signed(r.net) : "0"}</td>
         <td class="gauge"><span class="meter"><i style="width:${r.fuelCap ? (r.fuel / r.fuelCap) * 100 : 0}%"></i></span>${r.fuel}</td>
         <td class="gauge"><span class="meter c"><i style="width:${r.cargoCap ? (r.cargo / r.cargoCap) * 100 : 0}%"></i></span>${r.cargoCap ? `${r.cargo}/${r.cargoCap}` : "—"}</td>
-        <td><span class="goal">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}</span></td>
+        <td><span class="goal">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}${fmTag(r.flightMode)}</span></td>
       </tr>`).join("")}</tbody>`;
 
   el.querySelectorAll("th[data-key]").forEach((th) => th.addEventListener("click", () => {
@@ -2934,7 +2964,7 @@ let shipAnimHandle = null;
 let liveTrails = new Map();
 let lastTrailSampleAt = new Map();
 const TRAIL_SAMPLE_MIN_MS = 200;
-const TRAIL_MAX_POINTS = 6;
+const TRAIL_MAX_POINTS = 10; // ~2s of trail at the sample cadence above — longer reads as more deliberate motion than the original 6 (~1.2s)
 
 function renderMap(ships, trails = new Map()) {
   lastRenderedShips = ships;
@@ -3307,8 +3337,12 @@ function repositionShips() {
         let segments = "";
         for (let i = 1; i < points.length; i++) {
           const a = points[i - 1], b = points[i];
-          const opacity = ((i / (points.length - 1)) * 0.32).toFixed(2);
-          segments += `<line class="ship-trail" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" opacity="${opacity}"></line>`;
+          // 0.32 max (matched to the replay scrub trail's own subtlety) read
+          // as invisible in practice — even the newest segment barely
+          // registered. 0.25-0.7 keeps a real fade from tail to head while
+          // making sure no segment is ever too faint to notice.
+          const opacity = (0.25 + (i / (points.length - 1)) * 0.45).toFixed(2);
+          segments += `<line class="ship-trail live" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" opacity="${opacity}"></line>`;
         }
         trailGroup.innerHTML = segments;
       }
