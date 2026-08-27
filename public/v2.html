@@ -2915,7 +2915,18 @@ function shipTransitLerp(ship) {
   };
 }
 
+/** The ships array and sx/sy scale functions from the most recent renderMap()
+ *  call, reused by repositionShips() so per-frame animation never recomputes
+ *  view bounds or drifts from what was actually drawn — see that function's
+ *  own comment for why it can't just read state.ships directly (replay scrub
+ *  draws a synthetic ship list renderMap() was actually called with, not
+ *  live state). */
+let lastRenderedShips = [];
+let mapScale = null;
+let shipAnimHandle = null;
+
 function renderMap(ships, trails = new Map()) {
+  lastRenderedShips = ships;
   const svg = $("map");
   const w = svg.clientWidth || 800;
   const h = svg.clientHeight || 600;
@@ -2957,6 +2968,10 @@ function renderMap(ships, trails = new Map()) {
   }
   const sx = (x) => pad + ((x - minX) / (maxX - minX || 1)) * (w - pad * 2);
   const sy = (y) => pad + ((y - minY) / (maxY - minY || 1)) * (h - pad * 2);
+  // Cache these exact closures (not a recomputed copy) for repositionShips()
+  // to reuse every frame — guarantees it can never drift from the scale this
+  // render actually used, and costs nothing extra to compute.
+  mapScale = { sx, sy };
 
   // SpaceTraders routinely puts several waypoints at the exact same x/y — a
   // gas giant and the stations orbiting it share one coordinate. Left as-is
@@ -3168,12 +3183,14 @@ function renderMap(ships, trails = new Map()) {
     shipScreenPos.set(s.symbol, { x, y });
     const docked = s.nav.status === "DOCKED";
     const sel = s.symbol === selectedShip;
-    if (sel) {
-      out += `<circle class="sel-halo" cx="${x}" cy="${y}" r="22"></circle><circle class="sel-ring" cx="${x}" cy="${y}" r="22"></circle>`;
-    }
     const role = (fleetStatus.ships ?? []).find((r) => r.symbol === s.symbol)?.role;
     const heading = shipHeadingDeg(s, sx, sy);
+    // The selection halo lives *inside* the ship's own <g> now, at local
+    // (0,0), instead of as a sibling circle positioned with its own cx/cy —
+    // so it rides along with the ship's transform for free (repositionShips()
+    // only ever touches the <g>'s transform, never re-renders these circles).
     out += `<g class="ship ${docked ? "docked" : ""}${sel ? " selected" : ""}" transform="translate(${x} ${y})" data-wp="${s.nav.waypointSymbol}" data-ship="${s.symbol}">
+      ${sel ? `<circle class="sel-halo" cx="0" cy="0" r="22"></circle><circle class="sel-ring" cx="0" cy="0" r="22"></circle>` : ""}
       ${shipGlyphMarkup(role, docked, heading)}<title>${s.symbol} — ${s.nav.status}</title>
     </g>`;
   }
@@ -3188,6 +3205,49 @@ function renderMap(ships, trails = new Map()) {
     el.addEventListener("click", (e) => { e.stopPropagation(); openShipDetails(el.dataset.ship); });
   });
   applyMapView();
+  // Restart the per-frame ship animation against the DOM this call just
+  // built. Cancel any chain from a previous render first — otherwise a full
+  // rebuild mid-animation would leave two rAF chains racing the same nodes.
+  // Skipped entirely while scrubbing: repositionShips() would just no-op on
+  // every frame anyway (see its own guard), so don't bother scheduling one.
+  if (shipAnimHandle) cancelAnimationFrame(shipAnimHandle);
+  if (scrubLive) shipAnimHandle = requestAnimationFrame(repositionShips);
+}
+
+/** Per-frame ship-motion animation, replacing the old fixed 1s redraw timer.
+ *  Only ever touches each in-transit ship's own <g transform> (translate +
+ *  the hull's rotate) — never rebuilds the map SVG, so this is cheap enough
+ *  to run every frame instead of once a second. Self-terminates (no
+ *  reschedule) the moment there's nothing to animate; the next full
+ *  renderMap() call (from a real data poll, a view switch, or a scrub frame)
+ *  restarts it. See docs/smooth-ship-flying.md for the full design.
+ *
+ *  Reads `lastRenderedShips`, not `state.ships` — during replay scrub,
+ *  renderMap() is called with a synthetic historical ship list that has no
+ *  route timing at all, and state.ships (live data) would be a completely
+ *  different set of ships than what's actually on screen. The scrubLive
+ *  guard below means this never actually runs during a scrub either way,
+ *  but reading the cached array (rather than state.ships) keeps this
+ *  correct even if that guard is ever relaxed. */
+function repositionShips() {
+  shipAnimHandle = null;
+  const mapVisible = (!isMobile() && currentView === "bridge") || (isMobile() && mobileView === "map");
+  if (!mapVisible || !scrubLive || !mapScale || !lastRenderedShips.length) return;
+  const anyTransit = lastRenderedShips.some((s) => s.nav.status === "IN_TRANSIT");
+  if (!anyTransit) return;
+  const svg = $("map");
+  const { sx, sy } = mapScale;
+  for (const s of lastRenderedShips) {
+    if (s.nav.status !== "IN_TRANSIT") continue;
+    const world = shipTransitLerp(s);
+    if (!world) continue; // stale/missing route data — leave it at its last drawn position
+    const g = svg.querySelector(`[data-ship="${s.symbol}"]`);
+    if (!g) continue; // not on the currently-viewed system's map
+    g.setAttribute("transform", `translate(${sx(world.x)} ${sy(world.y)})`);
+    const heading = shipHeadingDeg(s, sx, sy);
+    g.querySelector(".hull")?.setAttribute("transform", `rotate(${heading ?? 45})`);
+  }
+  shipAnimHandle = requestAnimationFrame(repositionShips);
 }
 
 /** Book mode's clause hover: ring the real hulls a rule fired against this
@@ -4069,10 +4129,11 @@ every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepe
 every(20000, () => { if (currentView === "ops") loadOps(); });
 every(30000, () => { if (currentView === "bridge") loadNarrative(); });
 every(15000, () => { if (isMobile()) loadMobilePanels(); });
-// Ship-position interpolation needs to redraw more often than the 20s state
-// poll to actually look like motion, but only while the map is the thing on
-// screen — no reason to rebuild the SVG for a tab nobody's looking at.
-every(1000, () => { if ((!isMobile() && currentView === "bridge") || (isMobile() && mobileView === "map")) renderMapLiveOrScrub(); });
+// Ship-position interpolation used to redraw on a flat 1s timer here. That's
+// now repositionShips()'s job (see its own comment), self-scheduled via
+// requestAnimationFrame from the end of every renderMap() call instead of a
+// fixed interval — smoother (every frame, not once a second) and cheaper
+// (only touches transform attributes, never rebuilds the SVG).
 
 setInterval(() => {
   if (document.hidden || !authed) return;
