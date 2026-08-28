@@ -255,6 +255,50 @@ describe("MissionManager material fallback", () => {
     const mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
     assert.equal(mission?.assignedShip, "SHIP-1", "the carrier must still be assigned, working the other material");
   });
+
+  it("still auto-assigns a carrier when only a later material (not the first) has a known seller", async () => {
+    // The same fixation bug, one level higher: step()'s own pre-assignment
+    // gate decided whether to bother picking a carrier at all by checking
+    // only mission.materials.find(...)'s first result. If that material (in
+    // practice, whichever sorts first — FAB_MATS here) had no known seller,
+    // the gate bailed into maybeDiscover() and returned *without ever
+    // calling pickCarrier* — so no carrier was ever assigned, full stop,
+    // even though ADVANCED_CIRCUITRY had a perfectly good known seller the
+    // whole time. From the operator's side this looked identical to "the
+    // system assigned nothing and never will."
+    const ship = {
+      symbol: "AUTO-1",
+      nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-D46", systemSymbol: "X1-A" },
+      cargo: { capacity: 40, units: 0, inventory: [] },
+      fuel: { current: 0, capacity: 0 },
+    } as any;
+    let pickCarrierCalls = 0;
+    const mgr = new MissionManager({
+      api: {
+        ...makeApi([
+          { tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 },
+          { tradeSymbol: "ADVANCED_CIRCUITRY", required: 50, fulfilled: 0 },
+        ]),
+        getShipCargo: async () => ({ inventory: [] }),
+      },
+      getShip: async () => ship,
+      suspend: () => {},
+      resume: () => {},
+      dispatchShip: async () => {},
+      listBuyers: async (tradeSymbol) =>
+        tradeSymbol === "ADVANCED_CIRCUITRY" ? [{ waypoint: "X1-A-D46", purchasePrice: 50, tradeVolume: 10 }] : [],
+      pickCarrier: async () => {
+        pickCarrierCalls += 1;
+        return "AUTO-1";
+      },
+    });
+    await mgr.startConstruction("X1-A-I1");
+
+    await mgr.tick();
+    assert.ok(pickCarrierCalls >= 1, "a carrier must be picked once ANY outstanding material has a known seller");
+    const mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
+    assert.equal(mission?.assignedShip, "AUTO-1");
+  });
 });
 
 // ── New: the tenant-scoped persistence path itself ──────────────────

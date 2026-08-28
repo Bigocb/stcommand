@@ -365,10 +365,24 @@ export class MissionManager {
     // Assign a carrier only once we know there's real work to do (a market that
     // sells a needed material). Otherwise the mission surveys markets while every
     // ship keeps producing — a blocked mission must never idle a miner.
+    //
+    // Check every outstanding material, not just whichever sorts first: this
+    // gate used to look at only mission.materials.find(...)'s first result
+    // (typically FAB_MATS), so if THAT one had no known buyer, no carrier
+    // ever got assigned at all — even when a different outstanding material
+    // (e.g. ADVANCED_CIRCUITRY) had a perfectly good known seller the whole
+    // time. Same fixation bug as stepCarrier()'s own material selection, one
+    // level higher: this is the gate that decides whether to assign a
+    // carrier in the first place, so getting it wrong here means the
+    // carrier-level fix never even gets a chance to run.
     if (!mission.assignedShip) {
-      const buyers = (await this.listBuyers?.(mission.materials.find((m) => m.fulfilled < m.required)?.tradeSymbol ?? "")) ?? [];
-      if (buyers.length === 0) {
-        await this.maybeDiscover(mission, t);
+      const outstanding = mission.materials.filter((m) => m.fulfilled < m.required);
+      let sourceable: MissionMaterial | undefined;
+      for (const m of outstanding) {
+        if (((await this.listBuyers?.(m.tradeSymbol)) ?? []).length > 0) { sourceable = m; break; }
+      }
+      if (!sourceable) {
+        await this.maybeDiscover(mission, t, outstanding[0]?.tradeSymbol);
         return;
       }
       const carrier = await this.pickCarrier?.(this.committedShips(), mission.targetWaypoint);
@@ -383,17 +397,21 @@ export class MissionManager {
     await this.stepCarrier(mission, t);
   }
 
-  /** When sourcing is blocked, survey unknown markets for the material before assigning a ship. */
-  private async maybeDiscover(mission: Mission, t: TaskState): Promise<void> {
-    if (!this.discoverBuyers) return;
+  /** When sourcing is blocked, survey unknown markets for `tradeSymbol` before
+   *  assigning a ship. Takes the material explicitly rather than re-deriving
+   *  "whichever is fulfilled < required first" internally — that used to
+   *  silently ignore which material the caller actually meant (stepCarrier()
+   *  calling this about a specific blocked t.currentMaterial, e.g., would
+   *  actually survey for an unrelated, always-first-in-array material
+   *  instead). */
+  private async maybeDiscover(mission: Mission, t: TaskState, tradeSymbol: string | undefined): Promise<void> {
+    if (!this.discoverBuyers || !tradeSymbol) return;
     t.retryAt = Date.now() + 15_000;
-    const need = mission.materials.find((m) => m.fulfilled < m.required);
-    if (!need) return;
-    const found = await this.discoverBuyers(need.tradeSymbol);
+    const found = await this.discoverBuyers(tradeSymbol);
     if (found.length > 0) {
-      this.log(`mission ${mission.targetWaypoint}: discovered sellers of ${need.tradeSymbol}: ${found.map((b) => `${b.waypoint}@${b.purchasePrice}c`).join(", ")}`);
+      this.log(`mission ${mission.targetWaypoint}: discovered sellers of ${tradeSymbol}: ${found.map((b) => `${b.waypoint}@${b.purchasePrice}c`).join(", ")}`);
     } else {
-      this.log(`mission ${mission.targetWaypoint}: no source found for ${need.tradeSymbol}; still surveying (next in 15s)`);
+      this.log(`mission ${mission.targetWaypoint}: no source found for ${tradeSymbol}; still surveying (next in 15s)`);
     }
   }
 
@@ -461,7 +479,7 @@ export class MissionManager {
         // assigned, so once assigned (manually or by the auto-picker), a
         // carrier that hit this branch would sit here permanently with no
         // path back to finding a source, indistinguishable from "broken".
-        await this.maybeDiscover(mission, t);
+        await this.maybeDiscover(mission, t, t.currentMaterial);
         buyers = (await this.listBuyers?.(t.currentMaterial)) ?? [];
         if (buyers.length === 0) {
           this.blockMaterial(t, t.currentMaterial);
