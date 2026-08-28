@@ -4250,19 +4250,28 @@ setInterval(() => {
 // A backgrounded tab pauses every timer above; coming back should refresh
 // whatever view is actually on screen, not just the always-on header data,
 // so returning to a stale Markets/Ops/Doctrine tab doesn't need a manual reload.
+let mapHiddenAt = null;
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && authed) {
-    // rAF is throttled/paused for the whole time this tab was hidden, so
-    // repositionShips() barely (or never) sampled while away. Without this,
-    // the first frame after returning would compare a fresh position against
-    // a sample point from before backgrounding — a real but huge jump that
-    // then sits in the fixed-size trail buffer looking like one giant
-    // streak until enough new (tiny, real-game-speed) samples push it out.
-    // Clearing here just means the trail starts fresh from "now" instead of
-    // rendering a compressed replay of the whole time you were away.
-    liveTrails.clear();
-    lastTrailSamplePos.clear();
-    document.querySelectorAll("#map [data-trail-for]").forEach((el) => el.remove());
+  if (document.hidden) { mapHiddenAt = Date.now(); return; }
+  if (authed) {
+    // rAF is throttled/paused while a tab is hidden, so repositionShips()
+    // barely (or never) samples during that time. A long enough gap means
+    // the first frame after returning would compare a fresh position
+    // against a sample point from well before backgrounding — a real but
+    // huge jump that then sits in the fixed-size trail buffer looking like
+    // one giant streak until enough new (tiny, real-game-speed) samples
+    // push it out, so it's worth clearing and starting fresh from "now".
+    // But a brief blur (alt-tabbing for a second, clicking another window)
+    // doesn't need that: clearing unconditionally on every visibilitychange
+    // wiped a perfectly good trail for those too, forcing it to visibly
+    // rebuild from nothing while the ship — animated every frame regardless
+    // — kept moving, so the trail looked like it was "snapping" to catch up.
+    if (mapHiddenAt !== null && Date.now() - mapHiddenAt >= 2000) {
+      liveTrails.clear();
+      lastTrailSamplePos.clear();
+      document.querySelectorAll("#map [data-trail-for]").forEach((el) => el.remove());
+    }
+    mapHiddenAt = null;
     loadState();
     loadBridge();
     if (isMobile()) loadMobilePanels();
