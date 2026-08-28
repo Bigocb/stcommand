@@ -2583,6 +2583,21 @@ export class FleetManager {
     // moment any of those calls happen.
     let status = ship.nav.status;
 
+    // Force CRUISE before any of this function's own fuel math or navigate
+    // calls. Confirmed live: a ship handed off to the mission with its
+    // flightMode still left at BURN from its own prior trading kept that
+    // mode — nothing here ever reset it — so the real navigate call
+    // consumed roughly double estimatedFuelBetween()'s straight-line
+    // estimate (which assumes CRUISE) and failed with "requires N more
+    // fuel" well within what should have been comfortable range. CRUISE is
+    // the one mode estimatedFuelBetween() is actually calibrated for, and
+    // there's no reason a mission supply run needs BURN's speed premium or
+    // DRIFT's fuel thrift badly enough to justify the mismatch.
+    if (ship.nav.flightMode !== "CRUISE") {
+      await this.api.patchShipNav(shipSymbol, "CRUISE");
+      this.log(`${shipSymbol}: flight mode forced to CRUISE for mission dispatch (was ${ship.nav.flightMode})`);
+    }
+
     // If we're starting from a fuel stop, top up first so this hop uses a full tank.
     const startIsFuelStop = (await this.fuelStops(targetSystem)).has(start);
     if (startIsFuelStop) {

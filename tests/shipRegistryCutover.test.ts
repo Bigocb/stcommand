@@ -284,18 +284,19 @@ describe("dispatchShipHop is non-blocking", () => {
     // relying on the caller re-checking ship status on a later tick to
     // continue the route.
     const navigateCalls: string[] = [];
-    let shipState = { waypointSymbol: "X1-A-START", status: "IN_ORBIT" as string, fuelCurrent: 120 };
+    let shipState = { waypointSymbol: "X1-A-START", status: "IN_ORBIT" as string, fuelCurrent: 120, flightMode: "CRUISE" as string };
     const tenantId = await makeTenant();
     const store = new Store(pool);
     const fleet = makeFleet(store, tenantId, {
       getShip: async () => ({
         symbol: "SHIP-1",
-        nav: { status: shipState.status, waypointSymbol: shipState.waypointSymbol, systemSymbol: "X1-A" },
+        nav: { status: shipState.status, waypointSymbol: shipState.waypointSymbol, systemSymbol: "X1-A", flightMode: shipState.flightMode },
         fuel: { current: shipState.fuelCurrent, capacity: 120 },
       }),
       orbitShip: async () => { shipState = { ...shipState, status: "IN_ORBIT" }; return {}; },
       dockShip: async () => { shipState = { ...shipState, status: "DOCKED" }; return {}; },
       refuelShip: async () => { shipState = { ...shipState, fuelCurrent: 120 }; return {}; },
+      patchShipNav: async (_s: string, mode: string) => { shipState = { ...shipState, flightMode: mode }; return {}; },
       navigateShip: async (_s: string, wp: string) => {
         navigateCalls.push(wp);
         // Ship departs but is still IN_TRANSIT — must NOT resolve to arrived.
@@ -322,6 +323,43 @@ describe("dispatchShipHop is non-blocking", () => {
 
     assert.deepEqual(navigateCalls, ["X1-A-HOP"], "must hop toward the reachable fuel stop, not attempt the unreachable direct route");
     assert.equal(shipState.status, "IN_TRANSIT", "the single hop must actually depart");
+  });
+
+  it("forces CRUISE before navigating, so estimatedFuelBetween()'s straight-line math stays accurate", async () => {
+    // Confirmed live via server logs: "mission X1-CP51-I62 step error:
+    // Navigate request failed. Ship FALCON-8 requires 338 more fuel for
+    // navigation" — on a 600-fuel-capacity ship with a full tank, for a leg
+    // estimatedFuelBetween() (straight-line distance, calibrated for
+    // CRUISE) put at well under half that. The ship's flightMode had been
+    // left at BURN from its own trading before the mission took over —
+    // roughly double fuel cost for the same distance — and nothing here
+    // ever reset it before issuing the real navigate call.
+    let patchedTo: string | undefined;
+    let shipState = { waypointSymbol: "X1-A-START", status: "IN_ORBIT" as string, fuelCurrent: 600, flightMode: "BURN" as string };
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId, {
+      getShip: async () => ({
+        symbol: "SHIP-1",
+        nav: { status: shipState.status, waypointSymbol: shipState.waypointSymbol, systemSymbol: "X1-A", flightMode: shipState.flightMode },
+        fuel: { current: shipState.fuelCurrent, capacity: 600 },
+      }),
+      orbitShip: async () => { shipState = { ...shipState, status: "IN_ORBIT" }; return {}; },
+      dockShip: async () => { shipState = { ...shipState, status: "DOCKED" }; return {}; },
+      refuelShip: async () => { shipState = { ...shipState, fuelCurrent: 600 }; return {}; },
+      patchShipNav: async (_s: string, mode: string) => { patchedTo = mode; shipState = { ...shipState, flightMode: mode }; return {}; },
+      navigateShip: async () => { shipState = { ...shipState, status: "IN_TRANSIT" }; return { fuel: { current: shipState.fuelCurrent, capacity: 600 }, nav: { status: "IN_TRANSIT" } }; },
+    });
+    (fleet as any).positions = [
+      { symbol: "X1-A-START", x: 0, y: 0, type: "PLANET" },
+      { symbol: "X1-A-TARGET", x: 469, y: 0, type: "JUMP_GATE" },
+    ];
+    (fleet as any).galaxy.systems.set("X1-A", { symbol: "X1-A", waypoints: [], jumpGates: [], markets: [], shipyards: [] });
+
+    await (fleet as any).dispatchShipHop("SHIP-1", "X1-A-TARGET");
+
+    assert.equal(patchedTo, "CRUISE", "must force the ship's flight mode to CRUISE before trusting the straight-line fuel estimate");
+    assert.equal(shipState.status, "IN_TRANSIT", "must actually depart, not just patch the mode and stop");
   });
 });
 
