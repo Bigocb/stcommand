@@ -324,3 +324,29 @@ describe("dispatchShipHop is non-blocking", () => {
     assert.equal(shipState.status, "IN_TRANSIT", "the single hop must actually depart");
   });
 });
+
+describe("materialBuyers is scoped to the mission's own system", () => {
+  it("never returns a cheaper listing from an unrelated system with no route back to the mission's own", async () => {
+    // Confirmed live: this was the actual root cause of a mission carrier
+    // that got assigned, refueled, and then never went anywhere — logged
+    // as "mission X1-CP51-I62 step error: no jump gate from X1-CP51 to
+    // X1-TQ19". materialBuyers() searched the fleet's ENTIRE market cache,
+    // built from every system any tour/scout ship has ever surveyed, not
+    // just the mission's own system. A cheaper listing in a system with no
+    // jump gate connection back sorted first, the mission picked it as the
+    // market to buy from, and every tick failed identically trying to
+    // route there — invisible to the operator, since a buyer was always
+    // "found", just an unreachable one.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId);
+    await store.recordMarket({ systemSymbol: "X1-CP51", waypointSymbol: "X1-CP51-F55", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 1125, sellPrice: 555, tradeVolume: 20 });
+    // Cheaper, but in a different, unreachable system.
+    await store.recordMarket({ systemSymbol: "X1-TQ19", waypointSymbol: "X1-TQ19-B2", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 800, sellPrice: 400, tradeVolume: 20 });
+
+    const buyers = await (fleet as any).materialBuyers("FAB_MATS", "X1-CP51");
+
+    assert.equal(buyers.length, 1, "must not include the cheaper but unreachable listing from the other system");
+    assert.equal(buyers[0].waypoint, "X1-CP51-F55");
+  });
+});

@@ -236,8 +236,8 @@ export class FleetManager {
       pickCarrier: (exclude, targetWaypoint) => this.pickMissionCarrier(exclude, targetWaypoint),
       suspend: (s) => this.suspendAgent(s),
       resume: (s) => this.resumeAgent(s),
-      listBuyers: (good) => this.materialBuyers(good),
-      discoverBuyers: (good) => this.discoverMaterialBuyers(good),
+      listBuyers: (good, sys) => this.materialBuyers(good, sys),
+      discoverBuyers: (good, sys) => this.discoverMaterialBuyers(good, sys),
       getCredits: async () => (await this.api.getMyAgent()).credits,
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
       jettisonCargo: (s, g, u) => this.api.jettisonCargo(s, g, u),
@@ -701,7 +701,7 @@ export class FleetManager {
         if (!forMissionGoods.has(mat.tradeSymbol)) continue;
         const needed = mat.required - mat.fulfilled;
         if (needed <= 0) continue;
-        const cheapest = (await this.materialBuyers(mat.tradeSymbol))[0];
+        const cheapest = (await this.materialBuyers(mat.tradeSymbol, m.targetSystem))[0];
         if (!cheapest) continue; // no known market for it yet
         const balance = (this.tenantId ? await this.store?.warehouseBalance(this.tenantId, mat.tradeSymbol) : undefined) ?? 0;
         targets.push({ good: mat.tradeSymbol, buyAt: cheapest.waypoint, buyPrice: cheapest.purchasePrice, needed, balance });
@@ -731,7 +731,7 @@ export class FleetManager {
     }
     const targets: ContractBuyTarget[] = [];
     for (const [good, needed] of neededByGood) {
-      const cheapest = (await this.materialBuyers(good))[0];
+      const cheapest = (await this.materialBuyers(good, this.systemSymbol))[0];
       if (!cheapest) continue; // no known market — e.g. a raw ore only ever obtained by mining
       targets.push({ good, buyAt: cheapest.waypoint, buyPrice: cheapest.purchasePrice, needed });
     }
@@ -2156,27 +2156,35 @@ export class FleetManager {
     void this.releaseTo(symbol, "mission");
   }
 
-  /** Known markets that sell a trade good, cheapest first (for mission sourcing). */
-  private async materialBuyers(tradeSymbol: string): Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]> {
-    const rows = (await this.store?.latestMarketSnapshots())?.filter((r) => r.goodSymbol === tradeSymbol && r.purchasePrice > 0) ?? [];
+  /** Known markets that sell a trade good in `systemSymbol`, cheapest first
+   *  (for mission sourcing). System-scoped, not galaxy-wide — confirmed
+   *  live: an unscoped lookup once returned a cheaper listing from a system
+   *  with no jump gate connection to the mission's own, and the carrier
+   *  tried (and failed) to route there every tick forever, invisible
+   *  because the mission's own "no buyer known" fallback never triggered —
+   *  a buyer, just an unreachable one, was always "found". */
+  private async materialBuyers(tradeSymbol: string, systemSymbol: string): Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]> {
+    const rows = (await this.store?.latestMarketSnapshots())?.filter((r) => r.goodSymbol === tradeSymbol && r.purchasePrice > 0 && r.systemSymbol === systemSymbol) ?? [];
     return rows
       .map((r) => ({ waypoint: r.waypointSymbol, purchasePrice: r.purchasePrice, tradeVolume: r.tradeVolume }))
       .sort((a, b) => a.purchasePrice - b.purchasePrice);
   }
 
-  /** Survey unknown marketplaces across loaded systems looking for a needed good. */
-  private async discoverMaterialBuyers(tradeSymbol: string): Promise<{ waypoint: string; purchasePrice: number }[]> {
+  /** Survey unknown marketplaces in `systemSymbol` looking for a needed
+   *  good. Scoped to that one system for the same reason materialBuyers()
+   *  is: surveying (and potentially "finding") a seller in a system the
+   *  mission's carrier can't actually reach wastes API calls and produces
+   *  cached data materialBuyers() would then have to filter back out. */
+  private async discoverMaterialBuyers(tradeSymbol: string, systemSymbol: string): Promise<{ waypoint: string; purchasePrice: number }[]> {
     const surveyed = new Set<string>();
-    for (const r of (await this.store?.latestMarketSnapshots()) ?? []) surveyed.add(r.waypointSymbol);
+    for (const r of (await this.store?.latestMarketSnapshots()) ?? []) if (r.systemSymbol === systemSymbol) surveyed.add(r.waypointSymbol);
 
-    const systems = [...this.galaxy.listSystems(), ...(this.galaxy.getSystem(this.systemSymbol) ? [] : [])];
+    const known = this.galaxy.getSystem(systemSymbol);
     const candidates: { system: string; waypoint: string }[] = [];
-    for (const sys of systems) {
-      for (const w of sys.waypoints) {
-        if (!w.traits.some((t) => t.symbol === "MARKETPLACE")) continue;
-        if (surveyed.has(w.symbol)) continue;
-        candidates.push({ system: sys.symbol, waypoint: w.symbol });
-      }
+    for (const w of known?.waypoints ?? []) {
+      if (!w.traits.some((t) => t.symbol === "MARKETPLACE")) continue;
+      if (surveyed.has(w.symbol)) continue;
+      candidates.push({ system: systemSymbol, waypoint: w.symbol });
     }
     // Survey at most a small batch per call so we never hammer the API in one tick.
     const batch = candidates.slice(0, 6);
@@ -2200,7 +2208,7 @@ export class FleetManager {
         this.log(`mission discovery: ${waypoint} survey failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    return this.materialBuyers(tradeSymbol);
+    return this.materialBuyers(tradeSymbol, systemSymbol);
   }
 
   /** Active missions for the dashboard. */

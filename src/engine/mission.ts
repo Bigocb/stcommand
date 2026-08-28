@@ -58,10 +58,17 @@ interface MissionOptions {
    */
   suspend?: (shipSymbol: string) => void | Promise<void>;
   resume?: (shipSymbol: string) => void;
-  /** Sources known to sell a trade good, cheapest first: { waypoint, purchasePrice, tradeVolume }. */
-  listBuyers?: (tradeSymbol: string) => Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]>;
-  /** Survey a small batch of unknown markets looking for the good; returns newly found buyers. */
-  discoverBuyers?: (tradeSymbol: string) => Promise<{ waypoint: string; purchasePrice: number }[]>;
+  /** Sources known to sell a trade good in the given system, cheapest first:
+   *  { waypoint, purchasePrice, tradeVolume }. System-scoped, not
+   *  galaxy-wide — confirmed live: an unscoped lookup once returned a
+   *  cheaper listing from a system with no jump gate connection to the
+   *  mission's own, and the carrier tried (and failed) to route there every
+   *  tick forever. A carrier can only ever reasonably reach a market in the
+   *  mission's own system, or one connected to it — starting with just the
+   *  mission's own system is the safe, minimal fix. */
+  listBuyers?: (tradeSymbol: string, systemSymbol: string) => Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]>;
+  /** Survey a small batch of unknown markets in the given system looking for the good; returns newly found buyers. */
+  discoverBuyers?: (tradeSymbol: string, systemSymbol: string) => Promise<{ waypoint: string; purchasePrice: number }[]>;
   /** Credits available to spend on mission supplies. */
   getCredits?: () => Promise<number>;
   /** Sell cargo for a ship (used to free space / top up credits). */
@@ -379,7 +386,7 @@ export class MissionManager {
       const outstanding = mission.materials.filter((m) => m.fulfilled < m.required);
       let sourceable: MissionMaterial | undefined;
       for (const m of outstanding) {
-        if (((await this.listBuyers?.(m.tradeSymbol)) ?? []).length > 0) { sourceable = m; break; }
+        if (((await this.listBuyers?.(m.tradeSymbol, mission.targetSystem)) ?? []).length > 0) { sourceable = m; break; }
       }
       if (!sourceable) {
         await this.maybeDiscover(mission, t, outstanding[0]?.tradeSymbol);
@@ -407,7 +414,7 @@ export class MissionManager {
   private async maybeDiscover(mission: Mission, t: TaskState, tradeSymbol: string | undefined): Promise<void> {
     if (!this.discoverBuyers || !tradeSymbol) return;
     t.retryAt = Date.now() + 15_000;
-    const found = await this.discoverBuyers(tradeSymbol);
+    const found = await this.discoverBuyers(tradeSymbol, mission.targetSystem);
     if (found.length > 0) {
       this.log(`mission ${mission.targetWaypoint}: discovered sellers of ${tradeSymbol}: ${found.map((b) => `${b.waypoint}@${b.purchasePrice}c`).join(", ")}`);
     } else {
@@ -471,7 +478,7 @@ export class MissionManager {
 
     // 2) Pick a source market for that material, if not already chosen.
     if (!t.market) {
-      let buyers = (await this.listBuyers?.(t.currentMaterial)) ?? [];
+      let buyers = (await this.listBuyers?.(t.currentMaterial, mission.targetSystem)) ?? [];
       if (buyers.length === 0) {
         // No buyer known — actively re-survey instead of idling on a stale/
         // empty cache forever. Market supply in this game rotates, so a
@@ -481,7 +488,7 @@ export class MissionManager {
         // carrier that hit this branch would sit here permanently with no
         // path back to finding a source, indistinguishable from "broken".
         await this.maybeDiscover(mission, t, t.currentMaterial);
-        buyers = (await this.listBuyers?.(t.currentMaterial)) ?? [];
+        buyers = (await this.listBuyers?.(t.currentMaterial, mission.targetSystem)) ?? [];
         if (buyers.length === 0) {
           this.blockMaterial(t, t.currentMaterial);
           return;
@@ -536,7 +543,7 @@ export class MissionManager {
       const toBuy = Math.min(need.required - need.fulfilled, ship.cargo.capacity - ship.cargo.units);
       if (toBuy > 0) {
         const credits = (await this.getCredits?.()) ?? 0;
-        const buyer = (await this.listBuyers?.(material))?.find((b) => b.waypoint === market);
+        const buyer = (await this.listBuyers?.(material, mission.targetSystem))?.find((b) => b.waypoint === market);
         const price = buyer?.purchasePrice ?? 0;
         const affordable = price > 0 ? Math.floor(credits / price) : toBuy;
         // Respect the market's per-transaction trade volume limit (e.g. FAB_MATS
