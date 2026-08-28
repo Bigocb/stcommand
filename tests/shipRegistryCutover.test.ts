@@ -271,3 +271,56 @@ describe("syncShipClaims recognizes an active rescue tender", () => {
     );
   });
 });
+
+describe("dispatchShipHop is non-blocking", () => {
+  it("issues exactly one navigate call toward an unreachable-in-one-hop target and returns, instead of blocking for the whole multi-leg trip", async () => {
+    // Confirmed live: this used to block synchronously (a real setTimeout
+    // sleep) until the ship physically arrived, for every leg of the route.
+    // Since it's called from stepCarrier(), itself awaited directly inside
+    // the shared fleet coordinator's tick(), a mission carrier flying toward
+    // a distant target froze the ENTIRE coordinator — every other ship's
+    // dispatch, every other mission, contracts — for the full trip. This
+    // proves the fix: one call does at most one hop and returns immediately,
+    // relying on the caller re-checking ship status on a later tick to
+    // continue the route.
+    const navigateCalls: string[] = [];
+    let shipState = { waypointSymbol: "X1-A-START", status: "IN_ORBIT" as string, fuelCurrent: 120 };
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId, {
+      getShip: async () => ({
+        symbol: "SHIP-1",
+        nav: { status: shipState.status, waypointSymbol: shipState.waypointSymbol, systemSymbol: "X1-A" },
+        fuel: { current: shipState.fuelCurrent, capacity: 120 },
+      }),
+      orbitShip: async () => { shipState = { ...shipState, status: "IN_ORBIT" }; return {}; },
+      dockShip: async () => { shipState = { ...shipState, status: "DOCKED" }; return {}; },
+      refuelShip: async () => { shipState = { ...shipState, fuelCurrent: 120 }; return {}; },
+      navigateShip: async (_s: string, wp: string) => {
+        navigateCalls.push(wp);
+        // Ship departs but is still IN_TRANSIT — must NOT resolve to arrived.
+        shipState = { ...shipState, status: "IN_TRANSIT" };
+        return { fuel: { current: shipState.fuelCurrent, capacity: 120 }, nav: { status: "IN_TRANSIT" } };
+      },
+    });
+    // START -> TARGET is 200 units (beyond the 120 fuel cap) — unreachable
+    // in one hop. HOP sits at 100 units from both, a valid fuel stop.
+    (fleet as any).positions = [
+      { symbol: "X1-A-START", x: 0, y: 0, type: "PLANET" },
+      { symbol: "X1-A-HOP", x: 100, y: 0, type: "FUEL_STATION" },
+      { symbol: "X1-A-TARGET", x: 200, y: 0, type: "JUMP_GATE" },
+    ];
+    (fleet as any).galaxy.systems.set("X1-A", {
+      symbol: "X1-A",
+      waypoints: [{ symbol: "X1-A-HOP", type: "FUEL_STATION" }],
+      jumpGates: [],
+      markets: [],
+      shipyards: [],
+    });
+
+    await (fleet as any).dispatchShipHop("SHIP-1", "X1-A-TARGET");
+
+    assert.deepEqual(navigateCalls, ["X1-A-HOP"], "must hop toward the reachable fuel stop, not attempt the unreachable direct route");
+    assert.equal(shipState.status, "IN_TRANSIT", "the single hop must actually depart");
+  });
+});

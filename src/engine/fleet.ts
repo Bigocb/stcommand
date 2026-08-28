@@ -2530,14 +2530,32 @@ export class FleetManager {
   }
 
   /**
-   * Dispatch a ship to a same-system waypoint, navigating leg-by-leg through
-   * fuel stops when the direct hop exceeds the tank. Refuels at each stop so a
-   * ship with modest range can reach a distant target (e.g. the gate at I59).
-   * Uses the raw API for navigation so it works for any ship, not just managed
-   * agents. Only intended for single-stop hops in the same system.
+   * Dispatch a ship one hop closer to a same-system waypoint, refueling at a
+   * fuel stop first if that's where it's starting from, so a ship with modest
+   * range can eventually reach a distant target (e.g. the gate at I59) over
+   * several calls. Uses the raw API for navigation so it works for any ship,
+   * not just managed agents.
+   *
+   * Issues at most one navigate call and returns immediately — does NOT wait
+   * for arrival. Confirmed live: the previous version blocked synchronously
+   * (a real setTimeout sleep) until the ship physically arrived, for every
+   * hop of the whole route. Since this runs inside missions.tick(), itself
+   * awaited directly inside the shared fleet coordinator's tick(), a mission
+   * actively moving its carrier toward a distant target — the jump gate in
+   * this fleet's own case is 350+ units from where the fleet normally
+   * operates — froze the ENTIRE coordinator (contracts, dispatch routes,
+   * every other mission) for the full multi-leg trip. This is exactly the
+   * class of bug the ETA-scheduled non-blocking waits elsewhere in this
+   * engine (see docs/eta-scheduled-ship-waits.md) were built to eliminate —
+   * it just never got extended to this raw-API mission/rescue dispatch path.
+   * The caller (stepCarrier()) already re-checks `ship.nav.status ===
+   * "IN_TRANSIT"` and returns early on every subsequent tick, so relying on
+   * that instead of blocking here costs nothing: each ~2s tick either
+   * notices the ship is still in flight (no-op) or has arrived, at which
+   * point this gets called again for the next hop.
    */
   private async dispatchShipHop(shipSymbol: string, waypointSymbol: string): Promise<void> {
-    let ship = await this.api.getShip(shipSymbol);
+    const ship = await this.api.getShip(shipSymbol);
     const targetSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
     if (ship.nav.systemSymbol !== targetSystem) {
       await this.dispatchShip(shipSymbol, waypointSymbol);
@@ -2548,71 +2566,45 @@ export class FleetManager {
       await this.dispatchShip(shipSymbol, waypointSymbol);
       return;
     }
+    if (ship.nav.status === "IN_TRANSIT") return; // already moving; next tick notices arrival
     const start = ship.nav.waypointSymbol;
-    if (start === waypointSymbol && ship.nav.status !== "IN_TRANSIT") return;
+    if (start === waypointSymbol) return;
+    // Tracked locally rather than re-reading ship.nav.status after each call:
+    // docking/refueling always leaves the ship DOCKED regardless of what it
+    // was before, so the original captured `ship` snapshot goes stale the
+    // moment any of those calls happen.
+    let status = ship.nav.status;
 
-    // If we start at a fuel stop, top up first so we have a full tank to hop with.
-    if ((await this.fuelStops(targetSystem)).has(start)) {
-      const docked = await this.api.getShip(shipSymbol);
-      if (docked.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
+    // If we're starting from a fuel stop, top up first so this hop uses a full tank.
+    const startIsFuelStop = (await this.fuelStops(targetSystem)).has(start);
+    if (startIsFuelStop) {
+      if (status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
       await this.api.refuelShip(shipSymbol);
+      status = "DOCKED";
       this.log(`${shipSymbol} topped up to full at ${start}`);
     }
+    const budget = startIsFuelStop ? cap : ship.fuel.current;
 
-    // Plan the hop path: always advance toward the target by preferring the fuel
-    // stop that is closest to the destination (not furthest from the start), so the
-    // carrier makes forward progress toward the gate instead of wandering.
+    // If we can reach the target now, go straight there.
+    if (this.estimatedFuelBetween(start, waypointSymbol) <= budget) {
+      if (status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);
+      const res = await this.api.navigateShip(shipSymbol, waypointSymbol);
+      this.log(`${shipSymbol} en route ${start} -> ${waypointSymbol} (${res.fuel.current}/${res.fuel.capacity} fuel)`);
+      return;
+    }
+
+    // Otherwise hop to whichever reachable fuel stop is closest to the
+    // target, so each hop makes forward progress instead of wandering.
     const stops = [...(await this.fuelStops(targetSystem))].filter((s) => s !== waypointSymbol && s !== start);
     stops.sort((a, b) => this.estimatedFuelBetween(a, waypointSymbol) - this.estimatedFuelBetween(b, waypointSymbol));
-
-    let current = start;
-    while (current !== waypointSymbol) {
-      const fresh = await this.api.getShip(shipSymbol);
-      if (fresh.nav.waypointSymbol !== current || fresh.nav.status === "IN_TRANSIT") {
-        await this.waitForArrivalShip(shipSymbol);
-        current = (await this.api.getShip(shipSymbol)).nav.waypointSymbol;
-        continue;
-      }
-      // Fuel budget: a full tank when at a fuel stop (we just topped up / will refuel),
-      // otherwise whatever fuel is currently in the tank.
-      const atFuelStop = (await this.fuelStops(targetSystem)).has(current);
-      const budget = atFuelStop ? fresh.fuel.capacity : fresh.fuel.current;
-      // If we can reach the target now, go straight there.
-      if (this.estimatedFuelBetween(current, waypointSymbol) <= budget) {
-        if (fresh.nav.status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);
-        const res = await this.api.navigateShip(shipSymbol, waypointSymbol);
-        this.log(`${shipSymbol} en route ${current} -> ${waypointSymbol} (${res.fuel.current}/${res.fuel.capacity} fuel)`);
-        await this.waitForArrivalShip(shipSymbol);
-        current = waypointSymbol;
-        break;
-      }
-      // Otherwise pick a reachable fuel stop that moves us closer.
-      const next = stops.find((s) => this.estimatedFuelBetween(current, s) <= budget);
-      if (!next) {
-        this.log(`${shipSymbol} cannot hop toward ${waypointSymbol} from ${current} (no reachable fuel stop)`);
-        return;
-      }
-      if (fresh.nav.status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);
-      const res = await this.api.navigateShip(shipSymbol, next);
-      this.log(`${shipSymbol} hopping ${current} -> ${next} to refuel (${res.fuel.current}/${res.fuel.capacity} fuel)`);
-      await this.waitForArrivalShip(shipSymbol);
-      // Dock and refuel at the stop.
-      await this.api.dockShip(shipSymbol);
-      await this.api.refuelShip(shipSymbol);
-      this.log(`${shipSymbol} refueled at ${next}`);
-      current = next;
+    const next = stops.find((s) => this.estimatedFuelBetween(start, s) <= budget);
+    if (!next) {
+      this.log(`${shipSymbol} cannot hop toward ${waypointSymbol} from ${start} (no reachable fuel stop)`);
+      return;
     }
-  }
-
-  /** Wait for a ship to finish any in-progress transit. */
-  private async waitForArrivalShip(shipSymbol: string): Promise<void> {
-    for (;;) {
-      const ship = await this.api.getShip(shipSymbol);
-      if (ship.nav.status !== "IN_TRANSIT") return;
-      const arrival = new Date(ship.nav.route.arrival).getTime();
-      const wait = arrival - Date.now();
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait + 500));
-    }
+    if (status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);
+    const res = await this.api.navigateShip(shipSymbol, next);
+    this.log(`${shipSymbol} hopping ${start} -> ${next} to refuel (${res.fuel.current}/${res.fuel.capacity} fuel)`);
   }
 
   /** Release a ship from manual dispatch back to autonomous operation. */
