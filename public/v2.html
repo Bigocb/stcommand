@@ -2956,15 +2956,20 @@ let mapScale = null;
 let shipAnimHandle = null;
 /** Live motion-trail state (repositionShips()'s own — distinct from the
  *  replay scrubber's waypoint-history trails passed into renderMap()).
- *  shipSymbol -> recent screen positions, oldest first, sampled at a fixed
- *  cadence (not every frame) and capped short: this is a "yes, it's really
- *  moving" cue for a transit whose per-frame pixel displacement is
- *  otherwise too small to notice at real game speed, not a flight-path
- *  record. */
+ *  shipSymbol -> recent screen positions, oldest first, sampled by on-screen
+ *  distance moved (not a fixed time cadence) and capped short: this is a
+ *  "yes, it's really moving" cue for a transit whose per-frame pixel
+ *  displacement is otherwise too small to notice at real game speed, not a
+ *  flight-path record. Distance-based sampling (rather than the original
+ *  fixed-interval one) matters because a 200ms tick of real flight time is
+ *  often a fraction of a pixel at real game speed — a time-based sample was
+ *  visually indistinguishable from a solid dot. Sampling by distance instead
+ *  guarantees every recorded segment is actually long enough to see,
+ *  independent of ship speed or zoom level. */
 let liveTrails = new Map();
-let lastTrailSampleAt = new Map();
-const TRAIL_SAMPLE_MIN_MS = 200;
-const TRAIL_MAX_POINTS = 10; // ~2s of trail at the sample cadence above — longer reads as more deliberate motion than the original 6 (~1.2s)
+let lastTrailSamplePos = new Map();
+const TRAIL_SAMPLE_MIN_PX = 4;
+const TRAIL_MAX_POINTS = 10; // ~40px of trail at the sample distance above — longer reads as more deliberate motion than the original 6
 
 function renderMap(ships, trails = new Map()) {
   lastRenderedShips = ships;
@@ -3289,13 +3294,12 @@ function repositionShips() {
   for (const symbol of [...liveTrails.keys()]) {
     if (inTransitSymbols.has(symbol)) continue;
     liveTrails.delete(symbol);
-    lastTrailSampleAt.delete(symbol);
+    lastTrailSamplePos.delete(symbol);
     svg.querySelector(`[data-trail-for="${symbol}"]`)?.remove();
   }
   if (inTransitSymbols.size === 0) return;
   const view = svg.querySelector("#map-view");
   const { sx, sy } = mapScale;
-  const now = Date.now();
   for (const s of lastRenderedShips) {
     if (s.nav.status !== "IN_TRANSIT") continue;
     const world = shipTransitLerp(s);
@@ -3307,8 +3311,9 @@ function repositionShips() {
     const heading = shipHeadingDeg(s, sx, sy);
     g.querySelector(".hull")?.setAttribute("transform", `rotate(${heading ?? 45})`);
 
-    // Subtle motion trail: sampled at a fixed cadence, not every frame (at
-    // 60fps consecutive points would sit fractions of a pixel apart —
+    // Subtle motion trail: sampled by on-screen distance moved, not every
+    // frame and not on a fixed timer (at 60fps, or at 200ms real-game-speed
+    // ticks, consecutive points would sit fractions of a pixel apart —
     // indistinguishable from a solid line, and pointless overhead). Reuses
     // the scrub trail's own .ship-trail line style for a consistent visual
     // language, just at a lower opacity ceiling — this is a background
@@ -3316,11 +3321,12 @@ function repositionShips() {
     // path is.
     if (view) {
       const points = liveTrails.get(s.symbol) ?? [];
-      if (now - (lastTrailSampleAt.get(s.symbol) ?? 0) >= TRAIL_SAMPLE_MIN_MS) {
+      const lastPos = lastTrailSamplePos.get(s.symbol);
+      if (!lastPos || Math.hypot(x - lastPos.x, y - lastPos.y) >= TRAIL_SAMPLE_MIN_PX) {
         points.push({ x, y });
         if (points.length > TRAIL_MAX_POINTS) points.shift();
         liveTrails.set(s.symbol, points);
-        lastTrailSampleAt.set(s.symbol, now);
+        lastTrailSamplePos.set(s.symbol, { x, y });
       }
       if (points.length > 1) {
         let trailGroup = svg.querySelector(`[data-trail-for="${s.symbol}"]`);
@@ -4246,6 +4252,17 @@ setInterval(() => {
 // so returning to a stale Markets/Ops/Doctrine tab doesn't need a manual reload.
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && authed) {
+    // rAF is throttled/paused for the whole time this tab was hidden, so
+    // repositionShips() barely (or never) sampled while away. Without this,
+    // the first frame after returning would compare a fresh position against
+    // a sample point from before backgrounding — a real but huge jump that
+    // then sits in the fixed-size trail buffer looking like one giant
+    // streak until enough new (tiny, real-game-speed) samples push it out.
+    // Clearing here just means the trail starts fresh from "now" instead of
+    // rendering a compressed replay of the whole time you were away.
+    liveTrails.clear();
+    lastTrailSamplePos.clear();
+    document.querySelectorAll("#map [data-trail-for]").forEach((el) => el.remove());
     loadState();
     loadBridge();
     if (isMobile()) loadMobilePanels();
