@@ -2394,12 +2394,14 @@ function fleetRows() {
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
       goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
       at: s.nav?.waypointSymbol ?? "",
-      // Only ever DRIFT/BURN/CRUISE/STEALTH — undefined for an older cached
-      // snapshot from before flightMode existed on this payload. CRUISE is
-      // the routine default, so it's deliberately not surfaced as a tag
-      // (see fmTag() below) — only a real deviation from it is worth a
-      // glance.
-      flightMode: s.nav?.flightMode,
+      // nav.flightMode is sticky — the API doesn't reset it to CRUISE on
+      // arrival, so a ship that flew its last leg in BURN keeps reporting
+      // "BURN" while sitting idle in orbit, which reads as meaningless (it
+      // isn't burning anything). Only surface it while actually mid-flight,
+      // where it means something. CRUISE is the routine default even then,
+      // so it's deliberately not surfaced as a tag (see fmTag() below) —
+      // only a real deviation from it, while moving, is worth a glance.
+      flightMode: s.nav?.status === "IN_TRANSIT" ? s.nav?.flightMode : undefined,
     };
   });
 }
