@@ -301,6 +301,68 @@ describe("MissionManager material fallback", () => {
   });
 });
 
+describe("MissionManager: an unreachable carrier is released without ending the mission", () => {
+  it("keeps the mission active and picks a different carrier, instead of silently vanishing forever", async () => {
+    // Confirmed live, and matches exactly what was reported: a mission's
+    // carrier can fail stepCarrier()'s reachability check on nothing more
+    // than a ship sitting right at the edge of its fuel range — normal
+    // drift is enough. That release path used to call releaseCarrier(),
+    // the SAME helper mission-complete uses to retire a finished mission —
+    // it deletes the mission from active/tasks entirely and never touches
+    // the persisted row. So a single reachability failure silently killed
+    // the mission's progress forever (nothing re-adds it short of a
+    // process restart), while list() kept reporting the last-*persisted*
+    // assignedShip forever, since that DB row was never updated either —
+    // from the operator's side, a mission shows an assigned ship
+    // indefinitely and never moves it, with no indication anything is
+    // wrong. releaseFailedCarrier() must release the ship WITHOUT ending
+    // the mission, so a different, capable ship gets a real chance.
+    const resumed: string[] = [];
+    let pickCalls = 0;
+    const mgr = new MissionManager({
+      api: {
+        ...makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]),
+        getShipCargo: async () => ({ inventory: [] }),
+      },
+      getShip: async (s: string) => ({
+        symbol: s,
+        nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-FAR", systemSymbol: "X1-A" },
+        cargo: { capacity: 40, units: 0, inventory: [] },
+        fuel: { current: 10, capacity: 10 },
+      }) as any,
+      suspend: () => {},
+      resume: (s: string) => resumed.push(s),
+      dispatchShip: async () => {},
+      // Only SHIP-BAD is actually unreachable — a stand-in for "the ship
+      // that was fine when picked, but no longer is by the time
+      // stepCarrier() runs."
+      canReach: async (shipSymbol: string) => shipSymbol !== "SHIP-BAD",
+      listBuyers: async () => [{ waypoint: "X1-A-MKT", purchasePrice: 10, tradeVolume: 20 }],
+      pickCarrier: async () => {
+        pickCalls += 1;
+        return pickCalls === 1 ? "SHIP-BAD" : "SHIP-GOOD";
+      },
+    });
+    await mgr.startConstruction("X1-A-I1");
+
+    // step() picks SHIP-BAD and, in the same tick, falls through into
+    // stepCarrier() — which immediately finds it unreachable and releases
+    // it. Both happen within this one tick() call.
+    await mgr.tick();
+    let mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
+    assert.ok(mission, "the mission must still exist after its carrier fails reachability");
+    assert.equal(mission?.status, "active", "must still be active, not silently dropped");
+    assert.equal(mission?.assignedShip, undefined, "the failed carrier must be cleared so a new pick can happen");
+    assert.deepEqual(resumed, ["SHIP-BAD"], "the failed carrier must be released back to autonomy");
+
+    // Next tick: pre-assignment gate re-fires (assignedShip is clear),
+    // picks SHIP-GOOD, which passes the reachability check this time.
+    await mgr.tick();
+    mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
+    assert.equal(mission?.assignedShip, "SHIP-GOOD", "a different, reachable carrier must get a real chance");
+  });
+});
+
 // ── New: the tenant-scoped persistence path itself ──────────────────
 const DB_URL = process.env.TEST_DATABASE_URL ?? "postgresql://stcommand:stcommand_dev@localhost:5432/stcommand";
 

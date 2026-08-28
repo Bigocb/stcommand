@@ -38,13 +38,13 @@ async function makeTenant(): Promise<string> {
 }
 
 /** Same shape as tests/fleet.test.ts's makeFakeAgent. */
-function makeFakeAgent(symbol: string, waypointSymbol = "X1-A-A1", cargoCapacity = 40) {
+function makeFakeAgent(symbol: string, waypointSymbol = "X1-A-A1", cargoCapacity = 40, fuelCurrent = 100, fuelCapacity = 100) {
   let nav = { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) };
   let manual = false;
   let suspended = false;
   return {
     symbol,
-    getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: 0, inventory: [] } }),
+    getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: 0, inventory: [] }, fuel: { current: fuelCurrent, capacity: fuelCapacity } }),
     isManual: () => manual,
     isSuspended: () => suspended,
     dispatchTo: async (wp: string) => { nav = { ...nav, waypointSymbol: wp }; manual = true; },

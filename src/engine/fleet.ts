@@ -1946,9 +1946,9 @@ export class FleetManager {
     // old notBusy() + notClaimedAgainstMission() combination, minus the
     // duplicate logic.
     const available = this.availableFor("mission");
-    const candidates: { sym: string; cargo: number }[] = [];
-    for (const [s, a] of this.miners) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
-    for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity });
+    const candidates: { sym: string; cargo: number; fuelCap: number }[] = [];
+    for (const [s, a] of this.miners) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
+    for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
     // A carrier must be able to reach the target on a full tank (it can refuel at
     // markets along the way, but never beyond its tank). Skip ships that can't —
     // otherwise the mission loops on "cannot navigate" forever.
@@ -1962,7 +1962,16 @@ export class FleetManager {
         if (await this.canReachTarget(c.sym, targetWaypoint)) reachable.push(c);
       }
     }
-    reachable.sort((a, b) => b.cargo - a.cargo || a.sym.localeCompare(b.sym));
+    // Tiebreak on fuel capacity (more margin over what the trip needs), not
+    // ship symbol: confirmed live, an alphabetical tiebreak among several
+    // reachable ships tied on cargo picked the one with the thinnest
+    // possible fuel margin (barely enough to reach the target on paper)
+    // purely because its symbol sorted first — a single normal fuel/position
+    // fluctuation before the next mission tick was then enough to flip
+    // stepCarrier()'s own reachability check to "unreachable" and release
+    // the carrier. Preferring fuel capacity leaves headroom against exactly
+    // that.
+    reachable.sort((a, b) => b.cargo - a.cargo || b.fuelCap - a.fuelCap || a.sym.localeCompare(b.sym));
     const picked = reachable[0]?.sym;
     if (picked) this.shipRegistry.claim(picked, "mission", this.roleOf(picked));
     return picked;

@@ -432,18 +432,19 @@ export class MissionManager {
     if (ship.nav.status === "IN_TRANSIT") return; // wait for arrival
 
     // A carrier that cannot reach the target on a full tank — directly, or via
-    // refuel stops along the way — can never complete the mission. Release it so
+    // refuel stops along the way — can never complete the mission. Release it
+    // (not the mission itself — see releaseFailedCarrier()'s own comment) so
     // a capable ship can be picked instead.
     if (this.canReach && !(await this.canReach(ship.symbol, mission.targetWaypoint))) {
       this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} cannot reach target (no viable route); releasing`);
-      this.releaseCarrier(mission);
+      await this.releaseFailedCarrier(mission, t);
       return;
     }
     if (!this.canReach && this.estimatedFuelBetween && ship.fuel.capacity > 0) {
       const need = this.estimatedFuelBetween(ship.nav.waypointSymbol, mission.targetWaypoint);
       if (need > ship.fuel.capacity) {
         this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} cannot reach target (need ${need} fuel, tank ${ship.fuel.capacity}); releasing`);
-        this.releaseCarrier(mission);
+        await this.releaseFailedCarrier(mission, t);
         return;
       }
     }
@@ -592,6 +593,31 @@ export class MissionManager {
     }
     this.tasks.delete(mission.targetWaypoint);
     this.active.delete(mission.targetWaypoint);
+  }
+
+  /** Release a carrier that failed mid-mission (e.g. it can no longer reach
+   *  the target), WITHOUT ending the mission — a different, capable ship
+   *  should still get a chance on the next tick.
+   *
+   *  Confirmed live: this call site used to reuse releaseCarrier() above,
+   *  which is built for the mission-*complete* case and deletes the mission
+   *  from `active`/`tasks` entirely. Reused here, a single reachability
+   *  failure — which a ship at the edge of its fuel range can hit on nothing
+   *  more than normal drift — silently killed the mission's progress
+   *  forever (nothing re-adds it to `active` short of a process restart),
+   *  while list() kept reporting the last-*persisted* assignedShip as if
+   *  the mission were still running, since this path never touched the
+   *  database either. From the operator's side: a mission shows an assigned
+   *  ship indefinitely and never moves it, with nothing to suggest why. */
+  private async releaseFailedCarrier(mission: Mission, t: TaskState): Promise<void> {
+    if (mission.assignedShip) {
+      this.resume?.(mission.assignedShip);
+      this.log(`mission ${mission.targetWaypoint}: released ${mission.assignedShip}, mission stays active for a new pick`);
+    }
+    mission.assignedShip = undefined;
+    t.currentMaterial = undefined;
+    t.market = undefined;
+    await this.persist(mission);
   }
 
   private async persist(m: Mission & { paused?: boolean }): Promise<void> {
