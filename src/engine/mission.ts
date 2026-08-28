@@ -397,6 +397,16 @@ export class MissionManager {
     }
   }
 
+  /** Temporarily deprioritize a material in favor of other outstanding ones
+   *  (see the material-selection comment in stepCarrier()), and clear the
+   *  carrier's current pick so the next tick re-selects. Not a permanent
+   *  give-up: once blockedUntil passes, this material is eligible again. */
+  private blockMaterial(t: TaskState, tradeSymbol: string): void {
+    (t.blockedUntil ??= {})[tradeSymbol] = Date.now() + 5 * 60_000;
+    t.currentMaterial = undefined;
+    t.market = undefined;
+  }
+
   /** Drive the carrier ship through the supply loop. */
   private async stepCarrier(mission: Mission, t: TaskState): Promise<void> {
     const ship = await this.getShip?.(mission.assignedShip!);
@@ -420,9 +430,20 @@ export class MissionManager {
       }
     }
 
-    // 1) Choose the next material that still needs units.
+    // 1) Choose the next material that still needs units. A construction
+    // site typically needs several materials at once (e.g. FAB_MATS *and*
+    // ADVANCED_CIRCUITRY) — with exactly one carrier assigned per mission,
+    // fixating on whichever material happens to sort first would mean one
+    // hard-to-source material (no known seller, a market that keeps failing
+    // the purchase) permanently starves every *other* material of any
+    // progress at all, even ones with a perfectly good known seller. Skip
+    // anything currently marked blocked (see blockMaterial()) in favor of an
+    // outstanding material that isn't — falling back to the blocked one
+    // anyway only if that's genuinely all that's left to do.
     if (!t.currentMaterial) {
-      t.currentMaterial = mission.materials.find((m) => m.fulfilled < m.required)?.tradeSymbol;
+      const now = Date.now();
+      const outstanding = mission.materials.filter((m) => m.fulfilled < m.required);
+      t.currentMaterial = (outstanding.find((m) => (t.blockedUntil?.[m.tradeSymbol] ?? 0) <= now) ?? outstanding[0])?.tradeSymbol;
       if (!t.currentMaterial) return;
       t.market = undefined;
     }
@@ -442,7 +463,10 @@ export class MissionManager {
         // path back to finding a source, indistinguishable from "broken".
         await this.maybeDiscover(mission, t);
         buyers = (await this.listBuyers?.(t.currentMaterial)) ?? [];
-        if (buyers.length === 0) return;
+        if (buyers.length === 0) {
+          this.blockMaterial(t, t.currentMaterial);
+          return;
+        }
       }
       t.market = buyers[0]!.waypoint;
     }
@@ -504,8 +528,12 @@ export class MissionManager {
           await this.api.purchaseCargo(ship.symbol, material, units);
           this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} bought ${units}u ${material} @ ${price}c at ${market}`);
         } catch (err) {
-          // Market may not actually stock it (stale intel); re-source next tick.
+          // Market may not actually stock it (stale intel), or some other
+          // per-purchase failure. Block this material for a while and let a
+          // different outstanding one get a turn, rather than retrying the
+          // same failing purchase forever while other materials sit idle.
           t.retryAt = Date.now() + 15_000;
+          this.blockMaterial(t, material);
           this.log(`mission ${mission.targetWaypoint}: buy ${material} failed: ${err instanceof Error ? err.message : String(err)}`);
           return;
         }
@@ -567,4 +595,7 @@ interface TaskState {
   currentMaterial?: string;
   market?: string;
   retryAt: number;
+  /** tradeSymbol -> timestamp before which material-selection should skip it
+   *  in favor of a different outstanding material. See blockMaterial(). */
+  blockedUntil?: Record<string, number>;
 }

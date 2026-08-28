@@ -200,6 +200,63 @@ describe("MissionManager.stepCarrier re-discovery", () => {
   });
 });
 
+describe("MissionManager material fallback", () => {
+  it("falls back to a different outstanding material instead of fixating forever on one with no known seller", async () => {
+    // Confirmed live: a construction site can need several materials at
+    // once (e.g. FAB_MATS *and* ADVANCED_CIRCUITRY), but stepCarrier() only
+    // ever worked whichever material sorted first in the array — with
+    // exactly one carrier assigned per mission, that meant a single
+    // hard-to-source material (no seller anywhere, or one whose purchase
+    // kept failing) permanently starved every other material of any
+    // progress at all, even ones with a perfectly good known seller. From
+    // the operator's side, a mission that could clearly make progress on
+    // ADVANCED_CIRCUITRY just sat there doing nothing because FAB_MATS
+    // happened to be first and had no seller.
+    const ship = {
+      symbol: "SHIP-1",
+      nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-START", systemSymbol: "X1-A" },
+      cargo: { capacity: 40, units: 0, inventory: [] },
+      fuel: { current: 0, capacity: 0 },
+    } as any;
+    const dispatched: string[] = [];
+    const mgr = new MissionManager({
+      api: {
+        ...makeApi([
+          { tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 },
+          { tradeSymbol: "ADVANCED_CIRCUITRY", required: 50, fulfilled: 0 },
+        ]),
+        getShipCargo: async () => ({ inventory: [] }),
+      },
+      getShip: async () => ship,
+      suspend: () => {},
+      resume: () => {},
+      dispatchShip: async (_s, wp) => { dispatched.push(wp); },
+      // FAB_MATS has no known seller anywhere — ADVANCED_CIRCUITRY has one
+      // right away. No discoverBuyers wired (matches an operator/fleet
+      // config where discovery isn't set up): maybeDiscover() then no-ops
+      // without touching retryAt, so the very next tick can immediately
+      // observe the fallback instead of waiting out a 15s survey backoff.
+      listBuyers: async (tradeSymbol) =>
+        tradeSymbol === "ADVANCED_CIRCUITRY" ? [{ waypoint: "X1-A-D46", purchasePrice: 50, tradeVolume: 10 }] : [],
+    });
+    await mgr.startConstruction("X1-A-I1");
+    await mgr.assignCarrier("X1-A-I1", "SHIP-1");
+
+    await mgr.tick(); // picks FAB_MATS first (array order), finds no seller anywhere, blocks it
+    assert.deepEqual(dispatched, [], "must not dispatch anywhere while the only candidate material has no seller");
+
+    await mgr.tick(); // FAB_MATS now blocked -> must fall back to ADVANCED_CIRCUITRY, which has a real seller
+    assert.deepEqual(
+      dispatched,
+      ["X1-A-D46"],
+      "must switch to sourcing ADVANCED_CIRCUITRY from its known market instead of retrying FAB_MATS forever",
+    );
+
+    const mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
+    assert.equal(mission?.assignedShip, "SHIP-1", "the carrier must still be assigned, working the other material");
+  });
+});
+
 // ── New: the tenant-scoped persistence path itself ──────────────────
 const DB_URL = process.env.TEST_DATABASE_URL ?? "postgresql://stcommand:stcommand_dev@localhost:5432/stcommand";
 
