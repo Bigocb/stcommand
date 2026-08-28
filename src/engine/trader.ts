@@ -330,6 +330,27 @@ export class TraderAgent {
     return wp.slice(0, wp.lastIndexOf("-"));
   }
 
+  /** Nearest known fuel-selling waypoint (same system, reachable on a full
+   *  tank from here) that makes real progress toward `destination` — the
+   *  multi-hop equivalent of a direct navigateTo() for a leg beyond the
+   *  tank's single-hop range. Only considers markets already in
+   *  `priceTable` (this fleet's own known intel, not a live galaxy-wide
+   *  search) — same scope as every other route decision this agent makes.
+   *  Returns undefined if no such stop exists: a route that can't work no
+   *  matter how many hops, not just "hasn't found a good one yet". */
+  private nextHopToward(destination: string): string | undefined {
+    const here = this.ship.nav.waypointSymbol;
+    const system = this.systemOf(here);
+    const budget = this.ship.fuel.capacity;
+    const stops = [...this.priceTable.entries()]
+      .filter(([wp, goods]) => wp !== here && wp !== destination && this.systemOf(wp) === system && (goods.get("FUEL")?.buy ?? 0) > 0)
+      .map(([wp]) => wp)
+      .filter((wp) => this.distBetween(here, wp) <= budget);
+    if (stops.length === 0) return undefined;
+    stops.sort((a, b) => this.distBetween(a, destination) - this.distBetween(b, destination));
+    return stops[0];
+  }
+
   private async navigateTo(waypoint: string): Promise<void> {
     if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") return;
     const targetSystem = this.systemOf(waypoint);
@@ -1277,11 +1298,25 @@ export class TraderAgent {
         // good a contract also wants got yanked toward a destination outside
         // its single-hop range, threw a raw "requires N more fuel" error,
         // and got mislabeled stranded below even at full tank. Apply the
-        // same guard here: skip this delivery attempt (not the cargo — just
-        // this tick's routing) rather than steering into a leg that can
-        // never succeed, and fall through to normal route logic instead.
+        // same guard here — but route through an intermediate fuel stop
+        // instead of just giving up: confirmed live, a ship that bought
+        // contract cargo out of its own single-hop range from the delivery
+        // destination sat holding it forever, re-hitting this same skip
+        // every tick, since nothing here ever tried a multi-hop route (the
+        // way mission cargo delivery already does via fleet.ts's
+        // dispatchShipHop). nextHopToward() returning undefined means no
+        // known fuel stop gets any closer — a route that really can't work,
+        // not just one not tried yet.
         if (this.ship.fuel.capacity > 0 && this.distBetween(this.ship.nav.waypointSymbol, result) > this.ship.fuel.capacity) {
-          this.log(`contract delivery to ${result} is out of single-hop range; skipping for now`);
+          const hop = this.nextHopToward(result);
+          if (!hop) {
+            this.log(`contract delivery to ${result} is out of range even via known fuel stops; skipping for now`);
+          } else {
+            this.log(`delivering cargo → ${result} via ${hop} (single hop can't reach it directly)`);
+            await this.navigateTo(hop);
+            await this.refresh();
+            return true;
+          }
         } else {
           // navigateTo() self-manages refueling (see its own comment) — no
           // separate pre-check needed, unlike ShipAgent's refuelIfNeeded()

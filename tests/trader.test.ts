@@ -95,6 +95,67 @@ describe("TraderAgent.tick: contract delivery priority", () => {
 
     assert.equal(sold, true, "with no deliverCargo hook wired in, leftover cargo must still be sellable");
   });
+
+  it("routes through a known fuel stop when the delivery destination is beyond single-hop range", async () => {
+    // Confirmed live: a ship whose contract cargo purchase left it out of
+    // single-hop range of the delivery destination just sat there holding
+    // it forever, re-hitting the same "out of single-hop range; skipping
+    // for now" log every tick — nothing here ever tried a multi-hop route,
+    // even though the mission carrier path already handled the identical
+    // problem (fleet.ts's dispatchShipHop).
+    const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);
+    let navigated: string | undefined;
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      deliverCargo: async () => "X1-A-DEST",
+      getMarketSnapshots: async () => [
+        { waypointSymbol: "X1-A-HOP", goodSymbol: "FUEL", purchasePrice: 5, sellPrice: 2, tradeVolume: 100 },
+      ],
+    });
+    // A1 -> DEST is 150 units, beyond the 100-fuel-capacity tank. HOP sits
+    // 50 units out (reachable) and is a known fuel-selling market.
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-HOP", x: 50, y: 0 },
+      { symbol: "X1-A-DEST", x: 150, y: 0 },
+    ]);
+    (trader as any).navigateTo = async (wp: string) => { navigated = wp; };
+
+    const made = await trader.tick();
+
+    assert.equal(navigated, "X1-A-HOP", "must route through the reachable fuel stop, not attempt the out-of-range direct leg");
+    assert.equal(made, true);
+  });
+
+  it("gives up cleanly, without attempting the impossible direct leg, when no known fuel stop gets any closer", async () => {
+    const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);
+    let navigateCalled = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        // Reached via clearLeftoverCargo()'s fallthrough after the hop
+        // attempt declines — not this test's concern, just needs to not
+        // crash on a good with no known live price.
+        sellCargo: async () => ({ cargo: ship.cargo, transaction: {} }) as any,
+        jettisonCargo: async () => ({ cargo: { ...ship.cargo, units: 0, inventory: [] } }) as any,
+      } as any,
+      deliverCargo: async () => "X1-A-DEST",
+      getMarketSnapshots: async () => [], // no known fuel-selling markets anywhere
+    });
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-DEST", x: 150, y: 0 },
+    ]);
+    (trader as any).navigateTo = async () => { navigateCalled = true; };
+
+    // clearLeftoverCargo()'s own fallthrough handling of the undeliverable
+    // cargo (sell/jettison) isn't this test's concern — only that the hop
+    // logic itself never attempts the impossible direct leg.
+    await trader.tick();
+
+    assert.equal(navigateCalled, false, "must not attempt any navigate call when no route can work");
+  });
 });
 
 describe("TraderAgent.tick: clearLeftoverCargo respects protectedGoods", () => {
