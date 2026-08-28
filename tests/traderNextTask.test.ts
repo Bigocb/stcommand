@@ -273,3 +273,42 @@ describe("TraderAgent nextTask(): ETA-scheduled resume (NavigationPending)", () 
     assert.equal(navigateCalls, 1, "the resumed tick() must recognize the ship already arrived from its own fresh state and not issue a second navigate call");
   });
 });
+
+describe("TraderAgent.nextTask(): inFlight tracking under the scheduler", () => {
+  it("suspend() actually waits for a scheduler-driven run() that's still mid-flight, instead of returning immediately", async () => {
+    // Confirmed live: suspend()'s whole purpose is to let a caller (a
+    // mission assigning this ship as carrier, a rescue tender) safely issue
+    // raw API calls right after — its own doc comment says so explicitly.
+    // It does that by awaiting `this.inFlight`. But `inFlight` was only ever
+    // set inside runLoop(), which is dead code in production (fleet.ts
+    // drives every ship through the scheduler — this nextTask()/run() path
+    // — not runLoop()). So suspend() could return while a tick() call was
+    // still genuinely in progress, and the caller's own direct API calls
+    // would race it: a mission assigns a carrier, calls suspend(), and
+    // immediately starts issuing dock/refuel/navigate calls while the
+    // ship's own already-in-flight tick is independently doing the same
+    // kind of thing to the same ship — exactly the "stale cached ship
+    // state" race the doc comment warns about, and consistent with a
+    // mission carrier ending up refueled and docked but never actually
+    // dispatched anywhere.
+    let releaseTick: (() => void) | undefined;
+    const tickGate = new Promise<void>((resolve) => { releaseTick = resolve; });
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+    (trader as any).tick = async () => { await tickGate; return true; };
+    trader.running = true;
+
+    const runPromise = trader.nextTask().run(); // not awaited — simulates the scheduler's own in-flight call
+
+    let suspendResolved = false;
+    const suspendPromise = trader.suspend().then(() => { suspendResolved = true; });
+    // Give any microtasks a chance to (wrongly) resolve suspend() early.
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(suspendResolved, false, "suspend() must not resolve while the scheduler-driven tick() is still genuinely in flight");
+
+    releaseTick!();
+    await runPromise;
+    await suspendPromise;
+    assert.equal(suspendResolved, true, "suspend() must resolve once the in-flight tick() actually finishes");
+  });
+});

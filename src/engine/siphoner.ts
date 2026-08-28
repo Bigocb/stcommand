@@ -551,8 +551,11 @@ export class SiphonerAgent {
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
+        // See TraderAgent.nextTask()'s comment on inFlight.
+        const p = this.tick();
+        this.inFlight = p;
         try {
-          const made = await this.tick();
+          const made = await p;
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
@@ -561,6 +564,7 @@ export class SiphonerAgent {
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         } finally {
           this.schedulerDriven = false;
+          this.inFlight = null;
         }
       },
     };

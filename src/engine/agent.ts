@@ -1411,8 +1411,13 @@ export class ShipAgent {
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
+        // See TraderAgent.nextTask()'s comment: inFlight was only ever set by
+        // runLoop(), dead in production, so suspend()'s wait-for-in-flight-
+        // tick was inert under the scheduler this method actually runs on.
+        const p = this.tick();
+        this.inFlight = p;
         try {
-          const made = await this.tick();
+          const made = await p;
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
@@ -1421,6 +1426,7 @@ export class ShipAgent {
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         } finally {
           this.schedulerDriven = false;
+          this.inFlight = null;
         }
       },
     };
@@ -1439,8 +1445,11 @@ export class ShipAgent {
         if (this.halted()) return { actualCalls: 0, next: this.nextSurveyTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
+        // See TraderAgent.nextTask()'s comment on inFlight.
+        const p = this.surveyScout();
+        this.inFlight = p;
         try {
-          const made = await this.surveyScout();
+          const made = await p;
           return { actualCalls: this.api.getCallCount() - before, next: this.nextSurveyTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
@@ -1449,6 +1458,7 @@ export class ShipAgent {
           return { actualCalls, next: this.nextSurveyTask(Date.now() + 10_000) };
         } finally {
           this.schedulerDriven = false;
+          this.inFlight = null;
         }
       },
     };
@@ -1467,8 +1477,11 @@ export class ShipAgent {
         if (this.halted()) return { actualCalls: 0, next: this.nextTourTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
+        // See TraderAgent.nextTask()'s comment on inFlight.
+        const p = this.tourScout();
+        this.inFlight = p;
         try {
-          const made = await this.tourScout();
+          const made = await p;
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTourTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
@@ -1477,6 +1490,7 @@ export class ShipAgent {
           return { actualCalls, next: this.nextTourTask(Date.now() + 10_000) };
         } finally {
           this.schedulerDriven = false;
+          this.inFlight = null;
         }
       },
     };
@@ -1496,8 +1510,11 @@ export class ShipAgent {
         if (this.halted()) return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + HALT_POLL_MS) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
+        // See TraderAgent.nextTask()'s comment on inFlight.
+        const p = this.keeperPoll();
+        this.inFlight = p;
         try {
-          const snapshotted = await this.keeperPoll();
+          const snapshotted = await p;
           return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted ? 5 * 60_000 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
@@ -1506,6 +1523,7 @@ export class ShipAgent {
           return { actualCalls, next: this.nextKeeperTask(Date.now() + 10_000) };
         } finally {
           this.schedulerDriven = false;
+          this.inFlight = null;
         }
       },
     };

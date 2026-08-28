@@ -1420,8 +1420,20 @@ export class TraderAgent {
         // NavigationPending doc comment and the schedulerDriven field's own
         // comment for why this can't just be set once and left true.
         this.schedulerDriven = true;
+        // Confirmed live: suspend()'s whole reason to await `inFlight` is to
+        // let a caller (a mission, a rescue tender) safely mutate this ship's
+        // nav state right after — but `inFlight` was only ever set inside
+        // runLoop(), which is dead in production (fleet.ts drives every ship
+        // through the scheduler, i.e. this method, not runLoop()). So
+        // suspend() never actually waited for anything: it could return while
+        // this tick() call was still mid-flight, and the caller's own direct
+        // API calls would race it — exactly the "stale cached ship state"
+        // scenario suspend()'s own doc comment warns about. Setting it here
+        // is the scheduler-path equivalent of what runLoop() already does.
+        const p = this.tick();
+        this.inFlight = p;
         try {
-          const made = await this.tick();
+          const made = await p;
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
@@ -1435,6 +1447,7 @@ export class TraderAgent {
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         } finally {
           this.schedulerDriven = false;
+          this.inFlight = null;
         }
       },
     };
