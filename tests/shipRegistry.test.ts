@@ -140,11 +140,14 @@ describe("ShipRegistry persistence (real Postgres)", () => {
 
 /** A minimal stand-in for the agent classes FleetManager holds in its role maps. */
 function makeFakeAgent(symbol: string, status: string, manual = false, suspended = false) {
+  let isSuspended = suspended;
   return {
     symbol,
     getShip: () => ({ symbol, nav: { status, waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units: 0, inventory: [] } }),
     isManual: () => manual,
-    isSuspended: () => suspended,
+    isSuspended: () => isSuspended,
+    suspend: async () => { isSuspended = true; },
+    resume: () => { isSuspended = false; },
     pinnedField: () => undefined,
   };
 }
@@ -214,6 +217,27 @@ describe("FleetManager.syncShipClaims", () => {
     await (fleet as any).syncShipClaims();
 
     assert.ok(logs.some((m) => m.includes("ship control drift") && m.includes("CARRIER-1")), "must log a drift warning for a mission-owned ship that isn't suspended");
+  });
+
+  it("actually suspends a drifted mission-committed ship, not just logging it (Phase 4 correction)", async () => {
+    // Confirmed live: detection alone wasn't enough — a ship correctly
+    // claimed "mission" kept running its own ordinary trading loop the
+    // whole time (buying and selling goods that had nothing to do with the
+    // mission), completely invisible unless someone happened to read this
+    // exact log line. Suspending here is much narrower than the full
+    // registry-driven rewrite this was originally deferred in favor of: it
+    // doesn't touch any agent's own gating logic, it just makes the
+    // suspended flag match the ownership this tick already decided on.
+    const tenantId = await makeTenant();
+    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const agent = makeFakeAgent("CARRIER-1", "IN_TRANSIT", false, false);
+    (fleet as any).traders.set("CARRIER-1", agent);
+    (fleet as any).missions.committedShips = () => new Set(["CARRIER-1"]);
+    assert.equal(agent.isSuspended(), false);
+
+    await (fleet as any).syncShipClaims();
+
+    assert.equal(agent.isSuspended(), true, "a mission-committed ship's agent must actually be suspended, not just flagged in a log line");
   });
 
   it("does not log drift when a mission-committed ship's agent is properly suspended", async () => {

@@ -2926,12 +2926,25 @@ export class FleetManager {
       // is the cheap version — a mission/rescue owner is *supposed* to mean
       // the agent is suspended (a subsystem is driving it via raw API calls,
       // not its own tick()); if it isn't, that's exactly the "partial
-      // handback" pattern behind every bug this audit started from, just not
-      // yet a fourth instance of it. Detection only — never corrects, never
-      // gates — so it can't introduce a new way to strand a ship.
+      // handback" pattern behind every bug this audit started from.
+      //
+      // Originally detection-only, never correcting — logged and left alone
+      // so it "can't introduce a new way to strand a ship". Confirmed live
+      // that drift is real, not just theoretical: a ship correctly claimed
+      // "mission" kept running its own ordinary trading loop in parallel
+      // (buying and selling goods that had nothing to do with the mission),
+      // completely invisible unless someone happened to read this exact log
+      // line. Actually suspending it here is a much narrower move than the
+      // deferred full rewrite — it doesn't change any agent's own gating
+      // logic, it just makes the agent's suspended flag match the ownership
+      // this tick already decided on, the same call assignCarrier()/the
+      // rescue tender picker make when they first hand off control. A ship
+      // this fires for was always supposed to be suspended; this just stops
+      // that supposed-to-be from silently staying false.
       const agent = this.controlledAgent(s.symbol);
       if ((owner === "mission" || owner === "rescue") && agent && !agent.isSuspended()) {
-        this.log(`ship control drift: ${s.symbol} claimed as "${owner}" but its agent reports isSuspended()=false — a subsystem may be driving it without having suspended it first`);
+        this.log(`ship control drift: ${s.symbol} claimed as "${owner}" but its agent reports isSuspended()=false — suspending it now`);
+        await agent.suspend();
       }
       this.shipRegistry.claim(s.symbol, owner, s.role as ShipClaimRole, { status: s.status }, { preempt: true });
     }
