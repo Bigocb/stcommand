@@ -4405,7 +4405,10 @@ for (const id of ["warehouse-targets", "mobile-warehouse-targets"]) {
 // ── Ops: contracts & construction missions ──────────────────────────
 async function loadOps() {
   try {
-    const [cres, mres] = await Promise.all([fetch("/api/contracts"), fetch("/api/missions")]);
+    // dispatchAssignments feeds the "pinned carrier" display in
+    // renderContracts(), so refresh it here too — otherwise it's only ever
+    // current if the operator has also visited the trade-ops view.
+    const [cres, mres] = await Promise.all([fetch("/api/contracts"), fetch("/api/missions"), loadDispatch()]);
     const cdata = cres.ok ? await cres.json() : { contracts: [] };
     const mdata = mres.ok ? await mres.json() : { missions: [] };
     renderContracts(cdata.contracts ?? []);
@@ -4425,19 +4428,36 @@ function countdown(iso) {
 function renderContracts(list) {
   const countTxt = `${list.length} active`;
   for (const id of ["contract-count", "mobile-contract-count"]) { const el = $(id); if (el) el.textContent = countTxt; }
+  // Same cargo-capable-trader candidate list the mission carrier dropdown
+  // uses — a contract-buy assignment needs a hold, and traders are the only
+  // role the dispatcher's contractBuy route ever hands a good to.
+  const traderCandidates = (fleetStatus.ships ?? []).filter((s) => s.role === "trader");
   const html = !list.length ? '<div class="empty">No contracts available.</div>' : list.map((c) => {
     const total = c.onAccepted + c.onFulfilled;
     const accDead = new Date(c.deadlineToAccept ?? c.deadline).getTime();
     const urgent = accDead > 0 && accDead - Date.now() < 3600000;
     const deliverables = (c.deliver ?? []).map((d) => {
       const pct = d.unitsRequired ? Math.round((d.unitsFulfilled / d.unitsRequired) * 100) : 0;
+      const done = d.unitsFulfilled >= d.unitsRequired;
+      // A manual contractBuy override for this good, if the operator has
+      // pinned one — same mechanism dispatchAssignments already tracks for
+      // the trade-ops "direct" routes, just filtered to this role/good.
+      const pinned = dispatchAssignments.find((a) => a.role === "contractBuy" && a.good === d.tradeSymbol && a.source === "manual");
+      const assignRow = c.accepted && !done ? `<div class="ops-head" style="margin-top:2px">
+        <select class="assign-contract-carrier" data-good="${escapeAttr(d.tradeSymbol)}" aria-label="Carrier ship for ${escapeAttr(d.tradeSymbol)}">
+          <option value="">${pinned ? "reassign to…" : "choose a ship…"}</option>
+          ${traderCandidates.map((s) => `<option value="${escapeAttr(s.symbol)}" ${s.symbol === pinned?.shipSymbol ? "selected" : ""}>${escapeHtml(shortWp(s.symbol))}</option>`).join("")}
+        </select>
+        <button class="btn" data-act="assign-carrier" data-good="${escapeAttr(d.tradeSymbol)}">Assign</button>
+        ${pinned ? `<span class="ops-sub">pinned: ${escapeHtml(pinned.shipSymbol)}</span><button class="btn" data-act="clear-carrier" data-ship="${escapeAttr(pinned.shipSymbol)}">Clear</button>` : ""}
+      </div>` : "";
       return `<div class="ops-row">
         <span class="ops-title">${escapeHtml(d.tradeSymbol)}</span>
         <span class="ops-sub">→ ${escapeHtml(shortWp(d.destinationSymbol))}</span>
         <span class="fill"></span>
         <span class="ops-sub">${d.unitsFulfilled}/${d.unitsRequired}</span>
         <span>${pct}%</span>
-      </div><div class="prog"><i style="width:${pct}%"></i></div>`;
+      </div><div class="prog"><i style="width:${pct}%"></i></div>${assignRow}`;
     }).join("");
     const deliv = c.deliver?.length ? deliverables : '<div class="ops-row"><span class="ops-sub">No deliveries listed</span></div>';
     return `<div class="ops-card">
@@ -4537,12 +4557,24 @@ $("mobile-mission-start").addEventListener("click", () => missionStart("mobile-m
 async function onContractClick(e) {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
-  const { act, id } = btn.dataset;
+  const { act, id, good, ship } = btn.dataset;
   try {
-    if (act === "accept") await api("POST", "/api/contracts/accept", { contractId: id });
-    else if (act === "decline") await api("POST", "/api/contracts/decline", { contractId: id });
-    else if (act === "undecline") await api("POST", "/api/contracts/undecline", { contractId: id });
-    showToastGlobal(`Contract ${act === "accept" ? "accepted" : act === "decline" ? "declined" : "allowed again"}`);
+    if (act === "assign-carrier") {
+      const select = btn.closest(".ops-head").querySelector(".assign-contract-carrier");
+      const shipSymbol = select?.value;
+      if (!shipSymbol) { showToastGlobal("Pick a ship first", true); return; }
+      await api("POST", "/api/contracts/assign", { shipSymbol, tradeSymbol: good });
+      showToastGlobal(`${shipSymbol} assigned to buy ${good}`);
+    } else if (act === "clear-carrier") {
+      await api("POST", "/api/contracts/assign", { shipSymbol: ship, clear: true });
+      showToastGlobal(`${ship} manual assignment cleared`);
+    } else if (act === "accept" || act === "decline" || act === "undecline") {
+      const path = act === "accept" ? "/api/contracts/accept" : act === "decline" ? "/api/contracts/decline" : "/api/contracts/undecline";
+      await api("POST", path, { contractId: id });
+      showToastGlobal(`Contract ${act === "accept" ? "accepted" : act === "decline" ? "declined" : "allowed again"}`);
+    } else {
+      return;
+    }
     loadOps();
   } catch (err) { showToastGlobal(err.message, true); }
 }

@@ -388,3 +388,66 @@ describe("materialBuyers is scoped to the mission's own system", () => {
     assert.equal(buyers[0].waypoint, "X1-CP51-F55");
   });
 });
+
+describe("assignContractCarrier — manual ship pinning for contract delivery", () => {
+  it("rejects a ship with no cargo hold", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId);
+    (fleet as any).systemSymbol = "X1-CP51";
+    (fleet as any).traders.set("NO-HOLD", makeFakeAgent("NO-HOLD", "X1-CP51-A1", 0));
+
+    await assert.rejects(
+      () => fleet.assignContractCarrier("NO-HOLD", "SILVER"),
+      /no cargo hold/,
+    );
+  });
+
+  it("rejects a ship that isn't a trader at all", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId);
+    (fleet as any).systemSymbol = "X1-CP51";
+
+    await assert.rejects(
+      () => fleet.assignContractCarrier("GHOST", "SILVER"),
+      /not a trader/,
+    );
+  });
+
+  it("rejects when no known market sells the good", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId);
+    // A one-off system symbol, not shared with any other test — market_prices
+    // isn't tenant-scoped (market data is global, not secret), so a
+    // real waypoint/good pair reused across tests can be polluted by an
+    // earlier run's leftover row and never actually exercise "no market".
+    const sys = `X1-Q${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    (fleet as any).systemSymbol = sys;
+    (fleet as any).traders.set("FALCON-D", makeFakeAgent("FALCON-D", `${sys}-H59`, 80));
+
+    await assert.rejects(
+      () => fleet.assignContractCarrier("FALCON-D", "SILVER"),
+      /no known market sells SILVER/,
+    );
+  });
+
+  it("pins a manual contractBuy assignment the dispatcher respects, same mechanism as the direct-route override", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId);
+    const sys = `X1-Q${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    (fleet as any).systemSymbol = sys;
+    (fleet as any).traders.set("FALCON-D", makeFakeAgent("FALCON-D", `${sys}-H59`, 80));
+    await store.recordMarket({ systemSymbol: sys, waypointSymbol: `${sys}-F55`, goodSymbol: "SILVER", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 400, sellPrice: 200, tradeVolume: 20 });
+
+    await fleet.assignContractCarrier("FALCON-D", "SILVER");
+
+    const assignment = fleet.dispatcher.assignmentFor("FALCON-D");
+    assert.equal(assignment?.role, "contractBuy");
+    assert.equal(assignment?.good, "SILVER");
+    assert.equal(assignment?.buyAt, `${sys}-F55`);
+    assert.equal(assignment?.source, "manual");
+  });
+});

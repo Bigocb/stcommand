@@ -2269,6 +2269,35 @@ export class FleetManager {
     await this.missions.assignCarrier(waypointSymbol, shipSymbol);
   }
 
+  /**
+   * Manually pin which trader buys+delivers a contract-deliverable good,
+   * instead of leaving it to the dispatcher's own per-tick route computation
+   * (computeContractBuyTargets() picking whichever idle trader the
+   * dispatcher happens to route there). Unlike assignMissionCarrier(), this
+   * doesn't seize the ship into raw-API control — a contractBuy assignment
+   * is just a `manual` override on the same TraderAssignment the dispatcher
+   * would have produced on its own (see toContractBuyAssignment()), so the
+   * ship keeps running its normal tick()/deliverCargo loop, multi-hop
+   * routing included.
+   */
+  async assignContractCarrier(shipSymbol: string, tradeSymbol: string): Promise<void> {
+    const agent = this.traders.get(shipSymbol);
+    if (!agent) throw new Error(`${shipSymbol} is not a trader — contract delivery needs a cargo hold`);
+    if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold`);
+    const cheapest = (await this.materialBuyers(tradeSymbol, this.systemSymbol))[0];
+    if (!cheapest) throw new Error(`no known market sells ${tradeSymbol}`);
+    await this.setManualDispatch(shipSymbol, {
+      shipSymbol,
+      good: tradeSymbol,
+      role: "contractBuy",
+      buyAt: cheapest.waypoint,
+      buyPrice: cheapest.purchasePrice,
+      profitPerTrip: 0,
+      source: "manual",
+    });
+    this.log(`${shipSymbol}: manually assigned to contract-buy ${tradeSymbol} at ${cheapest.waypoint}`);
+  }
+
   /** Estimate fuel needed to fly a ship from its current waypoint to a target. */
   estimatedFuelTo(shipSymbol: string, waypointSymbol: string): number {
     const ship = this.positions.find((p) => p.symbol === waypointSymbol);

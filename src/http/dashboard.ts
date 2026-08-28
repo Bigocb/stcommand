@@ -464,6 +464,25 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  router.post("/contracts/assign", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const shipSymbol = String(req.body?.shipSymbol ?? "");
+    const tradeSymbol = String(req.body?.tradeSymbol ?? "");
+    if (!shipSymbol) return res.status(400).json({ error: "shipSymbol required" });
+    try {
+      if (req.body?.clear) {
+        await w.fleet.setManualDispatch(shipSymbol, undefined);
+      } else {
+        if (!tradeSymbol) return res.status(400).json({ error: "tradeSymbol required" });
+        await w.fleet.assignContractCarrier(shipSymbol, tradeSymbol);
+      }
+      res.json({ ok: true, assignments: w.fleet.dispatcher.list() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/construct", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
