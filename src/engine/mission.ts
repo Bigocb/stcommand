@@ -431,12 +431,18 @@ export class MissionManager {
 
     // 2) Pick a source market for that material, if not already chosen.
     if (!t.market) {
-      const buyers = (await this.listBuyers?.(t.currentMaterial)) ?? [];
+      let buyers = (await this.listBuyers?.(t.currentMaterial)) ?? [];
       if (buyers.length === 0) {
-        // No buyer known — a carrier should never have been assigned. Back off and re-source.
-        t.retryAt = Date.now() + 60_000;
-        this.log(`mission ${mission.targetWaypoint}: no market sells ${t.currentMaterial}; pausing 60s`);
-        return;
+        // No buyer known — actively re-survey instead of idling on a stale/
+        // empty cache forever. Market supply in this game rotates, so a
+        // material nothing sells today may start being sold tomorrow — but
+        // maybeDiscover() is otherwise only called before a carrier is
+        // assigned, so once assigned (manually or by the auto-picker), a
+        // carrier that hit this branch would sit here permanently with no
+        // path back to finding a source, indistinguishable from "broken".
+        await this.maybeDiscover(mission, t);
+        buyers = (await this.listBuyers?.(t.currentMaterial)) ?? [];
+        if (buyers.length === 0) return;
       }
       t.market = buyers[0]!.waypoint;
     }

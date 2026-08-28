@@ -153,6 +153,53 @@ describe("MissionManager API cost per tick", () => {
   });
 });
 
+describe("MissionManager.stepCarrier re-discovery", () => {
+  it("keeps surveying for a source after a carrier is assigned, instead of idling forever on an empty buyer list", async () => {
+    // Confirmed live: once a carrier is assigned (manually via assignCarrier,
+    // or by the auto-picker), stepCarrier()'s own "no buyer known" branch
+    // used to just set a 60s retry and return — no call to discoverBuyers.
+    // maybeDiscover() (which actually surveys) only ran in step()'s
+    // *pre-assignment* gate, so an assigned carrier that hit an empty buyer
+    // list was stuck there permanently: nothing would ever look for a new
+    // source again, even though market supply in this game rotates and a
+    // material nothing sells today may start being sold tomorrow. From the
+    // operator's side this looked exactly like "I assigned a ship and
+    // nothing happens."
+    let discoverCalls = 0;
+    const ship = {
+      symbol: "SHIP-1",
+      nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" },
+      cargo: { capacity: 40, units: 0, inventory: [] },
+      fuel: { current: 0, capacity: 0 },
+    } as any;
+    const mgr = new MissionManager({
+      api: {
+        ...makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]),
+        getShipCargo: async () => ({ inventory: [] }),
+      },
+      getShip: async () => ship,
+      suspend: () => {},
+      resume: () => {},
+      listBuyers: async () =>
+        // Empty until discovery "finds" a market; every call after that
+        // reports the real buyer, simulating a source becoming known.
+        discoverCalls > 0 ? [{ waypoint: "X1-A-MKT", purchasePrice: 10, tradeVolume: 20 }] : [],
+      discoverBuyers: async () => {
+        discoverCalls += 1;
+        return [{ waypoint: "X1-A-MKT", purchasePrice: 10 }];
+      },
+    });
+    await mgr.startConstruction("X1-A-I1");
+    await mgr.assignCarrier("X1-A-I1", "SHIP-1"); // force assignment past the pre-assignment buyer gate
+
+    await mgr.tick(); // stepCarrier(): no buyer known yet -> must call discoverBuyers, not just back off
+    assert.ok(discoverCalls >= 1, "an assigned carrier with no known buyer must trigger a fresh survey");
+
+    const mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
+    assert.equal(mission?.assignedShip, "SHIP-1", "the carrier must still be assigned, not released, while sourcing");
+  });
+});
+
 // ── New: the tenant-scoped persistence path itself ──────────────────
 const DB_URL = process.env.TEST_DATABASE_URL ?? "postgresql://stcommand:stcommand_dev@localhost:5432/stcommand";
 
@@ -212,10 +259,14 @@ describe("MissionManager persistence", () => {
     await mgr.pause("X1-A-P2");
 
     // A brand new instance, same tenant, must resume from exactly this state.
+    // assignedShip is expected undefined, not "SHIP-9": pause() deliberately
+    // releases the carrier before persisting (see its own comment) — a
+    // paused mission must not keep holding its former carrier committed, so
+    // that ship can be reassigned elsewhere while the mission sits paused.
     const fresh = new MissionManager({ api: makeApi([]), store, tenantId: tenantA, suspend: () => {} });
     await fresh.startConstruction("X1-A-P2"); // no-op materials arg — resumes from persisted state
     const found = (await fresh.list()).find((m) => m.targetWaypoint === "X1-A-P2");
-    assert.equal(found?.assignedShip, "SHIP-9");
+    assert.equal(found?.assignedShip, undefined);
     assert.equal(found?.paused, true);
   });
 
