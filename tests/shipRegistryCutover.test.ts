@@ -58,16 +58,26 @@ function makeFakeAgent(symbol: string, waypointSymbol = "X1-A-A1", cargoCapacity
   };
 }
 
-function makeFleet(store: Store, tenantId: string) {
+function makeFleet(store: Store, tenantId: string, apiOverrides: Record<string, unknown> = {}) {
   let fleet: FleetManager;
   const api = {
     getShip: async (s: string) => (fleet as any).controlledAgent(s)?.getShip() ?? (fleet as any).idleShips.get(s),
     navigateShip: async (s: string, wp: string) => ({ nav: { status: "IN_TRANSIT", waypointSymbol: wp } }),
     orbitShip: async () => ({}),
     dockShip: async () => ({}),
+    ...apiOverrides,
   };
   fleet = new FleetManager({ api: api as any, store, tenantId });
   return fleet;
+}
+
+/** Same shape as makeFakeAgent, plus fuel — needed for reachability checks. */
+function makeFakeAgentWithFuel(symbol: string, waypointSymbol: string, cargoCapacity: number, fuelCapacity: number) {
+  const base = makeFakeAgent(symbol, waypointSymbol, cargoCapacity);
+  return {
+    ...base,
+    getShip: () => ({ ...base.getShip(), fuel: { current: fuelCapacity, capacity: fuelCapacity } }),
+  };
 }
 
 describe("holdShip / releaseShip claim the registry immediately", () => {
@@ -139,6 +149,36 @@ describe("assignMissionCarrier enforces the claim", () => {
       () => fleet.assignMissionCarrier("X1-A-I59", "SHIP-1"),
       /claimed by operator/,
     );
+  });
+
+  it("rejects a ship that cannot physically reach the mission target, instead of silently accepting it", async () => {
+    // Confirmed live: stepCarrier() runs this exact reachability check on
+    // every mission tick and silently releases the carrier back to autonomy
+    // the instant it fails, with nothing but a log line — but the manual
+    // assign path had no such check at all, only the auto-picker did. An
+    // operator manually assigning a ship with too little fuel range saw the
+    // assignment appear to succeed, then quietly get undone on the next
+    // tick with zero visible feedback. This must reject up front instead.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId, {
+      getConstruction: async () => ({ isComplete: false, materials: [{ tradeSymbol: "FAB_MATS", required: 10, fulfilled: 0 }] }),
+    });
+    // Two waypoints 1000 units apart — far beyond any fuel tank below.
+    (fleet as any).positions = [
+      { symbol: "X1-A-A1", x: 0, y: 0, type: "PLANET" },
+      { symbol: "X1-A-FAR", x: 1000, y: 0, type: "JUMP_GATE" },
+    ];
+    (fleet as any).traders.set("SHORT-RANGE", makeFakeAgentWithFuel("SHORT-RANGE", "X1-A-A1", 40, 80));
+    await fleet.startMission("X1-A-FAR");
+
+    await assert.rejects(
+      () => fleet.assignMissionCarrier("X1-A-FAR", "SHORT-RANGE"),
+      /cannot reach/,
+    );
+    // The rejected assignment must not leave the ship stuck falsely claimed
+    // by the mission it was never actually assigned to.
+    assert.equal(fleet.shipRegistry.ownerOf("SHORT-RANGE"), undefined);
   });
 });
 

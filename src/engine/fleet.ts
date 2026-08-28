@@ -2234,6 +2234,21 @@ export class FleetManager {
     if (!this.shipRegistry.claim(shipSymbol, "mission", this.roleOf(shipSymbol))) {
       throw new Error(`${shipSymbol} can't be assigned to a mission — currently claimed by ${this.shipRegistry.ownerOf(shipSymbol)?.owner}`);
     }
+    // stepCarrier() runs this exact same reachability check on every tick and
+    // silently releases the carrier back to autonomy the instant it fails —
+    // with nothing but a log line, no feedback to whoever assigned it.
+    // Confirmed live: a manual assignment through the dashboard had no such
+    // check at all (only pickMissionCarrier, the auto-picker, pre-filtered
+    // for this), so assigning any cargo ship regardless of fuel range looked
+    // like it worked right up until the next mission tick quietly undid it.
+    // Reject here instead, with an error the operator actually sees — after
+    // the claim check above, so a ship rejected for being held elsewhere
+    // reports that reason, not an unrelated range problem.
+    const ship = this.cachedShip(shipSymbol);
+    if (ship && ship.fuel?.capacity > 0 && !(await this.canReachTarget(shipSymbol, waypointSymbol))) {
+      this.shipRegistry.release(shipSymbol, "mission");
+      throw new Error(`${shipSymbol} cannot reach ${waypointSymbol} on a full tank, even via refuel stops — pick a ship with more fuel range`);
+    }
     await this.missions.assignCarrier(waypointSymbol, shipSymbol);
   }
 
