@@ -899,6 +899,13 @@
     body.mobile-map-active .map-fit-btn { right:12px; top:10px; padding:8px 12px; min-height:38px; font-size:10px; }
     body.mobile-map-active .map-legend { left:12px; bottom:10px; }
     body.mobile-map-active .map-gallery { left:12px; bottom:34px; }
+    /* Tap-to-inspect's tip: desktop's right:302px hover panel would sit
+       almost entirely off a phone-width screen. Bottom sheet instead, above
+       the tab bar, scrollable via touch — the base rule's pointer-events:none
+       is a deliberate no-op for desktop's hover-only panel, but a mobile tap
+       target needs to actually receive the touch to scroll long content. */
+    body.mobile-map-active .map-tip { left:12px; right:12px; top:auto; bottom:62px; width:auto; max-height:45vh; }
+    body.mobile-map-active .map-tip.visible { pointer-events:auto; }
     /* Book tab: the sheet fills the stage; the dimmed map behind it is fine. */
     body.mobile-book-active .view-bridge .field-stage { flex:1; }
     body.mobile-book-active .sheet { width:100%; height:100%; top:0; bottom:0; left:0; transform:none; border:none; grid-template-columns:1fr; }
@@ -1461,7 +1468,18 @@ let selectedShip = null;
 const shipScreenPos = new Map();
 /* Map view state and caches used by the preserved chart renderer. */
 let tradeRoutes = [];
+// Ship/waypoint cluster ring-offsets (renderMap()'s shipsByCoord/byCoord
+// grouping) are computed in pre-scale coordinate space and grow with
+// mapZoom, so a denser cluster genuinely does keep separating as this
+// ceiling is raised — confirmed on a live 15-ship fleet where the old cap
+// of 8 still left a busy hub (several ships + several close waypoints)
+// overlapping even at max zoom, with no further room to separate them.
+const MAX_MAP_ZOOM = 24;
 let mapZoom = 1, mapPanX = 0, mapPanY = 0, dragState = null;
+/** Waypoint symbol the tap-to-inspect tip is currently open for (touch UI
+ *  only — desktop hover doesn't need this, mouseleave always closes).
+ *  Null when closed. */
+let mapTipFor = null;
 let surveyCache = new Map();
 let loadoutScores = [];
 let chatBusy = false;
@@ -3260,6 +3278,22 @@ function renderMap(ships, trails = new Map()) {
     el.addEventListener("mouseenter", () => showWaypointTip(el.dataset.wp));
     el.addEventListener("mouseleave", hideWaypointTip);
   });
+  // Tap-to-inspect for touch: mouseenter/mouseleave above never fire on a
+  // touchscreen, so a waypoint's info (ships docked there, market prices,
+  // shipyard offers) was completely unreachable on mobile — the only way in
+  // was hovering with a mouse. Scoped to plain waypoint glyphs (excludes
+  // ships, which carry data-wp too but already have their own tap handler
+  // just below, opening ship details instead) so the two never fight over
+  // the same tap. Second tap on the same waypoint closes it, matching the
+  // toggle behavior a touch UI needs in place of mouseleave.
+  svg.querySelectorAll("[data-wp]:not([data-ship])").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wp = el.dataset.wp;
+      if (mapTipFor === wp) hideWaypointTip();
+      else { showWaypointTip(wp); mapTipFor = wp; }
+    });
+  });
   // Selection replaces navigation: clicking a hull on the map re-focuses the
   // whole HUD on it (fills the left rail), the same as picking it from triage.
   svg.querySelectorAll("[data-ship]").forEach((el) => {
@@ -3416,6 +3450,14 @@ function initMapInteractions() {
 
   $("map-fit")?.addEventListener("click", resetMapView);
 
+  // Tap-to-inspect's counterpart: dismiss the open tip on a tap anywhere
+  // else on the map. Per-waypoint click handlers (renderMap()) call
+  // stopPropagation(), so this only ever fires for a tap that missed every
+  // waypoint/ship glyph — exactly "tap elsewhere to close." Attached once
+  // here rather than in renderMap() (which re-runs on every poll) since the
+  // svg element itself, unlike its children, survives each rebuild.
+  svg.addEventListener("click", () => { if (mapTipFor) hideWaypointTip(); });
+
   wrap.addEventListener("wheel", (e) => {
     e.preventDefault();
     const rect = wrap.getBoundingClientRect();
@@ -3425,7 +3467,7 @@ function initMapInteractions() {
     // Floor lowered from 1 to 0.5 — the default view now already fits the
     // whole system at 1x (see renderMap()'s pool comment), so this is just
     // breathing room for zooming out a bit further, not the fix itself.
-    const next = Math.min(8, Math.max(0.5, mapZoom * factor));
+    const next = Math.min(MAX_MAP_ZOOM, Math.max(0.5, mapZoom * factor));
     mapPanX = mx - ((mx - mapPanX) / mapZoom) * next;
     mapPanY = my - ((my - mapPanY) / mapZoom) * next;
     mapZoom = next;
@@ -3470,7 +3512,7 @@ function initMapInteractions() {
     } else if (touchState.mode === "pinch" && e.touches.length === 2) {
       const [a, b] = e.touches;
       const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-      const next = Math.min(8, Math.max(0.5, touchState.z0 * (d / touchState.d0)));
+      const next = Math.min(MAX_MAP_ZOOM, Math.max(0.5, touchState.z0 * (d / touchState.d0)));
       mapPanX = touchState.cx - ((touchState.cx - touchState.px) / touchState.z0) * next;
       mapPanY = touchState.cy - ((touchState.cy - touchState.py) / touchState.z0) * next;
       mapZoom = next;
@@ -3582,6 +3624,7 @@ function showWaypointTip(symbol) {
 
 function hideWaypointTip() {
   $("map-tip").classList.remove("visible");
+  mapTipFor = null;
 }
 
 function openTradePanel(shipSymbol) {
