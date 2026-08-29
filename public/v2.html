@@ -1261,6 +1261,18 @@
             <div class="pane-b" id="mobile-contracts"></div>
           </div>
           <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Routes<span class="count">who runs what · one good each</span></div>
+            <div class="pane-b">
+              <div class="dispatch-toolbar">
+                <select id="mobile-dispatch-ship" aria-label="Trader ship"></select>
+                <select id="mobile-dispatch-good" aria-label="Trade good"></select>
+                <button class="btn" id="mobile-dispatch-assign">Assign</button>
+                <button class="btn ghost" id="mobile-dispatch-clear">Auto</button>
+              </div>
+              <div id="mobile-dispatch"></div>
+            </div>
+          </div>
+          <div class="pane">
             <div class="pane-h"><span class="dot"></span>Construction missions<span class="count">gate supply</span></div>
             <div class="pane-b">
               <div class="dispatch-toolbar">
@@ -1848,6 +1860,7 @@ function renderDispatch() {
         const routeTxt = a.role === "buy" ? `${shortWp(a.buyAt)} → warehouse`
           : a.role === "sell" ? `warehouse → ${shortWp(a.sellAt)}`
           : a.role === "haul" ? `warehouse → ${shortWp(a.sellAt)} (mission)`
+          : a.role === "contractBuy" ? `${shortWp(a.buyAt)} → contract`
           : `${shortWp(a.buyAt)} → ${shortWp(a.sellAt)}`;
         const roleTag = a.role && a.role !== "direct" ? `<span class="tag role-${a.role}">${a.role}</span>` : "";
         return `
@@ -4313,6 +4326,8 @@ async function dispatchClear(shipSelId) {
 }
 $("dispatch-assign").addEventListener("click", () => dispatchAssign("dispatch-ship", "dispatch-good"));
 $("dispatch-clear").addEventListener("click", () => dispatchClear("dispatch-ship"));
+$("mobile-dispatch-assign").addEventListener("click", () => dispatchAssign("mobile-dispatch-ship", "mobile-dispatch-good"));
+$("mobile-dispatch-clear").addEventListener("click", () => dispatchClear("mobile-dispatch-ship"));
 $("keeper-save").addEventListener("click", saveKeepers);
 $("keeper-cover").addEventListener("click", async () => {
   const next = !keeperCoverList;
