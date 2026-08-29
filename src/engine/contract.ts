@@ -207,7 +207,16 @@ export class ContractManager {
         return d.destinationSymbol;
       }
     }
-    // We're at the destination: deliver as much as we carry.
+    // We're at the destination: deliver as much as we carry. Confirmed
+    // live: under the scheduler-driven navigate flow, arrival is picked up
+    // on a later, separate tick — this call is the very first thing that
+    // tick does, before trader.ts's own ensureDocked() (which only runs on
+    // the tick that *issues* the navigate, not the one that resumes after
+    // it) ever gets a chance to dock the ship. Without this, deliverContract
+    // failed every retry forever with "Ship action failed. Ship is not
+    // currently docked", on a ship that had genuinely arrived and was just
+    // sitting in orbit.
+    if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
     const cargo = await this.api.getShipCargo(ship.symbol);
     for (const item of cargo.inventory) {
       const del = deliveries.find((d) => d.tradeSymbol === item.symbol);

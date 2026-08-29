@@ -242,3 +242,75 @@ describe("ContractManager dead-code cleanup", () => {
     assert.equal((cm as any).deliverFromShip, undefined);
   });
 });
+
+describe("ContractManager.deliverVia", () => {
+  it("docks an in-orbit ship at the destination before delivering, instead of failing the raw API call", async () => {
+    // Confirmed live: FALCON-D navigated to a contract's delivery
+    // destination, arrived, and sat there IN_ORBIT holding the cargo —
+    // deliverVia() called api.deliverContract() straight away with no dock
+    // check, and every retry failed identically with "Ship action failed.
+    // Ship is not currently docked at X1-CP51-H61". Under the old blocking
+    // tick() flow this never showed up because trader.ts's own
+    // ensureDocked() ran in between navigating and delivering in the same
+    // tick — but arrival is now picked up on a later, separate tick (the
+    // scheduler-driven NavigationPending resume), whose very first action
+    // is this call, before ensureDocked() ever gets a turn.
+    const contract = makeContract({
+      id: "c1",
+      accepted: true,
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1000, onFulfilled: 2000 },
+        deliver: [{ tradeSymbol: "SILVER", destinationSymbol: "X1-A-DEST", unitsRequired: 60, unitsFulfilled: 0 } as any],
+      },
+    });
+    const { api } = makeApi([contract]);
+    let docked = false;
+    (api as any).dockShip = async () => { docked = true; };
+    (api as any).getShipCargo = async () => ({ inventory: [{ symbol: "SILVER", units: 60 }] });
+    let deliveredUnits: number | undefined;
+    (api as any).deliverContract = async (_id: string, _ship: string, _good: string, units: number) => {
+      if (!docked) throw new Error("Ship action failed. Ship is not currently docked at X1-A-DEST.");
+      deliveredUnits = units;
+    };
+    const cm = new ContractManager(api);
+    const ship = {
+      symbol: "SHIP-1",
+      nav: { waypointSymbol: "X1-A-DEST", status: "IN_ORBIT" },
+      cargo: { inventory: [{ symbol: "SILVER", units: 60 }] },
+    } as any;
+
+    const result = await cm.deliverVia(ship);
+
+    assert.equal(docked, true, "must dock the ship before attempting delivery");
+    assert.equal(deliveredUnits, 60);
+    assert.equal(result, true);
+  });
+
+  it("does not attempt to dock an already-docked ship", async () => {
+    const contract = makeContract({
+      id: "c1",
+      accepted: true,
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1000, onFulfilled: 2000 },
+        deliver: [{ tradeSymbol: "SILVER", destinationSymbol: "X1-A-DEST", unitsRequired: 60, unitsFulfilled: 0 } as any],
+      },
+    });
+    const { api } = makeApi([contract]);
+    let dockCalled = false;
+    (api as any).dockShip = async () => { dockCalled = true; };
+    (api as any).getShipCargo = async () => ({ inventory: [{ symbol: "SILVER", units: 60 }] });
+    (api as any).deliverContract = async () => {};
+    const cm = new ContractManager(api);
+    const ship = {
+      symbol: "SHIP-1",
+      nav: { waypointSymbol: "X1-A-DEST", status: "DOCKED" },
+      cargo: { inventory: [{ symbol: "SILVER", units: 60 }] },
+    } as any;
+
+    await cm.deliverVia(ship);
+
+    assert.equal(dockCalled, false, "an already-docked ship needs no extra dock call");
+  });
+});
