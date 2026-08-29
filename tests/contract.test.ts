@@ -313,4 +313,42 @@ describe("ContractManager.deliverVia", () => {
 
     assert.equal(dockCalled, false, "an already-docked ship needs no extra dock call");
   });
+
+  it("does not attempt delivery on a ship still mid-flight, even though nav.waypointSymbol already reads as the destination", async () => {
+    // Confirmed live: SpaceTraders sets nav.waypointSymbol to the
+    // destination for the ENTIRE transit, not just on arrival — so a tick
+    // woken before the real ETA (whatever woke it early) read this ship as
+    // "arrived" and called deliverContract() on a ship genuinely still
+    // flying, failing with "Ship is currently in-transit ... and arrives in
+    // N seconds" every time it woke early. Same blind spot trader.ts's own
+    // navigateTo() already guards against for the identical reason.
+    const contract = makeContract({
+      id: "c1",
+      accepted: true,
+      terms: {
+        deadline: new Date(Date.now() + 3_600_000).toISOString(),
+        payment: { onAccepted: 1000, onFulfilled: 2000 },
+        deliver: [{ tradeSymbol: "SILVER", destinationSymbol: "X1-A-DEST", unitsRequired: 60, unitsFulfilled: 0 } as any],
+      },
+    });
+    const { api } = makeApi([contract]);
+    let deliverCalled = false;
+    (api as any).dockShip = async () => {};
+    (api as any).getShipCargo = async () => ({ inventory: [{ symbol: "SILVER", units: 60 }] });
+    (api as any).deliverContract = async () => { deliverCalled = true; };
+    const cm = new ContractManager(api);
+    const ship = {
+      symbol: "SHIP-1",
+      // nav.waypointSymbol already reports the destination, exactly as the
+      // real API does mid-flight — status is the only signal this hasn't
+      // actually arrived yet.
+      nav: { waypointSymbol: "X1-A-DEST", status: "IN_TRANSIT" },
+      cargo: { inventory: [{ symbol: "SILVER", units: 60 }] },
+    } as any;
+
+    const result = await cm.deliverVia(ship);
+
+    assert.equal(deliverCalled, false, "must not attempt delivery while genuinely still in transit");
+    assert.equal(result, "X1-A-DEST", "must report the destination again so the caller waits instead of retrying a raw API call");
+  });
 });

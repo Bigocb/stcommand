@@ -212,7 +212,15 @@ export class ContractManager {
     if (relevant.length === 0) return null;
 
     for (const d of relevant) {
-      if (ship.nav.waypointSymbol !== d.destinationSymbol) {
+      // SpaceTraders reports nav.waypointSymbol as the destination for the
+      // whole transit, not just on arrival — waypointSymbol alone can't
+      // tell "flying there" from "there". Confirmed live: without the
+      // status check, a ship woken mid-flight (before its real ETA) read as
+      // arrived, and the delivery attempt below failed with "Ship is
+      // currently in-transit ... and arrives in N seconds" every time it
+      // woke early — trader.ts's own navigateTo() has the identical guard
+      // for the same reason.
+      if (ship.nav.waypointSymbol !== d.destinationSymbol || ship.nav.status === "IN_TRANSIT") {
         return d.destinationSymbol;
       }
     }
