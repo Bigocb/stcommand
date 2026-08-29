@@ -453,6 +453,51 @@ describe("assignContractCarrier — manual ship pinning for contract delivery", 
   });
 });
 
+describe("releaseFulfilledManualContractBuys clears a manual pin once its contract is done", () => {
+  it("releases the manual assignment when its good no longer appears in the outstanding targets", async () => {
+    // Confirmed live: a ship manually pinned to a contract's good (via the
+    // dashboard's Routes pane) kept showing "contractBuy · SILVER · manual"
+    // well after that contract had fully paid out — a manual override
+    // outranks the auto path unconditionally, so nothing ever re-checked
+    // whether the good was still actually needed once fulfillCompleted()
+    // closed the contract out.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId);
+    const sys = `X1-Q${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    (fleet as any).systemSymbol = sys;
+    (fleet as any).traders.set("FALCON-D", makeFakeAgent("FALCON-D", `${sys}-H59`, 80));
+    await store.recordMarket({ systemSymbol: sys, waypointSymbol: `${sys}-F55`, goodSymbol: "SILVER", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 400, sellPrice: 200, tradeVolume: 20 });
+    await fleet.assignContractCarrier("FALCON-D", "SILVER");
+    assert.equal(fleet.dispatcher.assignmentFor("FALCON-D")?.role, "contractBuy", "sanity: the manual pin must exist before it can be released");
+
+    // The contract is done — computeContractBuyTargets() no longer lists
+    // SILVER at all (this is exactly what it returns once needed hits 0).
+    await (fleet as any).releaseFulfilledManualContractBuys([]);
+
+    assert.equal(fleet.dispatcher.assignmentFor("FALCON-D"), undefined, "the manual contractBuy pin must be released once its good is no longer outstanding");
+  });
+
+  it("leaves the manual assignment alone while its good is still outstanding", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet(store, tenantId);
+    const sys = `X1-Q${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    (fleet as any).systemSymbol = sys;
+    (fleet as any).traders.set("FALCON-D", makeFakeAgent("FALCON-D", `${sys}-H59`, 80));
+    await store.recordMarket({ systemSymbol: sys, waypointSymbol: `${sys}-F55`, goodSymbol: "SILVER", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 400, sellPrice: 200, tradeVolume: 20 });
+    await fleet.assignContractCarrier("FALCON-D", "SILVER");
+
+    await (fleet as any).releaseFulfilledManualContractBuys([
+      { good: "SILVER", buyAt: `${sys}-F55`, buyPrice: 400, needed: 3 },
+    ]);
+
+    const assignment = fleet.dispatcher.assignmentFor("FALCON-D");
+    assert.equal(assignment?.role, "contractBuy", "still-outstanding SILVER must not be cleared");
+    assert.equal(assignment?.source, "manual");
+  });
+});
+
 describe("computeContractBuyTargets attaches the contract's real payout as `value`", () => {
   it("sums onFulfilled across every contract needing the good, counting each contract once", async () => {
     // The dispatcher's contractBuy priority formula (dispatcher.ts) needs

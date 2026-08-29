@@ -750,6 +750,31 @@ export class FleetManager {
     return targets;
   }
 
+  /**
+   * A manual contractBuy override (assignContractCarrier()) is respected
+   * indefinitely, same as any other manual dispatch override — but unlike
+   * an auto contractBuy assignment, nothing ever naturally clears it once
+   * the contract it was pinned for is done: computeContractBuyTargets()
+   * simply stops listing the good (needed drops to 0), which only matters
+   * to the AUTO assignment path (manual always wins over auto, so the
+   * dispatcher never even looks at whether the good is still needed).
+   * Confirmed live: a ship manually pinned to a contract's good kept
+   * showing "contractBuy" on the dashboard, still holding the route, well
+   * after that contract had fully paid out. Called every tick, right
+   * before recompute(), with the same freshly computed target list —
+   * releases any manual contractBuy assignment whose good no longer
+   * appears in it.
+   */
+  private async releaseFulfilledManualContractBuys(contractBuyTargets: ContractBuyTarget[]): Promise<void> {
+    const stillNeeded = new Set(contractBuyTargets.map((t) => t.good));
+    for (const a of this.dispatcher.list()) {
+      if (a.role === "contractBuy" && a.source === "manual" && !stillNeeded.has(a.good)) {
+        await this.setManualDispatch(a.shipSymbol, undefined);
+        this.log(`${a.shipSymbol}: contract for ${a.good} is no longer outstanding — clearing manual assignment`);
+      }
+    }
+  }
+
   /** The curated list of goods the warehouse is allowed to buy/sell — a good
    *  with no entry here is never warehoused, however profitable its route. */
   async warehouseTargetList(): Promise<{ goodSymbol: string; target: number; forMission: boolean }[]> {
@@ -3229,6 +3254,7 @@ export class FleetManager {
       this.computeMissionBuyTargets(),
       this.computeContractBuyTargets(),
     ]);
+    await this.releaseFulfilledManualContractBuys(contractBuyTargets);
     this.dispatcher.recompute(routes, this.dispatcherTraders(), warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets);
     await this.maybeAssignKeepers();
     await this.maybeBuyShip();
