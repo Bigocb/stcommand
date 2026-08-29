@@ -158,6 +158,44 @@ describe("TraderAgent.tick: contract delivery priority", () => {
   });
 });
 
+describe("TraderAgent.tick: contractBuy respects the market's per-transaction limit", () => {
+  it("caps the purchase at the market's tradeVolume instead of trying to buy the whole cargo hold at once", async () => {
+    // Confirmed live: FALCON-D, manually assigned to buy SILVER for a
+    // contract, retried the exact same purchase every ~2 minutes for over an
+    // hour, always failing with "Trade good SILVER has a limit of 60 units
+    // per transaction" — runContractBuy() computed units from cargo space
+    // and affordability only, with no tradeVolume cap at all, unlike
+    // runBuy()'s identical purchase path (line ~1025) which already respects
+    // it. Cargo capacity (80) and affordability (both far above the
+    // market's 60-unit limit) mean any request this test's mock rejects
+    // above 60 reproduces the exact live failure.
+    const ship = makeShip([]);
+    ship.cargo.capacity = 80;
+    let purchasedUnits: number | undefined;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getMyAgent: async () => ({ credits: 1_000_000 }) as any,
+        purchaseCargo: async (_s: string, _g: string, units: number) => {
+          purchasedUnits = units;
+          if (units > 60) throw new Error("Market transaction failed. Trade good SILVER has a limit of 60 units per transaction.");
+          return { cargo: { ...ship.cargo, units, inventory: [{ symbol: "SILVER", units }] }, transaction: { pricePerUnit: 400, totalPrice: units * 400 } } as any;
+        },
+      } as any,
+      assignedRoute: () => ({ shipSymbol: "SHIP-1", good: "SILVER", role: "contractBuy", buyAt: "X1-A-A1", buyPrice: 400, profitPerTrip: 0, source: "manual" }),
+      getMarketSnapshots: async () => [
+        { waypointSymbol: "X1-A-A1", goodSymbol: "SILVER", purchasePrice: 400, sellPrice: 200, tradeVolume: 60 },
+      ],
+    });
+
+    const made = await trader.tick();
+
+    assert.equal(purchasedUnits, 60, "must cap the single purchase at the market's tradeVolume");
+    assert.equal(made, true);
+  });
+});
+
 describe("TraderAgent.tick: clearLeftoverCargo respects protectedGoods", () => {
   it("never sells or jettisons a protectedGoods-listed leftover item", async () => {
     const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);

@@ -1212,6 +1212,7 @@ export class TraderAgent {
     await this.navigateTo(buyAt);
     await this.ensureDocked();
 
+    const cached = this.priceTable.get(buyAt)?.get(assigned.good);
     const liveBuy = await this.liveBuyPrice(buyAt, assigned.good);
     const buyPrice = liveBuy ?? assigned.buyPrice;
     if (buyPrice === undefined || buyPrice <= 0) return this.discoverPrices([buyAt]);
@@ -1227,7 +1228,13 @@ export class TraderAgent {
 
     const liveCredits = (await this.api.getMyAgent()).credits;
     const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
-    const units = Math.max(0, Math.floor(Math.min(this.ship.cargo.capacity - this.ship.cargo.units, affordable)));
+    // Confirmed live: without the tradeVolume cap this tried to buy the
+    // ship's full cargo space (or however much was affordable) in one
+    // transaction — "SILVER has a limit of 60 units per transaction" on
+    // every retry, forever, since the request itself never changed. Same
+    // per-transaction cap runBuy() already respects (line ~1025 above).
+    const volume = cached?.volume ?? affordable;
+    const units = Math.max(0, Math.floor(Math.min(volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable)));
     if (units <= 0) return this.discoverPrices([buyAt]);
 
     this.currentStep = { kind: "transacting", action: "buy", good: assigned.good };
