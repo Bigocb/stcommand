@@ -2,6 +2,7 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { FleetManager } from "../src/engine/fleet.js";
+import { ContractManager, type Contract } from "../src/engine/contract.js";
 import { createPool } from "../src/db/pool.js";
 import { Store } from "../src/db/store.js";
 
@@ -449,5 +450,50 @@ describe("assignContractCarrier — manual ship pinning for contract delivery", 
     assert.equal(assignment?.good, "SILVER");
     assert.equal(assignment?.buyAt, `${sys}-F55`);
     assert.equal(assignment?.source, "manual");
+  });
+});
+
+describe("computeContractBuyTargets attaches the contract's real payout as `value`", () => {
+  it("sums onFulfilled across every contract needing the good, counting each contract once", async () => {
+    // The dispatcher's contractBuy priority formula (dispatcher.ts) needs
+    // this to avoid collapsing to near-zero as a contract nears completion
+    // — see its own test file for the ranking behavior this feeds.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const sys = `X1-Q${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    await store.recordMarket({ systemSymbol: sys, waypointSymbol: `${sys}-F55`, goodSymbol: "COPPER", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 210, sellPrice: 100, tradeVolume: 60 });
+
+    const contracts: Contract[] = [
+      {
+        id: "c1", factionSymbol: "COSMIC", type: "PROCUREMENT", accepted: true, fulfilled: false,
+        expiration: new Date(Date.now() + 3_600_000).toISOString(),
+        terms: {
+          deadline: new Date(Date.now() + 3_600_000).toISOString(),
+          payment: { onAccepted: 1000, onFulfilled: 27219 },
+          deliver: [{ tradeSymbol: "COPPER", destinationSymbol: `${sys}-A3`, unitsRequired: 64, unitsFulfilled: 60 } as any],
+        },
+      } as Contract,
+      {
+        id: "c2", factionSymbol: "COSMIC", type: "PROCUREMENT", accepted: true, fulfilled: false,
+        expiration: new Date(Date.now() + 3_600_000).toISOString(),
+        terms: {
+          deadline: new Date(Date.now() + 3_600_000).toISOString(),
+          payment: { onAccepted: 500, onFulfilled: 8000 },
+          deliver: [{ tradeSymbol: "COPPER", destinationSymbol: `${sys}-B1`, unitsRequired: 10, unitsFulfilled: 0 } as any],
+        },
+      } as Contract,
+    ];
+    const contractsApi = { getContracts: async () => contracts } as any;
+    const contractManager = new ContractManager(contractsApi);
+    const fleet = makeFleet(store, tenantId);
+    (fleet as any).contracts = contractManager;
+    (fleet as any).systemSymbol = sys;
+
+    const targets = await (fleet as any).computeContractBuyTargets();
+
+    const copper = targets.find((t: any) => t.good === "COPPER");
+    assert.ok(copper, "COPPER must appear as a contract-buy target");
+    assert.equal(copper.needed, 4 + 10, "needed sums both contracts' outstanding shortfall");
+    assert.equal(copper.value, 27219 + 8000, "value sums both contracts' onFulfilled payout, not just the first");
   });
 });

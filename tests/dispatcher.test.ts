@@ -68,6 +68,47 @@ describe("RouteDispatcher: contractBuy assignments", () => {
   });
 });
 
+describe("RouteDispatcher: contractBuy priority reflects the contract's real payout, not just units left", () => {
+  it("without a value, a nearly-finished contract's tiny shortfall loses out to an ordinary route (the bug)", () => {
+    // Confirmed live: a COPPER contract down to its last 4 units scored
+    // 4*100=400 — below an entirely ordinary IRON_ORE route's 1000 — so the
+    // one available trader took the ordinary route and the contract's last
+    // few units sat unclaimed. This test documents that old behavior still
+    // happens when no `value` is supplied (e.g. a caller that hasn't been
+    // updated); the next test shows the fix.
+    const d = new RouteDispatcher();
+    const routes = [{
+      good: "IRON_ORE", buyAt: "X1-A-M1", buySystem: "X1-A", buyPrice: 10,
+      sellAt: "X1-A-M2", sellSystem: "X1-A", sellPrice: 110, volume: 10,
+      distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
+    }];
+    const targets: ContractBuyTarget[] = [{ good: "COPPER", buyAt: "X1-A-M3", buyPrice: 10, needed: 4 }];
+
+    d.recompute(routes, [{ shipSymbol: "SHIP-1", capacity: 40 }], [], [], [], targets);
+
+    assert.equal(d.assignmentFor("SHIP-1")?.good, "IRON_ORE", "the ordinary route still outranks the unvalued contract shortfall");
+  });
+
+  it("with a value, the same tiny shortfall outranks the ordinary route — completing the contract is worth more than one trip", () => {
+    const d = new RouteDispatcher();
+    const routes = [{
+      good: "IRON_ORE", buyAt: "X1-A-M1", buySystem: "X1-A", buyPrice: 10,
+      sellAt: "X1-A-M2", sellSystem: "X1-A", sellPrice: 110, volume: 10,
+      distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
+    }];
+    // Same 4-unit shortfall as above, but now the caller supplies the
+    // contract's real onFulfilled payout (27,219c, matching the live
+    // COPPER contract this was found on) via `value`.
+    const targets: ContractBuyTarget[] = [{ good: "COPPER", buyAt: "X1-A-M3", buyPrice: 10, needed: 4, value: 27219 }];
+
+    d.recompute(routes, [{ shipSymbol: "SHIP-1", capacity: 40 }], [], [], [], targets);
+
+    const a = d.assignmentFor("SHIP-1");
+    assert.equal(a?.good, "COPPER", "finishing the contract must now outrank the ordinary route");
+    assert.equal(a?.profitPerTrip, 400, "the assignment's displayed profitPerTrip stays the needed*100 estimate — the 27,219c payout is a completion bonus, not a real per-trip figure, and must not be shown as one");
+  });
+});
+
 describe("RouteDispatcher: cross-system direct routes", () => {
   it("never assigns a cross-system route as 'direct' — TraderAgent.viableRoute() refuses to fly one", () => {
     const d = new RouteDispatcher();

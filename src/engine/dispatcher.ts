@@ -107,6 +107,15 @@ export interface ContractBuyTarget {
   buyPrice: number;
   /** Units still outstanding across every contract that needs this good. */
   needed: number;
+  /**
+   * Total onFulfilled payout still reachable by finishing off the
+   * contract(s) that need this good — a contract pays out as one lump sum
+   * on completion, not per unit, so a 4-unit shortfall on an otherwise-done
+   * contract is worth exactly as much as it was at 64 units. Optional and
+   * falls back to the old needed-based estimate when the caller can't
+   * supply it (e.g. existing tests): see the priority computation below.
+   */
+  value?: number;
 }
 
 /**
@@ -429,8 +438,24 @@ export class RouteDispatcher {
       if (seenContractBuyGood.has(cb.good)) continue; // one buyer per good per cycle, even across multiple contracts
       seenContractBuyGood.add(cb.good);
       if (cb.needed <= 0) continue;
-      const priority = cb.needed * 100; // outranks an equivalent mission-buy shortfall — contracts have hard deadlines, warehousing doesn't
-      work.push({ key: `${cb.good}:contractBuy`, make: (s) => this.toContractBuyAssignment(s, cb, priority), profitPerTrip: priority });
+      // needed*100 is still what's shown on the assignment itself (the
+      // dashboard displays it as "+N/trip", and the contract's real payout
+      // is a lump sum on full completion, not a per-trip figure — showing
+      // it there would overstate what any one trip actually earns).
+      const displayProfit = cb.needed * 100;
+      // But needed*100 alone must never decide who gets picked: it
+      // collapses to nearly nothing right as a contract nears completion —
+      // confirmed live, a 64-unit shortfall scored ~6400 (competitive with
+      // real trade routes), but the same contract at a 4-unit shortfall
+      // scored 400, well below typical arbitrage profitPerTrip, so nothing
+      // picked up the last few units for a long while. The payout is a
+      // lump sum on completion, not per unit, so finishing the last 4
+      // units is worth exactly as much as the first 60 were — rank by the
+      // real value when the caller has it, falling back to the same
+      // needed*100 estimate only when it doesn't (e.g. existing tests that
+      // construct a target with no `value`).
+      const rankPriority = cb.value ?? displayProfit; // outranks an equivalent mission-buy shortfall — contracts have hard deadlines, warehousing doesn't
+      work.push({ key: `${cb.good}:contractBuy`, make: (s) => this.toContractBuyAssignment(s, cb, displayProfit), profitPerTrip: rankPriority });
     }
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 

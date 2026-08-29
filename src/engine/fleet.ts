@@ -725,16 +725,27 @@ export class FleetManager {
     if (!this.contracts) return [];
     const deliveries = await this.contracts.outstandingDeliveries();
     const neededByGood = new Map<string, number>();
+    // A contract pays out once, on full completion — attribute its whole
+    // onFulfilled payout to every good it still needs, but only once per
+    // contract per good, so a duplicate line (or this loop re-adding the
+    // same contract) can't double count it.
+    const valueByGood = new Map<string, number>();
+    const countedContractForGood = new Set<string>();
     for (const d of deliveries) {
       const needed = d.unitsRequired - d.unitsFulfilled;
       if (needed <= 0) continue;
       neededByGood.set(d.tradeSymbol, (neededByGood.get(d.tradeSymbol) ?? 0) + needed);
+      const key = `${d.tradeSymbol}:${d.contractId}`;
+      if (!countedContractForGood.has(key)) {
+        countedContractForGood.add(key);
+        valueByGood.set(d.tradeSymbol, (valueByGood.get(d.tradeSymbol) ?? 0) + d.onFulfilledPayment);
+      }
     }
     const targets: ContractBuyTarget[] = [];
     for (const [good, needed] of neededByGood) {
       const cheapest = (await this.materialBuyers(good, this.systemSymbol))[0];
       if (!cheapest) continue; // no known market — e.g. a raw ore only ever obtained by mining
-      targets.push({ good, buyAt: cheapest.waypoint, buyPrice: cheapest.purchasePrice, needed });
+      targets.push({ good, buyAt: cheapest.waypoint, buyPrice: cheapest.purchasePrice, needed, value: valueByGood.get(good) });
     }
     return targets;
   }

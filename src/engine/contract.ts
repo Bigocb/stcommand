@@ -19,6 +19,13 @@ export interface Deliverable {
   unitsFulfilled: number;
   destinationSymbol: string;
   deadline: string;
+  /** The contract's onFulfilled payout — paid once as a lump sum when every
+   *  deliverable across the whole contract is complete, not per unit or per
+   *  deliverable. Lets a caller (fleet.ts's contractBuy prioritization)
+   *  weight "finish this contract off" by what it's actually worth, instead
+   *  of by how many units are left — which collapses toward zero right as
+   *  a contract nears completion, exactly backwards from the real urgency. */
+  onFulfilledPayment: number;
 }
 
 /** How long a fetched contract list stays good for. Contracts change on the
@@ -184,6 +191,7 @@ export class ContractManager {
             unitsFulfilled: d.unitsFulfilled,
             destinationSymbol: d.destinationSymbol,
             deadline: c.terms.deadline,
+            onFulfilledPayment: c.terms.payment.onFulfilled,
           });
         }
       }
