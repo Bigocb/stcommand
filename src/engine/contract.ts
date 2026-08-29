@@ -191,6 +191,15 @@ export class ContractManager {
     return out;
   }
 
+  /** Total units of `tradeSymbol` still outstanding across every accepted
+   *  contract that wants it — lets a contractBuy purchase cap itself at what
+   *  is actually still needed instead of the market's/cargo's/wallet's own
+   *  limit, which can be well beyond it once a contract is mostly filled. */
+  async outstandingUnitsFor(tradeSymbol: string): Promise<number> {
+    const deliveries = await this.outstandingDeliveries();
+    return deliveries.filter((d) => d.tradeSymbol === tradeSymbol).reduce((sum, d) => sum + (d.unitsRequired - d.unitsFulfilled), 0);
+  }
+
   /**
    * Route a ship that holds contract goods: navigate to the delivery target
    * and deliver everything it can.

@@ -102,6 +102,13 @@ export interface TraderOptions {
    * place. Traders CAN hold contract goods; this is what makes that safe.
    */
   deliverCargo?: (ship: Ship) => Promise<true | string | null>;
+  /** Units of `tradeSymbol` still outstanding across every accepted contract
+   *  that wants it — used to cap a "contractBuy" purchase at what's actually
+   *  still needed, not just cargo space/affordability/tradeVolume. Without
+   *  this a ship topping off the last few units of a contract buys a full
+   *  market-limit lot regardless, and is left holding the rest with nowhere
+   *  to deliver it. */
+  contractNeeded?: (tradeSymbol: string) => Promise<number>;
 }
 
 
@@ -149,6 +156,7 @@ export class TraderAgent {
   private readonly shouldRun?: () => boolean;
   private readonly recoverCostBasis?: TraderOptions["recoverCostBasis"];
   private readonly deliverCargo?: TraderOptions["deliverCargo"];
+  private readonly contractNeeded?: TraderOptions["contractNeeded"];
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
   /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
@@ -209,6 +217,7 @@ export class TraderAgent {
     this.shouldRun = opts.shouldRun;
     this.recoverCostBasis = opts.recoverCostBasis;
     this.deliverCargo = opts.deliverCargo;
+    this.contractNeeded = opts.contractNeeded;
   }
 
   isManual(): boolean {
@@ -1234,7 +1243,20 @@ export class TraderAgent {
     // every retry, forever, since the request itself never changed. Same
     // per-transaction cap runBuy() already respects (line ~1025 above).
     const volume = cached?.volume ?? affordable;
-    const units = Math.max(0, Math.floor(Math.min(volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable)));
+    let cap = Math.min(volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable);
+    if (this.contractNeeded) {
+      // Confirmed live: with only the tradeVolume/cargo/affordability caps
+      // above, a ship topping off the last few outstanding units of a
+      // contract (3 of 63, say) bought a full market-limit lot (60) anyway —
+      // the request had no idea how much was actually still wanted. It
+      // delivered what the contract needed and was left holding the rest
+      // with no role for it, falling through to clearLeftoverCargo() to sell
+      // at a loss against the contract's own buy price.
+      const alreadyHeld = this.ship.cargo.inventory.find((i) => i.symbol === assigned.good)?.units ?? 0;
+      const needed = Math.max(0, (await this.contractNeeded(assigned.good)) - alreadyHeld);
+      cap = Math.min(cap, needed);
+    }
+    const units = Math.max(0, Math.floor(cap));
     if (units <= 0) return this.discoverPrices([buyAt]);
 
     this.currentStep = { kind: "transacting", action: "buy", good: assigned.good };

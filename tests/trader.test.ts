@@ -196,6 +196,72 @@ describe("TraderAgent.tick: contractBuy respects the market's per-transaction li
   });
 });
 
+describe("TraderAgent.tick: contractBuy caps the purchase at what the contract still needs", () => {
+  it("buys only the outstanding units, not a full market-limit lot, when the contract is nearly filled", async () => {
+    // Confirmed live: FALCON-D delivered 60/63 SILVER, went back to buy the
+    // remaining 3, and bought another 60 anyway — the tradeVolume cap (fixed
+    // above) still let the purchase run all the way up to the market limit
+    // with no idea only 3 units were actually still wanted. It delivered 3
+    // of the 60 and was left holding 57 with no role for them.
+    const ship = makeShip([]);
+    ship.cargo.capacity = 80;
+    let purchasedUnits: number | undefined;
+    let neededQueriedFor: string | undefined;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getMyAgent: async () => ({ credits: 1_000_000 }) as any,
+        purchaseCargo: async (_s: string, _g: string, units: number) => {
+          purchasedUnits = units;
+          return { cargo: { ...ship.cargo, units, inventory: [{ symbol: "SILVER", units }] }, transaction: { pricePerUnit: 400, totalPrice: units * 400 } } as any;
+        },
+      } as any,
+      assignedRoute: () => ({ shipSymbol: "SHIP-1", good: "SILVER", role: "contractBuy", buyAt: "X1-A-A1", buyPrice: 400, profitPerTrip: 0, source: "manual" }),
+      getMarketSnapshots: async () => [
+        { waypointSymbol: "X1-A-A1", goodSymbol: "SILVER", purchasePrice: 400, sellPrice: 200, tradeVolume: 60 },
+      ],
+      contractNeeded: async (good) => { neededQueriedFor = good; return 3; },
+    });
+
+    const made = await trader.tick();
+
+    assert.equal(neededQueriedFor, "SILVER");
+    assert.equal(purchasedUnits, 3, "must buy only what the contract still needs, not the full tradeVolume/cargo/affordability limit");
+    assert.equal(made, true);
+  });
+
+  it("subtracts cargo already held from the outstanding amount, instead of double-counting it", async () => {
+    const ship = makeShip([{ symbol: "SILVER", units: 2 }]);
+    ship.cargo.capacity = 80;
+    let purchasedUnits: number | undefined;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getMyAgent: async () => ({ credits: 1_000_000 }) as any,
+        purchaseCargo: async (_s: string, _g: string, units: number) => {
+          purchasedUnits = units;
+          return { cargo: { ...ship.cargo, units: ship.cargo.units + units }, transaction: { pricePerUnit: 400, totalPrice: units * 400 } } as any;
+        },
+      } as any,
+      assignedRoute: () => ({ shipSymbol: "SHIP-1", good: "SILVER", role: "contractBuy", buyAt: "X1-A-A1", buyPrice: 400, profitPerTrip: 0, source: "manual" }),
+      getMarketSnapshots: async () => [
+        { waypointSymbol: "X1-A-A1", goodSymbol: "SILVER", purchasePrice: 400, sellPrice: 200, tradeVolume: 60 },
+      ],
+      contractNeeded: async () => 3,
+      // Held SILVER is contract cargo, not sellable leftover — same
+      // exclusion allProtectedGoods() gives it in production, needed here so
+      // clearLeftoverCargo() doesn't try to sell it out from under this test.
+      protectedGoods: () => new Set(["SILVER"]),
+    });
+
+    await trader.tick();
+
+    assert.equal(purchasedUnits, 1, "already holding 2 of the 3 still needed must only buy the remaining 1");
+  });
+});
+
 describe("TraderAgent.tick: clearLeftoverCargo respects protectedGoods", () => {
   it("never sells or jettisons a protectedGoods-listed leftover item", async () => {
     const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);

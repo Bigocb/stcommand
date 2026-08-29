@@ -550,6 +550,7 @@ export class FleetManager {
       },
       protectedGoods: () => this.allProtectedGoods(),
       deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
+      contractNeeded: (good) => this.contracts?.outstandingUnitsFor(good) ?? Promise.resolve(0),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
