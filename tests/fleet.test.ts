@@ -272,6 +272,41 @@ function stubYardSystem(fleet: FleetManager, systemSymbol: string, yardWaypoint:
   };
 }
 
+describe("FleetManager.canAfford / spendableCredits", () => {
+  it("canAfford is true exactly down to the cash floor, false one credit below it", async () => {
+    const fleet = new FleetManager({ api: {} as any, minCashReserve: 20_000 });
+    (fleet as any).credits = 25_000;
+
+    assert.equal(fleet.canAfford(5_000), true, "spending down to exactly the floor is allowed");
+    assert.equal(fleet.canAfford(5_001), false, "spending past the floor is not");
+  });
+
+  it("spendableCredits never goes negative even when balance is already under the floor", async () => {
+    const fleet = new FleetManager({ api: {} as any, minCashReserve: 20_000 });
+    (fleet as any).credits = 5_000;
+
+    assert.equal(fleet.spendableCredits(), 0);
+    assert.equal(fleet.canAfford(1), false);
+  });
+
+  it("a live doctrine cashFloor overrides the constructor default", async () => {
+    const fleet = new FleetManager({ api: {} as any, minCashReserve: 20_000 });
+    (fleet as any).credits = 50_000;
+    await fleet.doctrine.set("cashFloor", { value: 45_000, enabled: true });
+
+    assert.equal(fleet.spendableCredits(), 5_000, "doctrine's cashFloor value, not the constructor default, governs once set");
+  });
+
+  it("accepts an explicit credits argument instead of the fleet's cached balance", async () => {
+    const fleet = new FleetManager({ api: {} as any, minCashReserve: 20_000 });
+    (fleet as any).credits = 1_000_000; // cached balance must not leak into an explicit-credits call
+
+    assert.equal(fleet.spendableCredits(30_000), 10_000);
+    assert.equal(fleet.canAfford(10_000, 30_000), true);
+    assert.equal(fleet.canAfford(10_001, 30_000), false);
+  });
+});
+
 describe("FleetManager.repairShip", () => {
   it("rejects when not docked at a shipyard-trait waypoint", async () => {
     const agent = makeConditionAgent("SHIP-1", "X1-A-A1", "X1-A", "DOCKED");
@@ -297,6 +332,8 @@ describe("FleetManager.repairShip", () => {
     const fleet = new FleetManager({
       api: {
         getShip: async () => agent.getShip(),
+        getRepairCost: async () => ({ transaction: { totalPrice: 500 } }),
+        getMyAgent: async () => ({ credits: 100_000 }),
         repairShip: async () => ({ agent: {}, ship: agent.getShip(), transaction: { totalPrice: 500 } }),
       } as any,
       recordLedger: (e) => { ledgered = e; },
@@ -318,6 +355,8 @@ describe("FleetManager.maybeRepairFleet", () => {
     const fleet = new FleetManager({
       api: {
         getShip: async () => agent.getShip(),
+        getRepairCost: async () => ({ transaction: { totalPrice: 100 } }),
+        getMyAgent: async () => ({ credits: 100_000 }),
         repairShip: async () => { repaired = true; return { agent: {}, ship: agent.getShip(), transaction: { totalPrice: 100 } }; },
       } as any,
     });

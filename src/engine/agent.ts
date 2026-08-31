@@ -38,6 +38,11 @@ export interface AgentOptions {
   surveyPool?: SurveyPool;
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
   protectedGoods?: () => Set<string>;
+  /** Credits actually free to spend — already floor-adjusted (fleet.ts's
+   *  spendableCredits(), not raw balance) — caps how much this ship's own
+   *  arbitrage buying can spend. Undefined (no fleet wired in, e.g. a bare
+   *  test) means unconstrained, matching this class's existing behavior. */
+  getCredits?: () => number;
   /** Marketplace waypoints to tour periodically so price snapshots stay fresh. */
   marketTourTargets?: () => Promise<string[]>;
   /** Markets whose snapshots are older than the freshness window — tour these first. */
@@ -124,6 +129,7 @@ export class ShipAgent {
   private markets: MarketSnapshot[] = [];
   private readonly surveyPool: SurveyPool | undefined;
   private readonly protectedGoods?: () => Set<string>;
+  private readonly getCredits?: AgentOptions["getCredits"];
   private readonly marketTourTargets?: AgentOptions["marketTourTargets"];
   private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
@@ -169,6 +175,7 @@ export class ShipAgent {
     this.recordMarket = opts.recordMarket;
     this.surveyPool = opts.surveyPool;
     this.protectedGoods = opts.protectedGoods;
+    this.getCredits = opts.getCredits;
     this.marketTourTargets = opts.marketTourTargets;
     this.staleMarketTargets = opts.staleMarketTargets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
@@ -642,7 +649,10 @@ export class ShipAgent {
         const fuelToSell = this.estimatedFuelToBetween(here, sellMarket.symbol);
         // Assume we can refuel at the origin market before leaving.
         if (this.ship.fuel.capacity > 0 && fuelToSell > this.ship.fuel.capacity - 5) continue;
-        const units = Math.min(buy.tradeVolume, sell.tradeVolume, this.ship.cargo.capacity);
+        const credits = this.getCredits?.() ?? Infinity;
+        const affordable = credits > 0 && buy.purchasePrice > 0 ? Math.floor(credits / buy.purchasePrice) : Infinity;
+        const units = Math.min(buy.tradeVolume, sell.tradeVolume, this.ship.cargo.capacity, affordable);
+        if (units <= 0) continue;
         const fuelCost = fuelToSell * (this.priceTableFuel(here) ?? 72);
         const profit = margin * units - fuelCost;
         if (profit <= 50) continue;

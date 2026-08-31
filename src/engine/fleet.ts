@@ -244,7 +244,10 @@ export class FleetManager {
       resume: (s) => this.resumeAgent(s),
       listBuyers: (good, sys) => this.materialBuyers(good, sys),
       discoverBuyers: (good, sys) => this.discoverMaterialBuyers(good, sys),
-      getCredits: async () => (await this.api.getMyAgent()).credits,
+      // Already floor-adjusted (see spendableCredits()'s own comment) — a
+      // mission's material buying respects the cash floor with no change to
+      // mission.ts itself, same trick used for every other injected agent.
+      getCredits: async () => this.spendableCredits(),
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
       jettisonCargo: (s, g, u) => this.api.jettisonCargo(s, g, u),
     });
@@ -429,6 +432,43 @@ export class FleetManager {
     return this.doctrine.value("cashFloor", 0) || this.minCashReserveDefault;
   }
 
+  /**
+   * The one gate every credit-spending action in the fleet is meant to go
+   * through — ships, modules, repairs, cargo, fuel, all of it. Before this,
+   * "never let the balance fall below X" was ~10 independent copies of
+   * `credits < price + minCashReserve()` scattered across every ship-
+   * purchase function, and several real spending paths (a trader's own
+   * arbitrage/contract buying, repairShip(), a manual dashboard buy, a
+   * rescue tender's fuel purchase) never checked it at all — a trader could
+   * spend the fleet to zero on one big cargo buy with nothing stopping it.
+   * A future spending policy (max single purchase, daily spend cap) extends
+   * this one function's body, not every call site that spends money.
+   *
+   * `credits` defaults to the fleet's own cached balance (kept current by
+   * refreshCredits()); pass a freshly-fetched value explicitly for a path
+   * that already has one on hand, to avoid an extra API call just to
+   * re-derive what the caller already knows.
+   */
+  canAfford(amount: number, credits = this.credits): boolean {
+    return this.spendableCredits(credits) >= amount;
+  }
+
+  /**
+   * How much is actually free to spend, once the cash floor is set aside —
+   * the sizing counterpart to canAfford()'s yes/no gate, for a purchase
+   * whose per-unit cost is known but the *volume* is the decision (how many
+   * units of cargo to buy). Every per-ship agent (ShipAgent/TraderAgent/
+   * MissionManager) gets this injected as its own `getCredits` callback, so
+   * `units = Math.floor(getCredits() / price)`-style sizing anywhere in the
+   * engine already respects the floor with no other code change — it was
+   * previously handed raw balance, which is exactly how a trader's own
+   * arbitrage buying could spend the fleet to zero on one purchase with
+   * nothing stopping it.
+   */
+  spendableCredits(credits = this.credits): number {
+    return Math.max(0, credits - this.minCashReserve());
+  }
+
   /** Headroom above the cash floor before a ship purchase is even considered. */
   private shipBudget(): number {
     return this.doctrine.value("shipBudget", 0);
@@ -561,7 +601,8 @@ export class FleetManager {
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
       releaseRoute: () => this.dispatcher.release(shipSymbol),
-      getCredits: () => this.credits,
+      // Already floor-adjusted — see spendableCredits()'s own comment.
+      getCredits: () => this.spendableCredits(),
       maxLossPct: this.doctrine.value("maxLossPct", 100),
       marginFloor: this.doctrine.value("marginFloor", 0),
       recordDoctrineFire: (key) => this.doctrine.recordFire(key, shipSymbol),
@@ -952,6 +993,7 @@ export class FleetManager {
           deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
           surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
+          getCredits: () => this.spendableCredits(),
         }).withWorld(this.positions, this.markets),
       );
       this.log(`role: miner ${ship.symbol}`);
@@ -970,6 +1012,7 @@ export class FleetManager {
           marketTourTargets: () => this.marketTourTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          getCredits: () => this.spendableCredits(),
         }).withWorld(this.positions, this.markets),
       );
       this.log(`role: surveyor ${ship.symbol}`);
@@ -1016,6 +1059,7 @@ export class FleetManager {
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
+            getCredits: () => this.spendableCredits(),
           }).withWorld(this.positions, this.markets),
         );
         this.keeperMarkets.set(ship.symbol, keeperMarket);
@@ -1041,6 +1085,7 @@ export class FleetManager {
           staleMarketTargets: () => this.staleMarketTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          getCredits: () => this.spendableCredits(),
         }).withWorld(this.positions, this.markets),
       );
       this.log(`role: tour ${ship.symbol} (market/shipyard intel)`);
@@ -1148,6 +1193,7 @@ export class FleetManager {
             deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
             surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
+            getCredits: () => this.spendableCredits(),
           }).withWorld(this.positions, this.markets),
         );
         return undefined;
@@ -1166,6 +1212,7 @@ export class FleetManager {
             marketTourTargets: () => this.marketTourTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+            getCredits: () => this.spendableCredits(),
           }).withWorld(this.positions, this.markets),
         );
         return undefined;
@@ -1197,6 +1244,7 @@ export class FleetManager {
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
+            getCredits: () => this.spendableCredits(),
           }).withWorld(this.positions, this.markets),
         );
         this.keeperMarkets.set(shipSymbol, resolvedKeeperMarket);
@@ -1216,6 +1264,7 @@ export class FleetManager {
             staleMarketTargets: () => this.staleMarketTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+            getCredits: () => this.spendableCredits(),
           }).withWorld(this.positions, this.markets),
         );
         return undefined;
@@ -1341,7 +1390,7 @@ export class FleetManager {
     const shipyard = await this.api.getShipyard(yardSystem, yardSymbol);
     const offer = shipyard.ships?.find((s) => s.type === type);
     if (!offer) throw new Error(`${type} not available at ${yardSymbol}`);
-    if (agent.credits < offer.purchasePrice + this.minCashReserve()) {
+    if (!this.canAfford(offer.purchasePrice, agent.credits)) {
       throw new Error(`need ${offer.purchasePrice + this.minCashReserve()}c, have ${agent.credits}c`);
     }
     this.log(`purchasing ${type} at ${yardSymbol} for ${offer.purchasePrice} credits`);
@@ -1422,7 +1471,7 @@ export class FleetManager {
         // Respect the per-hull doctrine cap: a surveyor scout is a FRAME_DRONE,
         // so it must not slip past the drone cap the operator set.
         if (this.doctrine.value(`shipCap:${available.frame.symbol}`, Infinity) <= this.droneCount()) return;
-        if (agent.credits < available.purchasePrice + this.minCashReserve()) return;
+        if (!this.canAfford(available.purchasePrice, agent.credits)) return;
         this.log(`purchasing SHIP_SURVEYOR scout at ${yard.symbol} for ${available.purchasePrice} credits`);
         const res = await this.api.purchaseShip("SHIP_SURVEYOR", yard.symbol);
         this.recordLedger?.({
@@ -1472,7 +1521,7 @@ export class FleetManager {
         }
         await this.doctrine.ensureShipTypeRule("SHIP_SIPHON_DRONE");
         if (this.doctrine.value(`shipCap:SHIP_SIPHON_DRONE`, Infinity) <= this.siphoners.size) return;
-        if (agent.credits < available.purchasePrice + this.minCashReserve()) return;
+        if (!this.canAfford(available.purchasePrice, agent.credits)) return;
         this.log(`purchasing SHIP_SIPHON_DRONE at ${yard.symbol} for ${available.purchasePrice} credits`);
         const res = await this.api.purchaseShip("SHIP_SIPHON_DRONE", yard.symbol);
         this.recordLedger?.({
@@ -1559,7 +1608,7 @@ export class FleetManager {
 
     for (const attempt of attempts) {
       if (atCap(attempt.frameSymbol)) continue;
-      if (agent.credits < attempt.price + this.minCashReserve()) continue;
+      if (!this.canAfford(attempt.price, agent.credits)) continue;
       try {
         this.log(`purchasing ${attempt.type} at ${attempt.yardSymbol} for ${attempt.price} credits (${attempt.reason})`);
         const res = await this.api.purchaseShip(attempt.type, attempt.yardSymbol);
@@ -1834,7 +1883,15 @@ export class FleetManager {
 
   /** Buy cargo for a ship at its current market. */
   async buyCargo(shipSymbol: string, good: string, units: number): Promise<void> {
-    const { ship, waypointSymbol } = await this.ensureShipAtMarket(shipSymbol);
+    const { ship, systemSymbol, waypointSymbol } = await this.ensureShipAtMarket(shipSymbol);
+    const market = await this.api.getMarket(systemSymbol, waypointSymbol);
+    const listing = market.tradeGoods?.find((g) => g.symbol === good);
+    if (listing) {
+      const agent = await this.api.getMyAgent();
+      if (!this.canAfford(listing.purchasePrice * units, agent.credits)) {
+        throw new Error(`${units}u ${good} costs ~${listing.purchasePrice * units}c, only ${agent.credits - this.minCashReserve()}c available above the cash floor`);
+      }
+    }
     if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
     const res = await this.api.purchaseCargo(shipSymbol, good, units);
     this.recordLedger?.({
@@ -1901,6 +1958,11 @@ export class FleetManager {
     const waypointSymbol = ship.nav.waypointSymbol;
     if (ship.nav.status !== "DOCKED" || !(await this.isShipyard(ship.nav.systemSymbol, waypointSymbol))) {
       throw new Error(`${shipSymbol} must be docked at a shipyard to repair (currently ${ship.nav.status} at ${waypointSymbol})`);
+    }
+    const preview = await this.api.getRepairCost(shipSymbol);
+    const agent = await this.api.getMyAgent();
+    if (!this.canAfford(preview.transaction.totalPrice, agent.credits)) {
+      throw new Error(`repair needs ${preview.transaction.totalPrice}c, only ${agent.credits - this.minCashReserve()}c available above the cash floor`);
     }
     const res = await this.api.repairShip(shipSymbol);
     this.recordLedger?.({
@@ -1994,6 +2056,12 @@ export class FleetManager {
     }
     const atMarket = await this.api.getShip(shipSymbol);
     if (atMarket.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
+    const market = await this.api.getMarket(systemSymbol, marketWaypoint);
+    const listing = market.tradeGoods?.find((g) => g.symbol === componentSymbol);
+    const agent = await this.api.getMyAgent();
+    if (listing && !this.canAfford(listing.purchasePrice, agent.credits)) {
+      throw new Error(`${componentSymbol} costs ${listing.purchasePrice}c, only ${agent.credits - this.minCashReserve()}c available above the cash floor`);
+    }
     const res = await this.api.purchaseCargo(shipSymbol, componentSymbol, 1);
     this.recordLedger?.({
       timestamp: new Date().toISOString(),
@@ -3417,6 +3485,7 @@ export class FleetManager {
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         keeperMarket: () => this.keeperMarkets.get(sym),
+        getCredits: () => this.spendableCredits(),
       }).withWorld(this.positions, this.markets);
       this.keepers.set(sym, keeper);
       this.keeperMarkets.set(sym, market);
@@ -3810,6 +3879,10 @@ export class FleetManager {
       const held = tender.cargo.inventory?.find((i) => i.symbol === "FUEL")?.units ?? 0;
       const toBuy = Math.max(0, plan.fuelUnits - held);
       if (toBuy > 0) {
+        // Deliberately not gated by canAfford() — rescue fuel is small money
+        // against a stranded ship that's otherwise permanently stuck; the
+        // cash floor protecting strategic reserve isn't worth blocking a
+        // recovery over.
         const res = await this.api.purchaseCargo(plan.tenderSymbol, "FUEL", toBuy);
         this.log(`tender ${plan.tenderSymbol}: loaded ${res.transaction.units}u FUEL @ ${res.transaction.pricePerUnit}c`);
       } else {
