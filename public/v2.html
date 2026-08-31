@@ -2430,8 +2430,17 @@ const FLEET_COLS = [
   { key: "net", label: "c/hr", num: true },
   { key: "fuel", label: "Fuel" },
   { key: "cargo", label: "Hold" },
+  { key: "condition", label: "Cond.", num: true },
+  { key: "crewCurrent", label: "Crew", num: true },
   { key: "goal", label: "Doing" },
 ];
+
+/** Same min(frame, engine, reactor) the server uses (FleetManager.worstCondition()) — mirrored client-side since the fleet table reads straight from state.ships, not a server-computed summary. */
+function worstConditionPct(ship) {
+  const parts = [ship.frame?.condition, ship.engine?.condition, ship.reactor?.condition].filter((c) => c != null);
+  if (!parts.length) return null;
+  return Math.round(Math.min(...parts) * 100);
+}
 
 /** A compact "why is this ship not on the default flight mode" badge — see
  *  src/engine/flightMode.ts for the real decision logic this is just
@@ -2457,6 +2466,8 @@ function fleetRows() {
       net: earnBy.get(s.symbol) ?? 0,
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
+      condition: worstConditionPct(s) ?? 100,
+      crewCurrent: s.crew?.current ?? 0, crewCapacity: s.crew?.capacity ?? 0, morale: s.crew?.morale ?? 0,
       goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
       at: s.nav?.waypointSymbol ?? "",
       // nav.flightMode is sticky — the API doesn't reset it to CRUISE on
@@ -2610,6 +2621,8 @@ function renderFleetTable() {
         <td class="num ${r.net > 0 ? "rate-up" : r.net < 0 ? "rate-down" : "rate-zero"}">${r.net ? signed(r.net) : "0"}</td>
         <td class="gauge"><span class="meter"><i style="width:${r.fuelCap ? (r.fuel / r.fuelCap) * 100 : 0}%"></i></span>${r.fuel}</td>
         <td class="gauge"><span class="meter c"><i style="width:${r.cargoCap ? (r.cargo / r.cargoCap) * 100 : 0}%"></i></span>${r.cargoCap ? `${r.cargo}/${r.cargoCap}` : "—"}</td>
+        <td class="gauge"><span class="meter${r.condition < 50 ? " neg" : ""}"><i style="width:${r.condition}%"></i></span>${r.condition}%</td>
+        <td class="gauge">${r.crewCapacity ? `<span class="meter${r.morale < 40 ? " neg" : ""}"><i style="width:${Math.max(0, Math.min(100, r.morale))}%"></i></span>${r.crewCurrent}/${r.crewCapacity}` : "—"}</td>
         <td><span class="goal">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}${fmTag(r.flightMode)}</span></td>
       </tr>`).join("")}</tbody>`;
 
