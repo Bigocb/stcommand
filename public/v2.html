@@ -639,6 +639,7 @@
   .meter { display:inline-block; width:32px; height:3px; background:var(--hairline); vertical-align:middle; margin-right:5px; }
   .meter i { display:block; height:100%; background:var(--accent); }
   .meter.c i { background:var(--ice); }
+  .meter.neg i { background:var(--red); }
   .rolepick { background:var(--ink); border:1px solid var(--hairline); color:var(--accent); font-family:var(--mono); font-size:9px; padding:2px 4px; }
 
   .ticker { display:flex; gap:22px; align-items:center; padding:6px 11px; background:var(--panel);
@@ -794,20 +795,22 @@
   #manifest .close { position:static; display:inline-block; margin-bottom:10px; background:transparent; border:1px solid var(--hairline);
                   color:var(--dim); font-family:var(--disp); font-size:9px; padding:3px 8px; cursor:pointer; }
   .modal .good, .modal .jump-row, .modal .loadout-item,
-  #manifest .good, #manifest .jump-row, #manifest .loadout-item {
+  #manifest .good, #manifest .jump-row, #manifest .loadout-item,
+  #crew-roster .good, #crew-roster .jump-row, #crew-roster .loadout-item {
     display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--hairline); font-size:10px;
   }
   .modal .good .name, .modal .jump-row .tgt, .modal .loadout-item .n,
-  #manifest .good .name, #manifest .jump-row .tgt, #manifest .loadout-item .n { flex:1; color:var(--ice); }
+  #manifest .good .name, #manifest .jump-row .tgt, #manifest .loadout-item .n,
+  #crew-roster .good .name, #crew-roster .jump-row .tgt, #crew-roster .loadout-item .n { flex:1; color:var(--ice); }
   .modal .good .price, #manifest .good .price { color:var(--dim); }
-  .modal .loadout-item .d, #manifest .loadout-item .d { color:var(--dim); font-size:9px; }
+  .modal .loadout-item .d, #manifest .loadout-item .d, #crew-roster .loadout-item .d { color:var(--dim); font-size:9px; }
   .modal .metric-row, #manifest .metric-row { display:flex; gap:8px; margin-bottom:12px; }
   .modal .metric-block, #manifest .metric-block { flex:1; background:var(--glass); border:1px solid var(--hairline); padding:7px; text-align:center; }
   .modal .metric-block .num, #manifest .metric-block .num { display:block; font-size:14px; font-weight:600; color:var(--bone); }
   .modal .metric-block .lbl, #manifest .metric-block .lbl { display:block; font-size:8px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); }
   .modal .loadout-section, #manifest .loadout-section { margin-bottom:12px; }
   .modal .loadout-section h4, #manifest .loadout-section h4 { font-family:var(--disp); font-size:10px; letter-spacing:0.14em; color:var(--ice); margin-bottom:5px; }
-  .modal .loadout-grid, #manifest .loadout-grid { display:flex; flex-direction:column; }
+  .modal .loadout-grid, #manifest .loadout-grid, #crew-roster .loadout-grid { display:flex; flex-direction:column; }
   .modal button:not(.close), #manifest button:not(.close) {
     font-family:var(--disp); font-size:9px; letter-spacing:0.1em; padding:4px 9px;
     background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer;
@@ -1127,6 +1130,10 @@
       <div class="pane">
         <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="fleet-count">—</span></div>
         <div class="pane-b"><div id="fleet-summary" class="fleet-summary"></div><table id="fleet-table"></table></div>
+      </div>
+      <div class="pane pane-crew">
+        <div class="pane-h"><span class="dot"></span>Personnel<span class="count" id="crew-count">—</span></div>
+        <div class="pane-b"><div id="crew-roster"></div></div>
       </div>
     </section>
 
@@ -2600,6 +2607,53 @@ function renderFleetTable() {
     openShipDetails(selectedShip);
     setView("bridge");
   }));
+  renderCrewRoster();
+}
+
+/** Fleet-wide personnel roster — same data as each ship's own Crew section
+ *  (openShipDetails' crewSectionHtml), rolled up into one page instead of
+ *  clicking through every hull. Purely informational: there's no crew-
+ *  management endpoint in the API, so nothing here is actionable. */
+function renderCrewRoster() {
+  const el = $("crew-roster");
+  if (!el) return;
+  const ships = (state?.ships ?? []).filter((s) => s.crew);
+  const countEl = $("crew-count");
+  if (!ships.length) {
+    if (countEl) countEl.textContent = "—";
+    el.innerHTML = '<div class="empty">No crewed hulls in the register.</div>';
+    return;
+  }
+  const totalCurrent = ships.reduce((sum, s) => sum + (s.crew.current ?? 0), 0);
+  const totalWages = ships.reduce((sum, s) => sum + (s.crew.wages ?? 0) * (s.crew.current ?? 0), 0);
+  const avgMorale = Math.round(ships.reduce((sum, s) => sum + (s.crew.morale ?? 0), 0) / ships.length);
+  if (countEl) countEl.textContent = `${totalCurrent} crew`;
+
+  const rows = ships
+    .map((s) => ({ s, role: (fleetStatus.ships ?? []).find((x) => x.symbol === s.symbol)?.role ?? "—" }))
+    .sort((a, b) => (a.s.crew.morale ?? 0) - (b.s.crew.morale ?? 0));
+
+  el.innerHTML = `
+    <div class="fleet-summary" style="margin-bottom:10px">
+      <span class="fs-chip"><b>${totalCurrent}</b><i>total crew</i></span>
+      <span class="fs-chip${avgMorale < 40 ? " warn" : ""}"><b>${avgMorale}</b><i>avg morale</i></span>
+      <span class="fs-chip"><b>${fmt(totalWages)}c</b><i>wages/hr</i></span>
+    </div>
+    <div class="loadout-grid">${rows.map(({ s, role }) => {
+      const c = s.crew;
+      const pct = Math.max(0, Math.min(100, c.morale ?? 0));
+      const low = pct < 40;
+      return `<div class="loadout-item crew-row" data-ship="${escapeAttr(s.symbol)}" style="cursor:pointer">
+        <span class="n">${escapeHtml(shortWp(s.symbol))} <span style="color:var(--dim)">· ${escapeHtml(role)}</span></span>
+        <span class="d">${c.current}/${c.capacity} · <span class="meter${low ? " neg" : ""}"><i style="width:${pct}%"></i></span> ${pct} · ${c.rotation === "STRICT" ? "strict" : "relaxed"}</span>
+      </div>`;
+    }).join("")}</div>`;
+
+  el.querySelectorAll(".crew-row[data-ship]").forEach((row) => row.addEventListener("click", () => {
+    selectedShip = row.dataset.ship;
+    openShipDetails(selectedShip);
+    setView("bridge");
+  }));
 }
 
 function renderTicker() {
@@ -3709,6 +3763,22 @@ function roleMismatchReason(role, ship) {
   return null;
 }
 
+/** Morale reads on a 0-100 scale per the API docs ("a rough measure of the
+ *  crew's morale") — clamped defensively since nothing enforces that range
+ *  contractually. Read-only everywhere: there's no crew-management endpoint
+ *  in the API (rotation/hiring aren't settable), this is purely flavor. */
+function crewSectionHtml(crew) {
+  if (!crew) return "";
+  const pct = Math.max(0, Math.min(100, crew.morale ?? 0));
+  const low = pct < 40;
+  return `<div class="loadout-section"><h4>Crew</h4>
+    <div class="loadout-item"><span class="n">${crew.current}/${crew.capacity} aboard</span><span class="d">min ${crew.required}</span></div>
+    <div class="loadout-item"><span class="n">Morale<span class="meter${low ? " neg" : ""}" style="margin-left:6px"><i style="width:${pct}%"></i></span></span><span class="d">${pct}/100</span></div>
+    <div class="loadout-item"><span class="n">${crew.rotation === "STRICT" ? "Strict shifts" : "Relaxed shifts"}</span><span class="d">${crew.rotation === "STRICT" ? "sharper, harder on morale" : "easier on morale"}</span></div>
+    <div class="loadout-item"><span class="n">Wages</span><span class="d">${fmt(crew.wages)}c/crew/hr · ${fmt(crew.wages * crew.current)}c/hr total</span></div>
+  </div>`;
+}
+
 function openShipDetails(shipSymbol) {
   const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
   if (!ship) return;
@@ -3776,6 +3846,7 @@ function openShipDetails(shipSymbol) {
       <div class="metric-block"><span class="num">${ship.fuel.current}/${ship.fuel.capacity}</span><span class="lbl">fuel</span></div>
       <div class="metric-block"><span class="num">${ship.cargo.units}/${ship.cargo.capacity}</span><span class="lbl">cargo</span></div>
     </div>
+    ${crewSectionHtml(ship.crew)}
     <div class="loadout-section"><h4>Manual control</h4>
       <div class="jump-row">
         <span class="tgt">${st?.paused
