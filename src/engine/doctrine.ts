@@ -265,14 +265,27 @@ export class Doctrine {
     return [...catalogRules, ...dynamic];
   }
 
-  /** Every catalog policy, tagged with this tenant's adopted state — what
-   *  Book mode's library and the onboarding screen both render from. */
+  /**
+   * Every known policy, tagged with this tenant's adopted state — what Book
+   * mode's library and the onboarding screen both render from. Includes
+   * both `POLICY_CATALOG` entries and any ship-cap rule this tenant's fleet
+   * has actually seen (`ensureShipTypeRule()` populates the cache the first
+   * time a hull type shows up) — a ship cap is a real fleet-composition
+   * policy the same as any other, just one this tenant discovers by owning
+   * the hull rather than one that ships in code, so it only appears here
+   * once there's something to show. A removed one still shows (adopted:
+   * false) so it can be re-added, same as a catalog policy.
+   */
   catalog(): (PolicyDefinition & { adopted: boolean })[] {
-    return POLICY_CATALOG.map((d) => {
+    const catalogRules = POLICY_CATALOG.map((d) => {
       const override = this.cache.get(d.key);
       const adopted = this.isAdopted(d.key, d);
       return override ? { ...d, value: override.value, enabled: override.enabled, adopted } : { ...d, adopted };
     });
+    const dynamicRules = [...this.cache.entries()]
+      .filter(([key]) => key.startsWith("shipCap:") && !POLICY_CATALOG.some((d) => d.key === key))
+      .map(([key, v]) => ({ ...this.dynamicRule(key, v.value, v.enabled), category: "fleet" as const, defaultAdopted: true, adopted: v.adopted }));
+    return [...catalogRules, ...dynamicRules];
   }
 
   /** Build a rule for a ship-type cap (e.g. `shipCap:SHIP_LIGHT_HAULER`). */
@@ -358,13 +371,20 @@ export class Doctrine {
    */
   async setAdopted(key: string, adopted: boolean, initialValue?: number): Promise<DoctrineRule | undefined> {
     const base = POLICY_CATALOG.find((d) => d.key === key);
-    if (!base) throw new Error(`unknown policy: ${key}`);
     const override = this.cache.get(key);
-    const value = override?.value ?? initialValue ?? base.value;
-    const enabled = override?.enabled ?? base.enabled;
+    // A ship-cap key is a real fleet-composition policy too (it's just
+    // discovered by owning the hull rather than shipping in code) — it can
+    // be removed/re-added the same as any catalog entry, but only once
+    // ensureShipTypeRule() has actually created it (no `base` and no
+    // `override` means this key has never existed for this tenant at all,
+    // and there's no sensible default to adopt it with).
+    if (!base && !override) throw new Error(`unknown policy: ${key}`);
+    const value = override?.value ?? initialValue ?? base?.value ?? 4;
+    const enabled = override?.enabled ?? base?.enabled ?? true;
     this.cache.set(key, { value, enabled, adopted });
     if (this.store && this.tenantId) await this.store.setDoctrine(this.tenantId, key, value, enabled, adopted);
-    return adopted ? { ...base, value, enabled } : undefined;
+    if (!adopted) return undefined;
+    return base ? { ...base, value, enabled } : this.dynamicRule(key, value, enabled);
   }
 
   /**

@@ -1529,12 +1529,30 @@ async function showOnboarding() {
   $("auth-gate").hidden = true;
   $("onboarding-gate").hidden = false;
   $("onboard-err").textContent = "";
-  try {
-    const res = await fetch("/api/doctrine");
-    const data = await res.json();
-    renderOnboarding(data.catalog ?? []);
-  } catch (e) {
-    $("onboard-err").textContent = "Could not load standing orders — try refreshing.";
+  $("onboard-list").innerHTML = '<div class="empty">Loading standing orders…</div>';
+  // This is likely the very first /api/* call for a brand-new agent — the
+  // resolveTenant middleware awaits the tenant's full fleet boot (live
+  // SpaceTraders calls: agent, ships, galaxy) before this can even reach
+  // the route, so a 503 "engine not ready" here is plausibly just "still
+  // booting," not a real failure. Retry a few times with backoff before
+  // showing an error, rather than dumping the captain on a blank screen or
+  // a scary message for something that resolves itself in a few seconds.
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      const res = await fetch("/api/doctrine");
+      if (!res.ok) throw new Error(`engine not ready yet (attempt ${attempt})`);
+      const data = await res.json();
+      if (!Array.isArray(data.catalog) || !data.catalog.length) throw new Error("empty catalog");
+      renderOnboarding(data.catalog);
+      return;
+    } catch (e) {
+      if (attempt === 5) {
+        $("onboard-list").innerHTML = "";
+        $("onboard-err").textContent = "Could not load standing orders — the fleet may still be starting up. Try refreshing in a few seconds.";
+        return;
+      }
+      await new Promise((r) => setTimeout(r, attempt * 1000));
+    }
   }
 }
 
@@ -2220,6 +2238,9 @@ async function renderBook() {
 
   const applied = doctrineRules.filter((r) => r.enabled).length;
   const clauses = doctrineRules.map((r) => {
+    // Ship-cap rules (one auto-created per hull type the fleet owns) are a
+    // real fleet-composition policy too — Doctrine.setAdopted() supports
+    // removing/re-adding them the same as any catalog entry.
     return `<p class="clause${r.enabled ? "" : " off"}" data-key="${escapeAttr(r.key)}">
       <button type="button" class="tog sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}" data-key="${escapeAttr(r.key)}"><i></i></button>
       ${clauseForRule(r)}
