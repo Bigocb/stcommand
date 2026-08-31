@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { FleetManager } from "../src/engine/fleet.js";
 import { ContractManager, type Contract } from "../src/engine/contract.js";
+import { resetSupplyChainCacheForTests } from "../src/engine/supplyChain.js";
 import { createPool } from "../src/db/pool.js";
 import { Store } from "../src/db/store.js";
 
@@ -387,6 +388,57 @@ describe("materialBuyers is scoped to the mission's own system", () => {
 
     assert.equal(buyers.length, 1, "must not include the cheaper but unreachable listing from the other system");
     assert.equal(buyers[0].waypoint, "X1-CP51-F55");
+  });
+});
+
+describe("discoverMaterialBuyers skips the survey when the supply chain shows no producer", () => {
+  it("returns immediately, without surveying anything, for a good that appears nowhere in the supply chain graph", async () => {
+    resetSupplyChainCacheForTests();
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    let surveyed = false;
+    const fleet = makeFleet(store, tenantId, {
+      getSupplyChain: async () => ({ exportToImportMap: { IRON_ORE: ["IRON"] } }),
+      getMarket: async () => { surveyed = true; return { tradeGoods: [] }; },
+    });
+    (fleet as any).galaxy = { getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-A1", traits: [{ symbol: "MARKETPLACE" }] }] }) };
+
+    const buyers = await (fleet as any).discoverMaterialBuyers("NOT_IN_THE_GRAPH", "X1-A");
+
+    assert.deepEqual(buyers, []);
+    assert.ok(!surveyed, "must never call getMarket() for a good the supply chain shows no producer for");
+  });
+
+  it("still surveys normally for a good the supply chain does show a producer for", async () => {
+    resetSupplyChainCacheForTests();
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    let surveyed = false;
+    const fleet = makeFleet(store, tenantId, {
+      getSupplyChain: async () => ({ exportToImportMap: { IRON_ORE: ["IRON"] } }),
+      getMarket: async () => { surveyed = true; return { tradeGoods: [{ symbol: "IRON", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 100, sellPrice: 50, tradeVolume: 10 }] }; },
+    });
+    (fleet as any).galaxy = { getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-A1", traits: [{ symbol: "MARKETPLACE" }] }] }) };
+
+    await (fleet as any).discoverMaterialBuyers("IRON", "X1-A");
+
+    assert.ok(surveyed, "a good present in the supply chain graph must still go through the normal survey path");
+  });
+
+  it("falls through to the normal survey when the supply-chain fetch itself fails", async () => {
+    resetSupplyChainCacheForTests();
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    let surveyed = false;
+    const fleet = makeFleet(store, tenantId, {
+      getSupplyChain: async () => { throw new Error("network error"); },
+      getMarket: async () => { surveyed = true; return { tradeGoods: [] }; },
+    });
+    (fleet as any).galaxy = { getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-A1", traits: [{ symbol: "MARKETPLACE" }] }] }) };
+
+    await (fleet as any).discoverMaterialBuyers("ANYTHING", "X1-A");
+
+    assert.ok(surveyed, "a failed supply-chain fetch must never block the existing fallback behavior");
   });
 });
 

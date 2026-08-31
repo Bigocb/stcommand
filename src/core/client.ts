@@ -579,6 +579,11 @@ export class SpaceTradersAPI {
     }>(`/my/ships/${shipSymbol}/scrap`, {});
   }
 
+  /** Which export goods feed which imports — effectively static game-design data, not per-ship. */
+  getSupplyChain() {
+    return this.client.get<{ exportToImportMap: Record<string, string[]> }>("/market/supply-chain");
+  }
+
   /** Preview the cost of repairing a ship — no side effect. */
   getRepairCost(shipSymbol: string) {
     return this.client.get<{ transaction: components["schemas"]["RepairTransaction"] }>(`/my/ships/${shipSymbol}/repair`);

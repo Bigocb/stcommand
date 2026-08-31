@@ -17,6 +17,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
+import { getSupplyChain } from "./supplyChain.js";
 import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -2253,6 +2254,18 @@ export class FleetManager {
    *  mission's carrier can't actually reach wastes API calls and produces
    *  cached data materialBuyers() would then have to filter back out. */
   private async discoverMaterialBuyers(tradeSymbol: string, systemSymbol: string): Promise<{ waypoint: string; purchasePrice: number }[]> {
+    // Before spending survey calls hunting for a seller, check whether this
+    // good exists in the production economy at all — a good that appears
+    // nowhere in the supply chain graph (neither as a raw export nor as
+    // something an export feeds into) has no producer anywhere, and no
+    // amount of surveying will ever find one. Best-effort: a failed fetch
+    // (or the good genuinely being in the graph) just falls through to the
+    // existing blind-survey behavior, unchanged.
+    const chain = await getSupplyChain(this.api).catch(() => undefined);
+    if (chain && !chain.knownGoods.has(tradeSymbol)) {
+      this.log(`mission discovery: no known producer for ${tradeSymbol} in the supply chain — skipping survey`);
+      return [];
+    }
     const surveyed = new Set<string>();
     for (const r of (await this.store?.latestMarketSnapshots()) ?? []) if (r.systemSymbol === systemSymbol) surveyed.add(r.waypointSymbol);
 
