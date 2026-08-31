@@ -237,6 +237,37 @@ describe("FleetManager.jettisonCargo", () => {
   });
 });
 
+describe("FleetManager.getIntel", () => {
+  // Confirmed live: shipyard_inventory/module_catalog are shared,
+  // tenant-unscoped tables (intentionally, so a user's own multiple agents
+  // on the same live reset benefit from each other's scans) — but an
+  // operator switching between agents from different SpaceTraders server
+  // resets saw the old agent's stale scans listed forever alongside the
+  // new one's, with no way to tell which was still real. getIntel() now
+  // filters both to systems this fleet's own galaxy atlas has actually
+  // loaded — the natural boundary, since loadSystem() only succeeds
+  // against the live API for systems that exist in the *current* reset.
+  it("only returns shipyards/modules in systems this fleet's galaxy atlas actually knows about", async () => {
+    const fakeStore = {
+      shipyardInventory: async () => [
+        { systemSymbol: "X1-A", waypointSymbol: "X1-A-A1", shipType: "SHIP_PROBE", shipTypeName: "Probe", purchasePrice: 100, fuelCapacity: 0, cargoCapacity: 0, moduleSlots: 0, mountingPoints: 0, frameSymbol: "FRAME_PROBE", timestamp: new Date().toISOString() },
+        { systemSymbol: "X1-STALE", waypointSymbol: "X1-STALE-B1", shipType: "SHIP_MINER", shipTypeName: "Miner", purchasePrice: 200, fuelCapacity: 80, cargoCapacity: 40, moduleSlots: 0, mountingPoints: 0, frameSymbol: "FRAME_MINER", timestamp: new Date().toISOString() },
+      ],
+      moduleCatalog: async () => [
+        { systemSymbol: "X1-A", waypointSymbol: "X1-A-A2", symbol: "MODULE_CARGO_HOLD_I", kind: "module", name: "Cargo Hold I", category: "cargo", purchasePrice: 5000, timestamp: new Date().toISOString() },
+        { systemSymbol: "X1-STALE", waypointSymbol: "X1-STALE-B2", symbol: "MODULE_CARGO_HOLD_I", kind: "module", name: "Cargo Hold I", category: "cargo", purchasePrice: 5000, timestamp: new Date().toISOString() },
+      ],
+    };
+    const fleet = new FleetManager({ api: {} as any, store: fakeStore as any });
+    (fleet as any).galaxy = { listSystems: () => [{ symbol: "X1-A" }], getSystem: () => undefined };
+
+    const intel = await fleet.getIntel();
+
+    assert.deepEqual(intel.shipyards.map((s) => s.systemSymbol), ["X1-A"], "the stale reset's shipyard must be dropped");
+    assert.deepEqual(intel.modules.map((m) => m.systemSymbol), ["X1-A"], "the stale reset's module must be dropped");
+  });
+});
+
 describe("FleetManager dispatcher eligibility", () => {
   it("a suspended trader stops reserving its good for the whole fleet", () => {
     // An assignment reserves its good against the entire rest of the fleet.

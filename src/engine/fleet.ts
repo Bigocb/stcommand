@@ -2051,7 +2051,12 @@ export class FleetManager {
   /** Shipyard waypoints to tour periodically so ship stock stays fresh. */
   private async shipyardTourTargets(): Promise<string[]> {
     const out = new Set<string>();
-    for (const r of (await this.store?.shipyardInventory()) ?? []) out.add(r.waypointSymbol);
+    const knownSystems = new Set(this.galaxy.listSystems().map((s) => s.symbol));
+    // Same reasoning as getIntel(): shipyard_inventory is a shared,
+    // tenant-unscoped table that can carry rows from a system this agent's
+    // reset doesn't have — sending a tour ship after one would just be a
+    // wasted navigate call to a waypoint that no longer exists for it.
+    for (const r of (await this.store?.shipyardInventory()) ?? []) if (knownSystems.has(r.systemSymbol)) out.add(r.waypointSymbol);
     const known = this.galaxy.getSystem(this.systemSymbol);
     for (const w of known?.waypoints ?? []) {
       if (w.traits.some((t) => t.symbol === "SHIPYARD")) out.add(w.symbol);
@@ -2363,15 +2368,31 @@ export class FleetManager {
     return this.idleShips.get(shipSymbol);
   }
 
-  /** Return cached shipyard + module intelligence for the dashboard. */
+  /**
+   * Return cached shipyard + module intelligence for the dashboard.
+   *
+   * shipyard_inventory/module_catalog are shared, tenant-unscoped tables
+   * (see Store's class doc comment) — deliberately, so two of the same
+   * operator's own agents exploring the same live galaxy both benefit from
+   * whichever one scouted a given waypoint first. But "unscoped" bit an
+   * operator switching between agents from different SpaceTraders server
+   * resets (confirmed live): the old agent's scans never expire or get
+   * cleared, so they kept showing up forever alongside the new agent's,
+   * with no way to tell which was still real. Filtering to systems this
+   * fleet's own galaxy atlas has actually loaded (loadSystem() only ever
+   * succeeds against the live API for systems that exist in the *current*
+   * reset) is the natural scope — it keeps genuinely-shared intel between
+   * a user's own concurrent agents on the same reset, while dropping
+   * anything from a system this agent has no way to reach.
+   */
   async getIntel(): Promise<{
     shipyards: Awaited<ReturnType<Store["shipyardInventory"]>>;
     modules: Awaited<ReturnType<Store["moduleCatalog"]>>;
   }> {
-    return {
-      shipyards: (await this.store?.shipyardInventory()) ?? [],
-      modules: (await this.store?.moduleCatalog()) ?? [],
-    };
+    const knownSystems = new Set(this.galaxy.listSystems().map((s) => s.symbol));
+    const shipyards = ((await this.store?.shipyardInventory()) ?? []).filter((r) => knownSystems.has(r.systemSymbol));
+    const modules = ((await this.store?.moduleCatalog()) ?? []).filter((r) => knownSystems.has(r.systemSymbol));
+    return { shipyards, modules };
   }
 
   /** Non-expired surveys in the shared pool, optionally for one waypoint. */
