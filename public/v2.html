@@ -3252,12 +3252,25 @@ const TRAIL_SAMPLE_MIN_PX = 4;
 const TRAIL_MAX_POINTS = 10; // ~40px of trail at the sample distance above — longer reads as more deliberate motion than the original 6
 
 function renderMap(ships, trails = new Map()) {
-  lastRenderedShips = ships;
   const svg = $("map");
   const w = svg.clientWidth || 800;
   const h = svg.clientHeight || 600;
   const sys = currentSystem || state.agent.headquarters.slice(0, state.agent.headquarters.lastIndexOf("-"));
   $("map-hud").innerHTML = `Sector <b>${sys}</b>`;
+
+  // A docked/orbiting ship in a different system already silently dropped
+  // here (its waypoint symbol just never matches anything in `waypoints`
+  // below) — but an in-transit one didn't: shipTransitLerp() computes a
+  // position purely from that ship's own route's raw world coordinates,
+  // with no system check, so a foreign system's ship mid-flight got its
+  // completely unrelated coordinates run through *this* system's scale
+  // functions and landed somewhere on the wrong map. Filtering the whole
+  // list once up front, before any of that math (or lastRenderedShips,
+  // which repositionShips() below reads on every live-scrub frame using
+  // this same system's mapScale) runs, is the one fix that covers every
+  // case instead of patching shipTransitLerp() for just this one leak.
+  ships = ships.filter((s) => s.nav.systemSymbol === sys);
+  lastRenderedShips = ships;
 
   const system = systems.find((s) => s.symbol === sys);
   waypoints = system?.waypoints ?? state.waypoints ?? [];
