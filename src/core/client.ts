@@ -579,6 +579,11 @@ export class SpaceTradersAPI {
     }>(`/my/ships/${shipSymbol}/scrap`, {});
   }
 
+  /** Full faction roster — public, tenant-agnostic reference data. */
+  getFactions(limit = 20, page = 1) {
+    return this.client.get<components["schemas"]["Faction"][]>("/factions", { limit, page });
+  }
+
   /** Which export goods feed which imports — effectively static game-design data, not per-ship. */
   getSupplyChain() {
     return this.client.get<{ exportToImportMap: Record<string, string[]> }>("/market/supply-chain");

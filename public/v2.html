@@ -796,21 +796,23 @@
                   color:var(--dim); font-family:var(--disp); font-size:9px; padding:3px 8px; cursor:pointer; }
   .modal .good, .modal .jump-row, .modal .loadout-item,
   #manifest .good, #manifest .jump-row, #manifest .loadout-item,
-  #crew-roster .good, #crew-roster .jump-row, #crew-roster .loadout-item {
+  #crew-roster .good, #crew-roster .jump-row, #crew-roster .loadout-item,
+  #factions-list .good, #factions-list .jump-row, #factions-list .loadout-item {
     display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--hairline); font-size:10px;
   }
   .modal .good .name, .modal .jump-row .tgt, .modal .loadout-item .n,
   #manifest .good .name, #manifest .jump-row .tgt, #manifest .loadout-item .n,
-  #crew-roster .good .name, #crew-roster .jump-row .tgt, #crew-roster .loadout-item .n { flex:1; color:var(--ice); }
+  #crew-roster .good .name, #crew-roster .jump-row .tgt, #crew-roster .loadout-item .n,
+  #factions-list .good .name, #factions-list .jump-row .tgt, #factions-list .loadout-item .n { flex:1; color:var(--ice); }
   .modal .good .price, #manifest .good .price { color:var(--dim); }
-  .modal .loadout-item .d, #manifest .loadout-item .d, #crew-roster .loadout-item .d { color:var(--dim); font-size:9px; }
+  .modal .loadout-item .d, #manifest .loadout-item .d, #crew-roster .loadout-item .d, #factions-list .loadout-item .d { color:var(--dim); font-size:9px; }
   .modal .metric-row, #manifest .metric-row { display:flex; gap:8px; margin-bottom:12px; }
   .modal .metric-block, #manifest .metric-block { flex:1; background:var(--glass); border:1px solid var(--hairline); padding:7px; text-align:center; }
   .modal .metric-block .num, #manifest .metric-block .num { display:block; font-size:14px; font-weight:600; color:var(--bone); }
   .modal .metric-block .lbl, #manifest .metric-block .lbl { display:block; font-size:8px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); }
   .modal .loadout-section, #manifest .loadout-section { margin-bottom:12px; }
   .modal .loadout-section h4, #manifest .loadout-section h4 { font-family:var(--disp); font-size:10px; letter-spacing:0.14em; color:var(--ice); margin-bottom:5px; }
-  .modal .loadout-grid, #manifest .loadout-grid, #crew-roster .loadout-grid { display:flex; flex-direction:column; }
+  .modal .loadout-grid, #manifest .loadout-grid, #crew-roster .loadout-grid, #factions-list .loadout-grid { display:flex; flex-direction:column; }
   .modal button:not(.close), #manifest button:not(.close) {
     font-family:var(--disp); font-size:9px; letter-spacing:0.1em; padding:4px 9px;
     background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer;
@@ -1038,6 +1040,7 @@
       <button data-view="markets" aria-pressed="false">Markets</button>
       <button data-view="tradeops" aria-pressed="false">Trade Ops</button>
       <button data-view="ops" aria-pressed="false">Ops</button>
+      <button data-view="galaxy" aria-pressed="false">Galaxy</button>
     </div>
     <div class="field-book-toggle" id="field-book-toggle" role="group" aria-label="Layout mode">
       <button class="active" data-mode="field" title="Field mode: map-first with rails">Field</button>
@@ -1242,6 +1245,18 @@
           </div>
           <div id="missions"></div>
         </div>
+      </div>
+    </section>
+
+    <!-- ══ GALAXY ══ -->
+    <section class="view view-galaxy" data-view="galaxy">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Leaderboard<span class="count">most credits, whole galaxy</span></div>
+        <div class="pane-b"><table id="leaderboard-table"></table></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Factions<span class="count" id="factions-count">—</span></div>
+        <div class="pane-b"><div id="factions-list"></div></div>
       </div>
     </section>
 
@@ -1708,6 +1723,7 @@ function loadViewData(name) {
   if (name === "markets") { loadMarkets(); loadGoods(); }
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
   if (name === "ops") loadOps();
+  if (name === "galaxy") loadGalaxy();
 }
 
 function initViewSwitch() {
@@ -4599,6 +4615,46 @@ async function loadOps() {
     renderContracts(cdata.contracts ?? []);
     renderMissions(mdata.missions ?? []);
   } catch (e) { console.error(e); }
+}
+
+/** Purely informational — no fleet-ops decision reads this data, and the
+ *  server caches both responses for minutes at a time (see dashboard.ts),
+ *  so this only needs to load once when the tab opens, not on a poll. */
+async function loadGalaxy() {
+  try {
+    const [board, factions] = await Promise.all([api("GET", "/api/leaderboard"), api("GET", "/api/factions")]);
+    renderLeaderboard(board.agents ?? []);
+    renderFactions(factions.factions ?? []);
+  } catch (e) { console.error(e); }
+}
+
+function renderLeaderboard(agents) {
+  const el = $("leaderboard-table");
+  if (!el) return;
+  if (!agents.length) { el.innerHTML = '<tbody><tr><td class="empty">No leaderboard data yet.</td></tr></tbody>'; return; }
+  const mySymbol = state?.agent?.symbol;
+  el.innerHTML = `
+    <thead><tr><th class="num">Rank</th><th>Agent</th><th class="num">Credits</th></tr></thead>
+    <tbody>${agents.map((a, i) => `
+      <tr class="${a.agentSymbol === mySymbol ? "sel" : ""}">
+        <td class="num">${i + 1}</td>
+        <td><span class="sym">${escapeHtml(a.agentSymbol)}</span>${a.agentSymbol === mySymbol ? ' <span style="color:var(--accent)">· you</span>' : ""}</td>
+        <td class="num">${fmt(a.credits)}c</td>
+      </tr>`).join("")}</tbody>`;
+}
+
+function renderFactions(factions) {
+  const el = $("factions-list");
+  const countEl = $("factions-count");
+  if (!el) return;
+  if (countEl) countEl.textContent = `${factions.length} factions`;
+  if (!factions.length) { el.innerHTML = '<div class="empty">No faction data yet.</div>'; return; }
+  el.innerHTML = `<div class="loadout-grid">${factions.map((f) => `
+    <div class="loadout-item" style="flex-direction:column;align-items:flex-start;gap:2px">
+      <span class="n">${escapeHtml(f.name)} <span style="color:var(--dim)">(${escapeHtml(f.symbol)})</span>${f.isRecruiting ? ' <span style="color:var(--green)">· recruiting</span>' : ""}</span>
+      <span class="d" style="white-space:normal">${escapeHtml(f.description)}</span>
+      <span class="d">${(f.traits ?? []).map((t) => escapeHtml(t.name)).join(", ")}</span>
+    </div>`).join("")}</div>`;
 }
 
 function countdown(iso) {

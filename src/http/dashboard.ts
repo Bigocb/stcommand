@@ -5,6 +5,8 @@ import { optimizeLoadouts } from "../engine/loadoutGa.js";
 import { buildTriage } from "../engine/triage.js";
 import { setTenantDiscordWebhook, getTenantLlmConfig } from "../db/tenants.js";
 import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
+import { makeTTLCache } from "./cache.js";
+import type { SpaceTradersAPI } from "../core/client.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -30,6 +32,41 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
   function worker(req: { tenantId?: string }): TenantWorker | undefined {
     return req.tenantId ? registry.get(req.tenantId) : undefined;
   }
+
+  // Public, tenant-agnostic reference data (docs/unimplemented-api-features-plan.md
+  // #3) — one process-wide cache each, not per-tenant: every dashboard would
+  // otherwise re-fetch and re-paginate the same global data on every poll,
+  // competing with that tenant's own fleet for the shared per-token rate
+  // limit for no benefit.
+  const leaderboardCache = makeTTLCache(5 * 60_000, async (api: SpaceTradersAPI) => {
+    // status()'s own leaderboards.mostCredits is already a real, pre-sorted
+    // top-N by credits — no pagination/sorting needed, and it's an existing
+    // call this fleet already makes (getMyAgent() neighbors it), not a new
+    // rate-limit cost on top of what boot already pays.
+    const s = await api.status();
+    return s.leaderboards.mostCredits;
+  });
+  const factionsCache = makeTTLCache(60 * 60_000, async (api: SpaceTradersAPI) => api.getFactions(20));
+
+  router.get("/leaderboard", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      res.json({ agents: await leaderboardCache(w.fleet.getApi()) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.get("/factions", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      res.json({ factions: await factionsCache(w.fleet.getApi()) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   router.get("/state", (req, res) => {
     const w = worker(req);
