@@ -28,18 +28,31 @@ export interface TenantRow {
  * rotated token (SpaceTraders lets an agent regenerate one) keeps working
  * without a separate re-link step.
  */
-export async function findOrCreateTenant(pool: pg.Pool, agentSymbol: string, token: string): Promise<TenantRow> {
+export interface FindOrCreateTenantResult extends TenantRow {
+  /** True only when this call's INSERT branch fired (a genuinely new
+   *  tenant), never on a login for one that already existed — see
+   *  docs/policy-library-and-onboarding-plan.md §4. Drives whether the
+   *  frontend launches onboarding after this auth call succeeds. */
+  isNewTenant: boolean;
+}
+
+export async function findOrCreateTenant(pool: pg.Pool, agentSymbol: string, token: string): Promise<FindOrCreateTenantResult> {
   const { enc, iv } = encryptSecret(token);
   return withPool(pool, async (c) => {
-    const res = await c.query<{ id: string; agent_symbol: string }>(
+    // `xmax = 0` is the standard Postgres tell for "this row came from the
+    // INSERT branch, not the ON CONFLICT UPDATE" — one query, no extra
+    // round-trip, to distinguish a genuinely new tenant from a returning one
+    // (including a token rotation, which still upserts the same agent_symbol
+    // row rather than inserting a new one).
+    const res = await c.query<{ id: string; agent_symbol: string; is_new_tenant: boolean }>(
       `INSERT INTO tenants (agent_symbol, token_enc, token_iv)
        VALUES ($1, $2, $3)
        ON CONFLICT (agent_symbol) DO UPDATE SET token_enc = excluded.token_enc, token_iv = excluded.token_iv, last_seen_at = now()
-       RETURNING id, agent_symbol`,
+       RETURNING id, agent_symbol, (xmax = 0) AS is_new_tenant`,
       [agentSymbol, enc, iv],
     );
     const row = res.rows[0]!;
-    return { id: row.id, agentSymbol: row.agent_symbol };
+    return { id: row.id, agentSymbol: row.agent_symbol, isNewTenant: row.is_new_tenant };
   });
 }
 

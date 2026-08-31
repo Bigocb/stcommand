@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { createPool } from "../src/db/pool.js";
 import { Store } from "../src/db/store.js";
-import { Doctrine, DOCTRINE_DEFAULTS } from "../src/engine/doctrine.js";
+import { Doctrine, DOCTRINE_CATALOG } from "../src/engine/doctrine.js";
 
 /**
  * Mirrors straders' tests/synthesis.test.ts "Doctrine" describe block, plus
@@ -47,7 +47,7 @@ describe("Doctrine", () => {
     assert.equal(d.value("cashFloor"), 20_000);
     assert.equal(d.value("maxLossPct"), 15);
     assert.equal(d.value("snapshotMaxAgeMin"), 90);
-    assert.equal(d.list().length, DOCTRINE_DEFAULTS.length);
+    assert.equal(d.list().length, DOCTRINE_CATALOG.length);
   });
 
   it("persists an override and survives a reload — but only once reload() is awaited", async () => {
@@ -114,5 +114,75 @@ describe("Doctrine", () => {
     const rule = await d.set("cashFloor", { value: 1_000 }); // must not throw, updates the cache only
     assert.equal(rule.value, 1_000);
     assert.equal(d.value("cashFloor"), 1_000);
+  });
+});
+
+describe("Doctrine: policy library (adopt/remove)", () => {
+  it("removing a policy takes it out of list() and makes value()/isEnabled() behave as if disabled", async () => {
+    const d = new Doctrine(store, tenantA);
+    await d.reload();
+    assert.ok(d.list().some((r) => r.key === "marginFloor"), "sanity: adopted by default (grandfathered)");
+
+    await d.setAdopted("marginFloor", false);
+
+    assert.ok(!d.list().some((r) => r.key === "marginFloor"), "a removed policy must not appear in the active list");
+    assert.equal(d.isEnabled("marginFloor"), false, "not-adopted must read as not-enabled to every engine call site");
+    assert.equal(d.value("marginFloor", 0), 0, "not-adopted must fall back to whenOff, same as disabled");
+  });
+
+  it("re-adding a removed policy restores its previously tuned value, not the catalog default", async () => {
+    const d = new Doctrine(store, tenantA);
+    await d.reload();
+    await d.set("marginFloor", { value: 77 });
+    await d.setAdopted("marginFloor", false);
+    assert.ok(!d.list().some((r) => r.key === "marginFloor"));
+
+    await d.setAdopted("marginFloor", true);
+
+    const rule = d.list().find((r) => r.key === "marginFloor");
+    assert.equal(rule?.value, 77, "re-adopting must not reset the tuning a captain already dialed in");
+  });
+
+  it("adopting a policy for the first time uses the given initial value, not the catalog default", async () => {
+    const d = new Doctrine(store, tenantA);
+    await d.reload();
+    // sensorScanIntervalMin ships enabled:false but defaultAdopted:true — use
+    // a fresh key-like scenario by removing it first, then re-adding with an
+    // explicit initial value, mirroring what the onboarding flow would do
+    // for a brand-new catalog entry it's presenting for the first time.
+    await d.setAdopted("sensorScanIntervalMin", false);
+    await d.setAdopted("sensorScanIntervalMin", true, 120);
+
+    const rule = d.list().find((r) => r.key === "sensorScanIntervalMin");
+    assert.equal(rule?.value, 120);
+  });
+
+  it("catalog() reports every policy tagged with this tenant's adopted state, regardless of adoption", async () => {
+    const d = new Doctrine(store, tenantA);
+    await d.reload();
+    await d.setAdopted("marginFloor", false);
+
+    const catalog = d.catalog();
+
+    assert.equal(catalog.length, DOCTRINE_CATALOG.length, "catalog() must list every known policy, adopted or not");
+    assert.equal(catalog.find((c) => c.key === "marginFloor")?.adopted, false);
+    assert.equal(catalog.find((c) => c.key === "cashFloor")?.adopted, true, "an untouched, grandfathered policy must still report adopted:true");
+  });
+
+  it("setAdopted rejects an unknown key", async () => {
+    const d = new Doctrine(store, tenantA);
+    await d.reload();
+    await assert.rejects(() => d.setAdopted("not_a_real_policy", true), /unknown policy/);
+  });
+
+  it("a removed policy stays removed across a reload", async () => {
+    const d = new Doctrine(store, tenantA);
+    await d.reload();
+    await d.setAdopted("marginFloor", false);
+
+    const fresh = new Doctrine(store, tenantA);
+    await fresh.reload();
+
+    assert.ok(!fresh.list().some((r) => r.key === "marginFloor"), "adopted:false must persist and survive a reload, same as any other override");
   });
 });

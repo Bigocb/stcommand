@@ -115,6 +115,15 @@
   }
   .auth-card input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
   .auth-card button { padding:9px; font-size:10px; }
+  .onboard-card { width:min(560px,92vw); max-height:88vh; }
+  .onboard-list { overflow-y:auto; max-height:60vh; display:flex; flex-direction:column; gap:2px; }
+  .onboard-cat { font-family:var(--chrome); font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--accent); margin:12px 0 2px; }
+  .onboard-cat:first-child { margin-top:0; }
+  .onboard-item { display:flex; align-items:flex-start; gap:10px; padding:8px 6px; border-bottom:1px solid var(--hairline); cursor:pointer; }
+  .onboard-item input[type="checkbox"] { margin-top:3px; accent-color:var(--accent); width:14px; height:14px; flex-shrink:0; }
+  .onboard-item .body { display:flex; flex-direction:column; gap:2px; }
+  .onboard-item .n { font-family:var(--mono); font-weight:700; font-size:12.5px; color:var(--ice); }
+  .onboard-item .d { font-size:10.5px; color:var(--dim); line-height:1.5; }
   .auth-err { color:var(--red); font-size:10px; min-height:12px; text-align:center; }
 
   /* ── top bar ─────────────────────────────── */
@@ -294,6 +303,34 @@
   .sheet .clause .tog.sw i { position:absolute; top:1px; left:1px; width:9px; height:9px; background:var(--dim); transition:all .15s; }
   .sheet .clause .tog.sw[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
   .sheet .clause .tog.sw[aria-pressed="true"] i { left:12px; background:var(--accent); }
+  /* Sits opposite the enable/disable toggle — visible on hover only, so a
+     settled sheet of standing orders doesn't read as a wall of delete
+     buttons at rest. */
+  .sheet .clause .remove-policy {
+    float:right; background:transparent; border:none; color:var(--dim); font-family:var(--mono);
+    font-size:12px; cursor:pointer; opacity:0; transition:opacity .15s; padding:0 2px;
+  }
+  .sheet .clause:hover .remove-policy, .sheet .clause.hov .remove-policy { opacity:1; }
+  .sheet .clause .remove-policy:hover { color:var(--red); }
+  .sheet .policy-library { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule-soft); }
+  .sheet .policy-library summary {
+    font-family:var(--chrome); font-size:10px; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--dim); cursor:pointer; user-select:none;
+  }
+  .sheet .policy-library summary:hover { color:var(--ice); }
+  .sheet .policy-library .lib-cat {
+    font-family:var(--chrome); font-size:9px; letter-spacing:0.14em; text-transform:uppercase;
+    color:var(--accent); margin:12px 0 4px;
+  }
+  .sheet .policy-library .lib-item {
+    font-size:13px; line-height:1.5; color:var(--dim); padding:6px 12px; cursor:default; max-width:60ch;
+  }
+  .sheet .policy-library .lib-name { color:var(--ice); font-weight:600; }
+  .sheet .policy-library .add-policy {
+    float:right; background:transparent; border:1px solid var(--hairline); color:var(--accent);
+    font-family:var(--disp); font-size:9px; letter-spacing:0.08em; padding:3px 8px; cursor:pointer; margin-left:8px;
+  }
+  .sheet .policy-library .add-policy:hover { background:var(--accent-soft); }
   .sheet .sig { margin-top:16px; padding-top:14px; border-top:1px solid var(--rule-soft); display:flex; align-items:center; gap:12px; }
   .sheet .sig .t { font-family:var(--book); font-style:italic; font-size:14px; color:var(--dim); }
   .sheet .sig .st { margin-left:auto; font-family:var(--chrome); font-weight:800; text-transform:uppercase;
@@ -1025,6 +1062,15 @@
     <button type="button" class="icon-btn" id="auth-show-login">Back to sign in</button>
   </form>
 </div>
+<div class="auth-gate" id="onboarding-gate" hidden>
+  <div class="auth-card onboard-card">
+    <div class="brand">Standing Orders <em>Command</em></div>
+    <p class="auth-sub">Set your standing orders before the fleet launches — you can change any of this later from the Book.</p>
+    <div class="onboard-list" id="onboard-list"></div>
+    <button type="button" class="btn pri" id="onboard-confirm">Confirm &amp; launch the fleet</button>
+    <div class="auth-err" id="onboard-err"></div>
+  </div>
+</div>
 <div class="app" id="app-root" hidden>
   <header class="bar">
     <div class="brand">Standing Orders <em>Command</em></div>
@@ -1447,8 +1493,8 @@ async function tryLogin(token) {
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
-    hideAuthGate();
-    boot();
+    if (json.isNewTenant) showOnboarding();
+    else { hideAuthGate(); boot(); }
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
   }
@@ -1464,10 +1510,66 @@ async function tryRegister(agentSymbol, faction, accountToken) {
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
+    if (json.isNewTenant) showOnboarding();
+    else { hideAuthGate(); boot(); }
+  } catch (err) {
+    $("reg-err").textContent = err.message || "Could not reach the server.";
+  }
+}
+
+/** New-agent onboarding (docs/policy-library-and-onboarding-plan.md §4) —
+ *  a full-screen step before the dashboard, not a modal over it: this is
+ *  before the captain has any reason to look at Bridge/Fleet/Markets yet.
+ *  Deliberately not a hard gate — Doctrine's own grandfather fallback means
+ *  the fleet runs exactly as it would with no onboarding at all if this
+ *  screen never gets its confirm; nothing here blocks fleet boot itself
+ *  (registry.getOrCreate() already ran during the login/register call).
+ */
+async function showOnboarding() {
+  $("auth-gate").hidden = true;
+  $("onboarding-gate").hidden = false;
+  $("onboard-err").textContent = "";
+  try {
+    const res = await fetch("/api/doctrine");
+    const data = await res.json();
+    renderOnboarding(data.catalog ?? []);
+  } catch (e) {
+    $("onboard-err").textContent = "Could not load standing orders — try refreshing.";
+  }
+}
+
+const ONBOARD_CATEGORY_LABEL = { trading: "Trading", fleet: "Fleet growth", risk: "Risk", ops: "Ops" };
+
+function renderOnboarding(catalog) {
+  const el = $("onboard-list");
+  const byCategory = new Map();
+  for (const c of catalog) {
+    if (!byCategory.has(c.category)) byCategory.set(c.category, []);
+    byCategory.get(c.category).push(c);
+  }
+  el.innerHTML = [...byCategory.entries()].map(([cat, items]) => `
+    <div class="onboard-cat">${ONBOARD_CATEGORY_LABEL[cat] ?? cat}</div>
+    ${items.map((c) => `
+      <label class="onboard-item">
+        <input type="checkbox" data-key="${escapeAttr(c.key)}" ${c.defaultAdopted ? "checked" : ""} />
+        <span class="body"><span class="n">${escapeHtml(c.name)}</span><span class="d">${escapeHtml(c.description)}</span></span>
+      </label>`).join("")}
+  `).join("");
+}
+
+async function confirmOnboarding() {
+  const btn = $("onboard-confirm");
+  btn.disabled = true;
+  try {
+    const selections = {};
+    $("onboard-list").querySelectorAll("input[type=checkbox][data-key]").forEach((cb) => { selections[cb.dataset.key] = cb.checked; });
+    await api("POST", "/api/doctrine/onboard", { selections });
+    $("onboarding-gate").hidden = true;
     hideAuthGate();
     boot();
   } catch (err) {
-    $("reg-err").textContent = err.message || "Could not reach the server.";
+    $("onboard-err").textContent = err.message || "Could not save — try again.";
+    btn.disabled = false;
   }
 }
 
@@ -2067,12 +2169,18 @@ async function saveKeepers() {
 }
 
 let doctrineFires = {};
+/** Every known policy tagged with this tenant's adopted state — what the
+ *  library section offers to add. doctrineRules stays exactly "this
+ *  tenant's active set", unchanged in meaning from before the library. */
+let doctrineCatalog = [];
 
 async function loadDoctrine() {
   try {
     const res = await fetch("/api/doctrine");
     if (!res.ok) return;
-    doctrineRules = (await res.json()).rules ?? [];
+    const data = await res.json();
+    doctrineRules = data.rules ?? [];
+    doctrineCatalog = data.catalog ?? [];
     await loadDoctrineFires();
     renderMobileDoctrine();
     if (fieldBookMode === "book" && currentView === "bridge") renderBook();
@@ -2115,8 +2223,30 @@ async function renderBook() {
     return `<p class="clause${r.enabled ? "" : " off"}" data-key="${escapeAttr(r.key)}">
       <button type="button" class="tog sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}" data-key="${escapeAttr(r.key)}"><i></i></button>
       ${clauseForRule(r)}
+      <button type="button" class="remove-policy" data-key="${escapeAttr(r.key)}" title="Remove this policy from the fleet's standing orders">✕</button>
     </p>`;
   }).join("");
+
+  // Policy library: every catalog entry this tenant hasn't adopted, grouped
+  // by category — the "add" half of the library ask. Collapsed by default
+  // (a disclosure, not a wall of unused policies dominating the sheet).
+  const available = doctrineCatalog.filter((c) => !c.adopted);
+  const byCategory = new Map();
+  for (const c of available) {
+    if (!byCategory.has(c.category)) byCategory.set(c.category, []);
+    byCategory.get(c.category).push(c);
+  }
+  const CATEGORY_LABEL = { trading: "Trading", fleet: "Fleet growth", risk: "Risk", ops: "Ops" };
+  const libraryHtml = available.length
+    ? [...byCategory.entries()].map(([cat, items]) => `
+        <div class="lib-cat">${CATEGORY_LABEL[cat] ?? cat}</div>
+        ${items.map((c) => `
+          <p class="clause lib-item">
+            <span class="lib-name">${escapeHtml(c.name)}</span> — ${escapeHtml(c.description)}
+            <button type="button" class="add-policy" data-key="${escapeAttr(c.key)}" data-value="${c.value}">+ Add</button>
+          </p>`).join("")}
+      `).join("")
+    : `<div class="empty-marg">Every known policy is already part of these standing orders.</div>`;
 
   const notes = doctrineRules
     .map((r) => ({ r, stats: doctrineFires.get(r.key), ships: doctrineFireShips.get(r.key) ?? [] }))
@@ -2140,6 +2270,10 @@ async function renderBook() {
         <span class="t">Signed this watch. The fleet flies on these.</span>
         <span class="st">${fleetStatus.paused ? "Halted" : "Auto · running"}</span>
       </div>
+      <details class="policy-library">
+        <summary>+ Add a policy${available.length ? ` (${available.length} available)` : ""}</summary>
+        ${libraryHtml}
+      </details>
       <div class="book-settings">
         <span class="l">Discord alerts</span>
         <input type="text" id="discord-url" placeholder="Webhook URL" />
@@ -2176,6 +2310,12 @@ async function renderBook() {
     });
   });
   el.querySelectorAll("button.cval[data-key]").forEach(wireClauseValueEditor);
+  el.querySelectorAll(".remove-policy[data-key]").forEach((b) => {
+    b.addEventListener("click", (e) => { e.stopPropagation(); saveAdopted(b.dataset.key, false); });
+  });
+  el.querySelectorAll(".add-policy[data-key]").forEach((b) => {
+    b.addEventListener("click", (e) => { e.stopPropagation(); saveAdopted(b.dataset.key, true, Number(b.dataset.value)); });
+  });
   // Discord's input/button are recreated on every render (they live inside
   // this dynamic innerHTML), so the listener from initDiscord() needs
   // re-attaching each time too, not just once at boot.
@@ -2704,6 +2844,19 @@ async function saveRule(key, patch) {
     if (fieldBookMode === "book" && currentView === "bridge") renderBook();
     const r = res.rule;
     showToastGlobal(`${r.name}: ${r.enabled ? `${fmt(r.value)}${r.unit}` : "off"}`);
+  } catch (err) { showToastGlobal(err.message, true); loadDoctrine(); }
+}
+
+/** Add/remove a policy from this tenant's active set — see saveRule() above
+ *  for the value/enabled patch this is deliberately separate from. */
+async function saveAdopted(key, adopted, value) {
+  try {
+    const res = await api("POST", "/api/doctrine/adopt", { key, adopted, value });
+    doctrineRules = res.rules ?? doctrineRules;
+    doctrineCatalog = res.catalog ?? doctrineCatalog;
+    renderMobileDoctrine();
+    if (fieldBookMode === "book" && currentView === "bridge") renderBook();
+    showToastGlobal(adopted ? `${res.rule?.name ?? key} added to standing orders` : `${key} removed from standing orders`);
   } catch (err) { showToastGlobal(err.message, true); loadDoctrine(); }
 }
 
@@ -4885,6 +5038,7 @@ $("auth-form-register").addEventListener("submit", (e) => {
 $("auth-show-register").addEventListener("click", () => { $("auth-err").textContent = ""; showRegisterForm(); });
 $("auth-show-login").addEventListener("click", () => { $("reg-err").textContent = ""; showLoginForm(); });
 $("logout-btn").addEventListener("click", logout);
+$("onboard-confirm").addEventListener("click", confirmOnboarding);
 
 /** First data load once a token is accepted — everything up to here only
  *  wired up event listeners, none of which touch the network. */

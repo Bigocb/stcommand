@@ -253,19 +253,23 @@ export class Store {
 
   // ── Doctrine ────────────────────────────────────────────────
 
-  async getDoctrine(tenantId: string): Promise<{ key: string; value: number; enabled: boolean }[]> {
+  async getDoctrine(tenantId: string): Promise<{ key: string; value: number; enabled: boolean; adopted: boolean }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
-      const res = await c.query<{ key: string; value: number; enabled: boolean }>(`SELECT key, value, enabled FROM doctrine`);
+      const res = await c.query<{ key: string; value: number; enabled: boolean; adopted: boolean }>(`SELECT key, value, enabled, adopted FROM doctrine`);
       return res.rows;
     });
   }
 
-  async setDoctrine(tenantId: string, key: string, value: number, enabled: boolean): Promise<void> {
+  /** `adopted` defaults to true (unchanged pre-existing callers, e.g.
+   *  ensureShipTypeRule(), which always pass it explicitly now, but keeping
+   *  the default here too matches the migration's own DEFAULT true — see
+   *  docs/policy-library-and-onboarding-plan.md). */
+  async setDoctrine(tenantId: string, key: string, value: number, enabled: boolean, adopted = true): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO doctrine (tenant_id, key, value, enabled, updated_at) VALUES ($1, $2, $3, $4, now())
-         ON CONFLICT (tenant_id, key) DO UPDATE SET value = excluded.value, enabled = excluded.enabled, updated_at = excluded.updated_at`,
-        [tenantId, key, value, enabled],
+        `INSERT INTO doctrine (tenant_id, key, value, enabled, adopted, updated_at) VALUES ($1, $2, $3, $4, $5, now())
+         ON CONFLICT (tenant_id, key) DO UPDATE SET value = excluded.value, enabled = excluded.enabled, adopted = excluded.adopted, updated_at = excluded.updated_at`,
+        [tenantId, key, value, enabled, adopted],
       ),
     );
   }

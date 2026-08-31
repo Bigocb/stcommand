@@ -17,6 +17,19 @@ import type { Store } from "../db/store.js";
  * `reload()` (which now has to be awaited once at startup, since it reads
  * from the now-async Store) and `set()`/`ensureShipTypeRule()` — touch the
  * database at all.
+ *
+ * docs/policy-library-and-onboarding-plan.md: a rule now has a third state
+ * alongside value/enabled — `adopted`, whether it's part of *this* tenant's
+ * policy set at all. `POLICY_CATALOG` (formerly `DEFAULTS`) is every policy
+ * that exists in code; a tenant's actual active set is whatever they've
+ * adopted, defaulting to `defaultAdopted:true` entries for a tenant with no
+ * explicit row (the grandfather case — every rule that existed before this
+ * landed, so no current tenant's fleet changes behavior). A brand-new
+ * catalog entry ships `defaultAdopted:false`: invisible until a captain
+ * opens the library or is offered it during onboarding. Not-adopted behaves
+ * exactly like disabled for every engine read (`value()`'s `whenOff`
+ * fallback, `isEnabled()` returning false) — nothing above this class needs
+ * to know the difference.
  */
 
 export interface DoctrineRule {
@@ -39,104 +52,121 @@ export interface DoctrineRule {
   enforced: boolean;
 }
 
-const DEFAULTS: DoctrineRule[] = [
+export type PolicyCategory = "trading" | "fleet" | "risk" | "ops";
+
+export interface PolicyDefinition extends DoctrineRule {
+  /** Groups the library/onboarding UI. */
+  category: PolicyCategory;
+  /** True for every rule that predates the policy-library feature —
+   *  grandfathers current tenants in without a backfill migration (see the
+   *  migration file's own comment). A new catalog entry added after this
+   *  ships starts false: opt-in only. */
+  defaultAdopted: boolean;
+}
+
+const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "cashFloor",
     name: "Cash floor",
     description: "Never let the balance fall below this when buying ships or modules.",
     value: 20_000, min: 0, max: 500_000, step: 5_000, unit: "c",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "risk", defaultAdopted: true,
   },
   {
     key: "marginFloor",
     name: "Margin floor",
     description: "Ignore arbitrage routes whose per-unit margin is below this.",
     value: 10, min: 0, max: 500, step: 5, unit: "c",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",
     value: 15, min: 0, max: 100, step: 5, unit: "%",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "risk", defaultAdopted: true,
   },
   {
     key: "minerTarget",
     name: "Mining pressure",
     description: "Grow the drone fleet until this many miners are active.",
     value: 4, min: 0, max: 20, step: 1, unit: "",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
     key: "promoteAtMiners",
     name: "Trader promotion",
     description: "Promote the biggest-hold miner to trader once this many miners exist.",
     value: 4, min: 1, max: 20, step: 1, unit: "",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
     key: "shipBudget",
     name: "Purchase headroom",
     description: "Only consider buying a ship when credits exceed the cash floor by this much.",
     value: 30_000, min: 0, max: 500_000, step: 10_000, unit: "c",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
     key: "snapshotMaxAgeMin",
     name: "Intel freshness",
     description: "Ignore market prices older than this. Both the dispatcher and the traders use it, so they always agree on which routes exist.",
     value: 90, min: 5, max: 1440, step: 15, unit: "m",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
     key: "keeperCount",
     name: "Market keepers",
     description: "How many ships to station as market keepers (probes at shipyards, miners at outer buy markets) so prices never go stale.",
     value: 2, min: 0, max: 10, step: 1, unit: "",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
     key: "sensorScanIntervalMin",
     name: "Sensor scan",
     description: "How often the chart scout runs a sensor scan (systems/waypoints) once nothing is left to chart, and buys a scout to do it even with no charting work left. Off by default — this changes the auto-buyer's spending, so turn it on deliberately.",
     value: 30, min: 5, max: 1_440, step: 5, unit: "m",
-    enabled: false, enforced: true,
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
     key: "siphonTarget",
     name: "Gas siphoners",
     description: "Grow the fleet until this many gas siphoners are active. Siphon drones extract gas from gas giants for raw-income that doesn't compete with mining.",
     value: 1, min: 0, max: 10, step: 1, unit: "",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
     key: "warehouseTarget",
     name: "Warehouse",
     description: "Master switch for warehousing — off by default: until enabled, the dispatcher only ever assigns direct round trips, same as today. Which goods get bought/sold through the warehouse, and how much of each to hold, is set per-good in the Warehouse pane, not here — this value isn't used.",
     value: 0, min: 0, max: 1, step: 1, unit: "",
-    enabled: false, enforced: true,
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
     key: "warehouseMax",
     name: "Warehouse cap",
     description: "Hard ceiling per good in the warehouse ship, regardless of the target — the dispatcher never assigns a buy trader to a good already at or above this.",
     value: 500, min: 0, max: 5_000, step: 50, unit: "",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
     key: "warehouseMinMargin",
     name: "Warehouse sell margin",
     description: "Only sell out of the warehouse when the live sell price clears the good's cost basis by at least this much per unit.",
     value: 10, min: 0, max: 500, step: 5, unit: "c",
-    enabled: true, enforced: true,
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
     key: "repairConditionFloor",
     name: "Repair floor",
     description: "Repair a ship (opportunistically, next time it's docked at a shipyard for any reason) once its worst component's condition drops below this.",
     value: 0.5, min: 0, max: 1, step: 0.05, unit: "",
-    enabled: true, enforced: true,
+    // Shipped (and already relied on by running fleets) before the policy
+    // library existed — defaultAdopted:true here, not the false a brand-new
+    // policy gets, is what keeps this from silently vanishing for anyone
+    // already depending on it. The "opt-in by default" behavior starts with
+    // whatever ships *after* this feature, not retroactively.
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
 ];
 
@@ -148,6 +178,12 @@ const DEFAULTS: DoctrineRule[] = [
  * operator should be tuning, unlike repairConditionFloor above.
  */
 export const CRITICAL_CONDITION = 0.2;
+
+interface CacheEntry {
+  value: number;
+  enabled: boolean;
+  adopted: boolean;
+}
 
 /**
  * Live, persisted doctrine. Reads are cheap (in-memory cache); writes go to
@@ -167,7 +203,7 @@ export const CRITICAL_CONDITION = 0.2;
  * is the right place, alongside its other one-time async startup work.
  */
 export class Doctrine {
-  private cache = new Map<string, { value: number; enabled: boolean }>();
+  private cache = new Map<string, CacheEntry>();
 
   constructor(
     private readonly store?: Store,
@@ -200,20 +236,43 @@ export class Doctrine {
     this.cache.clear();
     if (!this.store || !this.tenantId) return;
     for (const row of await this.store.getDoctrine(this.tenantId)) {
-      this.cache.set(row.key, { value: row.value, enabled: row.enabled });
+      this.cache.set(row.key, { value: row.value, enabled: row.enabled, adopted: row.adopted });
     }
   }
 
-  /** All rules, defaults merged with any stored overrides. Synchronous —
-   *  reads only the in-memory cache populated by `reload()`. */
+  /** Whether `key` is part of this tenant's policy set right now — an
+   *  explicit row's `adopted` column if one exists, otherwise the catalog
+   *  entry's `defaultAdopted` (the grandfather case), otherwise true (a
+   *  dynamic shipCap: rule, which isn't part of the opt-in model at all). */
+  private isAdopted(key: string, base: PolicyDefinition | undefined): boolean {
+    const override = this.cache.get(key);
+    if (override) return override.adopted;
+    return base?.defaultAdopted ?? true;
+  }
+
+  /** All adopted rules, catalog defaults merged with any stored overrides.
+   *  Synchronous — reads only the in-memory cache populated by `reload()`. */
   list(): DoctrineRule[] {
     const dynamic = [...this.cache.entries()]
-      .filter(([key]) => !DEFAULTS.some((d) => d.key === key))
+      .filter(([key, v]) => !POLICY_CATALOG.some((d) => d.key === key) && v.adopted)
       .map(([key, v]) => this.dynamicRule(key, v.value, v.enabled));
-    return [...DEFAULTS.map((d) => {
+    const catalogRules: DoctrineRule[] = [];
+    for (const d of POLICY_CATALOG) {
+      if (!this.isAdopted(d.key, d)) continue;
       const override = this.cache.get(d.key);
-      return override ? { ...d, value: override.value, enabled: override.enabled } : { ...d };
-    }), ...dynamic];
+      catalogRules.push(override ? { ...d, value: override.value, enabled: override.enabled } : { ...d });
+    }
+    return [...catalogRules, ...dynamic];
+  }
+
+  /** Every catalog policy, tagged with this tenant's adopted state — what
+   *  Book mode's library and the onboarding screen both render from. */
+  catalog(): (PolicyDefinition & { adopted: boolean })[] {
+    return POLICY_CATALOG.map((d) => {
+      const override = this.cache.get(d.key);
+      const adopted = this.isAdopted(d.key, d);
+      return override ? { ...d, value: override.value, enabled: override.enabled, adopted } : { ...d, adopted };
+    });
   }
 
   /** Build a rule for a ship-type cap (e.g. `shipCap:SHIP_LIGHT_HAULER`). */
@@ -231,14 +290,17 @@ export class Doctrine {
   }
 
   /**
-   * The effective value of a rule. A disabled rule falls back to `whenOff`,
-   * which is what "turn this rule off" means for the engine — not zero, but the
-   * unconstrained behaviour.
+   * The effective value of a rule. A disabled — or not-adopted — rule falls
+   * back to `whenOff`, which is what "this rule doesn't apply" means for the
+   * engine: not zero, the unconstrained behaviour. Not-adopted intentionally
+   * collapses into the same code path as disabled here; the distinction
+   * only matters to `list()`/`catalog()`, for the UI.
    */
   value(key: string, whenOff?: number): number {
-    const base = DEFAULTS.find((d) => d.key === key);
+    const base = POLICY_CATALOG.find((d) => d.key === key);
     const override = this.cache.get(key);
-    const enabled = override?.enabled ?? base?.enabled ?? true;
+    const adopted = this.isAdopted(key, base);
+    const enabled = adopted && (override?.enabled ?? base?.enabled ?? true);
     if (!enabled && whenOff !== undefined) return whenOff;
     if (override) return override.value;
     if (base) return base.value;
@@ -249,7 +311,8 @@ export class Doctrine {
   }
 
   isEnabled(key: string): boolean {
-    const base = DEFAULTS.find((d) => d.key === key);
+    const base = POLICY_CATALOG.find((d) => d.key === key);
+    if (!this.isAdopted(key, base)) return false;
     return this.cache.get(key)?.enabled ?? base?.enabled ?? true;
   }
 
@@ -261,25 +324,64 @@ export class Doctrine {
     // Per-hull default caps: probes are useless scouts (0 fuel, can't move), so
     // the fleet never buys them unless the operator explicitly raises the cap.
     const defaultCap = type === "FRAME_PROBE" ? 0 : 4;
-    this.cache.set(key, { value: defaultCap, enabled: true });
-    if (this.store && this.tenantId) await this.store.setDoctrine(this.tenantId, key, defaultCap, true);
+    this.cache.set(key, { value: defaultCap, enabled: true, adopted: true });
+    if (this.store && this.tenantId) await this.store.setDoctrine(this.tenantId, key, defaultCap, true, true);
   }
 
-  /** Update one rule. Values are clamped to the rule's declared bounds. */
+  /** Update one rule's value/enabled. Values are clamped to the rule's
+   *  declared bounds. Does not change whether the rule is adopted — see
+   *  `setAdopted()` for that; this is for a rule already in the tenant's
+   *  active set. */
   async set(key: string, patch: { value?: number; enabled?: boolean }): Promise<DoctrineRule> {
-    const base = DEFAULTS.find((d) => d.key === key);
+    const base = POLICY_CATALOG.find((d) => d.key === key);
     if (!base && !key.startsWith("shipCap:")) throw new Error(`unknown doctrine rule: ${key}`);
-    const current = this.list().find((r) => r.key === key)!;
+    const override = this.cache.get(key);
+    const adopted = this.isAdopted(key, base);
     const min = base?.min ?? 0;
     const max = base?.max ?? 20;
-    const value = patch.value === undefined
-      ? current.value
-      : Math.min(max, Math.max(min, patch.value));
-    const enabled = patch.enabled === undefined ? current.enabled : patch.enabled;
-    this.cache.set(key, { value, enabled });
-    if (this.store && this.tenantId) await this.store.setDoctrine(this.tenantId, key, value, enabled);
-    return { ...current, value, enabled };
+    const currentValue = override?.value ?? base?.value ?? 4;
+    const currentEnabled = override?.enabled ?? base?.enabled ?? true;
+    const value = patch.value === undefined ? currentValue : Math.min(max, Math.max(min, patch.value));
+    const enabled = patch.enabled === undefined ? currentEnabled : patch.enabled;
+    this.cache.set(key, { value, enabled, adopted });
+    if (this.store && this.tenantId) await this.store.setDoctrine(this.tenantId, key, value, enabled, adopted);
+    return base ? { ...base, value, enabled } : this.dynamicRule(key, value, enabled);
+  }
+
+  /**
+   * Add or remove a catalog policy from this tenant's active set — the
+   * "library" ask: `adopted:true` puts it in `list()`'s output (starting
+   * from `initialValue` on a first-time add, or whatever it was last tuned
+   * to if re-adding after a previous remove); `adopted:false` takes it out
+   * without discarding that tuning. Only catalog policies go through this —
+   * dynamic shipCap: rules aren't part of the opt-in library model.
+   */
+  async setAdopted(key: string, adopted: boolean, initialValue?: number): Promise<DoctrineRule | undefined> {
+    const base = POLICY_CATALOG.find((d) => d.key === key);
+    if (!base) throw new Error(`unknown policy: ${key}`);
+    const override = this.cache.get(key);
+    const value = override?.value ?? initialValue ?? base.value;
+    const enabled = override?.enabled ?? base.enabled;
+    this.cache.set(key, { value, enabled, adopted });
+    if (this.store && this.tenantId) await this.store.setDoctrine(this.tenantId, key, value, enabled, adopted);
+    return adopted ? { ...base, value, enabled } : undefined;
+  }
+
+  /**
+   * Onboarding's confirm step: writes an explicit `adopted` row for every
+   * catalog entry in one pass — not just the ones the captain touched. This
+   * is deliberately the one place a tenant's row set becomes fully explicit
+   * (docs/policy-library-and-onboarding-plan.md §4 step 3): after this,
+   * "not adopted" for this tenant means "the captain saw this and skipped
+   * it," not "this didn't exist yet when they onboarded" — so a catalog
+   * entry added later still starts opt-in for them too, same as anyone else.
+   */
+  async completeOnboarding(selections: Record<string, boolean>): Promise<DoctrineRule[]> {
+    for (const d of POLICY_CATALOG) {
+      await this.setAdopted(d.key, !!selections[d.key]);
+    }
+    return this.list();
   }
 }
 
-export const DOCTRINE_DEFAULTS = DEFAULTS;
+export const DOCTRINE_CATALOG = POLICY_CATALOG;

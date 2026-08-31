@@ -71,7 +71,7 @@ export function createGateRouter(
     const tenant = await findOrCreateTenant(pool, agentSymbol, token);
     const sessionId = await createSession(pool, tenant.id);
     res.cookie(SESSION_COOKIE_NAME, signSessionCookie(sessionId), cookieOpts);
-    res.json({ agentSymbol: tenant.agentSymbol });
+    res.json({ agentSymbol: tenant.agentSymbol, isNewTenant: tenant.isNewTenant });
   });
 
   router.post("/register", async (req, res) => {
@@ -99,7 +99,7 @@ export function createGateRouter(
     const tenant = await findOrCreateTenant(pool, result.agent.symbol, result.token);
     const sessionId = await createSession(pool, tenant.id);
     res.cookie(SESSION_COOKIE_NAME, signSessionCookie(sessionId), cookieOpts);
-    res.json({ agentSymbol: tenant.agentSymbol, headquarters: result.agent.headquarters, credits: result.agent.credits });
+    res.json({ agentSymbol: tenant.agentSymbol, headquarters: result.agent.headquarters, credits: result.agent.credits, isNewTenant: tenant.isNewTenant });
   });
 
   router.post("/logout", async (req, res) => {

@@ -29,6 +29,7 @@ describe("findOrCreateTenant", () => {
     const tenant = await findOrCreateTenant(pool, symbol, "st-token-original");
     tenantIds.push(tenant.id);
     assert.equal(tenant.agentSymbol, symbol);
+    assert.equal(tenant.isNewTenant, true, "a genuine first insert must report isNewTenant");
 
     const raw = await pool.query<{ token_enc: Buffer }>(`SELECT token_enc FROM tenants WHERE id = $1`, [tenant.id]);
     assert.ok(!raw.rows[0]!.token_enc.toString("utf8").includes("st-token-original"), "token must not be stored in plaintext");
@@ -44,6 +45,8 @@ describe("findOrCreateTenant", () => {
 
     assert.equal(second.id, first.id, "same agent symbol must resolve to the same tenant, not a duplicate");
     assert.equal(await getTenantToken(pool, first.id), "st-token-v2", "the newer token wins");
+    assert.equal(first.isNewTenant, true);
+    assert.equal(second.isNewTenant, false, "a returning login (including after a token rotation) must not report isNewTenant");
   });
 });
 

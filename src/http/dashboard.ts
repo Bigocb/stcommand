@@ -226,7 +226,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
   router.get("/doctrine", (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    res.json({ rules: w.fleet.doctrine.list() });
+    // catalog: every known policy tagged with this tenant's adopted state —
+    // Book mode's library reads it to know what's left to offer; rules is
+    // unchanged, just this tenant's currently-adopted set.
+    res.json({ rules: w.fleet.doctrine.list(), catalog: w.fleet.doctrine.catalog() });
   });
 
   router.post("/doctrine", async (req, res) => {
@@ -239,6 +242,41 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     try {
       const rule = await w.fleet.doctrine.set(key, { value, enabled });
       res.json({ ok: true, rule, rules: w.fleet.doctrine.list() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Add or remove a policy from this tenant's active set — the library ask
+   *  in docs/policy-library-and-onboarding-plan.md. Separate from the value/
+   *  enabled patch above since it's a different question (in the set at
+   *  all, vs. how it's tuned). */
+  router.post("/doctrine/adopt", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { key, adopted, value } = req.body ?? {};
+    if (typeof key !== "string") return res.status(400).json({ error: "key required" });
+    if (typeof adopted !== "boolean") return res.status(400).json({ error: "adopted must be a boolean" });
+    if (value !== undefined && typeof value !== "number") return res.status(400).json({ error: "value must be a number" });
+    try {
+      const rule = await w.fleet.doctrine.setAdopted(key, adopted, value);
+      res.json({ ok: true, rule, rules: w.fleet.doctrine.list(), catalog: w.fleet.doctrine.catalog() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Onboarding's confirm step — writes an explicit adopted row for every
+   *  catalog entry in one call, not just the ones the captain touched. See
+   *  Doctrine.completeOnboarding()'s own comment for why that matters. */
+  router.post("/doctrine/onboard", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { selections } = req.body ?? {};
+    if (typeof selections !== "object" || selections === null) return res.status(400).json({ error: "selections required" });
+    try {
+      const rules = await w.fleet.doctrine.completeOnboarding(selections);
+      res.json({ ok: true, rules });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
