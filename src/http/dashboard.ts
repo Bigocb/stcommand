@@ -979,6 +979,20 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  router.post("/fleet/repair", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol } = req.body ?? {};
+    if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
+    try {
+      await w.fleet.repairShip(shipSymbol);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[dashboard] repair error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /** Sets this tenant's own webhook — persisted, and applied to the live relay immediately, no restart needed. */
   router.post("/discord", async (req, res) => {
     const w = worker(req);

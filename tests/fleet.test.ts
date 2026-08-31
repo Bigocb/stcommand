@@ -237,6 +237,160 @@ describe("FleetManager.jettisonCargo", () => {
   });
 });
 
+function makeConditionAgent(symbol: string, waypointSymbol: string, systemSymbol: string, status: string, condition = 1) {
+  const ship: any = {
+    symbol,
+    nav: { status, waypointSymbol, systemSymbol },
+    cargo: { capacity: 40, units: 0, inventory: [] },
+    frame: { condition, integrity: 1 },
+    engine: { condition: 1, integrity: 1 },
+    reactor: { condition: 1, integrity: 1 },
+  };
+  return {
+    symbol,
+    getShip: () => ship,
+    isManual: () => false,
+    isSuspended: () => false,
+    dispatchTo: async () => {},
+    release: () => {},
+    suspend: async () => {},
+    resume: () => {},
+    stop: () => {},
+    pinnedField: () => undefined,
+  };
+}
+
+/** Stubs a one-system galaxy with a single SHIPYARD-trait waypoint — enough
+ *  for isShipyard()/nearestShipyard() without a real GalaxyAtlas. */
+function stubYardSystem(fleet: FleetManager, systemSymbol: string, yardWaypoint: string) {
+  (fleet as any).galaxy = {
+    loadSystem: async () => {},
+    getSystem: (sys: string) =>
+      sys === systemSymbol
+        ? { symbol: systemSymbol, waypoints: [{ symbol: yardWaypoint, type: "ORBITAL_STATION", traits: [{ symbol: "SHIPYARD" }] }] }
+        : undefined,
+  };
+}
+
+describe("FleetManager.repairShip", () => {
+  it("rejects when not docked at a shipyard-trait waypoint", async () => {
+    const agent = makeConditionAgent("SHIP-1", "X1-A-A1", "X1-A", "DOCKED");
+    const fleet = new FleetManager({ api: { getShip: async () => agent.getShip() } as any });
+    (fleet as any).traders.set("SHIP-1", agent);
+    stubYardSystem(fleet, "X1-A", "X1-A-B1"); // the yard is elsewhere
+
+    await assert.rejects(() => fleet.repairShip("SHIP-1"), /must be docked at a shipyard/);
+  });
+
+  it("rejects when docked at a shipyard-trait waypoint but not actually DOCKED (e.g. in orbit)", async () => {
+    const agent = makeConditionAgent("SHIP-1", "X1-A-B1", "X1-A", "IN_ORBIT");
+    const fleet = new FleetManager({ api: { getShip: async () => agent.getShip() } as any });
+    (fleet as any).traders.set("SHIP-1", agent);
+    stubYardSystem(fleet, "X1-A", "X1-A-B1");
+
+    await assert.rejects(() => fleet.repairShip("SHIP-1"), /must be docked at a shipyard/);
+  });
+
+  it("repairs and records the ledger entry when docked at a shipyard", async () => {
+    const agent = makeConditionAgent("SHIP-1", "X1-A-B1", "X1-A", "DOCKED", 0.4);
+    let ledgered: any;
+    const fleet = new FleetManager({
+      api: {
+        getShip: async () => agent.getShip(),
+        repairShip: async () => ({ agent: {}, ship: agent.getShip(), transaction: { totalPrice: 500 } }),
+      } as any,
+      recordLedger: (e) => { ledgered = e; },
+    });
+    (fleet as any).traders.set("SHIP-1", agent);
+    stubYardSystem(fleet, "X1-A", "X1-A-B1");
+
+    await fleet.repairShip("SHIP-1");
+
+    assert.equal(ledgered.type, "SHIP");
+    assert.equal(ledgered.total, -500, "cost must be recorded as a negative (spend), same as every other ledger entry");
+  });
+});
+
+describe("FleetManager.maybeRepairFleet", () => {
+  it("opportunistic: repairs a ship already docked at a shipyard once its worst component drops below the doctrine floor", async () => {
+    const agent = makeConditionAgent("SHIP-1", "X1-A-B1", "X1-A", "DOCKED", 0.3);
+    let repaired = false;
+    const fleet = new FleetManager({
+      api: {
+        getShip: async () => agent.getShip(),
+        repairShip: async () => { repaired = true; return { agent: {}, ship: agent.getShip(), transaction: { totalPrice: 100 } }; },
+      } as any,
+    });
+    (fleet as any).traders.set("SHIP-1", agent);
+    stubYardSystem(fleet, "X1-A", "X1-A-B1");
+    await fleet.doctrine.set("repairConditionFloor", { value: 0.5, enabled: true });
+
+    await (fleet as any).maybeRepairFleet();
+
+    assert.ok(repaired, "a ship already at a shipyard below the floor must be repaired immediately, not diverted");
+  });
+
+  it("leaves a ship above the doctrine floor alone", async () => {
+    const agent = makeConditionAgent("SHIP-1", "X1-A-B1", "X1-A", "DOCKED", 0.9);
+    let repaired = false;
+    const fleet = new FleetManager({
+      api: { getShip: async () => agent.getShip(), repairShip: async () => { repaired = true; return {} as any; } } as any,
+    });
+    (fleet as any).traders.set("SHIP-1", agent);
+    stubYardSystem(fleet, "X1-A", "X1-A-B1");
+    await fleet.doctrine.set("repairConditionFloor", { value: 0.5, enabled: true });
+
+    await (fleet as any).maybeRepairFleet();
+
+    assert.ok(!repaired);
+  });
+
+  it("critical: claims and suspends a ship whose condition is below CRITICAL_CONDITION even when it isn't at a shipyard", async () => {
+    const agent = makeConditionAgent("SHIP-1", "X1-A-Z9", "X1-A", "IN_ORBIT", 0.1);
+    let suspended = false;
+    agent.suspend = async () => { suspended = true; };
+    const fleet = new FleetManager({ api: { getShip: async () => agent.getShip() } as any });
+    (fleet as any).traders.set("SHIP-1", agent);
+    stubYardSystem(fleet, "X1-A", "X1-A-B1"); // a yard exists in-system, ship is elsewhere
+    (fleet as any).dispatchShipHop = async () => {}; // don't actually simulate the journey
+    await fleet.doctrine.set("repairConditionFloor", { value: 0.5, enabled: true });
+
+    await (fleet as any).maybeRepairFleet();
+
+    assert.equal(fleet.shipRegistry.ownerOf("SHIP-1")?.owner, "repair", "must claim the ship through the registry before diverting it, same as makeRescuePlan()");
+    assert.ok(suspended, "the ship's own loop must be suspended before its nav is driven directly");
+  });
+
+  it("does not divert a ship the operator is already holding", async () => {
+    const agent = makeConditionAgent("SHIP-1", "X1-A-Z9", "X1-A", "IN_ORBIT", 0.1);
+    agent.isManual = () => true;
+    const fleet = new FleetManager({ api: { getShip: async () => agent.getShip() } as any });
+    (fleet as any).traders.set("SHIP-1", agent);
+    stubYardSystem(fleet, "X1-A", "X1-A-B1");
+    (fleet as any).dispatchShipHop = async () => { throw new Error("must not be called for a manually-held ship"); };
+    await fleet.doctrine.set("repairConditionFloor", { value: 0.5, enabled: true });
+
+    await (fleet as any).maybeRepairFleet();
+
+    assert.equal(fleet.shipRegistry.ownerOf("SHIP-1"), undefined, "an operator-held ship must not be claimed for repair");
+  });
+
+  it("does not re-claim or re-dispatch a ship that already has a repair plan in flight", async () => {
+    const agent = makeConditionAgent("SHIP-1", "X1-A-Z9", "X1-A", "IN_ORBIT", 0.1);
+    const fleet = new FleetManager({ api: { getShip: async () => agent.getShip() } as any });
+    (fleet as any).traders.set("SHIP-1", agent);
+    stubYardSystem(fleet, "X1-A", "X1-A-B1");
+    let dispatchCalls = 0;
+    (fleet as any).dispatchShipHop = async () => { dispatchCalls += 1; };
+    (fleet as any).repairPlans.add("SHIP-1"); // simulates a plan already in flight from a prior tick
+    await fleet.doctrine.set("repairConditionFloor", { value: 0.5, enabled: true });
+
+    await (fleet as any).maybeRepairFleet();
+
+    assert.equal(dispatchCalls, 0);
+  });
+});
+
 describe("FleetManager.getIntel", () => {
   // Confirmed live: shipyard_inventory/module_catalog are shared,
   // tenant-unscoped tables (intentionally, so a user's own multiple agents

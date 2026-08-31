@@ -16,7 +16,7 @@ import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
-import { Doctrine } from "./doctrine.js";
+import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
 import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -183,6 +183,11 @@ export class FleetManager {
    *  step forever, since nothing previously dropped a plan except reaching
    *  phase==="done". */
   private rescueStepFailures = new Map<string, number>();
+  /** Ships currently mid-flight to a shipyard for a critical-condition repair
+   *  (see maybeRepairFleet()) — prevents re-claiming/re-dispatching the same
+   *  ship every tick while its dispatch is already in progress, same idea as
+   *  rescuePlans above for the rescue tender's own multi-tick lifetime. */
+  private repairPlans = new Set<string>();
   private maxCargoCapacity = 0;
   private credits = 0;
   private lastCreditsFetch = 0;
@@ -1878,6 +1883,36 @@ export class FleetManager {
     this.onActivity?.("jettison", `${shipSymbol} jettisoned ${toJettison}u ${good}`, undefined, shipSymbol);
   }
 
+  /** Worst (lowest) condition across frame/engine/reactor — the "how banged up is this ship" number the repair floor is measured against. */
+  private worstCondition(ship: Ship): number {
+    return Math.min(ship.frame?.condition ?? 1, ship.engine?.condition ?? 1, ship.reactor?.condition ?? 1);
+  }
+
+  private async isShipyard(systemSymbol: string, waypointSymbol: string): Promise<boolean> {
+    await this.galaxy.loadSystem(systemSymbol);
+    const known = this.galaxy.getSystem(systemSymbol);
+    return known?.waypoints.find((w) => w.symbol === waypointSymbol)?.traits.some((t) => t.symbol === "SHIPYARD") ?? false;
+  }
+
+  /** Repair a ship to full condition. Must be DOCKED at a shipyard-trait waypoint — the same requirement the raw API itself enforces, checked here first so the error is legible instead of a raw 400. */
+  async repairShip(shipSymbol: string): Promise<void> {
+    const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
+    const waypointSymbol = ship.nav.waypointSymbol;
+    if (ship.nav.status !== "DOCKED" || !(await this.isShipyard(ship.nav.systemSymbol, waypointSymbol))) {
+      throw new Error(`${shipSymbol} must be docked at a shipyard to repair (currently ${ship.nav.status} at ${waypointSymbol})`);
+    }
+    const res = await this.api.repairShip(shipSymbol);
+    this.recordLedger?.({
+      timestamp: new Date().toISOString(),
+      shipSymbol,
+      waypointSymbol,
+      type: "SHIP",
+      total: -res.transaction.totalPrice,
+    });
+    this.log(`${shipSymbol} repaired at ${waypointSymbol} for ${res.transaction.totalPrice}c`);
+    this.onActivity?.("repair", `${shipSymbol} repaired at ${waypointSymbol} for ${res.transaction.totalPrice}c`, -res.transaction.totalPrice, shipSymbol);
+  }
+
   /** Install a module/mount from a ship's cargo at the nearest shipyard. */
   async installComponent(shipSymbol: string, componentSymbol: string): Promise<void> {
     const ship = await this.api.getShip(shipSymbol);
@@ -2999,6 +3034,11 @@ export class FleetManager {
     // actively tendering right now", same idea as `committed` below for
     // missions.
     const tendering = new Set([...this.rescuePlans.values()].map((p) => p.tenderSymbol));
+    // Same reasoning as `tendering` above, for maybeRepairFleet()'s critical-
+    // condition diversions — repairPlans is ground truth for "actively being
+    // routed to a shipyard right now", read directly rather than re-derived,
+    // for the identical same-tick-overwrite reason.
+    const repairing = this.repairPlans;
     for (const s of this.getShipStatuses()) {
       // The warehouse ship must be checked before `s.paused`: designating
       // it uses the exact same dispatchTo()/manual-hold mechanism as an
@@ -3017,11 +3057,13 @@ export class FleetManager {
           ? "operator"
           : tendering.has(s.symbol)
             ? "rescue"
-            : committed.has(s.symbol)
-              ? "mission"
-              : s.role === "keeper"
-                ? "keeper"
-                : "auto";
+            : repairing.has(s.symbol)
+              ? "repair"
+              : committed.has(s.symbol)
+                ? "mission"
+                : s.role === "keeper"
+                  ? "keeper"
+                  : "auto";
       // Phase 4 (docs/ship-control-state-audit.md), the "smaller alternative":
       // a full rewrite of every agent's run-loop gating onto a registry read
       // was judged too risky to do blind (no live-game test coverage). This
@@ -3044,7 +3086,7 @@ export class FleetManager {
       // this fires for was always supposed to be suspended; this just stops
       // that supposed-to-be from silently staying false.
       const agent = this.controlledAgent(s.symbol);
-      if ((owner === "mission" || owner === "rescue") && agent && !agent.isSuspended()) {
+      if ((owner === "mission" || owner === "rescue" || owner === "repair") && agent && !agent.isSuspended()) {
         this.log(`ship control drift: ${s.symbol} claimed as "${owner}" but its agent reports isSuspended()=false — suspending it now`);
         await agent.suspend();
       }
@@ -3278,6 +3320,7 @@ export class FleetManager {
     await this.releaseFulfilledManualContractBuys(contractBuyTargets);
     this.dispatcher.recompute(routes, this.dispatcherTraders(), warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets);
     await this.maybeAssignKeepers();
+    await this.maybeRepairFleet();
     await this.maybeBuyShip();
     await this.maybeBuyScout();
     await this.maybeBuySiphoner();
@@ -3381,6 +3424,72 @@ export class FleetManager {
         // startup, so a mid-run conversion needs its own loop.
         void keeper.keeperLoop(1_000_000);
       }
+    }
+  }
+
+  /** Nearest known shipyard in `systemSymbol` — first found, not distance-
+   *  ranked (mirrors installComponent()'s own yard lookup); cross-system
+   *  shipyard search isn't attempted, same simplification rescue's tender
+   *  planning makes for markets. */
+  private nearestShipyard(systemSymbol: string): string | undefined {
+    const known = this.galaxy.getSystem(systemSymbol);
+    return known?.waypoints.find((w) => w.traits.some((t) => t.symbol === "SHIPYARD"))?.symbol;
+  }
+
+  /**
+   * Repair opportunistically (a ship already docked at a shipyard for any
+   * other reason, condition below the doctrine floor — just do it, no
+   * detour) and, for a critically low ship, actively divert it to the
+   * nearest known shipyard rather than waiting for it to happen to dock
+   * somewhere — see doctrine.ts's CRITICAL_CONDITION comment for why that
+   * second threshold isn't a tunable dial. The critical path claims through
+   * ShipRegistry the same way makeRescuePlan() does, so it can't collide
+   * with a mission/rescue/operator hold already using the ship — grabbing
+   * it without that claim is exactly the partial-handback pattern behind
+   * every bug docs/ship-control-state-audit.md catalogued.
+   */
+  private async maybeRepairFleet(): Promise<void> {
+    const floor = this.doctrine.value("repairConditionFloor", 0);
+    const available = this.availableFor("repair");
+    for (const s of this.getShipStatuses()) {
+      if (s.role === "idle" || s.role === "warehouse") continue;
+      const ship = this.shipFor(s.symbol);
+      if (!ship) continue;
+      const worst = this.worstCondition(ship);
+      if (worst >= floor) continue;
+      if (ship.nav.status === "DOCKED" && (await this.isShipyard(ship.nav.systemSymbol, ship.nav.waypointSymbol))) {
+        try {
+          await this.repairShip(s.symbol);
+        } catch (err) {
+          this.log(`opportunistic repair for ${s.symbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        continue;
+      }
+      if (worst >= CRITICAL_CONDITION) continue;
+      if (this.repairPlans.has(s.symbol) || !available.has(s.symbol)) continue;
+      const yard = this.nearestShipyard(ship.nav.systemSymbol);
+      if (!yard) continue;
+      if (!this.shipRegistry.claim(s.symbol, "repair", this.roleOf(s.symbol))) continue;
+      this.repairPlans.add(s.symbol);
+      this.log(`${s.symbol}: condition ${worst.toFixed(2)} critical — diverting to ${yard} for repair`);
+      void this.runCriticalRepair(s.symbol, yard).finally(() => this.repairPlans.delete(s.symbol));
+    }
+  }
+
+  /** Fire-and-forget: suspend the ship's own loop, fly it to the shipyard
+   *  (raw API via dispatchShipHop, same mechanism mission carriers use, so
+   *  a ship out of single-hop range still gets there), repair, hand back.
+   *  Never awaited by maybeRepairFleet() itself — a multi-leg trip can take
+   *  minutes, and the coordinator tick must not block on it. */
+  private async runCriticalRepair(shipSymbol: string, yardSymbol: string): Promise<void> {
+    await this.controlledAgent(shipSymbol)?.suspend();
+    try {
+      await this.dispatchShipHop(shipSymbol, yardSymbol);
+      await this.repairShip(shipSymbol);
+    } catch (err) {
+      this.log(`critical repair dispatch for ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      await this.releaseTo(shipSymbol, "repair");
     }
   }
 

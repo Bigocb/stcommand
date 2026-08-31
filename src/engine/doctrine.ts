@@ -131,7 +131,23 @@ const DEFAULTS: DoctrineRule[] = [
     value: 10, min: 0, max: 500, step: 5, unit: "c",
     enabled: true, enforced: true,
   },
+  {
+    key: "repairConditionFloor",
+    name: "Repair floor",
+    description: "Repair a ship (opportunistically, next time it's docked at a shipyard for any reason) once its worst component's condition drops below this.",
+    value: 0.5, min: 0, max: 1, step: 0.05, unit: "",
+    enabled: true, enforced: true,
+  },
 ];
+
+/**
+ * Below this, a ship gets actively routed to the nearest shipyard rather
+ * than waiting for it to happen to dock somewhere for other reasons —
+ * deliberately not a doctrine dial (see FleetManager.maybeRepairFleet()'s
+ * own comment): how bad is too bad to leave to chance isn't something an
+ * operator should be tuning, unlike repairConditionFloor above.
+ */
+export const CRITICAL_CONDITION = 0.2;
 
 /**
  * Live, persisted doctrine. Reads are cheap (in-memory cache); writes go to

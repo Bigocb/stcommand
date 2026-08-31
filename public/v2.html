@@ -3763,6 +3763,38 @@ function roleMismatchReason(role, ship) {
   return null;
 }
 
+/** Condition/integrity live per-component (frame/engine/reactor) on the raw
+ *  ship object — condition (0-1) degrades from mining/navigating and is
+ *  repairable; integrity (0-1) is permanent wear, shown but never actionable.
+ *  Repair requires DOCKED at a SHIPYARD-trait waypoint, same requirement the
+ *  raw API itself enforces (FleetManager.repairShip() checks it again
+ *  server-side — this is just so the button reflects reality instead of
+ *  bouncing off a 500). */
+function conditionSectionHtml(ship, shipSymbol, atYard) {
+  const parts = [
+    { label: "Frame", c: ship.frame },
+    { label: "Engine", c: ship.engine },
+    { label: "Reactor", c: ship.reactor },
+  ].filter((p) => p.c);
+  if (!parts.length) return "";
+  const worst = Math.min(...parts.map((p) => p.c.condition ?? 1));
+  const docked = ship.nav.status === "DOCKED";
+  const canRepair = docked && atYard;
+  return `<div class="loadout-section"><h4>Condition</h4>
+    ${parts.map((p) => {
+      const pct = Math.round(Math.max(0, Math.min(1, p.c.condition ?? 1)) * 100);
+      const low = pct < 50;
+      return `<div class="loadout-item"><span class="n">${p.label}<span class="meter${low ? " neg" : ""}" style="margin-left:6px"><i style="width:${pct}%"></i></span></span><span class="d">${pct}%</span></div>`;
+    }).join("")}
+    <div class="jump-row">
+      <span class="tgt">${worst < 1
+        ? `<b>${Math.round(worst * 100)}% worst component</b> <span class="d" style="color:var(--dim);font-size:9px">${canRepair ? "ready to repair here" : "requires DOCKED at a shipyard"}</span>`
+        : `<b>Full condition</b> <span class="d" style="color:var(--dim);font-size:9px">nothing to repair</span>`}</span>
+      <button class="repair-now" data-ship="${escapeAttr(shipSymbol)}" ${canRepair && worst < 1 ? "" : "disabled"}>Repair</button>
+    </div>
+  </div>`;
+}
+
 /** Morale reads on a 0-100 scale per the API docs ("a rough measure of the
  *  crew's morale") — clamped defensively since nothing enforces that range
  *  contractually. Read-only everywhere: there's no crew-management endpoint
@@ -3846,6 +3878,7 @@ function openShipDetails(shipSymbol) {
       <div class="metric-block"><span class="num">${ship.fuel.current}/${ship.fuel.capacity}</span><span class="lbl">fuel</span></div>
       <div class="metric-block"><span class="num">${ship.cargo.units}/${ship.cargo.capacity}</span><span class="lbl">cargo</span></div>
     </div>
+    ${conditionSectionHtml(ship, shipSymbol, atYard)}
     ${crewSectionHtml(ship.crew)}
     <div class="loadout-section"><h4>Manual control</h4>
       <div class="jump-row">
@@ -4068,6 +4101,18 @@ function openShipDetails(shipSymbol) {
       try {
         await api("POST", "/api/fleet/jettison", { shipSymbol, good, units: Number(units) });
         showToastGlobal(`${shipSymbol} jettisoned ${units}u ${good}`);
+        await loadBridge();
+        openShipDetails(shipSymbol);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".repair-now").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const shipSymbol = b.dataset.ship;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/repair", { shipSymbol });
+        showToastGlobal(`${shipSymbol} repaired`);
         await loadBridge();
         openShipDetails(shipSymbol);
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }

@@ -43,7 +43,16 @@ import type { Store } from "../db/store.js";
 // a mission or keeper. Ranked above mission (a stranded ship is more urgent
 // than delaying a delivery) but below operator (an explicit hold always
 // wins, same rule as everywhere else).
-export type Owner = "operator" | "rescue" | "mission" | "warehouse" | "keeper" | "auto";
+// "repair" added alongside the ship-condition feature: a critically low-
+// condition ship gets actively diverted to a shipyard the same way a
+// stranded ship gets a rescue tender — same reasoning as "rescue" above,
+// this is a fleet subsystem driving a ship via raw API calls, so it must
+// claim through the registry or syncShipClaims() would relabel it "auto"
+// mid-dispatch. Ranked just below rescue (0 fuel is more urgent than bad
+// condition — a stranded ship can't act at all, a low-condition one still
+// can) but above mission, since a mission shouldn't be able to grab a ship
+// that's actively being routed to get fixed.
+export type Owner = "operator" | "rescue" | "repair" | "mission" | "warehouse" | "keeper" | "auto";
 export type ShipRole = "miner" | "trader" | "surveyor" | "tour" | "keeper" | "scout" | "siphoner" | "warehouse" | "idle";
 
 export interface Claim {
@@ -54,7 +63,7 @@ export interface Claim {
   since: string; // ISO
 }
 
-const PRECEDENCE: Record<Owner, number> = { operator: 0, rescue: 1, mission: 2, warehouse: 3, keeper: 4, auto: 5 };
+const PRECEDENCE: Record<Owner, number> = { operator: 0, rescue: 1, repair: 2, mission: 3, warehouse: 4, keeper: 5, auto: 6 };
 
 export class ShipRegistry {
   private claims = new Map<string, Claim>();

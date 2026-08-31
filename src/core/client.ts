@@ -578,4 +578,18 @@ export class SpaceTradersAPI {
       transaction: components["schemas"]["ScrapTransaction"];
     }>(`/my/ships/${shipSymbol}/scrap`, {});
   }
+
+  /** Preview the cost of repairing a ship — no side effect. */
+  getRepairCost(shipSymbol: string) {
+    return this.client.get<{ transaction: components["schemas"]["RepairTransaction"] }>(`/my/ships/${shipSymbol}/repair`);
+  }
+
+  /** Repair a ship to full condition. Must be DOCKED at a SHIPYARD-trait waypoint. */
+  repairShip(shipSymbol: string) {
+    return this.client.post<{
+      agent: components["schemas"]["Agent"];
+      ship: components["schemas"]["Ship"];
+      transaction: components["schemas"]["RepairTransaction"];
+    }>(`/my/ships/${shipSymbol}/repair`, {});
+  }
 }
