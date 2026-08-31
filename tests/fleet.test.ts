@@ -307,6 +307,53 @@ describe("FleetManager.canAfford / spendableCredits", () => {
   });
 });
 
+describe("FleetManager.buyCargo", () => {
+  function stubMarketSystem(fleet: FleetManager, systemSymbol: string, marketWaypoint: string) {
+    (fleet as any).galaxy = {
+      loadSystem: async () => {},
+      getSystem: (sys: string) =>
+        sys === systemSymbol
+          ? { symbol: systemSymbol, waypoints: [{ symbol: marketWaypoint, type: "PLANET", traits: [{ symbol: "MARKETPLACE" }] }] }
+          : undefined,
+    };
+  }
+
+  it("rejects a purchase that would breach the cash floor", async () => {
+    const ship: any = { symbol: "SHIP-1", nav: { status: "DOCKED", waypointSymbol: "X1-A-B1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units: 0, inventory: [] } };
+    const fleet = new FleetManager({
+      api: {
+        getShip: async () => ship,
+        getMarket: async () => ({ tradeGoods: [{ symbol: "COPPER_ORE", purchasePrice: 100 }] }),
+        getMyAgent: async () => ({ credits: 20_500 }),
+        purchaseCargo: async () => { throw new Error("should not have purchased"); },
+      } as any,
+      minCashReserve: 20_000,
+    });
+    stubMarketSystem(fleet, "X1-A", "X1-A-B1");
+
+    await assert.rejects(() => fleet.buyCargo("SHIP-1", "COPPER_ORE", 10), /cash floor/);
+  });
+
+  it("allows a FUEL purchase even when it would breach the cash floor", async () => {
+    const ship: any = { symbol: "SHIP-1", nav: { status: "DOCKED", waypointSymbol: "X1-A-B1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units: 0, inventory: [] } };
+    let purchased = false;
+    const fleet = new FleetManager({
+      api: {
+        getShip: async () => ship,
+        getMarket: async () => ({ tradeGoods: [{ symbol: "FUEL", purchasePrice: 100 }] }),
+        getMyAgent: async () => ({ credits: 20_500 }),
+        purchaseCargo: async () => { purchased = true; return { transaction: { pricePerUnit: 100, totalPrice: 1000, units: 10 }, agent: {}, cargo: ship.cargo }; },
+      } as any,
+      minCashReserve: 20_000,
+    });
+    stubMarketSystem(fleet, "X1-A", "X1-A-B1");
+
+    await fleet.buyCargo("SHIP-1", "FUEL", 10);
+
+    assert.ok(purchased, "FUEL must never be blocked by the cash floor");
+  });
+});
+
 describe("FleetManager.repairShip", () => {
   it("rejects when not docked at a shipyard-trait waypoint", async () => {
     const agent = makeConditionAgent("SHIP-1", "X1-A-A1", "X1-A", "DOCKED");

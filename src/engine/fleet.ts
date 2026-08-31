@@ -434,15 +434,23 @@ export class FleetManager {
 
   /**
    * The one gate every credit-spending action in the fleet is meant to go
-   * through — ships, modules, repairs, cargo, fuel, all of it. Before this,
-   * "never let the balance fall below X" was ~10 independent copies of
+   * through — ships, modules, repairs, cargo, all of it. Before this, "never
+   * let the balance fall below X" was ~10 independent copies of
    * `credits < price + minCashReserve()` scattered across every ship-
    * purchase function, and several real spending paths (a trader's own
-   * arbitrage/contract buying, repairShip(), a manual dashboard buy, a
-   * rescue tender's fuel purchase) never checked it at all — a trader could
-   * spend the fleet to zero on one big cargo buy with nothing stopping it.
-   * A future spending policy (max single purchase, daily spend cap) extends
-   * this one function's body, not every call site that spends money.
+   * arbitrage/contract buying, repairShip(), a manual dashboard buy) never
+   * checked it at all — a trader could spend the fleet to zero on one big
+   * cargo buy with nothing stopping it. A future spending policy (max single
+   * purchase, daily spend cap) extends this one function's body, not every
+   * call site that spends money.
+   *
+   * FUEL is the one deliberate exception, and never passes through here at
+   * all: SpaceTraders' own refuelShip() endpoint (used everywhere a ship
+   * tops up its tank) was never routed through canAfford() to begin with,
+   * and the two spots that buy FUEL as cargo instead — buyCargo()'s manual
+   * dashboard purchase and the rescue tender's fuel purchase — each carry
+   * their own explicit bypass. A stranded ship, or one about to run dry,
+   * needs fuel more than the fleet needs its reserve protected.
    *
    * `credits` defaults to the fleet's own cached balance (kept current by
    * refreshCredits()); pass a freshly-fetched value explicitly for a path
@@ -1886,7 +1894,10 @@ export class FleetManager {
     const { ship, systemSymbol, waypointSymbol } = await this.ensureShipAtMarket(shipSymbol);
     const market = await this.api.getMarket(systemSymbol, waypointSymbol);
     const listing = market.tradeGoods?.find((g) => g.symbol === good);
-    if (listing) {
+    // FUEL is exempt from the cash floor everywhere in the fleet — see
+    // canAfford()'s own comment. A stranded ship's recovery cost matters more
+    // than the reserve.
+    if (listing && good !== "FUEL") {
       const agent = await this.api.getMyAgent();
       if (!this.canAfford(listing.purchasePrice * units, agent.credits)) {
         throw new Error(`${units}u ${good} costs ~${listing.purchasePrice * units}c, only ${agent.credits - this.minCashReserve()}c available above the cash floor`);
@@ -3879,10 +3890,9 @@ export class FleetManager {
       const held = tender.cargo.inventory?.find((i) => i.symbol === "FUEL")?.units ?? 0;
       const toBuy = Math.max(0, plan.fuelUnits - held);
       if (toBuy > 0) {
-        // Deliberately not gated by canAfford() — rescue fuel is small money
-        // against a stranded ship that's otherwise permanently stuck; the
-        // cash floor protecting strategic reserve isn't worth blocking a
-        // recovery over.
+        // FUEL is exempt from canAfford() fleet-wide (see buyCargo()'s same
+        // exemption) — a stranded ship's recovery cost matters more than the
+        // cash floor's strategic reserve.
         const res = await this.api.purchaseCargo(plan.tenderSymbol, "FUEL", toBuy);
         this.log(`tender ${plan.tenderSymbol}: loaded ${res.transaction.units}u FUEL @ ${res.transaction.pricePerUnit}c`);
       } else {
