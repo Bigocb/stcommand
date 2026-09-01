@@ -1334,6 +1334,11 @@ describe("FleetManager.init: promotion respects manual role overrides", () => {
       getSystem: async () => ({}),
       getAllSystemWaypoints: async () => [],
       listAllShips: async () => ships,
+      // holdShip() dispatches the ship, and an agent's dispatchTo() refreshes
+      // itself from getShip() before doing anything. Missing here until the
+      // suite could actually run against a database, which is the only reason
+      // this gap survived: the tests that reach it never got far enough to.
+      getShip: async (symbol: string) => ships.find((s) => s.symbol === symbol) ?? ships[0],
     } as any;
   }
 

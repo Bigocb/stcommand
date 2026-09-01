@@ -5,7 +5,7 @@ import express from "express";
 import type { AddressInfo } from "node:net";
 import pg from "pg";
 import { createPool } from "../src/db/pool.js";
-import { findOrCreateTenant, createSession, setTenantLlmConfig } from "../src/db/tenants.js";
+import { findOrCreateTenant, createSession, setTenantLlmConfig, clearOnboardingPending } from "../src/db/tenants.js";
 import { signSessionCookie } from "../src/auth/crypto.js";
 import { TenantRegistry } from "../src/engine/tenantRegistry.js";
 import { createResolveTenant } from "../src/http/resolveTenant.js";
@@ -65,6 +65,14 @@ before(async () => {
   tenantIds.push(tenant.id);
   const sessionId = await createSession(pool, tenant.id);
   cookie = `${SESSION_COOKIE_NAME}=${signSessionCookie(sessionId)}`;
+
+  // findOrCreateTenant's INSERT branch marks a genuinely new tenant as
+  // pending onboarding, and TenantRegistry.boot() then holds its fleet
+  // paused until that's confirmed (migration 010). Correct behaviour, but
+  // not what this file is testing: these are route-shape tests that want an
+  // ordinary, already-onboarded tenant. The onboarding gate itself is
+  // covered in tenantRegistry.test.ts.
+  await clearOnboardingPending(pool, tenant.id);
 
   registry = new TenantRegistry(pool, () => {}, () => makeFakeApi(agentSymbol));
 
