@@ -24,9 +24,16 @@ interface DiscordPayload {
 export class DiscordRelay {
   private webhookUrl: string | null = null;
   private lastPost = 0;
+  // Separate from webhookUrl so pausing from the UI doesn't discard the
+  // saved URL — resuming later is just flipping this back, not re-entering it.
+  private enabled = true;
 
   setWebhook(url: string): void {
     this.webhookUrl = url;
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
   }
 
   private canPost(): boolean {
@@ -37,7 +44,7 @@ export class DiscordRelay {
   }
 
   async postStatus(credits: number, ships: number, netProfit: number): Promise<void> {
-    if (!this.webhookUrl || !this.canPost()) return;
+    if (!this.webhookUrl || !this.enabled || !this.canPost()) return;
     const payload: DiscordPayload = {
       embeds: [{
         title: "Startraders Fleet Status",
@@ -54,7 +61,7 @@ export class DiscordRelay {
   }
 
   async postActivity(entry: ActivityEntry): Promise<void> {
-    if (!this.webhookUrl) return;
+    if (!this.webhookUrl || !this.enabled) return;
     // Only post notable events immediately.
     if (entry.kind !== "sell" && entry.kind !== "buy" && entry.kind !== "ship") return;
     const payload: DiscordPayload = {

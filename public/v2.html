@@ -302,6 +302,10 @@
   .book-settings .l { font-family:var(--chrome); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); flex-shrink:0; }
   .book-settings input { flex:1; min-width:120px; background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:5px 8px; }
   .book-settings .ok { font-size:9px; color:var(--green); flex-shrink:0; flex-basis:100%; }
+  .book-settings .tog.sw { width:24px; height:13px; border:1px solid var(--rule); background:var(--ink); position:relative; cursor:pointer; padding:0; flex-shrink:0; }
+  .book-settings .tog.sw i { position:absolute; top:1px; left:1px; width:9px; height:9px; background:var(--dim); transition:all .15s; }
+  .book-settings .tog.sw[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
+  .book-settings .tog.sw[aria-pressed="true"] i { left:12px; background:var(--accent); }
   /* Book mode's last block, sitting right above the Bridge ticker — without
      this it renders flush against the ticker bar with no breathing room,
      making the row look cut off rather than just at the bottom of the page. */
@@ -2119,6 +2123,7 @@ async function renderBook() {
       </div>
       <div class="book-settings">
         <span class="l">Discord alerts</span>
+        <button type="button" class="tog sw" id="discord-toggle" aria-pressed="true" aria-label="Pause Discord alerts"><i></i></button>
         <input type="text" id="discord-url" placeholder="Webhook URL" />
         <button class="btn ghost" id="discord-save">Save</button>
         <div class="ok" id="discord-ok"></div>
@@ -2657,14 +2662,34 @@ function renderShiftLog() {
 // Now only lives inside Book mode's sheet, rendered fresh each time — guard
 // rather than assume the elements exist (they don't until renderBook() has
 // run at least once).
-function initDiscord() {
+async function initDiscord() {
+  const urlEl = $("discord-url"), okEl = $("discord-ok"), toggleEl = $("discord-toggle");
+  if (!urlEl) return;
+  try {
+    const cfg = await api("GET", "/api/discord");
+    urlEl.placeholder = cfg.configured ? "Webhook set — leave blank to keep it" : "Webhook URL";
+    toggleEl?.setAttribute("aria-pressed", String(cfg.enabled));
+    if (cfg.configured) { okEl.textContent = cfg.enabled ? "Active." : "Paused."; okEl.style.color = cfg.enabled ? "var(--green)" : "var(--dim)"; }
+  } catch (e) { /* engine not ready yet — leave the form blank */ }
+
   $("discord-save")?.addEventListener("click", async () => {
-    const url = $("discord-url").value.trim();
+    const url = urlEl.value.trim();
     if (!url) return;
     try {
       await api("POST", "/api/discord", { webhookUrl: url });
-      $("discord-ok").textContent = "Relay set.";
-    } catch (e) { $("discord-ok").textContent = e.message; $("discord-ok").style.color = "var(--red)"; }
+      okEl.textContent = "Relay set.";
+      okEl.style.color = "var(--green)";
+    } catch (e) { okEl.textContent = e.message; okEl.style.color = "var(--red)"; }
+  });
+
+  toggleEl?.addEventListener("click", async () => {
+    const next = toggleEl.getAttribute("aria-pressed") !== "true";
+    try {
+      await api("POST", "/api/discord/enabled", { enabled: next });
+      toggleEl.setAttribute("aria-pressed", String(next));
+      okEl.textContent = next ? "Relay resumed." : "Relay paused.";
+      okEl.style.color = next ? "var(--green)" : "var(--dim)";
+    } catch (e) { okEl.textContent = e.message; okEl.style.color = "var(--red)"; }
   });
 }
 

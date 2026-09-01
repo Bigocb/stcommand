@@ -8,7 +8,7 @@ import { ChatAgent } from "./agentChat.js";
 import { MarketIntel, type MarketSnapshot } from "./market.js";
 import { DiscordRelay } from "./discord.js";
 import { Scheduler } from "./scheduler.js";
-import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook, listAllTenants } from "../db/tenants.js";
+import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook, getTenantDiscordEnabled, listAllTenants } from "../db/tenants.js";
 
 export interface TenantWorker {
   tenantId: string;
@@ -229,6 +229,7 @@ export class TenantRegistry {
     const discord = new DiscordRelay();
     const webhookUrl = await getTenantDiscordWebhook(this.pool, tenantId);
     if (webhookUrl) discord.setWebhook(webhookUrl);
+    discord.setEnabled(await getTenantDiscordEnabled(this.pool, tenantId));
     // Cutover: created before FleetManager (which needs the instance itself
     // to enqueue tasks onto) and before its own isPaused callback has
     // anything to call — `fleet` is assigned just below, but closures over
