@@ -68,7 +68,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "cashFloor",
     name: "Cash floor",
-    description: "Never let the balance fall below this when buying ships or modules.",
+    description: "Never let the balance fall below this — the catch-all floor for every purchase (ships, modules, repairs, cargo). Fuel is always exempt.",
     value: 20_000, min: 0, max: 500_000, step: 5_000, unit: "c",
     enabled: true, enforced: true, category: "risk", defaultAdopted: true,
   },
@@ -238,6 +238,17 @@ export class Doctrine {
     for (const row of await this.store.getDoctrine(this.tenantId)) {
       this.cache.set(row.key, { value: row.value, enabled: row.enabled, adopted: row.adopted });
     }
+  }
+
+  /** True once this tenant has at least one stored doctrine row — i.e. has
+   *  actually made a policy decision (completed onboarding, or touched the
+   *  Book) at least once. False for a genuinely brand-new tenant, since the
+   *  cache starts empty until reload() finds rows. FleetManager.init() uses
+   *  this to keep a fresh tenant paused until they've actually seen their
+   *  standing orders, rather than silently running on the grandfathered
+   *  "everything adopted" default the moment the fleet boots. */
+  hasAnyRules(): boolean {
+    return this.cache.size > 0;
   }
 
   /** Whether `key` is part of this tenant's policy set right now — an

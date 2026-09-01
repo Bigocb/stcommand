@@ -261,6 +261,13 @@ export class FleetManager {
     if (this.tenantId) this.paused = (await this.store?.getFleetFlag(this.tenantId, "paused")) === "true";
     if (this.tenantId && this.store) await this.shipRegistry.loadAllClaims(this.tenantId, this.store);
     await this.doctrine.reload();
+    // A brand-new tenant has never confirmed onboarding — no doctrine rows
+    // exist yet at all (see Doctrine.completeOnboarding()/hasAnyRules()).
+    // Until they do, stay paused rather than start buying ships and making
+    // spending decisions on the grandfathered "everything adopted" default
+    // the captain never actually chose. Rescue still runs while paused (see
+    // tick()'s own comment), so an already-stranded ship isn't affected.
+    if (this.tenantId && !this.doctrine.hasAnyRules()) this.paused = true;
     const agent = await this.api.getMyAgent();
     this.credits = agent.credits;
     this.systemSymbol = agent.headquarters.slice(0, agent.headquarters.lastIndexOf("-"));

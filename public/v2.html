@@ -1520,16 +1520,25 @@ async function tryRegister(agentSymbol, faction, accountToken) {
 /** New-agent onboarding (docs/policy-library-and-onboarding-plan.md §4) —
  *  a full-screen step before the dashboard, not a modal over it: this is
  *  before the captain has any reason to look at Bridge/Fleet/Markets yet.
- *  Deliberately not a hard gate — Doctrine's own grandfather fallback means
- *  the fleet runs exactly as it would with no onboarding at all if this
- *  screen never gets its confirm; nothing here blocks fleet boot itself
- *  (registry.getOrCreate() already ran during the login/register call).
+ *  The engine itself still boots in the background either way (loading
+ *  ships/markets/galaxy so this screen has something to show), but
+ *  FleetManager.init() keeps a brand-new tenant paused — no buying, no role
+ *  assignment — until POST /api/doctrine/onboard actually confirms a policy
+ *  set (see init()'s own comment); this screen never getting its confirm
+ *  just leaves the fleet sitting paused, not silently acting on defaults
+ *  the captain never chose.
  */
 async function showOnboarding() {
   $("auth-gate").hidden = true;
   $("onboarding-gate").hidden = false;
   $("onboard-err").textContent = "";
   $("onboard-list").innerHTML = '<div class="empty">Loading standing orders…</div>';
+  // Disabled until the real catalog renders — confirming while this list is
+  // still empty would send an empty `selections` object, which
+  // completeOnboarding() reads as "adopt nothing," silently turning off
+  // every policy (including the cash floor) instead of leaving them at
+  // their real defaults.
+  $("onboard-confirm").disabled = true;
   // This is likely the very first /api/* call for a brand-new agent — the
   // resolveTenant middleware awaits the tenant's full fleet boot (live
   // SpaceTraders calls: agent, ships, galaxy) before this can even reach
@@ -1559,6 +1568,7 @@ async function showOnboarding() {
 const ONBOARD_CATEGORY_LABEL = { trading: "Trading", fleet: "Fleet growth", risk: "Risk", ops: "Ops" };
 
 function renderOnboarding(catalog) {
+  $("onboard-confirm").disabled = false;
   const el = $("onboard-list");
   const byCategory = new Map();
   for (const c of catalog) {
@@ -2399,7 +2409,7 @@ function chip(r) {
   return `<button type="button" class="n cval" data-key="${escapeAttr(r.key)}" data-value="${r.value}" data-min="${r.min}" data-max="${r.max}" data-step="${r.step}" data-unit="${escapeAttr(r.unit)}">${fmt(r.value)}${r.unit}</button>`;
 }
 const CLAUSE_TEXT = {
-  cashFloor: (r) => `Never let the balance fall below ${chip(r)} when buying ships or modules.`,
+  cashFloor: (r) => `Never let the balance fall below ${chip(r)} on any purchase — ships, modules, repairs, cargo. Fuel is always exempt.`,
   marginFloor: (r) => `Ignore arbitrage routes whose per-unit margin is below ${chip(r)}.`,
   maxLossPct: (r) => `Refuse to sell cargo at more than ${chip(r)} loss against its cost basis.`,
   minerTarget: (r) => `Grow the drone fleet until ${chip(r)} miners are active.`,

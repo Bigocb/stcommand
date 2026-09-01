@@ -276,6 +276,13 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     if (typeof selections !== "object" || selections === null) return res.status(400).json({ error: "selections required" });
     try {
       const rules = await w.fleet.doctrine.completeOnboarding(selections);
+      // init() paused a brand-new tenant precisely because onboarding hadn't
+      // been confirmed yet (see its own comment) — that condition is now
+      // resolved, so let the fleet actually start. The onboarding screen is
+      // a full-screen gate the captain can't get past to reach a manual
+      // pause control first, so there's no other reason it could be paused
+      // at this point.
+      await w.fleet.setPaused(false);
       res.json({ ok: true, rules });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
