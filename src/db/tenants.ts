@@ -43,10 +43,12 @@ export async function findOrCreateTenant(pool: pg.Pool, agentSymbol: string, tok
     // INSERT branch, not the ON CONFLICT UPDATE" — one query, no extra
     // round-trip, to distinguish a genuinely new tenant from a returning one
     // (including a token rotation, which still upserts the same agent_symbol
-    // row rather than inserting a new one).
+    // row rather than inserting a new one). `onboarding_pending` is only set
+    // in the VALUES list (the INSERT branch) — the ON CONFLICT UPDATE clause
+    // deliberately never touches it, so a returning login can't reset it.
     const res = await c.query<{ id: string; agent_symbol: string; is_new_tenant: boolean }>(
-      `INSERT INTO tenants (agent_symbol, token_enc, token_iv)
-       VALUES ($1, $2, $3)
+      `INSERT INTO tenants (agent_symbol, token_enc, token_iv, onboarding_pending)
+       VALUES ($1, $2, $3, true)
        ON CONFLICT (agent_symbol) DO UPDATE SET token_enc = excluded.token_enc, token_iv = excluded.token_iv, last_seen_at = now()
        RETURNING id, agent_symbol, (xmax = 0) AS is_new_tenant`,
       [agentSymbol, enc, iv],
@@ -54,6 +56,25 @@ export async function findOrCreateTenant(pool: pg.Pool, agentSymbol: string, tok
     const row = res.rows[0]!;
     return { id: row.id, agentSymbol: row.agent_symbol, isNewTenant: row.is_new_tenant };
   });
+}
+
+/**
+ * Whether this tenant still needs to confirm onboarding — the durable
+ * signal TenantRegistry.boot() force-pauses on, separate from whether they
+ * happen to have any doctrine rows (see migration 009's own comment for why
+ * that distinction matters: a tenant who predates onboarding and never
+ * touched Book also has zero rows, but is grandfathered, not pending).
+ */
+export async function needsOnboarding(pool: pg.Pool, tenantId: string): Promise<boolean> {
+  return withPool(pool, async (c) => {
+    const res = await c.query<{ onboarding_pending: boolean }>(`SELECT onboarding_pending FROM tenants WHERE id = $1`, [tenantId]);
+    return res.rows[0]?.onboarding_pending ?? false;
+  });
+}
+
+/** Onboarding's confirm step clears this so a future restart never re-pauses the tenant on this account again. */
+export async function clearOnboardingPending(pool: pg.Pool, tenantId: string): Promise<void> {
+  await withPool(pool, (c) => c.query(`UPDATE tenants SET onboarding_pending = false WHERE id = $1`, [tenantId]));
 }
 
 /** Every known tenant. Used at process start to eager-boot every tenant's

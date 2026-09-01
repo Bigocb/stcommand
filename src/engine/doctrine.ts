@@ -240,16 +240,6 @@ export class Doctrine {
     }
   }
 
-  /** True once this tenant has at least one stored doctrine row — i.e. has
-   *  actually made a policy decision (completed onboarding, or touched the
-   *  Book) at least once. False for a genuinely brand-new tenant, since the
-   *  cache starts empty until reload() finds rows. FleetManager.init() uses
-   *  this to keep a fresh tenant paused until they've actually seen their
-   *  standing orders, rather than silently running on the grandfathered
-   *  "everything adopted" default the moment the fleet boots. */
-  hasAnyRules(): boolean {
-    return this.cache.size > 0;
-  }
 
   /** Whether `key` is part of this tenant's policy set right now — an
    *  explicit row's `adopted` column if one exists, otherwise the catalog

@@ -192,4 +192,34 @@ describe("TenantRegistry", () => {
     assert.ok(registry.get(tenantB.id), "tenant B must boot even though tenant Broken fails");
     assert.equal(registry.get(tenantBroken.id), undefined, "a tenant whose boot throws must not end up registered");
   });
+
+  it("a genuinely new tenant (onboarding_pending from findOrCreateTenant's INSERT branch) boots paused", async () => {
+    const symbol = agentSymbol();
+    const tenant = await findOrCreateTenant(pool, symbol, "st-token");
+    tenantIds.push(tenant.id);
+    assert.equal(tenant.isNewTenant, true, "sanity check: this call must have hit the INSERT branch");
+
+    const registry = makeRegistry(() => makeFakeApi(symbol));
+    const worker = await registry.getOrCreate(tenant.id, symbol);
+
+    assert.equal(worker.fleet.isPaused(), true, "onboarding_pending defaults true on a new INSERT — must stay paused until confirmed");
+  });
+
+  it("a returning tenant (already existed before this test, no onboarding_pending) boots unpaused", async () => {
+    const symbol = agentSymbol();
+    const first = await findOrCreateTenant(pool, symbol, "st-token");
+    tenantIds.push(first.id);
+    // Migration 009's backfill default is false for any row that predates
+    // onboarding_pending being set explicitly on INSERT — simulate that
+    // grandfathered state directly, since findOrCreateTenant's own INSERT
+    // path always sets it true for a brand-new row.
+    await pool.query(`UPDATE tenants SET onboarding_pending = false WHERE id = $1`, [first.id]);
+    const second = await findOrCreateTenant(pool, symbol, "st-token"); // same agent_symbol -> ON CONFLICT branch, doesn't touch onboarding_pending
+    assert.equal(second.isNewTenant, false, "sanity check: this call must have hit the ON CONFLICT branch, not INSERT");
+
+    const registry = makeRegistry(() => makeFakeApi(symbol));
+    const worker = await registry.getOrCreate(second.id, symbol);
+
+    assert.equal(worker.fleet.isPaused(), false, "a grandfathered/already-onboarded tenant must not be paused on a fresh boot");
+  });
 });

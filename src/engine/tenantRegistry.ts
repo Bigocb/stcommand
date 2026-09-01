@@ -8,7 +8,7 @@ import { ChatAgent } from "./agentChat.js";
 import { MarketIntel, type MarketSnapshot } from "./market.js";
 import { DiscordRelay } from "./discord.js";
 import { Scheduler } from "./scheduler.js";
-import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook, getTenantDiscordEnabled, listAllTenants } from "../db/tenants.js";
+import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook, getTenantDiscordEnabled, listAllTenants, needsOnboarding } from "../db/tenants.js";
 
 export interface TenantWorker {
   tenantId: string;
@@ -280,6 +280,16 @@ export class TenantRegistry {
         await new Promise((r) => setTimeout(r, backoffSec * 1000));
       }
     }
+
+    // A brand-new tenant hasn't confirmed onboarding yet — stay paused
+    // (rescue still runs; see FleetManager.tick()'s own comment) rather than
+    // start buying ships and making spending decisions on the grandfathered
+    // "everything adopted" default the captain never actually chose. Reads
+    // the durable tenants.onboarding_pending column (migration 009), not
+    // "does this tenant have any doctrine rows" — a tenant who predates
+    // onboarding and never touched Book also has zero rows, but is
+    // grandfathered, not pending, and must never be paused by this check.
+    if (await needsOnboarding(this.pool, tenantId)) await fleet.setPaused(true);
 
     // Re-hydrate MissionManager's in-memory active/task state from whatever
     // was persisted — list() only reads the rows, startConstruction() is what

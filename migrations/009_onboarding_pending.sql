@@ -1,0 +1,14 @@
+-- Durable "has this tenant confirmed onboarding" signal, separate from
+-- whether they happen to have any doctrine rows. FleetManager.init() briefly
+-- inferred "needs onboarding" from Doctrine.hasAnyRules() (no stored doctrine
+-- row at all) — that's wrong for any tenant who predates the onboarding
+-- feature and simply never touched Book, which is exactly "grandfathered,"
+-- not "brand new." Confirmed live: DAGGER (created well before this feature
+-- shipped) has zero doctrine rows and was getting silently force-paused on
+-- every restart.
+--
+-- DEFAULT false backfills every existing tenant as "not pending" — matches
+-- the grandfather behavior they already had. findOrCreateTenant's INSERT
+-- branch explicitly sets this true for a genuinely new tenant; the ON
+-- CONFLICT UPDATE branch (a returning login) never touches it.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS onboarding_pending boolean NOT NULL DEFAULT false;

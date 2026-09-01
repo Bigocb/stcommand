@@ -1432,43 +1432,6 @@ describe("FleetManager.init: promotion respects manual role overrides", () => {
     assert.equal(found?.paused, true, "the mission must still exist and still be paused after the restart, with no operator action needed to keep it that way");
   });
 
-  it("a brand-new tenant with no doctrine rows boots paused, instead of buying ships on the grandfathered default", async () => {
-    const tenantId = await makeTenant();
-    const store = new Store(pool);
-    const ship = makeRawShip("SHIP-1", { cargoCapacity: 40 });
-
-    const fleet = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
-    await fleet.init();
-
-    assert.equal(fleet.isPaused(), true, "no doctrine rows yet means onboarding was never confirmed");
-  });
-
-  it("a returning tenant with existing doctrine rows boots unpaused", async () => {
-    const tenantId = await makeTenant();
-    const store = new Store(pool);
-    await store.setDoctrine(tenantId, "cashFloor", 20_000, true, true);
-    const ship = makeRawShip("SHIP-1", { cargoCapacity: 40 });
-
-    const fleet = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
-    await fleet.init();
-
-    assert.equal(fleet.isPaused(), false, "onboarding was already confirmed at some point — a fresh boot must not re-pause");
-  });
-
-  it("completing onboarding resumes a fleet init() had paused", async () => {
-    const tenantId = await makeTenant();
-    const store = new Store(pool);
-    const ship = makeRawShip("SHIP-1", { cargoCapacity: 40 });
-
-    const fleet = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
-    await fleet.init();
-    assert.equal(fleet.isPaused(), true);
-
-    await fleet.doctrine.completeOnboarding({ cashFloor: true, marginFloor: true });
-    await fleet.setPaused(false);
-
-    assert.equal(fleet.isPaused(), false);
-  });
 });
 
 describe("FleetManager.rescueStatusFor: surfacing real rescue status", () => {
