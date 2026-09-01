@@ -560,4 +560,35 @@ describe("Store shared galaxy tables (no tenant scoping)", () => {
     const mods = await store.moduleCatalog("MOUNT_MINING_LASER_II");
     assert.equal(mods.find((m) => m.waypointSymbol === wp)?.kind, "mount");
   });
+
+  it("getSystemTopology returns undefined for a system never cached", async () => {
+    const sys = `X1-GT${Date.now()}`;
+    assert.equal(await store.getSystemTopology(sys), undefined);
+  });
+
+  it("setSystemTopology + getSystemTopology round-trip waypoints and jump gates", async () => {
+    const sys = `X1-GT${Date.now()}`;
+    const waypoints = [{ symbol: `${sys}-A1`, type: "PLANET", x: 1, y: 2, traits: [{ symbol: "MARKETPLACE" }] }];
+    const jumpGates = [{ symbol: `${sys}-GATE`, connections: ["X1-OTHER-GATE"] }];
+    await store.setSystemTopology(sys, waypoints, jumpGates);
+
+    const row = await store.getSystemTopology(sys);
+    assert.deepEqual(row?.waypoints, waypoints);
+    assert.deepEqual(row?.jumpGates, jumpGates);
+  });
+
+  it("setSystemTopology upserts rather than duplicating, and jump gates can be filled in on a later call", async () => {
+    const sys = `X1-GT${Date.now()}`;
+    const waypoints = [{ symbol: `${sys}-A1`, type: "PLANET", x: 1, y: 2, traits: [] }];
+    await store.setSystemTopology(sys, waypoints, []); // loadSystem()'s first pass: waypoints known, gates not yet scanned
+
+    const beforeGates = await store.getSystemTopology(sys);
+    assert.deepEqual(beforeGates?.jumpGates, []);
+
+    const jumpGates = [{ symbol: `${sys}-GATE`, connections: ["X1-OTHER-GATE"] }];
+    await store.setSystemTopology(sys, waypoints, jumpGates); // scanJumpGates()'s later pass
+
+    const afterGates = await store.getSystemTopology(sys);
+    assert.deepEqual(afterGates?.jumpGates, jumpGates, "must update the existing row, not insert a second one");
+  });
 });

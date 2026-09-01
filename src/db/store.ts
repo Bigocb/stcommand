@@ -1056,6 +1056,39 @@ export class Store {
     });
   }
 
+  /**
+   * Cached waypoints + jump-gate connections for a system — public galaxy
+   * data (no tenant_id, matching market_snapshots/shipyard_inventory),
+   * shared across every tenant on this server reset. GalaxyAtlas.loadSystem()
+   * checks this before falling back to a live API scan; a cache hit skips
+   * the live round-trip entirely. Loosely typed (no import of client.ts's
+   * Waypoint/JumpGate types here) to keep this module decoupled from the
+   * SpaceTraders API surface, same as recordShipyardInventory()'s own
+   * structural param type just above.
+   */
+  async getSystemTopology(systemSymbol: string): Promise<{ waypoints: unknown[]; jumpGates: unknown[] } | undefined> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ waypoints: unknown[]; jump_gates: unknown[] }>(
+        `SELECT waypoints, jump_gates FROM galaxy_systems WHERE system_symbol = $1`,
+        [systemSymbol],
+      );
+      const row = res.rows[0];
+      return row ? { waypoints: row.waypoints, jumpGates: row.jump_gates } : undefined;
+    });
+  }
+
+  /** Upserts a system's cached topology — called once after a live scan (waypoints only, jumpGates=[]) and again once jump gates are actually resolved. */
+  async setSystemTopology(systemSymbol: string, waypoints: unknown[], jumpGates: unknown[]): Promise<void> {
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO galaxy_systems (system_symbol, waypoints, jump_gates, scanned_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (system_symbol) DO UPDATE SET waypoints = excluded.waypoints, jump_gates = excluded.jump_gates, scanned_at = now()`,
+        [systemSymbol, JSON.stringify(waypoints), JSON.stringify(jumpGates)],
+      ),
+    );
+  }
+
   // ── Missions (tenant-scoped) ────────────────────────────────
 
   async recordMission(

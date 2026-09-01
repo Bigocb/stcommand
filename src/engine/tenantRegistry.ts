@@ -182,6 +182,15 @@ export class TenantRegistry {
     const log = (msg: string) => this.log(tenantId, msg);
     const token = await getTenantToken(this.pool, tenantId);
     const api = this.buildApi(token);
+    // Boosted for the duration of boot only — see Client.setPriority()'s own
+    // comment for why this has to mutate the one shared Client in place
+    // rather than handing FleetManager/GalaxyAtlas a separately-prioritized
+    // clone. Flipped back to routine priority right after fleet.init()
+    // completes, below, before this tenant's steady-state ticking starts —
+    // otherwise this boost would leak forever into that ticking and start
+    // starving every other tenant instead of just getting this one started
+    // faster.
+    api.client.setPriority(0);
     const store = new Store(this.pool);
     const state = new FleetState();
 
@@ -189,24 +198,15 @@ export class TenantRegistry {
     const systemSymbol = agent.headquarters.slice(0, agent.headquarters.lastIndexOf("-"));
     log(`booting ${agent.symbol} @ ${agent.headquarters}, ${agent.credits} credits, ${agent.shipCount} ships`);
 
-    const waypoints = await api.getAllSystemWaypoints(systemSymbol);
-    const mappedWaypoints = waypoints.map((w) => ({
-      symbol: w.symbol,
-      x: w.x,
-      y: w.y,
-      type: w.type,
-      traits: w.traits.map((t) => t.symbol),
-    }));
-    state.update({
-      agent,
-      ships: [],
-      contracts: [],
-      systemSymbol,
-      waypoints: mappedWaypoints,
-      systems: [{ symbol: systemSymbol, waypoints: mappedWaypoints, jumpGates: waypoints.filter((w) => w.type === "JUMP_GATE").map((w) => w.symbol) }],
-      jumpConnections: [],
-      totals: await store.ledgerTotals(tenantId),
-    });
+    // No placeholder state.update() here anymore — getOrCreate() doesn't
+    // return this worker to any caller until boot() fully resolves (and
+    // refreshState() below runs before it does), so nothing could ever have
+    // observed an intermediate state between here and there. This used to
+    // fetch the home system's waypoints itself via a second, redundant
+    // api.getAllSystemWaypoints() call — fleet.init() below makes the exact
+    // same call through galaxy.loadSystem() (now cache-aware, see
+    // GalaxyAtlas's own comment); waypoints/mappedWaypoints are derived from
+    // that afterward instead of fetched twice.
 
     // Try to serve the first dashboard load from data already in Postgres.
     // Ships refresh market snapshots every time they dock, so the DB is
@@ -280,6 +280,19 @@ export class TenantRegistry {
         await new Promise((r) => setTimeout(r, backoffSec * 1000));
       }
     }
+    // Boot-critical work is done — see the setPriority(0) call above.
+    api.client.setPriority(1);
+
+    // Derived from the galaxy atlas fleet.init() just populated (see this
+    // function's own earlier comment) rather than fetched separately.
+    const waypoints = fleet.getGalaxy().getSystem(systemSymbol)!.waypoints;
+    const mappedWaypoints = waypoints.map((w) => ({
+      symbol: w.symbol,
+      x: w.x,
+      y: w.y,
+      type: w.type,
+      traits: w.traits.map((t) => t.symbol),
+    }));
 
     // A brand-new tenant hasn't confirmed onboarding yet — stay paused
     // (rescue still runs; see FleetManager.tick()'s own comment) rather than

@@ -98,6 +98,50 @@ describe("RateLimiter fairness", () => {
   });
 });
 
+describe("RateLimiter priority tiers", () => {
+  it("a high-priority (0) caller queued after low-priority ones is still serviced first", async () => {
+    const limiter = new RateLimiter(50, 1);
+    const resolved: string[] = [];
+    // Drain the starting token and queue three routine (default priority 1)
+    // callers first — simulating an already-running tenant's steady-state
+    // ticking traffic.
+    const routine = ["routine-a", "routine-b", "routine-c"].map((id) => limiter.acquire(1).then(() => resolved.push(id)));
+    // A boot call arrives after all three, but at priority 0 — it must jump
+    // ahead of whatever routine traffic is still queued, without skipping
+    // the one(s) already granted a token.
+    const boot = limiter.acquire(0).then(() => resolved.push("boot"));
+
+    await Promise.all([...routine, boot]);
+
+    // routine-a already held the starting token before boot() even called
+    // acquire() (drained synchronously), so it's unaffected; everything
+    // still in the queue when boot's higher-priority request arrives must
+    // yield to it.
+    assert.deepEqual(resolved, ["routine-a", "boot", "routine-b", "routine-c"]);
+  });
+
+  it("same priority still falls back to strict arrival order", async () => {
+    const limiter = new RateLimiter(50, 1);
+    const resolved: number[] = [];
+    const calls = [0, 1, 2, 3].map((n) => limiter.acquire(2).then(() => resolved.push(n)));
+
+    await Promise.all(calls);
+
+    assert.deepEqual(resolved, [0, 1, 2, 3], "priority ties must still resolve in call order, not be reordered arbitrarily");
+  });
+
+  it("acquire() with no priority argument defaults to the same tier as everyone else (backward-compatible FIFO)", async () => {
+    const limiter = new RateLimiter(50, 1);
+    const resolved: string[] = [];
+    const noPriority = limiter.acquire().then(() => resolved.push("no-arg"));
+    const explicitDefault = limiter.acquire(1).then(() => resolved.push("explicit-1"));
+
+    await Promise.all([noPriority, explicitDefault]);
+
+    assert.deepEqual(resolved, ["no-arg", "explicit-1"], "an omitted priority must behave identically to an explicit default, ordered by arrival");
+  });
+});
+
 describe("Production defaults use a tight burst cap", () => {
   it("Client without sharedLimiter defaults to burst = ceil(rate)", async () => {
     const originalFetch = globalThis.fetch;

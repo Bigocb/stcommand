@@ -41,6 +41,11 @@ export interface ClientOptions {
    * workload this exists to protect.
    */
   sharedLimiter?: RateLimiter;
+  /** Passed straight through to RateLimiter.acquire() for every request this
+   *  Client makes — see acquire()'s own comment. Default 1 (routine
+   *  priority); Client.withPriority() is the usual way to get a boosted one
+   *  sharing the same limiter. */
+  priority?: number;
 }
 
 type RequestOptions = {
@@ -52,15 +57,22 @@ type RequestOptions = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+interface QueueEntry {
+  priority: number;
+  seq: number;
+  resolve: () => void;
+}
+
 /**
- * Token-bucket limiter to stay under the API's per-second cap. FIFO-queued —
- * see acquire()'s own comment for why that matters once this is shared
- * across many tenants.
+ * Token-bucket limiter to stay under the API's per-second cap. Priority-
+ * queued — see acquire()'s own comment for why that matters once this is
+ * shared across many tenants.
  */
 export class RateLimiter {
   private tokens: number;
   private last = Date.now();
-  private readonly queue: Array<() => void> = [];
+  private readonly queue: QueueEntry[] = [];
+  private seqCounter = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -81,15 +93,19 @@ export class RateLimiter {
    * queue behind it. Reported live: a new tenant's onboarding sat with zero
    * forward progress for minutes while other tenants kept ticking normally.
    *
-   * FIFO fixes it structurally: every caller enqueues in arrival order and
-   * is resolved in that same order as tokens become available, so a new
-   * tenant's boot calls get serviced by their actual position in line —
-   * bounded by total queued work divided by the rate, not by how many other
-   * callers keep re-entering the race ahead of it.
+   * Priority-ordered fixes that structurally instead of just fairly: every
+   * caller enqueues with a priority (lower = serviced first, same convention
+   * as Scheduler's task priority) and arrival order as the tiebreak within
+   * the same priority. Plain FIFO (every caller at the same priority) was
+   * the first fix and is still what happens when nobody passes one — fair,
+   * but a new tenant's boot still queues behind however much routine ticking
+   * traffic from *other* tenants happened to already be waiting. Priority
+   * lets boot-critical calls (see Client.withPriority()) jump that queue
+   * without starving the routine traffic — it just goes second, not never.
    */
-  acquire(): Promise<void> {
+  acquire(priority = 1): Promise<void> {
     return new Promise((resolve) => {
-      this.queue.push(resolve);
+      this.queue.push({ priority, seq: this.seqCounter++, resolve });
       this.pump();
     });
   }
@@ -101,11 +117,24 @@ export class RateLimiter {
     this.tokens = Math.min(this.burst, this.tokens + elapsed * this.ratePerSec);
   }
 
+  /** Lowest priority number wins; ties broken by arrival order. Linear scan
+   *  is fine at this queue's realistic depth (dozens, not thousands). */
+  private dequeueNext(): QueueEntry | undefined {
+    if (this.queue.length === 0) return undefined;
+    let bestIdx = 0;
+    for (let i = 1; i < this.queue.length; i += 1) {
+      const a = this.queue[i]!;
+      const best = this.queue[bestIdx]!;
+      if (a.priority < best.priority || (a.priority === best.priority && a.seq < best.seq)) bestIdx = i;
+    }
+    return this.queue.splice(bestIdx, 1)[0];
+  }
+
   private pump(): void {
     this.refill();
     while (this.queue.length > 0 && this.tokens >= 1) {
       this.tokens -= 1;
-      this.queue.shift()!();
+      this.dequeueNext()!.resolve();
     }
     if (this.queue.length === 0 || this.timer) return;
     const waitMs = Math.max(1, Math.ceil(((1 - this.tokens) / this.ratePerSec) * 1000));
@@ -123,6 +152,10 @@ export class Client {
   private readonly maxRetries: number;
   private readonly retryBackoffMs: number;
   private readonly limiter: RateLimiter;
+  /** Mutable, not readonly — see setPriority()'s own comment for why a
+   *  live-read value (not a clone-per-priority-level) is what boot actually
+   *  needs here. */
+  private priority: number;
   readonly onRateLimited: ClientOptions["onRateLimited"];
   /**
    * Real count of HTTP requests actually sent (including retries — a 429 or
@@ -141,6 +174,7 @@ export class Client {
     this.maxRetries = opts.maxRetries ?? 4;
     this.retryBackoffMs = opts.retryBackoffMs ?? 250;
     this.onRateLimited = opts.onRateLimited;
+    this.priority = opts.priority ?? 1;
     // SpaceTraders' real per-account limit is 2 req/sec, but that's the
     // server's own ceiling, not headroom to plan around — 2 here regularly
     // triggers live 429s (confirmed in production: near-continuous
@@ -166,6 +200,25 @@ export class Client {
     return new Client({ ...this._opts(), token });
   }
 
+  /**
+   * Flips this Client's priority in place for every request it makes from
+   * here on — deliberately mutable rather than a `withPriority()` clone.
+   * The tenant's `api`/`Client` is one long-lived instance, captured by
+   * reference at construction by FleetManager, GalaxyAtlas, and every ship
+   * agent — a clone would only affect whoever explicitly used it, and every
+   * one of those components keeps calling through its own already-captured
+   * reference to the ORIGINAL Client forever, so a clone-based boost could
+   * never actually reach them. Mutating the one real Client every one of
+   * them shares makes the boost visible everywhere at once, and — just as
+   * important — reversible everywhere at once: TenantRegistry.boot() calls
+   * setPriority(0) before booting and setPriority(1) right after (see its
+   * own comment), so the temporary boost can't leak into that tenant's
+   * steady-state ticking and start starving every other tenant instead.
+   */
+  setPriority(priority: number): void {
+    this.priority = priority;
+  }
+
   private _opts(): ClientOptions {
     return {
       token: this.token,
@@ -173,6 +226,7 @@ export class Client {
       maxRetries: this.maxRetries,
       retryBackoffMs: this.retryBackoffMs,
       onRateLimited: this.onRateLimited,
+      priority: this.priority,
       // Always this instance's actual limiter, not just whatever sharedLimiter
       // it was constructed with — a withToken() clone must draw from the same
       // budget as its parent even when the parent got a private one by default.
@@ -191,7 +245,7 @@ export class Client {
 
     let attempt = 0;
     for (;;) {
-      await this.limiter.acquire();
+      await this.limiter.acquire(this.priority);
       this.callCount += 1;
       const res = await fetch(url, {
         method: req.method,

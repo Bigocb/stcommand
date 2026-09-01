@@ -14,25 +14,64 @@ export interface KnownSystem {
   markets: MarketSnapshot[];
   shipyards: { symbol: string; ships: ShipyardShip[]; modificationsFee: number }[];
 }
+/** Persisted topology cache GalaxyAtlas checks before a live scan — see
+ *  Store.getSystemTopology()/setSystemTopology()'s own comment. Structural,
+ *  not the real Store type, so this module doesn't have to import db/store.ts. */
+export interface GalaxyStore {
+  getSystemTopology(systemSymbol: string): Promise<{ waypoints: unknown[]; jumpGates: unknown[] } | undefined>;
+  setSystemTopology(systemSymbol: string, waypoints: unknown[], jumpGates: unknown[]): Promise<void>;
+}
+
 /** Multi-system atlas: caches waypoints, jump gates, and foreign markets. */
 export class GalaxyAtlas {
   private readonly api: SpaceTradersAPI;
+  private readonly store?: GalaxyStore;
   private readonly systems = new Map<string, KnownSystem>();
   private readonly jumps = new Map<string, string>(); // gate symbol -> system symbol
 
-  constructor(api: SpaceTradersAPI) {
+  constructor(api: SpaceTradersAPI, store?: GalaxyStore) {
     this.api = api;
+    this.store = store;
   }
 
+  /**
+   * A system's waypoints (and, once scanJumpGates() has run for it, its jump
+   * gates) are effectively static for the life of a server reset — confirmed
+   * as one of the main contributors to slow multi-tenant startup and boot-
+   * time rate-limit pressure, since every tenant's every boot used to
+   * re-fetch this live (getSystem() + a paginated getAllSystemWaypoints())
+   * for the same systems over and over. A DB cache hit here is a Postgres
+   * read instead of a SpaceTraders round-trip; a miss still falls back to
+   * the live scan and seeds the cache for every future boot, tenant, and
+   * process restart.
+   */
   async loadSystem(systemSymbol: string): Promise<KnownSystem> {
     if (this.systems.has(systemSymbol)) return this.systems.get(systemSymbol)!;
-    const system = await this.api.getSystem(systemSymbol);
+    const cached = await this.store?.getSystemTopology(systemSymbol);
+    if (cached) {
+      const known: KnownSystem = {
+        symbol: systemSymbol,
+        waypoints: cached.waypoints as Waypoint[],
+        jumpGates: cached.jumpGates as JumpGate[],
+        markets: [],
+        shipyards: [],
+      };
+      this.systems.set(systemSymbol, known);
+      for (const w of known.waypoints) {
+        if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
+      }
+      return known;
+    }
     const waypoints = await this.api.getAllSystemWaypoints(systemSymbol);
     const known: KnownSystem = { symbol: systemSymbol, waypoints, jumpGates: [], markets: [], shipyards: [] };
     this.systems.set(systemSymbol, known);
     for (const w of waypoints) {
       if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
     }
+    // jumpGates is [] here deliberately — scanJumpGates() upserts it again
+    // once gates are actually resolved, so a system nobody has scanned gates
+    // for yet doesn't get miscached as "confirmed zero gates."
+    await this.store?.setSystemTopology(systemSymbol, waypoints, []);
     return known;
   }
 
@@ -44,24 +83,43 @@ export class GalaxyAtlas {
     return [...this.systems.values()];
   }
 
-  /** Discover jump gates and their connected gates in a known system. */
+  /**
+   * Discover jump gates and their connected gates in a known system —
+   * cache-aware, same as loadSystem(). Skips a gate whose symbol is already
+   * present in known.jumpGates (from a prior scan this process, or loaded
+   * from the DB cache) instead of a blanket "any cached gates at all means
+   * fully scanned" check: a system genuinely has zero gates gets an empty
+   * gateWaypoints list up front (no live calls, cache or not) rather than
+   * being miscached as "scanned" purely because loadSystem() always seeds
+   * jump_gates=[] on a system's very first load.
+   */
   async scanJumpGates(systemSymbol: string): Promise<JumpGate[]> {
     const known = await this.loadSystem(systemSymbol);
-    const gates = known.waypoints.filter((w) => w.type === "JUMP_GATE");
-    const results: JumpGate[] = [];
-    for (const gate of gates) {
-      try {
-        const jg = await this.api.getJumpGate(systemSymbol, gate.symbol);
-        results.push(jg);
-        for (const connected of jg.connections) {
-          const connectedSystem = connected.slice(0, connected.lastIndexOf("-"));
-          await this.loadSystem(connectedSystem);
+    const gateWaypoints = known.waypoints.filter((w) => w.type === "JUMP_GATE");
+    if (gateWaypoints.length === 0) return known.jumpGates;
+    const alreadyResolved = new Set(known.jumpGates.map((jg) => jg.symbol));
+    const missing = gateWaypoints.filter((w) => !alreadyResolved.has(w.symbol));
+    if (missing.length === 0) return known.jumpGates;
+    const results: JumpGate[] = [...known.jumpGates];
+    // Concurrent rather than one-gate-at-a-time: the shared rate limiter
+    // (client.ts's RateLimiter, FIFO-queued) still throttles the real
+    // dispatch rate — this just stops artificially serializing on each
+    // gate's full network round-trip before the next one can even start.
+    await Promise.allSettled(
+      missing.map(async (gate) => {
+        try {
+          const jg = await this.api.getJumpGate(systemSymbol, gate.symbol);
+          results.push(jg);
+          await Promise.allSettled(
+            jg.connections.map((connected) => this.loadSystem(connected.slice(0, connected.lastIndexOf("-")))),
+          );
+        } catch (err) {
+          // waypoint may not be a jump gate or unreachable
         }
-      } catch (err) {
-        // waypoint may not be a jump gate or unreachable
-      }
-    }
+      }),
+    );
     known.jumpGates = results;
+    await this.store?.setSystemTopology(systemSymbol, known.waypoints, results);
     return results;
   }
 

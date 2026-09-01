@@ -228,7 +228,7 @@ export class FleetManager {
     // observed in practice — but it's honest to say it exists now, where it
     // provably didn't before.
     this.doctrine = new Doctrine(opts.store, opts.tenantId);
-    this.galaxy = new GalaxyAtlas(this.api);
+    this.galaxy = new GalaxyAtlas(this.api, opts.store);
     this.missions = new MissionManager({
       api: this.api,
       store: opts.store,
