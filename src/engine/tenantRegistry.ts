@@ -190,7 +190,9 @@ export class TenantRegistry {
     // otherwise this boost would leak forever into that ticking and start
     // starving every other tenant instead of just getting this one started
     // faster.
-    api.client.setPriority(0);
+    // Optional-called: a test's injected fake API legitimately has no rate
+    // limiter to prioritise, and boot must not die on its absence.
+    api.setPriority?.(0);
     const store = new Store(this.pool);
     const state = new FleetState();
 
@@ -281,7 +283,7 @@ export class TenantRegistry {
       }
     }
     // Boot-critical work is done — see the setPriority(0) call above.
-    api.client.setPriority(1);
+    api.setPriority?.(1);
 
     // Derived from the galaxy atlas fleet.init() just populated (see this
     // function's own earlier comment) rather than fetched separately.

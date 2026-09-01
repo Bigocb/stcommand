@@ -338,6 +338,18 @@ export class SpaceTradersAPI {
     });
   }
 
+  /**
+   * Re-prioritise every request this agent makes from here on — delegates to
+   * the underlying Client (see Client.setPriority()). Exposed here so callers
+   * work against the API surface rather than reaching through `.client`:
+   * TenantRegistry did the latter and broke every test that injects a fake
+   * API, since a fake has no Client to reach through. Production never saw
+   * it because a real SpaceTradersAPI always has one.
+   */
+  setPriority(priority: number): void {
+    this.client.setPriority(priority);
+  }
+
   /** Total real HTTP requests sent through this agent's client so far, including retries. */
   getCallCount(): number {
     return this.client.getCallCount();
