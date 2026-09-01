@@ -77,11 +77,18 @@ export class DiscordRelay {
   private async send(payload: DiscordPayload): Promise<void> {
     if (!this.webhookUrl) return;
     try {
-      await fetch(this.webhookUrl, {
+      const res = await fetch(this.webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      // fetch() only rejects on a network failure — Discord rejecting the
+      // webhook (bad/deleted URL, malformed payload, rate limit) comes back
+      // as a normal response with a non-2xx status, which the old code never
+      // checked. That silently dropped every post with no trace anywhere.
+      if (!res.ok) {
+        console.error(`[discord] webhook post rejected: ${res.status} ${res.statusText} — ${await res.text()}`);
+      }
     } catch (err) {
       console.error("[discord] webhook post failed", err);
     }

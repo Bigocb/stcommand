@@ -998,6 +998,12 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const { webhookUrl } = req.body ?? {};
     if (typeof webhookUrl !== "string") return res.status(400).json({ error: "webhookUrl required" });
+    // Catch a mistyped/wrong-kind-of-link (e.g. a channel or invite URL)
+    // here, in the UI, instead of it failing silently forever on every post —
+    // see discord.ts's send() for the other half of that fix.
+    if (!/^https:\/\/(discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/.+/.test(webhookUrl)) {
+      return res.status(400).json({ error: "doesn't look like a Discord webhook URL (should start with https://discord.com/api/webhooks/...)" });
+    }
     try {
       await setTenantDiscordWebhook(pool, w.tenantId, webhookUrl);
       w.discord.setWebhook(webhookUrl);
