@@ -56,7 +56,7 @@ export class DiscordRelay {
   async postActivity(entry: ActivityEntry): Promise<void> {
     if (!this.webhookUrl) return;
     // Only post notable events immediately.
-    if (entry.kind !== "sell" && entry.kind !== "buy" && !entry.detail.toLowerCase().includes("purchased ship")) return;
+    if (entry.kind !== "sell" && entry.kind !== "buy" && entry.kind !== "ship") return;
     const payload: DiscordPayload = {
       embeds: [{
         description: `**${entry.shipSymbol}** ${entry.kind}: ${entry.detail}${entry.credits != null ? ` (${entry.credits >= 0 ? "+" : ""}${entry.credits.toLocaleString("en-US")}c)` : ""}`,

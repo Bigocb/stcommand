@@ -246,8 +246,15 @@ export class TenantRegistry {
       discord,
       scheduler,
       recordLedger: (e) => store.recordLedger(tenantId, e),
-      onActivity: (kind, detail, credits, shipSymbol) =>
-        store.recordActivity(tenantId, { timestamp: new Date().toISOString(), shipSymbol: shipSymbol ?? "fleet", kind, detail, credits }),
+      onActivity: (kind, detail, credits, shipSymbol) => {
+        const entry = { timestamp: new Date().toISOString(), shipSymbol: shipSymbol ?? "fleet", kind, detail, credits };
+        store.recordActivity(tenantId, entry);
+        // Trades (buy/sell) and other activity only ever reach the dashboard's
+        // own activity feed via this callback — DiscordRelay.postActivity's
+        // sell/buy filter (discord.ts) was otherwise dead code, since ship
+        // purchases post to Discord directly from fleet.ts and nothing else did.
+        discord.postActivity(entry);
+      },
       minCashReserve: 20_000,
     });
     // The SpaceTraders API occasionally returns transient 500s during the burst
