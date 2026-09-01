@@ -61,6 +61,43 @@ describe("RateLimiter burst behavior", () => {
   });
 });
 
+describe("RateLimiter fairness", () => {
+  it("queued acquirers resolve strictly in call order, not by whichever timer happens to fire first", async () => {
+    // Reproduces the production bug: the old implementation had every
+    // waiter run its own `for(;;) { ...; await sleep() }` loop, racing
+    // independently for each freed token with no ordering guarantee — an
+    // established tenant's continuously-ticking ships could out-race a
+    // brand-new tenant's one-off boot calls indefinitely, not just queue
+    // behind them (confirmed live: a new tenant's onboarding sat with zero
+    // forward progress for minutes while other tenants kept ticking).
+    // burst=1: the very first acquire() drains the one starting token
+    // synchronously (tokens starts at burst, so the first call is admitted
+    // immediately without queuing); every acquire() after that has to queue
+    // for a refill, which is the ordering this test actually exercises.
+    const limiter = new RateLimiter(50, 1); // fast refill, only ordering is under test
+    const resolved: number[] = [];
+    const calls = [0, 1, 2, 3, 4].map((n) => limiter.acquire().then(() => resolved.push(n)));
+
+    await Promise.all(calls);
+
+    assert.deepEqual(resolved, [0, 1, 2, 3, 4], "acquires must resolve in the exact order they were called, regardless of contention");
+  });
+
+  it("a caller that starts queuing after a burst of others still gets serviced in its actual arrival position", async () => {
+    const limiter = new RateLimiter(50, 1);
+    const resolved: string[] = [];
+    // Three "busy tenant" acquires queued first (the first drains the
+    // starting token immediately; the other two queue for a refill)...
+    const busy = ["busy-a", "busy-b", "busy-c"].map((id) => limiter.acquire().then(() => resolved.push(id)));
+    // ...then one "new tenant" acquire queues after them.
+    const late = limiter.acquire().then(() => resolved.push("late"));
+
+    await Promise.all([...busy, late]);
+
+    assert.deepEqual(resolved, ["busy-a", "busy-b", "busy-c", "late"], "arrival order determines service order — the late caller is never skipped or starved");
+  });
+});
+
 describe("Production defaults use a tight burst cap", () => {
   it("Client without sharedLimiter defaults to burst = ceil(rate)", async () => {
     const originalFetch = globalThis.fetch;

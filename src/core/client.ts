@@ -52,10 +52,17 @@ type RequestOptions = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Simple token-bucket limiter to stay under the API's per-second cap. */
+/**
+ * Token-bucket limiter to stay under the API's per-second cap. FIFO-queued —
+ * see acquire()'s own comment for why that matters once this is shared
+ * across many tenants.
+ */
 export class RateLimiter {
   private tokens: number;
   private last = Date.now();
+  private readonly queue: Array<() => void> = [];
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
   constructor(
     private readonly ratePerSec: number,
     private readonly burst: number,
@@ -63,18 +70,49 @@ export class RateLimiter {
     this.tokens = burst;
   }
 
-  async acquire(): Promise<void> {
-    for (;;) {
-      const now = Date.now();
-      const elapsed = (now - this.last) / 1000;
-      this.last = now;
-      this.tokens = Math.min(this.burst, this.tokens + elapsed * this.ratePerSec);
-      if (this.tokens >= 1) {
-        this.tokens -= 1;
-        return;
-      }
-      await sleep(Math.ceil((1 - this.tokens) / this.ratePerSec * 1000));
+  /**
+   * Confirmed live: a naive "every waiter wakes up and races for a token"
+   * implementation (each caller its own `for(;;) { ...; await sleep() }`
+   * loop) has no fairness guarantee at all. With one limiter shared across
+   * every tenant's fleet (TenantRegistry's `apiLimiter`), an established
+   * tenant's continuously-ticking ships re-enter that race many times a
+   * second; a brand-new tenant's boot — a handful of one-off calls — has no
+   * priority over that flood and can lose the race indefinitely, not just
+   * queue behind it. Reported live: a new tenant's onboarding sat with zero
+   * forward progress for minutes while other tenants kept ticking normally.
+   *
+   * FIFO fixes it structurally: every caller enqueues in arrival order and
+   * is resolved in that same order as tokens become available, so a new
+   * tenant's boot calls get serviced by their actual position in line —
+   * bounded by total queued work divided by the rate, not by how many other
+   * callers keep re-entering the race ahead of it.
+   */
+  acquire(): Promise<void> {
+    return new Promise((resolve) => {
+      this.queue.push(resolve);
+      this.pump();
+    });
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = (now - this.last) / 1000;
+    this.last = now;
+    this.tokens = Math.min(this.burst, this.tokens + elapsed * this.ratePerSec);
+  }
+
+  private pump(): void {
+    this.refill();
+    while (this.queue.length > 0 && this.tokens >= 1) {
+      this.tokens -= 1;
+      this.queue.shift()!();
     }
+    if (this.queue.length === 0 || this.timer) return;
+    const waitMs = Math.max(1, Math.ceil(((1 - this.tokens) / this.ratePerSec) * 1000));
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      this.pump();
+    }, waitMs);
   }
 }
 
