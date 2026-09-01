@@ -10,6 +10,7 @@ import { signSessionCookie } from "../src/auth/crypto.js";
 import { TenantRegistry } from "../src/engine/tenantRegistry.js";
 import { createResolveTenant } from "../src/http/resolveTenant.js";
 import { createDashboardRouter } from "../src/http/dashboard.js";
+import { Store } from "../src/db/store.js";
 import { SESSION_COOKIE_NAME } from "../src/http/session.js";
 import type { SpaceTradersAPI } from "../src/core/client.js";
 
@@ -249,5 +250,48 @@ describe("POST /api/discord", () => {
     assert.equal(res.status, 200);
     const worker = registry.get(tenantId)!;
     assert.equal((worker.discord as any).webhookUrl, "https://discord.com/api/webhooks/1/abc");
+  });
+});
+
+describe("GET /api/markets?system= filter", () => {
+  // market_snapshots/market_latest are shared galaxy tables (no tenant_id —
+  // see migration 001's comment), so this test seeds two distinct,
+  // randomized systems rather than relying on any tenant-scoped fixture,
+  // to stay isolated from whatever else is running in this shared table.
+  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const sysA = `X1-FA${suffix}`;
+  const sysB = `X1-FB${suffix}`;
+  const good = `WIDGET${suffix}`;
+
+  before(async () => {
+    const store = new Store(pool);
+    await store.recordMarkets([
+      { systemSymbol: sysA, waypointSymbol: `${sysA}-1`, goodSymbol: good, type: "EXPORT", supply: "ABUNDANT", purchasePrice: 10, sellPrice: 8, tradeVolume: 100 },
+      { systemSymbol: sysA, waypointSymbol: `${sysA}-2`, goodSymbol: good, type: "IMPORT", supply: "SCARCE", purchasePrice: 40, sellPrice: 35, tradeVolume: 100 },
+      { systemSymbol: sysB, waypointSymbol: `${sysB}-1`, goodSymbol: good, type: "EXPORT", supply: "ABUNDANT", purchasePrice: 5, sellPrice: 4, tradeVolume: 100 },
+      { systemSymbol: sysB, waypointSymbol: `${sysB}-2`, goodSymbol: good, type: "IMPORT", supply: "SCARCE", purchasePrice: 20, sellPrice: 18, tradeVolume: 100 },
+    ]);
+  });
+
+  it("with no filter, the systems list and snapshots include both seeded systems", async () => {
+    const data = (await (await get("/api/markets")).json()) as { systems: string[]; snapshots: { systemSymbol: string }[] };
+    assert.ok(data.systems.includes(sysA));
+    assert.ok(data.systems.includes(sysB));
+    assert.ok(data.snapshots.some((s) => s.systemSymbol === sysA));
+    assert.ok(data.snapshots.some((s) => s.systemSymbol === sysB));
+  });
+
+  it("?system=sysA narrows snapshots to that system only, but the systems list still includes both", async () => {
+    const data = (await (await get(`/api/markets?system=${sysA}`)).json()) as { systems: string[]; snapshots: { systemSymbol: string }[] };
+    assert.ok(data.snapshots.length > 0, "sanity check: sysA has snapshots");
+    assert.ok(data.snapshots.every((s) => s.systemSymbol === sysA), "no sysB rows must leak through the filter");
+    assert.ok(data.systems.includes(sysA) && data.systems.includes(sysB), "the picker's own option list must stay unfiltered so sysB can still be selected next");
+  });
+
+  it("?system=sysA narrows routes to legs touching that system only", async () => {
+    const data = (await (await get(`/api/markets?system=${sysA}`)).json()) as { routes: { buySystem: string; sellSystem: string }[] };
+    const seeded = data.routes.filter((r) => r.buySystem === sysA || r.buySystem === sysB || r.sellSystem === sysA || r.sellSystem === sysB);
+    assert.ok(seeded.length > 0, "sanity check: the seeded route was found at all");
+    assert.ok(seeded.every((r) => r.buySystem === sysA || r.sellSystem === sysA), "a route touching only sysB must not appear when filtered to sysA");
   });
 });

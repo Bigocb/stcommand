@@ -482,6 +482,11 @@
   }
   .pane-h .dot { width:5px; height:5px; border-radius:50%; background:var(--accent); box-shadow:0 0 7px var(--accent); }
   .pane-h .count { margin-left:auto; color:var(--dim); font-family:var(--mono); font-size:9px; letter-spacing:0.04em; }
+  .pane-h .sysfilter {
+    background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
+    font-family:var(--mono); font-size:9px; padding:2px 4px; max-width:110px;
+  }
+  .pane-h .sysfilter:hover { border-color:var(--accent); }
   .pane-b { padding:8px 10px; overflow:auto; flex:1; min-height:0; }
   .pane-b::-webkit-scrollbar { width:4px; } .pane-b::-webkit-scrollbar-thumb { background:var(--hairline); }
   .empty { color:var(--dim); font-size:11px; padding:18px 0; text-align:center; font-style:italic; }
@@ -1193,11 +1198,15 @@
     <!-- ══ MARKETS ══ -->
     <section class="view view-markets" data-view="markets">
       <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Routes<span class="count">profit per trip, net of fuel</span></div>
+        <div class="pane-h"><span class="dot"></span>Routes<span class="count">profit per trip, net of fuel</span>
+          <select class="sysfilter" id="routes-system-filter" aria-label="Filter routes by system"><option value="">All systems</option></select>
+        </div>
         <div class="pane-b" id="routes"></div>
       </div>
       <div class="pane">
-        <div class="pane-h"><span class="dot"></span>Prices &amp; snapshots<span class="count" id="snap-count">—</span></div>
+        <div class="pane-h"><span class="dot"></span>Prices &amp; snapshots<span class="count" id="snap-count">—</span>
+          <select class="sysfilter" id="snapshots-system-filter" aria-label="Filter snapshots by system"><option value="">All systems</option></select>
+        </div>
         <div class="pane-b">
           <div class="price-picker">
             <select id="price-good" aria-label="Trade good"></select>
@@ -1623,6 +1632,11 @@ let jumpConnections = [];
 let currentSystem = "";
 let marketSnapshots = [];
 let marketRoutes = [];
+let marketSystems = [];
+/** Filters both Markets-tab panels at once — sent as /api/markets?system=
+ *  so the top-N route cut and the system-picker's own option list are both
+ *  computed server-side from the right (unfiltered vs. filtered) dataset. */
+let marketSystemFilter = "";
 let intel = { shipyards: [], modules: [] };
 let activity = [];
 let doctrineRules = [];
@@ -1963,7 +1977,8 @@ async function loadActivity() {
 
 async function loadMarkets() {
   try {
-    const res = await fetch("/api/markets");
+    const qs = marketSystemFilter ? `?system=${encodeURIComponent(marketSystemFilter)}` : "";
+    const res = await fetch(`/api/markets${qs}`);
     const data = await res.json();
     if (data.error) return;
     marketRoutes = data.routes ?? [];
@@ -1971,12 +1986,31 @@ async function loadMarkets() {
     // older {cheapestMarket, expensiveMarket} shape.
     tradeRoutes = marketRoutes.map((r) => ({ cheapestMarket: r.buyAt, expensiveMarket: r.sellAt }));
     marketSnapshots = data.snapshots ?? [];
+    marketSystems = data.systems ?? [];
     intel = { shipyards: data.shipyards ?? [], modules: data.modules ?? [] };
+    renderMarketSystemFilter();
     renderRoutes();
     renderSnapshots();
     renderShipyardIntel();
     renderLanes();
   } catch (e) { console.error(e); }
+}
+
+/** Populates both Markets-tab system-filter selects from the unfiltered
+ *  systems list the server always returns, keeping the current selection —
+ *  a no-op most polls, since marketSystems rarely changes tick to tick. */
+function renderMarketSystemFilter() {
+  const opts = `<option value="">All systems</option>` +
+    marketSystems.map((s) => `<option value="${escapeAttr(s)}"${s === marketSystemFilter ? " selected" : ""}>${escapeHtml(s)}</option>`).join("");
+  for (const id of ["routes-system-filter", "snapshots-system-filter"]) {
+    const el = $(id);
+    if (el && el.innerHTML !== opts) el.innerHTML = opts;
+  }
+}
+
+function onMarketSystemFilterChange(e) {
+  marketSystemFilter = e.target.value;
+  loadMarkets();
 }
 
 /** Right rail's Lanes list — the same real route data Markets' renderRoutes()
@@ -4717,6 +4751,9 @@ document.addEventListener("visibilitychange", () => {
 
 $("price-refresh").addEventListener("click", () => loadPrices());
 $("price-good").addEventListener("change", () => loadPrices());
+
+$("routes-system-filter").addEventListener("change", onMarketSystemFilterChange);
+$("snapshots-system-filter").addEventListener("change", onMarketSystemFilterChange);
 
 // Dispatch controls: assign a good to a trader, or clear to auto. Shared
 // between the desktop toolbar and the mobile page's copy of the same form.

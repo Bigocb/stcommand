@@ -179,9 +179,18 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
       // age filter at all, so this panel could show a price hours or days
       // stale that the dispatcher/traders had already stopped considering.
       const maxAgeMin = w.fleet.doctrine.value("snapshotMaxAgeMin", 5_256_000);
-      const snapshots = await w.store.freshMarketSnapshots(maxAgeMin);
+      const allSnapshots = await w.store.freshMarketSnapshots(maxAgeMin);
+      // Optional ?system=X1-AB12 filter — the Markets tab's system-filter
+      // control. This fleet can span several systems once gates are in
+      // play, and both panels get unusable fast without one. `systems` is
+      // always computed from the *unfiltered* set so the dropdown never
+      // loses an option just because it's the currently selected one.
+      const systemFilter = typeof req.query.system === "string" ? req.query.system : undefined;
+      const snapshots = systemFilter ? allSnapshots.filter((s) => s.systemSymbol === systemFilter) : allSnapshots;
+      const systems = [...new Set(allSnapshots.map((s) => s.systemSymbol))].sort();
+
       const dispatchRoutes = await w.fleet.computeDispatchRoutes();
-      const allRoutes = dispatchRoutes.map((r) => ({
+      let allRoutes = dispatchRoutes.map((r) => ({
         goodSymbol: r.good,
         buyAt: r.buyAt,
         buySystem: r.buySystem,
@@ -200,6 +209,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
         crossSystem: r.buySystem !== r.sellSystem,
         ageMinutes: r.ageMinutes,
       }));
+      // Filtered before the top-N cut below, not after — otherwise a system
+      // whose best routes don't crack the fleet-wide top 25 would show up
+      // nearly empty even though it has plenty of its own profitable routes.
+      if (systemFilter) allRoutes = allRoutes.filter((r) => r.buySystem === systemFilter || r.sellSystem === systemFilter);
       // A flat top-25-by-profit cut can bury every same-system route below
       // a handful of high-value cross-system ones, even though same-system
       // routes are flyable *right now* with no gate transit — so on top of
@@ -213,7 +226,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
       const routes = [...top, ...missingSameSystem].sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
       const intel = await w.fleet.getIntel();
-      res.json({ routes, snapshots, shipyards: intel.shipyards, modules: intel.modules });
+      res.json({ routes, snapshots, shipyards: intel.shipyards, modules: intel.modules, systems });
     } catch (err) {
       console.error("[dashboard] /markets error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
