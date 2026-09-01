@@ -3,7 +3,7 @@ import type pg from "pg";
 import { generateLog } from "../engine/narrative.js";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
 import { buildTriage } from "../engine/triage.js";
-import { setTenantDiscordWebhook, getTenantLlmConfig } from "../db/tenants.js";
+import { setTenantDiscordWebhook, getTenantDiscordWebhook, getTenantDiscordEnabled, setTenantDiscordEnabled, getTenantLlmConfig } from "../db/tenants.js";
 import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
 import { makeTTLCache } from "./cache.js";
 import type { SpaceTradersAPI } from "../core/client.js";
@@ -1075,6 +1075,19 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  /** Current relay state, minus the webhook URL itself — just enough for the UI to show configured/paused. */
+  router.get("/discord", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      const webhookUrl = await getTenantDiscordWebhook(pool, w.tenantId);
+      const enabled = await getTenantDiscordEnabled(pool, w.tenantId);
+      res.json({ configured: !!webhookUrl, enabled });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /** Sets this tenant's own webhook — persisted, and applied to the live relay immediately, no restart needed. */
   router.post("/discord", async (req, res) => {
     const w = worker(req);
@@ -1084,6 +1097,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     try {
       await setTenantDiscordWebhook(pool, w.tenantId, webhookUrl);
       w.discord.setWebhook(webhookUrl);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Pauses or resumes this tenant's Discord relay without touching the saved webhook URL. */
+  router.post("/discord/enabled", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { enabled } = req.body ?? {};
+    if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled (boolean) required" });
+    try {
+      await setTenantDiscordEnabled(pool, w.tenantId, enabled);
+      w.discord.setEnabled(enabled);
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

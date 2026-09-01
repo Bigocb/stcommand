@@ -8,7 +8,7 @@ import { ChatAgent } from "./agentChat.js";
 import { MarketIntel, type MarketSnapshot } from "./market.js";
 import { DiscordRelay } from "./discord.js";
 import { Scheduler } from "./scheduler.js";
-import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook, listAllTenants } from "../db/tenants.js";
+import { getTenantToken, getTenantLlmConfig, setTenantLlmConfig, getTenantDiscordWebhook, getTenantDiscordEnabled, listAllTenants } from "../db/tenants.js";
 
 export interface TenantWorker {
   tenantId: string;
@@ -237,6 +237,7 @@ export class TenantRegistry {
     const discord = new DiscordRelay();
     const webhookUrl = await getTenantDiscordWebhook(this.pool, tenantId);
     if (webhookUrl) discord.setWebhook(webhookUrl);
+    discord.setEnabled(await getTenantDiscordEnabled(this.pool, tenantId));
     // Cutover: created before FleetManager (which needs the instance itself
     // to enqueue tasks onto) and before its own isPaused callback has
     // anything to call — `fleet` is assigned just below, but closures over
@@ -254,8 +255,15 @@ export class TenantRegistry {
       discord,
       scheduler,
       recordLedger: (e) => store.recordLedger(tenantId, e),
-      onActivity: (kind, detail, credits, shipSymbol) =>
-        store.recordActivity(tenantId, { timestamp: new Date().toISOString(), shipSymbol: shipSymbol ?? "fleet", kind, detail, credits }),
+      onActivity: (kind, detail, credits, shipSymbol) => {
+        const entry = { timestamp: new Date().toISOString(), shipSymbol: shipSymbol ?? "fleet", kind, detail, credits };
+        store.recordActivity(tenantId, entry);
+        // Trades (buy/sell) and other activity only ever reach the dashboard's
+        // own activity feed via this callback — DiscordRelay.postActivity's
+        // sell/buy filter (discord.ts) was otherwise dead code, since ship
+        // purchases post to Discord directly from fleet.ts and nothing else did.
+        discord.postActivity(entry);
+      },
       minCashReserve: 20_000,
     });
     // The SpaceTraders API occasionally returns transient 500s during the burst

@@ -200,3 +200,21 @@ export async function setTenantDiscordWebhook(pool: pg.Pool, tenantId: string, w
     await c.query(`UPDATE tenants SET discord_webhook_enc = $2, discord_webhook_iv = $3 WHERE id = $1`, [tenantId, enc, iv]);
   });
 }
+
+/**
+ * Whether a tenant's Discord relay is paused. Deliberately separate from the
+ * webhook URL itself — pausing shouldn't force the operator to re-enter the
+ * URL to resume later. Defaults to true (matches the column's DB default)
+ * so a tenant with no row yet still behaves as "on".
+ */
+export async function getTenantDiscordEnabled(pool: pg.Pool, tenantId: string): Promise<boolean> {
+  return withPool(pool, async (c) => {
+    const res = await c.query<{ discord_enabled: boolean }>(`SELECT discord_enabled FROM tenants WHERE id = $1`, [tenantId]);
+    return res.rows[0]?.discord_enabled ?? true;
+  });
+}
+
+/** Pause or resume a tenant's Discord relay without touching its saved webhook URL. */
+export async function setTenantDiscordEnabled(pool: pg.Pool, tenantId: string, enabled: boolean): Promise<void> {
+  await withPool(pool, (c) => c.query(`UPDATE tenants SET discord_enabled = $2 WHERE id = $1`, [tenantId, enabled]));
+}
