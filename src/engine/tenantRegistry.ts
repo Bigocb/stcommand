@@ -210,17 +210,25 @@ export class TenantRegistry {
 
     // Try to serve the first dashboard load from data already in Postgres.
     // Ships refresh market snapshots every time they dock, so the DB is
-    // normally up to date; if it's empty (brand-new tenant), fall back to
-    // the old live scan path on this boot only.
+    // normally up to date. A brand-new tenant has nothing cached yet — this
+    // used to fall back to a live scan right here, blocking boot() (and
+    // therefore every /api/* route for this tenant, including onboarding's
+    // own /api/doctrine call, via resolveTenant) on a live API round-trip
+    // per market in the system. Confirmed live: with the shared per-IP rate
+    // limiter also serving every other tenant's fleet loop, that scan could
+    // take minutes, leaving onboarding stuck on "Loading standing orders…"
+    // with nothing to show. backgroundMarketRefresh() below already does
+    // this exact same scan, unconditionally, after boot returns — so an
+    // empty cache here just proceeds with markets=[] (fleet.init() treats
+    // that as "no market intel yet," not an error) and lets that one
+    // real scan populate it a few seconds later instead of blocking on it.
     const intel = new MarketIntel(api);
-    let markets = await this.loadCachedMarkets(store, systemSymbol);
-    if (markets.length === 0) {
-      log(`no cached markets for ${systemSymbol}; live-scanning...`);
-      markets = await intel.getSystemMarkets(systemSymbol, waypoints);
-      await this.recordMarkets(store, markets);
-    } else {
-      log(`booted from ${markets.length} cached markets in ${systemSymbol}`);
-    }
+    const markets = await this.loadCachedMarkets(store, systemSymbol);
+    log(
+      markets.length > 0
+        ? `booted from ${markets.length} cached markets in ${systemSymbol}`
+        : `no cached markets for ${systemSymbol}; scanning live in the background`,
+    );
 
     const contracts = new ContractManager(api, store);
     // This tenant's own relay, never a shared one — see discord.ts's class
