@@ -30,7 +30,7 @@ function log(msg: string): void {
  * Wires the mechanics (gate, session resolution, per-tenant engine boot)
  * together with the full dashboard route surface (src/http/dashboard.ts) —
  * ship commands, warehouse controls, doctrine/dispatch/keeper tuning, the
- * chat endpoint — and serves the command-center frontend (public/index.html,
+ * chat endpoint — and serves the command-center frontend (public/v2.html,
  * a tenant-aware port of straders' own dashboard) as static files. Still
  * ahead: the LLM/Discord settings UI's own routes for reading back what's
  * currently configured. See README.md's status section.

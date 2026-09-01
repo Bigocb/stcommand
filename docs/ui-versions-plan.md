@@ -11,9 +11,10 @@ interfaces alongside the current one.
 | `v4` | Deep Field | No Man's Sky HUD — map is the room, floating modules |
 | `v5` | Mission Control | light console — nav spine, KPI band, dark sector display |
 
-Precedent already exists: `public/index.html` (the v1 UI, 153KB) still sits
-beside `public/v2.html` and neither breaks the other. This plan makes that
-arrangement deliberate rather than accidental.
+Precedent already existed: `public/index.html` (the v1 UI, 153KB) sat
+beside `public/v2.html` for months and neither broke the other. This plan
+makes that arrangement deliberate rather than accidental — and retires v1,
+which nothing referenced and nobody maintained.
 
 ---
 
@@ -83,7 +84,6 @@ public/
     mapmath.js              ← projection, scale, transit lerp, heading — no DOM
     fonts.css               ← the @font-face blocks, pointing at ../fonts/
     switcher.js             ← the version picker, injected into all four
-  index.html                ← v1, untouched
   v2.html                   ← current, converted to import shared/*
   v3.html  v3.css  v3.js    ← Refined Bridge
   v4.html  v4.css  v4.js    ← Deep Field
@@ -251,7 +251,7 @@ reordered or dropped individually without stranding the others.
 | Render layer drifts across four versions anyway | Only `render*` may fork; anything computational belongs in `shared/` — enforce in review |
 | v4's dense views never get designed | Decide the fallback (v5 handoff) before starting Phase 4, not during |
 | Shared modules cached stale after deploy | Cache headers in Phase 1, or a build-stamp query string |
-| Four UIs to keep working as the engine changes | The switcher makes divergence visible; treat v1/`index.html` as frozen and delete it once v3 lands |
+| Four UIs to keep working as the engine changes | The switcher makes divergence visible; v1/`index.html` is already deleted (Phase 0) so it can't rot further |
 
 ## 9. Definition of done
 
