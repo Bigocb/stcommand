@@ -3,7 +3,9 @@
 -- interpolated guesswork. Recorded once per state-refresh cycle
 -- (tenantRegistry.ts's refreshState(), every STATE_REFRESH_MS).
 
-SET search_path TO stcommand;
+-- No `SET search_path` here: src/db/pool.ts sets it per connection from
+-- DB_SCHEMA, so this file applies to whichever schema the migration run
+-- targets (production `stcommand`, or the test schema).
 
 CREATE TABLE IF NOT EXISTS ship_position_history (
   tenant_id       uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

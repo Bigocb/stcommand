@@ -2,7 +2,9 @@
 -- owns it, per src/engine/shipRegistry.ts. Tenant-scoped, same RLS shape as
 -- ship_state and ship_manifest.
 
-SET search_path TO stcommand;
+-- No `SET search_path` here: src/db/pool.ts sets it per connection from
+-- DB_SCHEMA, so this file applies to whichever schema the migration run
+-- targets (production `stcommand`, or the test schema).
 
 CREATE TABLE IF NOT EXISTS ship_claims (
   tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

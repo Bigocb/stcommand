@@ -10,7 +10,9 @@
 -- exists" the moment there's more than one migration file. Scoped to just
 -- the table this migration adds instead.
 
-SET search_path TO stcommand;
+-- No `SET search_path` here: src/db/pool.ts sets it per connection from
+-- DB_SCHEMA, so this file applies to whichever schema the migration run
+-- targets (production `stcommand`, or the test schema).
 
 CREATE TABLE IF NOT EXISTS ship_state (
   tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

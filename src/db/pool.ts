@@ -18,6 +18,29 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * silently resolve to one of promptoria's tables just because they happened
  * to share a name.
  */
+/**
+ * Which Postgres schema every connection resolves unqualified table names
+ * against. Defaults to `stcommand` — the production schema this app has
+ * always used, so nothing changes unless a caller opts out.
+ *
+ * `DB_SCHEMA` exists so the test suite can point at a throwaway schema
+ * (`stcommand_test`) in the same instance instead of the live one. That
+ * isn't a nicety: tests/store.test.ts and tests/tenantRegistry.test.ts
+ * both `DELETE FROM tenants`, and the shared galaxy tables get seeded with
+ * fixture rows — running that against `stcommand` would destroy the running
+ * fleet's data.
+ *
+ * Validated rather than interpolated blind: this string goes into libpq's
+ * `options`, so anything but a plain identifier is rejected outright.
+ */
+export function dbSchema(): string {
+  const schema = process.env.DB_SCHEMA ?? "stcommand";
+  if (!/^[a-z_][a-z0-9_]*$/i.test(schema)) {
+    throw new Error(`DB_SCHEMA must be a plain identifier, got: ${schema}`);
+  }
+  return schema;
+}
+
 export function createPool(connectionString: string): pg.Pool {
   // Render's Postgres (and most hosted Postgres) requires TLS and rejects a
   // plaintext connection outright ("SSL/TLS required") — local dev/CI
@@ -38,7 +61,7 @@ export function createPool(connectionString: string): pg.Pool {
   const isLocal = /(?:^|@)(localhost|127\.0\.0\.1)(?::|\/)/.test(connectionString);
   return new Pool({
     connectionString,
-    options: "-c search_path=stcommand",
+    options: `-c search_path=${dbSchema()}`,
     ssl: isLocal ? undefined : { rejectUnauthorized: false },
     // pg's own default (10) was confirmed in production as a real
     // bottleneck: a dashboard login's own burst of ~9 parallel API requests
@@ -63,17 +86,24 @@ export function createPool(connectionString: string): pg.Pool {
  * automatically reverts on commit/rollback, so a pooled connection can never
  * leak one tenant's context into the next caller that happens to reuse it.
  */
-/**
- * Temporary diagnostic: every withTenant() call site (fleet_state, ship_state,
- * ship_manifest, ship_claims, missions, doctrine, activity, ledger, ...) has
- * been silently producing zero persisted rows in production despite no
- * errors ever surfacing at any call site — logged here, at the one place
- * every one of those calls actually goes through, since guessing which of
- * dozens of call sites is affected (or whether it's all of them) wasn't
- * getting anywhere. Remove once the cause is found.
+/*
+ * The "withTenant() silently persists zero rows" investigation is closed:
+ * there was never a write bug. Every one of those tables carries FORCE ROW
+ * LEVEL SECURITY, which applies to the table owner too — so an ad-hoc psql
+ * session (which has no `app.tenant_id` set) sees zero rows in doctrine,
+ * fleet_flags, ledger and the rest no matter how much data is really there.
+ * The "no rows persisted" reading was that false negative, not a failed
+ * write.
+ *
+ * Verified against production: with `SET app.tenant_id` to the live tenant,
+ * the same tables report 20 doctrine rows, 2 fleet_flags and 4,062 ledger
+ * rows. The diagnostic counters, watchdog timer and per-call timing logs
+ * this comment used to introduce are gone with it — they were noise in the
+ * production logs for a bug that did not exist.
+ *
+ * If you ever need to inspect tenant-scoped rows by hand, set the GUC first:
+ *   SET app.tenant_id = '<tenant uuid>';  -- then SELECT as normal
  */
-let withTenantCalls = 0;
-let withTenantSlowWarned = 0;
 
 export async function withTenant<T>(pool: pg.Pool, tenantId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   // Postgres won't accept a parameterized value in SET LOCAL, so tenantId gets
@@ -83,30 +113,17 @@ export async function withTenant<T>(pool: pg.Pool, tenantId: string, fn: (client
   // before it ever reaches a query string, rather than trusting every future
   // caller to only ever pass a real uuid.
   if (!UUID_RE.test(tenantId)) throw new Error(`withTenant: not a uuid: ${JSON.stringify(tenantId)}`);
-  const callId = ++withTenantCalls;
-  const startedAt = Date.now();
-  const connectStart = Date.now();
   const client = await pool.connect();
-  const connectMs = Date.now() - connectStart;
-  if (connectMs > 500) console.log(`[withTenant#${callId}] pool.connect() took ${connectMs}ms (pool: total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount})`);
-  const watchdog = setTimeout(() => {
-    withTenantSlowWarned += 1;
-    console.log(`[withTenant#${callId}] still running after 5s (pool: total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount})`);
-  }, 5_000);
   try {
     await client.query("BEGIN");
     await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
     const result = await fn(client);
     await client.query("COMMIT");
-    const totalMs = Date.now() - startedAt;
-    if (totalMs > 1_000) console.log(`[withTenant#${callId}] committed in ${totalMs}ms`);
     return result;
   } catch (err) {
-    console.log(`[withTenant#${callId}] FAILED after ${Date.now() - startedAt}ms: ${err instanceof Error ? err.message : String(err)}`);
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
-    clearTimeout(watchdog);
     client.release();
   }
 }

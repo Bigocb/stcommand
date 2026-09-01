@@ -1,7 +1,9 @@
 -- Greenfield Phase 5-6: doctrine_fires — tracks doctrine rule firings for
 -- instrumentation in the dashboard.
 
-SET search_path TO stcommand;
+-- No `SET search_path` here: src/db/pool.ts sets it per connection from
+-- DB_SCHEMA, so this file applies to whichever schema the migration run
+-- targets (production `stcommand`, or the test schema).
 
 CREATE TABLE IF NOT EXISTS doctrine_fires (
   tenant_id  uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

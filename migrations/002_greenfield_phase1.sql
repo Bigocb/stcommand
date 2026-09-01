@@ -13,7 +13,9 @@
 -- 001_init.sql's "Shared, ungated: public galaxy data" section for why that
 -- table has no RLS — the same reasoning applies here unchanged.
 
-SET search_path TO stcommand;
+-- No `SET search_path` here: src/db/pool.ts sets it per connection from
+-- DB_SCHEMA, so this file applies to whichever schema the migration run
+-- targets (production `stcommand`, or the test schema).
 
 CREATE TABLE IF NOT EXISTS market_latest (
   system_symbol   text NOT NULL,

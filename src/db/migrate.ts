@@ -2,14 +2,15 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import "dotenv/config";
-import { createPool } from "./pool.js";
+import { createPool, dbSchema } from "./pool.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(here, "..", "..", "migrations");
 
 /**
  * Applies every `migrations/*.sql` file, in filename order, that hasn't run
- * yet against DATABASE_URL — tracked in `schema_migrations`. Nothing is
+ * yet against DATABASE_URL, in the schema DB_SCHEMA selects (default
+ * `stcommand`; the test suite points this at a throwaway schema) — tracked in `schema_migrations`. Nothing is
  * deployed yet (see README.md), so there's no already-migrated database to
  * stay compatible with; a fresh database just runs every file once, in
  * order, and records each as applied.
@@ -17,11 +18,15 @@ const MIGRATIONS_DIR = join(here, "..", "..", "migrations");
 async function main(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is not set");
+  const schema = dbSchema();
   const pool = createPool(connectionString);
   try {
-    await pool.query(`CREATE SCHEMA IF NOT EXISTS stcommand`);
+    // Quoted identifier: dbSchema() has already rejected anything that isn't
+    // a plain identifier, so this can't inject — the quotes just keep a
+    // reserved-word schema name legal.
+    await pool.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
     await pool.query(
-      `CREATE TABLE IF NOT EXISTS stcommand.schema_migrations (
+      `CREATE TABLE IF NOT EXISTS "${schema}".schema_migrations (
          filename    text PRIMARY KEY,
          applied_at  timestamptz NOT NULL DEFAULT now()
        )`,
@@ -32,14 +37,14 @@ async function main(): Promise<void> {
       .sort();
 
     for (const file of files) {
-      const already = await pool.query(`SELECT 1 FROM stcommand.schema_migrations WHERE filename = $1`, [file]);
+      const already = await pool.query(`SELECT 1 FROM "${schema}".schema_migrations WHERE filename = $1`, [file]);
       if (already.rowCount) {
         console.log(`skipped (already applied): ${file}`);
         continue;
       }
       const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
       await pool.query(sql);
-      await pool.query(`INSERT INTO stcommand.schema_migrations (filename) VALUES ($1)`, [file]);
+      await pool.query(`INSERT INTO "${schema}".schema_migrations (filename) VALUES ($1)`, [file]);
       console.log(`migrated: ${file}`);
     }
   } finally {
