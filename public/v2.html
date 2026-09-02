@@ -1438,7 +1438,7 @@
 
 <div class="modal-backdrop" id="trade-backdrop"><div class="modal" id="trade-modal"></div></div>
 
-<script>
+<script type="module">
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n ?? 0).toLocaleString("en-US");
 const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + fmt(Math.abs(n ?? 0));
