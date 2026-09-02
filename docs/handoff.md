@@ -2,7 +2,7 @@
 
 For whoever picks this up next, cold. Read this before touching anything.
 
-Branch: **`ui-parallel-versions`**, 5 commits ahead of `main`, **not pushed**.
+Branch: **`ui-parallel-versions`**, ahead of `main`, **not pushed**.
 Working tree clean. `main` is deployed to production and auto-deploys on push.
 
 ---
@@ -37,11 +37,13 @@ Decisions the user has already made — do not re-litigate:
 Everything committed so far is prerequisite work, not plan work:
 
 ```
-c4cd309  Record the RLS false-negative that caused two wrong diagnoses
-2f62f63  Fix three tests the working database exposed
-9adfdf6  Fix a boot crash for any injected fake API (regression from 722401d)
-ee3a6a2  Delete the v1 UI
-bc00a56  Make the DB schema configurable so tests get their own
+          Make `npm test` work with no manual setup  ← newest
+966d5d7   Add a handoff for the parallel-UI work
+c4cd309   Record the RLS false-negative that caused two wrong diagnoses
+2f62f63   Fix three tests the working database exposed
+9adfdf6   Fix a boot crash for any injected fake API (regression from 722401d)
+ee3a6a2   Delete the v1 UI
+bc00a56   Make the DB schema configurable so tests get their own
 ```
 
 Next action is Phase 0 step 1: extract the 9 base64 `@font-face` blobs out of
@@ -52,30 +54,39 @@ the file from 408KB to roughly 60KB. Then the `shared/*.js` modules.
 had not answered when this handoff was written.** Confirm before editing
 `v2.html`.
 
-## 3. Running the tests — read this or you will waste an hour
-
-The suite could not run at all until this branch. Every DB-backed test failed
-on `password authentication failed for user "stcommand"` — roughly 137
-failures that were pure noise. If you see that error, you have not set the
-env vars.
+## 3. Running the tests
 
 ```bash
-export TEST_DATABASE_URL='<ask the user — it is in .env, which is gitignored>'
-DB_SCHEMA=stcommand_test node --test --import tsx tests/*.test.ts
+npm test
 ```
 
-- `DB_SCHEMA=stcommand_test` is **mandatory**. Without it the tests run
-  against the live `stcommand` schema, and `store.test.ts` /
-  `tenantRegistry.test.ts` both `DELETE FROM tenants`. That is the running
-  fleet's data.
-- The schema already exists and is migrated. To rebuild it:
-  `DB_SCHEMA=stcommand_test DATABASE_URL=... npx tsx src/db/migrate.ts`
-- **It is slow** — roughly 25 minutes, because it is a real remote database
-  in Oregon with per-query latency. Run it in the background and do other
-  work. Do not pipe it through `tail`, which buffers everything and hides the
-  summary until the end; redirect to a file and grep.
-- **Never commit the connection string.** It is a live production credential
-  the user pasted in chat. It lives in `.env` (gitignored). Ask them for it.
+That is the whole thing. It loads `.env.test` automatically
+(`--env-file-if-exists`), and a `pretest` guard refuses to start if
+`DB_SCHEMA` is missing or set to the live `stcommand` schema.
+
+If `.env.test` does not exist yet, copy `.env.test.example` and fill it in —
+**ask the user for the connection string**, it is a live production
+credential and is deliberately not in the repo.
+
+- The suite is **slow** — roughly 25 minutes — because it runs against a
+  real remote Postgres with per-query latency. Run it in the background.
+  Do not pipe it through `tail`, which buffers everything and hides the
+  summary; redirect to a file and grep.
+- To rebuild the test schema from scratch: `npm run migrate:test`.
+- **Never commit the connection string.** `.env` and `.env.test` are both
+  gitignored.
+
+### Why this section used to be longer
+
+The first version of this handoff told the next agent to export
+`TEST_DATABASE_URL` and `DB_SCHEMA` by hand before every run. That failed
+on first contact: a fresh session ran `npm test`, got the built-in
+localhost fallback, hit `password authentication failed for user
+"stcommand"`, and reported the database as unreachable — when it was fine.
+
+A setup step that has to be remembered is a setup step that gets skipped.
+`npm test` now works cold, and the guard makes the dangerous
+misconfiguration impossible rather than merely documented.
 
 ## 4. The trap that has now cost two investigations
 
