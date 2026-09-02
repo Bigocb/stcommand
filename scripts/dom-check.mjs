@@ -38,6 +38,7 @@ const flag = (name) => {
 const savePath = flag("--save");
 const againstPath = flag("--against");
 const page = flag("--page") ?? "/";
+const useFixtures = args.includes("--fixtures");
 
 if (!savePath && !againstPath) {
   console.error("usage: dom-check.mjs (--save <file> | --against <file>) [--page /v3]");
@@ -63,6 +64,64 @@ if (!chrome) {
 }
 
 const app = express();
+
+/**
+ * Canned /api/* responses so the page renders the *dashboard* rather than
+ * the login gate.
+ *
+ * Without this the harness only ever proves the logged-out view still
+ * paints — none of the load*() functions run, so none of the render
+ * pipeline is exercised, and a refactor of the data layer would diff clean
+ * while being completely broken. boot0() probes /api/state; a 200 there is
+ * what takes it past the gate and into boot(), which fans out to eight
+ * loaders.
+ *
+ * The values do not need to be realistic, only *deterministic*: the point
+ * is that the same fixtures render the same DOM before and after a change.
+ * Timestamps are fixed and old so relative-time strings ("3d") are stable
+ * between two runs seconds apart.
+ */
+const FIXED_ISO = "2026-08-30T12:00:00.000Z";
+const FIXTURES = {
+  "/api/state": {
+    agent: { symbol: "FIXTURE", credits: 1327000, shipCount: 2 },
+    ships: [], contracts: [], systemSymbol: "X1-FIX",
+    waypoints: [{ symbol: "X1-FIX-A1", x: 0, y: 0, type: "PLANET", traits: ["MARKETPLACE"] }],
+    systems: [{ symbol: "X1-FIX", waypoints: [{ symbol: "X1-FIX-A1", x: 0, y: 0, type: "PLANET", traits: ["MARKETPLACE"] }], jumpGates: [] }],
+    jumpConnections: [], totals: { sells: 0, buys: 0 },
+  },
+  "/api/bridge": {
+    rate: 0, prevRate: 0, forgone: 0, series: [0, 0], credits: 1327000, shipCount: 2,
+    totals: { sells: 0, buys: 0 }, paused: false, earnings: [], stranded: [],
+    shipStatus: [], summary: [], triage: [],
+  },
+  "/api/fleet/status": { ships: [], stranded: [], paused: false },
+  "/api/markets": { routes: [], snapshots: [], shipyards: [], modules: [], systems: ["X1-FIX"] },
+  "/api/activity": { activity: [] },
+  "/api/doctrine": { rules: [], catalog: [] },
+  "/api/doctrine/stats": { stats: [] },
+  "/api/narrative": { narrative: "Fixture watch." },
+  "/api/missions": { missions: [] },
+  "/api/contracts": { contracts: [] },
+  "/api/replay": { frames: [], t0: FIXED_ISO, t1: FIXED_ISO },
+  "/api/goods": { goods: [] },
+  "/api/warehouse": { goods: [], targets: [], ship: null },
+  "/api/dispatch": { routes: [], assignments: [] },
+  "/api/keeper/markets": { markets: [], stationed: [] },
+  "/api/leaderboard": { agents: [] },
+  "/api/factions": { factions: [] },
+  "/api/chat/history": { messages: [] },
+  "/api/discord/enabled": { enabled: false },
+  "/api/settings/llm": {},
+};
+
+if (useFixtures) {
+  app.use("/api", (req, res) => {
+    const key = "/api" + req.path.replace(/\/$/, "");
+    res.json(FIXTURES[key] ?? {});
+  });
+}
+
 app.use(express.static(resolve("public"), { index: "v2.html" }));
 const server = app.listen(0, async () => {
   const url = `http://127.0.0.1:${server.address().port}${page}`;
