@@ -1445,6 +1445,24 @@ import {
   CLAUSE_TEXT, clauseForRule, conditionSectionHtml, crewSectionHtml,
 } from "./shared/domain.js";
 import { WP_GLYPH, drawWaypointGlyph, shipGlyphMarkup, shipHeadingDeg, shipTransitLerp } from "./shared/mapmath.js";
+import {
+  authed, initSession, showAuthGate, hideAuthGate, showLoginForm, showRegisterForm,
+  tryLogin, tryRegister, logout, showOnboarding, renderOnboarding, confirmOnboarding,
+} from "./shared/session.js";
+import {
+  subscribe, showToastGlobal,
+  state, bridge, fleetStatus, systems, jumpConnections, currentSystem, setCurrentSystem,
+  marketSnapshots, marketRoutes, marketSystems, marketSystemFilter, intel, activity,
+  doctrineRules, doctrineCatalog, doctrineFires, doctrineFireShips, tradeRoutes,
+  dispatchRoutes, dispatchAssignments, warehouseState,
+  keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
+  replayByShip, replayT0, replayT1, priceGood, lastPricePoints,
+  loadState, loadBridge, loadActivity, loadMarkets, loadIntel, onMarketSystemFilterChange,
+  loadDispatch, loadWarehouse, loadKeepers, saveKeepers,
+  loadDoctrine, loadDoctrineFires, loadDoctrineFireShips, saveRule, saveAdopted,
+  loadReplay, loadNarrative, loadOps, loadGalaxy, loadGoods, loadPrices,
+  loadChatHistory, loadMobilePanels,
+} from "./shared/store.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -1455,7 +1473,6 @@ const $ = (id) => document.getElementById(id);
    carries automatically — no Authorization header to attach client-side.
    A 401 from any /api/* call (missing/expired/forged session) re-shows the
    gate. */
-let authed = false;
 const nativeFetch = window.fetch.bind(window);
 window.fetch = (input, init = {}) => {
   const url = typeof input === "string" ? input : input?.url ?? "";
@@ -1467,67 +1484,8 @@ window.fetch = (input, init = {}) => {
   });
 };
 
-function showAuthGate(message) {
-  authed = false;
-  $("auth-err").textContent = message ?? "";
-  $("reg-err").textContent = "";
-  $("app-root").hidden = true;
-  $("auth-gate").hidden = false;
-  showLoginForm();
-}
-
-function hideAuthGate() {
-  authed = true;
-  $("auth-gate").hidden = true;
-  $("app-root").hidden = false;
-}
-
-function showLoginForm() {
-  $("auth-form-login").hidden = false;
-  $("auth-form-register").hidden = true;
-  $("auth-token").focus();
-}
-
-function showRegisterForm() {
-  $("auth-form-login").hidden = true;
-  $("auth-form-register").hidden = false;
-  $("reg-symbol").focus();
-}
-
 /** Sign in with an existing SpaceTraders account token. */
-async function tryLogin(token) {
-  try {
-    const res = await fetch("/api/gate/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
-    if (json.isNewTenant) showOnboarding();
-    else { hideAuthGate(); boot(); }
-  } catch (err) {
-    $("auth-err").textContent = err.message || "Could not reach the server.";
-  }
-}
-
 /** Register a brand-new SpaceTraders agent, then sign in as it. */
-async function tryRegister(agentSymbol, faction, accountToken) {
-  try {
-    const res = await fetch("/api/gate/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentSymbol, faction, accountToken }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
-    if (json.isNewTenant) showOnboarding();
-    else { hideAuthGate(); boot(); }
-  } catch (err) {
-    $("reg-err").textContent = err.message || "Could not reach the server.";
-  }
-}
-
 /** New-agent onboarding (docs/policy-library-and-onboarding-plan.md §4) —
  *  a full-screen step before the dashboard, not a modal over it: this is
  *  before the captain has any reason to look at Bridge/Fleet/Markets yet.
@@ -1539,105 +1497,11 @@ async function tryRegister(agentSymbol, faction, accountToken) {
  *  just leaves the fleet sitting paused, not silently acting on defaults
  *  the captain never chose.
  */
-async function showOnboarding() {
-  $("auth-gate").hidden = true;
-  $("onboarding-gate").hidden = false;
-  $("onboard-err").textContent = "";
-  $("onboard-list").innerHTML = '<div class="empty">Loading standing orders…</div>';
-  // Disabled until the real catalog renders — confirming while this list is
-  // still empty would send an empty `selections` object, which
-  // completeOnboarding() reads as "adopt nothing," silently turning off
-  // every policy (including the cash floor) instead of leaving them at
-  // their real defaults.
-  $("onboard-confirm").disabled = true;
-  // This is likely the very first /api/* call for a brand-new agent — the
-  // resolveTenant middleware awaits the tenant's full fleet boot (live
-  // SpaceTraders calls: agent, ships, galaxy) before this can even reach
-  // the route, so a 503 "engine not ready" here is plausibly just "still
-  // booting," not a real failure. Retry a few times with backoff before
-  // showing an error, rather than dumping the captain on a blank screen or
-  // a scary message for something that resolves itself in a few seconds.
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    try {
-      const res = await fetch("/api/doctrine");
-      if (!res.ok) throw new Error(`engine not ready yet (attempt ${attempt})`);
-      const data = await res.json();
-      if (!Array.isArray(data.catalog) || !data.catalog.length) throw new Error("empty catalog");
-      renderOnboarding(data.catalog);
-      return;
-    } catch (e) {
-      if (attempt === 5) {
-        $("onboard-list").innerHTML = "";
-        $("onboard-err").textContent = "Could not load standing orders — the fleet may still be starting up. Try refreshing in a few seconds.";
-        return;
-      }
-      await new Promise((r) => setTimeout(r, attempt * 1000));
-    }
-  }
-}
-
-const ONBOARD_CATEGORY_LABEL = { trading: "Trading", fleet: "Fleet growth", risk: "Risk", ops: "Ops" };
-
-function renderOnboarding(catalog) {
-  $("onboard-confirm").disabled = false;
-  const el = $("onboard-list");
-  const byCategory = new Map();
-  for (const c of catalog) {
-    if (!byCategory.has(c.category)) byCategory.set(c.category, []);
-    byCategory.get(c.category).push(c);
-  }
-  el.innerHTML = [...byCategory.entries()].map(([cat, items]) => `
-    <div class="onboard-cat">${ONBOARD_CATEGORY_LABEL[cat] ?? cat}</div>
-    ${items.map((c) => `
-      <label class="onboard-item">
-        <input type="checkbox" data-key="${escapeAttr(c.key)}" ${c.defaultAdopted ? "checked" : ""} />
-        <span class="body"><span class="n">${escapeHtml(c.name)}</span><span class="d">${escapeHtml(c.description)}</span></span>
-      </label>`).join("")}
-  `).join("");
-}
-
-async function confirmOnboarding() {
-  const btn = $("onboard-confirm");
-  btn.disabled = true;
-  try {
-    const selections = {};
-    $("onboard-list").querySelectorAll("input[type=checkbox][data-key]").forEach((cb) => { selections[cb.dataset.key] = cb.checked; });
-    await api("POST", "/api/doctrine/onboard", { selections });
-    $("onboarding-gate").hidden = true;
-    hideAuthGate();
-    boot();
-  } catch (err) {
-    $("onboard-err").textContent = err.message || "Could not save — try again.";
-    btn.disabled = false;
-  }
-}
-
-async function logout() {
-  try {
-    await fetch("/api/gate/logout", { method: "POST" });
-  } finally {
-    showAuthGate();
-  }
-}
-
 /* ── shared state ─────────────────────────── */
-let state = null;
-let bridge = { triage: [], earnings: [], shipStatus: [], stranded: [], series: [] };
-let fleetStatus = { paused: false, ships: [], stranded: [], summary: [] };
 let waypoints = [];
-let systems = [];
-let jumpConnections = [];
-let currentSystem = "";
-let marketSnapshots = [];
-let marketRoutes = [];
-let marketSystems = [];
 /** Filters both Markets-tab panels at once — sent as /api/markets?system=
  *  so the top-N route cut and the system-picker's own option list are both
  *  computed server-side from the right (unfiltered vs. filtered) dataset. */
-let marketSystemFilter = "";
-let intel = { shipyards: [], modules: [] };
-let activity = [];
-let doctrineRules = [];
 let selectedShip = null;
 /** shipSymbol -> {x,y} in #map-view's own coordinate space, refreshed every
  *  renderMap() call. Book mode's clause hover uses this to draw pulse rings
@@ -1646,7 +1510,6 @@ let selectedShip = null;
  *  or not, with no separate coordinate conversion. */
 const shipScreenPos = new Map();
 /* Map view state and caches used by the preserved chart renderer. */
-let tradeRoutes = [];
 // Ship/waypoint cluster ring-offsets (renderMap()'s shipsByCoord/byCoord
 // grouping) are computed in pre-scale coordinate space and grow with
 // mapZoom, so a denser cluster genuinely does keep separating as this
@@ -1679,33 +1542,6 @@ let scrubPlaying = false;
 let scrubTimer = null;
 let scrubSpeedIdx = 0;
 const SCRUB_SPEEDS = [1, 5, 15, 60];
-let replayByShip = new Map(); // shipSymbol -> [{t, waypointSymbol, status}] sorted by t
-let replayT0 = 0, replayT1 = 0;
-
-async function loadReplay() {
-  try {
-    const res = await fetch("/api/replay?hours=12");
-    if (!res.ok) return;
-    const data = await res.json();
-    const samples = data.samples ?? [];
-    replayByShip = new Map();
-    for (const s of samples) {
-      const t = new Date(s.timestamp).getTime();
-      if (!replayByShip.has(s.shipSymbol)) replayByShip.set(s.shipSymbol, []);
-      replayByShip.get(s.shipSymbol).push({ t, waypointSymbol: s.waypointSymbol, status: s.status });
-    }
-    for (const arr of replayByShip.values()) arr.sort((a, b) => a.t - b.t);
-    if (samples.length) {
-      const allT = samples.map((s) => new Date(s.timestamp).getTime());
-      replayT0 = Math.min(...allT);
-      replayT1 = Math.max(...allT);
-    } else {
-      replayT0 = replayT1 = Date.now();
-    }
-    renderScrubTrack();
-  } catch (e) { console.error(e); }
-}
-
 /** The synthetic "ships" array at the current scrub position: for each hull,
  *  its latest recorded sample at or before the scrubbed timestamp. Shaped to
  *  match what renderMap() already expects from a live ship, so it's the same
@@ -1920,80 +1756,6 @@ function initMobileTabbar() {
 }
 
 /* ── loaders ──────────────────────────────── */
-async function loadState() {
-  try {
-    const res = await fetch("/api/state");
-    state = await res.json();
-    systems = state.systems ?? [];
-    jumpConnections = state.jumpConnections ?? [];
-    if (!currentSystem && state.systemSymbol) currentSystem = state.systemSymbol;
-    if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
-    renderTopbar();
-    renderSystemStrip();
-    // fleetRows() reads state.ships, but loadBridge() is what usually
-    // triggers the render — if this resolves second (races on network
-    // timing, not call order), the table would otherwise sit empty until
-    // the next 5s poll. Whichever of the two finishes last repaints it.
-    renderFleetTable();
-    renderMobileFleet();
-    renderMobileFleetStrip();
-    if (currentView === "bridge") renderMapLiveOrScrub();
-  } catch (e) { console.error(e); }
-}
-
-async function loadBridge() {
-  try {
-    const res = await fetch("/api/bridge");
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.error) return;
-    bridge = data;
-    fleetStatus = { paused: data.paused, ships: data.shipStatus ?? [], stranded: data.stranded ?? [], summary: data.summary ?? [] };
-    renderTopbar();
-    renderStrandedBanner();
-    renderTriage();
-    renderFleetTable();
-    renderMobileFleet();
-    renderMobileFleetStrip();
-    renderMobileHero();
-    renderFleetSummary();
-  } catch (e) { console.error(e); }
-}
-
-async function loadActivity() {
-  try {
-    const res = await fetch("/api/activity");
-    activity = (await res.json()).activity ?? [];
-    renderTicker();
-    renderMobileActivity();
-    // The shift-log drawer (Bridge's ticker-expand) is cheap to keep current
-    // even while collapsed — just re-rendering already-fetched data, no
-    // extra network cost — so it's always up to date whenever it's opened.
-    renderShiftLog();
-  } catch (e) { console.error(e); }
-}
-
-async function loadMarkets() {
-  try {
-    const qs = marketSystemFilter ? `?system=${encodeURIComponent(marketSystemFilter)}` : "";
-    const res = await fetch(`/api/markets${qs}`);
-    const data = await res.json();
-    if (data.error) return;
-    marketRoutes = data.routes ?? [];
-    // The chart highlights lanes that are currently worth flying; it reads the
-    // older {cheapestMarket, expensiveMarket} shape.
-    tradeRoutes = marketRoutes.map((r) => ({ cheapestMarket: r.buyAt, expensiveMarket: r.sellAt }));
-    marketSnapshots = data.snapshots ?? [];
-    marketSystems = data.systems ?? [];
-    intel = { shipyards: data.shipyards ?? [], modules: data.modules ?? [] };
-    renderMarketSystemFilter();
-    renderRoutes();
-    renderSnapshots();
-    renderShipyardIntel();
-    renderLanes();
-  } catch (e) { console.error(e); }
-}
-
 /** Populates both Markets-tab system-filter selects from the unfiltered
  *  systems list the server always returns, keeping the current selection —
  *  a no-op most polls, since marketSystems rarely changes tick to tick. */
@@ -2004,11 +1766,6 @@ function renderMarketSystemFilter() {
     const el = $(id);
     if (el && el.innerHTML !== opts) el.innerHTML = opts;
   }
-}
-
-function onMarketSystemFilterChange(e) {
-  marketSystemFilter = e.target.value;
-  loadMarkets();
 }
 
 /** Right rail's Lanes list — the same real route data Markets' renderRoutes()
@@ -2028,21 +1785,6 @@ function renderLanes() {
   }).join("");
 }
 // Preserved modals call loadIntel() after buying; markets is the same refresh.
-const loadIntel = loadMarkets;
-
-let dispatchRoutes = [];
-let dispatchAssignments = [];
-async function loadDispatch() {
-  try {
-    const res = await fetch("/api/dispatch");
-    if (!res.ok) return;
-    const data = await res.json();
-    dispatchRoutes = data.routes ?? [];
-    dispatchAssignments = data.assignments ?? [];
-    renderDispatch();
-  } catch (e) { console.error(e); }
-}
-
 function renderDispatch() {
   // Populate the ship dropdown from ships the engine has actually assigned
   // the trader role — previously guessed by cargo capacity >= 40, which both
@@ -2095,16 +1837,6 @@ function renderDispatch() {
     const el = $(id);
     if (el) el.innerHTML = rowsHtml;
   }
-}
-
-let warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [], targets: [] };
-async function loadWarehouse() {
-  try {
-    const res = await fetch("/api/warehouse");
-    if (!res.ok) return;
-    warehouseState = await res.json();
-    renderWarehouse();
-  } catch (e) { console.error(e); }
 }
 
 function renderWarehouse() {
@@ -2179,22 +1911,6 @@ function renderWarehouse() {
 /* ── keeper stations ──────────────────────────────
    The configured buy-market list the fleet stations keepers at. Editing it
    takes effect on the next coordinator pass. */
-let keeperMarketsCfg = [];
-let keeperStationsCfg = [];
-let keeperCoverList = false;
-
-async function loadKeepers() {
-  try {
-    const res = await fetch("/api/keeper/markets");
-    if (!res.ok) return;
-    const data = await res.json();
-    keeperMarketsCfg = data.markets ?? [];
-    keeperStationsCfg = data.stations ?? [];
-    keeperCoverList = data.coverList === true;
-    renderKeepers();
-  } catch (e) { console.error(e); }
-}
-
 function renderKeepers() {
   $("keeper-markets").value = keeperMarketsCfg.join("\n");
   $("keeper-cover").setAttribute("aria-pressed", String(keeperCoverList));
@@ -2220,56 +1936,6 @@ function renderKeepers() {
         ? `<span class="cover">guarded by ${escapeHtml(shortWp(r.ship))}</span>`
         : `<span class="cover missing">no keeper yet</span>`} · <span style="color:var(--dim)">${escapeHtml(r.label)}</span></span>
     </div>`).join("");
-}
-
-async function saveKeepers() {
-  const lines = $("keeper-markets").value.split("\n").map((l) => l.trim().toUpperCase()).filter((l) => l.length);
-  try {
-    const res = await api("POST", "/api/keeper/markets", { markets: lines });
-    keeperMarketsCfg = res.markets ?? [];
-    showToastGlobal(`Keeper list: ${keeperMarketsCfg.length} markets`);
-    await loadKeepers();
-  } catch (err) { showToastGlobal(err.message, true); }
-}
-
-let doctrineFires = {};
-/** Every known policy tagged with this tenant's adopted state — what the
- *  library section offers to add. doctrineRules stays exactly "this
- *  tenant's active set", unchanged in meaning from before the library. */
-let doctrineCatalog = [];
-
-async function loadDoctrine() {
-  try {
-    const res = await fetch("/api/doctrine");
-    if (!res.ok) return;
-    const data = await res.json();
-    doctrineRules = data.rules ?? [];
-    doctrineCatalog = data.catalog ?? [];
-    await loadDoctrineFires();
-    renderMobileDoctrine();
-    if (fieldBookMode === "book" && currentView === "bridge") renderBook();
-  } catch (e) { console.error(e); }
-}
-
-async function loadDoctrineFires() {
-  try {
-    const res = await fetch("/api/doctrine/stats");
-    if (!res.ok) return;
-    doctrineFires = new Map((await res.json()).stats?.map((s) => [s.ruleKey, s]) ?? []);
-  } catch (e) { console.error(e); }
-}
-
-/** Real per-ship attribution for "this watch" (default 2h) — which hulls
- *  actually fired each rule, not just the count. This is what Book mode's
- *  clause hover pulses on the map; doctrineFires (above) stays the all-time
- *  aggregate the gutter's fire-count numbers come from. */
-let doctrineFireShips = new Map();
-async function loadDoctrineFireShips() {
-  try {
-    const res = await fetch("/api/doctrine/fire-ships?hours=2");
-    if (!res.ok) return;
-    doctrineFireShips = new Map((await res.json()).ships?.map((s) => [s.ruleKey, s.ships]) ?? []);
-  } catch (e) { console.error(e); }
 }
 
 /** Book mode's document: standing orders as prose, over the dimmed field.
@@ -2433,13 +2099,6 @@ function wireClauseValueEditor(btn) {
 // The exact copy from the design doc's clause table (field-and-book-plan.md
 // §2.1) — verbatim, not paraphrased. {v} is the editable value chip; text in
 // *italics* is a trailing note rendered dimmed after the sentence.
-async function loadNarrative() {
-  try {
-    const res = await fetch("/api/narrative");
-    $("narrative").textContent = (await res.json()).log ?? "Awaiting telemetry…";
-  } catch (e) { console.error(e); }
-}
-
 /* ── topbar ───────────────────────────────── */
 function renderTopbar() {
   $("credits").textContent = fmt(state?.agent?.credits ?? bridge.credits ?? 0);
@@ -2514,7 +2173,7 @@ function renderSystemStrip() {
   el.innerHTML = systems.map((s) =>
     `<button class="${s.symbol === currentSystem ? "active" : ""}" data-sys="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</button>`).join("");
   el.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
-    currentSystem = b.dataset.sys; renderSystemStrip(); resetMapView(); renderMapLiveOrScrub();
+    setCurrentSystem(b.dataset.sys); renderSystemStrip(); resetMapView(); renderMapLiveOrScrub();
   }));
 }
 function renderGallery() { /* single-system fleets need no gallery */ }
@@ -2854,30 +2513,8 @@ function renderTicker() {
 }
 
 /* ── DOCTRINE ─────────────────────────────── */
-async function saveRule(key, patch) {
-  try {
-    const res = await api("POST", "/api/doctrine", { key, ...patch });
-    doctrineRules = res.rules ?? doctrineRules;
-    renderMobileDoctrine();
-    if (fieldBookMode === "book" && currentView === "bridge") renderBook();
-    const r = res.rule;
-    showToastGlobal(`${r.name}: ${r.enabled ? `${fmt(r.value)}${r.unit}` : "off"}`);
-  } catch (err) { showToastGlobal(err.message, true); loadDoctrine(); }
-}
-
 /** Add/remove a policy from this tenant's active set — see saveRule() above
  *  for the value/enabled patch this is deliberately separate from. */
-async function saveAdopted(key, adopted, value) {
-  try {
-    const res = await api("POST", "/api/doctrine/adopt", { key, adopted, value });
-    doctrineRules = res.rules ?? doctrineRules;
-    doctrineCatalog = res.catalog ?? doctrineCatalog;
-    renderMobileDoctrine();
-    if (fieldBookMode === "book" && currentView === "bridge") renderBook();
-    showToastGlobal(adopted ? `${res.rule?.name ?? key} added to standing orders` : `${key} removed from standing orders`);
-  } catch (err) { showToastGlobal(err.message, true); loadDoctrine(); }
-}
-
 /** On/off only, no value editing — the mobile page's control surface for
  *  doctrine is deliberately narrower than the desktop sliders. */
 function renderMobileDoctrine() {
@@ -3043,31 +2680,6 @@ function renderSnapshots() {
         <span class="b">${g.purchasePrice}</span><span class="s">${g.sellPrice}</span></div>`).join("")}</div>
     </div>`;
   }).join("");
-}
-
-let priceGood = "";
-async function loadGoods() {
-  try {
-    const { goods } = await (await fetch("/api/goods")).json();
-    if (!goods?.length) return;
-    if (!priceGood || !goods.includes(priceGood)) priceGood = goods[0];
-    $("price-good").innerHTML = goods.map((g) =>
-      `<option value="${escapeAttr(g)}"${g === priceGood ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
-    await loadPrices();
-  } catch (e) { console.error(e); }
-}
-
-let lastPricePoints = [];
-async function loadPrices() {
-  const sel = $("price-good");
-  priceGood = sel.value || priceGood;
-  if (!priceGood) return;
-  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-  try {
-    const res = await fetch(`/api/prices?good=${encodeURIComponent(priceGood)}&since=${encodeURIComponent(since)}`);
-    lastPricePoints = (await res.json()).points ?? [];
-    renderPriceChart(lastPricePoints, "price-chart");
-  } catch (e) { console.error(e); }
 }
 
 // Redraw the price chart from its cached points on resize — the chart's
@@ -4330,29 +3942,6 @@ function renderShipyardIntel() {
   }
 }
 
-function showToastGlobal(message, isError = false) {
-  let host = document.getElementById("global-toast");
-  if (!host) {
-    host = document.createElement("div");
-    host.id = "global-toast";
-    host.style.cssText = "position:fixed;top:16px;right:16px;z-index:9999;pointer-events:none;";
-    document.body.appendChild(host);
-  }
-  const toast = document.createElement("div");
-  toast.textContent = message;
-  toast.style.cssText = `
-    margin-bottom:8px;padding:8px 12px;border-radius:4px;font-size:11px;
-    background:${isError ? "rgba(255,107,107,0.18)" : "rgba(139,197,135,0.15)"};
-    border:1px solid ${isError ? "var(--red-soft)" : "rgba(139,197,135,0.35)"};
-    color:var(--bone);backdrop-filter:blur(4px);opacity:0;transition:opacity 0.2s ease;`;
-  host.appendChild(toast);
-  requestAnimationFrame(() => toast.style.opacity = "1");
-  setTimeout(() => {
-    toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 250);
-  }, 3000);
-}
-
 function renderPriceChart(points, elId = "price-chart-room") {
   const el = $(elId);
   if (!el) return;
@@ -4410,18 +3999,6 @@ function addChatMsg(role, text) {
   $("chat-log").scrollTop = $("chat-log").scrollHeight;
 }
 
-async function loadChatHistory() {
-  try {
-    const res = await fetch("/api/chat/history");
-    const { messages } = await res.json();
-    if (!messages?.length) return;
-    $("chat-log").innerHTML = "";
-    for (const m of messages) {
-      if (m.role === "user" || m.role === "assistant") addChatMsg(m.role, m.content);
-    }
-  } catch (e) { console.error(e); }
-}
-
 async function sendChat() {
   const text = $("chat-input").value.trim();
   if (!text || chatBusy) return;
@@ -4456,13 +4033,6 @@ setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("en-U
 // since there's no tab selection driving loadViewData() there.
 const mobileMQ = window.matchMedia("(max-width:680px)");
 const isMobile = () => mobileMQ.matches;
-function loadMobilePanels() {
-  loadMarkets();
-  loadDispatch();
-  loadWarehouse();
-  loadOps();
-  loadDoctrine();
-}
 mobileMQ.addEventListener("change", (e) => { if (e.matches && authed) loadMobilePanels(); });
 
 const timers = [];
@@ -4645,30 +4215,9 @@ for (const id of ["warehouse-targets", "mobile-warehouse-targets"]) {
 }
 
 // ── Ops: contracts & construction missions ──────────────────────────
-async function loadOps() {
-  try {
-    // dispatchAssignments feeds the "pinned carrier" display in
-    // renderContracts(), so refresh it here too — otherwise it's only ever
-    // current if the operator has also visited the trade-ops view.
-    const [cres, mres] = await Promise.all([fetch("/api/contracts"), fetch("/api/missions"), loadDispatch()]);
-    const cdata = cres.ok ? await cres.json() : { contracts: [] };
-    const mdata = mres.ok ? await mres.json() : { missions: [] };
-    renderContracts(cdata.contracts ?? []);
-    renderMissions(mdata.missions ?? []);
-  } catch (e) { console.error(e); }
-}
-
 /** Purely informational — no fleet-ops decision reads this data, and the
  *  server caches both responses for minutes at a time (see dashboard.ts),
  *  so this only needs to load once when the tab opens, not on a poll. */
-async function loadGalaxy() {
-  try {
-    const [board, factions] = await Promise.all([api("GET", "/api/leaderboard"), api("GET", "/api/factions")]);
-    renderLeaderboard(board.agents ?? []);
-    renderFactions(factions.factions ?? []);
-  } catch (e) { console.error(e); }
-}
-
 function renderLeaderboard(agents) {
   const el = $("leaderboard-table");
   if (!el) return;
@@ -5047,6 +4596,70 @@ async function boot0() {
   } catch (_) { /* fall through to the gate */ }
   showAuthGate();
 }
+// Wire store.js's loaders back to this version's own render layer — see
+// store.js's own header comment for why this indirection exists.
+subscribe("state", () => {
+  renderTopbar();
+  renderSystemStrip();
+  // fleetRows() reads state.ships, but loadBridge() is what usually
+  // triggers the render — if this resolves second (races on network
+  // timing, not call order), the table would otherwise sit empty until
+  // the next 5s poll. Whichever of the two finishes last repaints it.
+  renderFleetTable();
+  renderMobileFleet();
+  renderMobileFleetStrip();
+  if (currentView === "bridge") renderMapLiveOrScrub();
+});
+subscribe("bridge", () => {
+  renderTopbar();
+  renderStrandedBanner();
+  renderTriage();
+  renderFleetTable();
+  renderMobileFleet();
+  renderMobileFleetStrip();
+  renderMobileHero();
+  renderFleetSummary();
+});
+subscribe("activity", () => {
+  renderTicker();
+  renderMobileActivity();
+  // The shift-log drawer (Bridge's ticker-expand) is cheap to keep current
+  // even while collapsed — just re-rendering already-fetched data, no
+  // extra network cost — so it's always up to date whenever it's opened.
+  renderShiftLog();
+});
+subscribe("markets", () => {
+  renderMarketSystemFilter();
+  renderRoutes();
+  renderSnapshots();
+  renderShipyardIntel();
+  renderLanes();
+});
+subscribe("dispatch", renderDispatch);
+subscribe("warehouse", renderWarehouse);
+subscribe("keepers", renderKeepers);
+subscribe("doctrine", () => {
+  renderMobileDoctrine();
+  if (fieldBookMode === "book" && currentView === "bridge") renderBook();
+});
+subscribe("replay", renderScrubTrack);
+subscribe("ops", ({ contracts, missions }) => {
+  renderContracts(contracts);
+  renderMissions(missions);
+});
+subscribe("galaxy", ({ agents, factions }) => {
+  renderLeaderboard(agents);
+  renderFactions(factions);
+});
+subscribe("prices", (points) => renderPriceChart(points, "price-chart"));
+subscribe("chatHistory", (messages) => {
+  $("chat-log").innerHTML = "";
+  for (const m of messages) {
+    if (m.role === "user" || m.role === "assistant") addChatMsg(m.role, m.content);
+  }
+});
+
+initSession({ onAuthenticated: boot });
 boot0();
 
 </script>
