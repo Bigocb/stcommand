@@ -27,7 +27,7 @@ Measured, not estimated:
 | `<style>` | 1,033 | includes 9 `@font-face` blocks, base64-inlined |
 | markup | 397 | six views + rails + gates |
 | `<script>` | 3,844 | 136 named functions |
-| **total** | **5,295** | **408KB**, mostly the base64 fonts |
+| **total** | **5,295** | **408KB** — 132KB of that is the base64 fonts (32%) |
 
 Coupling surface: 68 `innerHTML` assignments, 124 distinct element IDs,
 113 `addEventListener` calls, **zero inline `onclick=` handlers**.
@@ -99,8 +99,14 @@ not 3,844.
 ### Phase 0 — Extract the shared core *(prerequisite, zero visual change)*
 
 1. Pull the 9 `@font-face` base64 blobs into `public/fonts/*.woff2` and
-   `shared/fonts.css`. This alone takes `v2.html` from 408KB to roughly
-   60KB and makes the fonts cacheable across all four versions.
+   `shared/fonts.css`. **Done.** Takes `v2.html` from 408KB to 276KB and
+   makes the fonts one cached 99KB set shared by all four UIs instead of
+   132KB of base64 re-downloaded per version per load.
+
+   *(An earlier draft of this plan claimed this step would get the file to
+   ~60KB, on the assumption the fonts were most of its weight. They are 32%
+   of it. The remaining bulk is the `<script>` block — 182KB — which is what
+   step 2 actually addresses.)*
 2. Move transport/session/domain/mapmath into `shared/*.js` as ES modules.
 3. Convert `v2.html` to `<script type="module">` and import them.
 4. Leave every `render*` function in `v2.html`. v2 is not being redesigned.
