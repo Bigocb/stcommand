@@ -274,7 +274,10 @@ describe("Regression: the original eight-owners-collision bug class", () => {
     );
     assert.ok(fleet.dispatcher.assignmentFor("SHIP-1"), "must have been assigned a route while healthy");
 
-    (fleet as any).suspendAgent("SHIP-1"); // e.g. picked up for a rescue or mission mid-route
+    // suspendAgent() is async and releases the dispatcher route *after*
+    // awaiting agent.suspend() — un-awaited, the assertions below race it
+    // and the route still looks assigned.
+    await (fleet as any).suspendAgent("SHIP-1"); // e.g. picked up for a rescue or mission mid-route
 
     assert.ok(agent.isSuspended());
     assert.equal(fleet.dispatcher.assignmentFor("SHIP-1"), undefined, "the route must be released the moment the ship is suspended, not left stale until the next recompute");
