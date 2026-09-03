@@ -223,7 +223,7 @@ actually turned on:
   versions — but RBchrome is condensed, which reads as signage and fights
   dense tables.
 
-### Phase 4 — `v4` Deep Field *(most bespoke, highest risk)*
+### Phase 4 — `v4` Deep Field *(most bespoke, highest risk)* — **done**
 
 - Full-bleed map with floating translucent HUD modules, clipped hex corners.
 - Segmented 12-cell gauges.
@@ -235,6 +235,34 @@ Last on purpose — it is the least forgiving layout (absolutely-positioned
 modules over a live map need care at every breakpoint) and benefits most
 from a shared core that three other UIs have already proven.
 
+Landed as `4a`–`4e`. Scaffolded from v3 rather than v2, because v3
+*already is* v4's layout — a full-bleed map with panels floating over it
+— so this phase was chrome and instruments rather than a rebuild.
+
+- **The two-colour rule survives because of which colour is the
+  default.** ~84 rules reach for `--accent` and almost all are chrome, so
+  pointing `--accent` at the amber would spend the rare colour before any
+  alert appeared — exactly how v3 lost it. `--accent` is cyan; the amber
+  is a separate `--act` that must be asked for by name, and every request
+  lives in one block at the end of the file. The discipline can be
+  audited by reading one screen, and it visibly stops holding if that
+  block grows.
+- **The non-Bridge views resolved in v4's favour, not v5's.** Handing
+  them to v5's layout was the safer call and the wrong one: a version
+  whose secondary views are visibly a different product is not a design,
+  it is two. What made the alternative work was Phase 4d rather than any
+  panel styling — a segmented gauge in a table cell does more to make a
+  table read as a readout than chrome around it ever could.
+
+Two bugs found by rendering rather than by reading the diff:
+
+- The vignette began on `.field-stage`, an ancestor of everything, so it
+  painted over the legend, the sector HUD and the fit button whatever
+  their z-index said. It belongs on `.map-wrap`.
+- **The map legend had never been visible in this layout — in v4 or
+  v3.** It sat at `bottom:10px` under a full-width 40px scrubber, with
+  `left:12px` putting the remainder behind the left rail. Fixed in both.
+
 ## 5. What is *not* designed yet
 
 **The mockups cover the Bridge only.** Each version also needs Fleet,
@@ -243,15 +271,16 @@ Markets, Trade Ops, Ops and Galaxy. Honest read:
 | View | v3 | v5 | v4 |
 |---|---|---|---|
 | Bridge | designed | designed | designed |
-| Fleet | inherit v2, restyled | natural fit (tables) | **needs design** — dense tables fight the HUD idiom |
-| Markets | inherit v2, restyled | natural fit | **needs design** |
-| Trade Ops | inherit v2, restyled | natural fit | **needs design** |
-| Ops | inherit v2, restyled | natural fit | needs design |
-| Galaxy | inherit v2, restyled | natural fit | needs design |
+| Fleet | inherit v2, restyled | natural fit (tables) | done — HUD modules, gauges in rows |
+| Markets | inherit v2, restyled | natural fit | done |
+| Trade Ops | inherit v2, restyled | natural fit | done |
+| Ops | inherit v2, restyled | natural fit | done |
+| Galaxy | inherit v2, restyled | natural fit | done |
 
-v4's non-Bridge views are the single biggest unknown in this plan. Options
-when we get there: accept a more conventional panel treatment inside the
-HUD chrome, or have v4 hand those views off to v5's layout.
+**Resolved.** v4's non-Bridge views took the first option — a conventional
+panel treatment inside the HUD chrome — rather than being handed to v5's
+layout. See Phase 4e above for why that turned out to be the better of the
+two, and why it was cheaper than expected.
 
 **Mobile:** v3 inherits v2's existing mobile rendering. v5 is naturally
 responsive (spine collapses, cards stack). v4 is genuinely hard — propose
