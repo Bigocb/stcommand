@@ -1735,6 +1735,71 @@ let lastTrailSamplePos = new Map();
 const TRAIL_SAMPLE_MIN_PX = 4;
 const TRAIL_MAX_POINTS = 10; // ~40px of trail at the sample distance above — longer reads as more deliberate motion than the original 6
 
+/* ── the display's instrument chrome ───────────────────────────
+   What separates a sector plot from a scatter chart is that a plot tells
+   you how far apart things are. The waypoints alone never did: the scale
+   is fitted to whatever the system happens to span, so two maps of two
+   systems look identical and mean completely different distances.
+
+   Two layers, and they are separate for a reason. The graticule and the
+   range rings measure the world, so they live inside #map-view and scale
+   with it — a ring stays the same distance when you zoom. The corner
+   ticks and the readouts describe the *viewport*, so they sit outside the
+   group in screen space and stay put.
+
+   Rings and grid share one step, so the two read as one scale rather than
+   as two decorations that happen to overlap. */
+
+/** The 1-2-5 step at or just above `target` — the spacings a scale can use
+ *  and still be read off at a glance. */
+function niceStep(target) {
+  // Floored at 1: waypoint coordinates are integers, so a sub-unit ring
+  // measures nothing and its label rounds to "0u" — which is worse than no
+  // scale at all, because it looks like an answer.
+  if (!(target > 1)) return 1;
+  const mag = 10 ** Math.floor(Math.log10(target));
+  for (const m of [1, 2, 5]) if (m * mag >= target) return m * mag;
+  return 10 * mag;
+}
+
+function displayGraticule(sx, sy, minX, maxX, minY, maxY, w, h, pad, ringStep) {
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const pxPerWorld = (w - pad * 2) / (maxX - minX || 1);
+  const maxR = Math.min(w, h) / 2 - pad / 2;
+  let g = '<g class="chrome" aria-hidden="true">';
+  // Drawn well past the viewport so the grid still covers the frame when
+  // the operator zooms out below 1x, which this map allows.
+  const span = (v) => [-v, v * 2];
+  for (let x = Math.ceil(minX / ringStep) * ringStep; x <= maxX; x += ringStep) {
+    const [y0, y1] = span(h);
+    g += `<line class="grat" x1="${sx(x).toFixed(1)}" y1="${y0}" x2="${sx(x).toFixed(1)}" y2="${y1}"/>`;
+  }
+  for (let y = Math.ceil(minY / ringStep) * ringStep; y <= maxY; y += ringStep) {
+    const [x0, x1] = span(w);
+    g += `<line class="grat" x1="${x0}" y1="${sy(y).toFixed(1)}" x2="${x1}" y2="${sy(y).toFixed(1)}"/>`;
+  }
+  for (let i = 1; i <= 4; i++) {
+    const r = i * ringStep * pxPerWorld;
+    if (r > maxR) break;
+    g += `<circle class="ring" cx="${sx(cx).toFixed(1)}" cy="${sy(cy).toFixed(1)}" r="${r.toFixed(1)}"/>`;
+    g += `<text class="rng" x="${(sx(cx) + r).toFixed(1)}" y="${(sy(cy) - 5).toFixed(1)}" text-anchor="end">${fmt(i * ringStep)}</text>`;
+  }
+  return g + "</g>";
+}
+
+/** Viewport furniture: corner ticks and a readout line, in screen space. */
+function displayFrame(w, h, wpCount, ringStep) {
+  const t = 13, m = 9;
+  const corner = (x, y, dx, dy) =>
+    `<path class="tick" d="M${x} ${y + dy * t}L${x} ${y}L${x + dx * t} ${y}"/>`;
+  // No ring step means no rings were drawn, so the readout must not claim one.
+  const scale = ringStep == null ? "" : ` &#183; RING ${fmt(ringStep)}u`;
+  return `<g class="frame" aria-hidden="true">
+    ${corner(m, m, 1, 1)}${corner(w - m, m, -1, 1)}${corner(m, h - m, 1, -1)}${corner(w - m, h - m, -1, -1)}
+    <text class="readout" x="${w - m - 8}" y="${h - m - 22}" text-anchor="end">${wpCount} WAYPOINT${wpCount === 1 ? "" : "S"}${scale}</text>
+  </g>`;
+}
+
 function renderMap(ships, trails = new Map()) {
   const svg = $("map");
   const w = svg.clientWidth || 800;
@@ -1891,6 +1956,17 @@ function renderMap(ships, trails = new Map()) {
 
   let out = `<g id="map-view">`;
 
+  // One step for the grid and the rings both, chosen so roughly three rings
+  // fit inside the plotted frame whatever the system happens to span.
+  const ringStep = niceStep(
+    (Math.min(w, h) / 2 - pad / 2) / 3 / ((w - pad * 2) / (maxX - minX || 1)),
+  );
+  // A single-waypoint system has no span to fit, so the projection is
+  // degenerate and a grid drawn against it would be measuring nothing. Draw
+  // the plot without a scale rather than a scale that is not true.
+  const plottable = waypoints.length > 1;
+  if (plottable) out += displayGraticule(sx, sy, minX, maxX, minY, maxY, w, h, pad, ringStep);
+
   const cx = (minX + maxX) / 2;
   const cy = (minY + maxY) / 2;
   out += `<text class="syslabel" x="${sx(cx)}" y="${sy(cy)}" text-anchor="middle" dominant-baseline="middle">${sys}</text>`;
@@ -2017,7 +2093,7 @@ function renderMap(ships, trails = new Map()) {
       ${shipGlyphMarkup(role, docked, heading)}<title>${s.symbol} — ${s.nav.status}</title>
     </g>`;
   }
-  svg.innerHTML = out + `</g>`;
+  svg.innerHTML = out + `</g>` + displayFrame(w, h, waypoints.length, plottable ? ringStep : null);
   svg.querySelectorAll("[data-wp]").forEach((el) => {
     el.addEventListener("mouseenter", () => showWaypointTip(el.dataset.wp));
     el.addEventListener("mouseleave", hideWaypointTip);

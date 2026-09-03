@@ -107,12 +107,25 @@ const ship = (symbol, role, cond, fuel, cargo) => ({
 });
 const SHIPS = [ship("DAGGER-1", "COMMAND", 0.94, 222, 0), ship("DAGGER-2", "HAULER", 1.0, 318, 8)];
 
+// Enough of a system to actually plot. One waypoint at the origin is a
+// degenerate map — no span, so no scale, and nothing that would catch a
+// projection, label-collision or range-ring bug. A small spread of real
+// waypoint types exercises the glyphs too.
+const WAYPOINTS = [
+  { symbol: "X1-FIX-A1", x: 0, y: 0, type: "PLANET", traits: ["MARKETPLACE"] },
+  { symbol: "X1-FIX-D46", x: -140, y: 62, type: "ORBITAL_STATION", traits: ["MARKETPLACE"] },
+  { symbol: "X1-FIX-J58", x: 96, y: -118, type: "MOON", traits: ["MARKETPLACE", "SHIPYARD"] },
+  { symbol: "X1-FIX-K89", x: 210, y: 140, type: "ASTEROID", traits: [] },
+  { symbol: "X1-FIX-E48", x: -88, y: -196, type: "GAS_GIANT", traits: ["MARKETPLACE"] },
+  { symbol: "X1-FIX-I59", x: 178, y: -40, type: "JUMP_GATE", traits: [] },
+];
+
 const FIXTURES = {
   "/api/state": {
     agent: { symbol: "FIXTURE", credits: 1327000, shipCount: 2 },
     ships: SHIPS, contracts: [], systemSymbol: "X1-FIX",
-    waypoints: [{ symbol: "X1-FIX-A1", x: 0, y: 0, type: "PLANET", traits: ["MARKETPLACE"] }],
-    systems: [{ symbol: "X1-FIX", waypoints: [{ symbol: "X1-FIX-A1", x: 0, y: 0, type: "PLANET", traits: ["MARKETPLACE"] }], jumpGates: [] }],
+    waypoints: WAYPOINTS,
+    systems: [{ symbol: "X1-FIX", waypoints: WAYPOINTS, jumpGates: [] }],
     jumpConnections: [], totals: { sells: 0, buys: 0 },
   },
   "/api/bridge": {
