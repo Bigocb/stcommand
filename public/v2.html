@@ -1457,6 +1457,13 @@ import {
   fmtAge,
 } from "/shared/domain.js";
 import { api, nativeFetch, onUnauthorized } from "/shared/api.js";
+import {
+  state, systems, jumpConnections, bridge, fleetStatus, activity,
+  marketSnapshots, marketRoutes, marketSystems, tradeRoutes, intel,
+  doctrineRules, doctrineCatalog, doctrineFires, doctrineFireShips,
+  loadState, loadBridge, loadActivity, loadMarkets, loadDoctrine,
+  loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
+} from "/shared/store.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -1627,23 +1634,12 @@ async function logout() {
 }
 
 /* ── shared state ─────────────────────────── */
-let state = null;
-let bridge = { triage: [], earnings: [], shipStatus: [], stranded: [], series: [] };
-let fleetStatus = { paused: false, ships: [], stranded: [], summary: [] };
 let waypoints = [];
-let systems = [];
-let jumpConnections = [];
 let currentSystem = "";
-let marketSnapshots = [];
-let marketRoutes = [];
-let marketSystems = [];
 /** Filters both Markets-tab panels at once — sent as /api/markets?system=
  *  so the top-N route cut and the system-picker's own option list are both
  *  computed server-side from the right (unfiltered vs. filtered) dataset. */
 let marketSystemFilter = "";
-let intel = { shipyards: [], modules: [] };
-let activity = [];
-let doctrineRules = [];
 let selectedShip = null;
 /** shipSymbol -> {x,y} in #map-view's own coordinate space, refreshed every
  *  renderMap() call. Book mode's clause hover uses this to draw pulse rings
@@ -1652,7 +1648,6 @@ let selectedShip = null;
  *  or not, with no separate coordinate conversion. */
 const shipScreenPos = new Map();
 /* Map view state and caches used by the preserved chart renderer. */
-let tradeRoutes = [];
 // Ship/waypoint cluster ring-offsets (renderMap()'s shipsByCoord/byCoord
 // grouping) are computed in pre-scale coordinate space and grow with
 // mapZoom, so a denser cluster genuinely does keep separating as this
@@ -1872,7 +1867,7 @@ function loadViewData(name) {
   // fleetStatus, already kept current by the 5s polling loop — just render
   // what's already there on entry.
   if (name === "fleet") renderFleetTable();
-  if (name === "markets") { loadMarkets(); loadGoods(); }
+  if (name === "markets") { loadMarkets(marketSystemFilter); loadGoods(); }
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
   if (name === "ops") loadOps();
   if (name === "galaxy") loadGalaxy();
@@ -1926,79 +1921,9 @@ function initMobileTabbar() {
 }
 
 /* ── loaders ──────────────────────────────── */
-async function loadState() {
-  try {
-    const res = await fetch("/api/state");
-    state = await res.json();
-    systems = state.systems ?? [];
-    jumpConnections = state.jumpConnections ?? [];
-    if (!currentSystem && state.systemSymbol) currentSystem = state.systemSymbol;
-    if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
-    renderTopbar();
-    renderSystemStrip();
-    // fleetRows() reads state.ships, but loadBridge() is what usually
-    // triggers the render — if this resolves second (races on network
-    // timing, not call order), the table would otherwise sit empty until
-    // the next 5s poll. Whichever of the two finishes last repaints it.
-    renderFleetTable();
-    renderMobileFleet();
-    renderMobileFleetStrip();
-    if (currentView === "bridge") renderMapLiveOrScrub();
-  } catch (e) { console.error(e); }
-}
 
-async function loadBridge() {
-  try {
-    const res = await fetch("/api/bridge");
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.error) return;
-    bridge = data;
-    fleetStatus = { paused: data.paused, ships: data.shipStatus ?? [], stranded: data.stranded ?? [], summary: data.summary ?? [] };
-    renderTopbar();
-    renderStrandedBanner();
-    renderTriage();
-    renderFleetTable();
-    renderMobileFleet();
-    renderMobileFleetStrip();
-    renderMobileHero();
-    renderFleetSummary();
-  } catch (e) { console.error(e); }
-}
 
-async function loadActivity() {
-  try {
-    const res = await fetch("/api/activity");
-    activity = (await res.json()).activity ?? [];
-    renderTicker();
-    renderMobileActivity();
-    // The shift-log drawer (Bridge's ticker-expand) is cheap to keep current
-    // even while collapsed — just re-rendering already-fetched data, no
-    // extra network cost — so it's always up to date whenever it's opened.
-    renderShiftLog();
-  } catch (e) { console.error(e); }
-}
 
-async function loadMarkets() {
-  try {
-    const qs = marketSystemFilter ? `?system=${encodeURIComponent(marketSystemFilter)}` : "";
-    const res = await fetch(`/api/markets${qs}`);
-    const data = await res.json();
-    if (data.error) return;
-    marketRoutes = data.routes ?? [];
-    // The chart highlights lanes that are currently worth flying; it reads the
-    // older {cheapestMarket, expensiveMarket} shape.
-    tradeRoutes = marketRoutes.map((r) => ({ cheapestMarket: r.buyAt, expensiveMarket: r.sellAt }));
-    marketSnapshots = data.snapshots ?? [];
-    marketSystems = data.systems ?? [];
-    intel = { shipyards: data.shipyards ?? [], modules: data.modules ?? [] };
-    renderMarketSystemFilter();
-    renderRoutes();
-    renderSnapshots();
-    renderShipyardIntel();
-    renderLanes();
-  } catch (e) { console.error(e); }
-}
 
 /** Populates both Markets-tab system-filter selects from the unfiltered
  *  systems list the server always returns, keeping the current selection —
@@ -2014,7 +1939,7 @@ function renderMarketSystemFilter() {
 
 function onMarketSystemFilterChange(e) {
   marketSystemFilter = e.target.value;
-  loadMarkets();
+  loadMarkets(marketSystemFilter);
 }
 
 /** Right rail's Lanes list — the same real route data Markets' renderRoutes()
@@ -2238,45 +2163,16 @@ async function saveKeepers() {
   } catch (err) { showToastGlobal(err.message, true); }
 }
 
-let doctrineFires = {};
 /** Every known policy tagged with this tenant's adopted state — what the
  *  library section offers to add. doctrineRules stays exactly "this
  *  tenant's active set", unchanged in meaning from before the library. */
-let doctrineCatalog = [];
 
-async function loadDoctrine() {
-  try {
-    const res = await fetch("/api/doctrine");
-    if (!res.ok) return;
-    const data = await res.json();
-    doctrineRules = data.rules ?? [];
-    doctrineCatalog = data.catalog ?? [];
-    await loadDoctrineFires();
-    renderMobileDoctrine();
-    if (fieldBookMode === "book" && currentView === "bridge") renderBook();
-  } catch (e) { console.error(e); }
-}
 
-async function loadDoctrineFires() {
-  try {
-    const res = await fetch("/api/doctrine/stats");
-    if (!res.ok) return;
-    doctrineFires = new Map((await res.json()).stats?.map((s) => [s.ruleKey, s]) ?? []);
-  } catch (e) { console.error(e); }
-}
 
 /** Real per-ship attribution for "this watch" (default 2h) — which hulls
  *  actually fired each rule, not just the count. This is what Book mode's
  *  clause hover pulses on the map; doctrineFires (above) stays the all-time
  *  aggregate the gutter's fire-count numbers come from. */
-let doctrineFireShips = new Map();
-async function loadDoctrineFireShips() {
-  try {
-    const res = await fetch("/api/doctrine/fire-ships?hours=2");
-    if (!res.ok) return;
-    doctrineFireShips = new Map((await res.json()).ships?.map((s) => [s.ruleKey, s.ships]) ?? []);
-  } catch (e) { console.error(e); }
-}
 
 /** Book mode's document: standing orders as prose, over the dimmed field.
  *  Every rule renders as a clause (struck-through when disabled); rules with
@@ -2900,7 +2796,7 @@ function renderTicker() {
 async function saveRule(key, patch) {
   try {
     const res = await api("POST", "/api/doctrine", { key, ...patch });
-    doctrineRules = res.rules ?? doctrineRules;
+    setDoctrine(res.rules, undefined);
     renderMobileDoctrine();
     if (fieldBookMode === "book" && currentView === "bridge") renderBook();
     const r = res.rule;
@@ -2913,8 +2809,7 @@ async function saveRule(key, patch) {
 async function saveAdopted(key, adopted, value) {
   try {
     const res = await api("POST", "/api/doctrine/adopt", { key, adopted, value });
-    doctrineRules = res.rules ?? doctrineRules;
-    doctrineCatalog = res.catalog ?? doctrineCatalog;
+    setDoctrine(res.rules, res.catalog);
     renderMobileDoctrine();
     if (fieldBookMode === "book" && currentView === "bridge") renderBook();
     showToastGlobal(adopted ? `${res.rule?.name ?? key} added to standing orders` : `${key} removed from standing orders`);
@@ -4590,7 +4485,7 @@ setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("en-U
 const mobileMQ = window.matchMedia("(max-width:680px)");
 const isMobile = () => mobileMQ.matches;
 function loadMobilePanels() {
-  loadMarkets();
+  loadMarkets(marketSystemFilter);
   loadDispatch();
   loadWarehouse();
   loadOps();
@@ -4603,7 +4498,7 @@ const every = (ms, fn) => timers.push({ ms, fn, last: 0 });
 every(5000, loadState);
 every(5000, loadBridge);
 every(3000, loadActivity);
-every(20000, () => { if (currentView === "markets") loadMarkets(); });
+every(20000, () => { if (currentView === "markets") loadMarkets(marketSystemFilter); });
 every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); } });
 every(20000, () => { if (currentView === "ops") loadOps(); });
 every(30000, () => { if (currentView === "bridge") loadNarrative(); });
@@ -5044,7 +4939,7 @@ $("onboard-confirm").addEventListener("click", confirmOnboarding);
 /** First data load once a token is accepted — everything up to here only
  *  wired up event listeners, none of which touch the network. */
 function boot() {
-  loadState().then(() => { loadMarkets(); renderMapLiveOrScrub(); });
+  loadState().then(() => { loadMarkets(marketSystemFilter); renderMapLiveOrScrub(); });
   loadBridge();
   loadActivity();
   loadDoctrine();
@@ -5182,6 +5077,52 @@ async function boot0() {
   } catch (_) { /* fall through to the gate */ }
   showAuthGate();
 }
+/* ── store subscriptions ──────────────────────────────────────
+   Each loader used to end by calling the renderers its data fed. Those
+   calls live here now: the store announces which slice changed, and this
+   version maps slices to its own rendering. The mapping below reproduces
+   what each loader called, in the order it called them.
+
+   The currentSystem reconciliation was inside loadState(); it is view
+   state (which system this window is looking at), so it belongs on this
+   side of the seam. */
+subscribe("state", () => {
+  if (!currentSystem && state.systemSymbol) currentSystem = state.systemSymbol;
+  if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
+  renderTopbar();
+  renderSystemStrip();
+  renderFleetTable();
+  renderMobileFleet();
+  renderMobileFleetStrip();
+  if (currentView === "bridge") renderMapLiveOrScrub();
+});
+subscribe("bridge", () => {
+  renderTopbar();
+  renderStrandedBanner();
+  renderTriage();
+  renderFleetTable();
+  renderMobileFleet();
+  renderMobileFleetStrip();
+  renderMobileHero();
+  renderFleetSummary();
+});
+subscribe("activity", () => {
+  renderTicker();
+  renderMobileActivity();
+  renderShiftLog();
+});
+subscribe("markets", () => {
+  renderMarketSystemFilter();
+  renderRoutes();
+  renderSnapshots();
+  renderShipyardIntel();
+  renderLanes();
+});
+subscribe("doctrine", () => {
+  renderMobileDoctrine();
+  if (fieldBookMode === "book" && currentView === "bridge") renderBook();
+});
+
 boot0();
 
 </script>

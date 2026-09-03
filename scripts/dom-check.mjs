@@ -177,7 +177,17 @@ const server = app.listen(0, async () => {
     for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
       if (a[i] !== b[i]) diffs.push({ line: i + 1, before: a[i], after: b[i] });
     }
-    const clockOnly = diffs.every((d) => /id="clock"/.test(d.before ?? "") || /id="clock"/.test(d.after ?? ""));
+    // A line is volatile if the two versions are identical once clock times
+    // ("20:44:59", "20:44") and relative ages ("3m", "2h") are blanked. The
+    // clock ticks every second; the replay scrubber's endpoints render at
+    // minute granularity, so a baseline captured either side of a minute
+    // boundary differs there through nothing but elapsed time. Comparing
+    // with those blanked keeps the check strict about everything else
+    // instead of needing that reasoned out by hand each run.
+    const timeless = (l) => (l ?? "")
+      .replace(/\d{1,2}:\d{2}(:\d{2})?/g, "<time>")
+      .replace(/\b\d+[smhd]\b/g, "<age>");
+    const volatileOnly = diffs.every((d) => timeless(d.before) === timeless(d.after));
     const ranJs = !/id="clock">—</.test(dom);
 
     console.log(`${diffs.length} differing line(s) vs ${againstPath}`);
@@ -188,10 +198,10 @@ const server = app.listen(0, async () => {
       console.error("\nFAIL: #clock still shows its authored placeholder — the page rendered without its JavaScript.");
       process.exit(1);
     }
-    if (diffs.length === 0 || clockOnly) {
-      console.log("\nPASS: DOM identical apart from the live clock, and the clock proves the script ran.");
+    if (diffs.length === 0 || volatileOnly) {
+      console.log("\nPASS: DOM identical apart from clock/age text, and the clock proves the script ran.");
     } else {
-      console.error("\nFAIL: the DOM changed beyond the clock.");
+      console.error("\nFAIL: the DOM changed beyond clock/age text.");
       process.exit(1);
     }
   }
