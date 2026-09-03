@@ -1,92 +1,132 @@
   :root {
-    /* ── Elevation ────────────────────────────────────────────────
-       The one real change from v2, and the reason this version exists.
+    /* ── Mission Control's ground ─────────────────────────────────
+       v3 and v4 are luminous instruments in a dark room. This one is
+       the room: a lit console you operate, with the instrument inset
+       into it. That inversion is the whole version, and it is how ops
+       rooms are actually built — white housings, luminous screens.
 
-       v2 put everything on one plane: --void was #0a0a12 and --panel was
-       rgba(10,10,18,.82) over it, so a panel differed from the ground it
-       sat on by almost nothing. Every readout then had to carry its own
-       contrast, and the low ones — a 3px meter track at 15% opacity —
-       simply vanished.
+       Elevation runs the other way from v3's. On a dark ground a panel
+       separates by getting lighter; on a light one everything worth
+       reading is already near-white, so separation comes from a hairline
+       and a shadow instead, and the *ground* is the darker tone. --e1
+       and --e2 are deliberately the same white: a card on a panel is
+       told apart by its border, not by a tone step that would push it
+       toward grey and make the type sit on a dirtier field. */
+    --e0: #eef1f5;   /* ground: the console body, behind every panel */
+    --e1: #ffffff;   /* panel */
+    --e2: #ffffff;   /* card on a panel — border and shadow separate it */
+    --e3: #f4f6f9;   /* sunk: a pressed control, a table head, an input */
 
-       Four opaque steps instead, each a visible lift on the one below.
-       Opaque matters: stacking translucent surfaces over a dark ground
-       converges rather than separating, which is how v2 got flat while
-       every individual rule looked reasonable. Nothing here needs
-       backdrop-filter (v2 used none), so nothing is lost. */
-    --e0: #06080a;   /* ground: behind everything */
-    --e1: #0c1116;   /* panel: rails and bars */
-    --e2: #121a20;   /* card: a thing sitting on a panel */
-    --e3: #1a242c;   /* raised: a control you can press */
-
-    /* Ground & ink (never rotate) */
     --void: var(--e0);
-    /* Recessed rather than raised — inputs read as cut into the surface. */
-    --ink: #04070a;
-    --bone: #e8e8f0;
-    --ice: #969cb0;
-    --dim: #5e6478;
-    --star: #6c7286;
+    /* Recessed rather than raised, same as v3 — but on a light ground
+       "cut into the surface" means slightly darker, not near-black. */
+    --ink: #f7f8fa;
+    --bone: #131b24;   /* the brightest thing on the page is now the darkest */
+    --ice: #4b5560;
+    --dim: #7d8894;
+    --star: #9aa5b1;
 
-    /* Structure hue: places, waypoints, lanes' labels (never rotates) */
-    --buff: #cba97e;
-    --buff-soft: rgba(203, 169, 126, 0.18);
+    /* Structure hue: places, waypoints, lane labels (never rotates).
+       v3's warm buff was legible against black and turns to mud on
+       white; the console's equivalent is a cool slate. */
+    --buff: #6b7a8c;
+    --buff-soft: rgba(107, 122, 140, 0.12);
 
-    /* Semantic signal colors (never rotate) */
-    --red: #ff5b5b;
-    --red-soft: rgba(255, 91, 91, 0.14);
-    --green: #45bd8b;
-    --green-soft: rgba(69, 189, 139, 0.14);
-    --warn: #e3a840;
-    --warn-soft: rgba(227, 168, 64, 0.16);
+    /* Semantic signal colours. Darkened from v3's: a hue tuned to glow
+       on black has nothing like enough contrast as text on white. Each
+       is paired with a pale wash for chip and row backgrounds. */
+    --red: #c0392b;
+    --red-soft: #fdeceb;
+    --green: #14764d;
+    --green-soft: #e7f6ef;
+    --warn: #97590d;
+    --warn-soft: #fdf0e3;
 
-    /* Hue rotation: one of 355 (Rubine), 293 (Violet), 207 (Ice), 61 (Amber) */
-    --accent-hue: 355;
+    /* One blue, and it means "you can act on this" — the reason v5 has
+       no hue picker. On a light console a rotating accent stops being
+       decoration and starts lying about affordance, and two of v3's
+       four hues (amber, ice) cannot carry text on white at all. */
+    --accent: #2f6fed;
+    --accent-soft: #eaf1fe;
+    --rule: #b7cdf8;
+    --rule-soft: #e2e6eb;
+    --glow: rgba(47, 111, 237, 0.18);
+    --halo-a: rgba(47, 111, 237, 0.05);
+    --halo-b: rgba(107, 122, 140, 0.04);
+    --fill: rgba(47, 111, 237, 0.04);
 
-    /* Accent: attention, selection, live — the only hue that rotates */
-    --accent: oklch(66% 0.21 var(--accent-hue));
-    --accent-soft: oklch(66% 0.21 var(--accent-hue) / 0.16);
-    --rule: oklch(66% 0.21 var(--accent-hue) / 0.26);
-    --rule-soft: oklch(66% 0.21 var(--accent-hue) / 0.16);
-    --glow: oklch(66% 0.21 var(--accent-hue) / 0.16);
-    --halo-a: oklch(66% 0.21 var(--accent-hue) / 0.09);
-    --halo-b: rgba(203, 169, 126, 0.06);
-    --fill: oklch(66% 0.21 var(--accent-hue) / 0.05);
-
-    /* Glass/hairline surfaces — grayscale, never tinted by the accent */
-    --glass: rgba(148, 155, 178, 0.06);
-    /* Two weights: the quiet one for dividers inside a surface, the strong
-       one for the edge between two surfaces, which is the seam that has to
-       survive being looked at quickly. */
-    --hairline: rgba(150, 172, 190, 0.20);
-    --hairline-hi: rgba(150, 172, 190, 0.36);
+    --glass: #f7f8fa;
+    --hairline: #e2e6eb;
+    --hairline-hi: #ced5dd;
     --panel: var(--e1);
     --panel-2: var(--e2);
     --raised: var(--e3);
 
-    /* A meter is two shades of one colour, not a colour on near-nothing:
-       the track is the accent knocked back into the ground so the empty
-       part still reads as part of the same instrument. Derived from the
-       accent so it follows the hue picker instead of being pinned. */
-    --meter-track: color-mix(in oklab, var(--accent) 26%, var(--e0));
+    /* An empty meter is the console's own grey, not a wash of the
+       accent: here the accent is reserved for action, so spending it on
+       the *unfilled* part of a bar would dilute the one signal that has
+       to stay unambiguous. */
+    --meter-track: #e2e6eb;
+
+    /* Elevation on a light ground is a shadow, not a tone. Two-part and
+       very soft — a console is machined, not floating. */
+    --shadow: 0 1px 2px rgba(19,27,36,.06), 0 1px 1px rgba(19,27,36,.04);
+    --shadow-lift: 0 4px 12px rgba(19,27,36,.08), 0 1px 2px rgba(19,27,36,.05);
 
     /* Data hues (map/system labels only — never accent, never rotate) */
+    --teal: #0f7c88;
+    --teal-soft: rgba(15, 124, 136, 0.30);
+    --teal-bg: rgba(15, 124, 136, 0.07);
+    --violet: #6d4fd6;
+    --violet-soft: rgba(109, 79, 214, 0.30);
+
+    /* Type roles. The mono is the same RBmono the other versions use —
+       it is where the aerospace character lives, in the readouts and
+       the numbers, and it is already downloaded and cached by all four.
+       The UI face is the platform's own: this version's register is a
+       working console rather than a styled one, and RBchrome is a
+       *condensed* face, which reads as signage and fights the dense
+       tables this layout is built around. */
+    --chrome: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --brand: var(--chrome);
+    --mono: "RBmono", "Ubuntu Sans Mono", ui-monospace, monospace;
+    --book: "RBbook", "Palatino Linotype", Palatino, Georgia, serif;
+    --disp: var(--chrome);
+    --serif: var(--book);
+  }
+
+  /* ── the display is still dark ────────────────────────────────
+     The sector plot keeps v3's instrument palette while the console
+     around it goes light. Everything drawn inside the glass reads its
+     colour from these tokens, so re-declaring them on the wrapper
+     restores the whole map — waypoints, lanes, trails, labels, the HUD
+     — without touching one of the ~80 rules under `#map`. */
+  .map-wrap {
+    --ink: #0a1120;
+    --bone: #eaf3ff;
+    --ice: #93aac6;
+    --dim: #5f7898;
+    --star: #7ea6d8;
+    --buff: #8ea5c1;
+    --accent: #3d8bfd;
+    --accent-soft: rgba(61, 139, 253, 0.18);
+    --rule: rgba(126, 166, 214, 0.30);
+    --rule-soft: rgba(126, 166, 214, 0.17);
+    --glow: rgba(61, 139, 253, 0.55);
+    --hairline: rgba(126, 166, 214, 0.20);
+    --hairline-hi: rgba(126, 166, 214, 0.34);
+    --panel: #101a2c;
+    --panel-2: #0e1a2b;
+    --raised: #16233a;
     --teal: #4fd1c5;
     --teal-soft: rgba(79, 209, 197, 0.35);
     --teal-bg: rgba(79, 209, 197, 0.08);
     --violet: #a78bfa;
     --violet-soft: rgba(167, 139, 250, 0.35);
-
-    /* Type roles — four real faces, not one doing every job:
-       chrome = condensed UI labels/topbar/gutter; brand = geometric display
-       for the wordmark and section heads; mono = data/numbers; book = the
-       standing-orders prose face in Book mode. */
-    --chrome: "RBchrome", "Nimbus Sans Narrow", "Arial Narrow", sans-serif;
-    --brand: "RBdisp", "URW Gothic", "Century Gothic", sans-serif;
-    --mono: "RBmono", "Ubuntu Sans Mono", ui-monospace, monospace;
-    --book: "RBbook", "Palatino Linotype", Palatino, Georgia, serif;
-    /* Back-compat aliases: the app's existing CSS was written against these two names. */
-    --disp: var(--chrome);
-    --serif: var(--book);
+    --green: #45bd8b;
+    --warn: #e3a840;
+    --red: #ff5b5b;
+    color:var(--bone);
   }
   * { box-sizing:border-box; margin:0; padding:0; }
   html, body { height:100%; }
@@ -178,10 +218,6 @@
   .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
   .icon-btn.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
 
-  .hue-picker { display:flex; gap:4px; border:1px solid var(--hairline); padding:2px; }
-  .hue-btn { width:18px; height:18px; border:2px solid transparent; cursor:pointer; border-radius:2px; padding:0; transition:all 0.15s; }
-  .hue-btn:hover { border-color:var(--ice); }
-  .hue-btn.active { border-color:var(--bone); box-shadow:0 0 4px var(--bone); }
 
   /* ── views ───────────────────────────────── */
   main { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; }
