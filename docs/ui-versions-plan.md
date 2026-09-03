@@ -183,7 +183,7 @@ Reuses v2's render layer almost wholesale — mostly class-name and
 container changes. The five non-Bridge views inherit v2's panes restyled by
 the new tokens.
 
-### Phase 3 — `v5` Mission Control *(largest, most reusable)*
+### Phase 3 — `v5` Mission Control *(largest, most reusable)* — **done**
 
 - Nav spine with live counts, grouped Operate / Programme / Policy.
 - KPI band: credits, forgone, fleet condition, active lanes.
@@ -197,6 +197,31 @@ the new tokens.
 Built second on purpose: its table and card primitives are the ones
 Fleet, Markets, Trade Ops and Ops need in **every** version, so this phase
 produces the most reusable output.
+
+Landed as `3a` (verified scaffold, copied from v3 rather than v2 so it
+inherits the Phase 2 structural fixes), `3b` (palette inversion), `3c`
+(spine, KPI band, display-as-hero), `3d` (card/table/meter/chip
+primitives), `3e` (buttons) and `3f` (form controls). What the build
+actually turned on:
+
+- **The token remap carries almost everything.** Rewriting `:root` flipped
+  ~2,000 rules at once; the dark sector plot survives because `.map-wrap`
+  re-declares the instrument tokens for its own subtree rather than any of
+  the ~80 `#map` rules being touched.
+- **Inverting a palette is not a colour swap, it is a re-audit of what
+  each colour was doing.** Three separate passes were needed for places
+  where a value that *worked* on black stopped meaning anything on white:
+  every meter fill and every panel header bead was painted in the accent,
+  which is this version's "you can act on this"; outlined buttons were the
+  weakest mark on the page rather than the strongest; and recessed form
+  fields became white-on-white, so the field's edge became the entire
+  control and `--hairline` was the wrong weight for it.
+- **The hue picker is gone from v5.** A rotating accent cannot also be a
+  reserved signal, and two of v3's four hues carry no text on white.
+- The UI face is the platform's own. RBmono stays — the aerospace
+  character lives in the readouts, and it is already cached by all four
+  versions — but RBchrome is condensed, which reads as signage and fights
+  dense tables.
 
 ### Phase 4 — `v4` Deep Field *(most bespoke, highest risk)*
 
