@@ -14,7 +14,7 @@
        every individual rule looked reasonable. Nothing here needs
        backdrop-filter (v2 used none), so nothing is lost. */
     --e0: #06080a;   /* ground: behind everything */
-    --e1: #0c1116;   /* panel: rails, bars, the ticker */
+    --e1: #0c1116;   /* panel: rails and bars */
     --e2: #121a20;   /* card: a thing sitting on a panel */
     --e3: #1a242c;   /* raised: a control you can press */
 
@@ -188,51 +188,21 @@
   .view { display:none; flex:1; min-height:0; }
   .view.on { display:grid; gap:6px; }
   /* Grid items default to min-width:auto, which floors their track at the
-     min-content size of their contents. The ticker's nowrap feed and long
-     ship symbols in the fleet table have no natural break point, so without
-     this they push the grid — and the page — wider than the viewport. */
+     min-content size of their contents. Long ship symbols in the fleet
+     table have no natural break point, so without this they push the grid —
+     and the page — wider than the viewport. */
   .view > * { min-width:0; }
   /* ── the field & the book ────────────────────
      Bridge is no longer a 3-column grid of peer panes. It's a full-bleed
      stage — the map fills it entirely; everything else is a translucent
      layer floating on top. `.field-stage` is that stage: position:relative
      so the map/rails/tip/scrub inside it can be position:absolute against
-     its own box, not the viewport. The ticker stays a normal flow sibling
-     below it (fixed height), not another absolute layer to juggle. */
+     its own box, not the viewport. The stage is the whole view now: the
+     ticker bar that used to sit below it is gone, and its activity feed
+     lives in the right rail's watch section with everything else. */
   .view.on.view-bridge { display:flex; flex-direction:column; gap:6px; position:relative; }
   .field-stage { position:relative; flex:1; min-height:0; overflow:hidden; }
   .field-stage .map-wrap { position:absolute; inset:0; }
-  .view-bridge .ticker { flex-shrink:0; }
-
-  /* Ticker gets a small expand tab; clicking it raises a drawer with the
-     fuller shift log (narrative + per-event feed) — what used to be the
-     Doctrine tab's "The watch" pane, folded in here since it's really just
-     a longer view of the same activity the ticker already scrolls. */
-  /* position:relative so the drawer's bottom:100% below measures from THIS
-     box's own (small, ticker-height) edge — not the whole Bridge view's,
-     which is what happened when the drawer sat outside .ticker-bar: its
-     containing block was .view-bridge (nearly the full viewport height), so
-     "100% from the bottom" put the drawer's bottom edge at the very TOP of
-     the view, overlapping the header nav and blocking clicks on other tabs
-     while open. Nesting the drawer inside .ticker-bar fixes the math. */
-  .ticker-bar { position:relative; display:flex; align-items:stretch; flex-shrink:0; }
-  .ticker-bar .ticker { flex:1; }
-  .ticker-expand {
-    flex-shrink:0; width:28px; background:var(--panel); border:1px solid var(--hairline); border-right:none;
-    color:var(--dim); cursor:pointer; font-size:10px; transition:color .15s, transform .2s;
-  }
-  .ticker-expand:hover { color:var(--accent); }
-  .ticker-expand[aria-expanded="true"] { transform:rotate(180deg); color:var(--accent); }
-  .shift-log-drawer {
-    position:absolute; left:0; right:0; bottom:100%; z-index:15; height:280px;
-    background:var(--panel-2); border:1px solid var(--hairline); display:flex; flex-direction:column;
-    transform:translateY(8px); opacity:0; pointer-events:none; transition:transform .2s ease, opacity .2s ease;
-  }
-  .shift-log-drawer.open { transform:translateY(0); opacity:1; pointer-events:auto; }
-  .shift-log-drawer .pane-b { flex:1; min-height:0; overflow-y:auto; padding:10px 12px; scrollbar-width:thin; scrollbar-color:var(--hairline) transparent; }
-  .shift-log-drawer .pane-b::-webkit-scrollbar { width:4px; }
-  .shift-log-drawer .pane-b::-webkit-scrollbar-thumb { background:var(--hairline); }
-
   .rail {
     position:absolute; top:12px; bottom:58px; width:280px;
     background:var(--panel-2); border:1px solid var(--rule);
@@ -253,6 +223,48 @@
   .rail .rail-b::-webkit-scrollbar { width:4px; }
   .rail .rail-b::-webkit-scrollbar-thumb { background:var(--rule-soft); }
   .rail .rail-b::-webkit-scrollbar-track { background:transparent; }
+
+  /* A rail holds sections now, not one body. `flex:0 1 auto` sizes an open
+     section to its own content and only shrinks it when the rail runs out
+     of room — an even 1:1 split would strand a two-lane list in half the
+     rail while the watch scrolled below it. Shrinking is proportional to
+     content, so the long section gives up the height, and `min-height:0`
+     lets it scroll its own body instead of pushing the rail past its box.
+     A collapsed section drops to just its summary, which is how one section
+     takes the whole rail when that's the one being read. */
+  .rail-sec { display:flex; flex-direction:column; min-height:0; border-bottom:1px solid var(--rule-soft); }
+  .rail-sec:last-child { border-bottom:none; }
+  .rail-sec[open] { flex:0 1 auto; }
+  .rail-sec:not([open]) { flex:0 0 auto; }
+  /* The disclosure triangle is replaced by a caret in the summary's own
+     type, so the header keeps the letter-spaced chrome look the rails use. */
+  .rail-sec > summary { cursor:pointer; list-style:none; user-select:none; }
+  .rail-sec > summary::-webkit-details-marker { display:none; }
+  .rail-sec > summary::after {
+    content:"\25B4"; margin-left:8px; font-size:8px; color:var(--dim); transition:transform .15s ease;
+  }
+  .rail-sec:not([open]) > summary::after { transform:rotate(180deg); }
+  .rail-sec > summary:hover { background:var(--raised); }
+  .rail-sec > summary .n { margin-left:auto; }
+  .rail-sec > summary:focus-visible { outline:1px solid var(--accent); outline-offset:-1px; }
+
+  /* Inspector breadcrumb: the trail is the rail's title, so it inherits the
+     header's chrome type and only the leaf carries the hull's own colour. */
+  .rail .crumb { display:flex; align-items:baseline; gap:6px; min-width:0; }
+  .rail .crumb-root {
+    background:none; border:none; padding:0; cursor:pointer; color:var(--accent);
+    font:inherit; letter-spacing:inherit; text-transform:inherit;
+  }
+  .rail .crumb-root:hover { color:var(--bone); }
+  /* At the root there is nowhere to go back to — it reads as the position
+     you're in, not as a control that failed to do anything. */
+  .rail .crumb-root.here { cursor:default; color:var(--accent); }
+  .rail .crumb-root.here:hover { color:var(--accent); }
+  .rail .crumb-sep { color:var(--dim); font-size:11px; }
+  .rail .crumb-leaf {
+    color:var(--bone); font-family:var(--mono); font-size:10px; letter-spacing:0.04em;
+    text-transform:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
 
   /* Book mode: the field dims to a ground; rails hide; a document takes over. */
   .field-stage.book-mode .map-wrap { opacity:0.28; filter:grayscale(0.6); pointer-events:none; transition:opacity .5s ease, filter .5s ease; }
@@ -346,9 +358,9 @@
   .book-settings .tog.sw i { position:absolute; top:1px; left:1px; width:9px; height:9px; background:var(--dim); transition:all .15s; }
   .book-settings .tog.sw[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
   .book-settings .tog.sw[aria-pressed="true"] i { left:12px; background:var(--accent); }
-  /* Book mode's last block, sitting right above the Bridge ticker — without
-     this it renders flush against the ticker bar with no breathing room,
-     making the row look cut off rather than just at the bottom of the page. */
+  /* Book mode's last block sits at the very bottom of the sheet — without
+     this it renders flush against the edge with no breathing room, making
+     the row look cut off rather than just last. */
   .sheet .page { padding-bottom:28px; }
   .sheet .mnote { border-bottom:1px solid var(--rule-soft); padding:0 0 13px; margin-bottom:13px; }
   .sheet .mnote:last-child { border-bottom:none; }
@@ -694,17 +706,6 @@
   .meter.neg i { background:var(--red); }
   .rolepick { background:var(--ink); border:1px solid var(--hairline); color:var(--accent); font-family:var(--mono); font-size:9px; padding:2px 4px; }
 
-  .ticker { display:flex; gap:22px; align-items:center; padding:6px 11px; background:var(--panel);
-            border:1px solid var(--hairline); font-size:9.5px; color:var(--dim); overflow-x:auto; white-space:nowrap; flex-shrink:0;
-            scrollbar-width:thin; scrollbar-color:var(--hairline) transparent; }
-  .ticker b { color:var(--green); font-weight:400; } .ticker b.neg { color:var(--red); }
-  /* The ticker is a deliberately horizontal-scrolling feed, but it's also the
-     literal bottom row of the window — the browser's default scrollbar there
-     reads as a page bug, not a feature. Match the thin custom scrollbar used
-     everywhere else (.pane-b) instead of the fat native one. */
-  .ticker::-webkit-scrollbar { height:5px; }
-  .ticker::-webkit-scrollbar-thumb { background:var(--hairline); }
-  .ticker::-webkit-scrollbar-track { background:transparent; }
 
   /* ── doctrine ────────────────────────────── */
   .rule { border:1px solid var(--hairline); background:var(--glass); padding:9px 10px; margin-bottom:7px; }
@@ -747,7 +748,8 @@
 
   .verdict { display:flex; background:var(--panel); border:1px solid var(--hairline); overflow-x:auto; flex-shrink:0;
              scrollbar-width:thin; scrollbar-color:var(--hairline) transparent; }
-  /* Same reasoning as .ticker: this is the bottom row of the Doctrine view. */
+  /* A horizontal-scrolling strip on the literal bottom row of the window:
+     the fat native scrollbar there reads as a page bug. Match .pane-b. */
   .verdict::-webkit-scrollbar { height:5px; }
   .verdict::-webkit-scrollbar-thumb { background:var(--hairline); }
   .verdict::-webkit-scrollbar-track { background:transparent; }
@@ -954,8 +956,6 @@
     body.mobile-book-active main#views > .view.view-bridge {
       position:absolute; inset:0; z-index:1; display:flex !important;
     }
-    body.mobile-map-active .view-bridge .ticker-bar,
-    body.mobile-book-active .view-bridge .ticker-bar,
     body.mobile-map-active .view-bridge .scrub,
     body.mobile-book-active .view-bridge .scrub { display:none; }
     /* Map tab: no rails on a phone, and the HUD/legend/fit button shift back
@@ -992,7 +992,6 @@
     body.mobile-ship-active main#views > .view.view-bridge {
       position:absolute; inset:0; z-index:1; display:flex !important;
     }
-    body.mobile-ship-active .view-bridge .ticker-bar,
     body.mobile-ship-active .view-bridge .scrub,
     body.mobile-ship-active .view-bridge #map,
     body.mobile-ship-active .view-bridge .map-hud,

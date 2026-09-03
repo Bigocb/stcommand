@@ -388,12 +388,6 @@ function setView(name) {
   $("view-switch").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === name)));
   loadViewData(name);
   if (name === "bridge") requestAnimationFrame(renderMapLiveOrScrub);
-  else {
-    // Defense in depth alongside the drawer's own positioning fix: never
-    // leave it open while looking at a different view.
-    $("shift-log-drawer")?.classList.remove("open");
-    $("ticker-expand")?.setAttribute("aria-expanded", "false");
-  }
 }
 
 function loadViewData(name) {
@@ -996,8 +990,7 @@ function showRailTriage() {
   // No-op on desktop; on mobile this is "back" out of the ship-details
   // sheet opened by openShipDetails() below.
   document.body.classList.remove("mobile-ship-active");
-  const title = $("rail-left-title");
-  if (title) title.textContent = "Triage";
+  setCrumb(null);
   const items = bridge.triage ?? [];
   const n = $("rail-left-n");
   if (n) n.textContent = items.length ? String(items.length) : "clear";
@@ -1007,10 +1000,30 @@ function showRailManifest(shipSymbol) {
   const t = $("triage"), m = $("manifest");
   if (t) t.style.display = "none";
   if (m) m.style.display = "";
-  const title = $("rail-left-title");
-  if (title) title.textContent = "Manifest";
+  setCrumb(shipSymbol);
   const n = $("rail-left-n");
-  if (n) n.textContent = shipSymbol;
+  if (n) n.textContent = "manifest";
+}
+
+/** The inspector's breadcrumb. `leaf` is the selected hull, or null for the
+ *  root. The root stays a live button in both states — at the root it is
+ *  simply where you already are, which is what makes the trail readable as
+ *  a position rather than as a back button that appears and vanishes. */
+function setCrumb(leaf) {
+  const root = $("rail-left-back"), sep = $("rail-left-sep"), title = $("rail-left-title");
+  if (!root) return;
+  root.classList.toggle("here", !leaf);
+  root.setAttribute("aria-disabled", String(!leaf));
+  if (sep) sep.hidden = !leaf;
+  if (title) { title.hidden = !leaf; title.textContent = leaf ?? ""; }
+}
+
+function initInspectorCrumb() {
+  $("rail-left-back")?.addEventListener("click", () => {
+    if (!selectedShip) return;
+    selectedShip = null;
+    showRailTriage();
+  });
 }
 
 function renderTriage() {
@@ -1186,7 +1199,7 @@ function renderMobileFleetStrip() {
 }
 
 /** Bridge screen's activity feed — the same recent fleet activity the
- *  desktop ticker shows, as a vertical list. */
+ *  right rail's watch shows, as a vertical list. */
 function renderMobileActivity() {
   const el = $("m-activity");
   if (!el) return;
@@ -1314,16 +1327,6 @@ function renderCrewRoster() {
     openShipDetails(selectedShip);
     setView("bridge");
   }));
-}
-
-function renderTicker() {
-  const el = $("ticker");
-  if (!activity.length) { el.innerHTML = '<span>Waiting for fleet activity.</span>'; return; }
-  el.innerHTML = activity.slice(0, 12).map((a) => {
-    const c = a.credits;
-    return `<span><span style="color:var(--dim)">${fmtTime(a.timestamp)}</span> ${escapeHtml(a.detail)}${
-      c == null ? "" : ` <b class="${c < 0 ? "neg" : ""}">${signed(c)}</b>`}</span>`;
-  }).join("");
 }
 
 /* ── DOCTRINE ─────────────────────────────── */
@@ -3482,7 +3485,7 @@ function boot() {
   loadReplay();
   if (isMobile()) { loadDispatch(); loadWarehouse(); }
   initScrubber();
-  initShiftLogDrawer();
+  initInspectorCrumb();
   // Populate Book's sheet once up front regardless of starting mode — it's
   // also where Discord webhook config now lives, and that must be reachable
   // (its inputs need to exist in the DOM) even for an operator who never
@@ -3500,17 +3503,6 @@ function initScrubber() {
   $("scrub-speed")?.addEventListener("click", scrubCycleSpeed);
   $("scrub-live")?.addEventListener("click", scrubGoLive);
   $("scrub-track")?.addEventListener("click", (e) => scrubSeek(e.clientX));
-}
-
-function initShiftLogDrawer() {
-  const btn = $("ticker-expand");
-  const drawer = $("shift-log-drawer");
-  if (!btn || !drawer) return;
-  btn.addEventListener("click", () => {
-    const open = !drawer.classList.contains("open");
-    drawer.classList.toggle("open", open);
-    btn.setAttribute("aria-expanded", String(open));
-  });
 }
 
 // Position history keeps growing as the fleet runs — refresh the window
@@ -3645,7 +3637,6 @@ subscribe("bridge", () => {
   renderFleetSummary();
 });
 subscribe("activity", () => {
-  renderTicker();
   renderMobileActivity();
   renderShiftLog();
 });

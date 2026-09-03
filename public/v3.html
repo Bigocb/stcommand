@@ -108,19 +108,42 @@
           </div>
         </div>
 
-        <!-- Left rail: the selected hull's manifest, or triage when nothing's selected -->
+        <!-- Left rail: the inspector. Triage while you're browsing, a hull's
+             manifest once you pick one — reached through a breadcrumb that
+             stays put, so getting back out is a place you click rather than
+             a control you have to find. -->
         <div class="rail rail-l" id="rail-left">
-          <div class="rail-h" id="rail-left-h"><span id="rail-left-title">Triage</span><span class="n" id="rail-left-n">—</span></div>
+          <div class="rail-h" id="rail-left-h">
+            <nav class="crumb" aria-label="Inspector">
+              <button type="button" class="crumb-root here" id="rail-left-back" aria-disabled="true">Triage</button>
+              <span class="crumb-sep" id="rail-left-sep" hidden>›</span>
+              <span class="crumb-leaf" id="rail-left-title" hidden></span>
+            </nav>
+            <span class="n" id="rail-left-n">—</span>
+          </div>
           <div class="rail-b" id="rail-left-body">
             <div id="triage"></div>
             <div id="manifest" style="display:none"></div>
           </div>
         </div>
 
-        <!-- Right rail: active lanes, by margin -->
+        <!-- Right rail: one activity column. Lanes lived here and the watch
+             lived in a drawer under the ticker, so the same shift's events
+             scrolled past in two places at once. They're two sections of one
+             rail now, each collapsible so either can take the full height
+             when that's the one you're reading. -->
         <div class="rail rail-r" id="rail-right">
-          <div class="rail-h">Lanes<span class="n">by margin</span></div>
-          <div class="rail-b" id="rail-lanes"></div>
+          <details class="rail-sec" id="sec-lanes" open>
+            <summary class="rail-h">Lanes<span class="n">by margin</span></summary>
+            <div class="rail-b" id="rail-lanes"></div>
+          </details>
+          <details class="rail-sec" id="sec-watch" open>
+            <summary class="rail-h">The watch<span class="n">this shift</span></summary>
+            <div class="rail-b">
+              <div class="narrative" id="narrative">Awaiting telemetry…</div>
+              <div id="shift-log"></div>
+            </div>
+          </details>
         </div>
 
         <div class="scrim"></div>
@@ -137,17 +160,6 @@
           <span class="sp" id="scrub-speed">1×</span>
           <span class="sp live" id="scrub-live">LIVE</span>
         </div>
-      </div>
-      <div class="ticker-bar">
-        <div class="shift-log-drawer" id="shift-log-drawer">
-          <div class="pane-h"><span class="dot"></span>The watch<span class="count">what the doctrine produced this shift</span></div>
-          <div class="pane-b">
-            <div class="narrative" id="narrative">Awaiting telemetry…</div>
-            <div id="shift-log"></div>
-          </div>
-        </div>
-        <button class="ticker-expand" id="ticker-expand" aria-expanded="false" aria-label="Expand shift log">▲</button>
-        <div class="ticker" id="ticker"></div>
       </div>
     </section>
 

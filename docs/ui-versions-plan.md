@@ -153,7 +153,7 @@ account across devices, mirroring how `discord_enabled` and
 instances keep landing on v2, which is correct for now. Revisit only when
 the default changes.
 
-### Phase 2 — `v3` Refined Bridge *(smallest)*
+### Phase 2 — `v3` Refined Bridge *(smallest)* — **done**
 
 Mostly CSS, one structural move.
 
@@ -166,6 +166,18 @@ Mostly CSS, one structural move.
   events stop scrolling past in two places.
 - Left rail becomes an inspector: triage → manifest with a breadcrumb back
   and collapsible sections.
+
+Landed as `2a` (verified scaffold), `2b` (elevation and meters) and `2c`
+(the structural move). Two notes from doing it:
+
+- The elevation tokens had to become **opaque**. v2's surfaces were
+  translucent over a dark ground, which *converges* as they stack rather
+  than separating — which is how the interface went flat while every
+  individual rule still looked defensible.
+- The right rail's two sections size to their content (`flex:0 1 auto`),
+  not to an even split. A two-lane list stranded in half a rail while the
+  watch scrolls underneath it is the same "same events in two places"
+  problem the merge was meant to remove.
 
 Reuses v2's render layer almost wholesale — mostly class-name and
 container changes. The five non-Bridge views inherit v2's panes restyled by
