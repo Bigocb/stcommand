@@ -3509,34 +3509,10 @@ function initScrubber() {
 // periodically so the scrubber's "live" end and sparkline stay current.
 every(60_000, () => { if (currentView === "bridge") loadReplay(); });
 
-// ── Hue rotation ───────────────────────────────────────────────────
-(function initHuePicker() {
-  const HUES = [355, 293, 207, 61];
-  const STORAGE_KEY = "so-accent-hue";
-
-  function setHue(hue) {
-    document.documentElement.style.setProperty("--accent-hue", hue);
-    localStorage.setItem(STORAGE_KEY, String(hue));
-    updateHueButtonStates(hue);
-  }
-
-  function updateHueButtonStates(hue) {
-    for (const btn of document.querySelectorAll(".hue-btn")) {
-      const btnHue = Number(btn.dataset.hue);
-      btn.classList.toggle("active", btnHue === hue);
-    }
-  }
-
-  // Load saved hue or default to Rubine
-  const saved = localStorage.getItem(STORAGE_KEY);
-  const initialHue = saved && HUES.includes(Number(saved)) ? Number(saved) : 355;
-  setHue(initialHue);
-
-  // Wire up hue picker buttons
-  for (const btn of document.querySelectorAll(".hue-btn")) {
-    btn.addEventListener("click", () => setHue(Number(btn.dataset.hue)));
-  }
-})();
+/* No hue rotation in this version. Deep Field runs on exactly two
+   meaningful colours — cyan for telemetry, orange for what needs you — and
+   a picker that rotates one of them through four hues would dissolve the
+   only rule the version has. --accent is fixed in v4.css. */
 
 // ── Field / Book mode ──────────────────────────────────────────────
 let fieldBookMode = localStorage.getItem("field-book-mode") || "field";
@@ -3555,8 +3531,8 @@ function setFieldBookMode(mode) {
   if (mode === "book") renderBook();
 }
 
-/** Always visible in the header — same reasoning as the view switcher and
- *  hue picker beside it: a control that only sometimes exists makes the
+/** Always visible in the header — same reasoning as the view switcher
+ *  beside it: a control that only sometimes exists makes the
  *  header itself feel inconsistent between pages. Bridge is the only view it
  *  actually applies to, so clicking it from elsewhere jumps to Bridge first. */
 function updateFieldBookToggleVisibility() {

@@ -1,90 +1,109 @@
   :root {
-    /* ── Elevation ────────────────────────────────────────────────
-       The one real change from v2, and the reason this version exists.
+    /* ── Deep Field ───────────────────────────────────────────────
+       Two colours carry meaning and nothing else does.
 
-       v2 put everything on one plane: --void was #0a0a12 and --panel was
-       rgba(10,10,18,.82) over it, so a panel differed from the ground it
-       sat on by almost nothing. Every readout then had to carry its own
-       contrast, and the low ones — a 3px meter track at 15% opacity —
-       simply vanished.
+         cyan   = telemetry. Something the fleet is reporting.
+         orange = actionable. Something waiting on you.
 
-       Four opaque steps instead, each a visible lift on the one below.
-       Opaque matters: stacking translucent surfaces over a dark ground
-       converges rather than separating, which is how v2 got flat while
-       every individual rule looked reasonable. Nothing here needs
-       backdrop-filter (v2 used none), so nothing is lost. */
-    --e0: #06080a;   /* ground: behind everything */
-    --e1: #0c1116;   /* panel: rails and bars */
-    --e2: #121a20;   /* card: a thing sitting on a panel */
-    --e3: #1a242c;   /* raised: a control you can press */
+       That is the whole discipline of this version, and it only works
+       if it is never broken for decoration. v3 spends its accent on
+       panel headings, dividers, dots and selected tabs — all readable,
+       none of them actionable — so by the time an alert appears the
+       colour has already been spent. Here the accent appears where a
+       decision is, and everywhere else is cyan or grey.
 
-    /* Ground & ink (never rotate) */
+       The consequence is that --accent and --alt swap jobs relative to
+       every other version: the token most rules reach for by habit is
+       the *rare* one, so the palette below deliberately routes the
+       common chrome roles (rules, hairlines, glow, fill) to cyan and
+       leaves --accent for alerts, actions and the selected hull. */
+    --cyan: #35e0c9;
+    --amber: #ff7a1a;
+
+    /* Ground: not flat black. A deep-field plate has a colour cast and
+       a scan structure, both of which live on .app below; these are the
+       tones they are built from. */
+    --e0: #050605;
+    --e1: rgba(9, 13, 12, 0.82);
+    --e2: rgba(12, 18, 17, 0.88);
+    --e3: rgba(18, 27, 25, 0.94);
     --void: var(--e0);
-    /* Recessed rather than raised — inputs read as cut into the surface. */
-    --ink: #04070a;
-    --bone: #e8e8f0;
-    --ice: #969cb0;
-    --dim: #5e6478;
-    --star: #6c7286;
+    --ink: #030605;
 
-    /* Structure hue: places, waypoints, lanes' labels (never rotates) */
-    --buff: #cba97e;
-    --buff-soft: rgba(203, 169, 126, 0.18);
+    --bone: #f4f8f4;
+    --ice: #c6d2cb;
+    --dim: #7e9089;
+    --star: rgba(190, 235, 225, 0.55);
 
-    /* Semantic signal colors (never rotate) */
-    --red: #ff5b5b;
-    --red-soft: rgba(255, 91, 91, 0.14);
-    --green: #45bd8b;
-    --green-soft: rgba(69, 189, 139, 0.14);
-    --warn: #e3a840;
-    --warn-soft: rgba(227, 168, 64, 0.16);
+    /* Places and waypoint labels: the muted end of the telemetry hue,
+       so the map's furniture never competes with a live reading. */
+    --buff: #6f8a83;
+    --buff-soft: rgba(111, 138, 131, 0.16);
 
-    /* Hue rotation: one of 355 (Rubine), 293 (Violet), 207 (Ice), 61 (Amber) */
-    --accent-hue: 355;
+    --red: #ff4433;
+    --red-soft: rgba(255, 68, 51, 0.14);
+    --green: var(--cyan);
+    --green-soft: rgba(53, 224, 201, 0.14);
+    --warn: var(--amber);
+    --warn-soft: rgba(255, 122, 26, 0.14);
 
-    /* Accent: attention, selection, live — the only hue that rotates */
-    --accent: oklch(66% 0.21 var(--accent-hue));
-    --accent-soft: oklch(66% 0.21 var(--accent-hue) / 0.16);
-    --rule: oklch(66% 0.21 var(--accent-hue) / 0.26);
-    --rule-soft: oklch(66% 0.21 var(--accent-hue) / 0.16);
-    --glow: oklch(66% 0.21 var(--accent-hue) / 0.16);
-    --halo-a: oklch(66% 0.21 var(--accent-hue) / 0.09);
-    --halo-b: rgba(203, 169, 126, 0.06);
-    --fill: oklch(66% 0.21 var(--accent-hue) / 0.05);
+    /* --accent defaults to CYAN, not to the amber, and that is the whole
+       mechanism rather than an oversight.
 
-    /* Glass/hairline surfaces — grayscale, never tinted by the accent */
-    --glass: rgba(148, 155, 178, 0.06);
-    /* Two weights: the quiet one for dividers inside a surface, the strong
-       one for the edge between two surfaces, which is the seam that has to
-       survive being looked at quickly. */
-    --hairline: rgba(150, 172, 190, 0.20);
-    --hairline-hi: rgba(150, 172, 190, 0.36);
+       ~84 rules reach for --accent, and almost every one of them is
+       chrome: a panel heading, a hover edge, a divider, a map route.
+       Pointing --accent at the amber would paint the rare colour over all
+       of them and leave the version with no way to say "this one needs
+       you". Defaulting it to cyan makes the safe colour the automatic one,
+       so orange has to be asked for by name — and the block below is the
+       complete list of places that ask. If that list is short, the rule
+       holds; if it grows, the rule visibly stops holding, which is the
+       property a two-colour discipline needs in order to survive edits. */
+    --accent: var(--cyan);
+    --accent-soft: rgba(53, 224, 201, 0.14);
+
+    /* Actionable. Alerts, the primary action, the current selection, and
+       the tracked hull. Nothing else. */
+    --act: var(--amber);
+    --act-soft: rgba(255, 122, 26, 0.14);
+    --act-line: rgba(255, 122, 26, 0.45);
+
+    /* Structure. Every one of these is cyan, because structure is
+       telemetry's frame and none of it is a thing you can press. */
+    --rule: rgba(53, 224, 201, 0.22);
+    --rule-soft: rgba(53, 224, 201, 0.11);
+    --glow: rgba(53, 224, 201, 0.55);
+    --halo-a: rgba(53, 224, 201, 0.07);
+    --halo-b: rgba(255, 122, 26, 0.04);
+    --fill: rgba(53, 224, 201, 0.05);
+    --glass: rgba(53, 224, 201, 0.05);
+    --hairline: rgba(53, 224, 201, 0.22);
+    --hairline-hi: rgba(53, 224, 201, 0.42);
     --panel: var(--e1);
     --panel-2: var(--e2);
     --raised: var(--e3);
+    --meter-track: rgba(53, 224, 201, 0.13);
 
-    /* A meter is two shades of one colour, not a colour on near-nothing:
-       the track is the accent knocked back into the ground so the empty
-       part still reads as part of the same instrument. Derived from the
-       accent so it follows the hue picker instead of being pinned. */
-    --meter-track: color-mix(in oklab, var(--accent) 26%, var(--e0));
+    --teal: var(--cyan);
+    --teal-soft: rgba(53, 224, 201, 0.35);
+    --teal-bg: rgba(53, 224, 201, 0.08);
+    --violet: #9d8dff;
+    --violet-soft: rgba(157, 141, 255, 0.35);
 
-    /* Data hues (map/system labels only — never accent, never rotate) */
-    --teal: #4fd1c5;
-    --teal-soft: rgba(79, 209, 197, 0.35);
-    --teal-bg: rgba(79, 209, 197, 0.08);
-    --violet: #a78bfa;
-    --violet-soft: rgba(167, 139, 250, 0.35);
+    /* The clipped corner. One shape, two sizes — a module and a control
+       — so the whole interface reads as cut from the same stock rather
+       than as rounded boxes with an effect applied to some of them. */
+    --clip: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    --clip-sm: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
 
-    /* Type roles — four real faces, not one doing every job:
-       chrome = condensed UI labels/topbar/gutter; brand = geometric display
-       for the wordmark and section heads; mono = data/numbers; book = the
-       standing-orders prose face in Book mode. */
+    /* RBchrome is the condensed face v5 rejected for fighting dense
+       tables. Here that is exactly the point: letter-spaced uppercase
+       condensed sans is the HUD idiom, and this version has no dense
+       tables on its primary surface. */
     --chrome: "RBchrome", "Nimbus Sans Narrow", "Arial Narrow", sans-serif;
-    --brand: "RBdisp", "URW Gothic", "Century Gothic", sans-serif;
+    --brand: var(--chrome);
     --mono: "RBmono", "Ubuntu Sans Mono", ui-monospace, monospace;
     --book: "RBbook", "Palatino Linotype", Palatino, Georgia, serif;
-    /* Back-compat aliases: the app's existing CSS was written against these two names. */
     --disp: var(--chrome);
     --serif: var(--book);
   }
@@ -96,7 +115,18 @@
   }
   .disp { font-family:var(--disp); letter-spacing:0.1em; text-transform:uppercase; }
 
-  .app { display:flex; flex-direction:column; height:100dvh; gap:6px; padding:6px; }
+  /* The plate. A deep-field image is not flat black: it has a colour cast
+     toward the region being observed and the horizontal structure of the
+     sensor that produced it. Both are painted here, on the app rather than
+     on the map, so every surface in the version sits on the same ground —
+     including the views that are not the map. */
+  .app {
+    display:flex; flex-direction:column; height:100dvh; gap:6px; padding:6px;
+    background:
+      radial-gradient(90% 70% at 62% 45%, #0a1614 0%, transparent 62%),
+      repeating-linear-gradient(0deg, rgba(53,224,201,.028) 0 1px, transparent 1px 3px),
+      var(--e0);
+  }
   .app[hidden] { display:none; }
 
   /* ── auth gate ───────────────────────────── */
@@ -178,10 +208,6 @@
   .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
   .icon-btn.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
 
-  .hue-picker { display:flex; gap:4px; border:1px solid var(--hairline); padding:2px; }
-  .hue-btn { width:18px; height:18px; border:2px solid transparent; cursor:pointer; border-radius:2px; padding:0; transition:all 0.15s; }
-  .hue-btn:hover { border-color:var(--ice); }
-  .hue-btn.active { border-color:var(--bone); box-shadow:0 0 4px var(--bone); }
 
   /* ── views ───────────────────────────────── */
   main { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; }
@@ -1053,3 +1079,44 @@
   }
 
   @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
+
+  /* ── the amber list ──────────────────────────────────────────
+     Everything in this version that is orange. Four kinds of thing, and
+     each one is a place where a person has to decide or has decided:
+
+       · where you are        — the selected view, mode and layout
+       · what you turned on   — a toggle you have set
+       · what needs you       — a triage alert and its actions
+       · what you are tracking — the selected hull, on the map
+
+     Deliberately one block rather than edits spread through the file, so
+     the discipline can be checked by reading a single screen. */
+
+  /* where you are */
+  .views-switch button[aria-pressed="true"] { background:var(--act-soft); color:var(--act); box-shadow:inset 0 -2px 0 var(--act); }
+  .mode-toggle button.active { background:var(--act-soft); color:var(--act); }
+  .field-book-toggle button.active { background:var(--act-soft); color:var(--act); }
+  .system-strip button.active { border-color:var(--act); color:var(--act); }
+
+  /* what you turned on */
+  .icon-btn.on { border-color:var(--act); color:var(--act); background:var(--act-soft); }
+  button.sw[aria-pressed="true"] { border-color:var(--act); background:var(--act-soft); }
+  button.sw[aria-pressed="true"] i { background:var(--act); }
+  .sheet .clause .tog.sw[aria-pressed="true"] { border-color:var(--act); background:var(--act-soft); }
+  .sheet .clause .tog.sw[aria-pressed="true"] i { background:var(--act); }
+  .book-settings .tog.sw[aria-pressed="true"] { border-color:var(--act); background:var(--act-soft); }
+  .book-settings .tog.sw[aria-pressed="true"] i { background:var(--act); }
+
+  /* what needs you */
+  .btn.pri { border-color:var(--act); color:var(--act); background:var(--act-soft); }
+  .btn.pri:hover:not(:disabled) { background:var(--act); color:var(--ink); }
+  .alert.sev2 { border-left-color:var(--act); }
+  .alert .acts .btn.pri { border-color:var(--act); color:var(--act); }
+  .m-alert-badge { color:var(--act); background:var(--act-soft); border-color:var(--act-line); }
+
+  /* what you are tracking */
+  #map circle.sel-halo { fill:var(--act); opacity:0.12; }
+  #map circle.sel-ring { stroke:var(--act); opacity:0.6; }
+  #map .hull-pulse { stroke:var(--act); }
+  #map g.ship.selected .glyph, #map g.ship.selected polygon, #map g.ship.selected path { fill:var(--act); }
+  .map-legend .sw.ship { background:var(--act); }
