@@ -160,10 +160,24 @@
   .auth-err { color:var(--red); font-size:10px; min-height:12px; text-align:center; }
 
   /* ── top bar ─────────────────────────────── */
+  /* The strip. Not a toolbar with things in it — one clipped module
+     carrying identity, vitals and the scanner nav, divided by hairlines
+     rather than by gaps, so it reads as a single instrument panel. The
+     clip is on the module and the segments run to its full height, which
+     is what stops the nav looking like buttons stuck onto a bar. */
   .bar {
-    display:flex; align-items:center; gap:18px; padding:8px 12px; flex-shrink:0;
-    background:var(--panel-2); border:1px solid var(--hairline); flex-wrap:wrap;
+    display:flex; align-items:stretch; gap:0; padding:0; flex-shrink:0; min-height:52px;
+    background:var(--panel); border:1px solid var(--hairline);
+    clip-path:var(--clip); backdrop-filter:blur(3px);
   }
+  .bar > * { align-self:center; }
+  .bar, .bar .brand, .views-switch button, .icon-btn, .mode-toggle button, .field-book-toggle button { white-space:nowrap; }
+  .bar .brand { padding:0 20px 0 22px; }
+  .bar .stat { padding:0 16px; border-left:1px solid var(--rule-soft); align-self:stretch; justify-content:center; }
+  .bar .stat:first-of-type { border-left:none; }
+  .bar #spark { margin:0 14px; }
+  .bar .icon-btn, .bar .clock { margin-right:12px; }
+  .bar .clock { margin-left:2px; }
   .brand { font-family:var(--brand); font-weight:700; font-size:16px; letter-spacing:0.2em; text-transform:uppercase; color:var(--bone); }
   .brand em { color:var(--accent); font-style:normal; }
   .stat { display:flex; flex-direction:column; line-height:1.15; }
@@ -175,23 +189,24 @@
   .grow { flex:1; }
   .clock { color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
 
-  .views-switch { display:flex; border:1px solid var(--hairline); }
+  /* Segments cut into the strip, not tabs laid on top of it: no outer
+     border of their own, full strip height, one hairline between each. */
+  .views-switch { display:flex; align-self:stretch; border:none; }
   .views-switch button {
-    background:transparent; border:none; border-right:1px solid var(--hairline);
-    font-family:var(--disp); font-size:10px; letter-spacing:0.13em; text-transform:uppercase;
-    color:var(--dim); padding:7px 16px; cursor:pointer; transition:all .15s ease;
+    background:transparent; border:none; border-left:1px solid var(--rule);
+    font-family:var(--disp); font-size:12px; font-weight:600; letter-spacing:0.16em; text-transform:uppercase;
+    color:var(--dim); padding:0 15px; cursor:pointer; transition:all .15s ease; position:relative;
   }
-  .views-switch button:last-child { border-right:none; }
   .views-switch button:hover { color:var(--ice); }
   .views-switch button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); }
-  .mode-toggle { display:flex; border:1px solid var(--hairline); }
+  .mode-toggle { display:flex; border:1px solid var(--hairline); clip-path:var(--clip-sm); }
   .mode-toggle button {
     background:transparent; border:none; font-family:var(--disp); font-size:9px;
     letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); padding:6px 13px; cursor:pointer;
   }
   .mode-toggle button.active { background:var(--accent-soft); color:var(--accent); }
   .mode-toggle button.halted { color:var(--red); }
-  .field-book-toggle { display:flex; border:1px solid var(--hairline); }
+  .field-book-toggle { display:flex; border:1px solid var(--hairline); clip-path:var(--clip-sm); }
   .field-book-toggle button {
     background:transparent; border:none; border-right:1px solid var(--hairline);
     font-family:var(--disp); font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
@@ -201,9 +216,9 @@
   .field-book-toggle button:hover { color:var(--ice); }
   .field-book-toggle button.active { background:var(--accent-soft); color:var(--accent); }
   .icon-btn {
-    background:transparent; border:1px solid var(--hairline); color:var(--ice);
-    font-family:var(--disp); font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
-    padding:7px 12px; cursor:pointer;
+    font-family:var(--disp); font-weight:600; font-size:10px; letter-spacing:0.14em; text-transform:uppercase;
+    padding:6px 11px; background:transparent; border:1px solid var(--hairline); color:var(--ice);
+    cursor:pointer; transition:all .15s; clip-path:var(--clip-sm);
   }
   .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
   .icon-btn.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
@@ -229,10 +244,27 @@
   .view.on.view-bridge { display:flex; flex-direction:column; gap:6px; position:relative; }
   .field-stage { position:relative; flex:1; min-height:0; overflow:hidden; }
   .field-stage .map-wrap { position:absolute; inset:0; }
+  /* The plate falls off toward its edges, which is what puts the modules
+     *over* something rather than beside it.
+
+     On .map-wrap rather than on .field-stage, and at a z-index between the
+     plot and its furniture. On the stage it is an ancestor of everything,
+     so it paints over the whole subtree whatever the children's z-index
+     says — which put the legend, the HUD and the fit button underneath a
+     black wash. Here it dims the plot only, which is all it was ever
+     meant to do. */
+  .map-wrap::after {
+    content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
+    background:radial-gradient(75% 65% at 50% 50%, transparent 45%, rgba(5,6,5,.82) 100%);
+  }
+  /* Modules floating over the plate: translucent, blurred, and cut with
+     the same corner as the strip. The blur is what makes "floating" true
+     rather than asserted — an opaque panel over a map is a hole in it. */
   .rail {
     position:absolute; top:12px; bottom:58px; width:280px;
-    background:var(--panel-2); border:1px solid var(--rule);
+    background:var(--panel); border:1px solid var(--rule);
     display:flex; flex-direction:column; z-index:6;
+    clip-path:var(--clip); backdrop-filter:blur(3px);
     box-shadow:0 20px 50px -18px rgba(0,0,0,.65);
     transition:opacity .35s ease, transform .35s ease;
   }
@@ -403,7 +435,8 @@
   /* Replay scrubber — the field's bottom bar. */
   .scrub {
     position:absolute; left:12px; right:12px; bottom:12px; height:40px; z-index:5;
-    background:var(--panel-2); border:1px solid var(--rule); display:flex; align-items:center; gap:13px; padding:0 13px;
+    background:var(--panel); border:1px solid var(--rule); display:flex; align-items:center; gap:13px; padding:0 13px;
+    clip-path:var(--clip); backdrop-filter:blur(3px);
   }
   .scrub .pl { background:transparent; border:none; color:var(--accent); font-size:13px; cursor:pointer; padding:0; }
   .scrub .tm { font-size:10px; color:var(--dim); letter-spacing:0.11em; font-variant-numeric:tabular-nums; font-family:var(--mono); white-space:nowrap; }
@@ -542,8 +575,9 @@
   .fleet-summary .fs-chip.hold i { color:var(--accent); }
 
   .btn {
-    font-family:var(--disp); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; padding:4px 9px;
+    font-family:var(--disp); font-weight:700; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; padding:6px 11px;
     background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer; transition:all .15s;
+    clip-path:var(--clip-sm);
   }
   .btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
   .btn.pri { border-color:var(--accent); color:var(--accent); }
@@ -575,7 +609,7 @@
       radial-gradient(circle at 78% 70%, rgba(167,139,250,0.045), transparent 46%), var(--ink);
     border:1px solid var(--hairline);
   }
-  #map { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:2; }
+  #map { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:1; }
   #map path.route { fill:none; stroke:var(--accent); stroke-width:1.6; opacity:0.4; vector-effect:non-scaling-stroke; }
   #map path.route.active { opacity:0.85; stroke-dasharray:5 5; animation:route-flow 1.2s linear infinite; }
   #map path.jump { fill:none; stroke:var(--teal); stroke-width:1.4; opacity:0.55; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
@@ -668,7 +702,13 @@
   .system-strip { position:absolute; top:34px; left:306px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 590px); }
   .system-strip button { background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice); font-family:var(--mono); font-size:10px; padding:3px 9px; cursor:pointer; }
   .system-strip button.active { border-color:var(--accent); color:var(--accent); }
-  .map-legend { position:absolute; bottom:10px; left:12px; z-index:3; display:flex; gap:14px; font-size:8px; color:var(--dim); letter-spacing:0.12em; text-transform:uppercase; pointer-events:none; }
+  /* Clear of the replay scrubber *and* of the left rail. The scrubber is
+     bottom:12px and 40px tall and spans the full width, so a legend at
+     bottom:10px sat entirely underneath it; left:12px then put what was
+     left of it behind the rail. Neither had ever been visible in this
+     layout. 58px is the clearance the rails use, and 306px is the offset
+     .map-hud already carries for the same reason. */
+  .map-legend { position:absolute; bottom:58px; left:306px; max-width:calc(100% - 590px); z-index:3; display:flex; gap:14px; font-size:8px; color:var(--dim); letter-spacing:0.12em; text-transform:uppercase; pointer-events:none; }
   .map-legend .sw { width:6px; height:6px; display:inline-block; margin-right:4px; }
   .map-legend .sw.planet { background:var(--ice); border-radius:50%; opacity:0.85; }
   .map-legend .sw.station { background:var(--bone); transform:rotate(45deg); }
@@ -678,7 +718,7 @@
   .map-legend .sw.fuel { background:var(--teal); border-radius:50%; }
   .map-legend .sw.ship { background:var(--accent); clip-path:polygon(50% 0,100% 100%,0 100%); }
   .map-legend .sw.gate { background:var(--teal); transform:rotate(45deg); }
-  .map-gallery { position:absolute; bottom:34px; left:12px; z-index:4; display:flex; gap:6px; }
+  .map-gallery { position:absolute; bottom:82px; left:306px; z-index:4; display:flex; gap:6px; }
   .map-tip {
     position:absolute; z-index:5; top:12px; right:302px; width:200px; max-height:calc(100% - 24px); overflow-y:auto;
     background:var(--panel-2); border:1px solid var(--rule); border-top:2px solid var(--accent);
