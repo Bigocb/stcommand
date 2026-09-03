@@ -1464,6 +1464,10 @@ import {
   loadState, loadBridge, loadActivity, loadMarkets, loadDoctrine,
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
 } from "/shared/store.js";
+import {
+  login, register as registerAgent, logout as endSession,
+  fetchOnboardingCatalog, completeOnboarding,
+} from "/shared/session.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -1510,14 +1514,8 @@ function showRegisterForm() {
 /** Sign in with an existing SpaceTraders account token. */
 async function tryLogin(token) {
   try {
-    const res = await fetch("/api/gate/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
-    if (json.isNewTenant) showOnboarding();
+    const { isNewTenant } = await login(token);
+    if (isNewTenant) showOnboarding();
     else { hideAuthGate(); boot(); }
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
@@ -1527,14 +1525,8 @@ async function tryLogin(token) {
 /** Register a brand-new SpaceTraders agent, then sign in as it. */
 async function tryRegister(agentSymbol, faction, accountToken) {
   try {
-    const res = await fetch("/api/gate/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentSymbol, faction, accountToken }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || `Server error (${res.status})`);
-    if (json.isNewTenant) showOnboarding();
+    const { isNewTenant } = await registerAgent(agentSymbol, faction, accountToken);
+    if (isNewTenant) showOnboarding();
     else { hideAuthGate(); boot(); }
   } catch (err) {
     $("reg-err").textContent = err.message || "Could not reach the server.";
@@ -1563,29 +1555,14 @@ async function showOnboarding() {
   // every policy (including the cash floor) instead of leaving them at
   // their real defaults.
   $("onboard-confirm").disabled = true;
-  // This is likely the very first /api/* call for a brand-new agent — the
-  // resolveTenant middleware awaits the tenant's full fleet boot (live
-  // SpaceTraders calls: agent, ships, galaxy) before this can even reach
-  // the route, so a 503 "engine not ready" here is plausibly just "still
-  // booting," not a real failure. Retry a few times with backoff before
-  // showing an error, rather than dumping the captain on a blank screen or
-  // a scary message for something that resolves itself in a few seconds.
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    try {
-      const res = await fetch("/api/doctrine");
-      if (!res.ok) throw new Error(`engine not ready yet (attempt ${attempt})`);
-      const data = await res.json();
-      if (!Array.isArray(data.catalog) || !data.catalog.length) throw new Error("empty catalog");
-      renderOnboarding(data.catalog);
-      return;
-    } catch (e) {
-      if (attempt === 5) {
-        $("onboard-list").innerHTML = "";
-        $("onboard-err").textContent = "Could not load standing orders — the fleet may still be starting up. Try refreshing in a few seconds.";
-        return;
-      }
-      await new Promise((r) => setTimeout(r, attempt * 1000));
-    }
+  // The retry itself is shared knowledge, not presentation — see
+  // fetchOnboardingCatalog() for why a 503 here usually means "still
+  // booting" rather than "broken".
+  try {
+    renderOnboarding(await fetchOnboardingCatalog());
+  } catch (_) {
+    $("onboard-list").innerHTML = "";
+    $("onboard-err").textContent = "Could not load standing orders — the fleet may still be starting up. Try refreshing in a few seconds.";
   }
 }
 
@@ -1615,7 +1592,7 @@ async function confirmOnboarding() {
   try {
     const selections = {};
     $("onboard-list").querySelectorAll("input[type=checkbox][data-key]").forEach((cb) => { selections[cb.dataset.key] = cb.checked; });
-    await api("POST", "/api/doctrine/onboard", { selections });
+    await completeOnboarding(selections);
     $("onboarding-gate").hidden = true;
     hideAuthGate();
     boot();
@@ -1626,11 +1603,8 @@ async function confirmOnboarding() {
 }
 
 async function logout() {
-  try {
-    await fetch("/api/gate/logout", { method: "POST" });
-  } finally {
-    showAuthGate();
-  }
+  await endSession();
+  showAuthGate();
 }
 
 /* ── shared state ─────────────────────────── */
