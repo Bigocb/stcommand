@@ -1468,6 +1468,7 @@ import {
   login, register as registerAgent, logout as endSession,
   fetchOnboardingCatalog, completeOnboarding,
 } from "/shared/session.js";
+import { applyVersionPreference, mountSwitcher } from "/shared/switcher.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -5051,6 +5052,10 @@ async function boot0() {
   } catch (_) { /* fall through to the gate */ }
   showAuthGate();
 }
+// Before anything else: a remembered choice or an explicit ?ui= may mean
+// this document is not the one to render at all.
+if (!applyVersionPreference()) mountSwitcher();
+
 /* ── store subscriptions ──────────────────────────────────────
    Each loader used to end by calling the renderers its data fed. Those
    calls live here now: the store announces which slice changed, and this

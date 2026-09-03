@@ -6,6 +6,7 @@ import { createPool } from "../db/pool.js";
 import { createGateRouter } from "../http/gate.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
+import { createUiVersionRouter, cacheHeaders } from "../http/uiVersions.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -75,7 +76,21 @@ async function main(): Promise<void> {
 
   app.use("/api", createDashboardRouter(registry, pool));
 
-  app.use(express.static(PUBLIC_DIR, { index: "v2.html" }));
+  // Before express.static so /v3 /v4 /v5 resolve, and so a version that is
+  // planned but not yet built answers with something actionable rather than
+  // a bare 404. `/` stays v2 until a successor is chosen deliberately.
+  app.use(createUiVersionRouter(PUBLIC_DIR));
+
+  app.use(express.static(PUBLIC_DIR, {
+    index: "v2.html",
+    // See cacheHeaders(): HTML must not be cached or a browser pins itself
+    // to superseded modules after a deploy; fonts and shared modules must
+    // be, or every version re-downloads them on every load.
+    setHeaders: (res, path) => {
+      const headers = cacheHeaders(path);
+      if (headers) for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
+    },
+  }));
 
   const port = Number(process.env.PORT ?? 3000);
   const server = app.listen(port, () => log(`Standing Orders listening on :${port}`));
