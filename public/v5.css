@@ -136,7 +136,11 @@
   }
   .disp { font-family:var(--disp); letter-spacing:0.1em; text-transform:uppercase; }
 
-  .app { display:flex; flex-direction:column; height:100dvh; gap:6px; padding:6px; }
+  /* Two columns, edge to edge. v3's app is a stack of floating panels on a
+     padded ground; a console is a machined object with no gap around it, so
+     the spine and the working area meet at a seam rather than a margin. */
+  .app { display:grid; grid-template-columns:212px 1fr; height:100dvh; background:var(--e0); }
+  .console { display:flex; flex-direction:column; min-width:0; min-height:0; }
   .app[hidden] { display:none; }
 
   /* ── auth gate ───────────────────────────── */
@@ -169,21 +173,93 @@
   .onboard-item .d { font-size:10.5px; color:var(--dim); line-height:1.5; }
   .auth-err { color:var(--red); font-size:10px; min-height:12px; text-align:center; }
 
-  /* ── top bar ─────────────────────────────── */
-  .bar {
-    display:flex; align-items:center; gap:18px; padding:8px 12px; flex-shrink:0;
-    background:var(--panel-2); border:1px solid var(--hairline); flex-wrap:wrap;
+  /* ── the spine ───────────────────────────── */
+  .spine {
+    background:var(--panel); border-right:1px solid var(--hairline);
+    display:flex; flex-direction:column; padding:16px 0; min-height:0;
   }
-  .brand { font-family:var(--brand); font-weight:700; font-size:16px; letter-spacing:0.2em; text-transform:uppercase; color:var(--bone); }
-  .brand em { color:var(--accent); font-style:normal; }
+  .spine .brand { padding:0 18px 16px; }
+  .spine-nav { display:flex; flex-direction:column; overflow-y:auto; min-height:0; }
+  .spine-nav .sec {
+    padding:15px 18px 6px; font-family:var(--mono); font-size:9.5px;
+    letter-spacing:0.12em; text-transform:uppercase; color:var(--dim);
+  }
+  .spine-nav button {
+    display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+    padding:8px 18px; background:transparent; border:none; cursor:pointer;
+    font-family:var(--chrome); font-size:13px; font-weight:600; color:var(--ice);
+    /* The inset rule is drawn for every entry but only coloured on the
+       current one, so nothing shifts by 2px when the selection moves. */
+    box-shadow:inset 2px 0 0 transparent; transition:background .12s, color .12s;
+  }
+  .spine-nav button:hover { background:var(--e3); color:var(--bone); }
+  .spine-nav button .ic {
+    width:15px; height:15px; border-radius:3px; background:var(--hairline-hi); flex-shrink:0;
+  }
+  .spine-nav button .ct {
+    margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--dim);
+    font-variant-numeric:tabular-nums;
+  }
+  .spine-nav button .ct:empty { display:none; }
+  .spine-nav button[aria-pressed="true"] {
+    background:var(--accent-soft); color:var(--accent); box-shadow:inset 2px 0 0 var(--accent);
+  }
+  .spine-nav button[aria-pressed="true"] .ic { background:var(--accent); }
+  .spine-nav button[aria-pressed="true"] .ct { color:var(--accent); }
+  .spine-foot { margin-top:auto; padding:14px 18px 0; border-top:1px solid var(--hairline); }
+  .spine-foot .status {
+    display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600; color:var(--green);
+  }
+  .spine-foot .status .d { width:7px; height:7px; border-radius:50%; background:var(--green); flex-shrink:0; }
+  .spine-foot .status.halted { color:var(--warn); }
+  .spine-foot .status.halted .d { background:var(--warn); }
+  .spine-foot .sub { font-family:var(--mono); font-size:10px; color:var(--dim); margin-top:3px; }
+
+  /* ── header ──────────────────────────────── */
+  /* Only what acts on the current view. Navigation is the spine's job and
+     telemetry is the band's, so this strip no longer has to be three
+     things at once. */
+  .bar {
+    display:flex; align-items:center; gap:14px; padding:0 16px; height:54px; flex-shrink:0;
+    background:var(--panel); border-bottom:1px solid var(--hairline);
+  }
+  .page-title { font-size:16px; font-weight:800; letter-spacing:-0.01em; color:var(--bone); margin:0; }
+  .brand { font-family:var(--brand); font-weight:800; font-size:15px; letter-spacing:-0.01em; color:var(--bone); text-transform:none; }
+  .brand em { color:var(--accent); font-style:normal; font-weight:700; }
+  .grow { flex:1; }
+  .clock { color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; font-family:var(--mono); }
+
+  /* ── KPI band ────────────────────────────── */
+  /* One-pixel gaps over the hairline colour, so the cells are divided by
+     the same rule that borders the band rather than by four more borders
+     that would double up at every seam. */
+  .kpis {
+    display:grid; grid-template-columns:repeat(4, 1fr); gap:1px; flex-shrink:0;
+    background:var(--hairline); border-bottom:1px solid var(--hairline);
+  }
+  .kpi {
+    background:var(--panel); padding:11px 16px;
+    display:grid; grid-template-columns:1fr auto; align-items:center; column-gap:12px;
+  }
+  .kpi .l {
+    grid-column:1; font-family:var(--mono); font-size:9.5px; letter-spacing:0.1em;
+    text-transform:uppercase; color:var(--dim);
+  }
+  .kpi .v {
+    grid-column:1; font-size:22px; font-weight:800; color:var(--bone);
+    letter-spacing:-0.02em; font-variant-numeric:tabular-nums; line-height:1.25;
+  }
+  .kpi .v.amber { color:var(--bone); } /* credits are the headline, not an alert */
+  .kpi .v.good { color:var(--green); } .kpi .v.bad { color:var(--red); }
+  .kpi .v small { font-size:11px; font-weight:500; color:var(--dim); }
+  #spark { grid-column:2; grid-row:1 / span 2; width:104px; height:26px; display:block; }
+
+  /* Kept for the mobile shell, which still renders a compact stat row. */
   .stat { display:flex; flex-direction:column; line-height:1.15; }
   .stat .l { font-size:8px; letter-spacing:0.18em; text-transform:uppercase; color:var(--dim); }
   .stat .v { font-size:16px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
   .stat .v.amber { color:var(--accent); } .stat .v.good { color:var(--green); } .stat .v.bad { color:var(--red); }
   .stat .v small { font-size:10px; font-weight:400; color:var(--dim); }
-  #spark { width:104px; height:26px; display:block; }
-  .grow { flex:1; }
-  .clock { color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
 
   .views-switch { display:flex; border:1px solid var(--hairline); }
   .views-switch button {
@@ -228,36 +304,50 @@
      table have no natural break point, so without this they push the grid —
      and the page — wider than the viewport. */
   .view > * { min-width:0; }
-  /* ── the field & the book ────────────────────
-     Bridge is no longer a 3-column grid of peer panes. It's a full-bleed
-     stage — the map fills it entirely; everything else is a translucent
-     layer floating on top. `.field-stage` is that stage: position:relative
-     so the map/rails/tip/scrub inside it can be position:absolute against
-     its own box, not the viewport. The stage is the whole view now: the
-     ticker bar that used to sit below it is gone, and its activity feed
-     lives in the right rail's watch section with everything else. */
-  .view.on.view-bridge { display:flex; flex-direction:column; gap:6px; position:relative; }
-  .field-stage { position:relative; flex:1; min-height:0; overflow:hidden; }
-  .field-stage .map-wrap { position:absolute; inset:0; }
+  /* ── the console's Bridge ────────────────────
+     v3 makes Bridge a full-bleed stage: the map fills it and the rails
+     float over it as translucent overlays. That trade buys map area at the
+     cost of covering the plot with the panels you read alongside it.
+
+     A console does not need to make that trade. The display is a card of
+     its own across the top — a dark instrument inset into the light
+     housing — and the rails sit below it as two ordinary columns. Nothing
+     overlaps anything, and the plot is never hidden by the thing that
+     describes it. */
+  .view.on.view-bridge { display:flex; flex-direction:column; gap:14px; padding:14px; position:relative; }
+  .field-stage { position:relative; display:flex; flex-direction:column; gap:14px; flex:1; min-height:0; }
+
+  .card {
+    background:var(--panel); border:1px solid var(--hairline); border-radius:8px;
+    box-shadow:var(--shadow); overflow:hidden; display:flex; flex-direction:column; min-height:0;
+  }
+  /* The display gets a fixed slice rather than a share of the leftover:
+     a sector plot that grows and shrinks with the length of the activity
+     feed beside it is not an instrument, it is a side effect. */
+  .card.display { flex:0 0 380px; }
+  .card.display .map-wrap { position:relative; flex:1; min-height:0; border:none; border-radius:0; }
+
+  .view-bridge .row { display:grid; grid-template-columns:1.5fr 1fr; gap:14px; flex:1; min-height:0; }
+
   .rail {
-    position:absolute; top:12px; bottom:58px; width:280px;
-    background:var(--panel-2); border:1px solid var(--rule);
-    display:flex; flex-direction:column; z-index:6;
-    box-shadow:0 20px 50px -18px rgba(0,0,0,.65);
+    background:var(--panel); border:1px solid var(--hairline); border-radius:8px;
+    box-shadow:var(--shadow); overflow:hidden;
+    display:flex; flex-direction:column; min-height:0;
     transition:opacity .35s ease, transform .35s ease;
   }
-  .rail.rail-l { left:12px; }
-  .rail.rail-r { right:12px; width:260px; }
+  /* A card header, not a lit chrome label. On a light ground the heading
+     carries by weight and by the sunk strip behind it; spending the accent
+     here would put it on something you cannot click. */
   .rail .rail-h {
-    display:flex; align-items:center; gap:7px; padding:9px 12px;
-    border-bottom:1px solid var(--rule-soft); flex-shrink:0;
-    font-family:var(--chrome); font-weight:600; text-transform:uppercase;
-    letter-spacing:0.17em; font-size:10px; color:var(--accent);
+    display:flex; align-items:center; gap:7px; padding:11px 14px;
+    background:var(--e3); border-bottom:1px solid var(--hairline); flex-shrink:0;
+    font-family:var(--chrome); font-weight:700; text-transform:none;
+    letter-spacing:0; font-size:13px; color:var(--bone);
   }
-  .rail .rail-h .n { margin-left:auto; font-family:var(--mono); font-size:9px; letter-spacing:0.04em; color:var(--dim); }
-  .rail .rail-b { padding:11px 12px; overflow-y:auto; flex:1; min-height:0; scrollbar-width:thin; scrollbar-color:var(--rule-soft) transparent; }
+  .rail .rail-h .n { margin-left:auto; font-family:var(--mono); font-size:10.5px; letter-spacing:0.03em; color:var(--dim); text-transform:none; }
+  .rail .rail-b { padding:13px 14px; overflow-y:auto; flex:1; min-height:0; scrollbar-width:thin; scrollbar-color:var(--hairline-hi) transparent; }
   .rail .rail-b::-webkit-scrollbar { width:4px; }
-  .rail .rail-b::-webkit-scrollbar-thumb { background:var(--rule-soft); }
+  .rail .rail-b::-webkit-scrollbar-thumb { background:var(--hairline-hi); }
   .rail .rail-b::-webkit-scrollbar-track { background:transparent; }
 
   /* A rail holds sections now, not one body. `flex:0 1 auto` sizes an open
@@ -293,9 +383,11 @@
   }
   .rail .crumb-root:hover { color:var(--bone); }
   /* At the root there is nowhere to go back to — it reads as the position
-     you're in, not as a control that failed to do anything. */
-  .rail .crumb-root.here { cursor:default; color:var(--accent); }
-  .rail .crumb-root.here:hover { color:var(--accent); }
+     you're in, not as a control that failed to do anything. The accent is
+     this version's promise that a thing can be acted on, so the root drops
+     it entirely while it is where you already are. */
+  .rail .crumb-root.here { cursor:default; color:var(--bone); }
+  .rail .crumb-root.here:hover { color:var(--bone); }
   .rail .crumb-sep { color:var(--dim); font-size:11px; }
   .rail .crumb-leaf {
     color:var(--bone); font-family:var(--mono); font-size:10px; letter-spacing:0.04em;
@@ -304,7 +396,7 @@
 
   /* Book mode: the field dims to a ground; rails hide; a document takes over. */
   .field-stage.book-mode .map-wrap { opacity:0.28; filter:grayscale(0.6); pointer-events:none; transition:opacity .5s ease, filter .5s ease; }
-  .field-stage.book-mode .scrim { position:absolute; inset:0; z-index:3; background:rgba(10,10,18,.6); }
+  .field-stage.book-mode .scrim { position:absolute; inset:0; z-index:3; background:rgba(238,241,245,.72); }
   .field-stage.book-mode .rail { opacity:0; transform:translateY(6px); pointer-events:none; }
   .field-stage:not(.book-mode) .scrim { display:none; }
   .field-stage:not(.book-mode) .sheet { display:none; }
@@ -411,9 +503,14 @@
   #map .hull-pulse { fill:none; stroke:var(--accent); stroke-width:1.5; }
 
   /* Replay scrubber — the field's bottom bar. */
+  /* The replay control belongs to the display it scrubs, so it is that
+     card's footer rather than a bar floating over the whole view. In v3 it
+     had to float — the map was the entire stage and there was no card edge
+     to sit on. Here there is one, and a control anchored to the instrument
+     it drives needs no z-index at all. */
   .scrub {
-    position:absolute; left:12px; right:12px; bottom:12px; height:40px; z-index:5;
-    background:var(--panel-2); border:1px solid var(--rule); display:flex; align-items:center; gap:13px; padding:0 13px;
+    flex:0 0 auto; height:40px; border-top:1px solid var(--hairline);
+    background:var(--e3); display:flex; align-items:center; gap:13px; padding:0 13px;
   }
   .scrub .pl { background:transparent; border:none; color:var(--accent); font-size:13px; cursor:pointer; padding:0; }
   .scrub .tm { font-size:10px; color:var(--dim); letter-spacing:0.11em; font-variant-numeric:tabular-nums; font-family:var(--mono); white-space:nowrap; }
@@ -511,8 +608,6 @@
   .ops-card .prog { height:4px; background:var(--hairline); border-radius:2px; overflow:hidden; margin-top:3px; }
   .ops-card .prog i { display:block; height:100%; background:var(--accent); }
   @media (max-width:1250px) {
-    .rail.rail-l { width:240px; }
-    .rail.rail-r { width:220px; }
     .view-markets { grid-template-columns:1fr 1fr; }
     .view-markets .pane-yards { grid-column:1/-1; max-height:240px; }
     .view-tradeops { grid-template-columns:1fr; }
@@ -520,7 +615,8 @@
   @media (max-width:900px) {
     .view:not(.view-bridge).on { grid-template-columns:1fr !important; overflow-y:auto; }
     .view:not(.view-bridge) > * { grid-column:1/-1 !important; }
-    .rail.rail-l, .rail.rail-r { width:200px; }
+    .view-bridge .row { grid-template-columns:1fr; }
+    .card.display { flex:0 0 300px; }
     .map-wrap { min-height:300px; }
     .bar { gap:12px; }
   }
@@ -667,15 +763,15 @@
      everything else unless explicitly counter-scaled here). */
   #map circle.sel-halo { fill:var(--accent); opacity:0.1; pointer-events:none; r:calc(22px / var(--map-zoom,1)); }
   #map circle.sel-ring { fill:none; stroke:var(--accent); opacity:0.5; stroke-width:1.4; pointer-events:none; r:calc(22px / var(--map-zoom,1)); }
-  .map-hud { position:absolute; top:12px; left:306px; z-index:3; font-family:var(--chrome); font-size:11px; letter-spacing:0.16em; color:var(--dim); pointer-events:none; }
+  .map-hud { position:absolute; top:12px; left:14px; z-index:3; font-family:var(--chrome); font-size:11px; letter-spacing:0.16em; color:var(--dim); pointer-events:none; }
   .map-hud b { color:var(--ice); font-weight:400; }
   .map-fit-btn {
-    position:absolute; top:10px; right:302px; z-index:6;
+    position:absolute; top:10px; right:14px; z-index:6;
     background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice);
     font-family:var(--chrome); font-size:9px; letter-spacing:0.08em; padding:4px 9px; cursor:pointer;
   }
   .map-fit-btn:hover { border-color:var(--accent); color:var(--accent); }
-  .system-strip { position:absolute; top:34px; left:306px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 590px); }
+  .system-strip { position:absolute; top:34px; left:14px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 200px); }
   .system-strip button { background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice); font-family:var(--mono); font-size:10px; padding:3px 9px; cursor:pointer; }
   .system-strip button.active { border-color:var(--accent); color:var(--accent); }
   .map-legend { position:absolute; bottom:10px; left:12px; z-index:3; display:flex; gap:14px; font-size:8px; color:var(--dim); letter-spacing:0.12em; text-transform:uppercase; pointer-events:none; }
@@ -690,7 +786,7 @@
   .map-legend .sw.gate { background:var(--teal); transform:rotate(45deg); }
   .map-gallery { position:absolute; bottom:34px; left:12px; z-index:4; display:flex; gap:6px; }
   .map-tip {
-    position:absolute; z-index:5; top:12px; right:302px; width:200px; max-height:calc(100% - 24px); overflow-y:auto;
+    position:absolute; z-index:5; top:12px; right:14px; width:200px; max-height:calc(100% - 24px); overflow-y:auto;
     background:var(--panel-2); border:1px solid var(--rule); border-top:2px solid var(--accent);
     padding:10px 12px; font-size:10px; color:var(--ice); pointer-events:none; opacity:0;
     transform:translateY(-4px); transition:opacity .15s, transform .15s;
@@ -929,7 +1025,12 @@
      only overrides sizing and stacking for touch. */
   .view-mobile { display:none; }
   @media (max-width:680px) {
-    .views-switch { display:none; }
+    /* The console collapses to its content. A 212px permanent nav column is
+       a third of a phone's width spent on navigation the mobile shell
+       already provides with its own tab bar, and the KPI band duplicates
+       that shell's topbar. Both go, and .app stops being two columns. */
+    .app { grid-template-columns:1fr; }
+    .spine, .kpis, .bar { display:none; }
     main#views > .view { display:none !important; }
     .view-mobile {
       display:flex !important; flex-direction:column; flex:1; min-height:0;
@@ -995,15 +1096,14 @@
     body.mobile-map-active .view-bridge .scrub,
     body.mobile-book-active .view-bridge .scrub { display:none; }
     /* Map tab: no rails on a phone, and the HUD/legend/fit button shift back
-       to the un-shifted left edge (they're offset by left:306px to clear the
-       desktop rail). */
+       to the un-shifted left edge. */
     body.mobile-map-active .view-bridge .rail { display:none; }
     body.mobile-map-active .map-hud { left:12px; top:12px; }
     body.mobile-map-active .system-strip { left:12px; top:34px; max-width:calc(100% - 24px); }
     body.mobile-map-active .map-fit-btn { right:12px; top:10px; padding:8px 12px; min-height:38px; font-size:10px; }
     body.mobile-map-active .map-legend { left:12px; bottom:10px; }
     body.mobile-map-active .map-gallery { left:12px; bottom:34px; }
-    /* Tap-to-inspect's tip: desktop's right:302px hover panel would sit
+    /* Tap-to-inspect's tip: the desktop hover panel would sit
        almost entirely off a phone-width screen. Bottom sheet instead, above
        the tab bar, scrollable via touch — the base rule's pointer-events:none
        is a deliberate no-op for desktop's hover-only panel, but a mobile tap

@@ -382,10 +382,19 @@ function scrubGoLive() {
    Three ranked surfaces, not peer rooms: Bridge is where you sit, Doctrine is
    where you go when something has happened twice, Markets is where you go to
    ask a question. Each view pulls only the data it needs, on entry. */
+/** The header names the view, since the spine's own selection is a 212px
+ *  column away from the content it selected. */
+const VIEW_TITLES = {
+  bridge: "Bridge", fleet: "Fleet", markets: "Markets",
+  tradeops: "Trade Ops", ops: "Ops", galaxy: "Galaxy",
+};
+
 function setView(name) {
   currentView = name;
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.dataset.view === name));
   $("view-switch").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === name)));
+  const title = $("page-title");
+  if (title) title.textContent = VIEW_TITLES[name] ?? name;
   loadViewData(name);
   if (name === "bridge") requestAnimationFrame(renderMapLiveOrScrub);
 }
@@ -917,7 +926,31 @@ function renderTopbar() {
   $("forgone").textContent = forgone ? signed(forgone) + "/hr" : "—";
   renderSpark(bridge.series ?? []);
   updateModeToggle();
+  renderSpine();
   renderMobileTopbar();
+}
+
+/** The spine's live counts and engine status.
+ *
+ *  The counts are the reason the nav is a column rather than a row of tabs:
+ *  there is room beside each entry for the number that tells you whether it
+ *  is worth opening, which a tab strip has nowhere to put. Each is set to ""
+ *  rather than a dash when it has nothing to say — `.ct:empty` collapses it,
+ *  so an unknown count leaves no orphaned placeholder in the rail. */
+function renderSpine() {
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v == null ? "" : String(v); };
+  set("ct-bridge", (bridge.triage ?? []).length || "");
+  set("ct-fleet", state?.agent?.shipCount ?? bridge.shipCount ?? "");
+  set("ct-markets", marketRoutes.length || "");
+
+  const status = $("spine-status");
+  const paused = fleetStatus.paused;
+  if (status) {
+    status.classList.toggle("halted", !!paused);
+    $("spine-status-t").textContent = paused ? "Engine halted" : "Engine running";
+  }
+  const sub = $("spine-sub");
+  if (sub) sub.textContent = state?.agent?.symbol ? String(state.agent.symbol) : "—";
 }
 
 function renderSpark(series) {
@@ -3618,6 +3651,7 @@ subscribe("activity", () => {
   renderShiftLog();
 });
 subscribe("markets", () => {
+  renderSpine();
   renderMarketSystemFilter();
   renderRoutes();
   renderSnapshots();
