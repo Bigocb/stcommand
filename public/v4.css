@@ -1,0 +1,1055 @@
+  :root {
+    /* ── Elevation ────────────────────────────────────────────────
+       The one real change from v2, and the reason this version exists.
+
+       v2 put everything on one plane: --void was #0a0a12 and --panel was
+       rgba(10,10,18,.82) over it, so a panel differed from the ground it
+       sat on by almost nothing. Every readout then had to carry its own
+       contrast, and the low ones — a 3px meter track at 15% opacity —
+       simply vanished.
+
+       Four opaque steps instead, each a visible lift on the one below.
+       Opaque matters: stacking translucent surfaces over a dark ground
+       converges rather than separating, which is how v2 got flat while
+       every individual rule looked reasonable. Nothing here needs
+       backdrop-filter (v2 used none), so nothing is lost. */
+    --e0: #06080a;   /* ground: behind everything */
+    --e1: #0c1116;   /* panel: rails and bars */
+    --e2: #121a20;   /* card: a thing sitting on a panel */
+    --e3: #1a242c;   /* raised: a control you can press */
+
+    /* Ground & ink (never rotate) */
+    --void: var(--e0);
+    /* Recessed rather than raised — inputs read as cut into the surface. */
+    --ink: #04070a;
+    --bone: #e8e8f0;
+    --ice: #969cb0;
+    --dim: #5e6478;
+    --star: #6c7286;
+
+    /* Structure hue: places, waypoints, lanes' labels (never rotates) */
+    --buff: #cba97e;
+    --buff-soft: rgba(203, 169, 126, 0.18);
+
+    /* Semantic signal colors (never rotate) */
+    --red: #ff5b5b;
+    --red-soft: rgba(255, 91, 91, 0.14);
+    --green: #45bd8b;
+    --green-soft: rgba(69, 189, 139, 0.14);
+    --warn: #e3a840;
+    --warn-soft: rgba(227, 168, 64, 0.16);
+
+    /* Hue rotation: one of 355 (Rubine), 293 (Violet), 207 (Ice), 61 (Amber) */
+    --accent-hue: 355;
+
+    /* Accent: attention, selection, live — the only hue that rotates */
+    --accent: oklch(66% 0.21 var(--accent-hue));
+    --accent-soft: oklch(66% 0.21 var(--accent-hue) / 0.16);
+    --rule: oklch(66% 0.21 var(--accent-hue) / 0.26);
+    --rule-soft: oklch(66% 0.21 var(--accent-hue) / 0.16);
+    --glow: oklch(66% 0.21 var(--accent-hue) / 0.16);
+    --halo-a: oklch(66% 0.21 var(--accent-hue) / 0.09);
+    --halo-b: rgba(203, 169, 126, 0.06);
+    --fill: oklch(66% 0.21 var(--accent-hue) / 0.05);
+
+    /* Glass/hairline surfaces — grayscale, never tinted by the accent */
+    --glass: rgba(148, 155, 178, 0.06);
+    /* Two weights: the quiet one for dividers inside a surface, the strong
+       one for the edge between two surfaces, which is the seam that has to
+       survive being looked at quickly. */
+    --hairline: rgba(150, 172, 190, 0.20);
+    --hairline-hi: rgba(150, 172, 190, 0.36);
+    --panel: var(--e1);
+    --panel-2: var(--e2);
+    --raised: var(--e3);
+
+    /* A meter is two shades of one colour, not a colour on near-nothing:
+       the track is the accent knocked back into the ground so the empty
+       part still reads as part of the same instrument. Derived from the
+       accent so it follows the hue picker instead of being pinned. */
+    --meter-track: color-mix(in oklab, var(--accent) 26%, var(--e0));
+
+    /* Data hues (map/system labels only — never accent, never rotate) */
+    --teal: #4fd1c5;
+    --teal-soft: rgba(79, 209, 197, 0.35);
+    --teal-bg: rgba(79, 209, 197, 0.08);
+    --violet: #a78bfa;
+    --violet-soft: rgba(167, 139, 250, 0.35);
+
+    /* Type roles — four real faces, not one doing every job:
+       chrome = condensed UI labels/topbar/gutter; brand = geometric display
+       for the wordmark and section heads; mono = data/numbers; book = the
+       standing-orders prose face in Book mode. */
+    --chrome: "RBchrome", "Nimbus Sans Narrow", "Arial Narrow", sans-serif;
+    --brand: "RBdisp", "URW Gothic", "Century Gothic", sans-serif;
+    --mono: "RBmono", "Ubuntu Sans Mono", ui-monospace, monospace;
+    --book: "RBbook", "Palatino Linotype", Palatino, Georgia, serif;
+    /* Back-compat aliases: the app's existing CSS was written against these two names. */
+    --disp: var(--chrome);
+    --serif: var(--book);
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; }
+  body {
+    background:var(--void); color:var(--bone);
+    font-family:var(--mono); font-size:12px; line-height:1.45; overflow:hidden;
+  }
+  .disp { font-family:var(--disp); letter-spacing:0.1em; text-transform:uppercase; }
+
+  .app { display:flex; flex-direction:column; height:100dvh; gap:6px; padding:6px; }
+  .app[hidden] { display:none; }
+
+  /* ── auth gate ───────────────────────────── */
+  .auth-gate {
+    position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+    background:var(--void);
+  }
+  .auth-gate[hidden] { display:none; }
+  .auth-card {
+    width:min(360px,90vw); background:var(--panel-2); border:1px solid var(--hairline);
+    border-top:2px solid var(--accent); padding:22px 20px; display:flex; flex-direction:column; gap:12px;
+  }
+  .auth-card[hidden] { display:none; }
+  .auth-card .brand { text-align:center; margin-bottom:2px; }
+  .auth-sub { color:var(--dim); font-size:10.5px; line-height:1.5; text-align:center; }
+  .auth-card input {
+    background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
+    font-family:var(--mono); font-size:12px; padding:9px 10px; letter-spacing:0.04em;
+  }
+  .auth-card input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .auth-card button { padding:9px; font-size:10px; }
+  .onboard-card { width:min(560px,92vw); max-height:88vh; }
+  .onboard-list { overflow-y:auto; max-height:60vh; display:flex; flex-direction:column; gap:2px; }
+  .onboard-cat { font-family:var(--chrome); font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--accent); margin:12px 0 2px; }
+  .onboard-cat:first-child { margin-top:0; }
+  .onboard-item { display:flex; align-items:flex-start; gap:10px; padding:8px 6px; border-bottom:1px solid var(--hairline); cursor:pointer; }
+  .onboard-item input[type="checkbox"] { margin-top:3px; accent-color:var(--accent); width:14px; height:14px; flex-shrink:0; }
+  .onboard-item .body { display:flex; flex-direction:column; gap:2px; }
+  .onboard-item .n { font-family:var(--mono); font-weight:700; font-size:12.5px; color:var(--ice); }
+  .onboard-item .d { font-size:10.5px; color:var(--dim); line-height:1.5; }
+  .auth-err { color:var(--red); font-size:10px; min-height:12px; text-align:center; }
+
+  /* ── top bar ─────────────────────────────── */
+  .bar {
+    display:flex; align-items:center; gap:18px; padding:8px 12px; flex-shrink:0;
+    background:var(--panel-2); border:1px solid var(--hairline); flex-wrap:wrap;
+  }
+  .brand { font-family:var(--brand); font-weight:700; font-size:16px; letter-spacing:0.2em; text-transform:uppercase; color:var(--bone); }
+  .brand em { color:var(--accent); font-style:normal; }
+  .stat { display:flex; flex-direction:column; line-height:1.15; }
+  .stat .l { font-size:8px; letter-spacing:0.18em; text-transform:uppercase; color:var(--dim); }
+  .stat .v { font-size:16px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
+  .stat .v.amber { color:var(--accent); } .stat .v.good { color:var(--green); } .stat .v.bad { color:var(--red); }
+  .stat .v small { font-size:10px; font-weight:400; color:var(--dim); }
+  #spark { width:104px; height:26px; display:block; }
+  .grow { flex:1; }
+  .clock { color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
+
+  .views-switch { display:flex; border:1px solid var(--hairline); }
+  .views-switch button {
+    background:transparent; border:none; border-right:1px solid var(--hairline);
+    font-family:var(--disp); font-size:10px; letter-spacing:0.13em; text-transform:uppercase;
+    color:var(--dim); padding:7px 16px; cursor:pointer; transition:all .15s ease;
+  }
+  .views-switch button:last-child { border-right:none; }
+  .views-switch button:hover { color:var(--ice); }
+  .views-switch button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); }
+  .mode-toggle { display:flex; border:1px solid var(--hairline); }
+  .mode-toggle button {
+    background:transparent; border:none; font-family:var(--disp); font-size:9px;
+    letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); padding:6px 13px; cursor:pointer;
+  }
+  .mode-toggle button.active { background:var(--accent-soft); color:var(--accent); }
+  .mode-toggle button.halted { color:var(--red); }
+  .field-book-toggle { display:flex; border:1px solid var(--hairline); }
+  .field-book-toggle button {
+    background:transparent; border:none; border-right:1px solid var(--hairline);
+    font-family:var(--disp); font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--dim); padding:6px 13px; cursor:pointer; transition:all 0.15s ease;
+  }
+  .field-book-toggle button:last-child { border-right:none; }
+  .field-book-toggle button:hover { color:var(--ice); }
+  .field-book-toggle button.active { background:var(--accent-soft); color:var(--accent); }
+  .icon-btn {
+    background:transparent; border:1px solid var(--hairline); color:var(--ice);
+    font-family:var(--disp); font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
+    padding:7px 12px; cursor:pointer;
+  }
+  .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .icon-btn.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+
+  .hue-picker { display:flex; gap:4px; border:1px solid var(--hairline); padding:2px; }
+  .hue-btn { width:18px; height:18px; border:2px solid transparent; cursor:pointer; border-radius:2px; padding:0; transition:all 0.15s; }
+  .hue-btn:hover { border-color:var(--ice); }
+  .hue-btn.active { border-color:var(--bone); box-shadow:0 0 4px var(--bone); }
+
+  /* ── views ───────────────────────────────── */
+  main { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; }
+  .view { display:none; flex:1; min-height:0; }
+  .view.on { display:grid; gap:6px; }
+  /* Grid items default to min-width:auto, which floors their track at the
+     min-content size of their contents. Long ship symbols in the fleet
+     table have no natural break point, so without this they push the grid —
+     and the page — wider than the viewport. */
+  .view > * { min-width:0; }
+  /* ── the field & the book ────────────────────
+     Bridge is no longer a 3-column grid of peer panes. It's a full-bleed
+     stage — the map fills it entirely; everything else is a translucent
+     layer floating on top. `.field-stage` is that stage: position:relative
+     so the map/rails/tip/scrub inside it can be position:absolute against
+     its own box, not the viewport. The stage is the whole view now: the
+     ticker bar that used to sit below it is gone, and its activity feed
+     lives in the right rail's watch section with everything else. */
+  .view.on.view-bridge { display:flex; flex-direction:column; gap:6px; position:relative; }
+  .field-stage { position:relative; flex:1; min-height:0; overflow:hidden; }
+  .field-stage .map-wrap { position:absolute; inset:0; }
+  .rail {
+    position:absolute; top:12px; bottom:58px; width:280px;
+    background:var(--panel-2); border:1px solid var(--rule);
+    display:flex; flex-direction:column; z-index:6;
+    box-shadow:0 20px 50px -18px rgba(0,0,0,.65);
+    transition:opacity .35s ease, transform .35s ease;
+  }
+  .rail.rail-l { left:12px; }
+  .rail.rail-r { right:12px; width:260px; }
+  .rail .rail-h {
+    display:flex; align-items:center; gap:7px; padding:9px 12px;
+    border-bottom:1px solid var(--rule-soft); flex-shrink:0;
+    font-family:var(--chrome); font-weight:600; text-transform:uppercase;
+    letter-spacing:0.17em; font-size:10px; color:var(--accent);
+  }
+  .rail .rail-h .n { margin-left:auto; font-family:var(--mono); font-size:9px; letter-spacing:0.04em; color:var(--dim); }
+  .rail .rail-b { padding:11px 12px; overflow-y:auto; flex:1; min-height:0; scrollbar-width:thin; scrollbar-color:var(--rule-soft) transparent; }
+  .rail .rail-b::-webkit-scrollbar { width:4px; }
+  .rail .rail-b::-webkit-scrollbar-thumb { background:var(--rule-soft); }
+  .rail .rail-b::-webkit-scrollbar-track { background:transparent; }
+
+  /* A rail holds sections now, not one body. `flex:0 1 auto` sizes an open
+     section to its own content and only shrinks it when the rail runs out
+     of room — an even 1:1 split would strand a two-lane list in half the
+     rail while the watch scrolled below it. Shrinking is proportional to
+     content, so the long section gives up the height, and `min-height:0`
+     lets it scroll its own body instead of pushing the rail past its box.
+     A collapsed section drops to just its summary, which is how one section
+     takes the whole rail when that's the one being read. */
+  .rail-sec { display:flex; flex-direction:column; min-height:0; border-bottom:1px solid var(--rule-soft); }
+  .rail-sec:last-child { border-bottom:none; }
+  .rail-sec[open] { flex:0 1 auto; }
+  .rail-sec:not([open]) { flex:0 0 auto; }
+  /* The disclosure triangle is replaced by a caret in the summary's own
+     type, so the header keeps the letter-spaced chrome look the rails use. */
+  .rail-sec > summary { cursor:pointer; list-style:none; user-select:none; }
+  .rail-sec > summary::-webkit-details-marker { display:none; }
+  .rail-sec > summary::after {
+    content:"\25B4"; margin-left:8px; font-size:8px; color:var(--dim); transition:transform .15s ease;
+  }
+  .rail-sec:not([open]) > summary::after { transform:rotate(180deg); }
+  .rail-sec > summary:hover { background:var(--raised); }
+  .rail-sec > summary .n { margin-left:auto; }
+  .rail-sec > summary:focus-visible { outline:1px solid var(--accent); outline-offset:-1px; }
+
+  /* Inspector breadcrumb: the trail is the rail's title, so it inherits the
+     header's chrome type and only the leaf carries the hull's own colour. */
+  .rail .crumb { display:flex; align-items:baseline; gap:6px; min-width:0; }
+  .rail .crumb-root {
+    background:none; border:none; padding:0; cursor:pointer; color:var(--accent);
+    font:inherit; letter-spacing:inherit; text-transform:inherit;
+  }
+  .rail .crumb-root:hover { color:var(--bone); }
+  /* At the root there is nowhere to go back to — it reads as the position
+     you're in, not as a control that failed to do anything. */
+  .rail .crumb-root.here { cursor:default; color:var(--accent); }
+  .rail .crumb-root.here:hover { color:var(--accent); }
+  .rail .crumb-sep { color:var(--dim); font-size:11px; }
+  .rail .crumb-leaf {
+    color:var(--bone); font-family:var(--mono); font-size:10px; letter-spacing:0.04em;
+    text-transform:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+
+  /* Book mode: the field dims to a ground; rails hide; a document takes over. */
+  .field-stage.book-mode .map-wrap { opacity:0.28; filter:grayscale(0.6); pointer-events:none; transition:opacity .5s ease, filter .5s ease; }
+  .field-stage.book-mode .scrim { position:absolute; inset:0; z-index:3; background:rgba(10,10,18,.6); }
+  .field-stage.book-mode .rail { opacity:0; transform:translateY(6px); pointer-events:none; }
+  .field-stage:not(.book-mode) .scrim { display:none; }
+  .field-stage:not(.book-mode) .sheet { display:none; }
+
+  /* Book mode's document — standing orders as prose, over the dimmed field. */
+  .sheet {
+    position:absolute; top:16px; left:50%; transform:translateX(-50%); width:min(920px, calc(100% - 32px)); bottom:16px;
+    background:var(--panel-2); border:1px solid var(--rule); z-index:4;
+    display:grid; grid-template-columns:1fr 260px; overflow:hidden;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,.7);
+  }
+  .sheet .page, .sheet .marg { scrollbar-width:thin; scrollbar-color:var(--rule-soft) transparent; }
+  .sheet .page::-webkit-scrollbar, .sheet .marg::-webkit-scrollbar { width:4px; }
+  .sheet .page::-webkit-scrollbar-thumb, .sheet .marg::-webkit-scrollbar-thumb { background:var(--rule-soft); }
+  .sheet .page::-webkit-scrollbar-track, .sheet .marg::-webkit-scrollbar-track { background:transparent; }
+  .sheet .page { padding:24px 30px; overflow-y:auto; }
+  .sheet .marg { border-left:1px solid var(--rule-soft); padding:24px 18px; background:var(--fill); overflow-y:auto; }
+  .sheet .oh {
+    font-family:var(--chrome); font-weight:600; text-transform:uppercase; letter-spacing:0.19em;
+    font-size:10px; color:var(--dim); margin-bottom:16px; display:flex; align-items:baseline; gap:10px;
+  }
+  .sheet .oh .r { margin-left:auto; font-family:var(--mono); letter-spacing:0.08em; color:var(--ice); }
+  .sheet .clause {
+    font-family:var(--book); font-size:15.5px; line-height:1.72; color:var(--bone);
+    margin:0 0 6px; padding:8px 12px; max-width:60ch; border-left:2px solid transparent; cursor:default;
+  }
+  .sheet .clause .n { font-family:var(--mono); font-weight:700; font-size:13.5px; color:var(--accent);
+    border-bottom:1px dashed var(--accent); padding:0 2px; font-variant-numeric:tabular-nums; }
+  .sheet .clause em { font-style:italic; color:var(--dim); font-size:13.5px; }
+  .sheet .clause.hov { background:var(--fill); border-left-color:var(--accent); }
+  .sheet .clause.off { color:var(--dim); opacity:0.6; text-decoration:line-through; }
+  .sheet .clause.off .n { color:var(--dim); border-bottom-color:var(--dim); }
+  .sheet .clause .tog { float:right; margin-left:8px; }
+  /* Value chips: look like the surrounding prose, but are real buttons —
+     clicking swaps one for a number input, matching the plan's "commit on
+     Enter/blur, cancel on Escape" editing model. */
+  .sheet .clause button.cval { background:transparent; border:none; cursor:pointer; text-decoration:none; }
+  .sheet .clause button.cval:hover { background:var(--accent-soft); border-radius:2px; }
+  .sheet .clause button.cval:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .sheet .clause .cval-input {
+    font-family:var(--mono); font-weight:700; font-size:13.5px; color:var(--accent);
+    background:var(--ink); border:1px solid var(--accent); padding:0 3px; width:74px;
+    font-variant-numeric:tabular-nums; text-decoration:none;
+  }
+  /* Enabled/disabled toggle, reusing the same switch look as the old rule cards. */
+  .sheet .clause .tog.sw { width:24px; height:13px; border:1px solid var(--rule); background:var(--ink); position:relative; cursor:pointer; padding:0; vertical-align:middle; }
+  .sheet .clause .tog.sw i { position:absolute; top:1px; left:1px; width:9px; height:9px; background:var(--dim); transition:all .15s; }
+  .sheet .clause .tog.sw[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
+  .sheet .clause .tog.sw[aria-pressed="true"] i { left:12px; background:var(--accent); }
+  /* Sits opposite the enable/disable toggle — visible on hover only, so a
+     settled sheet of standing orders doesn't read as a wall of delete
+     buttons at rest. */
+  .sheet .clause .remove-policy {
+    float:right; background:transparent; border:none; color:var(--dim); font-family:var(--mono);
+    font-size:12px; cursor:pointer; opacity:0; transition:opacity .15s; padding:0 2px;
+  }
+  .sheet .clause:hover .remove-policy, .sheet .clause.hov .remove-policy { opacity:1; }
+  .sheet .clause .remove-policy:hover { color:var(--red); }
+  .sheet .policy-library { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule-soft); }
+  .sheet .policy-library summary {
+    font-family:var(--chrome); font-size:10px; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--dim); cursor:pointer; user-select:none;
+  }
+  .sheet .policy-library summary:hover { color:var(--ice); }
+  .sheet .policy-library .lib-cat {
+    font-family:var(--chrome); font-size:9px; letter-spacing:0.14em; text-transform:uppercase;
+    color:var(--accent); margin:12px 0 4px;
+  }
+  .sheet .policy-library .lib-item {
+    font-size:13px; line-height:1.5; color:var(--dim); padding:6px 12px; cursor:default; max-width:60ch;
+  }
+  .sheet .policy-library .lib-name { color:var(--ice); font-weight:600; }
+  .sheet .policy-library .add-policy {
+    float:right; background:transparent; border:1px solid var(--hairline); color:var(--accent);
+    font-family:var(--disp); font-size:9px; letter-spacing:0.08em; padding:3px 8px; cursor:pointer; margin-left:8px;
+  }
+  .sheet .policy-library .add-policy:hover { background:var(--accent-soft); }
+  .sheet .sig { margin-top:16px; padding-top:14px; border-top:1px solid var(--rule-soft); display:flex; align-items:center; gap:12px; }
+  .sheet .sig .t { font-family:var(--book); font-style:italic; font-size:14px; color:var(--dim); }
+  .sheet .sig .st { margin-left:auto; font-family:var(--chrome); font-weight:800; text-transform:uppercase;
+    letter-spacing:0.16em; font-size:10px; color:var(--green); border:1px solid var(--rule); padding:5px 12px; }
+  .book-settings { margin-top:14px; padding-top:12px; border-top:1px solid var(--rule-soft); display:flex; align-items:center; gap:8px; flex-wrap:wrap; row-gap:8px; }
+  .book-settings .l { font-family:var(--chrome); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); flex-shrink:0; }
+  .book-settings input { flex:1; min-width:120px; background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:5px 8px; }
+  .book-settings .ok { font-size:9px; color:var(--green); flex-shrink:0; flex-basis:100%; }
+  .book-settings .tog.sw { width:24px; height:13px; border:1px solid var(--rule); background:var(--ink); position:relative; cursor:pointer; padding:0; flex-shrink:0; }
+  .book-settings .tog.sw i { position:absolute; top:1px; left:1px; width:9px; height:9px; background:var(--dim); transition:all .15s; }
+  .book-settings .tog.sw[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
+  .book-settings .tog.sw[aria-pressed="true"] i { left:12px; background:var(--accent); }
+  /* Book mode's last block sits at the very bottom of the sheet — without
+     this it renders flush against the edge with no breathing room, making
+     the row look cut off rather than just last. */
+  .sheet .page { padding-bottom:28px; }
+  .sheet .mnote { border-bottom:1px solid var(--rule-soft); padding:0 0 13px; margin-bottom:13px; }
+  .sheet .mnote:last-child { border-bottom:none; }
+  .sheet .mnote .ml { font-size:9px; letter-spacing:0.17em; text-transform:uppercase; color:var(--dim); margin-bottom:5px; font-family:var(--chrome); font-weight:600; }
+  .sheet .mnote .mv { font-size:11px; line-height:1.55; color:var(--ice); }
+  .sheet .mnote .mv b { color:var(--accent); font-weight:700; font-variant-numeric:tabular-nums; }
+  .sheet .mnote.live { border-left:2px solid var(--accent); padding-left:10px; background:var(--fill); padding-top:10px; padding-bottom:12px; }
+  .sheet .mnote .hulls { display:flex; gap:5px; margin-top:8px; flex-wrap:wrap; }
+  .sheet .mnote .hulls span { font-family:var(--mono); font-size:9.5px; font-weight:700; color:var(--accent); border:1px solid var(--rule); padding:2px 6px; cursor:pointer; }
+  .sheet .mnote .hulls span:hover { background:var(--accent-soft); }
+  .sheet .empty-marg { color:var(--dim); font-size:10.5px; line-height:1.6; }
+  #map .hull-pulse { fill:none; stroke:var(--accent); stroke-width:1.5; }
+
+  /* Replay scrubber — the field's bottom bar. */
+  .scrub {
+    position:absolute; left:12px; right:12px; bottom:12px; height:40px; z-index:5;
+    background:var(--panel-2); border:1px solid var(--rule); display:flex; align-items:center; gap:13px; padding:0 13px;
+  }
+  .scrub .pl { background:transparent; border:none; color:var(--accent); font-size:13px; cursor:pointer; padding:0; }
+  .scrub .tm { font-size:10px; color:var(--dim); letter-spacing:0.11em; font-variant-numeric:tabular-nums; font-family:var(--mono); white-space:nowrap; }
+  .scrub .track { position:relative; flex:1; height:22px; cursor:pointer; }
+  .scrub .track svg { width:100%; height:100%; display:block; }
+  .scrub .hd { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--accent); box-shadow:0 0 9px var(--accent); left:100%; pointer-events:none; }
+  .scrub .sp { font-size:10px; color:var(--accent); border:1px solid var(--rule); padding:3px 8px; letter-spacing:0.1em; background:transparent; cursor:pointer; font-family:var(--mono); }
+  .scrub .sp.live { color:var(--dim); border-color:var(--rule-soft); }
+  .scrub .sp.live.on { color:var(--green); border-color:var(--green); }
+  .f-spark-l { fill:none; stroke:var(--accent); stroke-width:1.4; }
+  .f-spark-a { fill:var(--accent); fill-opacity:0.14; }
+  .view-markets { grid-template-columns:380px 1fr 340px; }
+  /* Trade Ops: Warehouse (the heaviest pane — several toolbars plus two
+     lists) spans the top row; Dispatch and Keepers split the row below it,
+     since they're each lighter than sharing a 3-way row with Warehouse
+     ever was. */
+  .view-tradeops { grid-template-columns:1fr 1fr; grid-template-rows:auto 1fr; }
+  .view-tradeops .pane-warehouse { grid-column:1/-1; }
+  .keeper-hint { color:var(--dim); font-size:9.5px; margin-bottom:6px; }
+  .keeper-opt { display:flex; align-items:flex-start; gap:8px; margin-bottom:8px; }
+  .keeper-opt .sw { margin-top:1px; }
+  .keeper-opt > div { display:flex; flex-direction:column; gap:1px; }
+  #keeper-markets {
+    width:100%; resize:vertical; background:var(--ink); border:1px solid var(--hairline);
+    color:var(--bone); font-family:var(--mono); font-size:10.5px; padding:7px 8px;
+    line-height:1.5; min-height:84px;
+  }
+  #keeper-markets:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .keeper-row {
+    display:flex; align-items:center; gap:8px; padding:4px 8px; margin-top:4px;
+    border:1px solid var(--hairline); background:var(--glass); font-size:10.5px;
+  }
+  .keeper-row .ship { font-weight:600; color:var(--bone); min-width:110px; }
+  .keeper-row .cover { color:var(--green); }
+  .keeper-row .cover.missing { color:var(--accent); }
+  .warehouse-summary { display:flex; gap:16px; align-items:baseline; margin-bottom:8px; font-size:10.5px; color:var(--ice); }
+  .warehouse-summary b { color:var(--bone); }
+  .warehouse-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
+  .warehouse-row .good { color:var(--teal); font-weight:600; min-width:110px; }
+  .warehouse-row .units { color:var(--bone); font-variant-numeric:tabular-nums; min-width:60px; }
+  .warehouse-row .cost { color:var(--dim); font-variant-numeric:tabular-nums; min-width:90px; }
+  .warehouse-row .bar { flex:1; height:6px; background:var(--meter-track); border-radius:3px; overflow:hidden; }
+  .warehouse-row .bar i { display:block; height:100%; border-radius:3px; background:var(--teal); box-shadow:0 0 6px var(--teal-soft); }
+  .warehouse-row .value { color:var(--green); font-variant-numeric:tabular-nums; margin-left:auto; min-width:70px; text-align:right; }
+  .warehouse-targets-h { font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); margin:10px 0 4px; }
+  .warehouse-targets-h span { text-transform:none; letter-spacing:0; }
+  .warehouse-target-mission { display:flex; align-items:center; gap:5px; font-size:9.5px; color:var(--dim); white-space:nowrap; }
+  .warehouse-target-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
+  .warehouse-target-row .good { color:var(--teal); font-weight:600; min-width:110px; }
+  .warehouse-target-row .units { color:var(--bone); font-variant-numeric:tabular-nums; }
+  .warehouse-target-row .mission-tag { color:var(--accent); font-size:9px; letter-spacing:0.05em; text-transform:uppercase; }
+  .warehouse-target-row .remove { margin-left:auto; }
+  .dispatch-row .tag.role-buy { color:var(--teal); border-color:var(--teal-soft); }
+  .dispatch-row .tag.role-sell { color:var(--violet); border-color:var(--violet-soft); }
+  .dispatch-row .tag.role-haul { color:var(--green); border-color:rgba(157,187,142,0.4); }
+  .dispatch-toolbar { display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  .dispatch-toolbar select { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
+  .dispatch-toolbar .btn { padding:4px 10px; font-size:10px; }
+  .dispatch-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
+  .dispatch-row .ship { font-weight:600; color:var(--bone); min-width:100px; }
+  .dispatch-row .good { color:var(--teal); font-weight:600; min-width:120px; }
+  .dispatch-row .route-txt { color:var(--ice); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dispatch-row .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; }
+  .dispatch-row .tag.manual { color:var(--accent); border-color:rgba(233,196,106,0.4); }
+  /* A ship's flight mode, shown only when it isn't the default CRUISE — see
+     fleetRows()/flightModeReason() — so an operator can tell at a glance
+     which ships are conserving fuel (DRIFT, worth a look — it means that
+     ship couldn't afford its last leg at cruise) versus burning it for
+     speed (BURN, routine). */
+  .fm-tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; border:1px solid var(--hairline); padding:1px 5px; margin-left:6px; }
+  .fm-tag.fm-drift { color:var(--red); border-color:rgba(255,91,91,0.4); }
+  .fm-tag.fm-burn { color:var(--teal); border-color:rgba(79,209,197,0.4); }
+  .dispatch-row .prof { color:var(--green); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .mobile-fleet-row { cursor:pointer; }
+  .mobile-fleet-row:active { background:var(--glass); border-color:var(--accent-soft); }
+  .mobile-fleet-row .chev { margin-left:auto; color:var(--dim); }
+  .view-ops { grid-template-columns:1fr 1fr; }
+  .view-ops .dispatch-toolbar input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; width:150px; }
+  .ops-card { border:1px solid var(--hairline); background:var(--glass); padding:8px 10px; margin-bottom:6px; font-size:10.5px; }
+  .ops-card .ops-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .ops-card .ops-title { font-weight:600; color:var(--bone); }
+  .ops-card .ops-sub { color:var(--dim); font-size:9.5px; }
+  .ops-card .ops-row { display:flex; align-items:center; gap:8px; padding:2px 0; color:var(--ice); }
+  .ops-card .ops-row .fill { flex:1; }
+  .ops-card .ops-dead { color:var(--accent); font-variant-numeric:tabular-nums; }
+  .ops-card .ops-dead.urgent { color:var(--red, #ff6b6b); }
+  .ops-card .btn { padding:3px 10px; font-size:9.5px; }
+  .ops-card select { background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
+    font-family:var(--mono); font-size:9.5px; padding:3px 5px; max-width:140px; }
+  .ops-card .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; border:1px solid var(--hairline); padding:1px 5px; color:var(--dim); }
+  .ops-card .tag.accepted { color:var(--teal); border-color:var(--teal-soft); }
+  .ops-card .tag.declined { color:var(--accent); border-color:var(--accent-soft); }
+  .ops-card .tag.paused { color:var(--accent); border-color:var(--accent-soft); }
+  .ops-card .tag.done { color:var(--green); border-color:rgba(139,197,135,0.4); }
+  .ops-card .prog { height:4px; background:var(--hairline); border-radius:2px; overflow:hidden; margin-top:3px; }
+  .ops-card .prog i { display:block; height:100%; background:var(--accent); }
+  @media (max-width:1250px) {
+    .rail.rail-l { width:240px; }
+    .rail.rail-r { width:220px; }
+    .view-markets { grid-template-columns:1fr 1fr; }
+    .view-markets .pane-yards { grid-column:1/-1; max-height:240px; }
+    .view-tradeops { grid-template-columns:1fr; }
+  }
+  @media (max-width:900px) {
+    .view:not(.view-bridge).on { grid-template-columns:1fr !important; overflow-y:auto; }
+    .view:not(.view-bridge) > * { grid-column:1/-1 !important; }
+    .rail.rail-l, .rail.rail-r { width:200px; }
+    .map-wrap { min-height:300px; }
+    .bar { gap:12px; }
+  }
+
+  .pane { background:var(--panel-2); border:1px solid var(--hairline-hi); display:flex; flex-direction:column; min-height:0; }
+  .pane-h {
+    display:flex; align-items:center; gap:8px; padding:7px 10px; flex-shrink:0;
+    border-bottom:1px solid var(--hairline);
+    font-family:var(--disp); font-size:10px; letter-spacing:0.16em; color:var(--ice);
+  }
+  .pane-h .dot { width:5px; height:5px; border-radius:50%; background:var(--accent); box-shadow:0 0 7px var(--accent); }
+  .pane-h .count { margin-left:auto; color:var(--dim); font-family:var(--mono); font-size:9px; letter-spacing:0.04em; }
+  .pane-h .sysfilter {
+    background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
+    font-family:var(--mono); font-size:9px; padding:2px 4px; max-width:110px;
+  }
+  .pane-h .sysfilter:hover { border-color:var(--accent); }
+  .pane-b { padding:8px 10px; overflow:auto; flex:1; min-height:0; }
+  .pane-b::-webkit-scrollbar { width:4px; } .pane-b::-webkit-scrollbar-thumb { background:var(--hairline); }
+  .empty { color:var(--dim); font-size:11px; padding:18px 0; text-align:center; font-style:italic; }
+
+  .fleet-summary { display:flex; flex-wrap:wrap; gap:4px; padding:0 0 8px; }
+  .fleet-summary .fs-chip { display:inline-flex; align-items:center; gap:4px; font-size:9px; color:var(--ice); background:var(--glass); border:1px solid var(--hairline); padding:2px 6px; border-radius:3px; white-space:nowrap; }
+  .fleet-summary .fs-chip b { color:var(--bone); font-weight:600; }
+  .fleet-summary .fs-chip i { font-style:normal; color:var(--dim); }
+  .fleet-summary .fs-chip.warn { border-color:rgba(231,111,81,0.5); color:var(--warn); }
+  .fleet-summary .fs-chip.warn i { color:var(--warn); }
+  .fleet-summary .fs-chip.hold { border-color:rgba(233,196,106,0.4); }
+  .fleet-summary .fs-chip.hold i { color:var(--accent); }
+
+  .btn {
+    font-family:var(--disp); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; padding:4px 9px;
+    background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer; transition:all .15s;
+  }
+  .btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+  .btn.pri { border-color:var(--accent); color:var(--accent); }
+  .btn.pri:hover:not(:disabled) { background:var(--accent); color:var(--ink); }
+  .btn.danger { color:var(--red); border-color:rgba(255,107,107,0.3); }
+  .btn.ghost { color:var(--dim); }
+  .btn:disabled { opacity:0.35; cursor:not-allowed; }
+  button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+    outline:2px solid var(--accent); outline-offset:1px;
+  }
+
+  /* ── triage ──────────────────────────────── */
+  .alert { border:1px solid var(--hairline); border-left:2px solid var(--dim); background:var(--glass); padding:8px 9px; margin-bottom:7px; }
+  .alert.sev1 { border-left-color:var(--red); background:var(--red-soft); }
+  .alert.sev2 { border-left-color:var(--accent); }
+  .alert .top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; margin-bottom:3px; }
+  .alert .what { color:var(--bone); font-size:11px; font-weight:600; }
+  .alert .cost { font-size:11px; font-weight:600; color:var(--red); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .alert .why { color:var(--ice); font-size:10px; line-height:1.45; margin-bottom:6px; }
+  .alert .auto { color:var(--dim); font-size:9px; margin-bottom:6px; }
+  .alert .auto b { color:var(--teal); font-weight:400; }
+  .alert .acts { display:flex; gap:5px; flex-wrap:wrap; }
+
+  /* ── map ─────────────────────────────────── */
+  .map-wrap {
+    position:relative; overflow:hidden; min-height:0;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(79,209,197,0.05), transparent 42%),
+      radial-gradient(circle at 78% 70%, rgba(167,139,250,0.045), transparent 46%), var(--ink);
+    border:1px solid var(--hairline);
+  }
+  #map { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:2; }
+  #map path.route { fill:none; stroke:var(--accent); stroke-width:1.6; opacity:0.4; vector-effect:non-scaling-stroke; }
+  #map path.route.active { opacity:0.85; stroke-dasharray:5 5; animation:route-flow 1.2s linear infinite; }
+  #map path.jump { fill:none; stroke:var(--teal); stroke-width:1.4; opacity:0.55; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
+  #map line.ship-trail { stroke:var(--star); stroke-width:1.6; vector-effect:non-scaling-stroke; pointer-events:none; }
+  /* Live motion trail (repositionShips()'s own, distinct from the replay
+     scrubber's history trail above): thicker than the base rule so a short,
+     fast-fading tail actually reads as motion at a glance instead of
+     disappearing into the background — the first cut at this (matching the
+     scrub trail's own thinner stroke) turned out too subtle to notice. */
+  #map line.ship-trail.live { stroke-width:2.4; }
+  @keyframes route-flow { to { stroke-dashoffset:-10; } }
+  /* Sized for the field's full-bleed scale (previously tuned for a map that
+     shared the screen with two grid panes — the same absolute pixel sizes
+     read as near-invisible now that the map fills the whole viewport). */
+  #map [data-wp] { vector-effect:non-scaling-stroke; }
+  #map circle.wp { fill:var(--ice); opacity:0.6; }
+  #map circle.wp-planet { fill:var(--ice); opacity:0.85; filter:drop-shadow(0 0 3px rgba(198,205,216,0.35)); }
+  #map circle.wp-moon { fill:var(--ice); opacity:0.45; }
+  #map circle.wp-gas-giant { fill:var(--violet); opacity:0.85; }
+  #map ellipse.wp-gas-giant-ring { fill:none; stroke:var(--violet); stroke-width:1; opacity:0.5; }
+  #map circle.asteroid { fill:none; stroke:var(--ice); stroke-width:1.4; opacity:0.75; }
+  #map circle.phenomenon { fill:var(--violet); opacity:0.3; stroke:var(--violet); stroke-width:1; stroke-dasharray:2 2; }
+  #map circle.fuel { fill:var(--teal); opacity:0.9; filter:drop-shadow(0 0 5px var(--teal)); }
+  #map rect.wp-station { fill:var(--bone); opacity:0.8; filter:drop-shadow(0 0 4px rgba(230,224,209,0.3)); }
+  #map rect.gate { fill:var(--teal); opacity:0.9; filter:drop-shadow(0 0 6px var(--teal)); }
+  /* A market is a border on the waypoint's own shape (added as an extra
+     class alongside its type class in drawWaypointGlyph()), not a separate
+     marker element — --buff rather than --accent since accent rotates with
+     the operator's theme choice and is otherwise reserved for selection. */
+  /* circle.market/rect.market — matches the id+type+class specificity of
+     the shape rules above (asteroid/phenomenon set their own stroke), so
+     this reliably overrides regardless of which shape it lands on. */
+  /* --buff itself is fairly low-contrast against both the void background
+     and the pale glyph fills, so a stroke in the raw token color read as
+     soft/glowy rather than a crisp border even at 1.7px. Brightened just
+     for this stroke rather than changing --buff globally (used elsewhere
+     for structure labels where the muted tone is correct). */
+  #map circle.market, #map rect.market, #map ellipse.market { stroke:color-mix(in oklch, var(--buff), white 40%); stroke-width:2.2; opacity:0.85; }
+  /* Two type-specific gaps the bright market outline exposed: wp-moon's base
+     opacity (0.45) and phenomenon's (0.3) are both low enough that the ring
+     read as "just an outline, no glyph inside" once it had something bright
+     to compete with — the opacity override above covers those. But
+     asteroid-shaped waypoints (confirmed live: an ENGINEERED_ASTEROID
+     market) have no fill at all by design (stroke-only), so opacity alone
+     doesn't help; this needs its own higher-specificity rule to actually
+     add a fill rather than just adjust one. */
+  #map circle.asteroid.market { fill:var(--ice); opacity:0.5; }
+  /* Shipyard: a second, slightly larger concentric ring rather than fighting
+     the market outline for the same shape's one stroke — a waypoint can be
+     both at once. No data-wp of its own (the shape underneath already
+     carries hover), so vector-effect needs restating here. */
+  #map circle.yard-ring {
+    fill:none; stroke:color-mix(in oklch, var(--teal), white 25%); stroke-width:1.6; opacity:0.9;
+    vector-effect:non-scaling-stroke; pointer-events:none;
+  }
+  #map text.wplabel { fill:var(--ice); font-family:var(--mono); font-size:calc(10px / var(--map-zoom,1)); pointer-events:none; opacity:0.7; }
+  #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--bone); }
+  #map text.syslabel { fill:var(--violet); font-family:var(--brand); font-size:calc(22px / var(--map-zoom,1)); opacity:0.16; pointer-events:none; }
+  #map .ship { filter:drop-shadow(0 0 3px var(--accent)); cursor:pointer; transform-box:fill-box; transform-origin:center; }
+  #map .ship .hull { fill:var(--star); stroke:var(--ink); stroke-width:0.6; }
+  /* One shared hull shape, colored by role group — same grouping the old
+     per-role shapes used (miner alone; scout+tour; surveyor+siphoner;
+     keeper+warehouse). Trader has no rule here and falls through to the
+     base .hull fill above, since it's the most common role and was already
+     the unmarked default before roles had any visual distinction at all. */
+  #map .ship .hull.role-miner { fill:var(--buff); }
+  #map .ship .hull.role-scout, #map .ship .hull.role-tour { fill:var(--violet); }
+  #map .ship .hull.role-surveyor, #map .ship .hull.role-siphoner { fill:var(--teal); }
+  #map .ship .hull.role-keeper, #map .ship .hull.role-warehouse { fill:var(--bone); }
+  /* Selection always wins over role color — same specificity as the role
+     rules above (three class selectors each), so this must stay after them
+     in source order. */
+  #map .ship.selected .hull { fill:var(--accent); }
+  #map .ship.selected { filter:drop-shadow(0 0 6px var(--accent)); }
+  /* Fixed screen size regardless of zoom, like text.wplabel — at r="22" in
+     raw SVG units this was calibrated for the default view and turned into
+     a huge diffuse haze swallowing neighboring waypoints once the operator
+     zoomed into a cluster (the halo scales with #map-view's transform like
+     everything else unless explicitly counter-scaled here). */
+  #map circle.sel-halo { fill:var(--accent); opacity:0.1; pointer-events:none; r:calc(22px / var(--map-zoom,1)); }
+  #map circle.sel-ring { fill:none; stroke:var(--accent); opacity:0.5; stroke-width:1.4; pointer-events:none; r:calc(22px / var(--map-zoom,1)); }
+  .map-hud { position:absolute; top:12px; left:306px; z-index:3; font-family:var(--chrome); font-size:11px; letter-spacing:0.16em; color:var(--dim); pointer-events:none; }
+  .map-hud b { color:var(--ice); font-weight:400; }
+  .map-fit-btn {
+    position:absolute; top:10px; right:302px; z-index:6;
+    background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice);
+    font-family:var(--chrome); font-size:9px; letter-spacing:0.08em; padding:4px 9px; cursor:pointer;
+  }
+  .map-fit-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .system-strip { position:absolute; top:34px; left:306px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 590px); }
+  .system-strip button { background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice); font-family:var(--mono); font-size:10px; padding:3px 9px; cursor:pointer; }
+  .system-strip button.active { border-color:var(--accent); color:var(--accent); }
+  .map-legend { position:absolute; bottom:10px; left:12px; z-index:3; display:flex; gap:14px; font-size:8px; color:var(--dim); letter-spacing:0.12em; text-transform:uppercase; pointer-events:none; }
+  .map-legend .sw { width:6px; height:6px; display:inline-block; margin-right:4px; }
+  .map-legend .sw.planet { background:var(--ice); border-radius:50%; opacity:0.85; }
+  .map-legend .sw.station { background:var(--bone); transform:rotate(45deg); }
+  .map-legend .sw.market { background:none; border:1px solid var(--buff); border-radius:50%; width:5px; height:5px; margin:1px 5px 1px 1px; }
+  .map-legend .sw.yard { background:none; border:1px solid var(--teal); border-radius:50%; width:5px; height:5px; margin:1px 5px 1px 1px; }
+  .map-legend .sw.asteroid { border:1px solid var(--ice); border-radius:50%; }
+  .map-legend .sw.fuel { background:var(--teal); border-radius:50%; }
+  .map-legend .sw.ship { background:var(--accent); clip-path:polygon(50% 0,100% 100%,0 100%); }
+  .map-legend .sw.gate { background:var(--teal); transform:rotate(45deg); }
+  .map-gallery { position:absolute; bottom:34px; left:12px; z-index:4; display:flex; gap:6px; }
+  .map-tip {
+    position:absolute; z-index:5; top:12px; right:302px; width:200px; max-height:calc(100% - 24px); overflow-y:auto;
+    background:var(--panel-2); border:1px solid var(--rule); border-top:2px solid var(--accent);
+    padding:10px 12px; font-size:10px; color:var(--ice); pointer-events:none; opacity:0;
+    transform:translateY(-4px); transition:opacity .15s, transform .15s;
+  }
+  .map-tip.visible { opacity:1; transform:translateY(0); }
+  .map-tip h4 { font-family:var(--disp); font-size:12px; letter-spacing:0.08em; color:var(--bone); margin-bottom:2px; }
+  .map-tip .coords { display:block; color:var(--dim); font-size:8px; letter-spacing:0.08em; font-family:var(--mono); margin-bottom:7px; }
+  .map-tip .tags { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:7px; }
+  .map-tip .tag {
+    display:inline-block; font-size:8px; letter-spacing:0.07em; text-transform:uppercase; line-height:1.5;
+    color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; white-space:nowrap;
+  }
+  .map-tip .tag.type { color:var(--ice); border-color:var(--rule); }
+  .map-tip .tag.market { color:var(--accent); border-color:var(--accent-soft); }
+  .map-tip .tag.yard { color:var(--teal); border-color:var(--teal-soft); }
+  .map-tip .tag.more { color:var(--dim); border-style:dashed; }
+  .map-tip .row { display:flex; justify-content:space-between; gap:8px; padding:1px 0; }
+  .map-tip .row b { color:var(--bone); font-weight:500; }
+  .map-tip .sub { color:var(--dim); font-size:9px; margin:5px 0 3px; letter-spacing:0.1em; text-transform:uppercase; }
+  .map-tip .sub:first-child { margin-top:0; }
+  .map-tip .ship-line { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:2px 0; }
+  .map-tip .ship-line b { color:var(--bone); font-weight:500; font-size:10px; }
+  .map-tip .ship-line span { color:var(--dim); font-size:9px; white-space:nowrap; }
+  .map-tip .empty { color:var(--dim); font-size:9px; padding:2px 0; }
+
+  /* ── fleet table ─────────────────────────── */
+  table { width:100%; border-collapse:collapse; font-size:10px; }
+  th { text-align:left; font-family:var(--disp); font-size:8px; letter-spacing:0.12em; color:var(--dim);
+       font-weight:400; padding:0 6px 6px 0; border-bottom:1px solid var(--hairline); white-space:nowrap; cursor:pointer; }
+  th:hover { color:var(--ice); }
+  th.sorted { color:var(--accent); }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td { padding:6px 6px 6px 0; border-bottom:1px solid var(--hairline); color:var(--ice); vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  tr.warn td { background:var(--red-soft); }
+  tr.sel td { background:var(--accent-soft); }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover td { background:var(--glass); }
+  td .sym { color:var(--bone); font-weight:600; }
+  td .goal { color:var(--dim); font-size:9px; }
+  .rate-up { color:var(--green); } .rate-down { color:var(--red); } .rate-zero { color:var(--dim); }
+  .gauge { white-space:nowrap; }
+  .meter {
+    display:inline-block; width:34px; height:6px; border-radius:3px;
+    background:var(--meter-track); vertical-align:middle; margin-right:6px; overflow:hidden;
+  }
+  .meter i { display:block; height:100%; border-radius:3px; background:var(--accent); box-shadow:0 0 6px var(--glow); }
+  .meter.c i { background:var(--ice); }
+  .meter.neg i { background:var(--red); }
+  .rolepick { background:var(--ink); border:1px solid var(--hairline); color:var(--accent); font-family:var(--mono); font-size:9px; padding:2px 4px; }
+
+
+  /* ── doctrine ────────────────────────────── */
+  .rule { border:1px solid var(--hairline); background:var(--glass); padding:9px 10px; margin-bottom:7px; }
+  .rule.off { opacity:0.5; }
+  .rule .top { display:flex; align-items:center; gap:9px; margin-bottom:5px; }
+  .rule .name { font-family:var(--disp); font-size:10px; letter-spacing:0.1em; color:var(--bone); }
+  .rule .tag { margin-left:auto; font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; }
+  .rule .tag.live { color:var(--teal); border-color:var(--teal-soft); }
+  .rule .desc { color:var(--ice); font-size:10.5px; line-height:1.5; margin-bottom:7px; }
+  .rule .ctl { display:grid; grid-template-columns:1fr 92px; gap:9px; align-items:center; }
+  .rule input[type=range] { width:100%; accent-color:var(--accent); }
+  .rule input[type=number] {
+    background:var(--ink); border:1px solid var(--accent-soft); color:var(--accent);
+    font-family:var(--mono); font-size:11px; padding:3px 6px; width:100%; font-variant-numeric:tabular-nums;
+  }
+  .sw { width:26px; height:14px; border:1px solid var(--hairline); background:var(--ink); position:relative; cursor:pointer; flex-shrink:0; padding:0; }
+  .sw i { position:absolute; top:1px; left:1px; width:10px; height:10px; background:var(--dim); transition:all .15s; }
+  .sw[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
+  .sw[aria-pressed="true"] i { left:13px; background:var(--accent); }
+
+  /* Prose doctrine view */
+  .prose-book { padding:10px; }
+  .prose-clause { display:grid; grid-template-columns:32px 1fr; gap:8px; align-items:start; margin-bottom:8px; padding:8px 10px; border:1px solid var(--hairline); background:var(--glass); }
+  .prose-gutter { font-family:var(--mono); font-size:9px; color:var(--accent); font-weight:600; text-align:right; padding-top:2px; min-height:14px; }
+  .prose-text { color:var(--ice); font-size:10.5px; line-height:1.55; font-family:var(--book); }
+  .prose-text .n { font-family:var(--mono); font-weight:700; color:var(--accent); border-bottom:1px dashed var(--accent); padding:0 2px; font-variant-numeric:tabular-nums; }
+  .prose-text em { font-style:italic; color:var(--dim); }
+
+  .logline { padding:7px 0; border-bottom:1px solid var(--hairline); }
+  .logline:last-child { border-bottom:none; }
+  .logline .when { color:var(--dim); font-size:9px; letter-spacing:0.08em; }
+  .logline .txt { color:var(--ice); font-size:11px; line-height:1.55; margin-top:2px; }
+  .logline .txt b { color:var(--bone); font-weight:600; }
+  .logline .amt { float:right; font-variant-numeric:tabular-nums; }
+  .logline .amt.pos { color:var(--green); } .logline .amt.neg { color:var(--red); }
+  .narrative { font-family:var(--book); font-size:13px; line-height:1.65; color:var(--ice); font-style:italic; padding:2px 0 10px; }
+  .relay { display:grid; grid-template-columns:1fr auto; gap:5px; margin-top:6px; }
+  .relay input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; min-width:0; }
+  .relay .ok { grid-column:1/-1; font-size:9px; color:var(--green); }
+
+  .verdict { display:flex; background:var(--panel); border:1px solid var(--hairline); overflow-x:auto; flex-shrink:0;
+             scrollbar-width:thin; scrollbar-color:var(--hairline) transparent; }
+  /* A horizontal-scrolling strip on the literal bottom row of the window:
+     the fat native scrollbar there reads as a page bug. Match .pane-b. */
+  .verdict::-webkit-scrollbar { height:5px; }
+  .verdict::-webkit-scrollbar-thumb { background:var(--hairline); }
+  .verdict::-webkit-scrollbar-track { background:transparent; }
+  .verdict .cell { padding:7px 14px; border-right:1px solid var(--hairline); white-space:nowrap; }
+  .verdict .cell:last-child { border-right:none; }
+  .verdict .l { font-size:8px; letter-spacing:0.16em; text-transform:uppercase; color:var(--dim); }
+  .verdict .v { font-size:14px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
+  .verdict .v.good { color:var(--green); } .verdict .v.bad { color:var(--red); }
+  .verdict .v small { font-size:10px; font-weight:400; color:var(--dim); }
+
+  /* ── markets ─────────────────────────────── */
+  .route { border:1px solid var(--hairline); background:var(--glass); padding:8px 9px; margin-bottom:6px; }
+  .route.best { border-left:2px solid var(--green); }
+  .route-summary { display:flex; gap:14px; margin-bottom:8px; font-size:10px; letter-spacing:0.04em; }
+  .route-summary .count b { font-size:12px; margin-right:3px; }
+  .route-summary .flyable { color:var(--green); }
+  .route-summary .gated { color:var(--teal); }
+
+  /* Right rail's Lanes list — compact, one card per route, ranked by margin. */
+  .lane-card { border:1px solid var(--rule-soft); background:var(--fill); padding:8px 10px; margin-bottom:7px; }
+  .lane-card.hot { border-color:var(--accent); box-shadow:0 0 14px var(--glow) inset; }
+  .lane-card .g { font-size:10.5px; font-weight:700; color:var(--buff); font-family:var(--mono); }
+  .lane-card .r { font-size:9.5px; color:var(--dim); margin-top:2px; font-family:var(--mono); }
+  .lane-card .p { font-family:var(--mono); font-weight:700; margin-top:4px; color:var(--green); font-variant-numeric:tabular-nums; font-size:11px; }
+  .lane-card.stale .p { color:var(--dim); }
+  .lane-card .p small { color:var(--dim); font-weight:400; font-size:9px; }
+  .route .r1 { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .route .good { color:var(--bone); font-size:11px; font-weight:600; }
+  .route .per { font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--green); }
+  .route .r2 { color:var(--ice); font-size:10px; margin-top:2px; }
+  .route .r2 b { color:var(--bone); }
+  .route .sysbadge { display:inline-flex; align-items:center; gap:4px; margin-left:6px; padding:1px 6px;
+    border:1px solid rgba(79,209,197,0.4); border-radius:3px; background:var(--teal-bg);
+    color:var(--teal); font-size:8px; letter-spacing:0.05em; font-variant-numeric:tabular-nums; }
+  .route .sysbadge .arr { color:var(--dim); }
+  .route .r3 { color:var(--dim); font-size:9px; margin-top:3px; }
+  .route .r3 b { color:var(--ice); font-weight:400; }
+  .route .r3 .stale { color:var(--red); }
+  .callout { border:1px solid rgba(79,209,197,0.32); background:var(--teal-bg); padding:8px 10px; margin-bottom:8px; font-size:10px; color:var(--ice); line-height:1.5; }
+  .callout b { color:var(--teal); }
+  .callout.warn { border-color:var(--accent-soft); background:var(--accent-soft); }
+  .callout.warn b { color:var(--accent); }
+  .price-picker { display:grid; grid-template-columns:1fr auto; gap:5px; margin-bottom:8px; }
+  .price-picker select, .price-picker button { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
+  .price-chart { width:100%; height:150px; background:var(--ink); border:1px solid var(--hairline); margin-bottom:10px; }
+  .price-chart svg { width:100%; height:100%; display:block; }
+  .mkt { border:1px solid var(--hairline); background:var(--glass); padding:7px 9px; margin-bottom:6px; }
+  .mkt .h { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
+  .mkt .h b { color:var(--bone); font-size:10.5px; }
+  .mkt .h .sys { color:var(--violet); font-size:8px; letter-spacing:0.1em; }
+  .mkt .h .age { color:var(--dim); font-size:8.5px; }
+  .mkt .h .age.stale { color:var(--red); }
+  .mkt .goods { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:3px; }
+  .mkt .g { display:grid; grid-template-columns:1fr auto auto; gap:5px; align-items:baseline; background:var(--ink); border:1px solid var(--hairline); padding:2px 5px; font-size:9px; }
+  .mkt .g .n { color:var(--ice); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mkt .g .b { color:var(--dim); font-variant-numeric:tabular-nums; }
+  .mkt .g .s { color:var(--green); font-variant-numeric:tabular-nums; }
+  .intel .row { display:grid; grid-template-columns:auto 1fr auto auto; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--hairline); }
+  .intel .row:last-child { border-bottom:none; }
+  .intel .icon { color:var(--dim); font-size:11px; }
+  .intel .route { border:none; background:none; padding:0; margin:0; font-size:10px; color:var(--ice); }
+  .intel .note { color:var(--dim); font-size:9px; }
+  .intel .note .stale { color:var(--red); }
+  .intel .marg { color:var(--ice); font-size:10px; font-variant-numeric:tabular-nums; text-align:right; }
+  .intel .sub { color:var(--dim); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; margin:8px 0 4px; }
+
+  /* ── co-pilot drawer ─────────────────────── */
+  .copilot {
+    position:fixed; top:0; right:0; bottom:0; width:380px; max-width:92vw; z-index:40;
+    background:var(--panel-2); border-left:1px solid var(--hairline);
+    display:flex; flex-direction:column; transform:translateX(100%); transition:transform .22s ease;
+  }
+  .copilot.open { transform:translateX(0); }
+  .copilot .pane-h { border-bottom:1px solid var(--hairline); }
+  .chat-log { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:0; }
+  .chat-msg { font-size:11px; line-height:1.55; padding:7px 9px; border:1px solid var(--hairline); }
+  .chat-msg.user { background:var(--glass); color:var(--bone); align-self:flex-end; max-width:88%; }
+  .chat-msg.assistant { background:transparent; color:var(--ice); border-color:var(--accent-soft); }
+  .chat-msg .t { display:block; font-family:var(--disp); font-size:8px; letter-spacing:0.14em; color:var(--accent); margin-bottom:3px; }
+  .chat-form { display:grid; grid-template-columns:1fr auto; gap:5px; padding:8px; border-top:1px solid var(--hairline); }
+  .chat-form input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:11px; padding:6px 8px; }
+  .chat-form button { font-family:var(--disp); font-size:9px; letter-spacing:0.1em; background:transparent; border:1px solid var(--accent-soft); color:var(--accent); padding:6px 12px; cursor:pointer; }
+  .chat-status { padding:0 8px 8px; font-size:9px; color:var(--dim); }
+
+  /* ── modal ───────────────────────────────── */
+  .modal-backdrop { position:fixed; inset:0; background:rgba(3,5,8,0.72); z-index:50; display:none; align-items:center; justify-content:center; padding:20px; }
+  .modal-backdrop.open { display:flex; }
+  .modal { background:var(--panel-2); border:1px solid var(--hairline); border-top:2px solid var(--accent);
+           width:min(560px,100%); max-height:86vh; overflow-y:auto; padding:16px 18px; position:relative; }
+  /* #manifest reuses openShipDetails()'s existing content/handlers, just in a
+     rail instead of a modal — see the function's own comment. Every rule
+     below is shared by both containers rather than duplicated. */
+  .modal h3, #manifest h3 { font-family:var(--disp); font-size:15px; letter-spacing:0.08em; color:var(--bone); margin-bottom:4px; }
+  .modal .sub, #manifest .sub { color:var(--dim); font-size:10px; margin-bottom:12px; }
+  .modal .close { position:absolute; top:12px; right:14px; background:transparent; border:1px solid var(--hairline);
+                  color:var(--dim); font-family:var(--disp); font-size:9px; padding:3px 8px; cursor:pointer; }
+  #manifest .close { position:static; display:inline-block; margin-bottom:10px; background:transparent; border:1px solid var(--hairline);
+                  color:var(--dim); font-family:var(--disp); font-size:9px; padding:3px 8px; cursor:pointer; }
+  .modal .good, .modal .jump-row, .modal .loadout-item,
+  #manifest .good, #manifest .jump-row, #manifest .loadout-item,
+  #crew-roster .good, #crew-roster .jump-row, #crew-roster .loadout-item,
+  #factions-list .good, #factions-list .jump-row, #factions-list .loadout-item {
+    display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--hairline); font-size:10px;
+  }
+  .modal .good .name, .modal .jump-row .tgt, .modal .loadout-item .n,
+  #manifest .good .name, #manifest .jump-row .tgt, #manifest .loadout-item .n,
+  #crew-roster .good .name, #crew-roster .jump-row .tgt, #crew-roster .loadout-item .n,
+  #factions-list .good .name, #factions-list .jump-row .tgt, #factions-list .loadout-item .n { flex:1; color:var(--ice); }
+  .modal .good .price, #manifest .good .price { color:var(--dim); }
+  .modal .loadout-item .d, #manifest .loadout-item .d, #crew-roster .loadout-item .d, #factions-list .loadout-item .d { color:var(--dim); font-size:9px; }
+  .modal .metric-row, #manifest .metric-row { display:flex; gap:8px; margin-bottom:12px; }
+  .modal .metric-block, #manifest .metric-block { flex:1; background:var(--glass); border:1px solid var(--hairline); padding:7px; text-align:center; }
+  .modal .metric-block .num, #manifest .metric-block .num { display:block; font-size:14px; font-weight:600; color:var(--bone); }
+  .modal .metric-block .lbl, #manifest .metric-block .lbl { display:block; font-size:8px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); }
+  .modal .loadout-section, #manifest .loadout-section { margin-bottom:12px; }
+  .modal .loadout-section h4, #manifest .loadout-section h4 { font-family:var(--disp); font-size:10px; letter-spacing:0.14em; color:var(--ice); margin-bottom:5px; }
+  .modal .loadout-grid, #manifest .loadout-grid, #crew-roster .loadout-grid, #factions-list .loadout-grid { display:flex; flex-direction:column; }
+  .modal button:not(.close), #manifest button:not(.close) {
+    font-family:var(--disp); font-size:9px; letter-spacing:0.1em; padding:4px 9px;
+    background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer;
+  }
+  .modal button:not(.close):hover, #manifest button:not(.close):hover { border-color:var(--accent); color:var(--accent); }
+  .modal input[type=number], #manifest input[type=number] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:3px 5px; width:62px; }
+  .modal .cargo-note, #manifest .cargo-note { color:var(--dim); font-size:10px; margin-top:8px; }
+  #manifest select, #manifest input[type=text] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
+
+  .stranded-banner {
+    flex:0 0 auto; background:var(--red); color:var(--ink); font-family:var(--disp); font-size:11px;
+    letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; text-align:center;
+  }
+
+  /* ── mobile page ─────────────────────────────
+     Below the breakpoint, the tab-based desktop layout (six dense panes
+     stacked into one column, toolbars sized for a mouse) gives way entirely
+     to a single curated page: glance data up top, then the handful of
+     controls worth touching from a phone — missions, contracts, warehouse,
+     dispatch, doctrine toggles. Everything else (routes table, price chart,
+     yards, keeper config, doctrine sliders, the galaxy map) stays desktop-only
+     rather than being badly reflowed. Reuses the existing pane/row/card
+     classes so it stays visually consistent with the desktop UI; this block
+     only overrides sizing and stacking for touch. */
+  .view-mobile { display:none; }
+  @media (max-width:680px) {
+    .views-switch { display:none; }
+    main#views > .view { display:none !important; }
+    .view-mobile {
+      display:flex !important; flex-direction:column; flex:1; min-height:0;
+      overflow:hidden;
+    }
+    .m-shell { flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding-bottom:12px; }
+    .m-screen { display:none; }
+    .m-screen.on { display:flex; flex-direction:column; gap:8px; }
+    /* margin-top:auto pins this to the bottom of .view-mobile's flex column
+       regardless of whether .m-shell is present — .m-shell is display:none
+       (not just hidden) on the Map/Book tabs, which removes it from the flex
+       layout entirely, so without this the tabbar collapses to the *top* of
+       the column instead of staying put. */
+    .m-tabbar { display:flex; flex-shrink:0; margin-top:auto; border-top:1px solid var(--hairline); background:var(--panel-2); }
+    .m-tabbar button {
+      flex:1; background:transparent; border:none; color:var(--dim);
+      font-family:var(--disp); font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
+      padding:10px 4px; min-height:44px; cursor:pointer;
+    }
+    .m-tabbar button[aria-pressed="true"] { color:var(--accent); background:var(--accent-soft); }
+    .m-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; background:var(--panel-2); border:1px solid var(--hairline); }
+    .m-credits { font-size:18px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
+    .m-rate { font-size:10px; color:var(--dim); }
+    .m-alert-badge { font-family:var(--chrome); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--accent); background:var(--accent-soft); border:1px solid var(--rule); padding:6px 10px; }
+    .m-body { display:flex; flex-direction:column; gap:8px; padding:0 12px; }
+    .m-hero { border:1px solid var(--rule); border-left:3px solid var(--accent); background:var(--panel-2); padding:14px 14px; display:flex; flex-direction:column; gap:8px; }
+    .m-hero-tag { font-family:var(--chrome); font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:var(--accent); }
+    .m-hero-headline { font-size:14px; line-height:1.5; color:var(--bone); }
+    .m-hero-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .m-hero-actions button { font-size:12.5px; padding:11px 14px; min-height:42px; }
+    .m-section-h { font-family:var(--chrome); font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--dim); display:flex; align-items:baseline; gap:8px; margin-top:4px; }
+    .m-section-h span { color:var(--ice); }
+    .m-fleet-strip { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+    .m-ship-chip { flex:0 0 96px; background:var(--panel-2); border:1px solid var(--hairline); padding:8px; display:flex; flex-direction:column; gap:4px; cursor:pointer; }
+    .m-ship-chip .sym { font-size:10px; color:var(--bone); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .m-ship-chip .role { font-size:9px; color:var(--dim); }
+    .m-ship-chip .bar { height:5px; background:var(--meter-track); border-radius:3px; overflow:hidden; }
+    .m-ship-chip .bar i { display:block; height:100%; background:var(--accent); }
+    .m-ship-chip .bar.f i { background:var(--teal); }
+    .m-activity { display:flex; flex-direction:column; gap:6px; }
+    .m-activity-line { display:flex; gap:8px; font-size:12px; color:var(--ice); padding:6px 0; border-bottom:1px solid var(--hairline); }
+    .m-activity-line .when { color:var(--dim); flex-shrink:0; }
+    .m-activity-line .txt b.neg { color:var(--red); }
+    /* Map & Book tabs reveal the desktop Bridge view (the real map / the
+       standing-orders sheet) instead of containing their own copy. The
+       Bridge view is absolutely positioned to fill the area, with the tab
+       bar overlaid on top so it stays reachable. */
+    body.mobile-map-active .m-shell,
+    body.mobile-book-active .m-shell { display:none; }
+    /* .view-mobile's own box still spans the full stage height (it's a flex
+       item sized by main#views, not by its now-hidden .m-shell content), so
+       at z-index:2 it silently intercepted every tap over the revealed
+       .view-bridge below it — not just where the tab bar visually sits.
+       Only #m-tabbar itself should actually catch pointer events. */
+    body.mobile-map-active .view-mobile,
+    body.mobile-book-active .view-mobile { position:relative; z-index:2; pointer-events:none; }
+    body.mobile-map-active #m-tabbar,
+    body.mobile-book-active #m-tabbar { pointer-events:auto; }
+    body.mobile-map-active main#views > .view.view-bridge,
+    body.mobile-book-active main#views > .view.view-bridge {
+      position:absolute; inset:0; z-index:1; display:flex !important;
+    }
+    body.mobile-map-active .view-bridge .scrub,
+    body.mobile-book-active .view-bridge .scrub { display:none; }
+    /* Map tab: no rails on a phone, and the HUD/legend/fit button shift back
+       to the un-shifted left edge (they're offset by left:306px to clear the
+       desktop rail). */
+    body.mobile-map-active .view-bridge .rail { display:none; }
+    body.mobile-map-active .map-hud { left:12px; top:12px; }
+    body.mobile-map-active .system-strip { left:12px; top:34px; max-width:calc(100% - 24px); }
+    body.mobile-map-active .map-fit-btn { right:12px; top:10px; padding:8px 12px; min-height:38px; font-size:10px; }
+    body.mobile-map-active .map-legend { left:12px; bottom:10px; }
+    body.mobile-map-active .map-gallery { left:12px; bottom:34px; }
+    /* Tap-to-inspect's tip: desktop's right:302px hover panel would sit
+       almost entirely off a phone-width screen. Bottom sheet instead, above
+       the tab bar, scrollable via touch — the base rule's pointer-events:none
+       is a deliberate no-op for desktop's hover-only panel, but a mobile tap
+       target needs to actually receive the touch to scroll long content. */
+    body.mobile-map-active .map-tip { left:12px; right:12px; top:auto; bottom:62px; width:auto; max-height:45vh; }
+    body.mobile-map-active .map-tip.visible { pointer-events:auto; }
+    /* Book tab: the sheet fills the stage; the dimmed map behind it is fine. */
+    body.mobile-book-active .view-bridge .field-stage { flex:1; }
+    body.mobile-book-active .sheet { width:100%; height:100%; top:0; bottom:0; left:0; transform:none; border:none; grid-template-columns:1fr; }
+    body.mobile-book-active .sheet .marg { display:none; }
+    body.mobile-book-active .sheet .page { padding:18px 16px; }
+    /* Ship-details sheet: openShipDetails() always populates #manifest
+       (inside the desktop Bridge view's left rail) regardless of which
+       mobile tab is open — without this, the rail (and #manifest within it)
+       stays covered by main#views' blanket "hide every .view on mobile"
+       rule, so tapping a ship silently did nothing visible. Same
+       reveal-the-Bridge-view overlay trick as the Map/Book tabs above, but
+       showing the rail full-screen instead of the map. */
+    body.mobile-ship-active .m-shell { display:none; }
+    body.mobile-ship-active .view-mobile { position:relative; z-index:2; pointer-events:none; }
+    body.mobile-ship-active #m-tabbar { pointer-events:auto; }
+    body.mobile-ship-active main#views > .view.view-bridge {
+      position:absolute; inset:0; z-index:1; display:flex !important;
+    }
+    body.mobile-ship-active .view-bridge .scrub,
+    body.mobile-ship-active .view-bridge #map,
+    body.mobile-ship-active .view-bridge .map-hud,
+    body.mobile-ship-active .view-bridge .system-strip,
+    body.mobile-ship-active .view-bridge .map-legend,
+    body.mobile-ship-active .view-bridge .map-gallery,
+    body.mobile-ship-active .view-bridge .map-fit-btn,
+    body.mobile-ship-active .view-bridge .rail-r { display:none; }
+    body.mobile-ship-active .view-bridge .rail-l {
+      left:8px; right:8px; top:8px; bottom:8px; width:auto;
+    }
+    /* .pane/.pane-b are sized for the desktop CSS grid, where each pane is
+       one bounded grid cell and scrolls its own overflow. The mobile page is
+       a plain vertical stack instead — panes must grow to fit their content
+       so the PAGE scrolls once, not six independently clipped panes. */
+    .view-mobile .pane { flex:none; }
+    .view-mobile .pane-b { flex:none; overflow:visible; padding:10px 12px; font-size:12.5px; }
+    .view-mobile .dispatch-toolbar { flex-direction:column; align-items:stretch; }
+    .view-mobile select, .view-mobile input[type=text], .view-mobile input[type=number] {
+      font-size:14px; padding:11px 10px; width:100%; min-height:42px;
+    }
+    .view-mobile .btn, .view-mobile button:not(.sw) { font-size:12.5px; padding:11px 14px; min-height:42px; }
+    .view-mobile .dispatch-row, .view-mobile .warehouse-row, .view-mobile .ops-card { font-size:12.5px; }
+    .view-mobile .dispatch-row { flex-wrap:wrap; }
+    /* .route-txt is nowrap+ellipsis on desktop, where the row has room; at
+       mobile width it just clips ("C3 → wa…") — let it wrap onto its own
+       line instead. */
+    .view-mobile .route-txt { white-space:normal; overflow:visible; text-overflow:clip; flex-basis:100%; }
+    /* The value bar's proportional-fill visualization needs real horizontal
+       room the mobile column doesn't have; the four fixed-width labels
+       (good/units/cost/value) alone already push past 390px. Drop the bar
+       and shrink the labels' minimums so the row fits without clipping. */
+    .view-mobile .warehouse-row .bar { display:none; }
+    .view-mobile .warehouse-row .good { min-width:70px; }
+    .view-mobile .warehouse-row .units { min-width:36px; }
+    .view-mobile .warehouse-row .cost { min-width:60px; }
+    .view-mobile .warehouse-row .value { min-width:0; }
+    .view-mobile .rule .top .sw, .view-mobile .sw { width:38px; height:22px; }
+    .view-mobile .rule .top .sw i, .view-mobile .sw i { width:16px; height:16px; }
+    .view-mobile .rule .top .sw[aria-pressed="true"] i, .view-mobile .sw[aria-pressed="true"] i { left:19px; }
+    .view-mobile .btn-row { display:flex; gap:8px; }
+    .view-mobile .btn-row .btn { flex:1; }
+    .view-mobile .warehouse-target-mission { font-size:13px; padding:8px 2px; }
+    .view-mobile .warehouse-target-mission input[type=checkbox] { width:20px; height:20px; }
+    /* Ship-details modal: only reachable from the mobile fleet list at this
+       width (the desktop fleet table is hidden), so it's safe to size it for
+       touch unconditionally rather than duplicating it under .view-mobile. */
+    .modal-backdrop { padding:0; align-items:flex-end; }
+    .modal { width:100%; max-height:92vh; padding:16px 14px 20px; }
+    .modal h3 { font-size:16px; }
+    .modal .close { padding:7px 12px; font-size:11px; }
+    .modal .metric-block .num { font-size:16px; }
+    .modal .good, .modal .jump-row, .modal .loadout-item { font-size:13px; padding:8px 0; flex-wrap:wrap; }
+    .modal .jump-row input, .modal .jump-row select {
+      font-size:14px !important; padding:9px 8px !important; width:100% !important;
+      flex:1 1 100% !important; min-height:40px;
+    }
+    .modal button:not(.close) { font-size:12px; padding:9px 12px; min-height:38px; }
+  }
+
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
