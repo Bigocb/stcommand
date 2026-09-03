@@ -298,7 +298,10 @@
   /* ── views ───────────────────────────────── */
   main { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; }
   .view { display:none; flex:1; min-height:0; }
-  .view.on { display:grid; gap:6px; }
+  /* The console has a gutter. v3's views butt against the window edge
+     because the whole app floats on a 6px padded ground; here the panels
+     are objects set into a housing, and a housing has an edge. */
+  .view.on { display:grid; gap:14px; padding:14px; }
   /* Grid items default to min-width:auto, which floors their track at the
      min-content size of their contents. Long ship symbols in the fleet
      table have no natural break point, so without this they push the grid —
@@ -621,31 +624,56 @@
     .bar { gap:12px; }
   }
 
-  .pane { background:var(--panel-2); border:1px solid var(--hairline-hi); display:flex; flex-direction:column; min-height:0; }
-  .pane-h {
-    display:flex; align-items:center; gap:8px; padding:7px 10px; flex-shrink:0;
-    border-bottom:1px solid var(--hairline);
-    font-family:var(--disp); font-size:10px; letter-spacing:0.16em; color:var(--ice);
+  /* Every non-Bridge view is built from these three, so they are the same
+     card the Bridge rails are — one primitive, not two that nearly match. */
+  .pane {
+    background:var(--panel); border:1px solid var(--hairline); border-radius:8px;
+    box-shadow:var(--shadow); overflow:hidden;
+    display:flex; flex-direction:column; min-height:0;
   }
-  .pane-h .dot { width:5px; height:5px; border-radius:50%; background:var(--accent); box-shadow:0 0 7px var(--accent); }
-  .pane-h .count { margin-left:auto; color:var(--dim); font-family:var(--mono); font-size:9px; letter-spacing:0.04em; }
+  .pane-h {
+    display:flex; align-items:center; gap:8px; padding:11px 14px; flex-shrink:0;
+    background:var(--e3); border-bottom:1px solid var(--hairline);
+    font-family:var(--chrome); font-size:13px; font-weight:700; letter-spacing:0; color:var(--bone);
+  }
+  /* v3's header dot is a lit accent bead. Here it would be the accent
+     appearing on something you cannot click, on every panel at once —
+     which is exactly how a reserved colour stops meaning anything. */
+  .pane-h .dot { display:none; }
+  .pane-h .count { margin-left:auto; color:var(--dim); font-family:var(--mono); font-size:10.5px; letter-spacing:0.03em; font-weight:400; }
   .pane-h .sysfilter {
-    background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
-    font-family:var(--mono); font-size:9px; padding:2px 4px; max-width:110px;
+    background:var(--panel); border:1px solid var(--hairline-hi); border-radius:5px; color:var(--bone);
+    font-family:var(--mono); font-size:10.5px; padding:3px 6px; max-width:130px;
   }
   .pane-h .sysfilter:hover { border-color:var(--accent); }
-  .pane-b { padding:8px 10px; overflow:auto; flex:1; min-height:0; }
+  .pane-b { padding:14px; overflow:auto; flex:1; min-height:0; }
+  .pane-b.flush { padding:0; }
+  /* A table runs to the card's edges. Its head is a sunk strip, and a sunk
+     strip inset by the body's padding reads as a floating band rather than
+     as the top of the table — so the table bleeds back out through the
+     padding while everything else in the body keeps it. */
+  .pane-b > table { width:calc(100% + 28px); margin-left:-14px; margin-right:-14px; }
+  .pane-b > table:first-child { margin-top:-14px; }
+  .pane-b > table:last-child { margin-bottom:-14px; }
   .pane-b::-webkit-scrollbar { width:4px; } .pane-b::-webkit-scrollbar-thumb { background:var(--hairline); }
   .empty { color:var(--dim); font-size:11px; padding:18px 0; text-align:center; font-style:italic; }
 
   .fleet-summary { display:flex; flex-wrap:wrap; gap:4px; padding:0 0 8px; }
-  .fleet-summary .fs-chip { display:inline-flex; align-items:center; gap:4px; font-size:9px; color:var(--ice); background:var(--glass); border:1px solid var(--hairline); padding:2px 6px; border-radius:3px; white-space:nowrap; }
+  /* The console's chip: a tinted wash carrying its own text colour, rather
+     than a tinted border around neutral text. On a light ground a 1px
+     coloured edge is almost the whole of the signal and it is the part that
+     disappears first at a glance; the fill is what actually reads. */
+  .fleet-summary .fs-chip {
+    display:inline-flex; align-items:center; gap:5px; font-family:var(--mono); font-size:10.5px;
+    color:var(--ice); background:var(--e3); border:1px solid var(--hairline);
+    padding:3px 8px; border-radius:5px; white-space:nowrap; letter-spacing:0.02em;
+  }
   .fleet-summary .fs-chip b { color:var(--bone); font-weight:600; }
   .fleet-summary .fs-chip i { font-style:normal; color:var(--dim); }
-  .fleet-summary .fs-chip.warn { border-color:rgba(231,111,81,0.5); color:var(--warn); }
-  .fleet-summary .fs-chip.warn i { color:var(--warn); }
-  .fleet-summary .fs-chip.hold { border-color:rgba(233,196,106,0.4); }
-  .fleet-summary .fs-chip.hold i { color:var(--accent); }
+  .fleet-summary .fs-chip.warn { background:var(--warn-soft); border-color:transparent; color:var(--warn); }
+  .fleet-summary .fs-chip.warn b, .fleet-summary .fs-chip.warn i { color:var(--warn); }
+  .fleet-summary .fs-chip.hold { background:var(--accent-soft); border-color:transparent; color:var(--accent); }
+  .fleet-summary .fs-chip.hold b, .fleet-summary .fs-chip.hold i { color:var(--accent); }
 
   .btn {
     font-family:var(--disp); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; padding:4px 9px;
@@ -813,30 +841,42 @@
   .map-tip .empty { color:var(--dim); font-size:9px; padding:2px 0; }
 
   /* ── fleet table ─────────────────────────── */
-  table { width:100%; border-collapse:collapse; font-size:10px; }
-  th { text-align:left; font-family:var(--disp); font-size:8px; letter-spacing:0.12em; color:var(--dim);
-       font-weight:400; padding:0 6px 6px 0; border-bottom:1px solid var(--hairline); white-space:nowrap; cursor:pointer; }
+  /* A table you actually read, rather than a dense readout you scan. 10px
+     rows in a dark HUD are a deliberate density trade; on a lit console the
+     same rows just look far away. The head is a sunk strip so it stays put
+     visually when the body scrolls under it. */
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { text-align:left; font-family:var(--mono); font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase;
+       color:var(--dim); font-weight:500; padding:9px 14px; background:var(--e3);
+       border-bottom:1px solid var(--hairline); white-space:nowrap; cursor:pointer; }
   th:hover { color:var(--ice); }
   th.sorted { color:var(--accent); }
   th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
-  td { padding:6px 6px 6px 0; border-bottom:1px solid var(--hairline); color:var(--ice); vertical-align:middle; }
+  td { padding:9px 14px; border-bottom:1px solid var(--hairline); color:var(--ice); vertical-align:middle; }
   tr:last-child td { border-bottom:none; }
   tr.warn td { background:var(--red-soft); }
   tr.sel td { background:var(--accent-soft); }
   tbody tr { cursor:pointer; }
-  tbody tr:hover td { background:var(--glass); }
-  td .sym { color:var(--bone); font-weight:600; }
-  td .goal { color:var(--dim); font-size:9px; }
+  tbody tr:hover td { background:var(--e3); }
+  td .sym { color:var(--bone); font-weight:700; }
+  td .goal { color:var(--dim); font-size:11px; }
   .rate-up { color:var(--green); } .rate-down { color:var(--red); } .rate-zero { color:var(--dim); }
   .gauge { white-space:nowrap; }
   .meter {
     display:inline-block; width:34px; height:6px; border-radius:3px;
     background:var(--meter-track); vertical-align:middle; margin-right:6px; overflow:hidden;
   }
-  .meter i { display:block; height:100%; border-radius:3px; background:var(--accent); box-shadow:0 0 6px var(--glow); }
-  .meter.c i { background:var(--ice); }
+  /* Slate, not blue. A fuel or condition bar reports a fact; it is not
+     something you can act on, and painting every one of them in the accent
+     on a page where the accent means "clickable" is what makes a reserved
+     colour stop being a signal. Red still carries — a bar the engine has
+     flagged is the one case where the meter *is* telling you to do
+     something. And no glow: a lit fill needs a dark ground to bloom
+     against, and on white it only smears the bar's own edge. */
+  .meter i { display:block; height:100%; border-radius:3px; background:var(--buff); }
+  .meter.c i { background:var(--hairline-hi); }
   .meter.neg i { background:var(--red); }
-  .rolepick { background:var(--ink); border:1px solid var(--hairline); color:var(--accent); font-family:var(--mono); font-size:9px; padding:2px 4px; }
+  .rolepick { background:var(--panel); border:1px solid var(--hairline-hi); border-radius:5px; color:var(--accent); font-family:var(--mono); font-size:11px; padding:3px 6px; }
 
 
   /* ── doctrine ────────────────────────────── */
