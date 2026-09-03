@@ -43,9 +43,10 @@ const savePath = flag("--save");
 const againstPath = flag("--against");
 const page = flag("--page") ?? "/";
 const useFixtures = args.includes("--fixtures");
+const shotPath = flag("--screenshot");
 
-if (!savePath && !againstPath) {
-  console.error("usage: dom-check.mjs (--save <file> | --against <file>) [--page /v3]");
+if (!savePath && !againstPath && !shotPath) {
+  console.error("usage: dom-check.mjs (--save <f> | --against <f> | --screenshot <f.png>) [--page /v3] [--fixtures]");
   process.exit(2);
 }
 
@@ -86,23 +87,77 @@ const app = express();
  * between two runs seconds apart.
  */
 const FIXED_ISO = "2026-08-30T12:00:00.000Z";
+
+/** Two hulls with contrasting health, so condition meters, fuel bars and
+ *  status chips all actually render. A screenshot of an empty fleet cannot
+ *  show whether a readout is legible, which is the whole question for v3. */
+const ship = (symbol, role, cond, fuel, cargo) => ({
+  symbol,
+  registration: { role, name: symbol, factionSymbol: "COSMIC" },
+  nav: { status: "DOCKED", waypointSymbol: "X1-FIX-A1", systemSymbol: "X1-FIX", flightMode: "CRUISE",
+         route: { origin: { symbol: "X1-FIX-A1", x: 0, y: 0 }, destination: { symbol: "X1-FIX-A1", x: 0, y: 0 },
+                  departureTime: FIXED_ISO, arrival: FIXED_ISO } },
+  fuel: { current: fuel, capacity: 400 },
+  cargo: { capacity: 40, units: cargo, inventory: [] },
+  frame: { symbol: "FRAME_FRIGATE", condition: cond, integrity: 1 },
+  engine: { symbol: "ENGINE_ION_DRIVE_I", condition: Math.min(1, cond + 0.04), integrity: 1 },
+  reactor: { symbol: "REACTOR_FUSION_I", condition: 1, integrity: 1 },
+  crew: { current: 57, required: 57, capacity: 80, morale: 100 },
+  mounts: [], modules: [],
+});
+const SHIPS = [ship("DAGGER-1", "COMMAND", 0.94, 222, 0), ship("DAGGER-2", "HAULER", 1.0, 318, 8)];
+
 const FIXTURES = {
   "/api/state": {
     agent: { symbol: "FIXTURE", credits: 1327000, shipCount: 2 },
-    ships: [], contracts: [], systemSymbol: "X1-FIX",
+    ships: SHIPS, contracts: [], systemSymbol: "X1-FIX",
     waypoints: [{ symbol: "X1-FIX-A1", x: 0, y: 0, type: "PLANET", traits: ["MARKETPLACE"] }],
     systems: [{ symbol: "X1-FIX", waypoints: [{ symbol: "X1-FIX-A1", x: 0, y: 0, type: "PLANET", traits: ["MARKETPLACE"] }], jumpGates: [] }],
     jumpConnections: [], totals: { sells: 0, buys: 0 },
   },
   "/api/bridge": {
     rate: 0, prevRate: 0, forgone: 0, series: [0, 0], credits: 1327000, shipCount: 2,
-    totals: { sells: 0, buys: 0 }, paused: false, earnings: [], stranded: [],
-    shipStatus: [], summary: [], triage: [],
+    totals: { sells: 412000, buys: 288000 }, paused: false,
+    earnings: [{ shipSymbol: "DAGGER-2", net: 14200 }, { shipSymbol: "DAGGER-1", net: 0 }],
+    stranded: [],
+    shipStatus: [
+      { symbol: "DAGGER-1", step: "docked", role: "command", paused: false },
+      { symbol: "DAGGER-2", step: "selling", role: "trader", paused: false },
+    ],
+    summary: [{ label: "traders", n: 1 }, { label: "command", n: 1 }],
+    triage: [{ shipSymbol: "DAGGER-1", headline: "Repair needed", detail: "worst component 94%", forgone: 3940, severity: "warn" }],
   },
   "/api/fleet/status": { ships: [], stranded: [], paused: false },
-  "/api/markets": { routes: [], snapshots: [], shipyards: [], modules: [], systems: ["X1-FIX"] },
-  "/api/activity": { activity: [] },
-  "/api/doctrine": { rules: [], catalog: [] },
+  "/api/markets": {
+    routes: [
+      { goodSymbol: "MEDICINE", buyAt: "X1-FIX-D46", buySystem: "X1-FIX", buyPrice: 3934,
+        sellAt: "X1-FIX-A1", sellSystem: "X1-FIX", sellPrice: 5253, volume: 20, distance: 12,
+        fuelUnits: 12, fuelCost: 864, marginPerUnit: 1319, marginPct: 33.5,
+        grossPerTrip: 26380, profitPerTrip: 26380, crossSystem: false, ageMinutes: 4 },
+      { goodSymbol: "FOOD", buyAt: "X1-FIX-K89", buySystem: "X1-FIX", buyPrice: 2060,
+        sellAt: "X1-FIX-J58", sellSystem: "X1-FIX", sellPrice: 2493, volume: 60, distance: 9,
+        fuelUnits: 9, fuelCost: 648, marginPerUnit: 433, marginPct: 21,
+        grossPerTrip: 25980, profitPerTrip: 25980, crossSystem: false, ageMinutes: 7 },
+    ],
+    snapshots: [
+      { systemSymbol: "X1-FIX", waypointSymbol: "X1-FIX-A1", goodSymbol: "MEDICINE", type: "IMPORT",
+        supply: "SCARCE", purchasePrice: 5491, sellPrice: 5253, tradeVolume: 20, timestamp: FIXED_ISO },
+    ],
+    shipyards: [], modules: [], systems: ["X1-FIX"],
+  },
+  "/api/activity": { activity: [
+    { timestamp: FIXED_ISO, shipSymbol: "DAGGER-2", kind: "sell", detail: "sold 40u FOOD at J58", credits: 99720 },
+    { timestamp: FIXED_ISO, shipSymbol: "fleet", kind: "policy", detail: "cash floor held — purchase deferred", credits: 0 },
+  ] },
+  "/api/doctrine": {
+    rules: [
+      { key: "cashFloor", name: "Cash floor", description: "Never let the balance fall below this.",
+        value: 20000, min: 0, max: 500000, step: 5000, unit: "c", enabled: true, enforced: true },
+      { key: "marginFloor", name: "Margin floor", description: "Ignore routes below this margin.",
+        value: 10, min: 0, max: 500, step: 5, unit: "c", enabled: true, enforced: true },
+    ],
+    catalog: [],
+  },
   "/api/doctrine/stats": { stats: [] },
   "/api/narrative": { narrative: "Fixture watch." },
   "/api/missions": { missions: [] },
@@ -141,7 +196,14 @@ const server = app.listen(0, async () => {
         "--headless", "--no-sandbox", "--disable-gpu",
         "--virtual-time-budget=6000",
         "--enable-logging=stderr", "--v=0",
-        "--dump-dom", url,
+        // A DOM diff cannot see CSS at all — a version whose whole point is
+        // a new palette and new elevation would diff clean while looking
+        // completely different. Screenshots are the only honest check for
+        // that, so the harness produces them too.
+        ...(shotPath
+          ? ["--window-size=1600,1000", `--screenshot=${shotPath}`]
+          : ["--dump-dom"]),
+        url,
       ],
       { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
     );
@@ -152,11 +214,11 @@ const server = app.listen(0, async () => {
   }
   server.close();
 
-  // Blank out inline <script> bodies before comparing. --dump-dom returns the
-  // script *source* as part of the document, so moving code between files
-  // shifts every following line and swamps the diff — which is exactly the
-  // change Phase 0 makes on purpose. What must not change is the rendered
-  // result, so that is what gets compared.
+  if (shotPath) {
+    console.log(`screenshot written to ${shotPath}`);
+    process.exit(0);
+  }
+
   // Inline <script> and <style> bodies are elided before comparing.
   // --dump-dom returns both as document text, so moving code or CSS between
   // files shifts every following line and buries the signal — and that

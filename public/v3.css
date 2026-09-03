@@ -1,7 +1,27 @@
   :root {
+    /* ── Elevation ────────────────────────────────────────────────
+       The one real change from v2, and the reason this version exists.
+
+       v2 put everything on one plane: --void was #0a0a12 and --panel was
+       rgba(10,10,18,.82) over it, so a panel differed from the ground it
+       sat on by almost nothing. Every readout then had to carry its own
+       contrast, and the low ones — a 3px meter track at 15% opacity —
+       simply vanished.
+
+       Four opaque steps instead, each a visible lift on the one below.
+       Opaque matters: stacking translucent surfaces over a dark ground
+       converges rather than separating, which is how v2 got flat while
+       every individual rule looked reasonable. Nothing here needs
+       backdrop-filter (v2 used none), so nothing is lost. */
+    --e0: #06080a;   /* ground: behind everything */
+    --e1: #0c1116;   /* panel: rails, bars, the ticker */
+    --e2: #121a20;   /* card: a thing sitting on a panel */
+    --e3: #1a242c;   /* raised: a control you can press */
+
     /* Ground & ink (never rotate) */
-    --void: #0a0a12;
-    --ink: #101019;
+    --void: var(--e0);
+    /* Recessed rather than raised — inputs read as cut into the surface. */
+    --ink: #04070a;
     --bone: #e8e8f0;
     --ice: #969cb0;
     --dim: #5e6478;
@@ -34,9 +54,20 @@
 
     /* Glass/hairline surfaces — grayscale, never tinted by the accent */
     --glass: rgba(148, 155, 178, 0.06);
-    --hairline: rgba(148, 155, 178, 0.15);
-    --panel: rgba(10, 10, 18, 0.82);
-    --panel-2: rgba(14, 14, 23, 0.9);
+    /* Two weights: the quiet one for dividers inside a surface, the strong
+       one for the edge between two surfaces, which is the seam that has to
+       survive being looked at quickly. */
+    --hairline: rgba(150, 172, 190, 0.20);
+    --hairline-hi: rgba(150, 172, 190, 0.36);
+    --panel: var(--e1);
+    --panel-2: var(--e2);
+    --raised: var(--e3);
+
+    /* A meter is two shades of one colour, not a colour on near-nothing:
+       the track is the accent knocked back into the ground so the empty
+       part still reads as part of the same instrument. Derived from the
+       accent so it follows the hue picker instead of being pinned. */
+    --meter-track: color-mix(in oklab, var(--accent) 26%, var(--e0));
 
     /* Data hues (map/system labels only — never accent, never rotate) */
     --teal: #4fd1c5;
@@ -376,8 +407,8 @@
   .warehouse-row .good { color:var(--teal); font-weight:600; min-width:110px; }
   .warehouse-row .units { color:var(--bone); font-variant-numeric:tabular-nums; min-width:60px; }
   .warehouse-row .cost { color:var(--dim); font-variant-numeric:tabular-nums; min-width:90px; }
-  .warehouse-row .bar { flex:1; height:4px; background:var(--hairline); border-radius:2px; overflow:hidden; }
-  .warehouse-row .bar i { display:block; height:100%; background:var(--teal); }
+  .warehouse-row .bar { flex:1; height:6px; background:var(--meter-track); border-radius:3px; overflow:hidden; }
+  .warehouse-row .bar i { display:block; height:100%; border-radius:3px; background:var(--teal); box-shadow:0 0 6px var(--teal-soft); }
   .warehouse-row .value { color:var(--green); font-variant-numeric:tabular-nums; margin-left:auto; min-width:70px; text-align:right; }
   .warehouse-targets-h { font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); margin:10px 0 4px; }
   .warehouse-targets-h span { text-transform:none; letter-spacing:0; }
@@ -446,7 +477,7 @@
     .bar { gap:12px; }
   }
 
-  .pane { background:var(--panel-2); border:1px solid var(--hairline); display:flex; flex-direction:column; min-height:0; }
+  .pane { background:var(--panel-2); border:1px solid var(--hairline-hi); display:flex; flex-direction:column; min-height:0; }
   .pane-h {
     display:flex; align-items:center; gap:8px; padding:7px 10px; flex-shrink:0;
     border-bottom:1px solid var(--hairline);
@@ -654,8 +685,11 @@
   td .goal { color:var(--dim); font-size:9px; }
   .rate-up { color:var(--green); } .rate-down { color:var(--red); } .rate-zero { color:var(--dim); }
   .gauge { white-space:nowrap; }
-  .meter { display:inline-block; width:32px; height:3px; background:var(--hairline); vertical-align:middle; margin-right:5px; }
-  .meter i { display:block; height:100%; background:var(--accent); }
+  .meter {
+    display:inline-block; width:34px; height:6px; border-radius:3px;
+    background:var(--meter-track); vertical-align:middle; margin-right:6px; overflow:hidden;
+  }
+  .meter i { display:block; height:100%; border-radius:3px; background:var(--accent); box-shadow:0 0 6px var(--glow); }
   .meter.c i { background:var(--ice); }
   .meter.neg i { background:var(--red); }
   .rolepick { background:var(--ink); border:1px solid var(--hairline); color:var(--accent); font-family:var(--mono); font-size:9px; padding:2px 4px; }
@@ -894,7 +928,7 @@
     .m-ship-chip { flex:0 0 96px; background:var(--panel-2); border:1px solid var(--hairline); padding:8px; display:flex; flex-direction:column; gap:4px; cursor:pointer; }
     .m-ship-chip .sym { font-size:10px; color:var(--bone); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .m-ship-chip .role { font-size:9px; color:var(--dim); }
-    .m-ship-chip .bar { height:3px; background:var(--glass); border-radius:2px; overflow:hidden; }
+    .m-ship-chip .bar { height:5px; background:var(--meter-track); border-radius:3px; overflow:hidden; }
     .m-ship-chip .bar i { display:block; height:100%; background:var(--accent); }
     .m-ship-chip .bar.f i { background:var(--teal); }
     .m-activity { display:flex; flex-direction:column; gap:6px; }
