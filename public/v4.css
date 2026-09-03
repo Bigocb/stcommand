@@ -548,14 +548,31 @@
     .bar { gap:12px; }
   }
 
-  .pane { background:var(--panel-2); border:1px solid var(--hairline-hi); display:flex; flex-direction:column; min-height:0; }
-  .pane-h {
-    display:flex; align-items:center; gap:8px; padding:7px 10px; flex-shrink:0;
-    border-bottom:1px solid var(--hairline);
-    font-family:var(--disp); font-size:10px; letter-spacing:0.16em; color:var(--ice);
+  /* The five non-Bridge views were the flagged unknown in the plan: dense
+     tables fight the HUD idiom, and the options were to hand them off to
+     v5's layout or to give them a conventional treatment inside this
+     version's chrome. This is the second. The density stays — a fleet
+     table is a fleet table and pretending otherwise helps nobody — but
+     every panel becomes the same clipped, blurred module the strip and the
+     rails are, so the views belong to the version even though their
+     contents are ordinary.
+
+     What makes that work is that v4's instruments already carry the idiom
+     down into the rows: a segmented gauge in a table cell does more to
+     make the table read as a readout than any amount of panel chrome. */
+  .pane {
+    background:var(--panel); border:1px solid var(--rule);
+    clip-path:var(--clip); backdrop-filter:blur(3px);
+    display:flex; flex-direction:column; min-height:0;
   }
-  .pane-h .dot { width:5px; height:5px; border-radius:50%; background:var(--accent); box-shadow:0 0 7px var(--accent); }
-  .pane-h .count { margin-left:auto; color:var(--dim); font-family:var(--mono); font-size:9px; letter-spacing:0.04em; }
+  .pane-h {
+    display:flex; align-items:center; gap:8px; padding:9px 14px 8px; flex-shrink:0;
+    border-bottom:1px solid var(--rule);
+    font-family:var(--disp); font-size:12px; font-weight:600; letter-spacing:0.2em;
+    text-transform:uppercase; color:var(--cyan);
+  }
+  .pane-h .dot { width:6px; height:6px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+  .pane-h .count { margin-left:auto; color:var(--dim); font-family:var(--mono); font-size:10px; letter-spacing:0.04em; text-transform:none; }
   .pane-h .sysfilter {
     background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
     font-family:var(--mono); font-size:9px; padding:2px 4px; max-width:110px;
@@ -566,7 +583,7 @@
   .empty { color:var(--dim); font-size:11px; padding:18px 0; text-align:center; font-style:italic; }
 
   .fleet-summary { display:flex; flex-wrap:wrap; gap:4px; padding:0 0 8px; }
-  .fleet-summary .fs-chip { display:inline-flex; align-items:center; gap:4px; font-size:9px; color:var(--ice); background:var(--glass); border:1px solid var(--hairline); padding:2px 6px; border-radius:3px; white-space:nowrap; }
+  .fleet-summary .fs-chip { display:inline-flex; align-items:center; gap:5px; font-size:10px; color:var(--ice); background:var(--glass); border:1px solid var(--rule); padding:3px 8px; clip-path:var(--clip-sm); white-space:nowrap; }
   .fleet-summary .fs-chip b { color:var(--bone); font-weight:600; }
   .fleet-summary .fs-chip i { font-style:normal; color:var(--dim); }
   .fleet-summary .fs-chip.warn { border-color:rgba(231,111,81,0.5); color:var(--warn); }
@@ -757,13 +774,15 @@
   .map-tip .empty { color:var(--dim); font-size:9px; padding:2px 0; }
 
   /* ── fleet table ─────────────────────────── */
-  table { width:100%; border-collapse:collapse; font-size:10px; }
-  th { text-align:left; font-family:var(--disp); font-size:8px; letter-spacing:0.12em; color:var(--dim);
-       font-weight:400; padding:0 6px 6px 0; border-bottom:1px solid var(--hairline); white-space:nowrap; cursor:pointer; }
+  /* Column heads in the version's own voice — the tables stay dense, but
+     they stop looking like a spreadsheet dropped into a HUD. */
+  table { width:100%; border-collapse:collapse; font-size:11px; }
+  th { text-align:left; font-family:var(--disp); font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:var(--dim);
+       font-weight:600; padding:0 8px 7px 0; border-bottom:1px solid var(--rule); white-space:nowrap; cursor:pointer; }
   th:hover { color:var(--ice); }
   th.sorted { color:var(--accent); }
   th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
-  td { padding:6px 6px 6px 0; border-bottom:1px solid var(--hairline); color:var(--ice); vertical-align:middle; }
+  td { padding:8px 8px 8px 0; border-bottom:1px solid var(--rule-soft); color:var(--ice); vertical-align:middle; }
   tr:last-child td { border-bottom:none; }
   tr.warn td { background:var(--red-soft); }
   tr.sel td { background:var(--accent-soft); }
