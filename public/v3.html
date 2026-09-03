@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Standing Orders — Command (v3)</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32" />
+<!-- iOS ignores the manifest above for "Add to Home Screen" — these are
+     what actually make it install as a standalone app instead of just
+     bookmarking the URL: capable+black status bar drops Safari's chrome,
+     the title is what shows under the home-screen icon. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<meta name="apple-mobile-web-app-title" content="Standing Orders" />
+<meta name="theme-color" content="#101019" />
+<link rel="stylesheet" href="/shared/fonts.css" />
+<link rel="stylesheet" href="/v3.css" />
+</head>
+<body>
+<div class="auth-gate" id="auth-gate">
+  <form class="auth-card" id="auth-form-login">
+    <div class="brand">Standing Orders <em>Command</em></div>
+    <p class="auth-sub">Bring your own SpaceTraders agent. Paste an existing account token to sign in.</p>
+    <input type="password" id="auth-token" placeholder="SpaceTraders account token" autocomplete="current-password" autofocus />
+    <button type="submit" class="btn pri" id="auth-submit">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+    <button type="button" class="icon-btn" id="auth-show-register">Register a new agent instead</button>
+  </form>
+  <form class="auth-card" id="auth-form-register" hidden>
+    <div class="brand">Standing Orders <em>Command</em></div>
+    <p class="auth-sub">Register a brand-new SpaceTraders agent with your account token.</p>
+    <input type="text" id="reg-symbol" placeholder="Agent symbol (3-14 alphanumeric)" autocomplete="off" />
+    <input type="text" id="reg-faction" placeholder="Faction (default COSMIC)" autocomplete="off" />
+    <input type="password" id="reg-token" placeholder="SpaceTraders account token" autocomplete="off" />
+    <button type="submit" class="btn pri" id="reg-submit">Register &amp; enter</button>
+    <div class="auth-err" id="reg-err"></div>
+    <button type="button" class="icon-btn" id="auth-show-login">Back to sign in</button>
+  </form>
+</div>
+<div class="auth-gate" id="onboarding-gate" hidden>
+  <div class="auth-card onboard-card">
+    <div class="brand">Standing Orders <em>Command</em></div>
+    <p class="auth-sub">Set your standing orders before the fleet launches — you can change any of this later from the Book.</p>
+    <div class="onboard-list" id="onboard-list"></div>
+    <button type="button" class="btn pri" id="onboard-confirm">Confirm &amp; launch the fleet</button>
+    <div class="auth-err" id="onboard-err"></div>
+  </div>
+</div>
+<div class="app" id="app-root" hidden>
+  <header class="bar">
+    <div class="brand">Standing Orders <em>Command</em></div>
+    <div class="stat"><span class="l">Credits</span><span class="v amber" id="credits">—</span></div>
+    <div class="stat"><span class="l">Rate</span><span class="v" id="rate">—</span></div>
+    <svg id="spark" viewBox="0 0 104 26" aria-label="Earnings trend, last 12 hours"></svg>
+    <div class="stat"><span class="l">Forgone</span><span class="v bad" id="forgone">—</span></div>
+    <div class="stat"><span class="l">Ships</span><span class="v" id="ships">—</span></div>
+    <div class="grow"></div>
+    <div class="views-switch" id="view-switch" role="group" aria-label="View">
+      <button data-view="bridge" aria-pressed="true">Bridge</button>
+      <button data-view="fleet" aria-pressed="false">Fleet</button>
+      <button data-view="markets" aria-pressed="false">Markets</button>
+      <button data-view="tradeops" aria-pressed="false">Trade Ops</button>
+      <button data-view="ops" aria-pressed="false">Ops</button>
+      <button data-view="galaxy" aria-pressed="false">Galaxy</button>
+    </div>
+    <div class="field-book-toggle" id="field-book-toggle" role="group" aria-label="Layout mode">
+      <button class="active" data-mode="field" title="Field mode: map-first with rails">Field</button>
+      <button data-mode="book" title="Book mode: doctrine overlay">Book</button>
+    </div>
+    <div class="mode-toggle" id="mode-toggle">
+      <button class="active" data-mode="auto">Auto</button>
+      <button data-mode="halt">Halt</button>
+    </div>
+    <button class="icon-btn" id="copilot-toggle" aria-expanded="false">Co-pilot</button>
+    <div class="hue-picker" id="hue-picker">
+      <button class="hue-btn" data-hue="355" title="Rubine (Magenta)" style="background:oklch(66% 0.21 355deg)"></button>
+      <button class="hue-btn" data-hue="293" title="Violet" style="background:oklch(66% 0.21 293deg)"></button>
+      <button class="hue-btn" data-hue="207" title="Ice (Blue)" style="background:oklch(66% 0.21 207deg)"></button>
+      <button class="hue-btn" data-hue="61" title="Amber" style="background:oklch(66% 0.21 61deg)"></button>
+    </div>
+    <button class="icon-btn" id="logout-btn">Logout</button>
+    <div class="clock" id="clock">—</div>
+  </header>
+
+  <main id="views">
+
+    <!-- ══ BRIDGE — the field & the book ══ -->
+    <section class="view view-bridge on" data-view="bridge">
+      <div class="field-stage" id="field-stage">
+        <div class="map-wrap" id="map-wrap">
+          <div class="map-hud" id="map-hud">Sector <b>—</b></div>
+          <button class="map-fit-btn" id="map-fit" title="Fit whole system">⛶ Fit</button>
+          <div class="system-strip" id="system-strip"></div>
+          <div class="map-gallery" id="map-gallery"></div>
+          <svg id="map"></svg>
+          <div class="map-tip" id="map-tip"></div>
+          <div class="map-legend">
+            <span><span class="sw planet"></span>Planet</span>
+            <span><span class="sw station"></span>Station</span>
+            <span><span class="sw gate"></span>Gate</span>
+            <span><span class="sw asteroid"></span>Asteroid</span>
+            <span><span class="sw fuel"></span>Fuel</span>
+            <span><span class="sw market"></span>Market</span>
+            <span><span class="sw yard"></span>Shipyard</span>
+            <span><span class="sw ship"></span>Ship</span>
+          </div>
+        </div>
+
+        <!-- Left rail: the selected hull's manifest, or triage when nothing's selected -->
+        <div class="rail rail-l" id="rail-left">
+          <div class="rail-h" id="rail-left-h"><span id="rail-left-title">Triage</span><span class="n" id="rail-left-n">—</span></div>
+          <div class="rail-b" id="rail-left-body">
+            <div id="triage"></div>
+            <div id="manifest" style="display:none"></div>
+          </div>
+        </div>
+
+        <!-- Right rail: active lanes, by margin -->
+        <div class="rail rail-r" id="rail-right">
+          <div class="rail-h">Lanes<span class="n">by margin</span></div>
+          <div class="rail-b" id="rail-lanes"></div>
+        </div>
+
+        <div class="scrim"></div>
+        <div class="sheet" id="book-sheet"></div>
+
+        <div class="scrub" id="scrub">
+          <button class="pl" id="scrub-play" aria-label="Play replay">▶</button>
+          <span class="tm" id="scrub-t0">—</span>
+          <div class="track" id="scrub-track">
+            <svg viewBox="0 0 900 22" preserveAspectRatio="none" aria-hidden="true" id="scrub-spark"></svg>
+            <div class="hd" id="scrub-head"></div>
+          </div>
+          <span class="tm" id="scrub-t1">—</span>
+          <span class="sp" id="scrub-speed">1×</span>
+          <span class="sp live" id="scrub-live">LIVE</span>
+        </div>
+      </div>
+      <div class="ticker-bar">
+        <div class="shift-log-drawer" id="shift-log-drawer">
+          <div class="pane-h"><span class="dot"></span>The watch<span class="count">what the doctrine produced this shift</span></div>
+          <div class="pane-b">
+            <div class="narrative" id="narrative">Awaiting telemetry…</div>
+            <div id="shift-log"></div>
+          </div>
+        </div>
+        <button class="ticker-expand" id="ticker-expand" aria-expanded="false" aria-label="Expand shift log">▲</button>
+        <div class="ticker" id="ticker"></div>
+      </div>
+    </section>
+
+    <!-- ══ FLEET ══ -->
+    <section class="view view-fleet" data-view="fleet">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="fleet-count">—</span></div>
+        <div class="pane-b"><div id="fleet-summary" class="fleet-summary"></div><table id="fleet-table"></table></div>
+      </div>
+      <div class="pane pane-crew">
+        <div class="pane-h"><span class="dot"></span>Personnel<span class="count" id="crew-count">—</span></div>
+        <div class="pane-b"><div id="crew-roster"></div></div>
+      </div>
+    </section>
+
+    <!-- ══ MARKETS ══ -->
+    <section class="view view-markets" data-view="markets">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Routes<span class="count">profit per trip, net of fuel</span>
+          <select class="sysfilter" id="routes-system-filter" aria-label="Filter routes by system"><option value="">All systems</option></select>
+        </div>
+        <div class="pane-b" id="routes"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Prices &amp; snapshots<span class="count" id="snap-count">—</span>
+          <select class="sysfilter" id="snapshots-system-filter" aria-label="Filter snapshots by system"><option value="">All systems</option></select>
+        </div>
+        <div class="pane-b">
+          <div class="price-picker">
+            <select id="price-good" aria-label="Trade good"></select>
+            <button class="btn" id="price-refresh">Refresh</button>
+          </div>
+          <div class="price-chart" id="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>
+          <div id="snapshots"></div>
+        </div>
+      </div>
+      <div class="pane pane-yards">
+        <div class="pane-h"><span class="dot"></span>Yards &amp; outfitting<span class="count">value per credit</span></div>
+        <div class="pane-b"><div class="intel" id="shipyard-intel"></div></div>
+      </div>
+    </section>
+
+    <!-- ══ TRADE OPS ══ -->
+    <section class="view view-tradeops" data-view="tradeops">
+      <div class="pane pane-warehouse">
+        <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="warehouse-count">—</span></div>
+        <div class="pane-b">
+          <div class="warehouse-summary" id="warehouse-summary"></div>
+          <div id="warehouse-warning"></div>
+          <div class="dispatch-toolbar">
+            <select id="warehouse-ship" aria-label="Warehouse ship"></select>
+            <input id="warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
+            <button class="btn" id="warehouse-designate">Designate</button>
+            <button class="btn ghost" id="warehouse-release">Release</button>
+          </div>
+          <div class="dispatch-toolbar">
+            <select id="warehouse-good" aria-label="Good"></select>
+            <input id="warehouse-units" type="number" min="1" placeholder="Units" style="width:70px" />
+            <input id="warehouse-price" type="number" min="0" placeholder="Price/unit" style="width:90px" />
+            <select id="warehouse-direction" aria-label="Direction">
+              <option value="deposit">Deposit</option>
+              <option value="withdraw">Withdraw</option>
+            </select>
+            <button class="btn ghost" id="warehouse-adjust">Adjust</button>
+          </div>
+          <div id="warehouse-goods"></div>
+          <div class="warehouse-targets-h">Curated goods <span>— only these are bought/sold through the warehouse</span></div>
+          <div class="dispatch-toolbar">
+            <input id="warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+            <input id="warehouse-target-units" type="number" min="1" placeholder="Target units" style="width:100px" />
+            <label class="warehouse-target-mission"><input type="checkbox" id="warehouse-target-mission" /> Buy for mission</label>
+            <button class="btn ghost" id="warehouse-target-add">Add</button>
+          </div>
+          <div id="warehouse-targets"></div>
+        </div>
+      </div>
+      <div class="pane pane-dispatch">
+        <div class="pane-h"><span class="dot"></span>Dispatch<span class="count">who runs what · one good each</span></div>
+        <div class="pane-b">
+          <div class="dispatch-toolbar">
+            <select id="dispatch-ship" aria-label="Trader ship"></select>
+            <select id="dispatch-good" aria-label="Trade good"></select>
+            <button class="btn" id="dispatch-assign">Assign</button>
+            <button class="btn ghost" id="dispatch-clear">Auto</button>
+          </div>
+          <div id="dispatch-list"></div>
+        </div>
+      </div>
+      <div class="pane pane-keepers">
+        <div class="pane-h"><span class="dot"></span>Keeper stations<span class="count" id="keeper-count">—</span></div>
+        <div class="pane-b">
+          <div class="keeper-hint">Buy markets with a stationed keeper stay fresh for route pricing. One waypoint symbol per line.</div>
+          <div class="keeper-opt">
+            <button class="sw" id="keeper-cover" aria-pressed="false" aria-label="Cover full list"><i></i></button>
+            <div>
+              <div>Cover full list</div>
+              <div class="keeper-hint">Station every listed market, ignoring the Keeper count cap (Standing orders → Keeper count)</div>
+            </div>
+          </div>
+          <textarea id="keeper-markets" rows="5" spellcheck="false" placeholder="X1-BY69-D46&#10;X1-BY69-E48"></textarea>
+          <div class="dispatch-toolbar">
+            <button class="btn" id="keeper-save">Save list</button>
+            <button class="btn ghost" id="keeper-reset">Default</button>
+          </div>
+          <div id="keeper-stations"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ OPS ══ -->
+    <section class="view view-ops" data-view="ops">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Contracts<span class="count" id="contract-count">—</span></div>
+        <div class="pane-b" id="contracts"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Construction missions<span class="count">gate supply</span></div>
+        <div class="pane-b">
+          <div class="dispatch-toolbar">
+            <input type="text" id="mission-waypoint" placeholder="X1-BY69-I59" aria-label="Site waypoint" />
+            <button class="btn" id="mission-start">Start</button>
+          </div>
+          <div id="missions"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ GALAXY ══ -->
+    <section class="view view-galaxy" data-view="galaxy">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Leaderboard<span class="count">most credits, whole galaxy</span></div>
+        <div class="pane-b"><table id="leaderboard-table"></table></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Factions<span class="count" id="factions-count">—</span></div>
+        <div class="pane-b"><div id="factions-list"></div></div>
+      </div>
+    </section>
+
+    <!-- ══ MOBILE ══ -->
+    <section class="view-mobile" id="mobile-view">
+      <div class="m-shell">
+        <!-- Bridge screen -->
+        <div class="m-screen" data-mscreen="bridge">
+          <div class="m-topbar">
+            <div>
+              <div class="m-credits" id="m-credits">—</div>
+              <div class="m-rate" id="m-rate">—</div>
+            </div>
+            <div class="m-alert-badge" id="m-alert-badge">—</div>
+          </div>
+          <div class="m-body">
+            <div class="m-hero" id="m-hero"><!-- top triage item, rendered by JS --></div>
+            <div class="m-section-h">Fleet<span id="m-fleet-strip-count">—</span></div>
+            <div class="m-fleet-strip" id="m-fleet-strip"></div>
+            <div class="m-section-h">Recent</div>
+            <div class="m-activity" id="m-activity"></div>
+          </div>
+        </div>
+
+        <!-- Fleet screen: reuse existing mobile fleet markup/IDs as-is -->
+        <div class="m-screen" data-mscreen="fleet">
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="mobile-fleet-count">—</span></div>
+            <div class="pane-b" id="mobile-fleet"></div>
+          </div>
+        </div>
+
+        <!-- Map screen: intentionally near-empty — it works by revealing
+             .view-bridge's real map, not by containing its own -->
+        <div class="m-screen" data-mscreen="map"></div>
+
+        <!-- Ops screen: reuse existing Contracts / Missions / Warehouse panes
+             as-is, just grouped under this tab -->
+        <div class="m-screen" data-mscreen="ops">
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Contracts<span class="count" id="mobile-contract-count">—</span></div>
+            <div class="pane-b" id="mobile-contracts"></div>
+          </div>
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Routes<span class="count">who runs what · one good each</span></div>
+            <div class="pane-b">
+              <div class="dispatch-toolbar">
+                <select id="mobile-dispatch-ship" aria-label="Trader ship"></select>
+                <select id="mobile-dispatch-good" aria-label="Trade good"></select>
+                <button class="btn" id="mobile-dispatch-assign">Assign</button>
+                <button class="btn ghost" id="mobile-dispatch-clear">Auto</button>
+              </div>
+              <div id="mobile-dispatch"></div>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Construction missions<span class="count">gate supply</span></div>
+            <div class="pane-b">
+              <div class="dispatch-toolbar">
+                <input type="text" id="mobile-mission-waypoint" placeholder="X1-BY69-I59" aria-label="Site waypoint" />
+                <button class="btn" id="mobile-mission-start">Start</button>
+              </div>
+              <div id="mobile-missions"></div>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="mobile-warehouse-count">—</span></div>
+            <div class="pane-b">
+              <div class="warehouse-summary" id="mobile-warehouse-summary"></div>
+              <div id="mobile-warehouse-warning"></div>
+              <div class="dispatch-toolbar">
+                <select id="mobile-warehouse-ship" aria-label="Warehouse ship"></select>
+                <input id="mobile-warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
+                <div class="btn-row">
+                  <button class="btn" id="mobile-warehouse-designate">Designate</button>
+                  <button class="btn ghost" id="mobile-warehouse-release">Release</button>
+                </div>
+              </div>
+              <div class="dispatch-toolbar">
+                <select id="mobile-warehouse-good" aria-label="Good"></select>
+                <input id="mobile-warehouse-units" type="number" min="1" placeholder="Units" />
+                <input id="mobile-warehouse-price" type="number" min="0" placeholder="Price/unit" />
+                <select id="mobile-warehouse-direction" aria-label="Direction">
+                  <option value="deposit">Deposit</option>
+                  <option value="withdraw">Withdraw</option>
+                </select>
+                <button class="btn ghost" id="mobile-warehouse-adjust">Adjust</button>
+              </div>
+              <div id="mobile-warehouse-goods"></div>
+              <div class="warehouse-targets-h">Curated goods <span>— only these are bought/sold through the warehouse</span></div>
+              <div class="dispatch-toolbar">
+                <input id="mobile-warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+                <input id="mobile-warehouse-target-units" type="number" min="1" placeholder="Target units" />
+                <label class="warehouse-target-mission"><input type="checkbox" id="mobile-warehouse-target-mission" /> Buy for mission</label>
+                <button class="btn ghost" id="mobile-warehouse-target-add">Add</button>
+              </div>
+              <div id="mobile-warehouse-targets"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Book screen -->
+        <div class="m-screen" data-mscreen="book" id="m-book-screen"></div>
+      </div>
+
+      <nav class="m-tabbar" id="m-tabbar">
+        <button data-mtab="bridge" aria-pressed="true">Bridge</button>
+        <button data-mtab="fleet">Fleet</button>
+        <button data-mtab="map">Map</button>
+        <button data-mtab="ops">Ops</button>
+        <button data-mtab="book">Book</button>
+      </nav>
+    </section>
+
+  </main>
+</div>
+
+<aside class="copilot" id="copilot" aria-label="Co-pilot">
+  <div class="pane-h"><span class="dot"></span>Co-pilot<button class="btn ghost" id="copilot-close" style="margin-left:auto">Close</button></div>
+  <div class="chat-log" id="chat-log"><div class="empty">Ask about the fleet, markets, or what to do next.</div></div>
+  <form class="chat-form" id="chat-form">
+    <input type="text" id="chat-input" placeholder="Ask the co-pilot…" autocomplete="off" />
+    <button type="submit" id="chat-send">Send</button>
+  </form>
+  <div class="chat-status" id="chat-status"></div>
+</aside>
+
+<div class="modal-backdrop" id="trade-backdrop"><div class="modal" id="trade-modal"></div></div>
+
+<script type="module" src="/v3.js"></script>
+</body>
+</html>

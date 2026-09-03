@@ -23,6 +23,10 @@
  * without its JavaScript, which is a failure, not a pass.
  */
 import express from "express";
+// The real production router, not a reimplementation — the harness is only
+// worth trusting if it serves pages the way the server does. Importing a
+// .ts module means this script runs under tsx: `npx tsx scripts/dom-check.mjs`.
+import { createUiVersionRouter } from "../src/http/uiVersions.ts";
 import { resolve, join } from "node:path";
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { execFile } from "node:child_process";
@@ -122,6 +126,7 @@ if (useFixtures) {
   });
 }
 
+app.use(createUiVersionRouter(resolve("public")));
 app.use(express.static(resolve("public"), { index: "v2.html" }));
 const server = app.listen(0, async () => {
   const url = `http://127.0.0.1:${server.address().port}${page}`;
@@ -152,10 +157,16 @@ const server = app.listen(0, async () => {
   // shifts every following line and swamps the diff — which is exactly the
   // change Phase 0 makes on purpose. What must not change is the rendered
   // result, so that is what gets compared.
-  const dom = res.stdout.replace(
-    /(<script\b[^>]*>)[\s\S]*?(<\/script>)/gi,
-    (_m, open, close) => `${open}/* inline script body elided for diffing */${close}`,
-  );
+  // Inline <script> and <style> bodies are elided before comparing.
+  // --dump-dom returns both as document text, so moving code or CSS between
+  // files shifts every following line and buries the signal — and that
+  // movement is exactly what this work does on purpose. It also makes two
+  // versions comparable when one inlines its CSS and another links it.
+  const dom = res.stdout
+    .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script>)/gi,
+      (_m, open, close) => `${open}/* inline script elided */${close}`)
+    .replace(/(<style\b[^>]*>)[\s\S]*?(<\/style>)/gi,
+      (_m, open, close) => `${open}/* inline style elided */${close}`);
 
   // Page-level problems only — the sandbox emits dbus/UPower noise that has
   // nothing to do with the page under test.
