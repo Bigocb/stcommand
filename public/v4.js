@@ -1702,6 +1702,25 @@ let lastTrailSamplePos = new Map();
 const TRAIL_SAMPLE_MIN_PX = 4;
 const TRAIL_MAX_POINTS = 10; // ~40px of trail at the sample distance above — longer reads as more deliberate motion than the original 6
 
+/** The tracking reticle drawn around the selected hull.
+ *
+ *  Four corner brackets rather than a ring. A ring says "highlighted"; a
+ *  reticle says "tracked", and tracking is what selecting a hull does in
+ *  this version — the map follows it, the inspector describes it.
+ *
+ *  Drawn in the ship group's own coordinate space, so it travels with the
+ *  hull for free on every scrub frame; the zoom compensation lives in CSS
+ *  (calc against --map-zoom) so nothing here has to re-render on zoom. */
+function reticleMarkup(symbol) {
+  const r = 24, a = 9; // half-size, and the arm length of each bracket
+  const arm = (sx, sy) =>
+    `<path d="M${sx * r} ${sy * (r - a)}L${sx * r} ${sy * r}L${sx * (r - a)} ${sy * r}"/>`;
+  return `<g class="reticle">
+    ${arm(-1, -1)}${arm(1, -1)}${arm(-1, 1)}${arm(1, 1)}
+    <text y="${-r - 8}">${escapeHtml(symbol)}</text>
+  </g>`;
+}
+
 function renderMap(ships, trails = new Map()) {
   const svg = $("map");
   const w = svg.clientWidth || 800;
@@ -1980,7 +1999,7 @@ function renderMap(ships, trails = new Map()) {
     // so it rides along with the ship's transform for free (repositionShips()
     // only ever touches the <g>'s transform, never re-renders these circles).
     out += `<g class="ship ${docked ? "docked" : ""}${sel ? " selected" : ""}" transform="translate(${x} ${y})" data-wp="${s.nav.waypointSymbol}" data-ship="${s.symbol}">
-      ${sel ? `<circle class="sel-halo" cx="0" cy="0" r="22"></circle><circle class="sel-ring" cx="0" cy="0" r="22"></circle>` : ""}
+      ${sel ? reticleMarkup(s.symbol) : ""}
       ${shipGlyphMarkup(role, docked, heading)}<title>${s.symbol} — ${s.nav.status}</title>
     </g>`;
   }

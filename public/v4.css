@@ -689,8 +689,18 @@
      a huge diffuse haze swallowing neighboring waypoints once the operator
      zoomed into a cluster (the halo scales with #map-view's transform like
      everything else unless explicitly counter-scaled here). */
-  #map circle.sel-halo { fill:var(--accent); opacity:0.1; pointer-events:none; r:calc(22px / var(--map-zoom,1)); }
-  #map circle.sel-ring { fill:none; stroke:var(--accent); opacity:0.5; stroke-width:1.4; pointer-events:none; r:calc(22px / var(--map-zoom,1)); }
+  /* Tracking reticle. Four corner brackets and a tag, not a halo: a ring
+     says "this one is highlighted", a reticle says "this one is being
+     tracked", and tracking is what selecting a hull actually does here.
+     Sized and stroked against the zoom so it stays the same size on screen
+     as the operator zooms — a reticle that grows with the plot stops
+     reading as an overlay and starts reading as a circle drawn in space. */
+  #map g.reticle { pointer-events:none; }
+  #map g.reticle path { fill:none; stroke:var(--act); stroke-width:calc(2px / var(--map-zoom,1)); }
+  #map g.reticle text {
+    fill:var(--act); font-family:var(--disp); font-weight:700; letter-spacing:0.18em; text-transform:uppercase;
+    font-size:calc(10px / var(--map-zoom,1)); text-anchor:middle;
+  }
   .map-hud { position:absolute; top:12px; left:306px; z-index:3; font-family:var(--chrome); font-size:11px; letter-spacing:0.16em; color:var(--dim); pointer-events:none; }
   .map-hud b { color:var(--ice); font-weight:400; }
   .map-fit-btn {
@@ -763,13 +773,25 @@
   td .goal { color:var(--dim); font-size:9px; }
   .rate-up { color:var(--green); } .rate-down { color:var(--red); } .rate-zero { color:var(--dim); }
   .gauge { white-space:nowrap; }
+  /* Segmented gauges. A continuous bar reads as an analogue quantity; a
+     segmented one reads as an instrument, which is this version's whole
+     claim about what it is.
+
+     Done with a mask rather than twelve elements, so no renderer changes
+     and no markup churn: the mask cuts both the track and the fill in one
+     pass, because the fill is a child clipped by its parent's mask. The
+     gauge is widened to 64px first — at v3's 34px, twelve cells are 2.8px
+     each and the segmentation turns into texture. */
   .meter {
-    display:inline-block; width:34px; height:6px; border-radius:3px;
-    background:var(--meter-track); vertical-align:middle; margin-right:6px; overflow:hidden;
+    --cells: 12;
+    display:inline-block; width:64px; height:8px;
+    background:var(--meter-track); vertical-align:middle; margin-right:7px; overflow:hidden;
+    -webkit-mask-image:repeating-linear-gradient(90deg, #000 0 calc(100% / var(--cells) - 2px), transparent calc(100% / var(--cells) - 2px) calc(100% / var(--cells)));
+            mask-image:repeating-linear-gradient(90deg, #000 0 calc(100% / var(--cells) - 2px), transparent calc(100% / var(--cells) - 2px) calc(100% / var(--cells)));
   }
-  .meter i { display:block; height:100%; border-radius:3px; background:var(--accent); box-shadow:0 0 6px var(--glow); }
-  .meter.c i { background:var(--ice); }
-  .meter.neg i { background:var(--red); }
+  .meter i { display:block; height:100%; background:var(--cyan); box-shadow:0 0 6px var(--glow); }
+  .meter.c i { background:var(--ice); box-shadow:none; }
+  .meter.neg i { background:var(--red); box-shadow:0 0 6px rgba(255,68,51,.6); }
   .rolepick { background:var(--ink); border:1px solid var(--hairline); color:var(--accent); font-family:var(--mono); font-size:9px; padding:2px 4px; }
 
 
@@ -1155,8 +1177,9 @@
   .m-alert-badge { color:var(--act); background:var(--act-soft); border-color:var(--act-line); }
 
   /* what you are tracking */
-  #map circle.sel-halo { fill:var(--act); opacity:0.12; }
-  #map circle.sel-ring { stroke:var(--act); opacity:0.6; }
   #map .hull-pulse { stroke:var(--act); }
-  #map g.ship.selected .glyph, #map g.ship.selected polygon, #map g.ship.selected path { fill:var(--act); }
+  /* The hull glyph only. Written as `path` first, which silently claimed
+     every path inside the ship group — including the four the tracking
+     reticle draws, which turned its corner brackets into filled wedges. */
+  #map g.ship.selected path.hull { fill:var(--act); }
   .map-legend .sw.ship { background:var(--act); }
