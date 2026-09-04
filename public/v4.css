@@ -289,23 +289,31 @@
      rail while the watch scrolled below it. Shrinking is proportional to
      content, so the long section gives up the height, and `min-height:0`
      lets it scroll its own body instead of pushing the rail past its box.
-     A collapsed section drops to just its summary, which is how one section
-     takes the whole rail when that's the one being read. */
-  .rail-sec { display:flex; flex-direction:column; min-height:0; border-bottom:1px solid var(--rule-soft); }
+     A collapsed section drops to just its header, which is how one section
+     takes the whole rail when that's the one being read.
+
+     `overflow:hidden` is the guard rather than the mechanism: the body
+     above should always scroll before anything reaches this, but a section
+     that silently paints over its neighbour is a far worse failure than
+     one that clips, so it is not left to chance. */
+  .rail-sec { display:flex; flex-direction:column; min-height:0; overflow:hidden; border-bottom:1px solid var(--rule-soft); }
   .rail-sec:last-child { border-bottom:none; }
-  .rail-sec[open] { flex:0 1 auto; }
-  .rail-sec:not([open]) { flex:0 0 auto; }
-  /* The disclosure triangle is replaced by a caret in the summary's own
-     type, so the header keeps the letter-spaced chrome look the rails use. */
-  .rail-sec > summary { cursor:pointer; list-style:none; user-select:none; }
-  .rail-sec > summary::-webkit-details-marker { display:none; }
-  .rail-sec > summary::after {
+  .rail-sec.open { flex:0 1 auto; }
+  .rail-sec:not(.open) { flex:0 0 auto; }
+  .rail-sec:not(.open) > .rail-b { display:none; }
+  /* The header is a real button, so it needs the element defaults undone
+     before .rail .rail-h can style it as a header again. */
+  .rail-sec > .rail-h {
+    width:100%; text-align:left; background:none; border:none; border-bottom:1px solid var(--hairline);
+    font:inherit; cursor:pointer; user-select:none;
+  }
+  .rail-sec > .rail-h::after {
     content:"\25B4"; margin-left:8px; font-size:8px; color:var(--dim); transition:transform .15s ease;
   }
-  .rail-sec:not([open]) > summary::after { transform:rotate(180deg); }
-  .rail-sec > summary:hover { background:var(--raised); }
-  .rail-sec > summary .n { margin-left:auto; }
-  .rail-sec > summary:focus-visible { outline:1px solid var(--accent); outline-offset:-1px; }
+  .rail-sec:not(.open) > .rail-h::after { transform:rotate(180deg); }
+  .rail-sec > .rail-h:hover { background:var(--raised); }
+  .rail-sec > .rail-h .n { margin-left:auto; }
+  .rail-sec > .rail-h:focus-visible { outline:1px solid var(--accent); outline-offset:-1px; }
 
   /* Inspector breadcrumb: the trail is the rail's title, so it inherits the
      header's chrome type and only the leaf carries the hull's own colour. */

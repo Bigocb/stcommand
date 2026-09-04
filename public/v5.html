@@ -171,17 +171,25 @@
              rail now, each collapsible so either can take the full height
              when that's the one you're reading. -->
         <div class="rail rail-r" id="rail-right">
-          <details class="rail-sec" id="sec-lanes" open>
-            <summary class="rail-h">Lanes<span class="n">by margin</span></summary>
+          <!-- Plain elements rather than <details>/<summary>. From Chrome 131
+               a <details> wraps its own content in a ::details-content
+               anonymous box, which then becomes the flex item instead of
+               .rail-b — so .rail-b's `flex:1; min-height:0; overflow-y:auto`
+               stopped constraining anything, the section could not shrink,
+               and a long list painted straight over the section below it.
+               An explicit box tree has no UA-generated box in the middle of
+               the flex column and cannot drift with a browser release. -->
+          <section class="rail-sec open" id="sec-lanes">
+            <button type="button" class="rail-h" aria-expanded="true" aria-controls="rail-lanes">Lanes<span class="n">by margin</span></button>
             <div class="rail-b" id="rail-lanes"></div>
-          </details>
-          <details class="rail-sec" id="sec-watch" open>
-            <summary class="rail-h">The watch<span class="n">this shift</span></summary>
-            <div class="rail-b">
+          </section>
+          <section class="rail-sec open" id="sec-watch">
+            <button type="button" class="rail-h" aria-expanded="true" aria-controls="watch-body">The watch<span class="n">this shift</span></button>
+            <div class="rail-b" id="watch-body">
               <div class="narrative" id="narrative">Awaiting telemetry…</div>
               <div id="shift-log"></div>
             </div>
-          </details>
+          </section>
         </div>
         </div>
 

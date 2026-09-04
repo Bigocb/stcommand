@@ -3528,6 +3528,28 @@ subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(facti
 subscribe("narrative", renderNarrative);
 subscribe("chat", renderChatHistory);
 
+/** The activity rail's collapsible sections.
+ *
+ *  These were <details>/<summary> and are now plain elements with an
+ *  explicit open class, because from Chrome 131 a <details> wraps its
+ *  content in a ::details-content anonymous box. That box becomes the flex
+ *  item in the section's column, so .rail-b's `flex:1; min-height:0;
+ *  overflow-y:auto` no longer constrained anything against the section's
+ *  height — a long lane list stopped scrolling and painted over the watch
+ *  below it instead. Six lines of JS buys a box tree that cannot change
+ *  under us with a browser release. */
+function initRailSections() {
+  for (const btn of document.querySelectorAll(".rail-sec > .rail-h")) {
+    btn.addEventListener("click", () => {
+      const sec = btn.parentElement;
+      const open = !sec.classList.contains("open");
+      sec.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", String(open));
+    });
+  }
+}
+initRailSections();
+
 subscribe("state", () => {
   if (!currentSystem && state.systemSymbol) currentSystem = state.systemSymbol;
   if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;

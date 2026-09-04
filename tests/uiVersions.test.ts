@@ -54,6 +54,14 @@ describe("UI version routing", () => {
     assert.match(body, /current interface is at \//i, "should say how to get back");
   });
 
+  it("sends the routed versions the same no-cache the static HTML gets", async () => {
+    // res.sendFile() bypasses express.static's setHeaders hook, so this has
+    // to be set explicitly: /v3 was answering max-age=0 while / answered
+    // no-cache — two paths serving the same kind of file under two rules.
+    const res = await fetch(`${base}/v3`);
+    assert.equal(res.headers.get("cache-control"), "no-cache");
+  });
+
   it("leaves / on v2 — the default does not move until it is moved deliberately", async () => {
     const res = await fetch(`${base}/`);
     assert.equal(res.status, 200);
