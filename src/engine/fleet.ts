@@ -1719,41 +1719,54 @@ export class FleetManager {
 
   /** Send an idle/explorer ship to scout a connected system. */
   async exploreSystem(shipSymbol: string, targetSystem?: string): Promise<string> {
-    const ship = await this.api.getShip(shipSymbol);
-    const currentSystem = ship.nav.systemSymbol;
-    const connected = this.galaxy.connectedSystems(currentSystem);
-    const target = targetSystem ?? connected[0];
-    if (!target) throw new Error(`no connected systems known from ${currentSystem}`);
-    await this.galaxy.loadSystem(target);
-    const gates = this.galaxy.gatesTo(currentSystem, target);
-    const gate = gates[0];
-    if (!gate) throw new Error(`no jump gate to ${target}`);
-    const remoteGate = this.galaxy.getSystem(target)!.waypoints.find((w) => w.type === "JUMP_GATE");
-    if (!remoteGate) throw new Error(`${target} has no jump gate waypoint`);
+    // jumpShip() below reaches the home gate via dispatchShip(), which (for a
+    // same-system move) delegates to agent.dispatchTo() — documented there as
+    // parking the ship and leaving it manual "until released". Nothing used
+    // to release it again once the trip here was done, win or lose, so every
+    // explore attempt permanently benched the scout it used: autoExplore()'s
+    // idle filter excludes any manual ship, so a scout left this way never
+    // gets picked again. The try/finally makes release unconditional — a
+    // no-op if dispatchTo() was never reached (e.g. the ship was already at
+    // the gate, or an error fired before jumpShip() was even called).
+    try {
+      const ship = await this.api.getShip(shipSymbol);
+      const currentSystem = ship.nav.systemSymbol;
+      const connected = this.galaxy.connectedSystems(currentSystem);
+      const target = targetSystem ?? connected[0];
+      if (!target) throw new Error(`no connected systems known from ${currentSystem}`);
+      await this.galaxy.loadSystem(target);
+      const gates = this.galaxy.gatesTo(currentSystem, target);
+      const gate = gates[0];
+      if (!gate) throw new Error(`no jump gate to ${target}`);
+      const remoteGate = this.galaxy.getSystem(target)!.waypoints.find((w) => w.type === "JUMP_GATE");
+      if (!remoteGate) throw new Error(`${target} has no jump gate waypoint`);
 
-    // A gate that is still under construction cannot be jumped through — no point
-    // burning fuel to reach it. Skip these systems until the gate is completed.
-    // Checked (and cached) via GalaxyAtlas so this agrees with every other
-    // gate-aware decision — canJump()'s own comment has the reasoning.
-    if (!(await this.galaxy.refreshGateConstruction(currentSystem, gate))) {
-      // Re-fetch just for the materials detail in the error message — rare
-      // path (only reached when the gate genuinely isn't complete yet), so
-      // the extra call is cheap. A second, unrelated fetch failure here
-      // falls through and lets the jump attempt itself surface the error.
-      try {
-        const constr = await this.api.getConstruction(currentSystem, gate);
-        if (!constr.isComplete) {
-          throw new Error(`gate ${gate} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
+      // A gate that is still under construction cannot be jumped through — no point
+      // burning fuel to reach it. Skip these systems until the gate is completed.
+      // Checked (and cached) via GalaxyAtlas so this agrees with every other
+      // gate-aware decision — canJump()'s own comment has the reasoning.
+      if (!(await this.galaxy.refreshGateConstruction(currentSystem, gate))) {
+        // Re-fetch just for the materials detail in the error message — rare
+        // path (only reached when the gate genuinely isn't complete yet), so
+        // the extra call is cheap. A second, unrelated fetch failure here
+        // falls through and lets the jump attempt itself surface the error.
+        try {
+          const constr = await this.api.getConstruction(currentSystem, gate);
+          if (!constr.isComplete) {
+            throw new Error(`gate ${gate} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
+          }
+        } catch (err) {
+          if (err instanceof Error && err.message.includes("under construction")) throw err;
         }
-      } catch (err) {
-        if (err instanceof Error && err.message.includes("under construction")) throw err;
       }
-    }
 
-    await this.jumpShip(shipSymbol, remoteGate.symbol);
-    await this.surveySystem(target);
-    this.log(`${shipSymbol} explored ${target}`);
-    return target;
+      await this.jumpShip(shipSymbol, remoteGate.symbol);
+      await this.surveySystem(target);
+      this.log(`${shipSymbol} explored ${target}`);
+      return target;
+    } finally {
+      this.controlledAgent(shipSymbol)?.release();
+    }
   }
 
   /** Manually refuel a ship (docks first if needed). */
