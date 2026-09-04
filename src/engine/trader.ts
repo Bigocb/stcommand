@@ -2,7 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
-import type { TraderAssignment } from "./dispatcher.js";
+import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, type TraderAssignment } from "./dispatcher.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
@@ -339,6 +339,15 @@ export class TraderAgent {
     return wp.slice(0, wp.lastIndexOf("-"));
   }
 
+  /** True if a leg between two systems is flyable right now: same system
+   *  (no gate needed), or a cross-system gate GalaxyAtlas has cached as
+   *  construction-complete. No atlas wired at all reads as "cross-system
+   *  never reachable" — the same conservative default a standalone trader
+   *  (no dispatcher, no atlas) already had before gate-awareness existed. */
+  private systemsConnected(fromSystem: string, toSystem: string): boolean {
+    return fromSystem === toSystem || (this.atlas?.canJump(fromSystem, toSystem) ?? false);
+  }
+
   /** Nearest known fuel-selling waypoint (same system, reachable on a full
    *  tank from here) that makes real progress toward `destination` — the
    *  multi-hop equivalent of a direct navigateTo() for a leg beyond the
@@ -597,18 +606,29 @@ export class TraderAgent {
     if (r.buyAt === r.sellAt) return undefined;
     if (this.protectedGoods?.().has(r.good)) return undefined;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return undefined;
-    // Same-system only: a cross-system leg needs a jump gate that may be under
-    // construction, so it would fail at navigation.
-    if (this.systemOf(r.buyAt) !== this.systemOf(r.sellAt)) return undefined;
+    const buySystem = this.systemOf(r.buyAt);
+    const sellSystem = this.systemOf(r.sellAt);
+    const crossSystem = buySystem !== sellSystem;
+    // Cross-system is flyable once the connecting gate is complete —
+    // GalaxyAtlas.canJump() is the one place that answers that, backed by a
+    // cache FleetManager.tick() refreshes on a slow interval rather than a
+    // live call from this hot scoring path.
+    if (!this.systemsConnected(buySystem, sellSystem)) return undefined;
     // A leg whose distance exceeds the ship's own fuel tank capacity can never
     // be flown, no matter how full the tank is — this is distinct from "not
     // enough fuel right now" (which a refuel fixes). Confirmed in production:
     // a full (80/80) ship still got "requires 16 more fuel for navigation"
     // trying to fly a leg that needed 96. Check both legs a "direct" route
     // actually requires: here → buyAt, and buyAt → sellAt.
+    //
+    // distBetween() only means anything within one system's own coordinate
+    // space — a gate crossing is a jumpShip() call, not a fuel-tank-bound
+    // navigate, so any leg that crosses a system boundary skips this check
+    // entirely rather than comparing two unrelated coordinate spaces.
     if (this.ship.fuel.capacity > 0) {
-      if (this.distBetween(this.ship.nav.waypointSymbol, r.buyAt) > this.ship.fuel.capacity) return undefined;
-      if (this.distBetween(r.buyAt, r.sellAt) > this.ship.fuel.capacity) return undefined;
+      if (this.systemOf(this.ship.nav.waypointSymbol) === buySystem &&
+          this.distBetween(this.ship.nav.waypointSymbol, r.buyAt) > this.ship.fuel.capacity) return undefined;
+      if (!crossSystem && this.distBetween(r.buyAt, r.sellAt) > this.ship.fuel.capacity) return undefined;
     }
     const buy = this.priceTable.get(r.buyAt)?.get(r.good);
     const sell = this.priceTable.get(r.sellAt)?.get(r.good);
@@ -622,10 +642,9 @@ export class TraderAgent {
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
     const volume = Math.min(buy.volume, sell.volume, this.ship.cargo.capacity, affordable);
     if (volume <= 0) return undefined;
-    const fuel = this.distBetween(r.buyAt, r.sellAt);
-    const profit = margin * volume - fuel * (this.priceTable.get(r.buyAt)?.get("FUEL")?.buy ?? 72);
-    if (profit <= 0) return undefined;
-    return { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume };
+    const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume };
+    if (this.routeProfit(route) <= 0) return undefined;
+    return route;
   }
 
   /**
@@ -649,22 +668,22 @@ export class TraderAgent {
       if (!buy || !sell) continue;
       if (sell.waypoint === buy.waypoint) continue;
       if (this.deadRoutes.has(`${good}@${buy.waypoint}`)) continue;
-      // Only trade within the same system — cross-system routes need a jump gate
-      // that may be under construction, so they'd fail at navigation.
-      if (this.systemOf(buy.waypoint) !== this.systemOf(sell.waypoint)) continue;
+      const buySystem = this.systemOf(buy.waypoint);
+      const sellSystem = this.systemOf(sell.waypoint);
+      // Cross-system is flyable once the connecting gate is complete — see
+      // viableRoute()'s own comment on why this reads a cache rather than
+      // making a live call from this scoring loop.
+      if (!this.systemsConnected(buySystem, sellSystem)) continue;
       const margin = sell.sell - buy.buy;
       if (margin <= this.marginFloor) {
         this.recordDoctrineFire?.("marginFloor");
         continue;
       }
-      const fuel = this.distBetween(buy.waypoint, sell.waypoint);
       const credits = this.getCredits?.() ?? Infinity;
       const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
       const volume = Math.min(buy.volume, sell.volume, this.ship.cargo.capacity, affordable);
       if (volume <= 0) continue;
-      const profit = margin * volume - fuel * (this.priceTable.get(buy.waypoint)?.get("FUEL")?.buy ?? 72);
-      if (profit <= 0) continue;
-      const candidate = {
+      const candidate: Route = {
         good,
         buyAt: buy.waypoint,
         buyPrice: buy.buy,
@@ -673,15 +692,26 @@ export class TraderAgent {
         margin,
         volume,
       };
+      const profit = this.routeProfit(candidate);
+      if (profit <= 0) continue;
       if (!best || profit > this.routeProfit(best)) best = candidate;
     }
     return best;
   }
 
+  /** The trip cost half of a route's profit: same-system fuel burn, or —
+   *  since buyAt/sellAt coordinates live in unrelated per-system spaces
+   *  once they cross a gate, and jumpShip() charges credits directly rather
+   *  than fuel-tank units (see CROSS_SYSTEM_JUMP_COST_ESTIMATE's own
+   *  comment) — a flat estimate for a cross-system leg. */
+  private tripCost(buyAt: string, sellAt: string): number {
+    if (this.systemOf(buyAt) !== this.systemOf(sellAt)) return CROSS_SYSTEM_JUMP_COST_ESTIMATE;
+    const fuelPrice = this.priceTable.get(buyAt)?.get("FUEL")?.buy ?? 72;
+    return this.distBetween(buyAt, sellAt) * fuelPrice;
+  }
+
   private routeProfit(r: Route): number {
-    const fuel = this.distBetween(r.buyAt, r.sellAt);
-    const fuelPrice = this.priceTable.get(r.buyAt)?.get("FUEL")?.buy ?? 72;
-    return (r.sellPrice - r.buyPrice) * r.volume - fuel * fuelPrice;
+    return (r.sellPrice - r.buyPrice) * r.volume - this.tripCost(r.buyAt, r.sellAt);
   }
 
   private async refuelAt(waypoint: string): Promise<void> {
@@ -825,9 +855,12 @@ export class TraderAgent {
    * that lives on the waypoint (isUnderConstruction) — so a gate symbol
    * being known doesn't mean the jump will actually succeed; a genuinely
    * observed case (a home-system gate mid-build) had a real gate connection
-   * on record while still being unusable. Same isComplete check
-   * fleet.ts's exploreSystem() already uses, so both places agree on what
-   * "reachable" means.
+   * on record while still being unusable. Goes through
+   * GalaxyAtlas.refreshGateConstruction() (cache-aware: only makes a live
+   * call when this gate isn't already confirmed complete) rather than its
+   * own fetch, so this agrees with — and shares a cache with —
+   * systemsConnected()'s hot-path checks and fleet.ts's exploreSystem()/
+   * scoutCanReachUncharted().
    */
   private async canReachMarket(waypoint: string): Promise<boolean> {
     const targetSystem = this.systemOf(waypoint);
@@ -842,12 +875,7 @@ export class TraderAgent {
     }
     const gate = this.atlas?.gatesTo(hereSystem, targetSystem)[0];
     if (!gate) return false;
-    try {
-      const constr = await this.api.getConstruction(hereSystem, gate);
-      return constr.isComplete;
-    } catch {
-      return true; // no construction record: the gate is already built
-    }
+    return (await this.atlas?.refreshGateConstruction(hereSystem, gate)) ?? false;
   }
 
   /**
@@ -1012,9 +1040,9 @@ export class TraderAgent {
     // not to stop the mission from sourcing its own material this way.
     if (!assigned.missionBuy && this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
     if (this.deadRoutes.has(`${assigned.good}@${buyAt}`)) return this.runArbitrage(undefined);
-    // Same-system only, same reasoning as the direct path: a cross-system
-    // leg needs a jump gate that may be under construction.
-    if (this.systemOf(buyAt) !== this.systemOf(warehouse.waypointSymbol)) return this.runArbitrage(undefined);
+    // Cross-system is allowed once the gate to buyAt's system is complete —
+    // see systemsConnected()'s own comment.
+    if (!this.systemsConnected(this.systemOf(warehouse.waypointSymbol), this.systemOf(buyAt))) return this.runArbitrage(undefined);
 
     await this.navigateTo(buyAt);
     await this.ensureDocked();
@@ -1085,7 +1113,9 @@ export class TraderAgent {
     const sellAt = assigned.sellAt;
     if (!warehouse || !sellAt) return this.runArbitrage(undefined);
     if (this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
-    if (this.systemOf(warehouse.waypointSymbol) !== this.systemOf(sellAt)) return this.runArbitrage(undefined);
+    // Cross-system is allowed once the gate to sellAt's system is complete —
+    // see systemsConnected()'s own comment.
+    if (!this.systemsConnected(this.systemOf(warehouse.waypointSymbol), this.systemOf(sellAt))) return this.runArbitrage(undefined);
 
     const balance = (await this.warehouseBalance?.(assigned.good)) ?? 0;
     if (balance <= 0) return this.discoverPrices([sellAt]);
@@ -1161,7 +1191,9 @@ export class TraderAgent {
     const warehouse = this.getWarehouseShip?.();
     const targetWaypoint = assigned.sellAt;
     if (!warehouse || !targetWaypoint) return this.runArbitrage(undefined);
-    if (this.systemOf(warehouse.waypointSymbol) !== this.systemOf(targetWaypoint)) return this.runArbitrage(undefined);
+    // Cross-system is allowed once the gate to targetWaypoint's system is
+    // complete — see systemsConnected()'s own comment.
+    if (!this.systemsConnected(this.systemOf(warehouse.waypointSymbol), this.systemOf(targetWaypoint))) return this.runArbitrage(undefined);
 
     const balance = (await this.warehouseBalance?.(assigned.good)) ?? 0;
     if (balance <= 0) return this.discoverPrices([]);

@@ -18,7 +18,7 @@ import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
 import { getSupplyChain } from "./supplyChain.js";
-import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
+import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -193,6 +193,7 @@ export class FleetManager {
   private credits = 0;
   private lastCreditsFetch = 0;
   private lastNegotiateAttempt = 0;
+  private lastGateConstructionRefresh = 0;
   /** Centralized route dispatcher: distinct route per trader + operator overrides. */
   readonly dispatcher = new RouteDispatcher();
   /** Greenfield Phase 4: mirrors this fleet's own ownership decisions — see shipRegistry.ts and syncShipClaims(). */
@@ -890,15 +891,35 @@ export class FleetManager {
       if (s.goodSymbol === "FUEL" && s.purchasePrice > 0) fuelAt.set(s.waypointSymbol, s.purchasePrice);
     }
     const legs = (await this.store?.tradeLegs(this.intelMaxAgeMin())) ?? [];
+    // Deliberately NOT filtered by gate reachability here: a "buy" or
+    // "sell" assignment only needs its own side of the leg (buyAt, or
+    // sellAt) to be reachable from the warehouse — not that buyAt and
+    // sellAt are mutually reachable — so excluding a whole leg here would
+    // wrongly drop a legitimate buy-only or sell-only opportunity whose
+    // *other* side happens to sit across an unopened gate. Reachability for
+    // the one role that genuinely needs buyAt/sellAt to agree (`direct`, a
+    // single ship's round trip) is checked in RouteDispatcher.recompute()
+    // via the canJump predicate passed to it below; runBuy()/runSell()/
+    // runHaul() check their own side against the warehouse ship's system
+    // independently in trader.ts.
     return legs
       .map((l) => {
-        const a = positions.get(l.buyAt);
-        const b = positions.get(l.sellAt);
+        const crossSystem = l.buySystem !== l.sellSystem;
+        // Waypoint coordinates are per-system — Math.hypot() between a
+        // buyAt in one system and a sellAt in another compares two
+        // unrelated coordinate spaces and means nothing, so a cross-system
+        // leg skips distance entirely and gets the same flat jump-cost
+        // estimate trader.ts's route math uses instead (see
+        // CROSS_SYSTEM_JUMP_COST_ESTIMATE's own comment).
+        const a = crossSystem ? undefined : positions.get(l.buyAt);
+        const b = crossSystem ? undefined : positions.get(l.sellAt);
         const dist = a && b ? Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y))) : null;
         // Match the trader's own profitability model: one-way fuel cost. The
         // return leg is the next buy run, not a cost of this trip.
         const fuelUnits = dist === null ? null : dist;
-        const fuelCost = fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
+        const fuelCost = crossSystem
+          ? CROSS_SYSTEM_JUMP_COST_ESTIMATE
+          : fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
         const gross = (l.sellPrice - l.buyPrice) * l.volume;
         const profitPerTrip = Math.round(gross - fuelCost);
         return {
@@ -1448,14 +1469,8 @@ export class FleetManager {
       const uncharted = sys.waypoints.some((w) => !w.chart);
       if (!uncharted) continue;
       if (sys.symbol === this.systemSymbol) return true;
-      const gates = this.galaxy.gatesTo(this.systemSymbol, sys.symbol);
-      for (const gate of gates) {
-        try {
-          const constr = await this.api.getConstruction(this.systemSymbol, gate);
-          if (constr.isComplete) return true;
-        } catch {
-          return true; // no construction record → gate already built
-        }
+      for (const gate of this.galaxy.gatesTo(this.systemSymbol, sys.symbol)) {
+        if (await this.galaxy.refreshGateConstruction(this.systemSymbol, gate)) return true;
       }
     }
     return false;
@@ -1702,14 +1717,21 @@ export class FleetManager {
 
     // A gate that is still under construction cannot be jumped through — no point
     // burning fuel to reach it. Skip these systems until the gate is completed.
-    try {
-      const constr = await this.api.getConstruction(currentSystem, gate);
-      if (!constr.isComplete) {
-        throw new Error(`gate ${gate} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
+    // Checked (and cached) via GalaxyAtlas so this agrees with every other
+    // gate-aware decision — canJump()'s own comment has the reasoning.
+    if (!(await this.galaxy.refreshGateConstruction(currentSystem, gate))) {
+      // Re-fetch just for the materials detail in the error message — rare
+      // path (only reached when the gate genuinely isn't complete yet), so
+      // the extra call is cheap. A second, unrelated fetch failure here
+      // falls through and lets the jump attempt itself surface the error.
+      try {
+        const constr = await this.api.getConstruction(currentSystem, gate);
+        if (!constr.isComplete) {
+          throw new Error(`gate ${gate} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes("under construction")) throw err;
       }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("under construction")) throw err;
-      // No construction record means the gate is already built — jump is fine.
     }
 
     await this.jumpShip(shipSymbol, remoteGate.symbol);
@@ -3385,6 +3407,22 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Refresh cached construction status for every known gate not yet
+   * confirmed complete. A gate's status changes at most once ever (under
+   * construction → complete), so this is throttled to a slow interval —
+   * every tick would just spend rate-limit budget re-asking a question
+   * that essentially never has a new answer. canJump()'s callers
+   * (computeDispatchRoutes(), viableRoute(), freeChoice(), runBuy/runSell/
+   * runHaul) only ever read the cache this populates; none of them make
+   * this call themselves.
+   */
+  private async maybeRefreshGateConstruction(): Promise<void> {
+    if (Date.now() - this.lastGateConstructionRefresh < 5 * 60_000) return;
+    this.lastGateConstructionRefresh = Date.now();
+    await this.galaxy.refreshAllGateConstruction();
+  }
+
   /** One coordination pass over the whole fleet. */
   async tick(): Promise<void> {
     if (this.paused) {
@@ -3405,6 +3443,7 @@ export class FleetManager {
       return;
     }
     await this.refreshCredits();
+    await this.maybeRefreshGateConstruction();
     if (this.contracts) {
       await this.contracts.fulfillCompleted();
       await this.contracts.acceptBest();
@@ -3419,7 +3458,15 @@ export class FleetManager {
       this.computeContractBuyTargets(),
     ]);
     await this.releaseFulfilledManualContractBuys(contractBuyTargets);
-    this.dispatcher.recompute(routes, this.dispatcherTraders(), warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets);
+    this.dispatcher.recompute(
+      routes,
+      this.dispatcherTraders(),
+      warehouseTargets,
+      haulTargets,
+      missionBuyTargets,
+      contractBuyTargets,
+      (from, to) => this.galaxy.canJump(from, to),
+    );
     await this.maybeAssignKeepers();
     await this.maybeRepairFleet();
     await this.maybeBuyShip();

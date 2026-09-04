@@ -15,6 +15,23 @@ export interface DispatchRoute {
 }
 
 /**
+ * Flat, conservative per-jump cost estimate (credits) used wherever a route
+ * crosses a system boundary. jumpShip() only reveals its real cost in the
+ * transaction response *after* the jump — there is no pre-flight estimate
+ * endpoint — and a leg's two waypoints live in unrelated per-system
+ * coordinate spaces, so the usual distance-based fuel-cost formula (built on
+ * Math.hypot() between x/y) is meaningless once buyAt and sellAt are in
+ * different systems. This errs toward undercounting profit (a route that
+ * looks marginal gets skipped) rather than overstating it, until real paid
+ * jump costs give a basis for something better (e.g. a per-gate-pair
+ * average learned from actual transactions).
+ *
+ * Placeholder value — tune against real jumpShip() transaction totals once
+ * cross-system routes are actually flying.
+ */
+export const CROSS_SYSTEM_JUMP_COST_ESTIMATE = 5_000;
+
+/**
  * "direct"      — buy here, carry it yourself, sell there. One trader owns
  *                 the whole round trip; this is every assignment before
  *                 warehousing.
@@ -332,6 +349,15 @@ export class RouteDispatcher {
     haulTargets: HaulTarget[] = [],
     missionBuyTargets: MissionBuyTarget[] = [],
     contractBuyTargets: ContractBuyTarget[] = [],
+    // Whether a jump between two systems is possible right now (gate known
+    // and construction-complete). A plain predicate rather than an injected
+    // GalaxyAtlas — this class otherwise has no galaxy dependency at all,
+    // and the only place that needs an answer is the `direct` branch below
+    // (buy/sell/haul don't: see computeDispatchRoutes()'s own comment on why
+    // `routes` isn't pre-filtered by reachability). Defaults to same-system-
+    // only, matching this class's pre-gate-check behavior, so a caller that
+    // doesn't pass one gets the old, safe result rather than an error.
+    canJump: (fromSystem: string, toSystem: string) => boolean = () => false,
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -389,13 +415,14 @@ export class RouteDispatcher {
       const target = targetsByGood.get(route.good);
       if (!target) {
         // A "direct" assignment is one trader flying the whole round trip
-        // itself — TraderAgent.viableRoute() refuses to ever fly a
-        // cross-system direct leg (a single ship jumping there and back
-        // isn't what this role models; see that method's own comment), so
-        // assigning one here just burns the good's assignment slot for a
-        // full minute on a route no trader will actually take, while the
-        // dashboard shows it as "assigned" and profitable. Same-system only.
-        if (route.buySystem !== route.sellSystem) continue;
+        // itself, so — unlike buy/sell/haul — it genuinely needs buyAt and
+        // sellAt to both be reachable from each other. Cross-system is
+        // allowed (TraderAgent.viableRoute() will fly it once the
+        // connecting gate is complete), but skip it here if the gate isn't
+        // open yet: otherwise this burns the good's assignment slot for a
+        // full minute on a route no trader could actually take, while the
+        // dashboard shows it as "assigned" and profitable.
+        if (route.buySystem !== route.sellSystem && !canJump(route.buySystem, route.sellSystem)) continue;
         work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip });

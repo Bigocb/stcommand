@@ -159,6 +159,77 @@ export class GalaxyAtlas {
     return out;
   }
 
+  /**
+   * Cached construction-complete status per gate waypoint. `JumpGate`
+   * objects (from scanJumpGates()) carry no construction status at all —
+   * that lives on the waypoint (Construction.isComplete), fetched
+   * separately — so gate *connectivity* being known says nothing about
+   * whether a jump through it will actually succeed.
+   *
+   * A gate that finishes construction never goes back to incomplete, so
+   * once cached `true` a symbol is never re-fetched. Everything else
+   * (never checked, or last known incomplete) is refreshed by
+   * refreshGateConstruction(), called on a slow interval by
+   * FleetManager.tick() rather than from any hot route-scoring path — this
+   * cache is what lets canJump()/gateComplete() stay synchronous.
+   */
+  private readonly gateConstruction = new Map<string, boolean>();
+
+  /** Cached construction-complete status for one gate, or undefined if
+   *  never checked (refreshGateConstruction() hasn't resolved for it yet). */
+  gateComplete(gateSymbol: string): boolean | undefined {
+    return this.gateConstruction.get(gateSymbol);
+  }
+
+  /** True if a jump from fromSystem to toSystem is possible right now,
+   *  per cached construction status. An unchecked or under-construction
+   *  gate reads as not jumpable — the safe default, matching how a fresh
+   *  (never-observed) system already behaves everywhere else in this
+   *  class. Call refreshGateConstruction() to populate the cache for a
+   *  newly-discovered gate; this method itself never makes a network call. */
+  canJump(fromSystem: string, toSystem: string): boolean {
+    return this.gatesTo(fromSystem, toSystem).some((g) => this.gateConstruction.get(g) === true);
+  }
+
+  /**
+   * Refresh one gate's cached construction status from the live API.
+   * Same isComplete check fleet.ts's exploreSystem()/scoutCanReachUncharted()
+   * and trader.ts's canReachMarket() all used to fetch independently — this
+   * is now the one place that does, so a gate finishing construction is
+   * discovered once and every caller (route scoring, scouting, price
+   * discovery) sees it via the cache instead of each polling the API on
+   * its own schedule.
+   */
+  async refreshGateConstruction(systemSymbol: string, gateSymbol: string): Promise<boolean> {
+    if (this.gateConstruction.get(gateSymbol) === true) return true; // one-way: never reverts to incomplete
+    try {
+      const complete = (await this.api.getConstruction(systemSymbol, gateSymbol)).isComplete;
+      this.gateConstruction.set(gateSymbol, complete);
+      return complete;
+    } catch {
+      // No construction record: the gate is already built (pre-existing
+      // gates were never under construction in the first place).
+      this.gateConstruction.set(gateSymbol, true);
+      return true;
+    }
+  }
+
+  /**
+   * Refresh construction status for every known gate not yet confirmed
+   * complete. Intended to be called on a slow interval (FleetManager.tick()
+   * gates this itself), not per route-scoring pass — see
+   * refreshGateConstruction()'s own comment.
+   */
+  async refreshAllGateConstruction(): Promise<void> {
+    const pending: { systemSymbol: string; gateSymbol: string }[] = [];
+    for (const known of this.systems.values()) {
+      for (const jg of known.jumpGates) {
+        if (this.gateConstruction.get(jg.symbol) !== true) pending.push({ systemSymbol: known.symbol, gateSymbol: jg.symbol });
+      }
+    }
+    await Promise.allSettled(pending.map((p) => this.refreshGateConstruction(p.systemSymbol, p.gateSymbol)));
+  }
+
   /** Fetch markets in a system and cache them as snapshots. */
   async surveyMarkets(systemSymbol: string, store?: {
     recordModuleCatalog: (systemSymbol: string, waypointSymbol: string, items: { symbol: string; name: string; category: string; purchasePrice: number }[], kind: "module" | "mount") => Promise<void>;

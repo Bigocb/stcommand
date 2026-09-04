@@ -110,7 +110,7 @@ describe("RouteDispatcher: contractBuy priority reflects the contract's real pay
 });
 
 describe("RouteDispatcher: cross-system direct routes", () => {
-  it("never assigns a cross-system route as 'direct' — TraderAgent.viableRoute() refuses to fly one", () => {
+  it("without a canJump predicate, never assigns a cross-system route as 'direct' — the safe default when reachability is unknown", () => {
     const d = new RouteDispatcher();
     const crossSystem = {
       good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
@@ -121,6 +121,36 @@ describe("RouteDispatcher: cross-system direct routes", () => {
     d.recompute([crossSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }]);
 
     assert.equal(d.assignmentFor("SHIP-1"), undefined, "no ship should be assigned a route no trader can actually fly");
+  });
+
+  it("assigns a cross-system route as 'direct' once the caller's canJump predicate says the gate is open", () => {
+    const d = new RouteDispatcher();
+    const crossSystem = {
+      good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
+      sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
+      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+    };
+
+    d.recompute([crossSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }], [], [], [], [], () => true);
+
+    const a = d.assignmentFor("SHIP-1");
+    assert.equal(a?.role, "direct", "a completed gate makes the round trip flyable, so 'direct' is no longer refused outright");
+    assert.equal(a?.good, "COPPER");
+  });
+
+  it("still refuses a cross-system route as 'direct' when canJump reports that specific gate pair as not open, even with a predicate wired up", () => {
+    const d = new RouteDispatcher();
+    const crossSystem = {
+      good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
+      sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
+      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+    };
+
+    // A predicate that only recognizes a different system pair — this gate
+    // pair still reads as not jumpable.
+    d.recompute([crossSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }], [], [], [], [], (a, b) => a === "X1-OTHER" && b === "X1-TQ19");
+
+    assert.equal(d.assignmentFor("SHIP-1"), undefined);
   });
 
   it("still assigns a same-system route as 'direct', unaffected", () => {

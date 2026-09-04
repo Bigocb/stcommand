@@ -372,13 +372,12 @@ describe("TraderAgent.discoverPrices: reachability", () => {
   it("skips a cross-system market whose gate is still under construction", async () => {
     const ship = makeShip();
     const trader = new TraderAgent(ship, {
-      api: {
-        getCallCount: () => 0,
-        getShip: async () => ship,
-        getConstruction: async () => ({ isComplete: false, materials: [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 10 }] } as any),
-      } as any,
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
       getMarketSnapshots: async () => [{ waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
-      atlas: { gatesTo: () => ["X1-A-GATE"] } as any,
+      // canReachMarket() goes through GalaxyAtlas.refreshGateConstruction()
+      // now, not api.getConstruction() directly — see galaxy.test.ts for
+      // coverage of that method's own real fetch/cache/fallback logic.
+      atlas: { gatesTo: () => ["X1-A-GATE"], refreshGateConstruction: async () => false } as any,
     });
     let navigated = false;
     (trader as any).navigateTo = async () => { navigated = true; };
@@ -392,13 +391,9 @@ describe("TraderAgent.discoverPrices: reachability", () => {
   it("uses a cross-system market once its gate is complete", async () => {
     const ship = makeShip();
     const trader = new TraderAgent(ship, {
-      api: {
-        getCallCount: () => 0,
-        getShip: async () => ship,
-        getConstruction: async () => ({ isComplete: true, materials: [] } as any),
-      } as any,
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
       getMarketSnapshots: async () => [{ waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
-      atlas: { gatesTo: () => ["X1-A-GATE"] } as any,
+      atlas: { gatesTo: () => ["X1-A-GATE"], refreshGateConstruction: async () => true } as any,
     });
     let navigatedTo: string | undefined;
     (trader as any).navigateTo = async (wp: string) => { navigatedTo = wp; };
@@ -411,16 +406,12 @@ describe("TraderAgent.discoverPrices: reachability", () => {
     assert.equal(navigatedTo, "X1-B-A2");
   });
 
-  it("treats a gate with no construction record (already built) as reachable", async () => {
+  it("trusts atlas.refreshGateConstruction()'s answer as-is (the no-construction-record fallback itself is galaxy.test.ts's job)", async () => {
     const ship = makeShip();
     const trader = new TraderAgent(ship, {
-      api: {
-        getCallCount: () => 0,
-        getShip: async () => ship,
-        getConstruction: async () => { throw new Error("404: no construction record"); },
-      } as any,
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
       getMarketSnapshots: async () => [{ waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
-      atlas: { gatesTo: () => ["X1-A-GATE"] } as any,
+      atlas: { gatesTo: () => ["X1-A-GATE"], refreshGateConstruction: async () => true } as any,
     });
     let navigatedTo: string | undefined;
     (trader as any).navigateTo = async (wp: string) => { navigatedTo = wp; };
@@ -463,16 +454,12 @@ describe("TraderAgent.discoverPrices: reachability", () => {
   it("prefers a reachable preferred market over an unreachable one, instead of dropping preferred cross-system markets outright", async () => {
     const ship = makeShip();
     const trader = new TraderAgent(ship, {
-      api: {
-        getCallCount: () => 0,
-        getShip: async () => ship,
-        getConstruction: async () => ({ isComplete: true, materials: [] } as any),
-      } as any,
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
       getMarketSnapshots: async () => [
         { waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 },
         { waypointSymbol: "X1-A-A9", goodSymbol: "COPPER", purchasePrice: 3, sellPrice: 6, tradeVolume: 10 },
       ],
-      atlas: { gatesTo: () => ["X1-A-GATE"] } as any,
+      atlas: { gatesTo: () => ["X1-A-GATE"], refreshGateConstruction: async () => true } as any,
     });
     let navigatedTo: string | undefined;
     (trader as any).navigateTo = async (wp: string) => { navigatedTo = wp; };
