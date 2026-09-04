@@ -172,17 +172,40 @@ const FIXTURES = {
     catalog: [],
   },
   "/api/doctrine/stats": { stats: [] },
-  "/api/narrative": { narrative: "Fixture watch." },
+  // Three of these were the wrong shape and had therefore never rendered
+  // anything: /api/narrative answered {narrative} where the client reads
+  // .log, /api/replay answered {frames,t0,t1} where it reads .samples, and
+  // /api/keeper/markets answered {stationed} where it reads .stations. An
+  // empty-but-wrong fixture looks exactly like an empty-but-right one, so
+  // nothing ever failed — which is the whole problem with fixtures that
+  // return nothing.
+  "/api/narrative": { log: "Two hulls docked at A1. The cash floor held once this shift." },
   "/api/missions": { missions: [] },
   "/api/contracts": { contracts: [] },
-  "/api/replay": { frames: [], t0: FIXED_ISO, t1: FIXED_ISO },
-  "/api/goods": { goods: [] },
-  "/api/warehouse": { goods: [], targets: [], ship: null },
-  "/api/dispatch": { routes: [], assignments: [] },
-  "/api/keeper/markets": { markets: [], stationed: [] },
-  "/api/leaderboard": { agents: [] },
-  "/api/factions": { factions: [] },
-  "/api/chat/history": { messages: [] },
+  "/api/replay": {
+    samples: [
+      { timestamp: FIXED_ISO, shipSymbol: "DAGGER-1", waypointSymbol: "X1-FIX-A1", status: "DOCKED" },
+      { timestamp: FIXED_ISO, shipSymbol: "DAGGER-2", waypointSymbol: "X1-FIX-J58", status: "IN_ORBIT" },
+    ],
+  },
+  "/api/goods": { goods: ["MEDICINE", "FOOD", "FUEL"] },
+  "/api/prices": { points: [] },
+  "/api/warehouse": {
+    ship: "DAGGER-2", totalValue: 118_400, ledger: [],
+    goods: [{ symbol: "MEDICINE", units: 8, avgCost: 3934 }],
+    targets: [{ symbol: "MEDICINE", targetUnits: 40, forMission: false }],
+  },
+  "/api/dispatch": {
+    routes: [{ goodSymbol: "MEDICINE", buyAt: "X1-FIX-D46", sellAt: "X1-FIX-A1", profitPerTrip: 26_380 }],
+    assignments: [{ shipSymbol: "DAGGER-2", goodSymbol: "MEDICINE" }],
+  },
+  "/api/keeper/markets": { markets: ["X1-FIX-D46", "X1-FIX-E48"], stations: [], coverList: false },
+  "/api/leaderboard": { agents: [{ symbol: "FIXTURE", credits: 1_327_000, shipCount: 2 }] },
+  "/api/factions": { factions: [{ symbol: "COSMIC", name: "Cosmic Engineers" }] },
+  "/api/chat/history": { messages: [
+    { role: "user", content: "why is DAGGER-1 idle?" },
+    { role: "assistant", content: "It is docked at A1 with the cash floor holding." },
+  ] },
   "/api/discord/enabled": { enabled: false },
   "/api/settings/llm": {},
 };

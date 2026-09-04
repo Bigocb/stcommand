@@ -56,9 +56,47 @@ export let doctrineCatalog = [];
 export let doctrineFires = new Map();
 export let doctrineFireShips = new Map();
 
+/* The view-specific state. These arrived here late: the seven loaders
+   above were extracted in Phase 0, and the ten below stayed behind in
+   every version's own file — so by the time v5 and v4 existed, each of
+   them was duplicated four times over. The duplication was invisible
+   while it was one file, and unmaintainable the moment it was four. */
+
+export let dispatchRoutes = [];
+export let dispatchAssignments = [];
+
+/* The same empty shape the renderers assume, not null: they read
+   .goods/.ledger/.targets directly, and a null here would make the first
+   paint before any fetch throw rather than draw an empty warehouse. */
+export let warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [], targets: [] };
+
+export let keeperMarketsCfg = [];
+export let keeperStationsCfg = [];
+export let keeperCoverList = false;
+
+/** shipSymbol -> [{t, waypointSymbol, status}], sorted by time. */
+export let replayByShip = new Map();
+export let replayT0 = 0;
+export let replayT1 = 0;
+
+export let priceGoods = [];
+export let pricePoints = [];
+
+export let contracts = [];
+export let missions = [];
+
+export let leaderboard = [];
+export let factions = [];
+
+export let narrative = "";
+export let chatHistory = [];
+
 /* ── subscriptions ────────────────────────────────────────── */
 
-/** slice -> callbacks. Slices: state, bridge, activity, markets, doctrine. */
+/** slice -> callbacks.
+ *
+ * Slices: state, bridge, activity, markets, doctrine, dispatch, warehouse,
+ * keepers, replay, prices, programme, galaxy, narrative, chat. */
 const subscribers = new Map();
 
 /** Register `cb` to run after `slice` is refreshed. Returns an unsubscribe. */
@@ -161,6 +199,142 @@ export async function loadDoctrineFireShips() {
     const res = await fetch("/api/doctrine/fire-ships?hours=2");
     if (!res.ok) return;
     doctrineFireShips = new Map((await res.json()).ships?.map((s) => [s.ruleKey, s.ships]) ?? []);
+  } catch (e) { console.error(e); }
+}
+
+/* ── view-specific loaders ────────────────────────────────────
+   Same contract as the seven above: fetch, assign, announce a slice.
+   Each of these was defined identically in v2.js, v3.js, v4.js and
+   v5.js, which is the exact duplication the plan's definition of done
+   forbids — the ones extracted in Phase 0 were only the ones the Bridge
+   happened to need. */
+
+export async function loadDispatch() {
+  try {
+    const res = await fetch("/api/dispatch");
+    if (!res.ok) return;
+    const data = await res.json();
+    dispatchRoutes = data.routes ?? [];
+    dispatchAssignments = data.assignments ?? [];
+    notify("dispatch");
+  } catch (e) { console.error(e); }
+}
+
+export async function loadWarehouse() {
+  try {
+    const res = await fetch("/api/warehouse");
+    if (!res.ok) return;
+    warehouseState = await res.json();
+    notify("warehouse");
+  } catch (e) { console.error(e); }
+}
+
+export async function loadKeepers() {
+  try {
+    const res = await fetch("/api/keeper/markets");
+    if (!res.ok) return;
+    const data = await res.json();
+    keeperMarketsCfg = data.markets ?? [];
+    keeperStationsCfg = data.stations ?? [];
+    keeperCoverList = data.coverList === true;
+    notify("keepers");
+  } catch (e) { console.error(e); }
+}
+
+export async function loadReplay() {
+  try {
+    const res = await fetch("/api/replay?hours=12");
+    if (!res.ok) return;
+    const samples = (await res.json()).samples ?? [];
+    replayByShip = new Map();
+    for (const s of samples) {
+      const t = new Date(s.timestamp).getTime();
+      if (!replayByShip.has(s.shipSymbol)) replayByShip.set(s.shipSymbol, []);
+      replayByShip.get(s.shipSymbol).push({ t, waypointSymbol: s.waypointSymbol, status: s.status });
+    }
+    for (const arr of replayByShip.values()) arr.sort((a, b) => a.t - b.t);
+    if (samples.length) {
+      const allT = samples.map((x) => new Date(x.timestamp).getTime());
+      replayT0 = Math.min(...allT);
+      replayT1 = Math.max(...allT);
+    } else {
+      replayT0 = replayT1 = Date.now();
+    }
+    notify("replay");
+  } catch (e) { console.error(e); }
+}
+
+/** The list of tradeable goods, for the price chart's picker. */
+export async function loadGoods() {
+  try {
+    const { goods } = await (await fetch("/api/goods")).json();
+    if (!goods?.length) return;
+    priceGoods = goods;
+    notify("prices");
+  } catch (e) { console.error(e); }
+}
+
+/**
+ * The 48-hour price series for one good.
+ *
+ * `good` is passed in rather than read from a select element: which good
+ * is charted is view state — a property of the window, not of the fleet —
+ * and reading it from the DOM here would tie the store to one version's
+ * markup. Same reasoning as loadMarkets()' systemFilter.
+ */
+export async function loadPrices(good) {
+  if (!good) return;
+  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  try {
+    const res = await fetch(`/api/prices?good=${encodeURIComponent(good)}&since=${encodeURIComponent(since)}`);
+    pricePoints = (await res.json()).points ?? [];
+    notify("prices");
+  } catch (e) { console.error(e); }
+}
+
+/**
+ * Contracts and missions.
+ *
+ * Also refreshes dispatch, because the pinned-carrier display in the
+ * contracts panel reads dispatchAssignments — without this it is only ever
+ * current if the operator has already visited Trade Ops.
+ */
+export async function loadProgramme() {
+  try {
+    const [cres, mres] = await Promise.all([
+      fetch("/api/contracts"), fetch("/api/missions"), loadDispatch(),
+    ]);
+    contracts = cres.ok ? (await cres.json()).contracts ?? [] : [];
+    missions = mres.ok ? (await mres.json()).missions ?? [] : [];
+    notify("programme");
+  } catch (e) { console.error(e); }
+}
+
+export async function loadGalaxy() {
+  try {
+    const [board, facs] = await Promise.all([
+      fetch("/api/leaderboard").then((r) => r.json()),
+      fetch("/api/factions").then((r) => r.json()),
+    ]);
+    leaderboard = board.agents ?? [];
+    factions = facs.factions ?? [];
+    notify("galaxy");
+  } catch (e) { console.error(e); }
+}
+
+export async function loadNarrative() {
+  try {
+    const res = await fetch("/api/narrative");
+    narrative = (await res.json()).log ?? "";
+    notify("narrative");
+  } catch (e) { console.error(e); }
+}
+
+export async function loadChatHistory() {
+  try {
+    const { messages } = await (await fetch("/api/chat/history")).json();
+    chatHistory = (messages ?? []).filter((m) => m.role === "user" || m.role === "assistant");
+    notify("chat");
   } catch (e) { console.error(e); }
 }
 

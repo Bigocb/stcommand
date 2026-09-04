@@ -22,6 +22,11 @@ import {
   doctrineRules, doctrineCatalog, doctrineFires, doctrineFireShips,
   loadState, loadBridge, loadActivity, loadMarkets, loadDoctrine,
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
+  dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
+  replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
+  missions, leaderboard, factions, narrative, chatHistory,
+  loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
+  loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
 } from "/shared/store.js";
 import {
   login, register as registerAgent, logout as endSession,
@@ -214,32 +219,6 @@ let scrubPlaying = false;
 let scrubTimer = null;
 let scrubSpeedIdx = 0;
 const SCRUB_SPEEDS = [1, 5, 15, 60];
-let replayByShip = new Map(); // shipSymbol -> [{t, waypointSymbol, status}] sorted by t
-let replayT0 = 0, replayT1 = 0;
-
-async function loadReplay() {
-  try {
-    const res = await fetch("/api/replay?hours=12");
-    if (!res.ok) return;
-    const data = await res.json();
-    const samples = data.samples ?? [];
-    replayByShip = new Map();
-    for (const s of samples) {
-      const t = new Date(s.timestamp).getTime();
-      if (!replayByShip.has(s.shipSymbol)) replayByShip.set(s.shipSymbol, []);
-      replayByShip.get(s.shipSymbol).push({ t, waypointSymbol: s.waypointSymbol, status: s.status });
-    }
-    for (const arr of replayByShip.values()) arr.sort((a, b) => a.t - b.t);
-    if (samples.length) {
-      const allT = samples.map((s) => new Date(s.timestamp).getTime());
-      replayT0 = Math.min(...allT);
-      replayT1 = Math.max(...allT);
-    } else {
-      replayT0 = replayT1 = Date.now();
-    }
-    renderScrubTrack();
-  } catch (e) { console.error(e); }
-}
 
 /** The synthetic "ships" array at the current scrub position: for each hull,
  *  its latest recorded sample at or before the scrubbed timestamp. Shaped to
@@ -403,7 +382,7 @@ function loadViewData(name) {
   if (name === "fleet") renderFleetTable();
   if (name === "markets") { loadMarkets(marketSystemFilter); loadGoods(); }
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
-  if (name === "ops") loadOps();
+  if (name === "ops") loadProgramme();
   if (name === "galaxy") loadGalaxy();
 }
 
@@ -495,19 +474,6 @@ function renderLanes() {
 // Preserved modals call loadIntel() after buying; markets is the same refresh.
 const loadIntel = loadMarkets;
 
-let dispatchRoutes = [];
-let dispatchAssignments = [];
-async function loadDispatch() {
-  try {
-    const res = await fetch("/api/dispatch");
-    if (!res.ok) return;
-    const data = await res.json();
-    dispatchRoutes = data.routes ?? [];
-    dispatchAssignments = data.assignments ?? [];
-    renderDispatch();
-  } catch (e) { console.error(e); }
-}
-
 function renderDispatch() {
   // Populate the ship dropdown from ships the engine has actually assigned
   // the trader role — previously guessed by cargo capacity >= 40, which both
@@ -560,16 +526,6 @@ function renderDispatch() {
     const el = $(id);
     if (el) el.innerHTML = rowsHtml;
   }
-}
-
-let warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [], targets: [] };
-async function loadWarehouse() {
-  try {
-    const res = await fetch("/api/warehouse");
-    if (!res.ok) return;
-    warehouseState = await res.json();
-    renderWarehouse();
-  } catch (e) { console.error(e); }
 }
 
 function renderWarehouse() {
@@ -644,21 +600,6 @@ function renderWarehouse() {
 /* ── keeper stations ──────────────────────────────
    The configured buy-market list the fleet stations keepers at. Editing it
    takes effect on the next coordinator pass. */
-let keeperMarketsCfg = [];
-let keeperStationsCfg = [];
-let keeperCoverList = false;
-
-async function loadKeepers() {
-  try {
-    const res = await fetch("/api/keeper/markets");
-    if (!res.ok) return;
-    const data = await res.json();
-    keeperMarketsCfg = data.markets ?? [];
-    keeperStationsCfg = data.stations ?? [];
-    keeperCoverList = data.coverList === true;
-    renderKeepers();
-  } catch (e) { console.error(e); }
-}
 
 function renderKeepers() {
   $("keeper-markets").value = keeperMarketsCfg.join("\n");
@@ -897,13 +838,6 @@ function clauseForRule(r) {
     return `Fleet cap for ${type}: buy no more than ${chip(r)}.`;
   }
   return `<b>${escapeHtml(r.name)}</b>: ${chip(r)}`;
-}
-
-async function loadNarrative() {
-  try {
-    const res = await fetch("/api/narrative");
-    $("narrative").textContent = (await res.json()).log ?? "Awaiting telemetry…";
-  } catch (e) { console.error(e); }
 }
 
 /* ── topbar ───────────────────────────────── */
@@ -1518,30 +1452,6 @@ function renderSnapshots() {
 }
 
 let priceGood = "";
-async function loadGoods() {
-  try {
-    const { goods } = await (await fetch("/api/goods")).json();
-    if (!goods?.length) return;
-    if (!priceGood || !goods.includes(priceGood)) priceGood = goods[0];
-    $("price-good").innerHTML = goods.map((g) =>
-      `<option value="${escapeAttr(g)}"${g === priceGood ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
-    await loadPrices();
-  } catch (e) { console.error(e); }
-}
-
-let lastPricePoints = [];
-async function loadPrices() {
-  const sel = $("price-good");
-  priceGood = sel.value || priceGood;
-  if (!priceGood) return;
-  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-  try {
-    const res = await fetch(`/api/prices?good=${encodeURIComponent(priceGood)}&since=${encodeURIComponent(since)}`);
-    lastPricePoints = (await res.json()).points ?? [];
-    renderPriceChart(lastPricePoints, "price-chart");
-  } catch (e) { console.error(e); }
-}
-
 // Redraw the price chart from its cached points on resize — the chart's
 // viewBox matches the container's live size, so it needs to be recomputed
 // when that size changes, not just when new data arrives.
@@ -1549,7 +1459,7 @@ let priceChartResizeTimer = null;
 window.addEventListener("resize", () => {
   clearTimeout(priceChartResizeTimer);
   priceChartResizeTimer = setTimeout(() => {
-    if (lastPricePoints.length) renderPriceChart(lastPricePoints, "price-chart");
+    if (pricePoints.length) renderPriceChart(pricePoints, "price-chart");
   }, 150);
 });
 
@@ -2972,18 +2882,6 @@ function addChatMsg(role, text) {
   $("chat-log").scrollTop = $("chat-log").scrollHeight;
 }
 
-async function loadChatHistory() {
-  try {
-    const res = await fetch("/api/chat/history");
-    const { messages } = await res.json();
-    if (!messages?.length) return;
-    $("chat-log").innerHTML = "";
-    for (const m of messages) {
-      if (m.role === "user" || m.role === "assistant") addChatMsg(m.role, m.content);
-    }
-  } catch (e) { console.error(e); }
-}
-
 async function sendChat() {
   const text = $("chat-input").value.trim();
   if (!text || chatBusy) return;
@@ -3022,7 +2920,7 @@ function loadMobilePanels() {
   loadMarkets(marketSystemFilter);
   loadDispatch();
   loadWarehouse();
-  loadOps();
+  loadProgramme();
   loadDoctrine();
 }
 mobileMQ.addEventListener("change", (e) => { if (e.matches && authed) loadMobilePanels(); });
@@ -3034,7 +2932,7 @@ every(5000, loadBridge);
 every(3000, loadActivity);
 every(20000, () => { if (currentView === "markets") loadMarkets(marketSystemFilter); });
 every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); } });
-every(20000, () => { if (currentView === "ops") loadOps(); });
+every(20000, () => { if (currentView === "ops") loadProgramme(); });
 every(30000, () => { if (currentView === "bridge") loadNarrative(); });
 every(15000, () => { if (isMobile()) loadMobilePanels(); });
 // Ship-position interpolation used to redraw on a flat 1s timer here. That's
@@ -3080,8 +2978,8 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-$("price-refresh").addEventListener("click", () => loadPrices());
-$("price-good").addEventListener("change", () => loadPrices());
+$("price-refresh").addEventListener("click", () => loadPrices(priceGood));
+$("price-good").addEventListener("change", () => loadPrices(priceGood));
 
 $("routes-system-filter").addEventListener("change", onMarketSystemFilterChange);
 $("snapshots-system-filter").addEventListener("change", onMarketSystemFilterChange);
@@ -3204,31 +3102,6 @@ for (const id of ["warehouse-targets", "mobile-warehouse-targets"]) {
     const btn = e.target.closest("button[data-remove-good]");
     if (btn) warehouseTargetRemove(btn.dataset.removeGood);
   });
-}
-
-// ── Ops: contracts & construction missions ──────────────────────────
-async function loadOps() {
-  try {
-    // dispatchAssignments feeds the "pinned carrier" display in
-    // renderContracts(), so refresh it here too — otherwise it's only ever
-    // current if the operator has also visited the trade-ops view.
-    const [cres, mres] = await Promise.all([fetch("/api/contracts"), fetch("/api/missions"), loadDispatch()]);
-    const cdata = cres.ok ? await cres.json() : { contracts: [] };
-    const mdata = mres.ok ? await mres.json() : { missions: [] };
-    renderContracts(cdata.contracts ?? []);
-    renderMissions(mdata.missions ?? []);
-  } catch (e) { console.error(e); }
-}
-
-/** Purely informational — no fleet-ops decision reads this data, and the
- *  server caches both responses for minutes at a time (see dashboard.ts),
- *  so this only needs to load once when the tab opens, not on a poll. */
-async function loadGalaxy() {
-  try {
-    const [board, factions] = await Promise.all([api("GET", "/api/leaderboard"), api("GET", "/api/factions")]);
-    renderLeaderboard(board.agents ?? []);
-    renderFactions(factions.factions ?? []);
-  } catch (e) { console.error(e); }
 }
 
 function renderLeaderboard(agents) {
@@ -3385,7 +3258,7 @@ async function missionStart(waypointInputId) {
   try {
     await api("POST", "/api/missions/start", { waypoint: wp });
     showToastGlobal(`Mission started for ${wp}`);
-    loadOps();
+    loadProgramme();
   } catch (err) { showToastGlobal(err.message, true); }
 }
 $("mission-start").addEventListener("click", () => missionStart("mission-waypoint"));
@@ -3412,7 +3285,7 @@ async function onContractClick(e) {
     } else {
       return;
     }
-    loadOps();
+    loadProgramme();
   } catch (err) { showToastGlobal(err.message, true); }
 }
 $("contracts").addEventListener("click", onContractClick);
@@ -3433,7 +3306,7 @@ async function onMissionClick(e) {
       await api("POST", `/api/missions/${act}`, { waypoint: wp });
       showToastGlobal(`Mission ${act === "pause" ? "paused" : "resumed"}`);
     }
-    loadOps();
+    loadProgramme();
   } catch (err) { showToastGlobal(err.message, true); }
 }
 $("missions").addEventListener("click", onMissionClick);
@@ -3478,7 +3351,7 @@ function boot() {
   loadActivity();
   loadDoctrine();
   loadNarrative();
-  loadOps();
+  loadProgramme();
   loadReplay();
   if (isMobile()) { loadDispatch(); loadWarehouse(); }
   initScrubber();
@@ -3624,6 +3497,50 @@ if (!applyVersionPreference()) mountSwitcher();
    The currentSystem reconciliation was inside loadState(); it is view
    state (which system this window is looking at), so it belongs on this
    side of the seam. */
+/* ── the store's view-specific slices ─────────────────────────
+   The loaders these replace used to end by touching the DOM directly —
+   loadNarrative() wrote to an element, loadGoods() built a <select>. That
+   is exactly what could not be shared, since the element ids and the
+   markup are this version's, not the store's. Split in two: the store
+   fetches and announces, and these draw. */
+
+/** The price chart's good picker. */
+function renderPriceGoods() {
+  const sel = $("price-good");
+  if (!sel || !priceGoods.length) return;
+  const chosen = priceGoods.includes(priceGood) ? priceGood : priceGoods[0];
+  sel.innerHTML = priceGoods.map((g) =>
+    `<option value="${escapeAttr(g)}"${g === chosen ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
+  // Only fetch when the selection actually moved. Without the guard this
+  // re-enters through the "prices" slice that loadPrices() itself notifies.
+  if (chosen !== priceGood) { priceGood = chosen; loadPrices(priceGood); }
+}
+
+function renderNarrative() {
+  const el = $("narrative");
+  if (el) el.textContent = narrative || "Awaiting telemetry…";
+}
+
+function renderChatHistory() {
+  const log = $("chat-log");
+  if (!log || !chatHistory.length) return;
+  log.innerHTML = "";
+  for (const m of chatHistory) addChatMsg(m.role, m.content);
+}
+
+subscribe("dispatch", renderDispatch);
+subscribe("warehouse", renderWarehouse);
+subscribe("keepers", renderKeepers);
+subscribe("replay", renderScrubTrack);
+subscribe("prices", () => {
+  renderPriceGoods();
+  if (pricePoints.length) renderPriceChart(pricePoints, "price-chart");
+});
+subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); });
+subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); });
+subscribe("narrative", renderNarrative);
+subscribe("chat", renderChatHistory);
+
 subscribe("state", () => {
   if (!currentSystem && state.systemSymbol) currentSystem = state.systemSymbol;
   if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
