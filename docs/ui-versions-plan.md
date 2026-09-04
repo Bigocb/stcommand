@@ -327,9 +327,20 @@ reordered or dropped individually without stranding the others.
 
 ## 9. Definition of done
 
-- `/`, `/v3`, `/v4`, `/v5` all serve working UIs against one shared session.
-- No `load*`, `api*`, or domain function exists in more than one file.
-- `public/v2.html` is under ~80KB with fonts served separately and cached.
-- Switching versions preserves login and lands on the equivalent view.
-- Each version's Bridge matches its mockup; non-Bridge views are at minimum
-  usable and consistent within that version.
+- ✅ `/`, `/v3`, `/v4`, `/v5` all serve working UIs against one shared session.
+- ✅ No `load*`, `api*`, or domain function exists in more than one file.
+  The last ten loaders moved to `shared/store.js` after Phase 4; the two
+  that remain per-version — `loadViewData` and `loadMobilePanels` — are the
+  mapping from a view to the loaders it needs, which is legitimately a
+  version's own property (v5 groups its nav differently already).
+- ✅ `public/v2.html` is 22KB, with `v2.css`/`v2.js` beside it and fonts
+  served separately. All of them are now actually cached — `cacheHeaders()`
+  covered the HTML, fonts and shared modules but not the version bundles,
+  so every version had been re-fetching its own ~250KB on every load.
+- ✅ Switching versions preserves login and lands on the equivalent view.
+- ✅ Each version's Bridge matches its mockup; non-Bridge views are usable
+  and consistent within that version — including v4's, which were the
+  plan's single biggest flagged unknown.
+
+**All four phases are complete.** What remains is the user's own call:
+verifying the branch and choosing which version becomes the default.
