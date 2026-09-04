@@ -453,12 +453,37 @@ export class TraderAgent {
     }
   }
 
+  /**
+   * Wait out a real jump-drive cooldown before attempting another jump.
+   * Confirmed live: without this, a trader that just jumped (which always
+   * leaves a several-minute cooldown behind, per res.cooldown on the jump
+   * response — refresh() already pulls the same field into this.ship, it
+   * was just never checked) immediately tried to jump back on its very next
+   * tick, got rejected with "still on cooldown", and repeated that every
+   * poll interval for the whole cooldown window instead of just waiting it
+   * out once. Same schedulerDriven split as waitForArrival() above: a
+   * multi-minute cooldown must not block Scheduler.runOnce()'s sequential
+   * loop, so scheduler-driven work reschedules itself via NavigationPending
+   * instead of sleeping in place.
+   */
+  private async waitCooldown(): Promise<void> {
+    const cd = this.ship.cooldown;
+    if (!cd || cd.remainingSeconds <= 0) return;
+    if (this.schedulerDriven) {
+      throw new NavigationPending(Date.now() + cd.remainingSeconds * 1000);
+    }
+    this.log(`cooldown ${cd.remainingSeconds}s`);
+    await sleep(cd.remainingSeconds * 1000 + 250);
+    await this.refresh();
+  }
+
   /** Jump to a waypoint in another system using the nearest jump gate. */
   private async jumpToSystem(targetSystem: string, destination: string): Promise<void> {
     if (!this.atlas) {
       this.log(`cannot jump to ${targetSystem}: no galaxy atlas`);
       return;
     }
+    await this.waitCooldown();
     const fromSystem = this.ship.nav.systemSymbol;
     const gates = this.atlas.gatesTo(fromSystem, targetSystem);
     let gate = gates[0];
