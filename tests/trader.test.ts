@@ -666,6 +666,72 @@ describe("TraderAgent.viableRoute: cross-system, gate-aware", () => {
   });
 });
 
+/**
+ * Regression coverage for a live production incident: jumpToSystem() passed
+ * its caller's ultimate destination waypoint straight to the jump endpoint,
+ * which only ever accepts the target system's own jump gate. That happened
+ * to work whenever the destination was itself a gate (an antimatter market
+ * often sits on one), which is exactly why viableRoute()'s tests above never
+ * caught it — none of them execute the jump. The first time a real route's
+ * destination *wasn't* the gate, the jump call failed outright ("Waypoint
+ * ... is not connected to the current location"), stranding the ship at the
+ * far system, retrying the identical failing jump every poll indefinitely.
+ */
+describe("TraderAgent.jumpToSystem: jumps to the destination system's own gate, not an arbitrary waypoint", () => {
+  function makeTrader() {
+    const ship = makeShip();
+    ship.nav = { status: "IN_ORBIT", waypointSymbol: "X1-A-GATE", systemSymbol: "X1-A" } as any;
+    const jumpCalls: string[] = [];
+    const navigateCalls: string[] = [];
+    const atlas = {
+      gatesTo: () => ["X1-A-GATE"],
+      loadSystem: async () => ({
+        symbol: "X1-B",
+        waypoints: [{ symbol: "X1-B-GATE", type: "JUMP_GATE" }],
+        jumpGates: [],
+        markets: [],
+        shipyards: [],
+      }),
+      recordJumpCost: () => {},
+    };
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        jumpShip: async (_s: string, wp: string) => {
+          jumpCalls.push(wp);
+          ship.nav = { status: "IN_ORBIT", waypointSymbol: wp, systemSymbol: "X1-B" } as any;
+          return { nav: ship.nav, cooldown: { remainingSeconds: 0 }, transaction: { totalPrice: 1000 }, agent: {} } as any;
+        },
+        orbitShip: async () => ({ nav: ship.nav } as any),
+      } as any,
+      atlas: atlas as any,
+    });
+    // Stubbed out entirely: this test is about what jumpShip() gets called
+    // with, not about simulating real same-system flight (fuel/positions).
+    (trader as any).navigateTo = async (wp: string) => { navigateCalls.push(wp); };
+    return { trader, jumpCalls, navigateCalls };
+  }
+
+  it("jumps to the remote gate, then covers the last leg locally, when the destination isn't the gate itself", async () => {
+    const { trader, jumpCalls, navigateCalls } = makeTrader();
+
+    await (trader as any).jumpToSystem("X1-B", "X1-B-MARKET");
+
+    assert.deepEqual(jumpCalls, ["X1-B-GATE"], "the jump call must target the remote system's own gate, never the ultimate destination waypoint");
+    assert.deepEqual(navigateCalls, ["X1-A-GATE", "X1-B-MARKET"], "reaches the local gate, jumps, then navigates on to the real destination");
+  });
+
+  it("skips the redundant local leg when the destination already is the remote gate", async () => {
+    const { trader, jumpCalls, navigateCalls } = makeTrader();
+
+    await (trader as any).jumpToSystem("X1-B", "X1-B-GATE");
+
+    assert.deepEqual(jumpCalls, ["X1-B-GATE"]);
+    assert.deepEqual(navigateCalls, ["X1-A-GATE"], "no second navigate call back to the waypoint we just jumped to");
+  });
+});
+
 describe("TraderAgent.canReachMarket: same-system fuel capacity", () => {
   function makeTraderAt(waypoint: string, fuelCapacity: number) {
     const ship = makeShip();

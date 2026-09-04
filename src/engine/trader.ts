@@ -502,18 +502,36 @@ export class TraderAgent {
       this.log(`gate ${gate} is not in ${fromSystem}; skipping jump to ${targetSystem}`);
       return;
     }
+    // The jump endpoint's target must be the destination system's own jump
+    // gate waypoint — it never accepts an arbitrary waypoint in that system.
+    // Passing `destination` straight through only ever worked when it
+    // happened to *be* the gate (an antimatter market often sits right on
+    // one). Confirmed live: the return leg of a route whose destination
+    // wasn't the gate (back to a buy market elsewhere in the home system)
+    // failed outright with "Waypoint ... is not connected to the current
+    // location", stranding the ship at the far system, repeating the same
+    // failed jump every poll with no progress.
+    const remoteSystem = await this.atlas.loadSystem(targetSystem);
+    const remoteGate = remoteSystem.waypoints.find((w) => w.type === "JUMP_GATE")?.symbol;
+    if (!remoteGate) {
+      this.log(`${targetSystem} has no jump gate waypoint`);
+      return;
+    }
     await this.navigateTo(gate);
     await this.ensureInOrbit();
     this.log(`jumping ${fromSystem} -> ${targetSystem} via ${gate}`);
-    const res = await this.api.jumpShip(this.symbol, destination);
+    const res = await this.api.jumpShip(this.symbol, remoteGate);
     this.ship = { ...this.ship, nav: res.nav };
-    this.onActivity?.("jump", `jumped to ${destination}`, -res.transaction.totalPrice, this.symbol);
+    this.onActivity?.("jump", `jumped to ${remoteGate}`, -res.transaction.totalPrice, this.symbol);
     // The only place a real jump cost is ever known — feeds tripCost()'s
     // learned-average estimate for future routes over this same gate/
     // destination-system pair. See GalaxyAtlas.recordJumpCost()'s own comment.
     this.atlas?.recordJumpCost(gate, targetSystem, res.transaction.totalPrice);
     await this.refresh();
     if (this.recordMarket) await this.recordMarket(this.ship.nav.waypointSymbol);
+    // The jump only gets us to the gate — if the real destination is
+    // somewhere else in the target system, cover that last leg too.
+    if (destination !== remoteGate) await this.navigateTo(destination);
   }
 
   /** Dock at a waypoint and refresh prices for its market. */
