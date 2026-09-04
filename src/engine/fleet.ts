@@ -169,7 +169,6 @@ export class FleetManager {
   private readonly discord?: DiscordRelay;
   private readonly galaxy: GalaxyAtlas;
   private surveyedSystems = new Set<string>();
-  private gateBlockedSystems = new Set<string>();
   private lastExploreTick = 0;
   private rescuePlans = new Map<string, TenderPlan>();
   /** Why the last rescue-planning attempt for a ship failed to produce a
@@ -4040,11 +4039,22 @@ export class FleetManager {
   private async autoExplore(): Promise<void> {
     // Survey connected systems occasionally, sending an idle trader to scout them.
     const knownSystems = this.galaxy.listSystems().map((s) => s.symbol);
-    const connected = new Set<string>();
+    // Reachable *right now*, not just topologically connected: a system whose
+    // only known connection is via a still-under-construction gate is
+    // filtered out here on every pass, via the live canJump() cache, rather
+    // than being blacklisted forever after one failed attempt (the previous
+    // design's gateBlockedSystems set was write-only — nothing ever cleared
+    // it, so a system whose gate finished construction *after* one failed
+    // attempt stayed excluded permanently, silently, with no separate
+    // "unblock" step to notice). Once construction completes, the very next
+    // pass picks the system back up on its own.
+    const reachable = new Set<string>();
     for (const s of knownSystems) {
-      for (const c of this.galaxy.connectedSystems(s)) connected.add(c);
+      for (const c of this.galaxy.connectedSystems(s)) {
+        if (this.galaxy.canJump(s, c)) reachable.add(c);
+      }
     }
-    const unsurveyed = [...connected].filter((c) => !this.surveyedSystems.has(c) && !this.gateBlockedSystems.has(c));
+    const unsurveyed = [...reachable].filter((c) => !this.surveyedSystems.has(c));
     const now = Date.now();
     // Only attempt exploration at most once every 10 minutes.
     if (unsurveyed.length === 0 || now - this.lastExploreTick < 600_000) return;
@@ -4054,7 +4064,12 @@ export class FleetManager {
     // scout). Money-making traders and miners must never be pulled off their
     // routes to scout — exploration is opportunistic, not worth interrupting a
     // trade cycle for. If no dedicated ship is free, skip this round entirely.
-    const target = unsurveyed[0];
+    // Randomized rather than always unsurveyed[0]: a target that keeps
+    // failing for a non-construction reason (see the catch block below,
+    // which deliberately no longer blacklists on failure) would otherwise
+    // monopolize every future attempt and starve every other unsurveyed
+    // system of ever being tried.
+    const target = unsurveyed[Math.floor(Math.random() * unsurveyed.length)];
     if (!target) return;
     const idle = (a: { isManual(): boolean; getShip(): components["schemas"]["Ship"] }) =>
       !a.isManual() && a.getShip().cargo.units === 0;
@@ -4079,12 +4094,11 @@ export class FleetManager {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.log(`auto-explore ${target} failed: ${msg}`);
-      if (msg.includes("under construction")) {
-        // Gate not built yet — skip this system (and its connected neighbors) so we
-        // don't re-probe the same unfinished gate every tick.
-        this.gateBlockedSystems.add(target);
-      }
-      this.surveyedSystems.add(target); // don't retry a known failure
+      // Deliberately NOT marked surveyed here, for any failure reason: a
+      // transient error should be retried on a later pass (throttled the
+      // same 10 minutes as every other attempt), not excluded forever. A
+      // gate under construction is already filtered out of `reachable`
+      // above and needs no separate tracking here.
     }
   }
 
