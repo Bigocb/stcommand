@@ -40,6 +40,13 @@ export function createUiVersionRouter(publicDir: string): Router {
         );
         return;
       }
+      // Same policy express.static applies to the HTML it serves — see
+      // cacheHeaders(). sendFile() does not go through that middleware's
+      // setHeaders hook, so without this /v3 answered `max-age=0` while /
+      // answered `no-cache`. Both force revalidation, so nothing was at
+      // risk, but two paths serving the same kind of file under two
+      // different rules is a thing that only stays harmless by luck.
+      res.set(cacheHeaders(file) ?? {});
       res.sendFile(file);
     });
   }

@@ -151,6 +151,19 @@ const FIXTURES = {
         sellAt: "X1-FIX-J58", sellSystem: "X1-FIX", sellPrice: 2493, volume: 60, distance: 9,
         fuelUnits: 9, fuelCost: 648, marginPerUnit: 433, marginPct: 21,
         grossPerTrip: 25980, profitPerTrip: 25980, crossSystem: false, ageMinutes: 7 },
+      // The rest exist to make the list *overflow* its rail section. A
+      // fixture that always fits can only ever prove the layout works when
+      // it cannot fail, and every scroll, clip and collapse bug lives on
+      // the other side of that line. Some are deliberately stale so the
+      // "unpriced" branch renders too.
+      ...["CYBER_IMPLANTS", "ANTIMATTER", "SHIP_PARTS", "PLATINUM", "GOLD",
+          "URANITE", "MERITIUM", "DIAMONDS"].map((g, i) => ({
+        goodSymbol: g, buyAt: `X1-FIX-I${50 + i}`, buySystem: "X1-FIX", buyPrice: 1000 + i * 90,
+        sellAt: "X1-FIX-A1", sellSystem: "X1-FIX", sellPrice: 2000 + i * 140, volume: 18,
+        distance: 10 + i, fuelUnits: 10, fuelCost: 700, marginPerUnit: 900,
+        marginPct: 30 - i, grossPerTrip: 20000 - i * 900, profitPerTrip: 20000 - i * 900,
+        crossSystem: false, ageMinutes: i % 3 === 0 ? 8576 : 6 + i,
+      })),
     ],
     snapshots: [
       { systemSymbol: "X1-FIX", waypointSymbol: "X1-FIX-A1", goodSymbol: "MEDICINE", type: "IMPORT",
@@ -158,9 +171,21 @@ const FIXTURES = {
     ],
     shipyards: [], modules: [], systems: ["X1-FIX"],
   },
+  // Twenty-odd entries for the same reason as the routes above: the watch
+  // has to be taller than the space it is given before anything about how
+  // it scrolls or clips can be observed.
   "/api/activity": { activity: [
     { timestamp: FIXED_ISO, shipSymbol: "DAGGER-2", kind: "sell", detail: "sold 40u FOOD at J58", credits: 99720 },
     { timestamp: FIXED_ISO, shipSymbol: "fleet", kind: "policy", detail: "cash floor held — purchase deferred", credits: 0 },
+    ...Array.from({ length: 22 }, (_, i) => ({
+      timestamp: FIXED_ISO,
+      shipSymbol: `DAGGER-${(i % 9) + 1}`,
+      kind: i % 4 === 0 ? "buy" : "navigate",
+      detail: i % 4 === 0
+        ? `bought 6u SHIP_PARTS @ 7665c at X1-FIX-D46`
+        : `DAGGER-${(i % 9) + 1} → X1-FIX-A${(i % 6) + 1} (${300 - i * 3}/300 fuel)`,
+      credits: i % 4 === 0 ? -45990 : null,
+    })),
   ] },
   "/api/doctrine": {
     rules: [
