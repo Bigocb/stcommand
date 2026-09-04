@@ -605,6 +605,67 @@ describe("TraderAgent.viableRoute: fuel tank capacity bounds", () => {
   });
 });
 
+describe("TraderAgent.viableRoute: cross-system, gate-aware", () => {
+  function makeTraderAt(waypoint: string, atlas: any) {
+    const ship = makeShip();
+    ship.nav = { status: "DOCKED", waypointSymbol: waypoint, systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: 400, capacity: 400 } as any;
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      atlas,
+    });
+    // Only the here→buyAt leg is same-system (checked against the fuel
+    // tank); buyAt→sellAt crosses a gate and is deliberately not distance-
+    // checked at all — see viableRoute()'s own comment. This just needs
+    // "here" and buyAt close enough together that the same-system leg fits.
+    trader.withWorld([{ symbol: waypoint, x: 0, y: 0 }, { symbol: "X1-A-A2", x: 5, y: 0 }]);
+    return trader;
+  }
+
+  function seedPrices(trader: TraderAgent, buyAt: string, sellAt: string, good = "COPPER_ORE") {
+    (trader as any).priceTable.set(buyAt, new Map([[good, { buy: 10, sell: 12, volume: 40 }]]));
+    (trader as any).priceTable.set(sellAt, new Map([[good, { buy: 8, sell: 200, volume: 40 }]]));
+  }
+
+  it("rejects a cross-system route when the gate isn't complete", () => {
+    const trader = makeTraderAt("X1-A-A1", { gatesTo: () => ["X1-A-GATE"], canJump: () => false });
+    seedPrices(trader, "X1-A-A2", "X1-B-A3");
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-B-A3" });
+
+    assert.equal(route, undefined);
+  });
+
+  it("accepts a cross-system route once the gate is complete, using the flat estimate with no jump history", () => {
+    const trader = makeTraderAt("X1-A-A1", { gatesTo: () => ["X1-A-GATE"], canJump: () => true, learnedJumpCost: () => undefined });
+    seedPrices(trader, "X1-A-A2", "X1-B-A3");
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-B-A3" });
+
+    assert.ok(route, "a completed gate with a wide enough margin to absorb the flat jump-cost estimate must be viable");
+  });
+
+  it("prefers the learned per-gate-pair average over the flat estimate once a real jump has been paid for", () => {
+    const learnedCosts: Record<string, number> = {};
+    const atlas = {
+      gatesTo: () => ["X1-A-GATE"],
+      canJump: () => true,
+      learnedJumpCost: (gate: string, sys: string) => learnedCosts[`${gate}->${sys}`],
+    };
+    const trader = makeTraderAt("X1-A-A1", atlas);
+    seedPrices(trader, "X1-A-A2", "X1-B-A3");
+
+    // Margin*volume = (200-10)*40 = 7,600 — profitable against the flat
+    // CROSS_SYSTEM_JUMP_COST_ESTIMATE (5,000), but not against a learned
+    // cost this high.
+    learnedCosts["X1-A-GATE->X1-B"] = 50_000;
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-B-A3" });
+
+    assert.equal(route, undefined, "the learned (much higher) real cost must be what decides viability, not the flat placeholder");
+  });
+});
+
 describe("TraderAgent.canReachMarket: same-system fuel capacity", () => {
   function makeTraderAt(waypoint: string, fuelCapacity: number) {
     const ship = makeShip();

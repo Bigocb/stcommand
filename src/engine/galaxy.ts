@@ -230,6 +230,40 @@ export class GalaxyAtlas {
     await Promise.allSettled(pending.map((p) => this.refreshGateConstruction(p.systemSymbol, p.gateSymbol)));
   }
 
+  /**
+   * Running average of real jumpShip() transaction totals, keyed by
+   * (departure gate, destination system) — the two things that determine
+   * cost, not the specific in-system waypoint jumped to (antimatter price
+   * is set by the connection, not the exact destination within the target
+   * system). This is what replaces the flat CROSS_SYSTEM_JUMP_COST_ESTIMATE
+   * placeholder once real jumps start happening: no jump cost estimate
+   * exists ahead of time (jumpShip() only reveals it in the response), so
+   * the only way to know is to have actually paid it before.
+   */
+  private readonly jumpCosts = new Map<string, { total: number; count: number }>();
+
+  private jumpCostKey(fromGate: string, toSystem: string): string {
+    return `${fromGate}->${toSystem}`;
+  }
+
+  /** Record what a real jump actually cost, for future estimates over the
+   *  same gate/destination-system pair. Called right after a live
+   *  jumpShip() call — never invented or estimated. */
+  recordJumpCost(fromGate: string, toSystem: string, totalPrice: number): void {
+    const key = this.jumpCostKey(fromGate, toSystem);
+    const existing = this.jumpCosts.get(key) ?? { total: 0, count: 0 };
+    this.jumpCosts.set(key, { total: existing.total + totalPrice, count: existing.count + 1 });
+  }
+
+  /** Average of every real jump paid over this gate/destination-system
+   *  pair, or undefined if none has ever been recorded — callers fall back
+   *  to a flat estimate in that case (see CROSS_SYSTEM_JUMP_COST_ESTIMATE's
+   *  own comment). */
+  learnedJumpCost(fromGate: string, toSystem: string): number | undefined {
+    const entry = this.jumpCosts.get(this.jumpCostKey(fromGate, toSystem));
+    return entry ? entry.total / entry.count : undefined;
+  }
+
   /** Fetch markets in a system and cache them as snapshots. */
   async surveyMarkets(systemSymbol: string, store?: {
     recordModuleCatalog: (systemSymbol: string, waypointSymbol: string, items: { symbol: string; name: string; category: string; purchasePrice: number }[], kind: "module" | "mount") => Promise<void>;

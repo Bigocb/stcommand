@@ -456,6 +456,10 @@ export class TraderAgent {
     const res = await this.api.jumpShip(this.symbol, destination);
     this.ship = { ...this.ship, nav: res.nav };
     this.onActivity?.("jump", `jumped to ${destination}`, -res.transaction.totalPrice, this.symbol);
+    // The only place a real jump cost is ever known — feeds tripCost()'s
+    // learned-average estimate for future routes over this same gate/
+    // destination-system pair. See GalaxyAtlas.recordJumpCost()'s own comment.
+    this.atlas?.recordJumpCost(gate, targetSystem, res.transaction.totalPrice);
     await this.refresh();
     if (this.recordMarket) await this.recordMarket(this.ship.nav.waypointSymbol);
   }
@@ -702,10 +706,20 @@ export class TraderAgent {
   /** The trip cost half of a route's profit: same-system fuel burn, or —
    *  since buyAt/sellAt coordinates live in unrelated per-system spaces
    *  once they cross a gate, and jumpShip() charges credits directly rather
-   *  than fuel-tank units (see CROSS_SYSTEM_JUMP_COST_ESTIMATE's own
-   *  comment) — a flat estimate for a cross-system leg. */
+   *  than fuel-tank units — a jump-cost estimate for a cross-system leg.
+   *  jumpToSystem() records what every real jump actually cost as it
+   *  happens (GalaxyAtlas.recordJumpCost()); this prefers that learned
+   *  average over the same gate/destination-system pair, falling back to
+   *  the flat CROSS_SYSTEM_JUMP_COST_ESTIMATE placeholder only when this
+   *  fleet has never actually paid for that jump before. */
   private tripCost(buyAt: string, sellAt: string): number {
-    if (this.systemOf(buyAt) !== this.systemOf(sellAt)) return CROSS_SYSTEM_JUMP_COST_ESTIMATE;
+    const buySystem = this.systemOf(buyAt);
+    const sellSystem = this.systemOf(sellAt);
+    if (buySystem !== sellSystem) {
+      const gate = this.atlas?.gatesTo(buySystem, sellSystem)[0];
+      const learned = gate ? this.atlas?.learnedJumpCost(gate, sellSystem) : undefined;
+      return learned ?? CROSS_SYSTEM_JUMP_COST_ESTIMATE;
+    }
     const fuelPrice = this.priceTable.get(buyAt)?.get("FUEL")?.buy ?? 72;
     return this.distBetween(buyAt, sellAt) * fuelPrice;
   }

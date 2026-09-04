@@ -115,3 +115,38 @@ describe("GalaxyAtlas: gate-construction cache", () => {
     assert.equal(atlas.canJump("X1-B", "X1-A"), true);
   });
 });
+
+describe("GalaxyAtlas: learned jump cost", () => {
+  it("learnedJumpCost() is undefined for a gate/destination pair that has never been jumped", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
+
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), undefined);
+  });
+
+  it("recordJumpCost() makes a single real jump immediately usable as the estimate", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
+
+    atlas.recordJumpCost("X1-A-GATE", "X1-B", 4_800);
+
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 4_800);
+  });
+
+  it("averages multiple real jumps over the same gate/destination pair", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
+
+    atlas.recordJumpCost("X1-A-GATE", "X1-B", 4_000);
+    atlas.recordJumpCost("X1-A-GATE", "X1-B", 6_000);
+
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 5_000);
+  });
+
+  it("keeps costs separate per destination system, even from the same departure gate", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
+
+    atlas.recordJumpCost("X1-A-GATE", "X1-B", 5_000);
+    atlas.recordJumpCost("X1-A-GATE", "X1-C", 9_000);
+
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 5_000);
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-C"), 9_000);
+  });
+});

@@ -883,6 +883,17 @@ export class FleetManager {
     else await this.store?.setFleetFlag(this.tenantId, "dispatchManual", JSON.stringify(all));
   }
 
+  /** Jump-leg cost estimate for a route computed from raw trade legs — the
+   *  learned per-gate-pair average from real jumpShip() transactions where
+   *  one exists, or the flat placeholder for a pair never actually jumped
+   *  yet. See GalaxyAtlas.recordJumpCost()'s and
+   *  CROSS_SYSTEM_JUMP_COST_ESTIMATE's own comments. */
+  private crossSystemLegCost(buySystem: string, sellSystem: string): number {
+    const gate = this.galaxy.gatesTo(buySystem, sellSystem)[0];
+    const learned = gate ? this.galaxy.learnedJumpCost(gate, sellSystem) : undefined;
+    return learned ?? CROSS_SYSTEM_JUMP_COST_ESTIMATE;
+  }
+
   async computeDispatchRoutes(): Promise<DispatchRoute[]> {
     const positions = new Map<string, { x: number; y: number }>();
     for (const p of this.galaxy.allPositions()) positions.set(p.symbol, { x: p.x, y: p.y });
@@ -908,9 +919,12 @@ export class FleetManager {
         // Waypoint coordinates are per-system — Math.hypot() between a
         // buyAt in one system and a sellAt in another compares two
         // unrelated coordinate spaces and means nothing, so a cross-system
-        // leg skips distance entirely and gets the same flat jump-cost
-        // estimate trader.ts's route math uses instead (see
-        // CROSS_SYSTEM_JUMP_COST_ESTIMATE's own comment).
+        // leg skips distance entirely. Cost comes from the same learned
+        // per-gate-pair average trader.ts's tripCost() uses (real jump
+        // transactions, recorded as they happen — see
+        // GalaxyAtlas.recordJumpCost()'s own comment), falling back to the
+        // flat CROSS_SYSTEM_JUMP_COST_ESTIMATE placeholder for a gate pair
+        // never actually jumped yet.
         const a = crossSystem ? undefined : positions.get(l.buyAt);
         const b = crossSystem ? undefined : positions.get(l.sellAt);
         const dist = a && b ? Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y))) : null;
@@ -918,7 +932,7 @@ export class FleetManager {
         // return leg is the next buy run, not a cost of this trip.
         const fuelUnits = dist === null ? null : dist;
         const fuelCost = crossSystem
-          ? CROSS_SYSTEM_JUMP_COST_ESTIMATE
+          ? this.crossSystemLegCost(l.buySystem, l.sellSystem)
           : fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
         const gross = (l.sellPrice - l.buyPrice) * l.volume;
         const profitPerTrip = Math.round(gross - fuelCost);
@@ -1698,6 +1712,9 @@ export class FleetManager {
       total: res.transaction.totalPrice,
     });
     this.onActivity?.("jump", `${shipSymbol} jumped to ${waypointSymbol}`, -res.transaction.totalPrice);
+    // Same learned-cost feed as TraderAgent.jumpToSystem() — a scout/manual
+    // jump through this gate is just as real a data point as a trade one.
+    this.galaxy.recordJumpCost(gate, targetSystem, res.transaction.totalPrice);
     await this.surveySystem(targetSystem);
   }
 
