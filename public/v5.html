@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Standing Orders — Command</title>
+<title>Standing Orders — Command (v5)</title>
 <link rel="manifest" href="/manifest.webmanifest" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" />
@@ -16,7 +16,7 @@
 <meta name="apple-mobile-web-app-title" content="Standing Orders" />
 <meta name="theme-color" content="#101019" />
 <link rel="stylesheet" href="/shared/fonts.css" />
-<link rel="stylesheet" href="/v2.css" />
+<link rel="stylesheet" href="/v5.css" />
 </head>
 <body>
 <div class="auth-gate" id="auth-gate">
@@ -49,22 +49,35 @@
   </div>
 </div>
 <div class="app" id="app-root" hidden>
-  <header class="bar">
+  <!-- The spine. Views were a row of tabs squeezed between readouts in the
+       header bar, which put navigation and telemetry in the same strip and
+       gave neither enough room. A console separates them: where you are is
+       a permanent column on the left, what the fleet is doing is a band
+       across the top, and the header keeps only the controls that act on
+       the view you're currently in. -->
+  <aside class="spine">
     <div class="brand">Standing Orders <em>Command</em></div>
-    <div class="stat"><span class="l">Credits</span><span class="v amber" id="credits">—</span></div>
-    <div class="stat"><span class="l">Rate</span><span class="v" id="rate">—</span></div>
-    <svg id="spark" viewBox="0 0 104 26" aria-label="Earnings trend, last 12 hours"></svg>
-    <div class="stat"><span class="l">Forgone</span><span class="v bad" id="forgone">—</span></div>
-    <div class="stat"><span class="l">Ships</span><span class="v" id="ships">—</span></div>
-    <div class="grow"></div>
-    <div class="views-switch" id="view-switch" role="group" aria-label="View">
-      <button data-view="bridge" aria-pressed="true">Bridge</button>
-      <button data-view="fleet" aria-pressed="false">Fleet</button>
-      <button data-view="markets" aria-pressed="false">Markets</button>
-      <button data-view="tradeops" aria-pressed="false">Trade Ops</button>
-      <button data-view="ops" aria-pressed="false">Ops</button>
-      <button data-view="galaxy" aria-pressed="false">Galaxy</button>
+    <nav class="spine-nav" id="view-switch" aria-label="Views">
+      <div class="sec">Operate</div>
+      <button data-view="bridge" aria-pressed="true"><span class="ic"></span>Bridge<span class="ct" id="ct-bridge"></span></button>
+      <button data-view="fleet" aria-pressed="false"><span class="ic"></span>Fleet<span class="ct" id="ct-fleet"></span></button>
+      <button data-view="tradeops" aria-pressed="false"><span class="ic"></span>Trade Ops</button>
+      <div class="sec">Intel</div>
+      <button data-view="markets" aria-pressed="false"><span class="ic"></span>Markets<span class="ct" id="ct-markets"></span></button>
+      <button data-view="galaxy" aria-pressed="false"><span class="ic"></span>Galaxy</button>
+      <div class="sec">Programme</div>
+      <button data-view="ops" aria-pressed="false"><span class="ic"></span>Ops</button>
+    </nav>
+    <div class="spine-foot">
+      <div class="status" id="spine-status"><span class="d"></span><span id="spine-status-t">Engine</span></div>
+      <div class="sub" id="spine-sub">—</div>
     </div>
+  </aside>
+
+  <div class="console">
+  <header class="bar">
+    <h1 class="page-title" id="page-title">Bridge</h1>
+    <div class="grow"></div>
     <div class="field-book-toggle" id="field-book-toggle" role="group" aria-label="Layout mode">
       <button class="active" data-mode="field" title="Field mode: map-first with rails">Field</button>
       <button data-mode="book" title="Book mode: doctrine overlay">Book</button>
@@ -74,22 +87,29 @@
       <button data-mode="halt">Halt</button>
     </div>
     <button class="icon-btn" id="copilot-toggle" aria-expanded="false">Co-pilot</button>
-    <div class="hue-picker" id="hue-picker">
-      <button class="hue-btn" data-hue="355" title="Rubine (Magenta)" style="background:oklch(66% 0.21 355deg)"></button>
-      <button class="hue-btn" data-hue="293" title="Violet" style="background:oklch(66% 0.21 293deg)"></button>
-      <button class="hue-btn" data-hue="207" title="Ice (Blue)" style="background:oklch(66% 0.21 207deg)"></button>
-      <button class="hue-btn" data-hue="61" title="Amber" style="background:oklch(66% 0.21 61deg)"></button>
-    </div>
     <button class="icon-btn" id="logout-btn">Logout</button>
     <div class="clock" id="clock">—</div>
   </header>
+
+  <!-- The KPI band. Same four readouts the header carried, given room to
+       be read at a glance instead of competing with the nav for width. -->
+  <div class="kpis">
+    <div class="kpi"><span class="l">Credits</span><span class="v amber" id="credits">—</span></div>
+    <div class="kpi"><span class="l">Rate</span><span class="v" id="rate">—</span><svg id="spark" viewBox="0 0 104 26" aria-label="Earnings trend, last 12 hours"></svg></div>
+    <div class="kpi"><span class="l">Forgone</span><span class="v bad" id="forgone">—</span></div>
+    <div class="kpi"><span class="l">Ships</span><span class="v" id="ships">—</span></div>
+  </div>
 
   <main id="views">
 
     <!-- ══ BRIDGE — the field & the book ══ -->
     <section class="view view-bridge on" data-view="bridge">
       <div class="field-stage" id="field-stage">
-        <div class="map-wrap" id="map-wrap">
+        <!-- The display is the hero: full width across the top, a dark
+             instrument inset into the light console, not a card wedged
+             between two others. -->
+        <section class="card display">
+          <div class="map-wrap" id="map-wrap">
           <div class="map-hud" id="map-hud">Sector <b>—</b></div>
           <button class="map-fit-btn" id="map-fit" title="Fit whole system">⛶ Fit</button>
           <div class="system-strip" id="system-strip"></div>
@@ -106,48 +126,68 @@
             <span><span class="sw yard"></span>Shipyard</span>
             <span><span class="sw ship"></span>Ship</span>
           </div>
-        </div>
+          </div>
+          <div class="scrub" id="scrub">
+            <button class="pl" id="scrub-play" aria-label="Play replay">▶</button>
+            <span class="tm" id="scrub-t0">—</span>
+            <div class="track" id="scrub-track">
+              <svg viewBox="0 0 900 22" preserveAspectRatio="none" aria-hidden="true" id="scrub-spark"></svg>
+              <div class="hd" id="scrub-head"></div>
+            </div>
+            <span class="tm" id="scrub-t1">—</span>
+            <span class="sp" id="scrub-speed">1×</span>
+            <span class="sp live" id="scrub-live">LIVE</span>
+          </div>
+        </section>
 
-        <!-- Left rail: the selected hull's manifest, or triage when nothing's selected -->
+        <!-- Below the display, two columns. The rails no longer float over
+             the map as translucent overlays — on a light console there is
+             nothing to float over, and a panel that hides the plot it sits
+             on is a cost the layout no longer has to pay. -->
+        <div class="row">
+
+        <!-- Left rail: the inspector. Triage while you're browsing, a hull's
+             manifest once you pick one — reached through a breadcrumb that
+             stays put, so getting back out is a place you click rather than
+             a control you have to find. -->
         <div class="rail rail-l" id="rail-left">
-          <div class="rail-h" id="rail-left-h"><span id="rail-left-title">Triage</span><span class="n" id="rail-left-n">—</span></div>
+          <div class="rail-h" id="rail-left-h">
+            <nav class="crumb" aria-label="Inspector">
+              <button type="button" class="crumb-root here" id="rail-left-back" aria-disabled="true">Triage</button>
+              <span class="crumb-sep" id="rail-left-sep" hidden>›</span>
+              <span class="crumb-leaf" id="rail-left-title" hidden></span>
+            </nav>
+            <span class="n" id="rail-left-n">—</span>
+          </div>
           <div class="rail-b" id="rail-left-body">
             <div id="triage"></div>
             <div id="manifest" style="display:none"></div>
           </div>
         </div>
 
-        <!-- Right rail: active lanes, by margin -->
+        <!-- Right rail: one activity column. Lanes lived here and the watch
+             lived in a drawer under the ticker, so the same shift's events
+             scrolled past in two places at once. They're two sections of one
+             rail now, each collapsible so either can take the full height
+             when that's the one you're reading. -->
         <div class="rail rail-r" id="rail-right">
-          <div class="rail-h">Lanes<span class="n">by margin</span></div>
-          <div class="rail-b" id="rail-lanes"></div>
+          <details class="rail-sec" id="sec-lanes" open>
+            <summary class="rail-h">Lanes<span class="n">by margin</span></summary>
+            <div class="rail-b" id="rail-lanes"></div>
+          </details>
+          <details class="rail-sec" id="sec-watch" open>
+            <summary class="rail-h">The watch<span class="n">this shift</span></summary>
+            <div class="rail-b">
+              <div class="narrative" id="narrative">Awaiting telemetry…</div>
+              <div id="shift-log"></div>
+            </div>
+          </details>
+        </div>
         </div>
 
         <div class="scrim"></div>
         <div class="sheet" id="book-sheet"></div>
 
-        <div class="scrub" id="scrub">
-          <button class="pl" id="scrub-play" aria-label="Play replay">▶</button>
-          <span class="tm" id="scrub-t0">—</span>
-          <div class="track" id="scrub-track">
-            <svg viewBox="0 0 900 22" preserveAspectRatio="none" aria-hidden="true" id="scrub-spark"></svg>
-            <div class="hd" id="scrub-head"></div>
-          </div>
-          <span class="tm" id="scrub-t1">—</span>
-          <span class="sp" id="scrub-speed">1×</span>
-          <span class="sp live" id="scrub-live">LIVE</span>
-        </div>
-      </div>
-      <div class="ticker-bar">
-        <div class="shift-log-drawer" id="shift-log-drawer">
-          <div class="pane-h"><span class="dot"></span>The watch<span class="count">what the doctrine produced this shift</span></div>
-          <div class="pane-b">
-            <div class="narrative" id="narrative">Awaiting telemetry…</div>
-            <div id="shift-log"></div>
-          </div>
-        </div>
-        <button class="ticker-expand" id="ticker-expand" aria-expanded="false" aria-label="Expand shift log">▲</button>
-        <div class="ticker" id="ticker"></div>
       </div>
     </section>
 
@@ -399,6 +439,7 @@
     </section>
 
   </main>
+  </div>
 </div>
 
 <aside class="copilot" id="copilot" aria-label="Co-pilot">
@@ -413,6 +454,6 @@
 
 <div class="modal-backdrop" id="trade-backdrop"><div class="modal" id="trade-modal"></div></div>
 
-<script type="module" src="/v2.js"></script>
+<script type="module" src="/v5.js"></script>
 </body>
 </html>

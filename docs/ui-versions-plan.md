@@ -11,9 +11,10 @@ interfaces alongside the current one.
 | `v4` | Deep Field | No Man's Sky HUD — map is the room, floating modules |
 | `v5` | Mission Control | light console — nav spine, KPI band, dark sector display |
 
-Precedent already exists: `public/index.html` (the v1 UI, 153KB) still sits
-beside `public/v2.html` and neither breaks the other. This plan makes that
-arrangement deliberate rather than accidental.
+Precedent already existed: `public/index.html` (the v1 UI, 153KB) sat
+beside `public/v2.html` for months and neither broke the other. This plan
+makes that arrangement deliberate rather than accidental — and retires v1,
+which nothing referenced and nobody maintained.
 
 ---
 
@@ -26,7 +27,7 @@ Measured, not estimated:
 | `<style>` | 1,033 | includes 9 `@font-face` blocks, base64-inlined |
 | markup | 397 | six views + rails + gates |
 | `<script>` | 3,844 | 136 named functions |
-| **total** | **5,295** | **408KB**, mostly the base64 fonts |
+| **total** | **5,295** | **408KB** — 132KB of that is the base64 fonts (32%) |
 
 Coupling surface: 68 `innerHTML` assignments, 124 distinct element IDs,
 113 `addEventListener` calls, **zero inline `onclick=` handlers**.
@@ -83,7 +84,6 @@ public/
     mapmath.js              ← projection, scale, transit lerp, heading — no DOM
     fonts.css               ← the @font-face blocks, pointing at ../fonts/
     switcher.js             ← the version picker, injected into all four
-  index.html                ← v1, untouched
   v2.html                   ← current, converted to import shared/*
   v3.html  v3.css  v3.js    ← Refined Bridge
   v4.html  v4.css  v4.js    ← Deep Field
@@ -99,8 +99,14 @@ not 3,844.
 ### Phase 0 — Extract the shared core *(prerequisite, zero visual change)*
 
 1. Pull the 9 `@font-face` base64 blobs into `public/fonts/*.woff2` and
-   `shared/fonts.css`. This alone takes `v2.html` from 408KB to roughly
-   60KB and makes the fonts cacheable across all four versions.
+   `shared/fonts.css`. **Done.** Takes `v2.html` from 408KB to 276KB and
+   makes the fonts one cached 99KB set shared by all four UIs instead of
+   132KB of base64 re-downloaded per version per load.
+
+   *(An earlier draft of this plan claimed this step would get the file to
+   ~60KB, on the assumption the fonts were most of its weight. They are 32%
+   of it. The remaining bulk is the `<script>` block — 182KB — which is what
+   step 2 actually addresses.)*
 2. Move transport/session/domain/mapmath into `shared/*.js` as ES modules.
 3. Convert `v2.html` to `<script type="module">` and import them.
 4. Leave every `render*` function in `v2.html`. v2 is not being redesigned.
@@ -147,7 +153,7 @@ account across devices, mirroring how `discord_enabled` and
 instances keep landing on v2, which is correct for now. Revisit only when
 the default changes.
 
-### Phase 2 — `v3` Refined Bridge *(smallest)*
+### Phase 2 — `v3` Refined Bridge *(smallest)* — **done**
 
 Mostly CSS, one structural move.
 
@@ -161,11 +167,23 @@ Mostly CSS, one structural move.
 - Left rail becomes an inspector: triage → manifest with a breadcrumb back
   and collapsible sections.
 
+Landed as `2a` (verified scaffold), `2b` (elevation and meters) and `2c`
+(the structural move). Two notes from doing it:
+
+- The elevation tokens had to become **opaque**. v2's surfaces were
+  translucent over a dark ground, which *converges* as they stack rather
+  than separating — which is how the interface went flat while every
+  individual rule still looked defensible.
+- The right rail's two sections size to their content (`flex:0 1 auto`),
+  not to an even split. A two-lane list stranded in half a rail while the
+  watch scrolls underneath it is the same "same events in two places"
+  problem the merge was meant to remove.
+
 Reuses v2's render layer almost wholesale — mostly class-name and
 container changes. The five non-Bridge views inherit v2's panes restyled by
 the new tokens.
 
-### Phase 3 — `v5` Mission Control *(largest, most reusable)*
+### Phase 3 — `v5` Mission Control *(largest, most reusable)* — **done**
 
 - Nav spine with live counts, grouped Operate / Programme / Policy.
 - KPI band: credits, forgone, fleet condition, active lanes.
@@ -180,7 +198,32 @@ Built second on purpose: its table and card primitives are the ones
 Fleet, Markets, Trade Ops and Ops need in **every** version, so this phase
 produces the most reusable output.
 
-### Phase 4 — `v4` Deep Field *(most bespoke, highest risk)*
+Landed as `3a` (verified scaffold, copied from v3 rather than v2 so it
+inherits the Phase 2 structural fixes), `3b` (palette inversion), `3c`
+(spine, KPI band, display-as-hero), `3d` (card/table/meter/chip
+primitives), `3e` (buttons) and `3f` (form controls). What the build
+actually turned on:
+
+- **The token remap carries almost everything.** Rewriting `:root` flipped
+  ~2,000 rules at once; the dark sector plot survives because `.map-wrap`
+  re-declares the instrument tokens for its own subtree rather than any of
+  the ~80 `#map` rules being touched.
+- **Inverting a palette is not a colour swap, it is a re-audit of what
+  each colour was doing.** Three separate passes were needed for places
+  where a value that *worked* on black stopped meaning anything on white:
+  every meter fill and every panel header bead was painted in the accent,
+  which is this version's "you can act on this"; outlined buttons were the
+  weakest mark on the page rather than the strongest; and recessed form
+  fields became white-on-white, so the field's edge became the entire
+  control and `--hairline` was the wrong weight for it.
+- **The hue picker is gone from v5.** A rotating accent cannot also be a
+  reserved signal, and two of v3's four hues carry no text on white.
+- The UI face is the platform's own. RBmono stays — the aerospace
+  character lives in the readouts, and it is already cached by all four
+  versions — but RBchrome is condensed, which reads as signage and fights
+  dense tables.
+
+### Phase 4 — `v4` Deep Field *(most bespoke, highest risk)* — **done**
 
 - Full-bleed map with floating translucent HUD modules, clipped hex corners.
 - Segmented 12-cell gauges.
@@ -192,6 +235,34 @@ Last on purpose — it is the least forgiving layout (absolutely-positioned
 modules over a live map need care at every breakpoint) and benefits most
 from a shared core that three other UIs have already proven.
 
+Landed as `4a`–`4e`. Scaffolded from v3 rather than v2, because v3
+*already is* v4's layout — a full-bleed map with panels floating over it
+— so this phase was chrome and instruments rather than a rebuild.
+
+- **The two-colour rule survives because of which colour is the
+  default.** ~84 rules reach for `--accent` and almost all are chrome, so
+  pointing `--accent` at the amber would spend the rare colour before any
+  alert appeared — exactly how v3 lost it. `--accent` is cyan; the amber
+  is a separate `--act` that must be asked for by name, and every request
+  lives in one block at the end of the file. The discipline can be
+  audited by reading one screen, and it visibly stops holding if that
+  block grows.
+- **The non-Bridge views resolved in v4's favour, not v5's.** Handing
+  them to v5's layout was the safer call and the wrong one: a version
+  whose secondary views are visibly a different product is not a design,
+  it is two. What made the alternative work was Phase 4d rather than any
+  panel styling — a segmented gauge in a table cell does more to make a
+  table read as a readout than chrome around it ever could.
+
+Two bugs found by rendering rather than by reading the diff:
+
+- The vignette began on `.field-stage`, an ancestor of everything, so it
+  painted over the legend, the sector HUD and the fit button whatever
+  their z-index said. It belongs on `.map-wrap`.
+- **The map legend had never been visible in this layout — in v4 or
+  v3.** It sat at `bottom:10px` under a full-width 40px scrubber, with
+  `left:12px` putting the remainder behind the left rail. Fixed in both.
+
 ## 5. What is *not* designed yet
 
 **The mockups cover the Bridge only.** Each version also needs Fleet,
@@ -200,15 +271,16 @@ Markets, Trade Ops, Ops and Galaxy. Honest read:
 | View | v3 | v5 | v4 |
 |---|---|---|---|
 | Bridge | designed | designed | designed |
-| Fleet | inherit v2, restyled | natural fit (tables) | **needs design** — dense tables fight the HUD idiom |
-| Markets | inherit v2, restyled | natural fit | **needs design** |
-| Trade Ops | inherit v2, restyled | natural fit | **needs design** |
-| Ops | inherit v2, restyled | natural fit | needs design |
-| Galaxy | inherit v2, restyled | natural fit | needs design |
+| Fleet | inherit v2, restyled | natural fit (tables) | done — HUD modules, gauges in rows |
+| Markets | inherit v2, restyled | natural fit | done |
+| Trade Ops | inherit v2, restyled | natural fit | done |
+| Ops | inherit v2, restyled | natural fit | done |
+| Galaxy | inherit v2, restyled | natural fit | done |
 
-v4's non-Bridge views are the single biggest unknown in this plan. Options
-when we get there: accept a more conventional panel treatment inside the
-HUD chrome, or have v4 hand those views off to v5's layout.
+**Resolved.** v4's non-Bridge views took the first option — a conventional
+panel treatment inside the HUD chrome — rather than being handed to v5's
+layout. See Phase 4e above for why that turned out to be the better of the
+two, and why it was cheaper than expected.
 
 **Mobile:** v3 inherits v2's existing mobile rendering. v5 is naturally
 responsive (spine collapses, cards stack). v4 is genuinely hard — propose
@@ -251,13 +323,24 @@ reordered or dropped individually without stranding the others.
 | Render layer drifts across four versions anyway | Only `render*` may fork; anything computational belongs in `shared/` — enforce in review |
 | v4's dense views never get designed | Decide the fallback (v5 handoff) before starting Phase 4, not during |
 | Shared modules cached stale after deploy | Cache headers in Phase 1, or a build-stamp query string |
-| Four UIs to keep working as the engine changes | The switcher makes divergence visible; treat v1/`index.html` as frozen and delete it once v3 lands |
+| Four UIs to keep working as the engine changes | The switcher makes divergence visible; v1/`index.html` is already deleted (Phase 0) so it can't rot further |
 
 ## 9. Definition of done
 
-- `/`, `/v3`, `/v4`, `/v5` all serve working UIs against one shared session.
-- No `load*`, `api*`, or domain function exists in more than one file.
-- `public/v2.html` is under ~80KB with fonts served separately and cached.
-- Switching versions preserves login and lands on the equivalent view.
-- Each version's Bridge matches its mockup; non-Bridge views are at minimum
-  usable and consistent within that version.
+- ✅ `/`, `/v3`, `/v4`, `/v5` all serve working UIs against one shared session.
+- ✅ No `load*`, `api*`, or domain function exists in more than one file.
+  The last ten loaders moved to `shared/store.js` after Phase 4; the two
+  that remain per-version — `loadViewData` and `loadMobilePanels` — are the
+  mapping from a view to the loaders it needs, which is legitimately a
+  version's own property (v5 groups its nav differently already).
+- ✅ `public/v2.html` is 22KB, with `v2.css`/`v2.js` beside it and fonts
+  served separately. All of them are now actually cached — `cacheHeaders()`
+  covered the HTML, fonts and shared modules but not the version bundles,
+  so every version had been re-fetching its own ~250KB on every load.
+- ✅ Switching versions preserves login and lands on the equivalent view.
+- ✅ Each version's Bridge matches its mockup; non-Bridge views are usable
+  and consistent within that version — including v4's, which were the
+  plan's single biggest flagged unknown.
+
+**All four phases are complete.** What remains is the user's own call:
+verifying the branch and choosing which version becomes the default.

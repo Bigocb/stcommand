@@ -5,7 +5,9 @@
 -- reconciles it against each ship's real cargo every coordinator tick, same
 -- cadence as ship_state.
 
-SET search_path TO stcommand;
+-- No `SET search_path` here: src/db/pool.ts sets it per connection from
+-- DB_SCHEMA, so this file applies to whichever schema the migration run
+-- targets (production `stcommand`, or the test schema).
 
 CREATE TABLE IF NOT EXISTS ship_manifest (
   tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

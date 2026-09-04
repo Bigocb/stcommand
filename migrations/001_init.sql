@@ -23,10 +23,15 @@
 -- pool-level `search_path` set in src/db/pool.ts rather than schema-qualifying
 -- every query by hand.
 
-CREATE SCHEMA IF NOT EXISTS stcommand;
-SET search_path TO stcommand;
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA stcommand; -- gen_random_uuid()
+-- The schema itself is created by src/db/migrate.ts (from DB_SCHEMA,
+-- default `stcommand`) and put on the search_path by src/db/pool.ts, so
+-- this file never names it — that's what lets the same migrations build the
+-- throwaway `stcommand_test` schema the test suite runs against.
+--
+-- pgcrypto used to be created here for gen_random_uuid(). It isn't needed:
+-- that function has been in pg_catalog since Postgres 13, and pg_catalog is
+-- always on the search_path. Requiring PG13+ is not a new constraint —
+-- Render's Postgres is 15.
 
 -- ── Control plane ──────────────────────────────────────────────
 
@@ -66,23 +71,27 @@ CREATE INDEX idx_sessions_tenant ON sessions (tenant_id);
 -- to in the first place. RLS on it would make login impossible. The id
 -- column being an unguessable random uuid is that table's real security
 -- boundary, the same way any session token's unguessability is.
--- Scoped to table_schema = 'stcommand' explicitly, not just "whatever's on
--- search_path" — this function must never be able to reach promptoria's
--- tables in `public`, even if this migration is ever run with a different
--- search_path than expected.
+-- Scoped to exactly one schema — current_schema(), the first entry on the
+-- search_path, which src/db/pool.ts sets explicitly from DB_SCHEMA and never
+-- leaves as a default. That keeps the original guarantee (this function can
+-- never reach promptoria's tables in `public`, since `public` is deliberately
+-- off the search_path) while letting the same migration build the test schema
+-- as well as the production one. It is scoped by resolution, not by a
+-- hardcoded name.
 CREATE OR REPLACE FUNCTION apply_tenant_rls() RETURNS void AS $$
 DECLARE
   t text;
+  s text := current_schema();
 BEGIN
   FOR t IN
     SELECT table_name FROM information_schema.columns
-    WHERE column_name = 'tenant_id' AND table_schema = 'stcommand' AND table_name != 'sessions'
+    WHERE column_name = 'tenant_id' AND table_schema = s AND table_name != 'sessions'
   LOOP
-    EXECUTE format('ALTER TABLE stcommand.%I ENABLE ROW LEVEL SECURITY', t);
-    EXECUTE format('ALTER TABLE stcommand.%I FORCE ROW LEVEL SECURITY', t); -- applies even to the table owner
+    EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', s, t);
+    EXECUTE format('ALTER TABLE %I.%I FORCE ROW LEVEL SECURITY', s, t); -- applies even to the table owner
     EXECUTE format(
-      'CREATE POLICY tenant_isolation ON stcommand.%I USING (tenant_id = current_setting(''app.tenant_id'', true)::uuid)',
-      t
+      'CREATE POLICY tenant_isolation ON %I.%I USING (tenant_id = current_setting(''app.tenant_id'', true)::uuid)',
+      s, t
     );
   END LOOP;
 END;

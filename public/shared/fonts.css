@@ -1,0 +1,15 @@
+/* The four faces the command centre is built on, previously inlined into
+   v2.html as ~132KB of base64 — 32% of that file, re-downloaded in full on
+   every load and impossible to cache separately.
+   Split out so all four UIs (v2 plus v3/v4/v5) share one cached copy.
+   Paths are relative to this file, so it works wherever it is linked from. */
+
+@font-face { font-family:'RBdisp'; font-style:normal; font-weight:700; font-display:block; src:url(../fonts/RBdisp-700.woff2) format('woff2'); }
+@font-face { font-family:'RBdisp'; font-style:normal; font-weight:400; font-display:block; src:url(../fonts/RBdisp-400.woff2) format('woff2'); }
+@font-face { font-family:'RBchrome'; font-style:normal; font-weight:400; font-display:block; src:url(../fonts/RBchrome-400.woff2) format('woff2'); }
+@font-face { font-family:'RBchrome'; font-style:normal; font-weight:700; font-display:block; src:url(../fonts/RBchrome-700.woff2) format('woff2'); }
+@font-face { font-family:'RBbook'; font-style:normal; font-weight:400; font-display:block; src:url(../fonts/RBbook-400.woff2) format('woff2'); }
+@font-face { font-family:'RBbook'; font-style:italic; font-weight:400; font-display:block; src:url(../fonts/RBbook-400-italic.woff2) format('woff2'); }
+@font-face { font-family:'RBbook'; font-style:normal; font-weight:700; font-display:block; src:url(../fonts/RBbook-700.woff2) format('woff2'); }
+@font-face { font-family:'RBmono'; font-style:normal; font-weight:400; font-display:block; src:url(../fonts/RBmono-400.woff2) format('woff2'); }
+@font-face { font-family:'RBmono'; font-style:normal; font-weight:700; font-display:block; src:url(../fonts/RBmono-700.woff2) format('woff2'); }

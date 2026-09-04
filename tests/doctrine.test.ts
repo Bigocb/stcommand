@@ -144,17 +144,34 @@ describe("Doctrine: policy library (adopt/remove)", () => {
   });
 
   it("adopting a policy for the first time uses the given initial value, not the catalog default", async () => {
-    const d = new Doctrine(store, tenantA);
+    // A genuine first-time add needs a tenant that has never had a row for
+    // this key — tenantB never writes sensorScanIntervalMin anywhere in this
+    // file, so its cache has no entry and `initialValue` is what lands.
+    //
+    // The original version of this test removed the key from tenantA first
+    // and expected the initial value to win on re-add. That asserted the
+    // opposite of setAdopted()'s documented contract ("initialValue on a
+    // first-time add, or whatever it was last tuned to if re-adding after a
+    // previous remove") — removal deliberately keeps the tuning, so the
+    // remove/re-add path is not a first-time add at all. See the test below,
+    // which now covers that second case properly.
+    const d = new Doctrine(store, tenantB);
     await d.reload();
-    // sensorScanIntervalMin ships enabled:false but defaultAdopted:true — use
-    // a fresh key-like scenario by removing it first, then re-adding with an
-    // explicit initial value, mirroring what the onboarding flow would do
-    // for a brand-new catalog entry it's presenting for the first time.
-    await d.setAdopted("sensorScanIntervalMin", false);
     await d.setAdopted("sensorScanIntervalMin", true, 120);
 
     const rule = d.list().find((r) => r.key === "sensorScanIntervalMin");
     assert.equal(rule?.value, 120);
+  });
+
+  it("re-adding after a removal restores the value it was last tuned to, ignoring any initial value", async () => {
+    const d = new Doctrine(store, tenantA);
+    await d.reload();
+    await d.set("sensorScanIntervalMin", { value: 45 });
+    await d.setAdopted("sensorScanIntervalMin", false);
+    await d.setAdopted("sensorScanIntervalMin", true, 120);
+
+    const rule = d.list().find((r) => r.key === "sensorScanIntervalMin");
+    assert.equal(rule?.value, 45, "removing a policy must not discard the operator's tuning");
   });
 
   it("catalog() reports every policy tagged with this tenant's adopted state, regardless of adoption", async () => {

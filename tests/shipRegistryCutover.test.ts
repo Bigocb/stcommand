@@ -392,18 +392,31 @@ describe("materialBuyers is scoped to the mission's own system", () => {
 });
 
 describe("discoverMaterialBuyers skips the survey when the supply chain shows no producer", () => {
+  // These three drive discoverMaterialBuyers(), which skips any waypoint it
+  // already has a market snapshot for. `market_latest` is a shared galaxy
+  // table with no tenant scoping and no cleanup, so it accumulates across
+  // every test run forever — a fixed fixture waypoint like X1-A-A1 is
+  // "already surveyed" the moment any earlier run touched it, and getMarket()
+  // is then never called. Each test therefore mints its own system so it is
+  // hermetic regardless of what is already in that table.
+  function freshSystem() {
+    const sys = `X1-SC${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+    return { sys, waypoint: `${sys}-A1` };
+  }
+
   it("returns immediately, without surveying anything, for a good that appears nowhere in the supply chain graph", async () => {
     resetSupplyChainCacheForTests();
     const tenantId = await makeTenant();
     const store = new Store(pool);
+    const { sys, waypoint } = freshSystem();
     let surveyed = false;
     const fleet = makeFleet(store, tenantId, {
       getSupplyChain: async () => ({ exportToImportMap: { IRON_ORE: ["IRON"] } }),
       getMarket: async () => { surveyed = true; return { tradeGoods: [] }; },
     });
-    (fleet as any).galaxy = { getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-A1", traits: [{ symbol: "MARKETPLACE" }] }] }) };
+    (fleet as any).galaxy = { getSystem: () => ({ symbol: sys, waypoints: [{ symbol: waypoint, traits: [{ symbol: "MARKETPLACE" }] }] }) };
 
-    const buyers = await (fleet as any).discoverMaterialBuyers("NOT_IN_THE_GRAPH", "X1-A");
+    const buyers = await (fleet as any).discoverMaterialBuyers("NOT_IN_THE_GRAPH", sys);
 
     assert.deepEqual(buyers, []);
     assert.ok(!surveyed, "must never call getMarket() for a good the supply chain shows no producer for");
@@ -413,14 +426,15 @@ describe("discoverMaterialBuyers skips the survey when the supply chain shows no
     resetSupplyChainCacheForTests();
     const tenantId = await makeTenant();
     const store = new Store(pool);
+    const { sys, waypoint } = freshSystem();
     let surveyed = false;
     const fleet = makeFleet(store, tenantId, {
       getSupplyChain: async () => ({ exportToImportMap: { IRON_ORE: ["IRON"] } }),
       getMarket: async () => { surveyed = true; return { tradeGoods: [{ symbol: "IRON", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 100, sellPrice: 50, tradeVolume: 10 }] }; },
     });
-    (fleet as any).galaxy = { getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-A1", traits: [{ symbol: "MARKETPLACE" }] }] }) };
+    (fleet as any).galaxy = { getSystem: () => ({ symbol: sys, waypoints: [{ symbol: waypoint, traits: [{ symbol: "MARKETPLACE" }] }] }) };
 
-    await (fleet as any).discoverMaterialBuyers("IRON", "X1-A");
+    await (fleet as any).discoverMaterialBuyers("IRON", sys);
 
     assert.ok(surveyed, "a good present in the supply chain graph must still go through the normal survey path");
   });
@@ -429,14 +443,15 @@ describe("discoverMaterialBuyers skips the survey when the supply chain shows no
     resetSupplyChainCacheForTests();
     const tenantId = await makeTenant();
     const store = new Store(pool);
+    const { sys, waypoint } = freshSystem();
     let surveyed = false;
     const fleet = makeFleet(store, tenantId, {
       getSupplyChain: async () => { throw new Error("network error"); },
       getMarket: async () => { surveyed = true; return { tradeGoods: [] }; },
     });
-    (fleet as any).galaxy = { getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-A1", traits: [{ symbol: "MARKETPLACE" }] }] }) };
+    (fleet as any).galaxy = { getSystem: () => ({ symbol: sys, waypoints: [{ symbol: waypoint, traits: [{ symbol: "MARKETPLACE" }] }] }) };
 
-    await (fleet as any).discoverMaterialBuyers("ANYTHING", "X1-A");
+    await (fleet as any).discoverMaterialBuyers("ANYTHING", sys);
 
     assert.ok(surveyed, "a failed supply-chain fetch must never block the existing fallback behavior");
   });
