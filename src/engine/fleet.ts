@@ -4058,19 +4058,11 @@ export class FleetManager {
     const now = Date.now();
     // Only attempt exploration at most once every 10 minutes.
     if (unsurveyed.length === 0 || now - this.lastExploreTick < 600_000) return;
-    this.lastExploreTick = now;
 
-    // Pick the best scout: ONLY dedicated intel ships (tour shuttle / chart
-    // scout). Money-making traders and miners must never be pulled off their
-    // routes to scout — exploration is opportunistic, not worth interrupting a
-    // trade cycle for. If no dedicated ship is free, skip this round entirely.
-    // Randomized rather than always unsurveyed[0]: a target that keeps
-    // failing for a non-construction reason (see the catch block below,
-    // which deliberately no longer blacklists on failure) would otherwise
-    // monopolize every future attempt and starve every other unsurveyed
-    // system of ever being tried.
-    const target = unsurveyed[Math.floor(Math.random() * unsurveyed.length)];
-    if (!target) return;
+    // Every idle dedicated intel ship (tour shuttle / chart scout), ONLY.
+    // Money-making traders and miners must never be pulled off their routes
+    // to scout — exploration is opportunistic, not worth interrupting a
+    // trade cycle for.
     const idle = (a: { isManual(): boolean; getShip(): components["schemas"]["Ship"] }) =>
       !a.isManual() && a.getShip().cargo.units === 0;
     const rank = (fuel: number) => -fuel; // more fuel = better for a long jump
@@ -4085,21 +4077,43 @@ export class FleetManager {
       .filter((c) => !this.manualRoleShips.has(c.s) && !c.a.isManual())
       .filter((c) => idle(c.a))
       .sort((a, b) => rank(a.fuel) - rank(b.fuel));
-    const scout = dedicated[0];
-    if (!scout) return;
-    try {
-      this.log(`auto-exploring ${target} with ${scout.s} (${scout.fuel} fuel)`);
-      await this.exploreSystem(scout.s, target);
-      this.surveyedSystems.add(target);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.log(`auto-explore ${target} failed: ${msg}`);
-      // Deliberately NOT marked surveyed here, for any failure reason: a
-      // transient error should be retried on a later pass (throttled the
-      // same 10 minutes as every other attempt), not excluded forever. A
-      // gate under construction is already filtered out of `reachable`
-      // above and needs no separate tracking here.
+    if (dedicated.length === 0) return;
+    this.lastExploreTick = now;
+
+    // Pair every idle scout with a distinct unsurveyed system (shuffled, not
+    // sorted, so a target that keeps failing for a non-construction reason —
+    // see the catch below, which deliberately never blacklists on failure —
+    // can't monopolize the same scout slot pass after pass) and dispatch all
+    // pairs concurrently. Previously this picked exactly one target and one
+    // scout per pass regardless of how many idle scouts were sitting around,
+    // so a bigger scout fleet only improved the odds *someone* was free each
+    // window — it never actually explored faster. Extra idle scouts beyond
+    // unsurveyed.length still just sit out the round; there's nothing left
+    // to send them to yet.
+    const shuffled = [...unsurveyed];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
     }
+    const pairs = dedicated.slice(0, shuffled.length).map((scout, i) => ({ scout, target: shuffled[i]! }));
+
+    await Promise.allSettled(
+      pairs.map(async ({ scout, target }) => {
+        try {
+          this.log(`auto-exploring ${target} with ${scout.s} (${scout.fuel} fuel)`);
+          await this.exploreSystem(scout.s, target);
+          this.surveyedSystems.add(target);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.log(`auto-explore ${target} failed: ${msg}`);
+          // Deliberately NOT marked surveyed here, for any failure reason: a
+          // transient error should be retried on a later pass (throttled the
+          // same 10 minutes as every other attempt), not excluded forever. A
+          // gate under construction is already filtered out of `reachable`
+          // above and needs no separate tracking here.
+        }
+      }),
+    );
   }
 
   /** Drive every ship and the coordination loop. */
