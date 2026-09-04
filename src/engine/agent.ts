@@ -264,6 +264,17 @@ export class ShipAgent {
       return;
     }
     await this.ensureInOrbit();
+    // Re-check after ensureInOrbit(), not just before it: when the ship was
+    // already IN_TRANSIT toward this exact waypoint (e.g. a real in-flight
+    // SpaceTraders navigate command left over from before a process restart,
+    // which the game keeps flying regardless of what our fresh process
+    // remembers), ensureInOrbit() waits out that arrival and refreshes
+    // this.ship — but the guard above already ran before that wait, so
+    // without this second check the call below fires a second, redundant
+    // navigateShip() at the waypoint we just confirmed we're standing on.
+    if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") {
+      return;
+    }
     const need = this.estimatedFuelTo(waypoint);
     // Flight mode: see flightMode.ts's own comment for the exact policy.
     // DRIFT is tried here (instead of giving up, as this used to do
@@ -310,7 +321,15 @@ export class ShipAgent {
         throw err;
       }
       const msg = err instanceof Error ? err.message : String(err);
-      if (/already located at the destination|already at the destination/i.test(msg)) {
+      // The live API's actual wording is "...is currently located at the
+      // destination...", which neither of the phrasings this used to check
+      // for ("already located"/"already at") matches — confirmed live: this
+      // silently failed to catch a real "already there" rejection, letting
+      // it propagate as a genuine navigation failure instead of being
+      // treated as arrival. Matching on "located at the destination" alone
+      // is robust to that kind of prefix wording without needing to know it
+      // exactly.
+      if (/located at the destination/i.test(msg)) {
         // Stale cached nav state — the ship is already there. Refresh and continue.
         await this.refresh();
         this.currentStep = IDLE_STEP;

@@ -391,6 +391,19 @@ export class TraderAgent {
       }
     }
     await this.ensureInOrbit();
+    // Re-check after ensureInOrbit(), not just before it: when the ship was
+    // already IN_TRANSIT toward this exact waypoint (e.g. a real in-flight
+    // SpaceTraders navigate command left over from before a process restart,
+    // which the game keeps flying regardless of what our fresh process
+    // remembers), ensureInOrbit() waits out that arrival and refreshes
+    // this.ship — but the guard at the top of this function already ran
+    // before that wait, so without this second check the call below fires a
+    // second, redundant navigateShip() at the waypoint we just confirmed
+    // we're standing on. Same fix as ShipAgent.navigateTo() (agent.ts).
+    if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") {
+      this.currentStep = IDLE_STEP;
+      return;
+    }
     // Flight mode: see flightMode.ts's own comment for the exact policy and
     // why DRIFT here is safe even without a verified fuel formula (the real
     // navigate call below is still the final authority on whether this leg
@@ -421,7 +434,21 @@ export class TraderAgent {
       // while it's really mid-flight) so ship_state keeps reporting the real
       // target across the suspend; the resumed tick()'s own waitForArrival()
       // call clears it normally once the ship has actually arrived.
-      if (!(err instanceof NavigationPending)) this.currentStep = IDLE_STEP;
+      if (err instanceof NavigationPending) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      // Same recovery as ShipAgent.navigateTo() (agent.ts) — the re-check
+      // above should make this unreachable in practice, but keeps a route
+      // from failing outright if some other race still gets a redundant
+      // navigate call rejected as "already there". The live API's wording is
+      // "...is currently located at the destination...", not "already
+      // located"/"already at" — matching on "located at the destination"
+      // alone is robust to that without needing to know the exact prefix.
+      if (/located at the destination/i.test(msg)) {
+        await this.refresh();
+        this.currentStep = IDLE_STEP;
+        return;
+      }
+      this.currentStep = IDLE_STEP;
       throw err;
     }
   }
