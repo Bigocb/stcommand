@@ -93,7 +93,19 @@ describe("cacheHeaders()", () => {
     assert.equal(h["Cache-Control"], "public, max-age=300");
   });
 
+  it("caches each version's own CSS and JS — the whole point of extracting them", () => {
+    // These were inlined into the HTML until the split; leaving them
+    // uncached means a browser re-fetches ~250KB per load and the
+    // extraction bought nothing. Same short window as shared modules, and
+    // for the same reason: no content hash, replaced in place by a deploy.
+    for (const f of ["/srv/public/v2.css", "/srv/public/v2.js", "/srv/public/v5.js"]) {
+      assert.equal(cacheHeaders(f)!["Cache-Control"], "public, max-age=300", f);
+    }
+  });
+
   it("says nothing about anything else", () => {
     assert.equal(cacheHeaders("/srv/public/icons/icon-192.png"), undefined);
+    // Not every file whose name starts with a v is a version bundle.
+    assert.equal(cacheHeaders("/srv/public/vendor.js"), undefined);
   });
 });

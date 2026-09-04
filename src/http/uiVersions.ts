@@ -65,5 +65,12 @@ export function cacheHeaders(path: string): Record<string, string> | undefined {
   if (path.endsWith(".html")) return { "Cache-Control": "no-cache" };
   if (path.includes("/fonts/")) return { "Cache-Control": "public, max-age=31536000, immutable" };
   if (path.includes("/shared/")) return { "Cache-Control": "public, max-age=300" };
+  // Each version's own CSS and JS. Splitting them out of the HTML was done
+  // so a browser could cache them instead of re-fetching ~250KB inline on
+  // every load — which it will not do unless it is told to. Same short
+  // window and same reason as the shared modules: no content hash in the
+  // filename, so a deploy replaces v3.js in place and the gap where new
+  // HTML can pair with old code has to stay small.
+  if (/\/v[2-9]\.(css|js)$/.test(path)) return { "Cache-Control": "public, max-age=300" };
   return undefined;
 }
