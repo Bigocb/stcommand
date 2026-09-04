@@ -209,6 +209,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
         crossSystem: r.buySystem !== r.sellSystem,
         ageMinutes: r.ageMinutes,
       }));
+      // Drop a cross-system route the fleet cannot actually fly today — no
+      // known gate between buySystem and sellSystem, or one that's still
+      // under construction. computeDispatchRoutes() deliberately doesn't
+      // filter this out itself (its own comment: buy/sell/haul only need
+      // *one* side reachable from the warehouse, not that buyAt and sellAt
+      // are mutually reachable), but this "Routes" panel only ever displays
+      // full round-trip ("direct") candidates, where that mutual reachability
+      // is exactly what canJump() (the same check RouteDispatcher.recompute()
+      // already gates real assignment on) answers. Confirmed live: without
+      // this, the panel listed routes to systems with zero gate connection to
+      // home at all — not "not yet", genuinely disconnected — that no ship
+      // could ever be assigned to, reading as "ignored" rather than
+      // "impossible".
+      const galaxy = w.fleet.getGalaxy();
+      allRoutes = allRoutes.filter((r) => !r.crossSystem || galaxy.canJump(r.buySystem, r.sellSystem));
       // Filtered before the top-N cut below, not after — otherwise a system
       // whose best routes don't crack the fleet-wide top 25 would show up
       // nearly empty even though it has plenty of its own profitable routes.
