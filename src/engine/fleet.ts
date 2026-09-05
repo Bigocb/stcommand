@@ -2327,7 +2327,19 @@ export class FleetManager {
     const tourShips = [...this.tours.keys()].sort();
     const idx = tourShips.indexOf(shipSymbol);
     if (idx < 0 || tourShips.length <= 1) return all;
-    return all.filter((_, i) => i % tourShips.length === idx);
+    // Never slice away the markets of the system this ship is actually in.
+    // The round-robin spreads coverage so shuttles don't cluster on the same
+    // nearest market, but it splits a single global list sorted alphabetically
+    // across every system, so a ship alone in a remote system had only a
+    // 1-in-N chance of its own system's markets landing in its own slice.
+    // Seen live: a scout sat on the X1-TP98 gate reporting "no reachable
+    // target" while holding 37 of them, because the system's one in-range
+    // market — 218 units away, the only one it could actually fly to — had
+    // been dealt to another shuttle's slice, and no other shuttle was within
+    // a jump of TP98.
+    const here = this.tours.get(shipSymbol)?.getShip().nav.systemSymbol;
+    const inThisSystem = (w: string) => here !== undefined && w.slice(0, w.lastIndexOf("-")) === here;
+    return all.filter((w, i) => inThisSystem(w) || i % tourShips.length === idx);
   }
 
   /**
