@@ -1037,8 +1037,8 @@ export class FleetManager {
     for (const a of this.surveyors.values()) a.withWorld(this.positions, this.markets);
     for (const a of this.tours.values()) a.withWorld(this.positions, this.markets);
     for (const a of this.keepers.values()) a.withWorld(this.positions, this.markets);
-    for (const a of this.scouts.values()) a.withWorld(this.positions, this.markets);
-    for (const a of this.siphoners.values()) a.withWorld(this.positions, this.markets);
+    // Scouts and siphoners read the shared registry now, so there is nothing
+    // to push at them — see registry.ts. They are deliberately absent here.
     for (const a of this.traders.values()) a.withWorld(this.positions);
   }
 
@@ -1169,7 +1169,7 @@ export class FleetManager {
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           protectedGoods: () => this.allProtectedGoods(),
-        }).withWorld(this.positions, this.markets),
+        }).withRegistry(this.registry),
       );
       this.log(`role: siphoner ${ship.symbol}`);
     } else if (ship.registration.role === "SATELLITE" || ship.frame?.symbol === "FRAME_PROBE") {
@@ -1374,7 +1374,7 @@ export class FleetManager {
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             protectedGoods: () => this.allProtectedGoods(),
-          }).withWorld(this.positions, this.markets),
+          }).withRegistry(this.registry),
         );
         return undefined;
       case "keeper": {
@@ -1441,7 +1441,7 @@ export class FleetManager {
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
       })
-        .withWorld(this.positions, this.markets)
+        .withRegistry(this.registry)
         .withCharted(this.rawWaypoints.filter((w) => w.chart).map((w) => w.symbol)),
     );
     this.log(`role: scout ${ship.symbol} (chart)`);
@@ -1877,21 +1877,22 @@ export class FleetManager {
       // Root-caused live: the first attempt at this rejected every one of
       // these stops with a huge, seemingly-nonsensical "requires N more
       // fuel" error, even for waypoints a few hundred units from the gate.
-      // ShipAgent/ScoutAgent's own estimatedFuelTo() silently returns 0 for
-      // any waypoint missing from that ship's waypointPositions map — and
-      // that map is seeded once, via withWorld(), at the moment the agent
-      // object was constructed, then never refreshed again for the rest of
-      // that ship's lifetime. A long-lived scout's agent predates every
-      // system discovered mid-session, so every newly-reached system's
-      // waypoints read as "0 fuel away" to it — CRUISE gets picked as if
-      // the leg were free, and the real navigateShip() call (which has no
-      // knowledge of our cache and computes the actual distance) rejects it
-      // with the true, large shortfall. surveySystem() just above already
-      // refreshed this.positions with target's real coordinates; push that
-      // into this specific scout's own cache before asking it to fly
-      // anywhere in the system it just arrived in.
-      const scoutAgent = this.tours.get(shipSymbol) ?? this.scouts.get(shipSymbol);
-      scoutAgent?.withWorld(this.positions, this.markets);
+      // ShipAgent's own estimatedFuelTo() silently returns 0 for any waypoint
+      // missing from that ship's waypointPositions map — and that map is
+      // seeded once, via withWorld(), at the moment the agent object was
+      // constructed, then never refreshed again for the rest of that ship's
+      // lifetime. A long-lived agent predates every system discovered
+      // mid-session, so every newly-reached system's waypoints read as "0
+      // fuel away" to it — CRUISE gets picked as if the leg were free, and
+      // the real navigateShip() call (which computes the actual distance)
+      // rejects it with the true, large shortfall. surveySystem() just above
+      // already refreshed this.positions; push that into this ship's own
+      // cache before asking it to fly anywhere in the system it just reached.
+      //
+      // Tours only: ScoutAgent reads the shared registry now, so it sees the
+      // survey the moment it lands and has nothing to be pushed. This whole
+      // block goes away when ShipAgent migrates too.
+      this.tours.get(shipSymbol)?.withWorld(this.positions, this.markets);
       const MAX_EXTRA_MARKET_STOPS = 3;
       const otherMarkets = (this.galaxy.getSystem(target)?.waypoints ?? [])
         .filter((w) => w.symbol !== remoteGate.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE"))

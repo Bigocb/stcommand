@@ -4,6 +4,7 @@ import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
+import { Registry } from "./registry.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -59,9 +60,9 @@ export class SiphonerAgent {
   private readonly recordMarket: SiphonerOptions["recordMarket"];
   private readonly isMarketWaypoint?: SiphonerOptions["isMarketWaypoint"];
   private readonly protectedGoods?: () => Set<string>;
-  private readonly waypointPositions = new Map<string, WaypointPos>();
+  /** The world, held by reference — see registry.ts and scout.ts's identical field. */
+  private registry: Registry = Registry.standalone();
   private readonly shouldRun?: () => boolean;
-  private markets: MarketSnapshot[] = [];
   private ship: Ship;
   private suspended = false;
   /** The currently in-flight tick(), if any — suspend() awaits this so a caller
@@ -97,10 +98,17 @@ export class SiphonerAgent {
     this.protectedGoods = opts.protectedGoods;
   }
 
-  /** Seed the agent with known waypoint positions and market snapshots. */
+  /** Read the world from the fleet's live registry instead of a private copy. */
+  withRegistry(registry: Registry): this {
+    this.registry = registry;
+    return this;
+  }
+
+  /** Seed positions and prices directly, for an agent with no shared registry. */
   withWorld(positions: WaypointPos[], markets: MarketSnapshot[] = []): this {
-    for (const p of positions) this.waypointPositions.set(p.symbol, p);
-    this.markets = markets;
+    const standalone = this.registry as Registry & { seed?: (w: readonly WaypointPos[]) => void };
+    standalone.seed?.(positions);
+    this.registry.recordMarkets(markets);
     return this;
   }
 
@@ -217,16 +225,11 @@ export class SiphonerAgent {
   }
 
   private estimatedFuelTo(waypoint: string): number {
-    const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
-    const there = this.waypointPositions.get(waypoint);
-    if (!here || !there) return Infinity;
-    return Math.max(1, Math.round(Math.hypot(there.x - here.x, there.y - here.y)));
+    return this.registry.fuelFor(this.ship.nav.waypointSymbol, waypoint);
   }
 
   private distanceTo(wp: WaypointPos): number {
-    const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
-    if (!here) return Infinity;
-    return Math.hypot(wp.x - here.x, wp.y - here.y);
+    return this.registry.distance(this.ship.nav.waypointSymbol, wp.symbol);
   }
 
   private cargoFree(): number {
@@ -237,7 +240,7 @@ export class SiphonerAgent {
   private pickGasGiant(): WaypointPos | undefined {
     let best: WaypointPos | undefined;
     let bestDist = Infinity;
-    for (const wp of this.waypointPositions.values()) {
+    for (const wp of this.registry.waypointsIn(this.ship.nav.systemSymbol)) {
       if (wp.type !== "GAS_GIANT") continue;
       const dist = this.distanceTo(wp);
       if (dist >= bestDist) continue;
@@ -260,7 +263,7 @@ export class SiphonerAgent {
   private nearestReachableMarket(): string | undefined {
     let best: string | undefined;
     let bestDist = Infinity;
-    for (const m of this.markets) {
+    for (const m of this.registry.marketEndpoints(this.ship.nav.systemSymbol)) {
       const need = this.estimatedFuelTo(m.symbol);
       if (need > this.ship.fuel.current) continue;
       if (need < bestDist) {
@@ -272,10 +275,7 @@ export class SiphonerAgent {
   }
 
   private estimatedFuelToBetween(a: string, b: string): number {
-    const pa = this.waypointPositions.get(a);
-    const pb = this.waypointPositions.get(b);
-    if (!pa || !pb) return Infinity;
-    return Math.max(1, Math.round(Math.hypot(pb.x - pa.x, pb.y - pa.y)));
+    return this.registry.fuelFor(a, b);
   }
 
   /** Best market for the cargo currently held: highest total sell value, reachable with current fuel. */
@@ -283,7 +283,7 @@ export class SiphonerAgent {
     const held = this.ship.cargo.inventory.filter((i) => i.units > 0 && !(this.protectedGoods?.() ?? new Set()).has(i.symbol));
     if (held.length === 0) return undefined;
     let best: { symbol: string; value: number } | undefined;
-    for (const m of this.markets) {
+    for (const m of this.registry.markets(this.ship.nav.systemSymbol)) {
       if (this.ship.fuel.capacity > 0 && !this.canReach(m.symbol)) continue;
       let value = 0;
       for (const item of held) {
@@ -474,7 +474,7 @@ export class SiphonerAgent {
     // isMarketWaypoint option. A ship parked on an unsnapshotted fuel station
     // otherwise reports itself stranded while standing on a pump.
     const hereWp = this.ship.nav.waypointSymbol;
-    const atMarket = this.markets.some((m) => m.symbol === hereWp) || (this.isMarketWaypoint?.(hereWp) ?? false);
+    const atMarket = this.registry.isMarket(hereWp) || this.registry.market(hereWp) !== undefined || (this.isMarketWaypoint?.(hereWp) ?? false);
     if (this.ship.fuel.current > this.ship.fuel.capacity * 0.5) return;
     if (atMarket) {
       await this.ensureDocked();
@@ -550,8 +550,7 @@ export class SiphonerAgent {
     }
 
     // 2. Siphon at the gas giant we're parked at.
-    const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
-    if (here?.type === "GAS_GIANT") {
+    if (this.registry.typeOf(this.ship.nav.waypointSymbol) === "GAS_GIANT") {
       return this.siphonUntilFull();
     }
 

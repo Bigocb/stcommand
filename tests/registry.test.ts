@@ -171,3 +171,35 @@ describe("Registry: version", () => {
     assert.equal(registry.version, start);
   });
 });
+
+describe("Registry: marketEndpoints", () => {
+  it("unions trait-marked markets with priced ones, scoped to the system", () => {
+    const registry = new Registry(atlasWith({
+      "X1-A": [
+        { symbol: "X1-A-FUEL", x: 0, y: 0, traits: ["MARKETPLACE"] }, // trait, never priced
+        { symbol: "X1-A-P2", x: 1, y: 1 },                             // priced, no trait visible
+        { symbol: "X1-A-P3", x: 2, y: 2 },                             // neither
+      ],
+      "X1-B": [{ symbol: "X1-B-M9", x: 0, y: 0, traits: ["MARKETPLACE"] }],
+    }));
+    registry.recordMarket(snapshot("X1-A-P2", "X1-A"));
+
+    assert.deepEqual(
+      registry.marketEndpoints("X1-A").map((w) => w.symbol).sort(),
+      ["X1-A-FUEL", "X1-A-P2"],
+      "both kinds count, and only in this system",
+    );
+  });
+
+  it("never returns a duplicate for a waypoint that is both trait-marked and priced", () => {
+    const registry = new Registry(atlasWith({ "X1-A": [{ symbol: "X1-A-M1", x: 0, y: 0, traits: ["MARKETPLACE"] }] }));
+    registry.recordMarket(snapshot("X1-A-M1", "X1-A"));
+    assert.equal(registry.marketEndpoints("X1-A").length, 1);
+  });
+
+  it("omits a priced market whose position is unknown, since no leg to it can be measured", () => {
+    const registry = new Registry(atlasWith({ "X1-A": [{ symbol: "X1-A-M1", x: 0, y: 0, traits: ["MARKETPLACE"] }] }));
+    registry.recordMarket(snapshot("X1-A-GHOST", "X1-A"));
+    assert.deepEqual(registry.marketEndpoints("X1-A").map((w) => w.symbol), ["X1-A-M1"]);
+  });
+});

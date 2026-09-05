@@ -1,4 +1,3 @@
-import type { GalaxyAtlas } from "./galaxy.js";
 import type { MarketSnapshot } from "./market.js";
 import type { components } from "../core/client.js";
 
@@ -9,6 +8,56 @@ export interface WaypointPos {
   x: number;
   y: number;
   type?: WaypointType;
+}
+
+/**
+ * The only thing Registry needs from a world: look up a system and read its
+ * waypoints. `GalaxyAtlas` satisfies this structurally, so production passes
+ * the live atlas and gets liveness for free. Declaring the dependency this
+ * narrowly (rather than importing GalaxyAtlas) is what lets an agent hold a
+ * standalone registry seeded from plain coordinates — a test fixture, or an
+ * agent constructed before the fleet handed it the shared one — without
+ * dragging in an API client it has no use for.
+ */
+export interface TopologySource {
+  getSystem(symbol: string): { waypoints: readonly TopologyWaypoint[] } | undefined;
+}
+
+export interface TopologyWaypoint {
+  symbol: string;
+  x: number;
+  y: number;
+  type?: WaypointType;
+  traits?: readonly { symbol: string }[];
+}
+
+/**
+ * A world held directly rather than derived from a live atlas — what
+ * `ShipAgent.withWorld()` and friends seed when no shared registry has been
+ * injected. Traits are absent from plain coordinates, so `isMarket()` on one
+ * of these answers from recorded snapshots alone; the trait check only becomes
+ * authoritative once the real atlas is behind it.
+ */
+export class MemoryTopology implements TopologySource {
+  private readonly systems = new Map<string, { waypoints: TopologyWaypoint[] }>();
+
+  getSystem(symbol: string): { waypoints: readonly TopologyWaypoint[] } | undefined {
+    return this.systems.get(symbol);
+  }
+
+  add(waypoints: readonly WaypointPos[]): void {
+    for (const w of waypoints) {
+      const sys = w.symbol.slice(0, w.symbol.lastIndexOf("-"));
+      let entry = this.systems.get(sys);
+      if (!entry) {
+        entry = { waypoints: [] };
+        this.systems.set(sys, entry);
+      }
+      const existing = entry.waypoints.findIndex((e) => e.symbol === w.symbol);
+      if (existing >= 0) entry.waypoints[existing] = { ...w };
+      else entry.waypoints.push({ ...w });
+    }
+  }
 }
 
 /**
@@ -47,7 +96,18 @@ export class Registry {
   private readonly marketsByWaypoint = new Map<string, MarketSnapshot>();
   private _version = 0;
 
-  constructor(private readonly galaxy: GalaxyAtlas) {}
+  constructor(private readonly topology: TopologySource) {}
+
+  /** A registry over its own in-memory world, for a reader with no shared one yet. */
+  static standalone(): Registry & { seed(waypoints: readonly WaypointPos[]): void } {
+    const memory = new MemoryTopology();
+    const registry = new Registry(memory) as Registry & { seed(waypoints: readonly WaypointPos[]): void };
+    registry.seed = (waypoints) => {
+      memory.add(waypoints);
+      registry.noteTopologyChanged();
+    };
+    return registry;
+  }
 
   get version(): number {
     return this._version;
@@ -66,14 +126,14 @@ export class Registry {
 
   /** Live position, or undefined if no scan has reached this waypoint. */
   position(waypointSymbol: string): WaypointPos | undefined {
-    const sys = this.galaxy.getSystem(this.systemOf(waypointSymbol));
+    const sys = this.topology.getSystem(this.systemOf(waypointSymbol));
     const w = sys?.waypoints.find((wp) => wp.symbol === waypointSymbol);
     return w ? { symbol: w.symbol, x: w.x, y: w.y, type: w.type } : undefined;
   }
 
   /** Every known waypoint in a system. Empty for a system never loaded. */
   waypointsIn(systemSymbol: string): WaypointPos[] {
-    const sys = this.galaxy.getSystem(systemSymbol);
+    const sys = this.topology.getSystem(systemSymbol);
     if (!sys) return [];
     return sys.waypoints.map((w) => ({ symbol: w.symbol, x: w.x, y: w.y, type: w.type }));
   }
@@ -121,8 +181,8 @@ export class Registry {
    * *is*, never what we happen to hold prices for.
    */
   hasTrait(waypointSymbol: string, trait: string): boolean {
-    const sys = this.galaxy.getSystem(this.systemOf(waypointSymbol));
-    return sys?.waypoints.some((w) => w.symbol === waypointSymbol && w.traits.some((t) => t.symbol === trait)) ?? false;
+    const sys = this.topology.getSystem(this.systemOf(waypointSymbol));
+    return sys?.waypoints.some((w) => w.symbol === waypointSymbol && (w.traits ?? []).some((t) => t.symbol === trait)) ?? false;
   }
 
   /**
@@ -157,6 +217,35 @@ export class Registry {
    */
   marketWaypointsIn(systemSymbol: string): WaypointPos[] {
     return this.waypointsIn(systemSymbol).filter((w) => this.isMarket(w.symbol));
+  }
+
+  /**
+   * Every waypoint in a system that can be treated as a market: carrying the
+   * MARKETPLACE trait, or having a recorded price snapshot, and with a known
+   * position so a distance to it can actually be measured.
+   *
+   * The union is deliberate, and it is the pool every "where do I refuel" and
+   * "where is the nearest market" decision should draw from. Trait-only
+   * catches the fuel station nobody has priced yet (DAGGER-13 sat on one
+   * reporting itself stranded). Snapshot-only catches a market whose traits
+   * this registry cannot see, which is the case for any world seeded from
+   * plain coordinates rather than the live atlas.
+   *
+   * Locality-scoped by design: a market in another system is not a candidate
+   * for a leg you would fly, because that needs a jump. Callers wanting to
+   * cross a boundary must plan the jump explicitly.
+   */
+  marketEndpoints(systemSymbol: string): WaypointPos[] {
+    const out = new Map<string, WaypointPos>();
+    for (const w of this.waypointsIn(systemSymbol)) {
+      if (this.isMarket(w.symbol)) out.set(w.symbol, w);
+    }
+    for (const m of this.markets(systemSymbol)) {
+      if (out.has(m.symbol)) continue;
+      const pos = this.position(m.symbol);
+      if (pos) out.set(m.symbol, pos);
+    }
+    return [...out.values()];
   }
 
   /** Record or replace a market snapshot. Called as ships dock, and from a survey. */

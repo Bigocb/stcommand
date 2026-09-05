@@ -4,6 +4,7 @@ import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, NavigationPending, Pending } from "./agentStep.js";
+import { Registry } from "./registry.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -62,9 +63,15 @@ export class ScoutAgent {
   private readonly onScan: ScoutOptions["onScan"];
   private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
-  private readonly waypointPositions = new Map<string, WaypointPos>();
   private readonly shouldRun?: () => boolean;
-  private markets: MarketSnapshot[] = [];
+  /**
+   * The world, held by reference — see registry.ts. Defaults to a standalone
+   * one so a scout built without a shared registry (a test, or a construction
+   * that predates the fleet handing one over) still works; withRegistry()
+   * swaps in the fleet's live instance, and from then on a chart or survey
+   * anywhere is visible here immediately, with nothing to re-seed.
+   */
+  private registry: Registry = Registry.standalone();
   private readonly charted = new Set<string>();
   private ship: Ship;
   private suspended = false;
@@ -105,10 +112,17 @@ export class ScoutAgent {
     this.systemSymbol = ship.nav.systemSymbol;
   }
 
-  /** Seed the scout with known waypoint positions and market snapshots. */
+  /** Read the world from the fleet's live registry instead of a private copy. */
+  withRegistry(registry: Registry): this {
+    this.registry = registry;
+    return this;
+  }
+
+  /** Seed positions and prices directly, for a scout with no shared registry. */
   withWorld(positions: WaypointPos[], markets: MarketSnapshot[] = []): this {
-    for (const p of positions) this.waypointPositions.set(p.symbol, p);
-    this.markets = markets;
+    const standalone = this.registry as Registry & { seed?: (w: readonly WaypointPos[]) => void };
+    standalone.seed?.(positions);
+    this.registry.recordMarkets(markets);
     return this;
   }
 
@@ -285,51 +299,21 @@ export class ScoutAgent {
   }
 
   private distanceTo(wp: WaypointPos): number {
-    const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
-    // Not knowing where we are is not the same as everything being adjacent.
-    // Callers sort on this and compare it against a running best, so 0 made a
-    // ship with an unknown position pick an arbitrary target and fly at it on
-    // a fabricated estimate. SiphonerAgent already had this right; matching it.
-    if (!here) return Infinity;
-    return Math.hypot(wp.x - here.x, wp.y - here.y);
+    return this.registry.distance(this.ship.nav.waypointSymbol, wp.symbol);
   }
 
   private estimatedFuelTo(waypoint: string): number {
-    const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
-    const there = this.waypointPositions.get(waypoint);
-    // Unknown position means unknown distance, and that must fail closed.
-    // Returning 0 here made a waypoint we had no coordinates for look like the
-    // nearest thing in the galaxy, so exactly the candidates we knew least
-    // about scored best: it picked refuel stops in other systems, sent ships
-    // chasing sell markets they could not reach, and let chooseFlightMode()
-    // read a long leg as free and commit to CRUISE — the live "requires 1048
-    // more fuel" rejections. Every caller compares this against a fuel budget
-    // and skips what exceeds it, so Infinity simply excludes what we cannot
-    // measure.
-    if (!here || !there) return Infinity;
-    return Math.max(1, Math.round(Math.hypot(there.x - here.x, there.y - here.y)));
+    return this.registry.fuelFor(this.ship.nav.waypointSymbol, waypoint);
   }
 
   private estimatedFuelToBetween(a: string, b: string): number {
-    const pa = this.waypointPositions.get(a);
-    const pb = this.waypointPositions.get(b);
-    // Unknown position means unknown distance, and that must fail closed.
-    // Returning 0 here made a waypoint we had no coordinates for look like the
-    // nearest thing in the galaxy, so exactly the candidates we knew least
-    // about scored best: it picked refuel stops in other systems, sent ships
-    // chasing sell markets they could not reach, and let chooseFlightMode()
-    // read a long leg as free and commit to CRUISE — the live "requires 1048
-    // more fuel" rejections. Every caller compares this against a fuel budget
-    // and skips what exceeds it, so Infinity simply excludes what we cannot
-    // measure.
-    if (!pa || !pb) return Infinity;
-    return Math.max(1, Math.round(Math.hypot(pb.x - pa.x, pb.y - pa.y)));
+    return this.registry.fuelFor(a, b);
   }
 
   private nearestMarketTo(waypoint: string): string | undefined {
     let best: string | undefined;
     let bestDist = Infinity;
-    for (const m of this.markets) {
+    for (const m of this.registry.marketEndpoints(this.registry.systemOf(waypoint))) {
       const d = this.estimatedFuelToBetween(waypoint, m.symbol);
       if (d < bestDist) {
         bestDist = d;
@@ -342,7 +326,7 @@ export class ScoutAgent {
   private nearestReachableMarket(): string | undefined {
     let best: string | undefined;
     let bestDist = Infinity;
-    for (const m of this.markets) {
+    for (const m of this.registry.marketEndpoints(this.ship.nav.systemSymbol)) {
       const need = this.estimatedFuelTo(m.symbol);
       if (need > this.ship.fuel.current) continue;
       if (need < bestDist) {
@@ -366,7 +350,7 @@ export class ScoutAgent {
     // isMarketWaypoint option. A ship parked on an unsnapshotted fuel station
     // otherwise reports itself stranded while standing on a pump.
     const hereWp = this.ship.nav.waypointSymbol;
-    const atMarket = this.markets.some((m) => m.symbol === hereWp) || (this.isMarketWaypoint?.(hereWp) ?? false);
+    const atMarket = this.registry.isMarket(hereWp) || this.registry.market(hereWp) !== undefined || (this.isMarketWaypoint?.(hereWp) ?? false);
     const trip = target ? this.fuelNeededRoundTrip(target) : this.ship.fuel.capacity * 0.9;
     if (this.ship.fuel.current > trip + reserve) return true;
     if (atMarket) {
@@ -404,7 +388,11 @@ export class ScoutAgent {
 
   /** Nearest uncharted waypoint that can be reached and returned from on one tank, or undefined. */
   private pickChartTarget(): WaypointPos | undefined {
-    const candidates = [...this.waypointPositions.values()]
+    // Scoped to this system: a waypoint in another one needs a jump, not a
+    // navigate, and registry.distance() reports Infinity across the boundary
+    // anyway. Filtering here says so directly instead of relying on that.
+    const candidates = this.registry
+      .waypointsIn(this.ship.nav.systemSymbol)
       .filter((w) => !this.charted.has(w.symbol))
       .filter((w) => this.ship.fuel.capacity <= 0 || this.fuelNeededRoundTrip(w.symbol) <= this.ship.fuel.capacity);
     if (candidates.length === 0) return undefined;
