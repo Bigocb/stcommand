@@ -5,6 +5,7 @@ import type { GalaxyAtlas } from "./galaxy.js";
 import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, type TraderAssignment } from "./dispatcher.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
+import { Registry } from "./registry.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -158,7 +159,8 @@ export class TraderAgent {
   private readonly deliverCargo?: TraderOptions["deliverCargo"];
   private readonly contractNeeded?: TraderOptions["contractNeeded"];
   private ship: Ship;
-  private positions = new Map<string, WaypointPos>();
+  /** The world, held by reference — see registry.ts. */
+  private registry: Registry = Registry.standalone();
   /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
   private priceTable = new Map<string, Map<string, { buy: number; sell: number; volume: number }>>();
   /** Prices this ship read live at a market, and when. Newer than the store. */
@@ -263,8 +265,16 @@ export class TraderAgent {
     this.log("resumed");
   }
 
+  /** Read the world from the fleet's live registry instead of a private copy. */
+  withRegistry(registry: Registry): this {
+    this.registry = registry;
+    return this;
+  }
+
+  /** Seed positions directly, for a trader with no shared registry. */
   withWorld(positions: WaypointPos[]): this {
-    for (const p of positions) this.positions.set(p.symbol, p);
+    const standalone = this.registry as Registry & { seed?: (w: readonly WaypointPos[]) => void };
+    standalone.seed?.(positions);
     return this;
   }
 
@@ -347,14 +357,18 @@ export class TraderAgent {
    * the signature of a DRIFT that was never necessary.
    */
   private knownDistBetween(a: string, b: string): number | undefined {
-    const pa = this.positions.get(a);
-    const pb = this.positions.get(b);
-    if (!pa || !pb) return undefined;
-    return Math.max(1, Math.round(Math.hypot(pb.x - pa.x, pb.y - pa.y)));
+    // Cross-system now reports unmeasurable rather than a meaningless hypot
+    // across two unrelated coordinate spaces, which is what this method's own
+    // callers already assumed: every one of them either guards on same-system
+    // first, or only uses the result to reject. tripCost() reaches
+    // distBetween() solely on its same-system branch, so the pessimistic 1000
+    // it falls back to still never has to stand in for a jump.
+    const d = this.registry.fuelFor(a, b);
+    return Number.isFinite(d) ? d : undefined;
   }
 
   private systemOf(wp: string): string {
-    return wp.slice(0, wp.lastIndexOf("-"));
+    return this.registry.systemOf(wp);
   }
 
   /** True if a leg between two systems is flyable right now: same system

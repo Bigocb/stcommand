@@ -336,7 +336,7 @@ export class FleetManager {
         this.surveyors.delete(best.symbol);
         this.traders.set(
           best.symbol,
-          new TraderAgent(best, this.traderOptions(best.symbol)).withWorld(this.positions),
+          new TraderAgent(best, this.traderOptions(best.symbol)).withRegistry(this.registry),
         );
         this.log(`role: trader ${best.symbol} (promoted, largest cargo)`);
       }
@@ -359,7 +359,7 @@ export class FleetManager {
         this.miners.delete(best.symbol);
         this.traders.set(
           best.symbol,
-          new TraderAgent(best, this.traderOptions(best.symbol)).withWorld(this.positions),
+          new TraderAgent(best, this.traderOptions(best.symbol)).withRegistry(this.registry),
         );
         this.log(`role: trader ${best.symbol} (promoted, large hold)`);
       }
@@ -1039,7 +1039,6 @@ export class FleetManager {
     for (const a of this.keepers.values()) a.withWorld(this.positions, this.markets);
     // Scouts and siphoners read the shared registry now, so there is nothing
     // to push at them — see registry.ts. They are deliberately absent here.
-    for (const a of this.traders.values()) a.withWorld(this.positions);
   }
 
   /**
@@ -1235,7 +1234,7 @@ export class FleetManager {
     } else if (hasCargo) {
       this.traders.set(
         ship.symbol,
-        new TraderAgent(ship, this.traderOptions(ship.symbol)).withWorld(this.positions),
+        new TraderAgent(ship, this.traderOptions(ship.symbol)).withRegistry(this.registry),
       );
       this.log(`role: trader ${ship.symbol}`);
     } else {
@@ -1419,7 +1418,7 @@ export class FleetManager {
         );
         return undefined;
       case "trader":
-        this.traders.set(shipSymbol, new TraderAgent(ship, this.traderOptions(shipSymbol)).withWorld(this.positions));
+        this.traders.set(shipSymbol, new TraderAgent(ship, this.traderOptions(shipSymbol)).withRegistry(this.registry));
         return undefined;
       case "scout":
         this.registerScout(ship);
