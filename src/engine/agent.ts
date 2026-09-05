@@ -3,9 +3,9 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
-import { chooseFlightMode, flightModeReason } from "./flightMode.js";
+import { type AgentStep, IDLE_STEP, Pending } from "./agentStep.js";
 import { Registry } from "./registry.js";
+import { ShipProxy } from "./shipProxy.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -155,7 +155,11 @@ export class ShipAgent {
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly keeperMarket?: () => string | undefined;
   private readonly shouldRun?: () => boolean;
-  private ship: Ship;
+  private readonly proxy: ShipProxy;
+  /** Every `this.ship` read and write in this class goes through the one copy
+   *  the proxy owns — see shipProxy.ts. */
+  private get ship(): Ship { return this.proxy.getShip(); }
+  private set ship(s: Ship) { this.proxy.setShip(s); }
   private goal: ShipGoal = { kind: "idle" };
   private manualGoal: ShipGoal | null = null;
   private suspended = false;
@@ -184,14 +188,16 @@ export class ShipAgent {
   private pinnedMiningTarget?: string;
   private marketTourIndex = 0;
   running = false;
-  private currentStep: AgentStep = IDLE_STEP;
+  private get currentStep(): AgentStep { return this.proxy.getStep(); }
+  private set currentStep(s: AgentStep) { this.proxy.setStep(s); }
   /** True only for the exact duration of a nextTask()-family run() closure's
    *  call into tick()/surveyScout()/tourScout()/keeperPoll() — see
    *  agentStep.ts's NavigationPending doc comment for why this is scoped
    *  this narrowly rather than a flag set once and left true: dispatchTo()
    *  also reaches navigateTo(), directly from fleet.ts, never through any of
    *  those four methods, and must keep blocking exactly as before. */
-  private schedulerDriven = false;
+  private get schedulerDriven(): boolean { return this.proxy.schedulerDriven; }
+  private set schedulerDriven(v: boolean) { this.proxy.schedulerDriven = v; }
 
   /** What this ship is doing right now, if it's mid-navigation or mid-transaction — see agentStep.ts. */
   getStep(): AgentStep {
@@ -200,7 +206,6 @@ export class ShipAgent {
 
   constructor(ship: Ship, opts: AgentOptions) {
     this.symbol = ship.symbol;
-    this.ship = ship;
     this.api = opts.api;
     this.log = opts.log ?? ((m) => console.log(`[${this.symbol}] ${m}`));
     this.recordLedger = opts.recordLedger;
@@ -218,11 +223,21 @@ export class ShipAgent {
     this.recordShipyard = opts.recordShipyard;
     this.keeperMarket = opts.keeperMarket;
     this.shouldRun = opts.shouldRun;
+    // Built last: it owns the ship state the `this.ship` accessor reads
+    // through, so nothing may touch that accessor before this line.
+    this.proxy = new ShipProxy(ship, {
+      api: opts.api,
+      registry: this.registry,
+      log: this.log,
+      onActivity: opts.onActivity ? (k, d, c) => opts.onActivity!(k, d, c) : undefined,
+      recordMarket: opts.recordMarket,
+    });
   }
 
   /** Read the world from the fleet's live registry instead of a private copy. */
   withRegistry(registry: Registry): this {
     this.registry = registry;
+    this.proxy.setRegistry(registry);
     return this;
   }
 
@@ -239,187 +254,34 @@ export class ShipAgent {
   }
 
   private async refresh(): Promise<void> {
-    this.ship = await this.api.getShip(this.symbol);
+    return this.proxy.refresh();
   }
 
   private async waitCooldown(): Promise<void> {
-    const cd = this.ship.cooldown;
-    if (!cd || cd.remainingSeconds <= 0) return;
-    // Scheduler-driven: report when this ship can next act instead of
-    // sleeping inside Scheduler.runOnce()'s sequential loop, where the sleep
-    // held every other ship's task (rescue included) for the whole cooldown
-    // — see CooldownPending's own comment.
-    if (this.schedulerDriven) throw new CooldownPending(Date.now() + cd.remainingSeconds * 1000 + 250);
-    this.log(`cooldown ${cd.remainingSeconds}s`);
-    await sleep(cd.remainingSeconds * 1000 + 250);
-    await this.refresh();
+    return this.proxy.waitCooldown();
   }
 
   /** A short back-off that yields the scheduler instead of blocking it — the
    *  "pending cooldown, waiting…" retry paths below used to sleep 6 s in place. */
   private async pause(ms: number): Promise<void> {
-    if (this.schedulerDriven) throw new CooldownPending(Date.now() + ms, "backoff");
-    await sleep(ms);
-    await this.refresh();
+    return this.proxy.pause(ms);
   }
 
   private async ensureInOrbit(): Promise<void> {
-    if (this.ship.nav.status === "IN_ORBIT") return;
-    if (this.ship.nav.status === "IN_TRANSIT") {
-      await this.waitForArrival();
-    }
-    if (this.ship.nav.status === "DOCKED") {
-      this.log("docking → orbit");
-      await this.api.orbitShip(this.symbol);
-      await this.refresh();
-    }
+    return this.proxy.ensureInOrbit();
   }
 
   private async ensureDocked(): Promise<void> {
-    if (this.ship.nav.status === "DOCKED") return;
-    if (this.ship.nav.status === "IN_TRANSIT") {
-      await this.waitForArrival();
-    }
-    if (this.ship.nav.status === "IN_ORBIT") {
-      this.log("orbit → dock");
-      await this.api.dockShip(this.symbol);
-      await this.refresh();
-      if (this.recordMarket) await this.recordMarket(this.ship.nav.waypointSymbol);
-    }
+    return this.proxy.ensureDocked();
   }
 
   /** Wait until the ship has finished its current transit. */
   private async waitForArrival(): Promise<void> {
-    if (this.schedulerDriven) {
-      // Always refresh before deciding: whatever route this.ship currently
-      // carries isn't guaranteed to be from *this* transit (ensureInOrbit()/
-      // ensureDocked() call this using whatever this.ship already holds, not
-      // a value this method itself just fetched) — a single non-blocking
-      // check has no retry loop to self-correct that the way the blocking
-      // version below does, so it must get real, current data first.
-      await this.refresh();
-      if (this.ship.nav.status !== "IN_TRANSIT") return;
-      const wait = new Date(this.ship.nav.route.arrival).getTime() - Date.now();
-      throw new NavigationPending(Date.now() + wait);
-    }
-    for (;;) {
-      const arrival = new Date(this.ship.nav.route.arrival).getTime();
-      const wait = arrival - Date.now();
-      if (wait > 0) {
-        this.log(`in transit, arrival in ${Math.round(wait / 1000)}s`);
-        await sleep(wait + 1000);
-      }
-      await this.refresh();
-      if (this.ship.nav.status !== "IN_TRANSIT") return;
-    }
+    return this.proxy.waitForArrival();
   }
 
   private async navigateTo(waypoint: string): Promise<void> {
-    if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") {
-      return;
-    }
-    await this.ensureInOrbit();
-    // Re-check after ensureInOrbit(), not just before it: when the ship was
-    // already IN_TRANSIT toward this exact waypoint (e.g. a real in-flight
-    // SpaceTraders navigate command left over from before a process restart,
-    // which the game keeps flying regardless of what our fresh process
-    // remembers), ensureInOrbit() waits out that arrival and refreshes
-    // this.ship — but the guard above already ran before that wait, so
-    // without this second check the call below fires a second, redundant
-    // navigateShip() at the waypoint we just confirmed we're standing on.
-    if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") {
-      return;
-    }
-    const need = this.estimatedFuelTo(waypoint);
-    // Flight mode: see flightMode.ts's own comment for the exact policy.
-    // DRIFT is tried here (instead of giving up, as this used to do
-    // unconditionally on an unaffordable-at-CRUISE leg) because the real
-    // navigate call below is the final authority on whether the leg is
-    // actually reachable, DRIFT or not — this never makes stranding worse,
-    // only sometimes avoids it. A patch failure doesn't block the attempt:
-    // worst case, navigateShip() below is tried in whatever mode was
-    // already set, same as before this existed.
-    // A distance we could not measure must not drive this decision. Since
-    // estimatedFuelTo() now reports Infinity for an unknown waypoint (so
-    // reachability checks fail closed), feeding it here would mean
-    // "currentFuel < Infinity" — DRIFT, always, on any leg whose endpoints we
-    // lack a position for. DRIFT then *succeeds* and crawls for hours: a
-    // trader hit exactly this and spent 7h34m on a 172-unit leg with a nearly
-    // full tank. Leave the mode as it is and let navigateShip() below be the
-    // authority, which this comment already says is its job.
-    if (this.ship.fuel.capacity > 0) {
-      // Pick a mode only from a distance we actually have — but never leave a
-      // ship sitting in DRIFT because we could not measure one. DRIFT is
-      // sticky: "leave the mode alone" preserves whatever the last leg set, so
-      // a ship that drifted once goes on crawling every leg after it, and
-      // since the report below only fired on a *change*, it did so silently.
-      // Three scouts sat in multi-hour transits at two fuel a leg with nothing
-      // in the log to say why. Unmeasurable distance means fall back to
-      // CRUISE and let navigateShip() be the authority, never keep drifting.
-      const mode = Number.isFinite(need)
-        ? chooseFlightMode(need, this.ship.fuel.current, this.ship.fuel.capacity)
-        : this.ship.nav.flightMode === "DRIFT"
-          ? "CRUISE"
-          : undefined;
-      if (mode !== undefined && mode !== this.ship.nav.flightMode) {
-        try {
-          const patched = await this.api.patchShipNav(this.symbol, mode);
-          this.ship = { ...this.ship, nav: patched.nav, fuel: patched.fuel };
-          this.onActivity?.("flightmode", `${mode.toLowerCase()} mode${flightModeReason(mode)} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`, undefined, this.symbol);
-        } catch (err) {
-          this.log(`flight mode change to ${mode} failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-      // Report the mode this leg actually flies in, not merely transitions
-      // into. DRIFT turns a minutes-long leg into an hours-long one and was
-      // reported only through onActivity — the dashboard, not the app log — so
-      // a ship that vanished for seven hours left no record of why.
-      if (this.ship.nav.flightMode === "DRIFT") {
-        this.log(`DRIFT leg to ${waypoint}: needs ${need} at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
-      }
-    }
-    this.currentStep = { kind: "navigating", to: waypoint };
-    try {
-      const arrival = await this.api.navigateShip(this.symbol, waypoint);
-      this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
-      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.symbol);
-      if (this.schedulerDriven) {
-        const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
-        if (wait > 0) throw new NavigationPending(Date.now() + wait);
-        await this.refresh();
-      } else {
-        const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
-        if (wait > 0) {
-          this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
-          await sleep(wait + 1000);
-        }
-        await this.refresh();
-      }
-      this.currentStep = IDLE_STEP;
-    } catch (err) {
-      if (err instanceof NavigationPending) {
-        // Leave currentStep as "navigating" — the ship genuinely still is;
-        // see trader.ts's identical navigateTo() catch for why.
-        throw err;
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      // The live API's actual wording is "...is currently located at the
-      // destination...", which neither of the phrasings this used to check
-      // for ("already located"/"already at") matches — confirmed live: this
-      // silently failed to catch a real "already there" rejection, letting
-      // it propagate as a genuine navigation failure instead of being
-      // treated as arrival. Matching on "located at the destination" alone
-      // is robust to that kind of prefix wording without needing to know it
-      // exactly.
-      if (/located at the destination/i.test(msg)) {
-        // Stale cached nav state — the ship is already there. Refresh and continue.
-        await this.refresh();
-        this.currentStep = IDLE_STEP;
-        return;
-      }
-      this.currentStep = IDLE_STEP;
-      throw err;
-    }
+    return this.proxy.navigateTo(waypoint);
   }
 
   private cargoFree(): number {

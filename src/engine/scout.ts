@@ -3,9 +3,9 @@ import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, NavigationPending, Pending } from "./agentStep.js";
+import { type AgentStep, Pending } from "./agentStep.js";
 import { Registry } from "./registry.js";
-import { chooseFlightMode, flightModeReason } from "./flightMode.js";
+import { ShipProxy } from "./shipProxy.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -73,7 +73,11 @@ export class ScoutAgent {
    */
   private registry: Registry = Registry.standalone();
   private readonly charted = new Set<string>();
-  private ship: Ship;
+  private readonly proxy: ShipProxy;
+  /** Every `this.ship` read and write in this class goes through the one copy
+   *  the proxy owns — see shipProxy.ts. */
+  private get ship(): Ship { return this.proxy.getShip(); }
+  private set ship(s: Ship) { this.proxy.setShip(s); }
   private suspended = false;
   /** The currently in-flight tick(), if any — suspend() awaits this so a caller
    *  about to mutate this ship's nav state directly (rescue/mission dispatch)
@@ -84,13 +88,15 @@ export class ScoutAgent {
   private scanCooldownUntil = 0;
   private scanSystemsNext = true;
   running = false;
-  private currentStep: AgentStep = IDLE_STEP;
+  private get currentStep(): AgentStep { return this.proxy.getStep(); }
+  private set currentStep(s: AgentStep) { this.proxy.setStep(s); }
   /** True only for the exact duration of nextTask()'s run() closure's call
    *  into tick() — see agentStep.ts's NavigationPending doc comment for why
    *  this is scoped this narrowly rather than a flag set once and left true:
    *  dispatchTo()-style manual dispatch also reaches navigateTo(), never
    *  through tick(), and must keep blocking exactly as before. */
-  private schedulerDriven = false;
+  private get schedulerDriven(): boolean { return this.proxy.schedulerDriven; }
+  private set schedulerDriven(v: boolean) { this.proxy.schedulerDriven = v; }
 
   /** What this ship is doing right now, if it's mid-navigation — see agentStep.ts. Scouts never transact. */
   getStep(): AgentStep {
@@ -99,7 +105,6 @@ export class ScoutAgent {
 
   constructor(ship: Ship, opts: ScoutOptions) {
     this.symbol = ship.symbol;
-    this.ship = ship;
     this.api = opts.api;
     this.log = opts.log ?? ((m) => console.log(`[${this.symbol}] ${m}`));
     this.recordLedger = opts.recordLedger;
@@ -110,11 +115,21 @@ export class ScoutAgent {
     this.onScan = opts.onScan;
     this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
     this.systemSymbol = ship.nav.systemSymbol;
+    // Built last: it owns the ship state every `this.ship` accessor above
+    // reads through, so nothing may touch that accessor before this line.
+    this.proxy = new ShipProxy(ship, {
+      api: opts.api,
+      registry: this.registry,
+      log: this.log,
+      onActivity: opts.onActivity,
+      recordMarket: opts.recordMarket,
+    });
   }
 
   /** Read the world from the fleet's live registry instead of a private copy. */
   withRegistry(registry: Registry): this {
     this.registry = registry;
+    this.proxy.setRegistry(registry);
     return this;
   }
 
@@ -167,135 +182,23 @@ export class ScoutAgent {
   }
 
   private async refresh(): Promise<void> {
-    this.ship = await this.api.getShip(this.symbol);
+    return this.proxy.refresh();
   }
 
   private async ensureInOrbit(): Promise<void> {
-    if (this.ship.nav.status === "IN_ORBIT") return;
-    if (this.ship.nav.status === "IN_TRANSIT") {
-      await this.waitForArrival();
-    }
-    if (this.ship.nav.status === "DOCKED") {
-      this.log("docking → orbit");
-      await this.api.orbitShip(this.symbol);
-      await this.refresh();
-    }
+    return this.proxy.ensureInOrbit();
   }
 
   private async ensureDocked(): Promise<void> {
-    if (this.ship.nav.status === "DOCKED") return;
-    if (this.ship.nav.status === "IN_TRANSIT") {
-      await this.waitForArrival();
-    }
-    if (this.ship.nav.status === "IN_ORBIT") {
-      this.log("orbit → dock");
-      await this.api.dockShip(this.symbol);
-      await this.refresh();
-      if (this.recordMarket) await this.recordMarket(this.ship.nav.waypointSymbol);
-    }
+    return this.proxy.ensureDocked();
   }
 
   private async waitForArrival(): Promise<void> {
-    if (this.schedulerDriven) {
-      // Always refresh before deciding: whatever route this.ship currently
-      // carries isn't guaranteed to be from *this* transit (ensureInOrbit()/
-      // ensureDocked() call this using whatever this.ship already holds, not
-      // a value this method itself just fetched) — a single non-blocking
-      // check has no retry loop to self-correct that the way the blocking
-      // version below does, so it must get real, current data first.
-      await this.refresh();
-      if (this.ship.nav.status !== "IN_TRANSIT") return;
-      const wait = new Date(this.ship.nav.route.arrival).getTime() - Date.now();
-      throw new NavigationPending(Date.now() + wait);
-    }
-    for (;;) {
-      const arrival = new Date(this.ship.nav.route.arrival).getTime();
-      const wait = arrival - Date.now();
-      if (wait > 0) {
-        this.log(`in transit, arrival in ${Math.round(wait / 1000)}s`);
-        await sleep(wait + 1000);
-      }
-      await this.refresh();
-      if (this.ship.nav.status !== "IN_TRANSIT") return;
-    }
+    return this.proxy.waitForArrival();
   }
 
   private async navigateTo(waypoint: string): Promise<void> {
-    if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") {
-      return;
-    }
-    await this.ensureInOrbit();
-    const need = this.estimatedFuelTo(waypoint);
-    // Flight mode: see flightMode.ts's own comment for the exact policy.
-    // DRIFT is tried here (instead of giving up, as this used to do
-    // unconditionally on an unaffordable-at-CRUISE leg) because the real
-    // navigate call below is the final authority on whether the leg is
-    // actually reachable, DRIFT or not — this never makes stranding worse,
-    // only sometimes avoids it. A patch failure doesn't block the attempt.
-    // A distance we could not measure must not drive this decision. Since
-    // estimatedFuelTo() now reports Infinity for an unknown waypoint (so
-    // reachability checks fail closed), feeding it here would mean
-    // "currentFuel < Infinity" — DRIFT, always, on any leg whose endpoints we
-    // lack a position for. DRIFT then *succeeds* and crawls for hours: a
-    // trader hit exactly this and spent 7h34m on a 172-unit leg with a nearly
-    // full tank. Leave the mode as it is and let navigateShip() below be the
-    // authority, which this comment already says is its job.
-    if (this.ship.fuel.capacity > 0) {
-      // Pick a mode only from a distance we actually have — but never leave a
-      // ship sitting in DRIFT because we could not measure one. DRIFT is
-      // sticky: "leave the mode alone" preserves whatever the last leg set, so
-      // a ship that drifted once goes on crawling every leg after it, and
-      // since the report below only fired on a *change*, it did so silently.
-      // Three scouts sat in multi-hour transits at two fuel a leg with nothing
-      // in the log to say why. Unmeasurable distance means fall back to
-      // CRUISE and let navigateShip() be the authority, never keep drifting.
-      const mode = Number.isFinite(need)
-        ? chooseFlightMode(need, this.ship.fuel.current, this.ship.fuel.capacity)
-        : this.ship.nav.flightMode === "DRIFT"
-          ? "CRUISE"
-          : undefined;
-      if (mode !== undefined && mode !== this.ship.nav.flightMode) {
-        try {
-          const patched = await this.api.patchShipNav(this.symbol, mode);
-          this.ship = { ...this.ship, nav: patched.nav, fuel: patched.fuel };
-          this.onActivity?.("flightmode", `${mode.toLowerCase()} mode${flightModeReason(mode)} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`, undefined, this.symbol);
-        } catch (err) {
-          this.log(`flight mode change to ${mode} failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-      // Report the mode this leg actually flies in, not merely transitions
-      // into. DRIFT turns a minutes-long leg into an hours-long one and was
-      // reported only through onActivity — the dashboard, not the app log — so
-      // a ship that vanished for seven hours left no record of why.
-      if (this.ship.nav.flightMode === "DRIFT") {
-        this.log(`DRIFT leg to ${waypoint}: needs ${need} at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
-      }
-    }
-    this.currentStep = { kind: "navigating", to: waypoint };
-    try {
-      const arrival = await this.api.navigateShip(this.symbol, waypoint);
-      this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
-      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.symbol);
-      if (this.schedulerDriven) {
-        const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
-        if (wait > 0) throw new NavigationPending(Date.now() + wait);
-        await this.refresh();
-      } else {
-        const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
-        if (wait > 0) {
-          this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
-          await sleep(wait + 1000);
-        }
-        await this.refresh();
-      }
-      this.currentStep = IDLE_STEP;
-    } catch (err) {
-      // A NavigationPending throw means the ship is genuinely still
-      // navigating — leave currentStep as "navigating" rather than
-      // resetting it, same as trader.ts's identical navigateTo() catch.
-      if (!(err instanceof NavigationPending)) this.currentStep = IDLE_STEP;
-      throw err;
-    }
+    return this.proxy.navigateTo(waypoint);
   }
 
   private distanceTo(wp: WaypointPos): number {
