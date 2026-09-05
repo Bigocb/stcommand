@@ -329,9 +329,27 @@ export class TraderAgent {
   }
 
   private distBetween(a: string, b: string): number {
+    return this.knownDistBetween(a, b) ?? 1000;
+  }
+
+  /**
+   * Distance between two waypoints, or undefined when a position for either is
+   * missing — as opposed to distBetween()'s pessimistic 1000, which is a
+   * reasonable "assume far, don't bother" default for route scoring but a
+   * fabricated number all the same.
+   *
+   * Callers that merely rank or reject options can live with the guess.
+   * Anything that would *act* differently on it must not: 1000 exceeds every
+   * fuel tank in the fleet, so chooseFlightMode() reads it as "can't afford
+   * CRUISE" and returns DRIFT — which then succeeds and crawls. DAGGER-17
+   * spent 7h34m in transit holding 20 units of EQUIPMENT on a leg measured
+   * live at 172 units, with 598/600 fuel: it burned 2 fuel over seven hours,
+   * the signature of a DRIFT that was never necessary.
+   */
+  private knownDistBetween(a: string, b: string): number | undefined {
     const pa = this.positions.get(a);
     const pb = this.positions.get(b);
-    if (!pa || !pb) return 1000;
+    if (!pa || !pb) return undefined;
     return Math.max(1, Math.round(Math.hypot(pb.x - pa.x, pb.y - pa.y)));
   }
 
@@ -410,8 +428,16 @@ export class TraderAgent {
     // is actually affordable, DRIFT or not). A patch failure doesn't block
     // the attempt — worst case, navigateShip() below runs in whatever mode
     // was already set.
-    if (this.ship.fuel.capacity > 0) {
-      const needAtCruise = this.distBetween(this.ship.nav.waypointSymbol, waypoint);
+    // Only pick a mode from a distance we actually have. An unknown distance
+    // must not be turned into one here: any fabricated value large enough to
+    // be "safe" for a reachability check is, for this decision, an instruction
+    // to DRIFT — succeeding, and then crawling for hours on a leg the ship
+    // could have cruised. Leaving the mode untouched keeps whatever the ship
+    // already had (CRUISE in the normal case) and lets navigateShip() below be
+    // the authority on affordability, which is exactly the role flightMode.ts
+    // describes for it.
+    const needAtCruise = this.knownDistBetween(this.ship.nav.waypointSymbol, waypoint);
+    if (this.ship.fuel.capacity > 0 && needAtCruise !== undefined) {
       const mode = chooseFlightMode(needAtCruise, this.ship.fuel.current, this.ship.fuel.capacity);
       if (mode !== this.ship.nav.flightMode) {
         try {

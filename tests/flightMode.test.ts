@@ -196,3 +196,25 @@ describe("navigateTo() wires flight mode selection into the real navigate call",
     assert.ok(navigated, "the real navigate attempt must still happen even though setting the flight mode failed");
   });
 });
+
+describe("chooseFlightMode: an unmeasured distance must never reach this function", () => {
+  // These two assertions are not aspirational — they document why callers are
+  // required to check Number.isFinite() before calling. Both sentinels the
+  // codebase has used for "no position" select DRIFT on a full tank, and DRIFT
+  // succeeds: the ship departs and crawls for hours instead of failing fast.
+  // A trader lost 7h34m to exactly this on a leg measured live at 172 units.
+  it("selects DRIFT for the pessimistic 1000 sentinel even on a full tank", () => {
+    assert.equal(chooseFlightMode(1000, 600, 600), "DRIFT");
+  });
+
+  it("selects DRIFT for an Infinity sentinel even on a full tank", () => {
+    assert.equal(chooseFlightMode(Infinity, 600, 600), "DRIFT");
+  });
+
+  it("picks the fastest mode for that same leg once its real distance is known", () => {
+    // 172 units with 598/600 in the tank is not merely affordable at CRUISE —
+    // there is enough spare fuel to BURN it. The sentinel inverted the
+    // decision as far as it can possibly be inverted: fastest to slowest.
+    assert.equal(chooseFlightMode(172, 598, 600), "BURN");
+  });
+});

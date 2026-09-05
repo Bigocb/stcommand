@@ -298,7 +298,15 @@ export class SiphonerAgent {
     // navigate call below is the final authority on whether the leg is
     // actually reachable, DRIFT or not — this never makes stranding worse,
     // only sometimes avoids it. A patch failure doesn't block the attempt.
-    if (this.ship.fuel.capacity > 0) {
+    // A distance we could not measure must not drive this decision. Since
+    // estimatedFuelTo() now reports Infinity for an unknown waypoint (so
+    // reachability checks fail closed), feeding it here would mean
+    // "currentFuel < Infinity" — DRIFT, always, on any leg whose endpoints we
+    // lack a position for. DRIFT then *succeeds* and crawls for hours: a
+    // trader hit exactly this and spent 7h34m on a 172-unit leg with a nearly
+    // full tank. Leave the mode as it is and let navigateShip() below be the
+    // authority, which this comment already says is its job.
+    if (this.ship.fuel.capacity > 0 && Number.isFinite(need)) {
       const mode = chooseFlightMode(need, this.ship.fuel.current, this.ship.fuel.capacity);
       if (mode !== this.ship.nav.flightMode) {
         try {
