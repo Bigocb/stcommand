@@ -13,6 +13,7 @@ import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimR
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { IDLE_STEP, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
+import { IntentBoard } from "./intent.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -179,6 +180,17 @@ export class FleetManager {
   private readonly registry: Registry;
   private surveyedSystems = new Set<string>();
   private lastExploreTick = 0;
+  /**
+   * Desired state, one intent per ship — see intent.ts. The fleet-level
+   * controllers below propose here and read the winner back, so two of them
+   * can no longer drive the same hull at once. Agents do not consume intents
+   * yet; that is the next step. What this already buys is an arbitrated,
+   * inspectable answer to "who owns this ship and why".
+   */
+  readonly intents = new IntentBoard();
+  /** Ships on a detached exploration run — same idea as repairPlans, and the
+   *  reason autoExplore() no longer blocks the coordinator tick. */
+  private exploringShips = new Set<string>();
   private rescuePlans = new Map<string, TenderPlan>();
   /** Why the last rescue-planning attempt for a ship failed to produce a
    *  TenderPlan at all — see makeRescuePlan()'s own comment on why this
@@ -3666,6 +3678,13 @@ export class FleetManager {
     );
     await this.maybeAssignKeepers();
     await this.maybeRepairFleet();
+    // Resolve this pass's proposals to one intent per ship. Purely local: no
+    // API calls, no awaiting a ship. A busy ship keeps an earning goal unless
+    // something strictly more urgent preempts it — see intent.ts.
+    for (const change of this.intents.commit({ busy: (sym) => (this.shipFor(sym)?.cargo.units ?? 0) > 0 })) {
+      const from = change.from ? `${change.from.goal.kind} (v${change.from.version})` : "nothing";
+      this.log(`${change.ship}: ${from} → ${change.to.goal.kind} (v${change.to.version}) — ${change.to.reason}`);
+    }
     await this.maybeBuyShip();
     await this.maybeBuyScout();
     await this.maybeBuySiphoner();
@@ -3816,6 +3835,13 @@ export class FleetManager {
       if (this.repairPlans.has(s.symbol) || !available.has(s.symbol)) continue;
       const yard = this.nearestShipyard(ship.nav.systemSymbol);
       if (!yard) continue;
+      this.intents.propose({
+        ship: s.symbol,
+        priority: 1,
+        goal: { kind: "repair", yard },
+        reason: `condition ${worst.toFixed(2)} is below the critical floor`,
+        source: "repair",
+      });
       if (!this.shipRegistry.claim(s.symbol, "repair", this.roleOf(s.symbol))) continue;
       this.repairPlans.add(s.symbol);
       this.log(`${s.symbol}: condition ${worst.toFixed(2)} critical — diverting to ${yard} for repair`);
@@ -4313,8 +4339,27 @@ export class FleetManager {
     if (pairs.length === 0) return;
     this.lastExploreTick = now;
 
-    await Promise.allSettled(
-      pairs.map(async ({ scout, target }) => {
+    // Fire and forget, deliberately. This used to be awaited, and
+    // exploreSystem() blocks for the whole trip — a jump, then a market tour,
+    // minutes at a time. FleetManager.run() awaits tick() serially, so every
+    // one of those trips froze dispatch, keeper assignment, repair and status
+    // sync for its full duration. Nothing here needs the result: a survey
+    // publishes itself into the registry, and the ship is released in the
+    // finally below. Same shape as runCriticalRepair(), for the same reason.
+    for (const { scout, target } of pairs) {
+      if (this.exploringShips.has(scout.s)) continue;
+      // Record ownership before launching, so repair or rescue proposing for
+      // this hull on a later pass wins on priority rather than the two
+      // subsystems taking turns driving it.
+      this.intents.propose({
+        ship: scout.s,
+        priority: 3,
+        goal: { kind: "explore", system: target },
+        reason: `${target} is unsurveyed and reachable from here`,
+        source: "explore",
+      });
+      this.exploringShips.add(scout.s);
+      void (async () => {
         try {
           this.log(`auto-exploring ${target} with ${scout.s} (${scout.fuel} fuel)`);
           await this.exploreSystem(scout.s, target);
@@ -4327,9 +4372,11 @@ export class FleetManager {
           // same 10 minutes as every other attempt), not excluded forever. A
           // gate under construction is already filtered out of `reachable`
           // above and needs no separate tracking here.
+        } finally {
+          this.exploringShips.delete(scout.s);
         }
-      }),
-    );
+      })();
+    }
   }
 
   /** Drive every ship and the coordination loop. */
