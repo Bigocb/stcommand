@@ -499,7 +499,14 @@ export class ShipAgent {
     });
     const fuelCap = this.ship.fuel.capacity;
     const reachable = candidates.filter(
-      (m) => fuelCap <= 0 || this.estimatedFuelTo(m.symbol) <= fuelCap,
+      (m) =>
+        // Same-system, with a known position, for the same reason
+        // nearestReachableMarket() requires both: cross-system distances are
+        // not comparable, and a missing position silently reads as 0 fuel
+        // away, so the least reachable candidates score best.
+        this.systemOfWaypoint(m.symbol) === this.ship.nav.systemSymbol &&
+        this.waypointPositions.has(m.symbol) &&
+        (fuelCap <= 0 || this.estimatedFuelTo(m.symbol) <= fuelCap),
     );
     // Never chase a market the ship cannot reach even on a full tank (e.g. ore importer
     // B7 at 303 fuel vs an 80-tank ship) — that just loops on "cannot navigate".
@@ -596,11 +603,23 @@ export class ShipAgent {
     return Math.max(1, Math.round(Math.hypot(pb.x - pa.x, pb.y - pa.y)));
   }
 
-  /** Find the nearest market the ship can reach with current fuel. */
+  /** Find the nearest market in this system the ship can reach with current fuel. */
   private nearestReachableMarket(): string | undefined {
     let best: string | undefined;
     let bestDist = Infinity;
     for (const m of this.markets) {
+      // Same system only: a market elsewhere needs a jump, and the distance
+      // below — per-system coordinates run through a plain hypot — is not a
+      // real number for it. Seen live: a scout low on fuel at X1-TP98-A14X
+      // was sent to refuel at X1-KU72-I60, and every navigate came back
+      // "Destination X1-KU72-I60 is outside the X1-TP98 system", once per
+      // tick, indefinitely.
+      if (this.systemOfWaypoint(m.symbol) !== this.ship.nav.systemSymbol) continue;
+      // estimatedFuelTo() reports 0 for a waypoint it has no position for,
+      // which reads here as "closer than everything else" and wins outright —
+      // the unreachable candidates are exactly the ones most likely to be
+      // missing coordinates. Require a real position.
+      if (!this.waypointPositions.has(m.symbol)) continue;
       const need = this.estimatedFuelTo(m.symbol);
       if (need > this.ship.fuel.current) continue;
       if (need < bestDist) {
@@ -609,6 +628,11 @@ export class ShipAgent {
       }
     }
     return best;
+  }
+
+  /** System half of a waypoint symbol (X1-TP98-A14X -> X1-TP98). */
+  private systemOfWaypoint(waypointSymbol: string): string {
+    return waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
   }
 
   private async refuelIfNeeded(reserve: number, target?: string): Promise<boolean> {
@@ -1159,7 +1183,16 @@ export class ShipAgent {
       this.log(`tour scout: no reachable target from ${here} (${targets.length} known)`);
       return false;
     }
-    await this.refuelIfNeeded(5, target);
+    // Honour the refuel result. This used to be a bare await: refuelIfNeeded()
+    // would log "WARN: stranded (0/300 fuel...) and no reachable market",
+    // return false, and the navigate went ahead regardless — failing with
+    // "requires 1 more fuel for navigation" and repeating the whole sequence
+    // every tick, forever. A ship that cannot pay for the leg stands down and
+    // waits to be rescued instead of hammering the API.
+    if (!(await this.refuelIfNeeded(5, target))) {
+      this.log(`tour scout: holding at ${here} — not enough fuel for ${target} and nowhere to refuel`);
+      return false;
+    }
     this.log(`tour scout: touring ${target}`);
     await this.navigateTo(target);
     await this.ensureDocked();

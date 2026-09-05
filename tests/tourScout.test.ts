@@ -34,7 +34,7 @@ function makeStrandedTourAgent(opts: { ensureSystemCharted?: (sys: string) => Pr
   // Seeded at construction with the home system only — nothing for X1-REMOTE.
   agent.withWorld([{ symbol: "X1-HOME-A1", x: 0, y: 0 }] as any, []);
   const navigated: string[] = [];
-  (agent as any).refuelIfNeeded = async () => {};
+  (agent as any).refuelIfNeeded = async () => true;
   (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
   (agent as any).ensureDocked = async () => {};
   return { agent, logs, navigated };
@@ -98,7 +98,7 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
       },
     });
     const navigated: string[] = [];
-    (agent as any).refuelIfNeeded = async () => {};
+    (agent as any).refuelIfNeeded = async () => true;
     (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
     (agent as any).ensureDocked = async () => {};
 
@@ -106,6 +106,65 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
 
     assert.equal(worked, false);
     assert.deepEqual(navigated, [], "a cross-system waypoint is not a navigable tour leg");
+  });
+
+  it("stands down instead of navigating when it cannot pay for the leg", async () => {
+    // Live loop this reproduces: refuelIfNeeded() logged "stranded (0/300
+    // fuel...)" and returned false, the navigate went ahead anyway and failed
+    // with "requires 1 more fuel", and the whole sequence repeated every tick.
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 0, capacity: 300 });
+    const logs: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => ["X1-REMOTE-B2"],
+    });
+    agent.withWorld(remotePositions as any, []);
+    const navigated: string[] = [];
+    (agent as any).refuelIfNeeded = async () => false; // no fuel, nowhere to buy it
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+    (agent as any).ensureDocked = async () => {};
+
+    const worked = await (agent as any).tourScout();
+
+    assert.equal(worked, false);
+    assert.deepEqual(navigated, [], "must not attempt a leg it cannot fuel");
+    assert.ok(logs.some((l) => l.includes("holding at X1-REMOTE-A1")));
+  });
+
+  it("never picks a refuel stop in another system", async () => {
+    // Live loop this reproduces: a scout at X1-TP98-A14X was sent to refuel at
+    // X1-KU72-I60, failing with "Destination X1-KU72-I60 is outside the
+    // X1-TP98 system" once per tick.
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 27, capacity: 300 });
+    const agent = new ShipAgent(ship, { api: { getShip: async () => ship } as any, log: () => {} });
+    agent.withWorld(
+      [
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+        { symbol: "X1-HOME-I60", x: 5, y: 0 }, // 5 units away by raw hypot, a jump away in truth
+      ] as any,
+      [{ symbol: "X1-HOME-I60" }] as any,
+    );
+
+    assert.equal((agent as any).nearestReachableMarket(), undefined);
+  });
+
+  it("does not treat a market with no known position as zero distance away", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 27, capacity: 300 });
+    const agent = new ShipAgent(ship, { api: { getShip: async () => ship } as any, log: () => {} });
+    agent.withWorld(
+      [{ symbol: "X1-REMOTE-A1", x: 0, y: 0 }] as any,
+      [{ symbol: "X1-REMOTE-ZZ9" }] as any, // in-system market, but no coordinates
+    );
+
+    assert.equal(
+      (agent as any).nearestReachableMarket(),
+      undefined,
+      "estimatedFuelTo() reports 0 for unknown waypoints; that must not read as nearest",
+    );
   });
 
   it("does not re-chart when the current waypoint is already in the cache", async () => {

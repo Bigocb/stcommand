@@ -885,10 +885,38 @@ export class TraderAgent {
     const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0 && !protectedGoods.has(i.symbol));
     if (leftover.length === 0) return undefined;
     const item = leftover[0]!;
+    // Cargo bought a moment ago for an active route is not "leftover".
+    //
+    // runArbitrage() buys, navigates and sells inside one tick — but
+    // navigateTo() raises NavigationPending the moment the ship enters
+    // transit, so the tick ends right after the buy and the sell leg never
+    // runs. On the next tick this sweep goes first (tick() calls it ahead of
+    // every role handler) and sells the route's cargo itself, at bestSell()'s
+    // local pick rather than the destination the route was chosen for. That
+    // is why production shows "bought 20u MACHINERY ... / cleared leftover 20u
+    // MACHINERY" pairs and no "sold" lines at all: every route is being
+    // finished by the cleanup path.
+    //
+    // For a same-system route the two usually agree, so little is lost. For a
+    // cross-system one they do not: the sweep below refuses to leave the
+    // system, so the cargo gets dumped at local prices and the jump leg the
+    // route was actually worth is abandoned. Hand those back to the route
+    // logic instead. Cargo with no live route behind it still gets swept,
+    // which is what this function is for.
+    const activeLeg = this.asDirectLeg(this.assignedRoute?.());
+    if (activeLeg && activeLeg.good === item.symbol && this.systemOf(activeLeg.sellAt) !== this.ship.nav.systemSymbol) {
+      return undefined;
+    }
     // Only sell leftover within the current system — a cross-system sell
     // market needs a jump gate that may be under construction, and flying
-    // there would fail (or worse, recurse in navigation).
-    const sell = this.bestSell(item.symbol);
+    // there would fail (or worse, recurse in navigation). Prefer the active
+    // route's own destination when it is in reach: it is the market the route
+    // was ranked on, and bestSell() has no knowledge of that intent.
+    const routeSellHere =
+      activeLeg && activeLeg.good === item.symbol && this.systemOf(activeLeg.sellAt) === this.ship.nav.systemSymbol
+        ? activeLeg.sellAt
+        : undefined;
+    const sell = routeSellHere ? { waypoint: routeSellHere } : this.bestSell(item.symbol);
     if (sell && sell.waypoint !== this.ship.nav.waypointSymbol && this.systemOf(sell.waypoint) === this.ship.nav.systemSymbol) {
       await this.navigateTo(sell.waypoint);
     }
