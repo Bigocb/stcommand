@@ -358,6 +358,13 @@ export class RouteDispatcher {
     // only, matching this class's pre-gate-check behavior, so a caller that
     // doesn't pass one gets the old, safe result rather than an error.
     canJump: (fromSystem: string, toSystem: string) => boolean = () => false,
+    // Temporary diagnostic hook (docs: "why are idle traders not getting
+    // assigned when profitable routes exist"). Logs, on every recompute that
+    // actually runs (not throttled-skipped), the full work list this cycle
+    // considered and the resulting good/ship pairing — cheap enough to leave
+    // on, since it only fires once per 60s. Remove once the live question is
+    // answered.
+    log?: (msg: string) => void,
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -499,5 +506,12 @@ export class RouteDispatcher {
       next.set(t.shipSymbol, item.make(t.shipSymbol));
     }
     this.assignments = next;
+
+    if (log) {
+      const idleCount = traders.filter((t) => !t.busy && !this.manual.has(t.shipSymbol)).length;
+      const workSummary = work.map((w) => `${w.key}=${Math.round(w.profitPerTrip)}`).join(", ") || "(none)";
+      const assignedSummary = [...next.entries()].map(([ship, a]) => `${ship}:${a.good}(${a.role})`).join(", ") || "(none)";
+      log(`dispatch recompute: ${traders.length} traders (${idleCount} idle) | work: ${workSummary} | assigned: ${assignedSummary}`);
+    }
   }
 }

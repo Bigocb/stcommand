@@ -3495,6 +3495,7 @@ export class FleetManager {
       missionBuyTargets,
       contractBuyTargets,
       (from, to) => this.galaxy.canJump(from, to),
+      (m) => this.log(m),
     );
     await this.maybeAssignKeepers();
     await this.maybeRepairFleet();
