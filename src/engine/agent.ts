@@ -5,6 +5,7 @@ import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
+import { Registry } from "./registry.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -53,10 +54,11 @@ export interface AgentOptions {
   getCredits?: () => number;
   /**
    * Chart the given system and re-seed this agent's waypoint positions from it.
-   * `waypointPositions` is otherwise seeded once, at construction, from whatever
-   * the fleet knew then — which at boot is the home system alone. A ship parked
-   * anywhere else therefore comes back from a restart with no coordinates for
-   * the system it is standing in, and every distance it computes is Infinity.
+   * The registry answers from the live atlas, so a system already loaded needs
+   * nothing here — but a system nobody has ever scanned is genuinely absent
+   * from it, and this is what pulls one in. A ship parked in such a system
+   * comes back from a restart with no coordinates for where it is standing,
+   * and every distance it computes is Infinity until this runs.
    */
   ensureSystemCharted?: (systemSymbol: string) => Promise<void>;
   /** Marketplace waypoints to tour periodically so price snapshots stay fresh. */
@@ -136,14 +138,13 @@ export class ShipAgent {
   readonly symbol: string;
   private readonly api: SpaceTradersAPI;
   private readonly log: (msg: string) => void;
-  private readonly systemSymbol: string;
   private readonly recordLedger: AgentOptions["recordLedger"];
   private readonly deliverCargo: AgentOptions["deliverCargo"];
   private readonly onActivity: AgentOptions["onActivity"];
   private readonly recordMarket: AgentOptions["recordMarket"];
   private readonly isMarketWaypoint?: AgentOptions["isMarketWaypoint"];
-  private readonly waypointPositions = new Map<string, WaypointPos>();
-  private markets: MarketSnapshot[] = [];
+  /** The world, held by reference — see registry.ts. */
+  private registry: Registry = Registry.standalone();
   private readonly surveyPool: SurveyPool | undefined;
   private readonly protectedGoods?: () => Set<string>;
   private readonly getCredits?: AgentOptions["getCredits"];
@@ -217,13 +218,19 @@ export class ShipAgent {
     this.recordShipyard = opts.recordShipyard;
     this.keeperMarket = opts.keeperMarket;
     this.shouldRun = opts.shouldRun;
-    this.systemSymbol = ship.nav.systemSymbol;
   }
 
-  /** Seed the agent with known waypoint positions and market snapshots for its system. */
+  /** Read the world from the fleet's live registry instead of a private copy. */
+  withRegistry(registry: Registry): this {
+    this.registry = registry;
+    return this;
+  }
+
+  /** Seed positions and prices directly, for an agent with no shared registry. */
   withWorld(positions: WaypointPos[], markets: MarketSnapshot[]): this {
-    for (const p of positions) this.waypointPositions.set(p.symbol, p);
-    this.markets = markets;
+    const standalone = this.registry as Registry & { seed?: (w: readonly WaypointPos[]) => void };
+    standalone.seed?.(positions);
+    this.registry.recordMarkets(markets);
     return this;
   }
 
@@ -435,7 +442,7 @@ export class ShipAgent {
   private bestReachableSellPrice(symbol: string): number {
     let best = 0;
     const cap = this.ship.fuel.capacity;
-    for (const m of this.markets) {
+    for (const m of this.registry.markets(this.ship.nav.systemSymbol)) {
       const g = m.tradeGoods[symbol];
       if (!g) continue;
       if (cap > 0 && this.estimatedFuelTo(m.symbol) > cap) continue;
@@ -458,7 +465,7 @@ export class ShipAgent {
   /** Estimated proceeds from selling the current cargo at the best reachable
    *  price per item — used only for the pre-sale log line, so it should
    *  reflect what the ship is actually about to get, not an arbitrary quote.
-   *  Previously used the price from whichever market in `this.markets`
+   *  Previously used the price from whichever known market
    *  happened to be listed first with any quote for the good at all — often
    *  an EXPORT market (typically near-zero sellPrice, since that's where the
    *  good is already abundant), producing a misleadingly low "~0c" estimate
@@ -478,17 +485,17 @@ export class ShipAgent {
     // actually know where it is. A pin to an unknown waypoint falls through to
     // the normal pick rather than stranding the ship on a target it can't plot.
     if (this.pinnedMiningTarget) {
-      const pinned = this.waypointPositions.get(this.pinnedMiningTarget);
+      const pinned = this.registry.position(this.pinnedMiningTarget);
       if (pinned) return pinned;
       this.log(`pinned field ${this.pinnedMiningTarget} is not in the atlas; picking the nearest instead`);
     }
     // If we're parked at a market, we can refuel before leaving — budget a full tank.
-    const atMarket = this.markets.some((m) => m.symbol === this.ship.nav.waypointSymbol);
+    const atMarket = this.atMarketHere();
     const fuelBudget =
       this.ship.fuel.capacity > 0 ? (atMarket ? this.ship.fuel.capacity : this.ship.fuel.current) : 0;
     let best: WaypointPos | undefined;
     let bestDist = Infinity;
-    for (const wp of this.waypointPositions.values()) {
+    for (const wp of this.registry.waypointsIn(this.ship.nav.systemSymbol)) {
       if (wp.type !== "ASTEROID_FIELD" && wp.type !== "ASTEROID" && wp.type !== "ENGINEERED_ASTEROID") continue;
       const dist = this.distanceTo(wp);
       if (dist >= bestDist) continue;
@@ -518,11 +525,11 @@ export class ShipAgent {
     if (this.ship.fuel.capacity <= 0) return undefined;
     let best: string | undefined;
     let bestDist = Infinity;
-    for (const m of this.markets) {
+    for (const m of this.registry.marketEndpoints(this.ship.nav.systemSymbol)) {
       if (m.symbol === this.ship.nav.waypointSymbol) continue;
       const d = this.estimatedFuelTo(m.symbol);
       if (d > this.ship.fuel.current) continue; // can't reach it now
-      const mineableFromThere = [...this.waypointPositions.values()].some(
+      const mineableFromThere = this.registry.waypointsIn(this.ship.nav.systemSymbol).some(
         (wp) =>
           (wp.type === "ASTEROID_FIELD" || wp.type === "ASTEROID" || wp.type === "ENGINEERED_ASTEROID") &&
           this.fuelNeededRoundTripFrom(m.symbol, wp.symbol) <= this.ship.fuel.capacity,
@@ -545,13 +552,7 @@ export class ShipAgent {
   }
 
   private distanceTo(wp: WaypointPos): number {
-    const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
-    // Not knowing where we are is not the same as everything being adjacent.
-    // Callers sort on this and compare it against a running best, so 0 made a
-    // ship with an unknown position pick an arbitrary target and fly at it on
-    // a fabricated estimate. SiphonerAgent already had this right; matching it.
-    if (!here) return Infinity;
-    return Math.hypot(wp.x - here.x, wp.y - here.y);
+    return this.registry.distance(this.ship.nav.waypointSymbol, wp.symbol);
   }
 
   /** Choose a selling destination. Prefer a market that imports the good (profile visible remotely).
@@ -561,7 +562,7 @@ export class ShipAgent {
   private pickSellTarget(): string | undefined {
     const good = this.ship.cargo.inventory[0];
     if (!good) return undefined;
-    const candidates = this.markets.filter((m) => {
+    const candidates = this.registry.markets(this.ship.nav.systemSymbol).filter((m) => {
       if (m.imports.includes(good.symbol) || m.exchange.includes(good.symbol)) return true;
       const g = m.tradeGoods[good.symbol];
       return g && (g.type === "IMPORT" || g.type === "EXCHANGE");
@@ -573,8 +574,7 @@ export class ShipAgent {
         // nearestReachableMarket() requires both: cross-system distances are
         // not comparable, and a missing position silently reads as 0 fuel
         // away, so the least reachable candidates score best.
-        this.systemOfWaypoint(m.symbol) === this.ship.nav.systemSymbol &&
-        this.waypointPositions.has(m.symbol) &&
+        this.registry.position(m.symbol) !== undefined &&
         (fuelCap <= 0 || this.estimatedFuelTo(m.symbol) <= fuelCap),
     );
     // Never chase a market the ship cannot reach even on a full tank (e.g. ore importer
@@ -601,10 +601,14 @@ export class ShipAgent {
   private async observeMarket(waypoint: string): Promise<void> {
     await this.navigateTo(waypoint);
     await this.ensureDocked();
-    const market = await this.api.getMarket(this.systemSymbol, waypoint);
-    const snapshot = this.markets.find((m) => m.symbol === waypoint) ?? {
+    // The waypoint's own system, not this agent's construction-time one — a
+    // ship that has jumped would otherwise ask for a foreign waypoint under
+    // its home system and get a 404.
+    const systemSymbol = this.registry.systemOf(waypoint);
+    const market = await this.api.getMarket(systemSymbol, waypoint);
+    const snapshot = this.registry.market(waypoint) ?? {
       symbol: waypoint,
-      systemSymbol: this.systemSymbol,
+      systemSymbol,
       tradeGoods: {},
       imports: (market.imports ?? []).map((g) => g.symbol),
       exports: (market.exports ?? []).map((g) => g.symbol),
@@ -615,19 +619,17 @@ export class ShipAgent {
       snapshot.tradeGoods[g.symbol] = g;
     }
     snapshot.fetchedAt = new Date().toISOString();
-    if (!this.markets.some((m) => m.symbol === waypoint)) this.markets.push(snapshot);
+    this.registry.recordMarket(snapshot);
   }
 
   /** Tour unvisited markets to build the price table. Returns true if a tour happened. */
   private async discoverMarkets(): Promise<boolean> {
-    const candidates = this.markets
+    const here = this.ship.nav.waypointSymbol;
+    const candidates = this.registry
+      .markets(this.ship.nav.systemSymbol)
       .filter((m) => Object.keys(m.tradeGoods).length === 0)
       .filter((m) => this.ship.fuel.capacity <= 0 || this.fuelNeededRoundTrip(m.symbol) <= this.ship.fuel.capacity)
-      .sort(
-        (a, b) =>
-          this.distanceTo(this.waypointPositions.get(a.symbol)!) -
-          this.distanceTo(this.waypointPositions.get(b.symbol)!),
-      );
+      .sort((a, b) => this.registry.distance(here, a.symbol) - this.registry.distance(here, b.symbol));
     const target = candidates[0];
     if (!target) return false;
     this.log(`discovering market at ${target.symbol}`);
@@ -637,19 +639,7 @@ export class ShipAgent {
   }
 
   private estimatedFuelTo(waypoint: string): number {
-    const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
-    const there = this.waypointPositions.get(waypoint);
-    // Unknown position means unknown distance, and that must fail closed.
-    // Returning 0 here made a waypoint we had no coordinates for look like the
-    // nearest thing in the galaxy, so exactly the candidates we knew least
-    // about scored best: it picked refuel stops in other systems, sent ships
-    // chasing sell markets they could not reach, and let chooseFlightMode()
-    // read a long leg as free and commit to CRUISE — the live "requires 1048
-    // more fuel" rejections. Every caller compares this against a fuel budget
-    // and skips what exceeds it, so Infinity simply excludes what we cannot
-    // measure.
-    if (!here || !there) return Infinity;
-    return Math.max(1, Math.round(Math.hypot(there.x - here.x, there.y - here.y)));
+    return this.registry.fuelFor(this.ship.nav.waypointSymbol, waypoint);
   }
 
   /** Estimate the fuel needed to reach a target and return to the nearest market, with reserve. */
@@ -664,10 +654,10 @@ export class ShipAgent {
   private nearestMarketTo(waypoint: string): string | undefined {
     let best: string | undefined;
     let bestDist = Infinity;
-    for (const m of this.markets) {
-      // Same system only: this feeds fuelNeededRoundTrip(), and a "nearest"
-      // market a jump away is not somewhere the return leg can reach.
-      if (this.systemOfWaypoint(m.symbol) !== this.systemOfWaypoint(waypoint)) continue;
+    // marketEndpoints() is already scoped to one system, which is what this
+    // needs: it feeds fuelNeededRoundTrip(), and a "nearest" market a jump
+    // away is not somewhere the return leg can reach.
+    for (const m of this.registry.marketEndpoints(this.systemOfWaypoint(waypoint))) {
       const d = this.estimatedFuelToBetween(waypoint, m.symbol);
       if (d < bestDist) {
         bestDist = d;
@@ -678,38 +668,19 @@ export class ShipAgent {
   }
 
   private estimatedFuelToBetween(a: string, b: string): number {
-    const pa = this.waypointPositions.get(a);
-    const pb = this.waypointPositions.get(b);
-    // Unknown position means unknown distance, and that must fail closed.
-    // Returning 0 here made a waypoint we had no coordinates for look like the
-    // nearest thing in the galaxy, so exactly the candidates we knew least
-    // about scored best: it picked refuel stops in other systems, sent ships
-    // chasing sell markets they could not reach, and let chooseFlightMode()
-    // read a long leg as free and commit to CRUISE — the live "requires 1048
-    // more fuel" rejections. Every caller compares this against a fuel budget
-    // and skips what exceeds it, so Infinity simply excludes what we cannot
-    // measure.
-    if (!pa || !pb) return Infinity;
-    return Math.max(1, Math.round(Math.hypot(pb.x - pa.x, pb.y - pa.y)));
+    return this.registry.fuelFor(a, b);
   }
 
   /** Find the nearest market in this system the ship can reach with current fuel. */
   private nearestReachableMarket(): string | undefined {
     let best: string | undefined;
     let bestDist = Infinity;
-    for (const m of this.markets) {
-      // Same system only: a market elsewhere needs a jump, and the distance
-      // below — per-system coordinates run through a plain hypot — is not a
-      // real number for it. Seen live: a scout low on fuel at X1-TP98-A14X
-      // was sent to refuel at X1-KU72-I60, and every navigate came back
-      // "Destination X1-KU72-I60 is outside the X1-TP98 system", once per
-      // tick, indefinitely.
-      if (this.systemOfWaypoint(m.symbol) !== this.ship.nav.systemSymbol) continue;
-      // estimatedFuelTo() reports 0 for a waypoint it has no position for,
-      // which reads here as "closer than everything else" and wins outright —
-      // the unreachable candidates are exactly the ones most likely to be
-      // missing coordinates. Require a real position.
-      if (!this.waypointPositions.has(m.symbol)) continue;
+    // Scoped to this system by marketEndpoints(), and every entry it returns
+    // has a real position. Both used to be hand-checked here: a market a jump
+    // away produced "Destination X1-KU72-I60 is outside the X1-TP98 system"
+    // once per tick indefinitely, and a market with no position read as zero
+    // fuel away and won outright.
+    for (const m of this.registry.marketEndpoints(this.ship.nav.systemSymbol)) {
       const need = this.estimatedFuelTo(m.symbol);
       if (need > this.ship.fuel.current) continue;
       if (need < bestDist) {
@@ -721,8 +692,21 @@ export class ShipAgent {
   }
 
   /** System half of a waypoint symbol (X1-TP98-A14X -> X1-TP98). */
+  /**
+   * Whether the ship is standing at somewhere it can trade or refuel. The
+   * trait is the authority (a fuel station nobody has priced is still a
+   * pump — DAGGER-13 sat on one at 27/300 reporting itself stranded), with
+   * a recorded snapshot as the fallback for a world seeded from plain
+   * coordinates, and the injected callback kept for callers that still
+   * supply one.
+   */
+  private atMarketHere(): boolean {
+    const here = this.ship.nav.waypointSymbol;
+    return this.registry.isMarket(here) || this.registry.market(here) !== undefined || (this.isMarketWaypoint?.(here) ?? false);
+  }
+
   private systemOfWaypoint(waypointSymbol: string): string {
-    return waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
+    return this.registry.systemOf(waypointSymbol);
   }
 
   private async refuelIfNeeded(reserve: number, target?: string): Promise<boolean> {
@@ -735,7 +719,7 @@ export class ShipAgent {
     // (DAGGER-13 at X1-TP98-A14X, 27/300 fuel). recordMarketSnapshot() already
     // gates on this exact trait before it bothers fetching.
     const here = this.ship.nav.waypointSymbol;
-    const atMarket = this.markets.some((m) => m.symbol === here) || (this.isMarketWaypoint?.(here) ?? false);
+    const atMarket = this.atMarketHere();
     const trip = target ? this.fuelNeededRoundTrip(target) : this.ship.fuel.capacity * 0.9;
     if (this.ship.fuel.current > trip + reserve) return true;
     if (atMarket) {
@@ -798,11 +782,11 @@ export class ShipAgent {
     profit: number;
   } | undefined {
     const here = origin ?? this.ship.nav.waypointSymbol;
-    const buyMarket = this.markets.find((m) => m.symbol === here);
+    const buyMarket = this.registry.market(here);
     if (!buyMarket || Object.keys(buyMarket.tradeGoods).length === 0) return undefined;
     let best: ReturnType<typeof this.findArbitrageRouteFrom> | undefined;
     for (const [good, buy] of Object.entries(buyMarket.tradeGoods)) {
-      for (const sellMarket of this.markets) {
+      for (const sellMarket of this.registry.markets(this.systemOfWaypoint(here))) {
         if (sellMarket.symbol === here) continue;
         const sell = sellMarket.tradeGoods[good];
         if (!sell) continue;
@@ -827,8 +811,7 @@ export class ShipAgent {
   }
 
   private priceTableFuel(waypoint: string): number | undefined {
-    const m = this.markets.find((mm) => mm.symbol === waypoint);
-    return m?.tradeGoods["FUEL"]?.purchasePrice;
+    return this.registry.market(waypoint)?.tradeGoods["FUEL"]?.purchasePrice;
   }
 
   /** Buy a good at the current market and fly to sell elsewhere. */
@@ -899,14 +882,14 @@ export class ShipAgent {
     }
 
     // If the ship is stranded (no fuel and not at a market), it can't act.
-    if (this.ship.fuel.capacity > 0 && this.ship.fuel.current <= 0 && !this.markets.some((m) => m.symbol === this.ship.nav.waypointSymbol)) {
+    if (this.ship.fuel.capacity > 0 && this.ship.fuel.current <= 0 && !this.atMarketHere()) {
       this.log(`stranded at ${this.ship.nav.waypointSymbol} (0 fuel, no market); idling`);
       return false;
     }
 
     // Top up fuel whenever docked at a market and below a safe threshold.
     if (this.ship.fuel.capacity > 0 && this.ship.fuel.current < this.ship.fuel.capacity * 0.5) {
-      const atMarket = this.markets.some((m) => m.symbol === this.ship.nav.waypointSymbol);
+      const atMarket = this.atMarketHere();
       if (atMarket) {
         await this.ensureDocked();
         this.log(`refueling (${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
@@ -1322,10 +1305,9 @@ export class ShipAgent {
     // live: after a restart, three scouts parked in systems explored earlier in
     // the session sat blind at 26 known targets each while the one scout still
     // in the home system toured normally. Chart it and re-read before deciding.
-    if (!this.waypointPositions.has(here)) {
+    if (this.registry.position(here) === undefined) {
       await this.ensureSystemCharted?.(this.ship.nav.systemSymbol);
     }
-    const herePos = this.waypointPositions.get(here);
     const reachable = targets
       .filter((t) => t !== here)
       // Same system only. Waypoint coordinates are per-system, so the distance
@@ -1335,11 +1317,7 @@ export class ShipAgent {
       // only the home system, so anything else fell out as Infinity. Now that
       // the cache is repaired above, the guard has to be explicit.
       .filter((t) => t.slice(0, t.lastIndexOf("-")) === this.ship.nav.systemSymbol)
-      .map((t) => {
-        const pos = this.waypointPositions.get(t);
-        const dist = herePos && pos ? Math.max(1, Math.round(Math.hypot(pos.x - herePos.x, pos.y - herePos.y))) : Infinity;
-        return { t, dist, stale: stale.has(t) };
-      })
+      .map((t) => ({ t, dist: this.registry.fuelFor(here, t), stale: stale.has(t) }))
       // Outbound *and* a way back out. Filtering on the one-way leg alone let
       // scouts fly to the edge of a system and strand: DAGGER-15 reached
       // X1-TV75-D19B, from which the system's only other markets sit 467 and
@@ -1391,7 +1369,7 @@ export class ShipAgent {
 
   /** Nearest unreviewed asteroid field, rotating once all are covered. */
   private pickSurveyTarget(): WaypointPos | undefined {
-    const fields = [...this.waypointPositions.values()].filter(
+    const fields = this.registry.waypointsIn(this.ship.nav.systemSymbol).filter(
       (wp) => wp.type === "ASTEROID_FIELD" || wp.type === "ASTEROID" || wp.type === "ENGINEERED_ASTEROID",
     );
     if (fields.length > 0 && fields.every((f) => this.surveyedFields.has(f.symbol))) {
@@ -1400,7 +1378,7 @@ export class ShipAgent {
     }
     // If we're already in an asteroid field, prefer staying put — re-surveying the
     // current field keeps the pool fresh and avoids burning fuel flying around.
-    const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
+    const here = this.registry.position(this.ship.nav.waypointSymbol);
     if (here && fields.some((f) => f.symbol === here.symbol)) {
       return here;
     }

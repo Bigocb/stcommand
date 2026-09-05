@@ -172,10 +172,9 @@ export class FleetManager {
   /**
    * The one world every reader should consult — see registry.ts and
    * docs/control-plane-data-plane.md §3. Built over the same live GalaxyAtlas
-   * instance, so it never needs re-seeding. Agents still hold their own
-   * withWorld() copies for now; each class migrating onto this reference is
-   * what lets those copies (and reseedAgentWorlds/chartSystemFor with them)
-   * be deleted.
+   * instance, so it never needs re-seeding. Every agent class reads it by
+   * reference, which is what let the per-agent world copies, and the pushes
+   * that kept trying to refresh them, be deleted outright.
    */
   private readonly registry: Registry;
   private surveyedSystems = new Set<string>();
@@ -992,10 +991,6 @@ export class FleetManager {
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
     this.registry.recordMarkets(markets);
     this.registry.noteTopologyChanged();
-    // A survey is the main way the fleet learns a new system exists. Handing
-    // that straight to the ships is the whole point — without it they keep
-    // navigating against whatever they knew when they were built.
-    this.reseedAgentWorlds();
     this.log(`surveyed ${systemSymbol}: ${markets.length} markets, ${shipyards.length} shipyards`);
   }
 
@@ -1003,42 +998,18 @@ export class FleetManager {
    * Load `systemSymbol`'s waypoints and push their coordinates into
    * `shipSymbol`'s agent.
    *
-   * Agents cache waypoint positions once, via withWorld(), when they are
-   * constructed — and at boot this.positions holds the home system alone (see
-   * init()). Any ship parked elsewhere therefore restarts with no coordinates
-   * for the system it is standing in, so every distance it computes is
-   * Infinity: a tour scout rejects its whole target list and idles forever,
-   * and estimatedFuelTo() reads legs as free and picks CRUISE for hops the
-   * real navigate call then rejects. Wired in as agents' ensureSystemCharted
-   * so they can repair their own cache on the first tick that notices the gap,
-   * which also covers systems explored after the agent was built.
+   * Agents read the live registry now, so nothing here has to be pushed at
+   * them — but a system nobody has ever scanned is genuinely absent from the
+   * atlas the registry reads, and this is what pulls one in. A ship parked in
+   * such a system restarts with no coordinates for where it is standing, so
+   * every distance it computes is Infinity: a tour scout rejects its whole
+   * target list and idles forever. Wired in as agents' ensureSystemCharted so
+   * they can close that gap on the first tick that notices it.
    */
   private async chartSystemFor(shipSymbol: string, systemSymbol: string): Promise<void> {
     await this.galaxy.loadSystem(systemSymbol);
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
     this.registry.noteTopologyChanged();
-    this.reseedAgentWorlds();
-  }
-
-  /**
-   * Push the current positions and market snapshots into every agent.
-   *
-   * Agents copy this world once, via withWorld(), when they are constructed,
-   * and nothing gave it back to them afterwards — so a ship's idea of where
-   * things are is frozen at the moment its agent object was built. Each role
-   * that noticed independently got its own patch (a lazy ensureSystemCharted
-   * hook for tour scouts, for one), while traders got nothing at all: their
-   * distBetween() falls back to a fabricated 1000 for any waypoint outside
-   * that first snapshot, which is enough to send a full-tank ship into DRIFT.
-   * Re-seed everyone wherever the fleet's own view changes instead.
-   */
-  private reseedAgentWorlds(): void {
-    for (const a of this.miners.values()) a.withWorld(this.positions, this.markets);
-    for (const a of this.surveyors.values()) a.withWorld(this.positions, this.markets);
-    for (const a of this.tours.values()) a.withWorld(this.positions, this.markets);
-    for (const a of this.keepers.values()) a.withWorld(this.positions, this.markets);
-    // Scouts and siphoners read the shared registry now, so there is nothing
-    // to push at them — see registry.ts. They are deliberately absent here.
   }
 
   /**
@@ -1130,7 +1101,7 @@ export class FleetManager {
           surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
           getCredits: () => this.spendableCredits(),
-        }).withWorld(this.positions, this.markets),
+        }).withRegistry(this.registry),
       );
       this.log(`role: miner ${ship.symbol}`);
     } else if (hasSurveyor) {
@@ -1151,7 +1122,7 @@ export class FleetManager {
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           getCredits: () => this.spendableCredits(),
-        }).withWorld(this.positions, this.markets),
+        }).withRegistry(this.registry),
       );
       this.log(`role: surveyor ${ship.symbol}`);
     } else if (hasGasSiphon) {
@@ -1200,7 +1171,7 @@ export class FleetManager {
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
             getCredits: () => this.spendableCredits(),
-          }).withWorld(this.positions, this.markets),
+          }).withRegistry(this.registry),
         );
         this.keeperMarkets.set(ship.symbol, keeperMarket);
         if (this.tenantId) await this.store?.setFleetState(this.tenantId, ship.symbol, "keeper", keeperMarket);
@@ -1228,7 +1199,7 @@ export class FleetManager {
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           getCredits: () => this.spendableCredits(),
-        }).withWorld(this.positions, this.markets),
+        }).withRegistry(this.registry),
       );
       this.log(`role: tour ${ship.symbol} (market/shipyard intel)`);
     } else if (hasCargo) {
@@ -1337,7 +1308,7 @@ export class FleetManager {
             surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
             getCredits: () => this.spendableCredits(),
-          }).withWorld(this.positions, this.markets),
+          }).withRegistry(this.registry),
         );
         return undefined;
       case "surveyor":
@@ -1358,7 +1329,7 @@ export class FleetManager {
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             getCredits: () => this.spendableCredits(),
-          }).withWorld(this.positions, this.markets),
+          }).withRegistry(this.registry),
         );
         return undefined;
       case "siphoner":
@@ -1392,7 +1363,7 @@ export class FleetManager {
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
             getCredits: () => this.spendableCredits(),
-          }).withWorld(this.positions, this.markets),
+          }).withRegistry(this.registry),
         );
         this.keeperMarkets.set(shipSymbol, resolvedKeeperMarket);
         return resolvedKeeperMarket;
@@ -1414,7 +1385,7 @@ export class FleetManager {
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             getCredits: () => this.spendableCredits(),
-          }).withWorld(this.positions, this.markets),
+          }).withRegistry(this.registry),
         );
         return undefined;
       case "trader":
@@ -1874,24 +1845,14 @@ export class FleetManager {
       // gets more than a single accidental price point out of being
       // "explored" at all.
       // Root-caused live: the first attempt at this rejected every one of
-      // these stops with a huge, seemingly-nonsensical "requires N more
-      // fuel" error, even for waypoints a few hundred units from the gate.
-      // ShipAgent's own estimatedFuelTo() silently returns 0 for any waypoint
-      // missing from that ship's waypointPositions map — and that map is
-      // seeded once, via withWorld(), at the moment the agent object was
-      // constructed, then never refreshed again for the rest of that ship's
-      // lifetime. A long-lived agent predates every system discovered
-      // mid-session, so every newly-reached system's waypoints read as "0
-      // fuel away" to it — CRUISE gets picked as if the leg were free, and
-      // the real navigateShip() call (which computes the actual distance)
-      // rejects it with the true, large shortfall. surveySystem() just above
-      // already refreshed this.positions; push that into this ship's own
-      // cache before asking it to fly anywhere in the system it just reached.
-      //
-      // Tours only: ScoutAgent reads the shared registry now, so it sees the
-      // survey the moment it lands and has nothing to be pushed. This whole
-      // block goes away when ShipAgent migrates too.
-      this.tours.get(shipSymbol)?.withWorld(this.positions, this.markets);
+      // these stops with a huge, seemingly-nonsensical "requires N more fuel"
+      // error, even for waypoints a few hundred units from the gate. The
+      // agent's own position cache was seeded once at construction and never
+      // refreshed, so every system discovered mid-session read as "0 fuel
+      // away" — CRUISE got picked as if the leg were free and the real
+      // navigateShip() call rejected it with the true shortfall. There is
+      // nothing to push here any more: every agent reads the live registry,
+      // so the surveySystem() call just above is already visible to this ship.
       const MAX_EXTRA_MARKET_STOPS = 3;
       const otherMarkets = (this.galaxy.getSystem(target)?.waypoints ?? [])
         .filter((w) => w.symbol !== remoteGate.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE"))
@@ -3748,7 +3709,7 @@ export class FleetManager {
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         keeperMarket: () => this.keeperMarkets.get(sym),
         getCredits: () => this.spendableCredits(),
-      }).withWorld(this.positions, this.markets);
+      }).withRegistry(this.registry);
       this.keepers.set(sym, keeper);
       this.keeperMarkets.set(sym, market);
       if (this.tenantId) await this.store?.setFleetState(this.tenantId, sym, "keeper", market);

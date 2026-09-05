@@ -254,7 +254,10 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
   it("reports an unmeasurable distance as Infinity, not zero", () => {
     const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
     const agent = new ShipAgent(ship, { api: { getShip: async () => ship } as any, log: () => {} });
-    agent.withWorld([{ symbol: "X1-REMOTE-A1", x: 0, y: 0 }] as any, []);
+    agent.withWorld([
+      { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+      { symbol: "X1-REMOTE-B2", x: 3, y: 4 },
+    ] as any, []);
 
     // Known both ends: a real number.
     assert.equal((agent as any).estimatedFuelToBetween("X1-REMOTE-A1", "X1-REMOTE-A1"), 1);
@@ -264,6 +267,15 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     assert.equal((agent as any).estimatedFuelToBetween("X1-REMOTE-A1", "X1-NOPE-9"), Infinity);
     // With our own position known, distanceTo is an ordinary measurement.
     assert.equal((agent as any).distanceTo({ symbol: "X1-REMOTE-B2", x: 3, y: 4 }), 5);
+    // Coordinates handed in are NOT trusted: the waypoint is resolved through
+    // the registry, so a symbol it has never seen is unmeasurable no matter
+    // what x/y the caller attaches to it. Every real caller now sources these
+    // objects from the registry itself, and this is what stops a fabricated
+    // pair of coordinates from ever becoming a flight decision.
+    assert.equal((agent as any).distanceTo({ symbol: "X1-REMOTE-GHOST", x: 3, y: 4 }), Infinity);
+    // Same reason, one step further: a waypoint in another system is
+    // unmeasurable however close its raw coordinates happen to look.
+    assert.equal((agent as any).distanceTo({ symbol: "X1-OTHER-B2", x: 3, y: 4 }), Infinity);
 
     // But not knowing where *we* are is not the same as everything being
     // adjacent: a ship whose own waypoint is uncharted must measure nothing,
