@@ -167,6 +167,30 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     );
   });
 
+  it("refuels where it stands when the atlas says that waypoint is a market, even with no prices cached", async () => {
+    // DAGGER-13 sat at X1-TP98-A14X — a FUEL_STATION — on 27/300 fuel logging
+    // "stranded ... and no reachable market", because `markets` only lists
+    // waypoints a snapshot exists for and nothing refreshes an agent's copy.
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 27, capacity: 300 });
+    const agent = new ShipAgent(ship, {
+      api: {
+        getShip: async () => ship,
+        refuelShip: async () => ({ fuel: { current: 300, capacity: 300 }, transaction: { totalPrice: 100 } }),
+      } as any,
+      log: () => {},
+      isMarketWaypoint: (wp) => wp === "X1-REMOTE-A1", // atlas knows; no snapshot exists
+    });
+    agent.withWorld(remotePositions as any, []); // note: markets list is empty
+    let docked = false;
+    (agent as any).ensureDocked = async () => { docked = true; };
+
+    const ok = await (agent as any).refuelIfNeeded(5, "X1-REMOTE-C3");
+
+    assert.equal(ok, true, "must refuel in place rather than report itself stranded");
+    assert.equal(docked, true);
+  });
+
   it("does not re-chart when the current waypoint is already in the cache", async () => {
     let charts = 0;
     const { agent, navigated } = makeStrandedTourAgent({

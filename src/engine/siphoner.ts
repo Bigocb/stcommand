@@ -32,6 +32,11 @@ export interface SiphonerOptions {
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
+  /** Whether a waypoint carries the MARKETPLACE trait, from the galaxy atlas.
+   *  `markets` only lists waypoints already snapshotted and is never refreshed
+   *  after construction, so a ship can sit on a fuel station it does not know
+   *  is one. */
+  isMarketWaypoint?: (waypointSymbol: string) => boolean;
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
   protectedGoods?: () => Set<string>;
   /** Whether the ship may act right now. False while the fleet is halted. */
@@ -52,6 +57,7 @@ export class SiphonerAgent {
   private readonly recordLedger: SiphonerOptions["recordLedger"];
   private readonly onActivity: SiphonerOptions["onActivity"];
   private readonly recordMarket: SiphonerOptions["recordMarket"];
+  private readonly isMarketWaypoint?: SiphonerOptions["isMarketWaypoint"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly waypointPositions = new Map<string, WaypointPos>();
   private readonly shouldRun?: () => boolean;
@@ -86,6 +92,7 @@ export class SiphonerAgent {
     this.recordLedger = opts.recordLedger;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.isMarketWaypoint = opts.isMarketWaypoint;
     this.shouldRun = opts.shouldRun;
     this.protectedGoods = opts.protectedGoods;
   }
@@ -416,7 +423,11 @@ export class SiphonerAgent {
   /** Top up fuel whenever docked at a market; detour to the nearest reachable market when low. */
   private async refuelIfNeeded(): Promise<void> {
     if (this.ship.fuel.capacity <= 0) return;
-    const atMarket = this.markets.some((m) => m.symbol === this.ship.nav.waypointSymbol);
+    // Trait from the atlas, not merely "we have prices for it" — see the
+    // isMarketWaypoint option. A ship parked on an unsnapshotted fuel station
+    // otherwise reports itself stranded while standing on a pump.
+    const hereWp = this.ship.nav.waypointSymbol;
+    const atMarket = this.markets.some((m) => m.symbol === hereWp) || (this.isMarketWaypoint?.(hereWp) ?? false);
     if (this.ship.fuel.current > this.ship.fuel.capacity * 0.5) return;
     if (atMarket) {
       await this.ensureDocked();

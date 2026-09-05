@@ -34,6 +34,14 @@ export interface AgentOptions {
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
+  /**
+   * Whether a waypoint carries the MARKETPLACE trait, answered from the galaxy
+   * atlas rather than from cached prices. `markets` only lists waypoints a
+   * snapshot has already been recorded for, and nothing refreshes an agent's
+   * copy of it after construction — so a ship can dock at a market, publish its
+   * prices, and still not believe it is standing at one.
+   */
+  isMarketWaypoint?: (waypointSymbol: string) => boolean;
   /** Shared survey registry: surveyor scouts deposit, miners consume. */
   surveyPool?: SurveyPool;
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
@@ -133,6 +141,7 @@ export class ShipAgent {
   private readonly deliverCargo: AgentOptions["deliverCargo"];
   private readonly onActivity: AgentOptions["onActivity"];
   private readonly recordMarket: AgentOptions["recordMarket"];
+  private readonly isMarketWaypoint?: AgentOptions["isMarketWaypoint"];
   private readonly waypointPositions = new Map<string, WaypointPos>();
   private markets: MarketSnapshot[] = [];
   private readonly surveyPool: SurveyPool | undefined;
@@ -182,6 +191,7 @@ export class ShipAgent {
     this.deliverCargo = opts.deliverCargo;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.isMarketWaypoint = opts.isMarketWaypoint;
     this.surveyPool = opts.surveyPool;
     this.protectedGoods = opts.protectedGoods;
     this.getCredits = opts.getCredits;
@@ -637,23 +647,42 @@ export class ShipAgent {
 
   private async refuelIfNeeded(reserve: number, target?: string): Promise<boolean> {
     if (this.ship.fuel.capacity <= 0) return true;
-    const atMarket = this.markets.some((m) => m.symbol === this.ship.nav.waypointSymbol);
+    // Ask the atlas what this waypoint *is*, not what we happen to have prices
+    // for. `markets` only holds waypoints already snapshotted, and an agent's
+    // copy is seeded once at construction and never refreshed — so a scout
+    // parked on a FUEL_STATION whose prices had never been recorded reported
+    // "stranded ... and no reachable market" while sitting on a fuel pump
+    // (DAGGER-13 at X1-TP98-A14X, 27/300 fuel). recordMarketSnapshot() already
+    // gates on this exact trait before it bothers fetching.
+    const here = this.ship.nav.waypointSymbol;
+    const atMarket = this.markets.some((m) => m.symbol === here) || (this.isMarketWaypoint?.(here) ?? false);
     const trip = target ? this.fuelNeededRoundTrip(target) : this.ship.fuel.capacity * 0.9;
     if (this.ship.fuel.current > trip + reserve) return true;
     if (atMarket) {
       await this.ensureDocked();
       this.log(`refueling (${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
-      const res = await this.api.refuelShip(this.symbol);
-      this.recordLedger?.({
-        timestamp: new Date().toISOString(),
-        shipSymbol: this.symbol,
-        waypointSymbol: this.ship.nav.waypointSymbol,
-        type: "REFUEL",
-        units: res.fuel.current,
-        total: res.transaction.totalPrice,
-      });
-      await this.refresh();
-      return true;
+      try {
+        const res = await this.api.refuelShip(this.symbol);
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: this.symbol,
+          waypointSymbol: this.ship.nav.waypointSymbol,
+          type: "REFUEL",
+          units: res.fuel.current,
+          total: res.transaction.totalPrice,
+        });
+        await this.refresh();
+        return true;
+      } catch (err) {
+        // Carrying the MARKETPLACE trait does not guarantee the market sells
+        // FUEL. Before the atlas check above, this branch was only ever
+        // entered for a waypoint we already held prices for, so a throw here
+        // was close to impossible; now that any marketplace qualifies, an
+        // unhandled rejection would propagate out of the caller's tick and
+        // simply retry next tick — trading one error loop for another. Fall
+        // through to the detour search instead.
+        this.log(`refuel here failed (${err instanceof Error ? err.message : String(err)}); looking for another market`);
+      }
     }
     // Not at a market and fuel is low: try to reach the nearest reachable market first.
     const refuelStop = this.nearestReachableMarket();

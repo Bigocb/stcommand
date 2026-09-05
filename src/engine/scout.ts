@@ -32,6 +32,11 @@ export interface ScoutOptions {
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
+  /** Whether a waypoint carries the MARKETPLACE trait, from the galaxy atlas.
+   *  `markets` only lists waypoints already snapshotted and is never refreshed
+   *  after construction, so a ship can sit on a fuel station it does not know
+   *  is one. */
+  isMarketWaypoint?: (waypointSymbol: string) => boolean;
   /** Called with the results of a sensor scan so the fleet can ingest them. */
   onScan?: (res: { systems?: components["schemas"]["ScannedSystem"][]; waypoints?: components["schemas"]["ScannedWaypoint"][] }) => void;
   /** Minimum minutes between sensor scans. 0 disables scanning. */
@@ -53,6 +58,7 @@ export class ScoutAgent {
   private readonly recordLedger: ScoutOptions["recordLedger"];
   private readonly onActivity: ScoutOptions["onActivity"];
   private readonly recordMarket: ScoutOptions["recordMarket"];
+  private readonly isMarketWaypoint?: ScoutOptions["isMarketWaypoint"];
   private readonly onScan: ScoutOptions["onScan"];
   private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
@@ -92,6 +98,7 @@ export class ScoutAgent {
     this.recordLedger = opts.recordLedger;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.isMarketWaypoint = opts.isMarketWaypoint;
     this.shouldRun = opts.shouldRun;
     this.onScan = opts.onScan;
     this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
@@ -306,24 +313,35 @@ export class ScoutAgent {
 
   private async refuelIfNeeded(reserve: number, target?: string): Promise<boolean> {
     if (this.ship.fuel.capacity <= 0) return true;
-    const atMarket = this.markets.some((m) => m.symbol === this.ship.nav.waypointSymbol);
+    // Trait from the atlas, not merely "we have prices for it" — see the
+    // isMarketWaypoint option. A ship parked on an unsnapshotted fuel station
+    // otherwise reports itself stranded while standing on a pump.
+    const hereWp = this.ship.nav.waypointSymbol;
+    const atMarket = this.markets.some((m) => m.symbol === hereWp) || (this.isMarketWaypoint?.(hereWp) ?? false);
     const trip = target ? this.fuelNeededRoundTrip(target) : this.ship.fuel.capacity * 0.9;
     if (this.ship.fuel.current > trip + reserve) return true;
     if (atMarket) {
       await this.ensureDocked();
       this.log(`refueling (${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
-      const res = await this.api.refuelShip(this.symbol);
-      this.recordLedger?.({
-        timestamp: new Date().toISOString(),
-        shipSymbol: this.symbol,
-        waypointSymbol: this.ship.nav.waypointSymbol,
-        type: "REFUEL",
-        units: res.fuel.current,
-        total: res.transaction.totalPrice,
-      });
-      this.onActivity?.("refuel", `${this.symbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice, this.symbol);
-      this.ship = { ...this.ship, fuel: res.fuel };
-      return true;
+      try {
+        const res = await this.api.refuelShip(this.symbol);
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: this.symbol,
+          waypointSymbol: this.ship.nav.waypointSymbol,
+          type: "REFUEL",
+          units: res.fuel.current,
+          total: res.transaction.totalPrice,
+        });
+        this.onActivity?.("refuel", `${this.symbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice, this.symbol);
+        this.ship = { ...this.ship, fuel: res.fuel };
+        return true;
+      } catch (err) {
+        // The MARKETPLACE trait does not guarantee the market sells FUEL, and
+        // this branch now accepts any marketplace, not just one we hold prices
+        // for. Let the caller fall through rather than throwing into its tick.
+        this.log(`refuel here failed (${err instanceof Error ? err.message : String(err)})`);
+      }
     }
     const nearest = this.nearestReachableMarket();
     if (!nearest) {

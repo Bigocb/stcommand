@@ -1002,6 +1002,21 @@ export class FleetManager {
     agent?.withWorld(this.positions, this.markets);
   }
 
+  /**
+   * Whether a waypoint carries the MARKETPLACE trait. Authoritative, and the
+   * same check recordMarketSnapshot() makes below — unlike `this.markets`,
+   * which only lists waypoints already snapshotted and is never refreshed on
+   * an agent after it is constructed.
+   */
+  private isMarketWaypoint(waypointSymbol: string): boolean {
+    const systemSymbol = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
+    return (
+      this.galaxy
+        .getSystem(systemSymbol)
+        ?.waypoints.some((w) => w.symbol === waypointSymbol && w.traits.some((t) => t.symbol === "MARKETPLACE")) ?? false
+    );
+  }
+
   /** Snapshot current market prices at a waypoint if it has a MARKETPLACE trait.
    *  Called whenever a ship docks so the dashboard stays current. */
   async recordMarketSnapshot(waypointSymbol: string): Promise<void> {
@@ -1062,6 +1077,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
           surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
@@ -1079,6 +1095,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
           ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
@@ -1101,6 +1118,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           protectedGoods: () => this.allProtectedGoods(),
         }).withWorld(this.positions, this.markets),
       );
@@ -1130,6 +1148,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
             getCredits: () => this.spendableCredits(),
@@ -1154,6 +1173,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
           marketTourTargets: () => this.sectorTourTargets(ship.symbol),
           staleMarketTargets: () => this.staleMarketTargets(),
@@ -1264,6 +1284,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
             surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
@@ -1281,6 +1302,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
             ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
@@ -1301,6 +1323,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             protectedGoods: () => this.allProtectedGoods(),
           }).withWorld(this.positions, this.markets),
         );
@@ -1317,6 +1340,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
             getCredits: () => this.spendableCredits(),
@@ -1335,6 +1359,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
             marketTourTargets: () => this.sectorTourTargets(shipSymbol),
             staleMarketTargets: () => this.staleMarketTargets(),
@@ -1363,6 +1388,7 @@ export class FleetManager {
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
+        isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
       })
@@ -3669,6 +3695,7 @@ export class FleetManager {
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits),
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
+        isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         keeperMarket: () => this.keeperMarkets.get(sym),
         getCredits: () => this.spendableCredits(),
