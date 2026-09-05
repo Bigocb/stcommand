@@ -87,6 +87,20 @@ export interface FleetOptions {
     total: number;
   }) => void;
   /** Called for notable events for the live feed. */
+  /**
+   * `shipSymbol` is the hull that did it, and it must be passed.
+   *
+   * Every wrapper below used to drop this argument and prepend the symbol to
+   * `detail` instead, so all 11,618 activity rows in a day landed under the
+   * pseudo-hull "fleet" and the column was dead. Nothing could filter
+   * activity by ship, and a per-hull view of history was not derivable
+   * without parsing free text.
+   *
+   * The symbol stays in `detail` as well for now: the activity feed renders
+   * only that field, so removing the prefix would silently drop the hull's
+   * name out of the UI. Redundant on purpose, and reversible once the
+   * renderers read the column.
+   */
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   minCashReserve?: number;
   /** This tenant's own Discord relay, if they've configured a webhook — never a shared/global one. See discord.ts's class doc comment. */
@@ -596,7 +610,7 @@ export class FleetManager {
       api: this.api,
       log: (m) => this.log(`${shipSymbol}: ${m}`),
       recordLedger: this.recordLedger,
-      onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+      onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
       recordMarket: (wp) => this.recordMarketSnapshot(wp),
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
@@ -1100,7 +1114,7 @@ export class FleetManager {
           shouldRun: () => !this.paused,
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
-          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
@@ -1118,7 +1132,7 @@ export class FleetManager {
           shouldRun: () => !this.paused,
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
-          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           surveyPool: this.surveyPool,
@@ -1141,7 +1155,7 @@ export class FleetManager {
           shouldRun: () => !this.paused,
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
-          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           protectedGoods: () => this.allProtectedGoods(),
@@ -1160,7 +1174,7 @@ export class FleetManager {
         // probe is sitting right there, so this costs nothing but one call.
         try {
           const charted = await this.api.chartShip(ship.symbol);
-          this.onActivity?.("chart", `${ship.symbol} charted ${charted.waypoint.symbol}`, 0);
+          this.onActivity?.("chart", `${ship.symbol} charted ${charted.waypoint.symbol}`, 0, ship.symbol);
         } catch (err) {
           // chart may already be done or the waypoint unchartable; ignore
         }
@@ -1171,7 +1185,7 @@ export class FleetManager {
             shouldRun: () => !this.paused,
             log: (m) => this.log(`${ship.symbol}: ${m}`),
             recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
@@ -1196,7 +1210,7 @@ export class FleetManager {
           shouldRun: () => !this.paused,
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
-          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
           ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
@@ -1307,7 +1321,7 @@ export class FleetManager {
             shouldRun: () => !this.paused,
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
@@ -1325,7 +1339,7 @@ export class FleetManager {
             shouldRun: () => !this.paused,
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             surveyPool: this.surveyPool,
@@ -1346,7 +1360,7 @@ export class FleetManager {
             shouldRun: () => !this.paused,
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             protectedGoods: () => this.allProtectedGoods(),
@@ -1363,7 +1377,7 @@ export class FleetManager {
             shouldRun: () => !this.paused,
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
@@ -1382,7 +1396,7 @@ export class FleetManager {
             shouldRun: () => !this.paused,
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
             ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
@@ -1411,7 +1425,7 @@ export class FleetManager {
         shouldRun: () => !this.paused,
         log: (m) => this.log(`${ship.symbol}: ${m}`),
         recordLedger: this.recordLedger,
-        onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+        onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
         isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
@@ -1428,12 +1442,12 @@ export class FleetManager {
     if (res.systems?.length) {
       const added = this.galaxy.ingestScannedSystems(res.systems);
       this.log(`${shipSymbol}: scan revealed ${added} systems`);
-      this.onActivity?.("scan", `${shipSymbol} revealed ${added} systems`);
+      this.onActivity?.("scan", `${shipSymbol} revealed ${added} systems`, undefined, shipSymbol);
     }
     if (res.waypoints?.length) {
       const added = this.galaxy.ingestScannedWaypoints(res.waypoints);
       this.log(`${shipSymbol}: scan revealed ${added} waypoints`);
-      this.onActivity?.("scan", `${shipSymbol} revealed ${added} waypoints`);
+      this.onActivity?.("scan", `${shipSymbol} revealed ${added} waypoints`, undefined, shipSymbol);
     }
   }
 
@@ -1786,7 +1800,7 @@ export class FleetManager {
       units: 0,
       total: res.transaction.totalPrice,
     });
-    this.onActivity?.("jump", `${shipSymbol} jumped to ${waypointSymbol}`, -res.transaction.totalPrice);
+    this.onActivity?.("jump", `${shipSymbol} jumped to ${waypointSymbol}`, -res.transaction.totalPrice, shipSymbol);
     // Same learned-cost feed as TraderAgent.jumpToSystem() — a scout/manual
     // jump through this gate is just as real a data point as a trade one.
     this.galaxy.recordJumpCost(gate, targetSystem, res.transaction.totalPrice);
@@ -1901,7 +1915,7 @@ export class FleetManager {
       units: res.fuel.current,
       total: res.transaction.totalPrice,
     });
-    this.onActivity?.("refuel", `${shipSymbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice);
+    this.onActivity?.("refuel", `${shipSymbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice, shipSymbol);
     return { fuel: res.fuel.current, capacity: res.fuel.capacity, cost: res.transaction.totalPrice };
   }
 
@@ -1919,7 +1933,7 @@ export class FleetManager {
       tradeSymbol: "SCRAP",
       total: res.transaction.totalPrice,
     });
-    this.onActivity?.("scrap", `${shipSymbol} scrapped at ${ship.nav.waypointSymbol} for ${res.transaction.totalPrice}c`, res.transaction.totalPrice);
+    this.onActivity?.("scrap", `${shipSymbol} scrapped at ${ship.nav.waypointSymbol} for ${res.transaction.totalPrice}c`, res.transaction.totalPrice, shipSymbol);
     await this.removeShip(shipSymbol);
     return { transaction: res.transaction };
   }
@@ -2093,7 +2107,7 @@ export class FleetManager {
       pricePerUnit: res.transaction.pricePerUnit,
       total: res.transaction.totalPrice,
     });
-    this.onActivity?.("buy", `${shipSymbol} bought ${units}u ${good} @ ${res.transaction.pricePerUnit}c`, -res.transaction.totalPrice);
+    this.onActivity?.("buy", `${shipSymbol} bought ${units}u ${good} @ ${res.transaction.pricePerUnit}c`, -res.transaction.totalPrice, shipSymbol);
   }
 
   /** Sell cargo for a ship at its current market. */
@@ -2116,7 +2130,7 @@ export class FleetManager {
       pricePerUnit: res.transaction.pricePerUnit,
       total: res.transaction.totalPrice,
     });
-    this.onActivity?.("sell", `${shipSymbol} sold ${toSell}u ${good} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice);
+    this.onActivity?.("sell", `${shipSymbol} sold ${toSell}u ${good} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice, shipSymbol);
   }
 
   /** Dump cargo overboard — no market or dock required, unlike buy/sell. For an operator clearing out dead stock manually; nothing pays for this. */
@@ -2197,7 +2211,7 @@ export class FleetManager {
       tradeSymbol: componentSymbol,
       total: res.transaction.totalPrice,
     });
-    this.onActivity?.("install", `${shipSymbol} installed ${componentSymbol} at ${yard.symbol}`, -res.transaction.totalPrice);
+    this.onActivity?.("install", `${shipSymbol} installed ${componentSymbol} at ${yard.symbol}`, -res.transaction.totalPrice, shipSymbol);
     this.log(`installed ${componentSymbol} on ${shipSymbol} at ${yard.symbol}`);
   }
 
@@ -2229,7 +2243,7 @@ export class FleetManager {
       tradeSymbol: componentSymbol,
       total: res.transaction.totalPrice,
     });
-    this.onActivity?.("install", `${shipSymbol} removed ${componentSymbol} at ${yard.symbol}`, -res.transaction.totalPrice);
+    this.onActivity?.("install", `${shipSymbol} removed ${componentSymbol} at ${yard.symbol}`, -res.transaction.totalPrice, shipSymbol);
     this.log(`removed ${componentSymbol} from ${shipSymbol} at ${yard.symbol}`);
   }
 
@@ -2262,7 +2276,7 @@ export class FleetManager {
       pricePerUnit: res.transaction.pricePerUnit,
       total: res.transaction.totalPrice,
     });
-    this.onActivity?.("buy", `${shipSymbol} bought ${componentSymbol} @ ${res.transaction.pricePerUnit}c`, -res.transaction.totalPrice);
+    this.onActivity?.("buy", `${shipSymbol} bought ${componentSymbol} @ ${res.transaction.pricePerUnit}c`, -res.transaction.totalPrice, shipSymbol);
     await this.installComponent(shipSymbol, componentSymbol);
   }
 
@@ -3718,7 +3732,7 @@ export class FleetManager {
         shouldRun: () => !this.paused,
         log: (m) => this.log(`${sym}: ${m}`),
         recordLedger: this.recordLedger,
-        onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits),
+        onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits, sym),
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
         isMarketWaypoint: (wp) => this.isMarketWaypoint(wp),
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
@@ -3888,7 +3902,7 @@ export class FleetManager {
         if (fuelInCargo && fuelInCargo.units > 0) {
           this.log(`rescuing ${s.symbol}: refueling from cargo (${fuelInCargo.units}u FUEL)`);
           await this.api.refuelShip(s.symbol, undefined, true);
-          this.onActivity?.("refuel", `${s.symbol} rescued: refueled from cargo hold`, 0);
+          this.onActivity?.("refuel", `${s.symbol} rescued: refueled from cargo hold`, 0, s.symbol);
           continue;
         }
       } catch (err) {
@@ -4175,7 +4189,7 @@ export class FleetManager {
       await this.api.transferCargo(plan.tenderSymbol, "FUEL", plan.fuelUnits, plan.strandedSymbol);
       const refueled = await this.api.refuelShip(plan.strandedSymbol, undefined, true);
       this.log(`tender ${plan.tenderSymbol}: transferred ${plan.fuelUnits}u FUEL to ${plan.strandedSymbol}; stranded refueled to ${refueled.fuel.current}/${refueled.fuel.capacity}`);
-      this.onActivity?.("refuel", `${plan.strandedSymbol} rescued: fuel tender delivered ${plan.fuelUnits}u FUEL`, 0);
+      this.onActivity?.("refuel", `${plan.strandedSymbol} rescued: fuel tender delivered ${plan.fuelUnits}u FUEL`, 0, plan.strandedSymbol);
       // Clear the stranded flag so the ship can resume autonomous trading.
       this.traders.get(plan.strandedSymbol)?.clearStranded();
       this.miners.get(plan.strandedSymbol)?.clearStranded();
