@@ -191,6 +191,64 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     assert.equal(docked, true);
   });
 
+  it("refuels out of a dead end when an empty tank is what made everything unreachable", async () => {
+    // DAGGER-15 at 0/300 on X1-RD37-BB4D — itself a marketplace — returned at
+    // "no reachable target" every tick and never reached refuelIfNeeded(),
+    // because its range was what made every target unreachable.
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 0, capacity: 300 });
+    const logs: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      // Only a far target exists: unreachable on an empty tank, fine on a full one.
+      marketTourTargets: async () => ["X1-REMOTE-FAR"],
+      isMarketWaypoint: (wp) => wp === "X1-REMOTE-A1",
+    });
+    agent.withWorld(
+      [
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+        { symbol: "X1-REMOTE-FAR", x: 900, y: 0 }, // beyond capacity, so no target is picked
+      ] as any,
+      [],
+    );
+    (agent as any).refuelIfNeeded = async () => {
+      Object.assign(ship.fuel, { current: 300 }); // the pump works
+      return true;
+    };
+
+    const worked = await (agent as any).tourScout();
+
+    assert.equal(worked, true, "a successful top-up counts as progress");
+    assert.ok(logs.some((l) => l.includes("refuelled at X1-REMOTE-A1 (0 → 300)")));
+    assert.ok(!logs.some((l) => l.includes("no reachable target")));
+  });
+
+  it("does not spin when the market it is standing on sells no fuel", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 0, capacity: 300 });
+    const logs: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => ["X1-REMOTE-FAR"],
+      isMarketWaypoint: (wp) => wp === "X1-REMOTE-A1",
+    });
+    agent.withWorld(
+      [
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+        { symbol: "X1-REMOTE-FAR", x: 900, y: 0 },
+      ] as any,
+      [],
+    );
+    (agent as any).refuelIfNeeded = async () => false; // market sells no fuel
+
+    const worked = await (agent as any).tourScout();
+
+    assert.equal(worked, false, "no fuel gained means no progress; must not report work done");
+    assert.ok(logs.some((l) => l.includes("no reachable target")));
+  });
+
   it("does not re-chart when the current waypoint is already in the cache", async () => {
     let charts = 0;
     const { agent, navigated } = makeStrandedTourAgent({

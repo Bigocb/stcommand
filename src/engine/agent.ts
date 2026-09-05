@@ -1209,6 +1209,23 @@ export class ShipAgent {
       .sort((a, b) => Number(b.stale) - Number(a.stale) || a.dist - b.dist);
     const target = reachable[0]?.t;
     if (!target) {
+      // Refuelling is decided after a target is chosen, so a ship with an empty
+      // tank — the one that most needs fuel — returns here every tick and never
+      // reaches refuelIfNeeded() at all. Its range is what made every target
+      // unreachable in the first place. DAGGER-15 sat at 0/300 on
+      // X1-RD37-BB4D, which is itself a marketplace, doing exactly this.
+      // Top up where we stand, then let the next tick re-evaluate with a real
+      // range. Only reports work done if the tank actually gained fuel, so a
+      // market that sells none can't turn this into a spin.
+      const lowFuel = this.ship.fuel.capacity > 0 && this.ship.fuel.current < this.ship.fuel.capacity * 0.9;
+      if (lowFuel && (this.isMarketWaypoint?.(here) ?? false)) {
+        const before = this.ship.fuel.current;
+        await this.refuelIfNeeded(5);
+        if (this.ship.fuel.current > before) {
+          this.log(`tour scout: refuelled at ${here} (${before} → ${this.ship.fuel.current}); re-evaluating next tick`);
+          return true;
+        }
+      }
       this.log(`tour scout: no reachable target from ${here} (${targets.length} known)`);
       return false;
     }
