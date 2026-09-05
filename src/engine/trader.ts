@@ -937,6 +937,7 @@ export class TraderAgent {
     // which is what this function is for.
     const activeLeg = this.asDirectLeg(this.assignedRoute?.());
     if (activeLeg && activeLeg.good === item.symbol && this.systemOf(activeLeg.sellAt) !== this.ship.nav.systemSymbol) {
+      this.log(`leftover sweep: leaving ${item.units}u ${item.symbol} to its cross-system route (sells at ${activeLeg.sellAt})`);
       return undefined;
     }
     // Only sell leftover within the current system — a cross-system sell
@@ -952,6 +953,15 @@ export class TraderAgent {
     if (sell && sell.waypoint !== this.ship.nav.waypointSymbol && this.systemOf(sell.waypoint) === this.ship.nav.systemSymbol) {
       await this.navigateTo(sell.waypoint);
     }
+    // Say which of the two things this is. Both paths end in the same
+    // "cleared leftover" line below, so from the log alone there was no way to
+    // tell a route being completed at its own ranked destination from orphaned
+    // cargo being dumped at whatever is nearest — including no way to check
+    // whether preferring routeSellHere actually changed anything.
+    const disposition = routeSellHere
+      ? `completing ${item.symbol} route at its own destination ${routeSellHere}`
+      : `no live route for ${item.symbol}; dumping at ${sell?.waypoint ?? this.ship.nav.waypointSymbol}`;
+    this.log(`leftover sweep: ${disposition}`);
     // Dock before selling — a ship sitting in orbit at a market would
     // otherwise skip the sell and fall through to buying MORE cargo.
     await this.ensureDocked();
@@ -977,7 +987,7 @@ export class TraderAgent {
         pricePerUnit: sold.transaction.pricePerUnit,
         total: sold.transaction.totalPrice,
       });
-      this.log(`cleared leftover ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`);
+      this.log(`cleared leftover ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${this.ship.nav.waypointSymbol}`);
       this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice, this.symbol);
       return true;
     } catch (err) {
