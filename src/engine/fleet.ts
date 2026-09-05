@@ -12,6 +12,7 @@ import type { Store, CargoIntent } from "../db/store.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { IDLE_STEP, type AgentStep } from "./agentStep.js";
+import { Registry } from "./registry.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -168,6 +169,15 @@ export class FleetManager {
   private readonly tenantId?: string;
   private readonly discord?: DiscordRelay;
   private readonly galaxy: GalaxyAtlas;
+  /**
+   * The one world every reader should consult — see registry.ts and
+   * docs/control-plane-data-plane.md §3. Built over the same live GalaxyAtlas
+   * instance, so it never needs re-seeding. Agents still hold their own
+   * withWorld() copies for now; each class migrating onto this reference is
+   * what lets those copies (and reseedAgentWorlds/chartSystemFor with them)
+   * be deleted.
+   */
+  private readonly registry: Registry;
   private surveyedSystems = new Set<string>();
   private lastExploreTick = 0;
   private rescuePlans = new Map<string, TenderPlan>();
@@ -229,6 +239,7 @@ export class FleetManager {
     // provably didn't before.
     this.doctrine = new Doctrine(opts.store, opts.tenantId);
     this.galaxy = new GalaxyAtlas(this.api, opts.store);
+    this.registry = new Registry(this.galaxy);
     this.missions = new MissionManager({
       api: this.api,
       store: opts.store,
@@ -279,6 +290,7 @@ export class FleetManager {
     this.rawWaypoints = known.waypoints;
     this.positions = known.waypoints.map((w) => ({ symbol: w.symbol, x: w.x, y: w.y, type: w.type }));
     this.markets = markets ?? [];
+    this.registry.recordMarkets(this.markets);
 
     // Shipyard survey used to run synchronously here, blocking the entire
     // dashboard on a live API scan. It now runs as a background refresh in
@@ -978,6 +990,8 @@ export class FleetManager {
     }
     this.markets = [...this.markets.filter((m) => m.systemSymbol !== systemSymbol), ...markets];
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
+    this.registry.recordMarkets(markets);
+    this.registry.noteTopologyChanged();
     // A survey is the main way the fleet learns a new system exists. Handing
     // that straight to the ships is the whole point — without it they keep
     // navigating against whatever they knew when they were built.
@@ -1002,6 +1016,7 @@ export class FleetManager {
   private async chartSystemFor(shipSymbol: string, systemSymbol: string): Promise<void> {
     await this.galaxy.loadSystem(systemSymbol);
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
+    this.registry.noteTopologyChanged();
     this.reseedAgentWorlds();
   }
 
@@ -1034,23 +1049,19 @@ export class FleetManager {
    * an agent after it is constructed.
    */
   private isMarketWaypoint(waypointSymbol: string): boolean {
-    const systemSymbol = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
-    return (
-      this.galaxy
-        .getSystem(systemSymbol)
-        ?.waypoints.some((w) => w.symbol === waypointSymbol && w.traits.some((t) => t.symbol === "MARKETPLACE")) ?? false
-    );
+    return this.registry.isMarket(waypointSymbol);
+  }
+
+  /** The live world, for readers migrating off their own withWorld() copy. */
+  getRegistry(): Registry {
+    return this.registry;
   }
 
   /** Snapshot current market prices at a waypoint if it has a MARKETPLACE trait.
    *  Called whenever a ship docks so the dashboard stays current. */
   async recordMarketSnapshot(waypointSymbol: string): Promise<void> {
-    const systemSymbol = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
-    const known = this.galaxy.getSystem(systemSymbol);
-    const isMarket = known?.waypoints.some(
-      (w) => w.symbol === waypointSymbol && w.traits.some((t) => t.symbol === "MARKETPLACE"),
-    );
-    if (!isMarket) return;
+    const systemSymbol = this.registry.systemOf(waypointSymbol);
+    if (!this.registry.isMarket(waypointSymbol)) return;
     try {
       const market = await this.api.getMarket(systemSymbol, waypointSymbol);
       const goods = market.tradeGoods ?? [];
@@ -1076,6 +1087,19 @@ export class FleetManager {
       }
       if (moduleGoods.length) await this.store?.recordModuleCatalog(systemSymbol, waypointSymbol, moduleGoods, "module");
       if (mountGoods.length) await this.store?.recordModuleCatalog(systemSymbol, waypointSymbol, mountGoods, "mount");
+      // Prices went to Postgres but never to the in-memory world, so the only
+      // thing that ever refreshed it was a full surveySystem() — every dock in
+      // between published prices the fleet's own ships could not see. The
+      // registry is the live copy, so record it here too.
+      this.registry.recordMarket({
+        symbol: waypointSymbol,
+        systemSymbol,
+        tradeGoods: Object.fromEntries(goods.map((g) => [g.symbol, g])),
+        imports: (market.imports ?? []).map((g) => g.symbol),
+        exports: (market.exports ?? []).map((g) => g.symbol),
+        exchange: (market.exchange ?? []).map((g) => g.symbol),
+        fetchedAt: new Date().toISOString(),
+      });
       this.onActivity?.("market", `snapshot ${waypointSymbol} (${goods.length} goods)`, 0);
     } catch (err) {
       // ignore: market may not be scannable
