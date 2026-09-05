@@ -1,6 +1,5 @@
 import { Router } from "express";
 import type pg from "pg";
-import { generateLog } from "../engine/narrative.js";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
 import { buildTriage } from "../engine/triage.js";
 import { setTenantDiscordWebhook, getTenantDiscordWebhook, getTenantDiscordEnabled, setTenantDiscordEnabled, getTenantLlmConfig, clearOnboardingPending } from "../db/tenants.js";
@@ -687,12 +686,24 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     });
   });
 
+  /**
+   * The captain's log. Written by the tenant's own LLM when they have
+   * configured one, and by the template otherwise — see NarrativeWriter,
+   * which owns that decision along with the caching that keeps the LLM path
+   * cheap enough to leave switched on.
+   *
+   * `source` and `error` are reported so the UI can say which wrote it. That
+   * is the only way a tenant finds out their key or endpoint is wrong: the
+   * fallback is deliberately silent in the pane itself, because prose that
+   * disappears is worse than prose written by a template.
+   */
   router.get("/narrative", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const activity = await w.store.recentActivity(w.tenantId, 30);
     const state = w.state.get();
-    res.json({ log: generateLog(activity, state.agent?.credits ?? 0, state.ships ?? []) });
+    const result = await w.narrative.generate(activity, state.agent?.credits ?? 0, state.ships ?? []);
+    res.json({ log: result.log, source: result.source, model: w.narrative.model, error: result.error });
   });
 
   router.get("/loadout", async (req, res) => {

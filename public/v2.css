@@ -707,6 +707,12 @@
   .logline .amt { float:right; font-variant-numeric:tabular-nums; }
   .logline .amt.pos { color:var(--green); } .logline .amt.neg { color:var(--red); }
   .narrative { font-family:var(--book); font-size:13px; line-height:1.65; color:var(--ice); font-style:italic; padding:2px 0 10px; }
+  /* Shown only when a configured LLM failed. The log itself still reads
+     normally — the template answered — so this is the one place the failure
+     is visible, and it names the reason rather than just saying something
+     went wrong. */
+  .narrative-warn { color:var(--red); font-size:10px; font-family:var(--mono); line-height:1.5; padding:0 0 8px; }
+  .narrative-warn[hidden] { display:none; }
   .relay { display:grid; grid-template-columns:1fr auto; gap:5px; margin-top:6px; }
   .relay input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; min-width:0; }
   .relay .ok { grid-column:1/-1; font-size:9px; color:var(--green); }

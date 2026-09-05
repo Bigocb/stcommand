@@ -5,6 +5,7 @@ import { FleetState } from "./state.js";
 import { ContractManager } from "./contract.js";
 import { FleetManager } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
+import { NarrativeWriter } from "./narrative.js";
 import { MarketIntel, type MarketSnapshot } from "./market.js";
 import { DiscordRelay } from "./discord.js";
 import { Scheduler } from "./scheduler.js";
@@ -22,6 +23,9 @@ export interface TenantWorker {
   /** Greenfield Phase 5: booted per tenant, running, but with nothing ever enqueued yet — see scheduler.ts's class comment. */
   scheduler: Scheduler;
   chat?: ChatAgent;
+  /** Always present — it decides internally whether an LLM is available and
+   *  falls back to the templated log when one is not. */
+  narrative: NarrativeWriter;
 }
 
 const STATE_REFRESH_MS = 20_000;
@@ -136,6 +140,13 @@ export class TenantRegistry {
     await setTenantLlmConfig(this.pool, tenantId, config);
     const worker = this.workers.get(tenantId);
     if (!worker) return;
+    worker.narrative = new NarrativeWriter({
+      envFallback: false,
+      apiKey: config?.apiKey,
+      model: config?.model,
+      baseUrl: config?.baseUrl,
+      onEvent: (e) => this.log(tenantId, `[narrative] ${e.type}: ${e.detail}`),
+    });
     worker.chat = config
       ? new ChatAgent({
           state: worker.state,
@@ -327,7 +338,19 @@ export class TenantRegistry {
           onEvent: (e) => log(`[copilot] ${e.type}: ${e.detail}`),
         })
       : undefined;
+    // The captain's log rides on the same key as the co-pilot. It is the
+    // cheaper of the two by a wide margin — one short completion at most
+    // every ten minutes — so there is no separate switch for it: if a tenant
+    // has given us a model, both features use it.
+    const narrative = new NarrativeWriter({
+      envFallback: false,
+      apiKey: llmConfig?.apiKey,
+      model: llmConfig?.model ?? undefined,
+      baseUrl: llmConfig?.baseUrl ?? undefined,
+      onEvent: (e) => log(`[narrative] ${e.type}: ${e.detail}`),
+    });
     log(chat ? "co-pilot enabled" : "co-pilot disabled (no LLM key set)");
+    log(narrative.enabled ? `captain's log: ${narrative.model}` : "captain's log: templated (no LLM key set)");
 
     // The coordinator/ship loops run for the life of the process, not for the
     // life of this call — genuinely fire-and-forget, the one place in this
@@ -387,7 +410,7 @@ export class TenantRegistry {
     await refreshState();
     setInterval(refreshState, STATE_REFRESH_MS).unref();
 
-    return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat };
+    return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative };
   }
 
   private async loadCachedMarkets(store: Store, systemSymbol: string): Promise<MarketSnapshot[]> {

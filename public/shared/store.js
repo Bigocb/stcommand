@@ -89,6 +89,11 @@ export let leaderboard = [];
 export let factions = [];
 
 export let narrative = "";
+/** Who wrote it — "llm" or "template" — plus the model and any error the
+ *  generation hit. The only way a tenant discovers their key or endpoint is
+ *  wrong: the pane itself falls back silently, on purpose, because prose
+ *  that vanishes is worse than prose written by a template. */
+export let narrativeMeta = { source: "template", model: null, error: null };
 export let chatHistory = [];
 
 /* ── subscriptions ────────────────────────────────────────── */
@@ -324,8 +329,9 @@ export async function loadGalaxy() {
 
 export async function loadNarrative() {
   try {
-    const res = await fetch("/api/narrative");
-    narrative = (await res.json()).log ?? "";
+    const data = await (await fetch("/api/narrative")).json();
+    narrative = data.log ?? "";
+    narrativeMeta = { source: data.source ?? "template", model: data.model ?? null, error: data.error ?? null };
     notify("narrative");
   } catch (e) { console.error(e); }
 }

@@ -69,11 +69,21 @@ export class ChatAgent {
   private readonly tools: ChatTool[];
 
   constructor(opts: ChatAgentOptions) {
+    // No fall-through to a process-wide ST_LLM_API_KEY. The registry only
+    // builds a ChatAgent for a tenant that has already configured one, so
+    // this is unreachable today — but `?? process.env.ST_LLM_API_KEY` would
+    // quietly bill the operator for any tenant's chat the moment someone
+    // constructed one without a config. Same rule as the captain's log: a
+    // tenant spends their own key or none.
+    //
+    // Construction stays lenient rather than throwing on a missing key —
+    // a keyless agent is still useful for reading getTools() — so the
+    // failure surfaces on use, as it did before.
     const llm =
       opts.llm ??
       new ChatLLM({
-        apiKey: opts.apiKey ?? process.env.ST_LLM_API_KEY ?? "",
-        model: opts.model ?? process.env.ST_LLM_MODEL ?? DEFAULT_MODEL,
+        apiKey: opts.apiKey ?? "",
+        model: opts.model ?? DEFAULT_MODEL,
         baseUrl: opts.baseUrl,
         onEvent: opts.onEvent,
       });

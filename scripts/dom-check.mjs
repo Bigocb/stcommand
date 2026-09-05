@@ -209,7 +209,12 @@ const FIXTURES = {
   // empty-but-wrong fixture looks exactly like an empty-but-right one, so
   // nothing ever failed — which is the whole problem with fixtures that
   // return nothing.
-  "/api/narrative": { log: "Two hulls docked at A1. The cash floor held once this shift." },
+  // source/model/error are what the pane's tooltip and its failure line read;
+  // a fixture that only carried `log` could not exercise either.
+  "/api/narrative": {
+    log: "Two hulls docked at A1. The cash floor held once this shift.",
+    source: "llm", model: "test-model",
+  },
   "/api/missions": { missions: [] },
   "/api/contracts": { contracts: [] },
   "/api/replay": {

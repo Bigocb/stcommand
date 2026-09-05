@@ -24,7 +24,7 @@ import {
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
   dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
-  missions, leaderboard, factions, narrative, chatHistory,
+  missions, leaderboard, factions, narrative, narrativeMeta, chatHistory,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
 } from "/shared/store.js";
@@ -3516,7 +3516,22 @@ function renderPriceGoods() {
 
 function renderNarrative() {
   const el = $("narrative");
-  if (el) el.textContent = narrative || "Awaiting telemetry…";
+  if (!el) return;
+  el.textContent = narrative || "Awaiting telemetry…";
+  // Which voice wrote this is worth knowing but not worth a line of the
+  // pane, so it lives in the tooltip — except a failure, which is the one
+  // case a tenant has to be told about, since the fallback is otherwise
+  // indistinguishable from the feature working.
+  const { source, model, error } = narrativeMeta;
+  el.title = error
+    ? `LLM log failed (${error}) — showing the templated log`
+    : source === "llm" ? `Written by ${model ?? "your model"}` : "Templated log — set an LLM key in the Book to have yours written";
+  el.classList.toggle("fallback", !!error);
+  const warn = $("narrative-warn");
+  if (warn) {
+    warn.textContent = error ? `Captain's log fell back to the template — ${error}` : "";
+    warn.hidden = !error;
+  }
 }
 
 function renderChatHistory() {
