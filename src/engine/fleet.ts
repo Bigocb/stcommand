@@ -978,6 +978,10 @@ export class FleetManager {
     }
     this.markets = [...this.markets.filter((m) => m.systemSymbol !== systemSymbol), ...markets];
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
+    // A survey is the main way the fleet learns a new system exists. Handing
+    // that straight to the ships is the whole point — without it they keep
+    // navigating against whatever they knew when they were built.
+    this.reseedAgentWorlds();
     this.log(`surveyed ${systemSymbol}: ${markets.length} markets, ${shipyards.length} shipyards`);
   }
 
@@ -998,8 +1002,29 @@ export class FleetManager {
   private async chartSystemFor(shipSymbol: string, systemSymbol: string): Promise<void> {
     await this.galaxy.loadSystem(systemSymbol);
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
-    const agent = this.tours.get(shipSymbol) ?? this.surveyors.get(shipSymbol) ?? this.scouts.get(shipSymbol);
-    agent?.withWorld(this.positions, this.markets);
+    this.reseedAgentWorlds();
+  }
+
+  /**
+   * Push the current positions and market snapshots into every agent.
+   *
+   * Agents copy this world once, via withWorld(), when they are constructed,
+   * and nothing gave it back to them afterwards — so a ship's idea of where
+   * things are is frozen at the moment its agent object was built. Each role
+   * that noticed independently got its own patch (a lazy ensureSystemCharted
+   * hook for tour scouts, for one), while traders got nothing at all: their
+   * distBetween() falls back to a fabricated 1000 for any waypoint outside
+   * that first snapshot, which is enough to send a full-tank ship into DRIFT.
+   * Re-seed everyone wherever the fleet's own view changes instead.
+   */
+  private reseedAgentWorlds(): void {
+    for (const a of this.miners.values()) a.withWorld(this.positions, this.markets);
+    for (const a of this.surveyors.values()) a.withWorld(this.positions, this.markets);
+    for (const a of this.tours.values()) a.withWorld(this.positions, this.markets);
+    for (const a of this.keepers.values()) a.withWorld(this.positions, this.markets);
+    for (const a of this.scouts.values()) a.withWorld(this.positions, this.markets);
+    for (const a of this.siphoners.values()) a.withWorld(this.positions, this.markets);
+    for (const a of this.traders.values()) a.withWorld(this.positions);
   }
 
   /**

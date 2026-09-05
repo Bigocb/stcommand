@@ -319,6 +319,12 @@ export class ShipAgent {
           const patched = await this.api.patchShipNav(this.symbol, mode);
           this.ship = { ...this.ship, nav: patched.nav, fuel: patched.fuel };
           this.onActivity?.("flightmode", `${mode.toLowerCase()} mode${flightModeReason(mode)} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`, undefined, this.symbol);
+          // Also log it. DRIFT turns a minutes-long leg into a hours-long one,
+          // and it was previously reported only through onActivity — i.e. to
+          // the dashboard, not the app log — so a ship that vanished for seven
+          // hours left no record of the decision that sent it. The mode has to
+          // be greppable next to the navigate it applies to.
+          if (mode === "DRIFT") this.log(`DRIFT to ${waypoint}: needs ${need} fuel at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
         } catch (err) {
           this.log(`flight mode change to ${mode} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
