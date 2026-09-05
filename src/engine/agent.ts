@@ -312,22 +312,35 @@ export class ShipAgent {
     // trader hit exactly this and spent 7h34m on a 172-unit leg with a nearly
     // full tank. Leave the mode as it is and let navigateShip() below be the
     // authority, which this comment already says is its job.
-    if (this.ship.fuel.capacity > 0 && Number.isFinite(need)) {
-      const mode = chooseFlightMode(need, this.ship.fuel.current, this.ship.fuel.capacity);
-      if (mode !== this.ship.nav.flightMode) {
+    if (this.ship.fuel.capacity > 0) {
+      // Pick a mode only from a distance we actually have — but never leave a
+      // ship sitting in DRIFT because we could not measure one. DRIFT is
+      // sticky: "leave the mode alone" preserves whatever the last leg set, so
+      // a ship that drifted once goes on crawling every leg after it, and
+      // since the report below only fired on a *change*, it did so silently.
+      // Three scouts sat in multi-hour transits at two fuel a leg with nothing
+      // in the log to say why. Unmeasurable distance means fall back to
+      // CRUISE and let navigateShip() be the authority, never keep drifting.
+      const mode = Number.isFinite(need)
+        ? chooseFlightMode(need, this.ship.fuel.current, this.ship.fuel.capacity)
+        : this.ship.nav.flightMode === "DRIFT"
+          ? "CRUISE"
+          : undefined;
+      if (mode !== undefined && mode !== this.ship.nav.flightMode) {
         try {
           const patched = await this.api.patchShipNav(this.symbol, mode);
           this.ship = { ...this.ship, nav: patched.nav, fuel: patched.fuel };
           this.onActivity?.("flightmode", `${mode.toLowerCase()} mode${flightModeReason(mode)} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`, undefined, this.symbol);
-          // Also log it. DRIFT turns a minutes-long leg into a hours-long one,
-          // and it was previously reported only through onActivity — i.e. to
-          // the dashboard, not the app log — so a ship that vanished for seven
-          // hours left no record of the decision that sent it. The mode has to
-          // be greppable next to the navigate it applies to.
-          if (mode === "DRIFT") this.log(`DRIFT to ${waypoint}: needs ${need} fuel at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
         } catch (err) {
           this.log(`flight mode change to ${mode} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
+      }
+      // Report the mode this leg actually flies in, not merely transitions
+      // into. DRIFT turns a minutes-long leg into an hours-long one and was
+      // reported only through onActivity — the dashboard, not the app log — so
+      // a ship that vanished for seven hours left no record of why.
+      if (this.ship.nav.flightMode === "DRIFT") {
+        this.log(`DRIFT leg to ${waypoint}: needs ${need} at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
       }
     }
     this.currentStep = { kind: "navigating", to: waypoint };
@@ -624,6 +637,9 @@ export class ShipAgent {
     let best: string | undefined;
     let bestDist = Infinity;
     for (const m of this.markets) {
+      // Same system only: this feeds fuelNeededRoundTrip(), and a "nearest"
+      // market a jump away is not somewhere the return leg can reach.
+      if (this.systemOfWaypoint(m.symbol) !== this.systemOfWaypoint(waypoint)) continue;
       const d = this.estimatedFuelToBetween(waypoint, m.symbol);
       if (d < bestDist) {
         bestDist = d;
@@ -1260,7 +1276,14 @@ export class ShipAgent {
         const dist = herePos && pos ? Math.max(1, Math.round(Math.hypot(pos.x - herePos.x, pos.y - herePos.y))) : Infinity;
         return { t, dist, stale: stale.has(t) };
       })
-      .filter((x) => x.dist <= this.ship.fuel.capacity)
+      // Outbound *and* a way back out. Filtering on the one-way leg alone let
+      // scouts fly to the edge of a system and strand: DAGGER-15 reached
+      // X1-TV75-D19B, from which the system's only other markets sit 467 and
+      // 659 units away against a 300 tank, and correctly reported "no
+      // reachable target" from then on. fuelNeededRoundTrip() is the same
+      // check refuelIfNeeded() already makes — it was just being made after
+      // the target was chosen instead of while choosing it.
+      .filter((x) => x.dist <= this.ship.fuel.capacity && this.fuelNeededRoundTrip(x.t) <= this.ship.fuel.capacity)
       .sort((a, b) => Number(b.stale) - Number(a.stale) || a.dist - b.dist);
     const target = reachable[0]?.t;
     if (!target) {

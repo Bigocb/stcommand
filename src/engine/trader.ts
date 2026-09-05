@@ -437,22 +437,28 @@ export class TraderAgent {
     // the authority on affordability, which is exactly the role flightMode.ts
     // describes for it.
     const needAtCruise = this.knownDistBetween(this.ship.nav.waypointSymbol, waypoint);
-    if (this.ship.fuel.capacity > 0 && needAtCruise !== undefined) {
-      const mode = chooseFlightMode(needAtCruise, this.ship.fuel.current, this.ship.fuel.capacity);
-      if (mode !== this.ship.nav.flightMode) {
+    if (this.ship.fuel.capacity > 0) {
+      // Never leave a ship sitting in DRIFT because the distance could not be
+      // measured. DRIFT is sticky: skipping the decision preserves whatever the
+      // last leg set, so one bad choice makes every leg after it a crawl.
+      const mode =
+        needAtCruise !== undefined
+          ? chooseFlightMode(needAtCruise, this.ship.fuel.current, this.ship.fuel.capacity)
+          : this.ship.nav.flightMode === "DRIFT"
+            ? "CRUISE"
+            : undefined;
+      if (mode !== undefined && mode !== this.ship.nav.flightMode) {
         try {
           const patched = await this.api.patchShipNav(this.symbol, mode);
           this.ship = { ...this.ship, nav: patched.nav, fuel: patched.fuel };
           this.onActivity?.("flightmode", `${mode.toLowerCase()} mode${flightModeReason(mode)} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`, undefined, this.symbol);
-          // Also log it. DRIFT turns a minutes-long leg into a hours-long one,
-          // and it was previously reported only through onActivity — i.e. to
-          // the dashboard, not the app log — so a ship that vanished for seven
-          // hours left no record of the decision that sent it. The mode has to
-          // be greppable next to the navigate it applies to.
-          if (mode === "DRIFT") this.log(`DRIFT to ${waypoint}: needs ${needAtCruise} fuel at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
         } catch (err) {
           this.log(`flight mode change to ${mode} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
+      }
+      // Report the mode this leg actually flies in, not merely transitions into.
+      if (this.ship.nav.flightMode === "DRIFT") {
+        this.log(`DRIFT leg to ${waypoint}: needs ${needAtCruise ?? "unknown"} at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
       }
     }
     this.currentStep = { kind: "navigating", to: waypoint };

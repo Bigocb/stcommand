@@ -218,3 +218,17 @@ describe("chooseFlightMode: an unmeasured distance must never reach this functio
     assert.equal(chooseFlightMode(172, 598, 600), "BURN");
   });
 });
+
+describe("DRIFT must not be sticky", () => {
+  // A ship already in DRIFT never changes mode, so "leave the mode alone when
+  // the distance is unmeasurable" kept it crawling every leg afterwards — and
+  // silently, since the report only fired on a change. Three scouts sat in
+  // multi-hour transits at two fuel a leg with nothing in the log.
+  it("cruises a measurable leg it can afford, regardless of the mode it arrived in", () => {
+    assert.equal(chooseFlightMode(172, 200, 600), "CRUISE");
+  });
+
+  it("still drifts a measurable leg it genuinely cannot afford", () => {
+    assert.equal(chooseFlightMode(500, 100, 600), "DRIFT");
+  });
+});
