@@ -981,6 +981,27 @@ export class FleetManager {
     this.log(`surveyed ${systemSymbol}: ${markets.length} markets, ${shipyards.length} shipyards`);
   }
 
+  /**
+   * Load `systemSymbol`'s waypoints and push their coordinates into
+   * `shipSymbol`'s agent.
+   *
+   * Agents cache waypoint positions once, via withWorld(), when they are
+   * constructed — and at boot this.positions holds the home system alone (see
+   * init()). Any ship parked elsewhere therefore restarts with no coordinates
+   * for the system it is standing in, so every distance it computes is
+   * Infinity: a tour scout rejects its whole target list and idles forever,
+   * and estimatedFuelTo() reads legs as free and picks CRUISE for hops the
+   * real navigate call then rejects. Wired in as agents' ensureSystemCharted
+   * so they can repair their own cache on the first tick that notices the gap,
+   * which also covers systems explored after the agent was built.
+   */
+  private async chartSystemFor(shipSymbol: string, systemSymbol: string): Promise<void> {
+    await this.galaxy.loadSystem(systemSymbol);
+    this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
+    const agent = this.tours.get(shipSymbol) ?? this.surveyors.get(shipSymbol) ?? this.scouts.get(shipSymbol);
+    agent?.withWorld(this.positions, this.markets);
+  }
+
   /** Snapshot current market prices at a waypoint if it has a MARKETPLACE trait.
    *  Called whenever a ship docks so the dashboard stays current. */
   async recordMarketSnapshot(waypointSymbol: string): Promise<void> {
@@ -1060,6 +1081,7 @@ export class FleetManager {
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
+          ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
           marketTourTargets: () => this.marketTourTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
@@ -1132,6 +1154,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
           marketTourTargets: () => this.sectorTourTargets(ship.symbol),
           staleMarketTargets: () => this.staleMarketTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
@@ -1260,6 +1283,7 @@ export class FleetManager {
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
             surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
+            ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
             marketTourTargets: () => this.marketTourTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
@@ -1311,6 +1335,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
             marketTourTargets: () => this.sectorTourTargets(shipSymbol),
             staleMarketTargets: () => this.staleMarketTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),
@@ -4112,7 +4137,10 @@ export class FleetManager {
     }
     const unsurveyed = [...reachable].filter((c) => !this.surveyedSystems.has(c));
     const now = Date.now();
-    // Only attempt exploration at most once every 10 minutes.
+    // Only attempt exploration at most once every 10 minutes. The set above is
+    // just a cheap "is there anything left to explore anywhere" short-circuit —
+    // it says nothing about whether any particular scout can get there, which
+    // is decided per scout below.
     if (unsurveyed.length === 0 || now - this.lastExploreTick < 600_000) return;
 
     // Every idle dedicated intel ship (tour shuttle / chart scout), ONLY.
@@ -4134,24 +4162,41 @@ export class FleetManager {
       .filter((c) => idle(c.a))
       .sort((a, b) => rank(a.fuel) - rank(b.fuel));
     if (dedicated.length === 0) return;
-    this.lastExploreTick = now;
 
-    // Pair every idle scout with a distinct unsurveyed system (shuffled, not
-    // sorted, so a target that keeps failing for a non-construction reason —
-    // see the catch below, which deliberately never blacklists on failure —
-    // can't monopolize the same scout slot pass after pass) and dispatch all
-    // pairs concurrently. Previously this picked exactly one target and one
-    // scout per pass regardless of how many idle scouts were sitting around,
-    // so a bigger scout fleet only improved the odds *someone* was free each
-    // window — it never actually explored faster. Extra idle scouts beyond
-    // unsurveyed.length still just sit out the round; there's nothing left
-    // to send them to yet.
-    const shuffled = [...unsurveyed];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+    // Pair each idle scout with a distinct unsurveyed system it can actually
+    // jump to *from where it is standing right now*.
+    //
+    // This used to pair scout `i` with target `i` out of a shuffled list of
+    // every unsurveyed system reachable from anywhere we know — a set that says
+    // "some system we have charted has a working gate to this" and nothing
+    // about the scout being sent. exploreSystem() then applies the real test
+    // (gatesTo() from the ship's own current system) and throws
+    // "no jump gate to X" before the ship moves an inch. Seen live: a scout
+    // parked in TP98 was handed TV75, which only neighbours home, and failed
+    // 2 seconds later; the catch below logs and gives up for the pass, so the
+    // ship burns a whole 10-minute window doing nothing, and the next pass can
+    // deal it the same impossible target again.
+    //
+    // Choosing randomly among a scout's own options preserves the property the
+    // old shuffle was there for: a target that keeps failing for a reason we
+    // can't see from here can't monopolize the same scout pass after pass.
+    const taken = new Set<string>();
+    const pairs: { scout: ScoutCandidate; target: string }[] = [];
+    for (const scout of dedicated) {
+      const from = scout.a.getShip().nav.systemSymbol;
+      const options = this.galaxy
+        .connectedSystems(from)
+        .filter((c) => !this.surveyedSystems.has(c) && !taken.has(c) && this.galaxy.canJump(from, c));
+      const target = options[Math.floor(Math.random() * options.length)];
+      if (!target) continue; // nothing this scout can reach from here
+      taken.add(target);
+      pairs.push({ scout, target });
     }
-    const pairs = dedicated.slice(0, shuffled.length).map((scout, i) => ({ scout, target: shuffled[i]! }));
+    // Don't burn the 10-minute window when every idle scout is somewhere with
+    // no reachable frontier — that would just idle them until one happens to be
+    // moved. Retrying costs a few in-memory cache reads.
+    if (pairs.length === 0) return;
+    this.lastExploreTick = now;
 
     await Promise.allSettled(
       pairs.map(async ({ scout, target }) => {

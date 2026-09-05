@@ -43,6 +43,14 @@ export interface AgentOptions {
    *  arbitrage buying can spend. Undefined (no fleet wired in, e.g. a bare
    *  test) means unconstrained, matching this class's existing behavior. */
   getCredits?: () => number;
+  /**
+   * Chart the given system and re-seed this agent's waypoint positions from it.
+   * `waypointPositions` is otherwise seeded once, at construction, from whatever
+   * the fleet knew then — which at boot is the home system alone. A ship parked
+   * anywhere else therefore comes back from a restart with no coordinates for
+   * the system it is standing in, and every distance it computes is Infinity.
+   */
+  ensureSystemCharted?: (systemSymbol: string) => Promise<void>;
   /** Marketplace waypoints to tour periodically so price snapshots stay fresh. */
   marketTourTargets?: () => Promise<string[]>;
   /** Markets whose snapshots are older than the freshness window — tour these first. */
@@ -130,6 +138,7 @@ export class ShipAgent {
   private readonly surveyPool: SurveyPool | undefined;
   private readonly protectedGoods?: () => Set<string>;
   private readonly getCredits?: AgentOptions["getCredits"];
+  private readonly ensureSystemCharted?: AgentOptions["ensureSystemCharted"];
   private readonly marketTourTargets?: AgentOptions["marketTourTargets"];
   private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
@@ -176,6 +185,7 @@ export class ShipAgent {
     this.surveyPool = opts.surveyPool;
     this.protectedGoods = opts.protectedGoods;
     this.getCredits = opts.getCredits;
+    this.ensureSystemCharted = opts.ensureSystemCharted;
     this.marketTourTargets = opts.marketTourTargets;
     this.staleMarketTargets = opts.staleMarketTargets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
@@ -1117,6 +1127,16 @@ export class ShipAgent {
     // of the tour. Fall back to nearest-reachable when everything is fresh.
     const stale = new Set((await this.staleMarketTargets?.()) ?? []);
     const here = this.ship.nav.waypointSymbol;
+    // No coordinates for the waypoint we are physically standing on means this
+    // agent's position cache predates the system it now sits in — every `dist`
+    // below would come out Infinity and the scout would report "no reachable
+    // target" against a full target list, forever, without ever moving. Seen
+    // live: after a restart, three scouts parked in systems explored earlier in
+    // the session sat blind at 26 known targets each while the one scout still
+    // in the home system toured normally. Chart it and re-read before deciding.
+    if (!this.waypointPositions.has(here)) {
+      await this.ensureSystemCharted?.(this.ship.nav.systemSymbol);
+    }
     const herePos = this.waypointPositions.get(here);
     const reachable = targets
       .filter((t) => t !== here)
