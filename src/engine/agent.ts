@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -164,6 +164,21 @@ export class ShipAgent {
    *  that's already mid-flight against stale cached ship state. */
   private inFlight: Promise<unknown> | null = null;
   private surveyedFields = new Set<string>();
+  /**
+   * The waypoint of an extraction session still in progress, or null. Under
+   * the scheduler a mining loop no longer runs to a full hold inside one
+   * tick — each extraction's cooldown ends the tick via CooldownPending and
+   * the next tick re-enters. Without this, that next tick would see a hold
+   * with a few units in it and fly off to sell them (tick()'s step 2), so a
+   * miner would haul five units at a time. Set on entry to mineAndRefine()/
+   * extractUntilFull(), cleared when either finishes for real (full hold,
+   * or a failure that ends the session) or when the ship is no longer here.
+   */
+  private miningSession: string | null = null;
+  /** The survey the current extraction session is working from, so re-entering
+   *  the session after a cooldown reuses it instead of paying for (and cooling
+   *  down after) a fresh survey before every single extraction. */
+  private activeSurvey?: { waypoint: string; survey: components["schemas"]["Survey"] };
   /** Operator-chosen asteroid field; overrides the ship's own nearest-field pick. */
   private pinnedMiningTarget?: string;
   private marketTourIndex = 0;
@@ -223,8 +238,21 @@ export class ShipAgent {
   private async waitCooldown(): Promise<void> {
     const cd = this.ship.cooldown;
     if (!cd || cd.remainingSeconds <= 0) return;
+    // Scheduler-driven: report when this ship can next act instead of
+    // sleeping inside Scheduler.runOnce()'s sequential loop, where the sleep
+    // held every other ship's task (rescue included) for the whole cooldown
+    // — see CooldownPending's own comment.
+    if (this.schedulerDriven) throw new CooldownPending(Date.now() + cd.remainingSeconds * 1000 + 250);
     this.log(`cooldown ${cd.remainingSeconds}s`);
     await sleep(cd.remainingSeconds * 1000 + 250);
+    await this.refresh();
+  }
+
+  /** A short back-off that yields the scheduler instead of blocking it — the
+   *  "pending cooldown, waiting…" retry paths below used to sleep 6 s in place. */
+  private async pause(ms: number): Promise<void> {
+    if (this.schedulerDriven) throw new CooldownPending(Date.now() + ms, "backoff");
+    await sleep(ms);
     await this.refresh();
   }
 
@@ -898,8 +926,16 @@ export class ShipAgent {
     const cargoFree = this.cargoFree();
     const cargoValue = this.cargoValue();
 
+    // An extraction session interrupted by its own cooldown (CooldownPending)
+    // resumes here with a part-filled hold. Keep mining rather than treating
+    // those few units as a cargo to deliver or sell — see miningSession.
+    if (this.miningSession !== null && (this.miningSession !== this.ship.nav.waypointSymbol || this.ship.nav.status === "IN_TRANSIT")) {
+      this.miningSession = null;
+    }
+    const midMining = this.miningSession !== null && cargoFree > 0 && this.canMine();
+
     // 1. If cargo is held for a contract delivery, route it first.
-    if (this.ship.cargo.units > 0 && this.deliverCargo) {
+    if (!midMining && this.ship.cargo.units > 0 && this.deliverCargo) {
       const result = await this.deliverCargo(this.ship);
       if (typeof result === "string") {
         this.log(`delivering cargo → ${result}`);
@@ -921,7 +957,7 @@ export class ShipAgent {
     }
 
     // 2. Otherwise sell any remaining cargo.
-    if (this.ship.cargo.units > 0) {
+    if (!midMining && this.ship.cargo.units > 0) {
       const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
       const sellable = this.ship.cargo.inventory.filter((i) => !protectedGoods.has(i.symbol));
       if (sellable.length > 0) {
@@ -944,7 +980,7 @@ export class ShipAgent {
     }
 
     // 3. After selling, if empty at a market, run a quick arbitrage route.
-    if (this.ship.cargo.units === 0) {
+    if (!midMining && this.ship.cargo.units === 0) {
       const route = this.findArbitrageRouteFrom();
       if (route) {
         this.log(`arbitrage opportunity: ${route.good} ${route.buyAt} → ${route.sellAt}, +${route.profit}c`);
@@ -997,13 +1033,15 @@ export class ShipAgent {
    */
   private async mineAndRefine(): Promise<void> {
     let safety = 0;
-    let survey: components["schemas"]["Survey"] | undefined;
-    if (this.hasSurveyor()) {
+    this.miningSession = this.ship.nav.waypointSymbol;
+    let survey = this.cachedSurvey();
+    if (!survey && this.hasSurveyor()) {
       survey = await this.createAndPickSurvey();
-    } else if (this.surveyPool) {
+    } else if (!survey && this.surveyPool) {
       survey = this.surveyPool.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d]));
       if (survey) this.log(`using shared survey at ${this.ship.nav.waypointSymbol}`);
     }
+    this.rememberSurvey(survey);
     while (safety < 60 && this.running) {
       safety += 1;
       // Refine a full batch of ore first (frees room), then mine to refill.
@@ -1024,20 +1062,24 @@ export class ShipAgent {
           );
           await this.waitCooldown();
         } catch (err) {
+          if (err instanceof Pending) throw err;
           const msg = err instanceof Error ? err.message : String(err);
           if (msg.includes("cooldown")) {
             this.log(`refine pending cooldown, waiting…`);
-            await sleep(6_000);
-            await this.refresh();
+            await this.pause(6_000);
             continue;
           }
           this.log(`refine failed: ${msg}`);
+          this.miningSession = null;
           return;
         }
         continue;
       }
       // Nothing left to refine: mine until the hold is full.
-      if (this.cargoFree() === 0) return;
+      if (this.cargoFree() === 0) {
+        this.miningSession = null;
+        return;
+      }
       try {
         let res: {
           cooldown: components["schemas"]["Cooldown"];
@@ -1057,11 +1099,11 @@ export class ShipAgent {
         this.log(`extracted ${got.units}u ${got.symbol}`);
         await this.waitCooldown();
       } catch (err) {
+        if (err instanceof Pending) throw err;
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("cooldown")) {
           this.log(`extract pending cooldown, waiting…`);
-          await sleep(6_000);
-          await this.refresh();
+          await this.pause(6_000);
           continue;
         }
         if (survey && /exhaust|expire|signature|invalid/i.test(msg)) {
@@ -1070,14 +1112,32 @@ export class ShipAgent {
           survey = this.hasSurveyor()
             ? await this.createAndPickSurvey()
             : this.surveyPool?.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d]));
+          this.rememberSurvey(survey);
           if (survey) continue;
           this.log("no usable survey; falling back to plain extraction");
         }
         this.log(`extract failed: ${msg}`);
+        this.miningSession = null;
         return;
       }
     }
+    this.miningSession = null;
     if (safety >= 60) this.log("mineAndRefine hit safety cap");
+  }
+
+  /** The session's survey, if it is for this waypoint and still valid. */
+  private cachedSurvey(): components["schemas"]["Survey"] | undefined {
+    const c = this.activeSurvey;
+    if (!c) return undefined;
+    if (c.waypoint !== this.ship.nav.waypointSymbol || new Date(c.survey.expiration).getTime() <= Date.now()) {
+      this.activeSurvey = undefined;
+      return undefined;
+    }
+    return c.survey;
+  }
+
+  private rememberSurvey(survey: components["schemas"]["Survey"] | undefined): void {
+    this.activeSurvey = survey ? { waypoint: this.ship.nav.waypointSymbol, survey } : undefined;
   }
 
   /** True if the ship has a surveyor mount installed. */
@@ -1092,7 +1152,9 @@ export class ShipAgent {
       const res = await this.api.createSurvey(this.symbol);
       this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cooldown: res.cooldown };
-      await this.waitCooldown();
+      // The cooldown wait comes *after* the pick is made and remembered: under
+      // the scheduler waitCooldown() ends the tick, and a survey we had already
+      // paid for would otherwise be thrown away with it.
       let best: components["schemas"]["Survey"] | undefined;
       let bestPrice = 0;
       let anyRefinable: components["schemas"]["Survey"] | undefined;
@@ -1116,13 +1178,15 @@ export class ShipAgent {
           ? `survey: ${best.deposits.map((d) => d.symbol).join(",")} (${best.size}, exp ${new Date(best.expiration).toISOString().slice(11, 16)})`
           : `survey: no refinable deposits (${res.surveys.map((s) => s.deposits.map((d) => d.symbol).join(",")).join(" | ")})`,
       );
+      this.rememberSurvey(best);
+      await this.waitCooldown();
       return best;
     } catch (err) {
+      if (err instanceof Pending) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("cooldown")) {
         this.log(`survey pending cooldown, waiting…`);
-        await sleep(6_000);
-        await this.refresh();
+        await this.pause(6_000);
         return undefined;
       }
       this.log(`survey failed: ${msg}`);
@@ -1361,12 +1425,15 @@ export class ShipAgent {
 
   private async extractUntilFull(): Promise<void> {
     let safety = 0;
+    this.miningSession = this.ship.nav.waypointSymbol;
     // Non-refiners can still mine far more per action by extracting through a
     // shared survey (surveys guarantee a high-yield deposit). Prefer a pooled
     // survey at this waypoint; fall back to plain extraction.
     let survey: components["schemas"]["Survey"] | undefined =
+      this.cachedSurvey() ??
       this.surveyPool?.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d])) ??
       (this.hasSurveyor() ? await this.createAndPickSurvey() : undefined);
+    this.rememberSurvey(survey);
     if (survey) this.log(`using survey at ${this.ship.nav.waypointSymbol}`);
     while (this.cargoFree() > 0 && safety < 40) {
       safety += 1;
@@ -1382,11 +1449,11 @@ export class ShipAgent {
         this.log(`extracted ${got.units}u ${got.symbol}`);
         await this.waitCooldown();
       } catch (err) {
+        if (err instanceof Pending) throw err;
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("cooldown")) {
           this.log(`extract pending cooldown, waiting…`);
-          await sleep(6_000);
-          await this.refresh();
+          await this.pause(6_000);
           continue;
         }
         if (survey && /exhaust|expire|signature|invalid/i.test(msg)) {
@@ -1395,13 +1462,16 @@ export class ShipAgent {
           survey =
             this.surveyPool?.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d])) ??
             (this.hasSurveyor() ? await this.createAndPickSurvey() : undefined);
+          this.rememberSurvey(survey);
           if (survey) continue;
           this.log("no usable survey; falling back to plain extraction");
         }
         this.log(`extract failed: ${msg}`);
+        this.miningSession = null;
         return;
       }
     }
+    this.miningSession = null;
     if (safety >= 40) this.log("extract loop hit safety cap");
   }
 
@@ -1634,7 +1704,7 @@ export class ShipAgent {
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
-          if (err instanceof NavigationPending) return { actualCalls, next: this.nextTask(err.resumeAt) };
+          if (err instanceof Pending) return { actualCalls, next: this.nextTask(err.resumeAt) };
           this.log(`agent error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         } finally {
@@ -1666,7 +1736,7 @@ export class ShipAgent {
           return { actualCalls: this.api.getCallCount() - before, next: this.nextSurveyTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
-          if (err instanceof NavigationPending) return { actualCalls, next: this.nextSurveyTask(err.resumeAt) };
+          if (err instanceof Pending) return { actualCalls, next: this.nextSurveyTask(err.resumeAt) };
           this.log(`surveyor error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextSurveyTask(Date.now() + 10_000) };
         } finally {
@@ -1698,7 +1768,7 @@ export class ShipAgent {
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTourTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
-          if (err instanceof NavigationPending) return { actualCalls, next: this.nextTourTask(err.resumeAt) };
+          if (err instanceof Pending) return { actualCalls, next: this.nextTourTask(err.resumeAt) };
           this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextTourTask(Date.now() + 10_000) };
         } finally {
@@ -1731,7 +1801,7 @@ export class ShipAgent {
           return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted ? 5 * 60_000 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
-          if (err instanceof NavigationPending) return { actualCalls, next: this.nextKeeperTask(err.resumeAt) };
+          if (err instanceof Pending) return { actualCalls, next: this.nextKeeperTask(err.resumeAt) };
           this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextKeeperTask(Date.now() + 10_000) };
         } finally {

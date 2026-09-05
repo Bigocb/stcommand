@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -145,8 +145,17 @@ export class SiphonerAgent {
   private async waitCooldown(): Promise<void> {
     const cd = this.ship.cooldown;
     if (!cd || cd.remainingSeconds <= 0) return;
+    // Scheduler-driven: yield until the cooldown ends instead of sleeping
+    // inside the scheduler's sequential loop — see CooldownPending.
+    if (this.schedulerDriven) throw new CooldownPending(Date.now() + cd.remainingSeconds * 1000 + 250);
     this.log(`cooldown ${cd.remainingSeconds}s`);
     await sleep(cd.remainingSeconds * 1000 + 250);
+    await this.refresh();
+  }
+
+  private async pause(ms: number): Promise<void> {
+    if (this.schedulerDriven) throw new CooldownPending(Date.now() + ms, "backoff");
+    await sleep(ms);
     await this.refresh();
   }
 
@@ -369,7 +378,7 @@ export class SiphonerAgent {
       // see trader.ts's identical navigateTo() catch for why), so every
       // OTHER exit resets it explicitly instead of a blanket finally that
       // would reset it here too.
-      if (err instanceof NavigationPending) throw err;
+      if (err instanceof Pending) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (/already located at the destination|already at the destination/i.test(msg)) {
         await this.refresh();
@@ -382,9 +391,18 @@ export class SiphonerAgent {
     }
   }
 
+  /**
+   * The gas giant a siphon session is in progress at, or null — the same
+   * idea as ShipAgent.miningSession: under the scheduler each siphon's
+   * cooldown ends the tick, and the next tick must keep siphoning rather
+   * than fly off to sell the handful of units already aboard.
+   */
+  private siphonSession: string | null = null;
+
   /** Siphon until the hold is full (or the loop safety cap trips). */
   private async siphonUntilFull(): Promise<boolean> {
     await this.ensureInOrbit();
+    this.siphonSession = this.ship.nav.waypointSymbol;
     let safety = 0;
     while (this.cargoFree() > 0 && safety < 40) {
       safety += 1;
@@ -398,17 +416,19 @@ export class SiphonerAgent {
         this.log(`siphoned ${got.units}u ${got.symbol}`);
         await this.waitCooldown();
       } catch (err) {
+        if (err instanceof Pending) throw err;
         const msg = err instanceof Error ? err.message : String(err);
         if (/cooldown/i.test(msg)) {
           this.log(`siphon pending cooldown, waiting…`);
-          await sleep(6_000);
-          await this.refresh();
+          await this.pause(6_000);
           continue;
         }
         this.log(`siphon failed: ${msg}`);
+        this.siphonSession = null;
         return false;
       }
     }
+    this.siphonSession = null;
     if (safety >= 40) this.log("siphon loop hit safety cap");
     return true;
   }
@@ -502,8 +522,15 @@ export class SiphonerAgent {
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
     const sellable = held.filter((i) => !protectedGoods.has(i.symbol));
 
+    // A siphon session interrupted by its own cooldown resumes here with a
+    // part-filled hold: keep siphoning rather than selling it — see siphonSession.
+    if (this.siphonSession !== null && (this.siphonSession !== this.ship.nav.waypointSymbol || this.ship.nav.status === "IN_TRANSIT")) {
+      this.siphonSession = null;
+    }
+    const midSiphon = this.siphonSession !== null && this.cargoFree() > 0;
+
     // 1. Sell first: the hold is small, so a full hold means idle income.
-    if (sellable.length > 0) {
+    if (!midSiphon && sellable.length > 0) {
       const target = this.bestSellMarket();
       if (target) {
         if (this.ship.nav.waypointSymbol !== target.symbol || this.ship.nav.status !== "DOCKED") {
@@ -597,7 +624,7 @@ export class SiphonerAgent {
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
-          if (err instanceof NavigationPending) return { actualCalls, next: this.nextTask(err.resumeAt) };
+          if (err instanceof Pending) return { actualCalls, next: this.nextTask(err.resumeAt) };
           this.log(`siphoner error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         } finally {

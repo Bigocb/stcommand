@@ -60,6 +60,38 @@ export const IDLE_STEP: AgentStep = { kind: "idle" };
  * unconditionally converted any thrown error into `return false` — fixed
  * there with an explicit re-throw guard.
  */
-export class NavigationPending {
-  constructor(readonly resumeAt: number) {}
+export class Pending {
+  constructor(
+    readonly resumeAt: number,
+    readonly reason: "transit" | "cooldown" | "backoff",
+  ) {}
+}
+
+export class NavigationPending extends Pending {
+  constructor(resumeAt: number) {
+    super(resumeAt, "transit");
+  }
+}
+
+/**
+ * The cooldown twin of `NavigationPending`, and the generalization
+ * `docs/control-plane-data-plane.md` §5 calls for: a step in the data plane
+ * never sleeps, it reports when it can next act. Thrown by each agent's
+ * `waitCooldown()` (and its short "pending cooldown" backoffs) while
+ * `schedulerDriven` is set, instead of `sleep(remainingSeconds)` — which,
+ * inside `Scheduler.runOnce()`'s strictly sequential loop, held every other
+ * ship in the tenant (rescue included) for the whole cooldown, and for a
+ * mining or siphoning loop of forty-odd extractions, for the better part of
+ * an hour. The catching `nextTask()`-family method reschedules at
+ * `resumeAt`, exactly as it does for a transit.
+ *
+ * Every `catch` between a `waitCooldown()` call and its owning `nextTask()`
+ * must let this propagate, same rule as `NavigationPending` above — check
+ * `instanceof Pending`, never one subclass alone, in any guard that exists
+ * to re-throw control-flow signals.
+ */
+export class CooldownPending extends Pending {
+  constructor(resumeAt: number, reason: "cooldown" | "backoff" = "cooldown") {
+    super(resumeAt, reason);
+  }
 }

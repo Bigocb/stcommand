@@ -4,7 +4,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
 import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, type TraderAssignment } from "./dispatcher.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -472,7 +472,7 @@ export class TraderAgent {
       // while it's really mid-flight) so ship_state keeps reporting the real
       // target across the suspend; the resumed tick()'s own waitForArrival()
       // call clears it normally once the ship has actually arrived.
-      if (err instanceof NavigationPending) throw err;
+      if (err instanceof Pending) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       // Same recovery as ShipAgent.navigateTo() (agent.ts) — the re-check
       // above should make this unreachable in practice, but keeps a route
@@ -508,7 +508,7 @@ export class TraderAgent {
     const cd = this.ship.cooldown;
     if (!cd || cd.remainingSeconds <= 0) return;
     if (this.schedulerDriven) {
-      throw new NavigationPending(Date.now() + cd.remainingSeconds * 1000);
+      throw new CooldownPending(Date.now() + cd.remainingSeconds * 1000 + 250);
     }
     this.log(`cooldown ${cd.remainingSeconds}s`);
     await sleep(cd.remainingSeconds * 1000 + 250);
@@ -1693,7 +1693,7 @@ export class TraderAgent {
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
-          if (err instanceof NavigationPending) {
+          if (err instanceof Pending) {
             // Not a real error: tick() just started a transit. Resume at the
             // real arrival time instead of blocking this Task.run() call for
             // the rest of it — see docs/eta-scheduled-ship-waits.md.

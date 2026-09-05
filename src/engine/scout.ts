@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, NavigationPending } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, NavigationPending, Pending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -460,7 +460,7 @@ export class ScoutAgent {
           // sensorScan() calls ensureInOrbit() first, which can throw
           // NavigationPending if the ship happens to still be IN_TRANSIT —
           // not a scan failure, must propagate untouched to nextTask().
-          if (err instanceof NavigationPending) throw err;
+          if (err instanceof Pending) throw err;
           const msg = err instanceof Error ? err.message : String(err);
           this.log(`sensor scan failed: ${msg}`);
           this.scanCooldownUntil = Date.now() + 60_000;
@@ -470,7 +470,13 @@ export class ScoutAgent {
       this.log("scout: no uncharted waypoints to chart");
       return false;
     }
-    await this.refuelIfNeeded(5, target);
+    // Same rule tourScout() already follows: a false here means "not enough
+    // fuel and nowhere reachable to get more", and flying the leg anyway just
+    // trades that log line for a rejected navigate every 10 s.
+    if (!(await this.refuelIfNeeded(5, target))) {
+      this.log(`holding at ${this.ship.nav.waypointSymbol}: not enough fuel for ${target} and no reachable market`);
+      return false;
+    }
     await this.navigateTo(target);
     await this.ensureInOrbit();
     try {
@@ -552,7 +558,7 @@ export class ScoutAgent {
           return { actualCalls: this.api.getCallCount() - before, next: this.nextTask(Date.now() + (made ? 0 : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
-          if (err instanceof NavigationPending) return { actualCalls, next: this.nextTask(err.resumeAt) };
+          if (err instanceof Pending) return { actualCalls, next: this.nextTask(err.resumeAt) };
           this.log(`scout error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
         } finally {
