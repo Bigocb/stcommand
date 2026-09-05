@@ -1762,6 +1762,30 @@ export class FleetManager {
 
       await this.jumpShip(shipSymbol, remoteGate.symbol);
       await this.surveySystem(target);
+      // surveySystem()'s own surveyMarkets() call sweeps every MARKETPLACE
+      // waypoint in `target` via a remote getMarket() call — but confirmed
+      // live, that only returns real tradeGoods for a waypoint the ship is
+      // actually standing at (the gate, right after this jump); every other
+      // market in the system comes back empty, since SpaceTraders only
+      // reveals live prices to a ship physically present. Two consecutive
+      // trips to X1-TV75/X1-ZU53/etc. left each with exactly one good on
+      // record — the gate's own antimatter listing — with the system's
+      // other markets never actually seen. Physically tour a few of them
+      // before this scout is released back to its normal duty, so a system
+      // gets more than a single accidental price point out of being
+      // "explored" at all.
+      const MAX_EXTRA_MARKET_STOPS = 3;
+      const otherMarkets = (this.galaxy.getSystem(target)?.waypoints ?? [])
+        .filter((w) => w.symbol !== remoteGate.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE"))
+        .slice(0, MAX_EXTRA_MARKET_STOPS);
+      for (const wp of otherMarkets) {
+        try {
+          await this.dispatchShip(shipSymbol, wp.symbol);
+          await this.recordMarketSnapshot(wp.symbol);
+        } catch (err) {
+          this.log(`market tour of ${wp.symbol} in ${target} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       this.log(`${shipSymbol} explored ${target}`);
       return target;
     } finally {
