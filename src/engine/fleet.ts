@@ -1774,6 +1774,24 @@ export class FleetManager {
       // before this scout is released back to its normal duty, so a system
       // gets more than a single accidental price point out of being
       // "explored" at all.
+      // Root-caused live: the first attempt at this rejected every one of
+      // these stops with a huge, seemingly-nonsensical "requires N more
+      // fuel" error, even for waypoints a few hundred units from the gate.
+      // ShipAgent/ScoutAgent's own estimatedFuelTo() silently returns 0 for
+      // any waypoint missing from that ship's waypointPositions map — and
+      // that map is seeded once, via withWorld(), at the moment the agent
+      // object was constructed, then never refreshed again for the rest of
+      // that ship's lifetime. A long-lived scout's agent predates every
+      // system discovered mid-session, so every newly-reached system's
+      // waypoints read as "0 fuel away" to it — CRUISE gets picked as if
+      // the leg were free, and the real navigateShip() call (which has no
+      // knowledge of our cache and computes the actual distance) rejects it
+      // with the true, large shortfall. surveySystem() just above already
+      // refreshed this.positions with target's real coordinates; push that
+      // into this specific scout's own cache before asking it to fly
+      // anywhere in the system it just arrived in.
+      const scoutAgent = this.tours.get(shipSymbol) ?? this.scouts.get(shipSymbol);
+      scoutAgent?.withWorld(this.positions, this.markets);
       const MAX_EXTRA_MARKET_STOPS = 3;
       const otherMarkets = (this.galaxy.getSystem(target)?.waypoints ?? [])
         .filter((w) => w.symbol !== remoteGate.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE"))
