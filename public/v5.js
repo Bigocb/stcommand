@@ -1046,8 +1046,14 @@ const FLEET_COLS = [
   { key: "net", label: "c/hr", num: true },
   { key: "fuel", label: "Fuel" },
   { key: "cargo", label: "Hold" },
-  { key: "condition", label: "Cond.", num: true },
-  { key: "crewCurrent", label: "Crew", num: true },
+  // Not `num`. That flag is purely presentational — it right-aligns the
+  // <th> — and these two render as gauges: a meter followed by its
+  // reading, left-aligned in the cell like every other gauge column. With
+  // num set, the header sat hard right while its own data sat hard left,
+  // so "Cond." appeared to label the crew column and "Crew" labelled
+  // nothing. Sorting is unaffected: it keys off the value's type, not this.
+  { key: "condition", label: "Cond." },
+  { key: "crewCurrent", label: "Crew" },
   { key: "goal", label: "Doing" },
 ];
 

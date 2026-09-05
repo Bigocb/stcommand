@@ -44,9 +44,14 @@ const againstPath = flag("--against");
 const page = flag("--page") ?? "/";
 const useFixtures = args.includes("--fixtures");
 const shotPath = flag("--screenshot");
+/* Viewport for --screenshot, as WxH. Defaults to a comfortable desktop, but
+   layout bugs are usually *shape* bugs — a fixed-height hero that leaves
+   room on a 1000px-tall window leaves almost none on a 740px one — so the
+   shape has to be something a check can vary. */
+const size = flag("--size") ?? "1600,1000";
 
 if (!savePath && !againstPath && !shotPath) {
-  console.error("usage: dom-check.mjs (--save <f> | --against <f> | --screenshot <f.png>) [--page /v3] [--fixtures]");
+  console.error("usage: dom-check.mjs (--save <f> | --against <f> | --screenshot <f.png>) [--page /v3] [--fixtures] [--size 2000x740]");
   process.exit(2);
 }
 
@@ -262,7 +267,7 @@ const server = app.listen(0, async () => {
         // completely different. Screenshots are the only honest check for
         // that, so the harness produces them too.
         ...(shotPath
-          ? ["--window-size=1600,1000", `--screenshot=${shotPath}`]
+          ? [`--window-size=${size.replace("x", ",")}`, `--screenshot=${shotPath}`]
           : ["--dump-dom"]),
         url,
       ],
