@@ -1872,6 +1872,27 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Block until a ship is no longer IN_TRANSIT, polling its real arrival time
+   * rather than a fixed interval. Only for fleet-driven trips the coordinator
+   * runs itself (critical repair), never from a scheduled task — a task that
+   * needs to wait throws NavigationPending instead, so it does not occupy the
+   * runner. See docs/control-plane-data-plane.md §5.
+   */
+  private async awaitArrival(shipSymbol: string, maxWaitMs = 30 * 60_000): Promise<void> {
+    const deadline = Date.now() + maxWaitMs;
+    for (;;) {
+      const ship = await this.api.getShip(shipSymbol);
+      if (ship.nav.status !== "IN_TRANSIT") return;
+      const wait = new Date(ship.nav.route.arrival).getTime() - Date.now();
+      if (Date.now() + Math.max(wait, 0) > deadline) {
+        this.log(`${shipSymbol}: still in transit past the repair wait budget; giving up for now`);
+        return;
+      }
+      await new Promise<void>((r) => setTimeout(r, Math.max(wait, 1_000) + 1_000));
+    }
+  }
+
   /** Manually refuel a ship (docks first if needed). */
   async refuelShip(shipSymbol: string): Promise<{ fuel: number; capacity: number; cost: number }> {
     const ship = await this.api.getShip(shipSymbol);
@@ -2128,7 +2149,15 @@ export class FleetManager {
 
   /** Repair a ship to full condition. Must be DOCKED at a shipyard-trait waypoint — the same requirement the raw API itself enforces, checked here first so the error is legible instead of a raw 400. */
   async repairShip(shipSymbol: string): Promise<void> {
-    const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
+    // shipFor() is an agent's cached snapshot, and a ship the fleet has just
+    // flown somewhere itself (runCriticalRepair) has a cache that still says
+    // IN_TRANSIT long after it arrived — the agent is suspended, so nothing
+    // refreshed it. Believing that cache is half of why critical repair could
+    // never succeed: the throw below released the ship back to its role, which
+    // re-diverted it next tick, forever. DAGGER-8 did exactly this all day at
+    // condition 0.00. Only ever fail after checking live state.
+    let ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
+    if (ship.nav.status !== "DOCKED") ship = await this.api.getShip(shipSymbol);
     const waypointSymbol = ship.nav.waypointSymbol;
     if (ship.nav.status !== "DOCKED" || !(await this.isShipyard(ship.nav.systemSymbol, waypointSymbol))) {
       throw new Error(`${shipSymbol} must be docked at a shipyard to repair (currently ${ship.nav.status} at ${waypointSymbol})`);
@@ -3475,7 +3504,21 @@ export class FleetManager {
 
   getStrandedShips(): { symbol: string; waypointSymbol: string; fuel: number; reason: string; rescueActive: boolean; rescueDetail: string }[] {
     const stranded: { symbol: string; waypointSymbol: string; fuel: number; reason: string; rescueActive: boolean; rescueDetail: string }[] = [];
-    for (const ship of [...this.miners.values(), ...this.traders.values()]) {
+    // Every role with a fuel tank, not just miners and traders. Tours,
+    // scouts and siphoners burn fuel and strand exactly the same way, and
+    // while this only covered two of them they were invisible to the tender,
+    // to the bridge triage, and to the operator: DAGGER-13 and DAGGER-15 sat
+    // at 30/300 in orbit with nothing able to notice, because a tour is not a
+    // miner and not a trader. Probes and other zero-tank hulls fall out on
+    // the capacity check below, as they always did.
+    for (const ship of [
+      ...this.miners.values(),
+      ...this.traders.values(),
+      ...this.tours.values(),
+      ...this.surveyors.values(),
+      ...this.scouts.values(),
+      ...this.siphoners.values(),
+    ]) {
       const s = ship.getShip();
       if (s.fuel.capacity <= 0) continue;
       // A trader that flagged itself stranded (navigation failed for lack of
@@ -3492,10 +3535,9 @@ export class FleetManager {
         continue;
       }
       if (s.fuel.current > 0) continue;
-      const atMarket = this.positions.some(
-        (p) => p.symbol === s.nav.waypointSymbol && this.galaxy.getSystem(s.nav.systemSymbol)?.waypoints.some((w) => w.symbol === p.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE")),
-      );
-      if (atMarket) continue;
+      // The trait, from the registry — a ship sitting on a fuel pump is not
+      // stranded even when nobody has ever recorded that pump's prices.
+      if (this.registry.isMarket(s.nav.waypointSymbol)) continue;
       stranded.push({
         symbol: s.symbol,
         waypointSymbol: s.nav.waypointSymbol,
@@ -3790,6 +3832,20 @@ export class FleetManager {
     await this.controlledAgent(shipSymbol)?.suspend();
     try {
       await this.dispatchShipHop(shipSymbol, yardSymbol);
+      // dispatchShipHop() fires one hop and returns immediately, on the
+      // assumption that "next tick notices arrival" — but a critical repair
+      // has no next tick, it is this one fire-and-forget call. Without the
+      // wait and the dock, repairShip() below was reached while the ship was
+      // still in flight and threw every time. This method is deliberately
+      // never awaited by the coordinator (see maybeRepairFleet), so blocking
+      // here costs nothing else.
+      await this.awaitArrival(shipSymbol);
+      const arrived = await this.api.getShip(shipSymbol);
+      if (arrived.nav.waypointSymbol !== yardSymbol) {
+        this.log(`${shipSymbol}: repair trip ended at ${arrived.nav.waypointSymbol}, not ${yardSymbol}; will retry next tick`);
+        return;
+      }
+      if (arrived.nav.status !== "DOCKED") await this.api.dockShip(shipSymbol);
       await this.repairShip(shipSymbol);
     } catch (err) {
       this.log(`critical repair dispatch for ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
