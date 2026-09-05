@@ -249,6 +249,29 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     assert.ok(logs.some((l) => l.includes("no reachable target")));
   });
 
+  it("reports an unmeasurable distance as Infinity, not zero", () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    const agent = new ShipAgent(ship, { api: { getShip: async () => ship } as any, log: () => {} });
+    agent.withWorld([{ symbol: "X1-REMOTE-A1", x: 0, y: 0 }] as any, []);
+
+    // Known both ends: a real number.
+    assert.equal((agent as any).estimatedFuelToBetween("X1-REMOTE-A1", "X1-REMOTE-A1"), 1);
+    // Unknown destination: must not read as "zero fuel away", which is what
+    // made the least-known candidates score best everywhere this is consumed.
+    assert.equal((agent as any).estimatedFuelTo("X1-REMOTE-UNKNOWN"), Infinity);
+    assert.equal((agent as any).estimatedFuelToBetween("X1-REMOTE-A1", "X1-NOPE-9"), Infinity);
+    // With our own position known, distanceTo is an ordinary measurement.
+    assert.equal((agent as any).distanceTo({ symbol: "X1-REMOTE-B2", x: 3, y: 4 }), 5);
+
+    // But not knowing where *we* are is not the same as everything being
+    // adjacent: a ship whose own waypoint is uncharted must measure nothing,
+    // or it picks an arbitrary target off a fabricated estimate.
+    const lost = makeShip("X1-UNCHARTED-Q1", "X1-UNCHARTED");
+    const lostAgent = new ShipAgent(lost, { api: { getShip: async () => lost } as any, log: () => {} });
+    lostAgent.withWorld([{ symbol: "X1-REMOTE-A1", x: 0, y: 0 }] as any, []);
+    assert.equal((lostAgent as any).distanceTo({ symbol: "X1-REMOTE-A1", x: 5, y: 5 }), Infinity);
+  });
+
   it("does not re-chart when the current waypoint is already in the cache", async () => {
     let charts = 0;
     const { agent, navigated } = makeStrandedTourAgent({

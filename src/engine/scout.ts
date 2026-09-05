@@ -259,21 +259,43 @@ export class ScoutAgent {
 
   private distanceTo(wp: WaypointPos): number {
     const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
-    if (!here) return 0;
+    // Not knowing where we are is not the same as everything being adjacent.
+    // Callers sort on this and compare it against a running best, so 0 made a
+    // ship with an unknown position pick an arbitrary target and fly at it on
+    // a fabricated estimate. SiphonerAgent already had this right; matching it.
+    if (!here) return Infinity;
     return Math.hypot(wp.x - here.x, wp.y - here.y);
   }
 
   private estimatedFuelTo(waypoint: string): number {
     const here = this.waypointPositions.get(this.ship.nav.waypointSymbol);
     const there = this.waypointPositions.get(waypoint);
-    if (!here || !there) return 0;
+    // Unknown position means unknown distance, and that must fail closed.
+    // Returning 0 here made a waypoint we had no coordinates for look like the
+    // nearest thing in the galaxy, so exactly the candidates we knew least
+    // about scored best: it picked refuel stops in other systems, sent ships
+    // chasing sell markets they could not reach, and let chooseFlightMode()
+    // read a long leg as free and commit to CRUISE — the live "requires 1048
+    // more fuel" rejections. Every caller compares this against a fuel budget
+    // and skips what exceeds it, so Infinity simply excludes what we cannot
+    // measure.
+    if (!here || !there) return Infinity;
     return Math.max(1, Math.round(Math.hypot(there.x - here.x, there.y - here.y)));
   }
 
   private estimatedFuelToBetween(a: string, b: string): number {
     const pa = this.waypointPositions.get(a);
     const pb = this.waypointPositions.get(b);
-    if (!pa || !pb) return 0;
+    // Unknown position means unknown distance, and that must fail closed.
+    // Returning 0 here made a waypoint we had no coordinates for look like the
+    // nearest thing in the galaxy, so exactly the candidates we knew least
+    // about scored best: it picked refuel stops in other systems, sent ships
+    // chasing sell markets they could not reach, and let chooseFlightMode()
+    // read a long leg as free and commit to CRUISE — the live "requires 1048
+    // more fuel" rejections. Every caller compares this against a fuel budget
+    // and skips what exceeds it, so Infinity simply excludes what we cannot
+    // measure.
+    if (!pa || !pb) return Infinity;
     return Math.max(1, Math.round(Math.hypot(pb.x - pa.x, pb.y - pa.y)));
   }
 
