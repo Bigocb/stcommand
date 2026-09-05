@@ -1030,6 +1030,11 @@ export class FleetManager {
    * which only lists waypoints already snapshotted and is never refreshed on
    * an agent after it is constructed.
    */
+  /** Drop a ship's desired state — scrapped, sold, or gone from the fleet. */
+  private forgetIntent(shipSymbol: string): void {
+    this.intents.forget(shipSymbol);
+  }
+
   private isMarketWaypoint(waypointSymbol: string): boolean {
     return this.registry.isMarket(waypointSymbol);
   }
@@ -1955,6 +1960,9 @@ export class FleetManager {
     this.traders.delete(shipSymbol);
     // Free the route claim, or the good stays reserved for a ship that's gone.
     this.dispatcher.release(shipSymbol);
+    // And its desired state, or the board keeps reporting an owner for a hull
+    // the fleet no longer has.
+    this.forgetIntent(shipSymbol);
     this.surveyors.delete(shipSymbol);
     this.scouts.delete(shipSymbol);
     this.tours.delete(shipSymbol);
@@ -3773,6 +3781,13 @@ export class FleetManager {
       }).withRegistry(this.registry);
       this.keepers.set(sym, keeper);
       this.keeperMarkets.set(sym, market);
+      this.intents.propose({
+        ship: sym,
+        priority: 3,
+        goal: { kind: "keep", waypoint: market },
+        reason: `stationed to keep ${market} prices fresh`,
+        source: "keeper",
+      });
       if (this.tenantId) await this.store?.setFleetState(this.tenantId, sym, "keeper", market);
       this.log(`role: keeper ${sym} (converted from ${what}, stationed at ${market})`);
       if (this.scheduler) {
@@ -4107,6 +4122,23 @@ export class FleetManager {
       this.log(`rescue tender ${tender.sym}: registry claim unexpectedly lost to ${this.shipRegistry.ownerOf(tender.sym)?.owner} — proceeding anyway, already suspended`);
     }
 
+    // Priority 0, so nothing else can take the tender out from under a
+    // rescue mid-ferry, and the stranded ship is held rather than left
+    // looking idle to every other controller.
+    this.intents.propose({
+      ship: tender.sym,
+      priority: 0,
+      goal: { kind: "tender", to: s.symbol },
+      reason: `ferrying ${fuelUnits}u FUEL from ${market.sym} to ${s.symbol}`,
+      source: "rescue",
+    });
+    this.intents.propose({
+      ship: s.symbol,
+      priority: 0,
+      goal: { kind: "hold", waypoint: s.waypointSymbol },
+      reason: `stranded at ${s.waypointSymbol}; tender ${tender.sym} en route`,
+      source: "rescue",
+    });
     this.log(`dispatching fuel tender ${tender.sym} to rescue ${s.symbol}: buy ${Math.max(0, fuelUnits - heldFuel)}u FUEL at ${market.sym} (${heldFuel}u already held), fly to ${s.waypointSymbol}`);
     return {
       strandedSymbol: s.symbol,

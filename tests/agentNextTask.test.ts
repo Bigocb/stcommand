@@ -145,14 +145,17 @@ describe("ShipAgent.nextSurveyTask", () => {
 });
 
 describe("ShipAgent.nextTourTask", () => {
-  it("wraps tourScout(), priority 4", async () => {
+  it("wraps tourScout() at priority 3, alongside surveying and keeping", async () => {
     const agent = new ShipAgent(makeShip("TOUR-1"), { api: { getCallCount: () => 0 } as any });
     let called = false;
     (agent as any).tourScout = async () => { called = true; return false; };
     agent.running = true;
     const task = agent.nextTourTask();
     assert.equal(task.id, "TOUR-1-tour");
-    assert.equal(task.priority, 4);
+    // A tour produces the price intel every trade route is scored from, so
+    // starving it under budget pressure starves trading a cycle later. Scouts
+    // stay at 4: charting an empty waypoint is worth less than a fresh price.
+    assert.equal(task.priority, 3);
     const result = await task.run();
     assert.ok(called);
     const delay = result.next!.earliestRunAt - Date.now();

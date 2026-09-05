@@ -182,3 +182,38 @@ describe("RouteDispatcher: cross-system direct routes", () => {
     assert.equal(a?.role, "buy", "buy/sell legs are single-system-side, not a same-ship round trip — the cross-system restriction only applies to 'direct'");
   });
 });
+
+describe("RouteDispatcher: idle traders and sell-market spreading", () => {
+  const route = (good: string, sellAt: string, profit: number, buyAt = "X1-A-BUY") => ({
+    good, buyAt, buySystem: "X1-A", buyPrice: 100,
+    sellAt, sellSystem: "X1-A", sellPrice: 100 + profit,
+    volume: 10, distance: 10, fuelUnits: 10, fuelCost: 0,
+    profitPerTrip: profit, ageMinutes: 1,
+  });
+  const traders = (n: number) => Array.from({ length: n }, (_, i) => ({ shipSymbol: `T${i + 1}`, capacity: 40 }));
+
+  it("puts idle traders on the same good when they sell into different markets", () => {
+    // Six traders and one profitable good used to mean five idle hulls: the
+    // work list emitted exactly one item per good, and a direct assignment
+    // reserved the whole good.
+    const d = new RouteDispatcher();
+    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700), route("IRON", "X1-A-M3", 500)], traders(3));
+    const assigned = d.list();
+    assert.equal(assigned.length, 3, "every trader gets work");
+    assert.deepEqual([...new Set(assigned.map((a) => a.sellAt))].sort(), ["X1-A-M1", "X1-A-M2", "X1-A-M3"]);
+  });
+
+  it("never puts two traders into the same sell market, which is what collapses a price", () => {
+    const d = new RouteDispatcher();
+    // Two routes for the same good AND the same destination: only one is work.
+    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M1", 800, "X1-A-BUY2")], traders(3));
+    assert.equal(d.list().length, 1);
+  });
+
+  it("still ranks by profit, so the best route is taken first", () => {
+    const d = new RouteDispatcher();
+    d.recompute([route("IRON", "X1-A-M1", 200), route("GOLD", "X1-A-M9", 5000)], traders(1));
+    const [only] = d.list();
+    assert.equal(only!.good, "GOLD", "the single trader takes the most valuable work");
+  });
+});

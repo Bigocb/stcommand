@@ -438,6 +438,43 @@ export class RouteDispatcher {
       }
       // balance === target: on target, no trader needed for it this cycle.
     }
+    // Second and subsequent routes for a good, keyed by sell destination
+    // rather than by good alone.
+    //
+    // Confirmed live: with six traders and three profitable goods, three
+    // traders sat idle every cycle, because the loop above emits exactly one
+    // work item per good and a `direct` key reserves the whole good. The
+    // original rule — no two traders on the same good — existed to stop them
+    // converging on one market and collapsing its price, which is a real
+    // effect: four consecutive sales at one waypoint took a good from 97,632
+    // down to 26,604. Keying on the sell market keeps that protection while
+    // putting the idle hulls to work, because two traders may share a good
+    // only when they are selling into different markets.
+    const emittedKeys = new Set(work.map((w) => w.key));
+    // Routes arrive pre-ranked, so the first one seen for a good is the one
+    // the loop above considered; anything after it is a fallback.
+    const firstSeen = new Map<string, DispatchRoute>();
+    for (const r of routes) if (!firstSeen.has(r.good)) firstSeen.set(r.good, r);
+    // Sell markets already spoken for, per good — including the best route's.
+    const sellTaken = new Map<string, Set<string>>();
+    for (const w of work) {
+      const best = firstSeen.get(w.key);
+      if (best) sellTaken.set(w.key, new Set([best.sellAt]));
+    }
+
+    for (const route of routes) {
+      if (targetsByGood.has(route.good)) continue; // warehousing owns this good's split
+      if (firstSeen.get(route.good) === route) continue; // already considered above
+      if (route.buySystem !== route.sellSystem && !canJump(route.buySystem, route.sellSystem)) continue;
+      const key = `${route.good}@${route.sellAt}`;
+      if (emittedKeys.has(key)) continue;
+      const taken = sellTaken.get(route.good);
+      if (taken?.has(route.sellAt)) continue; // that market is already being sold into
+      emittedKeys.add(key);
+      (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: route.profitPerTrip });
+    }
+
     // Haul work is independent of the routes list — it's driven entirely by
     // what the warehouse already holds against what a mission still needs.
     // Priority is a simple proxy (bigger deliveries rank higher); it isn't

@@ -1592,7 +1592,13 @@ export class ShipAgent {
     return {
       id: `${this.symbol}-tour`,
       shipSymbol: this.symbol,
-      priority: 4,
+      // 3, alongside surveying and keeping, not 4 with idle telemetry. A tour
+      // is what produces the price intel every trade route is scored from, so
+      // starving it under budget pressure starves trading one cycle later —
+      // and the tour fleet is the only thing that finds new markets at all,
+      // which is the whole point of exploring. Scouts stay at 4: charting an
+      // empty waypoint is genuinely lower value than refreshing a price.
+      priority: 3,
       estimatedCalls: 2,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
