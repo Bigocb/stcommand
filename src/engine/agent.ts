@@ -1205,6 +1205,25 @@ export class ShipAgent {
     }
     this.log(`tour scout: tick @ ${this.ship.nav.waypointSymbol} (fuel ${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
 
+    // Finish the previous leg before choosing a new one.
+    //
+    // navigateTo() raises NavigationPending the moment the ship enters transit,
+    // and in the scheduler-driven path (production) that unwinds this method —
+    // so the ensureDocked()/recordMarket() that follow the navigate below never
+    // run. The scout arrives, tourScout() starts fresh, and `t !== here` filters
+    // out the very market it just flew to, so it picks another and leaves.
+    //
+    // The result is a tour that never tours: two scouts circled inside X1-TP98
+    // and X1-RD37 for seven and a half hours and recorded zero prices between
+    // them. Home markets only have data because keepers sit docked at them.
+    // It also drives the ping-pong — a market that is never recorded never
+    // stops being the stalest, so the pair trade places forever.
+    const standingAt = this.ship.nav.waypointSymbol;
+    if (this.isMarketWaypoint?.(standingAt) ?? false) {
+      await this.ensureDocked();
+      if (this.recordMarket) await this.recordMarket(standingAt);
+    }
+
     const marketTargets = (await this.marketTourTargets?.()) ?? [];
     const yardTargets = (await this.shipyardTourTargets?.()) ?? [];
     const targets = [...marketTargets, ...yardTargets];

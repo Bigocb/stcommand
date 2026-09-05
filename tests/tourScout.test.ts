@@ -216,6 +216,7 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
       Object.assign(ship.fuel, { current: 300 }); // the pump works
       return true;
     };
+    (agent as any).ensureDocked = async () => {};
 
     const worked = await (agent as any).tourScout();
 
@@ -242,6 +243,7 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
       [],
     );
     (agent as any).refuelIfNeeded = async () => false; // market sells no fuel
+    (agent as any).ensureDocked = async () => {};
 
     const worked = await (agent as any).tourScout();
 
@@ -270,6 +272,56 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     const lostAgent = new ShipAgent(lost, { api: { getShip: async () => lost } as any, log: () => {} });
     lostAgent.withWorld([{ symbol: "X1-REMOTE-A1", x: 0, y: 0 }] as any, []);
     assert.equal((lostAgent as any).distanceTo({ symbol: "X1-REMOTE-A1", x: 5, y: 5 }), Infinity);
+  });
+
+  it("records the market it is standing at before flying to the next one", async () => {
+    // The leg that brought it here ended at navigateTo()'s NavigationPending,
+    // so the ensureDocked()/recordMarket() after that navigate never ran. If
+    // arrival isn't picked up at the top of the next tick, the scout tours
+    // forever without ever recording a price — which is exactly what two
+    // scouts did for seven and a half hours across two systems.
+    const ship = makeShip("X1-REMOTE-B2", "X1-REMOTE");
+    const recorded: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => ["X1-REMOTE-B2", "X1-REMOTE-C3"],
+      isMarketWaypoint: () => true,
+      recordMarket: async (wp) => { recorded.push(wp); },
+    });
+    agent.withWorld(remotePositions as any, []);
+    const navigated: string[] = [];
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.deepEqual(recorded[0], "X1-REMOTE-B2", "the market it arrived at is recorded first");
+    assert.deepEqual(navigated, ["X1-REMOTE-C3"], "then it moves on to the next one");
+  });
+
+  it("does not try to record a waypoint that is not a market", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    const recorded: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => ["X1-REMOTE-B2"],
+      isMarketWaypoint: (wp) => wp === "X1-REMOTE-B2", // not where we stand
+      recordMarket: async (wp) => { recorded.push(wp); },
+    });
+    agent.withWorld(remotePositions as any, []);
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async () => {};
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.ok(
+      !recorded.includes("X1-REMOTE-A1"),
+      "no wasted getMarket call at the non-market we are standing on",
+    );
   });
 
   it("does not re-chart when the current waypoint is already in the cache", async () => {
