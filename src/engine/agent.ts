@@ -1140,6 +1140,13 @@ export class ShipAgent {
     const herePos = this.waypointPositions.get(here);
     const reachable = targets
       .filter((t) => t !== here)
+      // Same system only. Waypoint coordinates are per-system, so the distance
+      // below is meaningless across systems — it can land under fuel capacity
+      // purely by coincidence and send the ship at a waypoint it cannot reach
+      // without a jump. Previously this was masked: the position cache held
+      // only the home system, so anything else fell out as Infinity. Now that
+      // the cache is repaired above, the guard has to be explicit.
+      .filter((t) => t.slice(0, t.lastIndexOf("-")) === this.ship.nav.systemSymbol)
       .map((t) => {
         const pos = this.waypointPositions.get(t);
         const dist = herePos && pos ? Math.max(1, Math.round(Math.hypot(pos.x - herePos.x, pos.y - herePos.y))) : Infinity;

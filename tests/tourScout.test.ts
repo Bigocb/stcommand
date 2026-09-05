@@ -77,6 +77,37 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     );
   });
 
+  it("ignores a same-named-distance market in another system", async () => {
+    // Coordinates are per-system, so a waypoint in X1-HOME can sit "12 units"
+    // from one in X1-REMOTE by pure coincidence. Flying there needs a jump, not
+    // a navigate, so it must never be picked as a tour leg.
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    const logs: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => ["X1-HOME-B2"],
+      ensureSystemCharted: async () => {
+        agent.withWorld(
+          [
+            { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+            { symbol: "X1-HOME-B2", x: 12, y: 0 }, // close by raw hypot, unreachable in fact
+          ] as any,
+          [],
+        );
+      },
+    });
+    const navigated: string[] = [];
+    (agent as any).refuelIfNeeded = async () => {};
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+    (agent as any).ensureDocked = async () => {};
+
+    const worked = await (agent as any).tourScout();
+
+    assert.equal(worked, false);
+    assert.deepEqual(navigated, [], "a cross-system waypoint is not a navigable tour leg");
+  });
+
   it("does not re-chart when the current waypoint is already in the cache", async () => {
     let charts = 0;
     const { agent, navigated } = makeStrandedTourAgent({

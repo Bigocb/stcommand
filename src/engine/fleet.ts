@@ -2273,9 +2273,19 @@ export class FleetManager {
   private async marketTourTargets(): Promise<string[]> {
     const out = new Set<string>();
     for (const r of (await this.store?.latestMarketSnapshots()) ?? []) out.add(r.waypointSymbol);
-    const known = this.galaxy.getSystem(this.systemSymbol);
-    for (const w of known?.waypoints ?? []) {
-      if (w.traits.some((t) => t.symbol === "MARKETPLACE")) out.add(w.symbol);
+    // Trait-scan every charted system, not just home. Restricted to home, a
+    // marketplace in an explored system stayed invisible here until something
+    // had already recorded a price snapshot at it — and the only thing that
+    // records one is a ship docking there, which first requires it to be a
+    // tour target. That circle left real markets permanently unvisited:
+    // X1-TV75 carries a second marketplace 216 units from its jump gate that
+    // no ship ever called at, while scouts sat on the gate itself reporting
+    // nothing to do. Targets outside a ship's current system are filtered by
+    // the tour loop, which only flies same-system legs.
+    for (const sys of this.galaxy.listSystems()) {
+      for (const w of this.galaxy.getSystem(sys.symbol)?.waypoints ?? []) {
+        if (w.traits.some((t) => t.symbol === "MARKETPLACE")) out.add(w.symbol);
+      }
     }
     return [...out].sort();
   }
