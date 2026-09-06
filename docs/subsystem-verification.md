@@ -379,6 +379,45 @@ have stayed invisible.
 
 ---
 
+## Open finding — the panel an operator acts from was not subscribed to data
+
+Found because a hold looked like it had not taken: the ship detail sheet
+offered "Under doctrine" and a Hold button for a hull the engine and the
+fleet log both reported as `manual hold`. A page refresh showed the Release
+button immediately.
+
+`subscribe("bridge", …)` re-rendered the topbar, triage, fleet table, mobile
+fleet, hero and summary. It did not re-render the ship detail sheet.
+`openShipDetails()` ran once on tap and then only ever again from its own
+action buttons, so the sheet froze at whatever the ship was doing when it was
+opened while every other panel updated on the five-second poll behind it.
+
+The data was correct in the engine, correct over the wire, and correct in the
+store. The one panel an operator issues commands from was the only one not
+reading it. Fixed in all four UI versions by adding the open sheet to that
+subscription, carrying the half-typed dispatch waypoint (with its cursor) and
+the scroll position across the rebuild — a sheet that re-renders every five
+seconds and eats your typing is worse than one that never re-renders.
+
+### On real-time UI
+
+The obvious reading of "I had to refresh" is that the data was late and the
+answer is server push. It was not: a five-second poll was delivering correct
+data into a component that never looked at it again, and SSE would have
+delivered the same data to the same unsubscribed panel.
+
+SSE is still worth doing on its own merits — five seconds of latency on every
+readout, four polling endpoints per client, `setInterval` under
+`document.hidden` being exactly the pattern mobile browsers throttle hardest,
+and `EventSource` reconnecting on its own instead of the hand-rolled
+visibility-change handling. But it depends on the advisory-lock work above:
+an SSE connection pins a client to one process, so with two instances live a
+client can hold an open stream to a draining worker and watch a stale fleet
+with nothing on screen saying so. Polling hides that by re-resolving every
+request; a persistent stream would not.
+
+---
+
 ## Queue
 
 | # | Step | Status |

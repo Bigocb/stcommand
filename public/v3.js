@@ -2744,6 +2744,44 @@ function openShipDetails(shipSymbol) {
   });
 }
 
+/**
+ * Re-render the open ship sheet when new fleet data lands.
+ *
+ * The bug this fixes: openShipDetails() ran once, on tap, and then nothing
+ * ever called it again except its own action buttons. So the sheet froze at
+ * whatever the ship was doing the moment it was opened, while every other
+ * panel updated on the five-second poll behind it. Holding a ship and then
+ * looking for the Release button showed "Under doctrine" and a Hold button
+ * indefinitely — the state was correct in the store and correct in the
+ * engine, and the one panel an operator acts from was the only one not
+ * subscribed to it. A page refresh "fixed" it because that rebuilt the sheet
+ * from scratch.
+ *
+ * Live re-rendering has to not fight the operator, though, so the two pieces
+ * of local state that a rebuild would destroy are carried across it: what is
+ * half-typed into the dispatch-waypoint box (with its cursor), and how far
+ * the sheet is scrolled. Without that, a sheet that rebuilds every five
+ * seconds is worse than one that never does.
+ */
+function refreshOpenShipDetails() {
+  const m = $("manifest");
+  if (!m || m.style.display === "none" || !selectedShip) return;
+  const input = m.querySelector(".dispatch-wp");
+  const typed = input ? input.value : null;
+  const hadFocus = input && document.activeElement === input;
+  const caret = hadFocus ? input.selectionStart : null;
+  const scroll = m.scrollTop;
+
+  openShipDetails(selectedShip);
+
+  const next = m.querySelector(".dispatch-wp");
+  if (next && typed) {
+    next.value = typed;
+    if (hadFocus) { next.focus(); try { next.setSelectionRange(caret, caret); } catch (_) {} }
+  }
+  m.scrollTop = scroll;
+}
+
 function renderShipyardIntel() {
   const yards = intel.shipyards ?? [];
   const mods = intel.modules ?? [];
@@ -3611,6 +3649,9 @@ subscribe("bridge", () => {
   renderMobileFleetStrip();
   renderMobileHero();
   renderFleetSummary();
+  // The sheet an operator actually acts from — held/released, role, repair —
+  // was the one panel missing from this list. See refreshOpenShipDetails().
+  refreshOpenShipDetails();
 });
 subscribe("activity", () => {
   renderMobileActivity();
