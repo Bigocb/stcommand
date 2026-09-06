@@ -15,7 +15,7 @@ import {
   fmtTime,
   fmtAge,
 } from "/shared/domain.js";
-import { api, nativeFetch, onUnauthorized } from "/shared/api.js";
+import { api, onUnauthorized } from "/shared/api.js";
 import {
   state, systems, jumpConnections, bridge, fleetStatus, activity,
   marketSnapshots, marketRoutes, marketSystems, tradeRoutes, intel,
@@ -30,7 +30,7 @@ import {
 } from "/shared/store.js";
 import {
   login, register as registerAgent, logout as endSession,
-  fetchOnboardingCatalog, completeOnboarding,
+  probeSession, fetchOnboardingCatalog, completeOnboarding,
 } from "/shared/session.js";
 import { applyVersionPreference, mountSwitcher } from "/shared/switcher.js";
 
@@ -79,8 +79,8 @@ function showRegisterForm() {
 /** Sign in with an existing SpaceTraders account token. */
 async function tryLogin(token) {
   try {
-    const { isNewTenant } = await login(token);
-    if (isNewTenant) showOnboarding();
+    const { onboardingPending, isNewTenant } = await login(token);
+    if (onboardingPending ?? isNewTenant) showOnboarding();
     else { hideAuthGate(); boot(); }
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
@@ -90,8 +90,8 @@ async function tryLogin(token) {
 /** Register a brand-new SpaceTraders agent, then sign in as it. */
 async function tryRegister(agentSymbol, faction, accountToken) {
   try {
-    const { isNewTenant } = await registerAgent(agentSymbol, faction, accountToken);
-    if (isNewTenant) showOnboarding();
+    const { onboardingPending, isNewTenant } = await registerAgent(agentSymbol, faction, accountToken);
+    if (onboardingPending ?? isNewTenant) showOnboarding();
     else { hideAuthGate(); boot(); }
   } catch (err) {
     $("reg-err").textContent = err.message || "Could not reach the server.";
@@ -123,11 +123,19 @@ async function showOnboarding() {
   // The retry itself is shared knowledge, not presentation — see
   // fetchOnboardingCatalog() for why a 503 here usually means "still
   // booting" rather than "broken".
+  $("onboard-retry").hidden = true;
   try {
     renderOnboarding(await fetchOnboardingCatalog());
   } catch (_) {
     $("onboard-list").innerHTML = "";
-    $("onboard-err").textContent = "Could not load standing orders — the fleet may still be starting up. Try refreshing in a few seconds.";
+    $("onboard-err").textContent = "Could not load standing orders — the fleet may still be starting up.";
+    // A refresh used to be the only offer here, and it was a dead end: it
+    // re-probes the session, sees a live cookie, and (before onboarding
+    // became level-triggered) went straight to a dashboard whose fleet was
+    // paused pending the onboarding this screen never finished. Retry the
+    // fetch in place instead — the screen is the only thing that can clear
+    // tenants.onboarding_pending, so it must not be escapable by accident.
+    $("onboard-retry").hidden = false;
   }
 }
 
@@ -3351,6 +3359,7 @@ $("auth-show-register").addEventListener("click", () => { $("auth-err").textCont
 $("auth-show-login").addEventListener("click", () => { $("reg-err").textContent = ""; showLoginForm(); });
 $("logout-btn").addEventListener("click", logout);
 $("onboard-confirm").addEventListener("click", confirmOnboarding);
+$("onboard-retry").addEventListener("click", showOnboarding);
 
 /** First data load once a token is accepted — everything up to here only
  *  wired up event listeners, none of which touch the network. */
@@ -3472,15 +3481,22 @@ document.addEventListener("keydown", (e) => {
 // where bridge is already the default "on" view. Call it once at boot too.
 updateFieldBookToggleVisibility();
 
-// Probe for an existing, still-valid session cookie before showing the
-// gate — a returning visit with a live cookie skips straight to the
-// dashboard; a missing/expired one 401s and the gate takes over.
+// Which of the three screens does this load render? Sign-in gate,
+// onboarding, or the dashboard — decided from observed state, every time.
 async function boot0() {
-  try {
-    const res = await nativeFetch("/api/state");
-    if (res.ok) { hideAuthGate(); return boot(); }
-  } catch (_) { /* fall through to the gate */ }
-  showAuthGate();
+  // One gate call decides the screen. It answers "is this cookie live" like
+  // the old /api/state probe did, and also "does this tenant still owe us
+  // onboarding" — which /api/state cannot answer, and which a page load has
+  // to ask every time. Before this, onboarding was shown on exactly one
+  // edge (the login response's isNewTenant) and skipped forever after: a
+  // refresh, a re-login, or a failed catalog fetch all landed on the
+  // dashboard with tenants.onboarding_pending still true, which is what
+  // re-paused the fleet on every single boot thereafter.
+  const session = await probeSession();
+  if (!session.authenticated) return showAuthGate();
+  if (session.onboardingPending) return showOnboarding();
+  hideAuthGate();
+  boot();
 }
 // Before anything else: a remembered choice or an explicit ?ui= may mean
 // this document is not the one to render at all.

@@ -2805,11 +2805,21 @@ export class FleetManager {
     return this.surveyPool.list(waypoint);
   }
 
-  /** Pause/resume autonomous tick loop. Individual ship commands still work while paused. */
-  async setPaused(paused: boolean): Promise<void> {
+  /**
+   * Pause/resume the autonomous tick loop. Individual ship commands still
+   * work while paused.
+   *
+   * `reason` exists because a paused fleet is indistinguishable from a
+   * broken one in the logs, and that cost hours: a boot-time
+   * `setPaused(true)` for pending onboarding logged the same bare "fleet
+   * paused" as an operator hitting Halt, so an entire fleet sitting still
+   * across a dozen restarts read as a scheduler fault. Say who paused it
+   * and why, always.
+   */
+  async setPaused(paused: boolean, reason?: string): Promise<void> {
     this.paused = paused;
     if (this.tenantId) await this.store?.setFleetFlag(this.tenantId, "paused", paused ? "true" : "false");
-    this.log(paused ? "fleet paused" : "fleet resumed");
+    this.log(`${paused ? "fleet paused" : "fleet resumed"}${reason ? `: ${reason}` : ""}`);
   }
 
   isPaused(): boolean {

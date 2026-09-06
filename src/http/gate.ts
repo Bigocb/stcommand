@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type pg from "pg";
 import { Client, SpaceTradersAPI, API_BASE } from "../core/client.js";
-import { findOrCreateTenant, createSession, deleteSession } from "../db/tenants.js";
+import { findOrCreateTenant, createSession, deleteSession, resolveSession, needsOnboarding } from "../db/tenants.js";
 import { signSessionCookie, verifySessionCookie } from "../auth/crypto.js";
 import { parseCookies } from "./cookies.js";
 import { SESSION_COOKIE_NAME, SESSION_COOKIE_MAX_AGE_MS } from "./session.js";
@@ -71,7 +71,11 @@ export function createGateRouter(
     const tenant = await findOrCreateTenant(pool, agentSymbol, token);
     const sessionId = await createSession(pool, tenant.id);
     res.cookie(SESSION_COOKIE_NAME, signSessionCookie(sessionId), cookieOpts);
-    res.json({ agentSymbol: tenant.agentSymbol, isNewTenant: tenant.isNewTenant });
+    res.json({
+      agentSymbol: tenant.agentSymbol,
+      isNewTenant: tenant.isNewTenant,
+      onboardingPending: await needsOnboarding(pool, tenant.id),
+    });
   });
 
   router.post("/register", async (req, res) => {
@@ -99,7 +103,44 @@ export function createGateRouter(
     const tenant = await findOrCreateTenant(pool, result.agent.symbol, result.token);
     const sessionId = await createSession(pool, tenant.id);
     res.cookie(SESSION_COOKIE_NAME, signSessionCookie(sessionId), cookieOpts);
-    res.json({ agentSymbol: tenant.agentSymbol, headquarters: result.agent.headquarters, credits: result.agent.credits, isNewTenant: tenant.isNewTenant });
+    res.json({
+      agentSymbol: tenant.agentSymbol,
+      headquarters: result.agent.headquarters,
+      credits: result.agent.credits,
+      isNewTenant: tenant.isNewTenant,
+      onboardingPending: await needsOnboarding(pool, tenant.id),
+    });
+  });
+
+  /**
+   * Who is this cookie, and does this tenant still owe us onboarding?
+   *
+   * Deliberately here, on the gate, and not behind `resolveTenant`: every
+   * /api/* route is gated on `registry.getOrCreate()`, which blocks the
+   * request until that tenant's engine has fully booted (live SpaceTraders
+   * round-trips). A page load needs to know *which screen to render* long
+   * before it needs an engine, and the screen it renders for a tenant that
+   * hasn't onboarded is a full-screen gate the engine isn't part of.
+   *
+   * `onboardingPending` reads the durable tenants.onboarding_pending column
+   * — the same one FleetManager stays paused on — so onboarding is decided
+   * by observed state on every load, not by the one-shot `isNewTenant`
+   * edge from a login that may have happened in a tab that has since been
+   * refreshed away. Rule 3 of docs/control-plane-data-plane.md, applied to
+   * the UI: level-triggered, not edge-triggered.
+   */
+  router.get("/session", async (req, res) => {
+    const cookies = parseCookies(req.headers.cookie);
+    const sessionId = verifySessionCookie(cookies[SESSION_COOKIE_NAME]);
+    const tenant = sessionId ? await resolveSession(pool, sessionId) : undefined;
+    if (!tenant) {
+      res.status(401).json({ error: "not authenticated" });
+      return;
+    }
+    res.json({
+      agentSymbol: tenant.agentSymbol,
+      onboardingPending: await needsOnboarding(pool, tenant.id),
+    });
   });
 
   router.post("/logout", async (req, res) => {

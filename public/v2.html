@@ -46,6 +46,11 @@
     <div class="onboard-list" id="onboard-list"></div>
     <button type="button" class="btn pri" id="onboard-confirm">Confirm &amp; launch the fleet</button>
     <div class="auth-err" id="onboard-err"></div>
+    <!-- Shown only when the catalog could not be loaded. "Refresh the page"
+         is not the recovery it sounds like: a refresh re-probes the session
+         and comes straight back here, so the way out has to be retrying the
+         fetch, not reloading the document. -->
+    <button type="button" class="icon-btn" id="onboard-retry" hidden>Retry</button>
   </div>
 </div>
 <div class="app" id="app-root" hidden>

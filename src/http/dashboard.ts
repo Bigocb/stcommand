@@ -318,7 +318,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
       // full-screen gate the captain can't get past to reach a manual pause
       // control first, so there's no other reason it could be paused here.
       await clearOnboardingPending(pool, w.tenantId);
-      await w.fleet.setPaused(false);
+      await w.fleet.setPaused(false, "onboarding confirmed");
       res.json({ ok: true, rules });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

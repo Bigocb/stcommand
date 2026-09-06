@@ -452,3 +452,39 @@ have nowhere honest to live until it exists.
 - Replacing `RouteDispatcher`'s economics. It becomes the Trade controller
   as-is; traffic splitting and price-impact sizing are follow-ups on top.
 - Touching the UI beyond surfacing intent/observed/blocked.
+
+## 10. Backlog
+
+Two things this model implies but does not yet do.
+
+### Rule 3 reaches the UI
+
+The onboarding gate was the first place the level-triggered rule was found
+broken *outside* the engine, and it cost more than any engine bug so far.
+Whether to show the standing-orders screen was decided from one edge — the
+`isNewTenant` flag in a single login response. A refresh, a re-login or a
+catalog fetch that failed all skipped the screen for good, while the
+durable state it was supposed to satisfy (`tenants.onboarding_pending`)
+stayed true. That column is what `TenantRegistry.boot()` pauses the fleet
+on, so the fleet re-paused on every restart, for hours, with the log saying
+only `fleet paused` — no reason, no owner.
+
+The fix was rule 3 verbatim: `GET /api/gate/session` reports the column,
+and every page load asks. The screen is now shown whenever it is owed, not
+once when it became owed. `setPaused()` also takes a reason now, because a
+pause with no stated owner is a fault that reads as a different fault.
+
+The general form: any UI state derived from durable server state must be
+re-derived on load, never latched from the response that created it.
+
+### The control plane should know the jump gate's construction status
+
+Cross-system trade is gated on a jump gate existing and being built. Today
+the atlas caches whether a gate *connects*; nothing tracks whether an
+unbuilt gate in this system needs constructing, or how far along it is. A
+Construction controller would reconcile the same way every other controller
+does: observed gate state vs. "the fleet needs this route open," emitting
+delivery intents against the construction site's material requirements.
+That makes gate-building a normal reconciliation loop rather than a manual
+mission, and it is what turns a system the fleet has outgrown into a
+solvable problem instead of a ceiling.

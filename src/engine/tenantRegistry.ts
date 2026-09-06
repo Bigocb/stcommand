@@ -315,7 +315,7 @@ export class TenantRegistry {
     // "does this tenant have any doctrine rows" — a tenant who predates
     // onboarding and never touched Book also has zero rows, but is
     // grandfathered, not pending, and must never be paused by this check.
-    if (await needsOnboarding(this.pool, tenantId)) await fleet.setPaused(true);
+    if (await needsOnboarding(this.pool, tenantId)) await fleet.setPaused(true, "onboarding not confirmed yet — finish the standing-orders screen to launch");
 
     // Re-hydrate MissionManager's in-memory active/task state from whatever
     // was persisted — list() only reads the rows, startConstruction() is what

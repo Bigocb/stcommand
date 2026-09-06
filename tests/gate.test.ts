@@ -209,3 +209,63 @@ describe("POST /api/gate/logout", () => {
     assert.equal(res.status, 200);
   });
 });
+
+/**
+ * GET /api/gate/session — the probe every page load makes before it knows
+ * which screen to render.
+ *
+ * It exists because onboarding used to be decided by the login response's
+ * one-shot `isNewTenant`, so a refresh skipped it forever while
+ * tenants.onboarding_pending stayed true — and that column is what keeps
+ * the fleet paused on every restart. The probe reads the column, so the
+ * decision is level-triggered: the same answer on the tenth page load as
+ * on the first, until onboarding is actually confirmed.
+ */
+describe("GET /api/gate/session", () => {
+  it("401s without a cookie", async () => {
+    const res = await fetch(`${baseUrl}/api/gate/session`);
+    assert.equal(res.status, 401);
+  });
+
+  it("401s on a forged cookie rather than trusting it", async () => {
+    const res = await fetch(`${baseUrl}/api/gate/session`, {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=not.a.real.signature` },
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it("reports the agent and its pending onboarding, on every call", async () => {
+    const login = await fetch(`${baseUrl}/api/gate/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "valid-token" }),
+    });
+    const cookie = cookieFromResponse(login);
+    const who = (await (await fetch(`${baseUrl}/api/whoami`, { headers: { Cookie: cookie } })).json()) as { tenantId: string };
+    await pool.query(`UPDATE tenants SET onboarding_pending = true WHERE id = $1`, [who.tenantId]);
+
+    // Twice: the second call is the refresh that used to lose onboarding.
+    for (const attempt of [1, 2]) {
+      const res = await fetch(`${baseUrl}/api/gate/session`, { headers: { Cookie: cookie } });
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as { agentSymbol: string; onboardingPending: boolean };
+      assert.equal(body.agentSymbol, "GATETEST");
+      assert.equal(body.onboardingPending, true, `probe ${attempt} must still say onboarding is owed`);
+    }
+
+    await pool.query(`UPDATE tenants SET onboarding_pending = false WHERE id = $1`, [who.tenantId]);
+    const after = await fetch(`${baseUrl}/api/gate/session`, { headers: { Cookie: cookie } });
+    const afterBody = (await after.json()) as { onboardingPending: boolean };
+    assert.equal(afterBody.onboardingPending, false, "confirming onboarding is what ends the gate");
+  });
+
+  it("login reports onboardingPending from the same durable column", async () => {
+    const res = await fetch(`${baseUrl}/api/gate/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "valid-token" }),
+    });
+    const body = (await res.json()) as { onboardingPending: boolean };
+    assert.equal(typeof body.onboardingPending, "boolean");
+  });
+});
