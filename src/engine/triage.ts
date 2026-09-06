@@ -8,6 +8,14 @@
 export interface ShipStatusLike {
   symbol: string;
   role: string;
+  /**
+   * What the control plane has actually decided this ship should be doing,
+   * if anything — e.g. "explore X1-TV75". Optional so callers that predate
+   * the intent board keep working.
+   */
+  wants?: string;
+  /** Why, in the operator's words. */
+  wantsReason?: string;
 }
 
 export interface StrandedLike {
@@ -149,10 +157,21 @@ export function buildTriage(input: {
       title: `${s.symbol} earning nothing`,
       detail: s.role === "idle"
         ? "No role assigned — this hull has no cargo hold and no mining mount."
-        : `Assigned as ${s.role} but has not booked a credit in the last hour.`,
+        : s.wants
+          ? `Assigned as ${s.role} but has not booked a credit in the last hour. Currently told to ${s.wants}.`
+          : `Assigned as ${s.role} but has not booked a credit in the last hour.`,
       costPerHour: -Math.round(estimateCost(s.symbol, s.role)),
       shipSymbol: s.symbol,
-      engineWillAct: s.role === "idle" ? null : "Engine will re-plan on its next tick",
+      // Quote the real decision where there is one. "Engine will re-plan on
+      // its next tick" was a promise rather than a fact: it stayed on screen
+      // unchanged whether the engine had assigned the ship something, had
+      // assigned it something it could not carry out, or had nothing for it
+      // at all — which is precisely the distinction an operator needs.
+      engineWillAct: s.role === "idle"
+        ? null
+        : s.wants
+          ? `Engine intends: ${s.wants}${s.wantsReason ? ` — ${s.wantsReason}` : ""}`
+          : "Engine has assigned nothing to this ship",
       actions: [{ label: "Ship details", kind: "details", body: { shipSymbol: s.symbol } }],
     });
   }

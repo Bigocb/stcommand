@@ -124,3 +124,44 @@ describe("repair and explore no longer take turns driving the same hull", () => 
     assert.equal(intent.version, 2, "and the change is visible as a new version");
   });
 });
+
+describe("fleet status reports intent alongside observed state", () => {
+  it("says what a ship is doing and what it is supposed to be doing", async () => {
+    // Observed state alone cannot distinguish a ship with nothing to do from
+    // one whose assignment it cannot carry out. That distinction is exactly
+    // what turned "why has this tour sat in orbit for hours" into an
+    // investigation across logs rather than a glance at a row.
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    const ship = makeShip("TOUR-1");
+    (fleet as any).tours.set("TOUR-1", scoutAgent(ship));
+    fleet.intents.propose({ ship: "TOUR-1", priority: 3, goal: { kind: "explore", system: "X1-TV75" }, reason: "X1-TV75 is unsurveyed", source: "explore" });
+    fleet.intents.commit();
+
+    const [row] = fleet.fleetStatusSummary().filter((r) => r.symbol === "TOUR-1");
+    assert.equal(row!.doing, "in orbit", "what it is");
+    assert.equal(row!.wants, "explore X1-TV75", "what it is meant to be");
+    assert.equal(row!.wantsReason, "X1-TV75 is unsurveyed");
+    assert.equal(row!.wantsSource, "explore", "and which controller decided");
+    assert.equal(row!.intentVersion, 1);
+  });
+
+  it("names the target, so two goals of the same kind are never confused", () => {
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    (fleet as any).keepers.set("K1", scoutAgent(makeShip("K1")));
+    (fleet as any).keepers.set("K2", scoutAgent(makeShip("K2")));
+    fleet.intents.propose({ ship: "K1", priority: 3, goal: { kind: "keep", waypoint: "X1-A-M1" }, reason: "cover", source: "keeper" });
+    fleet.intents.propose({ ship: "K2", priority: 3, goal: { kind: "keep", waypoint: "X1-A-M2" }, reason: "cover", source: "keeper" });
+    fleet.intents.commit();
+
+    const rows = new Map(fleet.fleetStatusSummary().map((r) => [r.symbol, r.wants]));
+    assert.equal(rows.get("K1"), "keep X1-A-M1");
+    assert.equal(rows.get("K2"), "keep X1-A-M2");
+  });
+
+  it("omits the intent fields entirely for a ship nothing has claimed", () => {
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    (fleet as any).scouts.set("S9", scoutAgent(makeShip("S9")));
+    const [row] = fleet.fleetStatusSummary().filter((r) => r.symbol === "S9");
+    assert.equal(row!.wants, undefined, "an unclaimed ship is genuinely unclaimed, not holding");
+  });
+});

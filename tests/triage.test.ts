@@ -62,3 +62,42 @@ describe("buildTriage: stranded ship rescue status", () => {
     assert.equal(item.engineWillAct, null);
   });
 });
+
+describe("triage reports the engine's real decision", () => {
+  const base = { stranded: [], earnings: [], contracts: [] };
+
+  it("quotes the committed intent instead of promising a re-plan", () => {
+    // "Engine will re-plan on its next tick" was a promise, not a fact: it
+    // read identically whether the engine had assigned the ship something,
+    // had assigned something it could not carry out, or had nothing for it —
+    // which is exactly the distinction an operator needs.
+    const { triage } = buildTriage({
+      ...base,
+      ships: [{ symbol: "TOUR-1", role: "tour", wants: "explore X1-TV75", wantsReason: "X1-TV75 is unsurveyed" }],
+    });
+    const item = triage.find((t) => t.shipSymbol === "TOUR-1");
+    // A tour is a support role and earns nothing by design, so it should not
+    // be flagged at all — the intent fields must not change that.
+    assert.equal(item, undefined);
+  });
+
+  it("names the intent on an earning ship that has booked nothing", () => {
+    const { triage } = buildTriage({
+      ...base,
+      ships: [{ symbol: "TRADER-1", role: "trader", wants: "trade", wantsReason: "IRON route open" }],
+    });
+    const item = triage.find((t) => t.shipSymbol === "TRADER-1")!;
+    assert.match(item.engineWillAct!, /Engine intends: trade/);
+    assert.match(item.engineWillAct!, /IRON route open/);
+    assert.match(item.detail, /Currently told to trade/);
+  });
+
+  it("says plainly when nothing has been assigned, rather than implying work is coming", () => {
+    const { triage } = buildTriage({
+      ...base,
+      ships: [{ symbol: "TRADER-2", role: "trader" }],
+    });
+    const item = triage.find((t) => t.shipSymbol === "TRADER-2")!;
+    assert.equal(item.engineWillAct, "Engine has assigned nothing to this ship");
+  });
+});

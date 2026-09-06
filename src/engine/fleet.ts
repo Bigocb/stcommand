@@ -3161,7 +3161,18 @@ export class FleetManager {
    * stranded / manual hold / suspended / cooldown Ns / transit → dest /
    * docked / in orbit / idle.
    */
-  fleetStatusSummary(): { symbol: string; role: string; waypoint: string; nav: string; fuel: number; fuelCap: number; cargo: number; cargoCap: number; cooldown: number; doing: string }[] {
+  /**
+   * Observed state per ship, alongside the intent the control plane has
+   * committed for it — `docs/control-plane-data-plane.md` §7.
+   *
+   * `doing` is what the ship IS; `wants` is what it is SUPPOSED to be doing
+   * and which controller decided that. Having only the first is what made
+   * questions like "why has this tour been sitting in orbit for hours"
+   * an investigation across logs rather than a glance: the observed half
+   * alone can never distinguish a ship with nothing to do from a ship whose
+   * assignment it cannot carry out.
+   */
+  fleetStatusSummary(): { symbol: string; role: string; waypoint: string; nav: string; fuel: number; fuelCap: number; cargo: number; cargoCap: number; cooldown: number; doing: string; wants?: string; wantsReason?: string; wantsSource?: string; intentVersion?: number }[] {
     const stranded = new Set(this.getStrandedShips().map((s) => s.symbol));
     return this.getShipStatuses().map((s) => {
       const ship = this.shipFor(s.symbol);
@@ -3183,14 +3194,37 @@ export class FleetManager {
       else if (nav === "DOCKED") doing = "docked";
       else if (nav === "IN_ORBIT") doing = "in orbit";
       else doing = (nav || "idle").replace(/_/g, " ").toLowerCase();
-      return { symbol: s.symbol, role: s.role, waypoint, nav, fuel, fuelCap, cargo, cargoCap, cooldown, doing };
+      const intent = this.intents.current(s.symbol);
+      // A goal reads as its kind plus whatever it targets, so "explore" and
+      // "explore X1-TV75" are never confused on a crowded dashboard row.
+      const target =
+        intent?.goal.kind === "keep" ? intent.goal.waypoint
+        : intent?.goal.kind === "explore" ? intent.goal.system
+        : intent?.goal.kind === "repair" ? intent.goal.yard
+        : intent?.goal.kind === "tender" ? intent.goal.to
+        : intent?.goal.kind === "hold" ? intent.goal.waypoint
+        : undefined;
+      return {
+        symbol: s.symbol, role: s.role, waypoint, nav, fuel, fuelCap, cargo, cargoCap, cooldown, doing,
+        ...(intent
+          ? {
+              wants: target ? `${intent.goal.kind} ${target}` : intent.goal.kind,
+              wantsReason: intent.reason,
+              wantsSource: intent.source,
+              intentVersion: intent.version,
+            }
+          : {}),
+      };
     });
   }
 
   /** One aggregated log line for the whole fleet, logged once per coordinator tick. */
   private logFleetStatus(): void {
     const parts = this.fleetStatusSummary().map(
-      (s) => `${s.symbol}(${s.role})@${s.waypoint ? s.waypoint.slice(-4) : "?"} ${s.doing} f${s.fuel}/${s.fuelCap} c${s.cargo}/${s.cargoCap}`,
+      // Intent is appended only when one is committed, so the line stays the
+      // same width for the ships nothing has claimed. `want:` is what makes a
+      // stuck ship legible here rather than in a separate investigation.
+      (s) => `${s.symbol}(${s.role})@${s.waypoint ? s.waypoint.slice(-4) : "?"} ${s.doing} f${s.fuel}/${s.fuelCap} c${s.cargo}/${s.cargoCap}${s.wants ? ` want:${s.wants}` : ""}`,
     );
     this.log(`fleet: ${parts.join(" | ") || "no ships"}`);
   }

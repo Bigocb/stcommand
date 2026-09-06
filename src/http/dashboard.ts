@@ -140,8 +140,16 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
         net: r.net / HISTORY_HOURS,
       }));
 
+      // Ship rows carry the committed intent (see FleetManager.fleetStatusSummary),
+      // so triage can report what the engine actually decided rather than
+      // promising a re-plan it may have no work for.
+      const wantsBySymbol = new Map(w.fleet.fleetStatusSummary().map((r) => [r.symbol, r]));
       const { triage, forgone } = buildTriage({
-        ships: status.ships,
+        ships: status.ships.map((sh: { symbol: string; role: string }) => ({
+          ...sh,
+          wants: wantsBySymbol.get(sh.symbol)?.wants,
+          wantsReason: wantsBySymbol.get(sh.symbol)?.wantsReason,
+        })),
         stranded: status.stranded,
         earnings: byShip,
         historicalRates,
