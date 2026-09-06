@@ -90,3 +90,54 @@ describe("a trader refuses to transact anywhere but where the plan says it is", 
     assert.doesNotThrow(() => (a as any).assertAt("X1-ZU53-A1", "sell ANTIMATTER"));
   });
 });
+
+describe("a route must start somewhere the ship can actually get to", () => {
+  // The dispatcher and viableRoute both validated buy↔sell — the pair the
+  // route is made of — and neither validated here→buy, the leg the ship flies
+  // first. When X1-RD37 was surveyed its fresh spreads took over the top of
+  // the value list, and all six traders were handed routes starting in a
+  // system none of them could reach: a ~20-second error loop, nothing trading.
+  const legIn = (buySys: string) => ({
+    good: "MEDICINE", role: "direct" as const,
+    buyAt: `${buySys}-XC5A`, sellAt: `${buySys}-DX2F`, buyPrice: 100, sellPrice: 900,
+  });
+
+  function agentAt(homeSystem: string, reachable: readonly string[]) {
+    const a = trader({
+      canJump: (from: string, to: string) => from === homeSystem && reachable.includes(to),
+      gatesTo: () => ["G"],
+    });
+    const t = (a as any).priceTable as Map<string, Map<string, any>>;
+    for (const sys of ["X1-RD37", "X1-ZU53"]) {
+      t.set(`${sys}-XC5A`, new Map([["MEDICINE", { buy: 100, sell: 90, volume: 40 }]]));
+      t.set(`${sys}-DX2F`, new Map([["MEDICINE", { buy: 950, sell: 900, volume: 40 }]]));
+    }
+    (a as any).distBetween = () => 10;
+    (a as any).getCredits = () => 10_000_000;
+    return a;
+  }
+
+  it("rejects a rich route in a system the ship cannot jump to", () => {
+    // Ship is in X1-ZU53; X1-RD37 is not one gate away.
+    const a = agentAt("X1-ZU53", []);
+    assert.equal((a as any).viableRoute(legIn("X1-RD37")), undefined,
+      "both ends connect to each other, but the hull cannot reach either");
+  });
+
+  it("accepts the same route once that system is one gate away", () => {
+    const a = agentAt("X1-ZU53", ["X1-RD37"]);
+    assert.ok((a as any).viableRoute(legIn("X1-RD37")), "a genuinely reachable leg must still be taken");
+  });
+
+  it("still accepts a route entirely inside the ship's own system", () => {
+    const a = agentAt("X1-ZU53", []);
+    assert.ok((a as any).viableRoute(legIn("X1-ZU53")), "local trade must not be collateral damage");
+  });
+
+  it("retires an unreachable leg from either end, not just the sell end", () => {
+    const a = trader({ gatesTo: () => [], scanJumpGates: async () => {} },
+      { good: "MEDICINE", role: "direct", buyAt: "X1-RD37-XC5A", sellAt: "X1-KU72-D47", buyPrice: 1, sellPrice: 2 });
+    (a as any).markRouteUnreachable("X1-RD37");
+    assert.ok((a as any).deadRoutes.has("MEDICINE@X1-RD37-XC5A"), "the buy-side case looped before this");
+  });
+});

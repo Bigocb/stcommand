@@ -467,8 +467,14 @@ export class TraderAgent {
    * forever, which is the same loop with an error line instead of a loss.
    */
   private markRouteUnreachable(targetSystem: string): void {
+    // Either end. The unreachable system is as often the one a leg starts in
+    // as the one it ends in, and retiring only on the sell end left every
+    // buy-side case looping.
     const leg = this.asDirectLeg(this.assignedRoute?.());
-    if (leg && this.systemOf(leg.sellAt) === targetSystem) this.deadRoutes.add(`${leg.good}@${leg.buyAt}`);
+    if (!leg) return;
+    if (this.systemOf(leg.sellAt) === targetSystem || this.systemOf(leg.buyAt) === targetSystem) {
+      this.deadRoutes.add(`${leg.good}@${leg.buyAt}`);
+    }
   }
 
   /**
@@ -695,6 +701,24 @@ export class TraderAgent {
     // cache FleetManager.tick() refreshes on a slow interval rather than a
     // live call from this hot scoring path.
     if (!this.systemsConnected(buySystem, sellSystem)) return undefined;
+    // ...and that this ship can reach the *start* of the leg.
+    //
+    // The check above, and the dispatcher's matching one, validate buy↔sell:
+    // the pair the route is made of. Neither validates here→buy, which is the
+    // leg the ship flies first. So a route whose two ends connect to each
+    // other but not to the hull scored as viable, got assigned, and failed at
+    // the jump every time. Live, that put all six traders into a ~20-second
+    // error loop with nothing completing at all: X1-RD37 was surveyed, its
+    // fresh spreads took over the top of the dispatcher's value list, and
+    // ships standing in X1-KU72 and X1-ZU53 were handed routes starting in a
+    // system none of them could reach.
+    //
+    // systemsConnected() is single-hop, and so is the executor: jumpToSystem()
+    // takes gatesTo(from, target)[0] and jumps once. This filter is therefore
+    // exactly as capable as the ship it governs — a two-hop system is not
+    // being wrongly excluded, it is genuinely unflyable until multi-hop
+    // routing exists.
+    if (!this.systemsConnected(this.systemOf(this.ship.nav.waypointSymbol), buySystem)) return undefined;
     // A leg whose distance exceeds the ship's own fuel tank capacity can never
     // be flown, no matter how full the tank is — this is distinct from "not
     // enough fuel right now" (which a refuel fixes). Confirmed in production:
