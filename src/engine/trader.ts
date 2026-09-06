@@ -187,6 +187,24 @@ export class TraderAgent {
   private inFlight: Promise<unknown> | null = null;
   /** Good → cost basis per unit for cargo currently in the hold. */
   private heldCost = new Map<string, number>();
+  /**
+   * The leg a good in the hold was actually bought for, keyed by good.
+   *
+   * The dispatcher recomputes every 60s and may hand this ship a different
+   * route for the same good mid-trip — in particular the second-best variant
+   * keyed by sell destination. The leftover sweep read the *live* assignment,
+   * so a ship that bought on one leg could find itself holding cargo for a
+   * different, unreachable one. Live: DAGGER-17 bought 18u ANTIMATTER at
+   * X1-KU72-I60 for a route selling at X1-KU72-I59, flew there, and then the
+   * assignment mutated to the X1-TV75-X20F variant — a system it cannot reach
+   * — after which the sweep deferred to that cross-system route on every tick
+   * and the cargo was stranded.
+   *
+   * A trip is committed at the moment credits are spent. Pin the leg then and
+   * read it back here, so what the ship does with cargo depends on why it
+   * bought it, not on what the scheduler happens to want now.
+   */
+  private heldRoute = new Map<string, DirectLeg>();
   /** Routes rejected by the live buy-price guard this tick (good@buyAt). */
   private deadRoutes = new Set<string>();
   private stranded = false;
@@ -913,6 +931,10 @@ export class TraderAgent {
     // so any of them landing in a trader's hold got sold — or jettisoned,
     // if no market would buy it — on the very next tick.
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
+    const held = new Set<string>((this.ship.cargo.inventory ?? []).filter((i) => i.units > 0).map((i) => i.symbol));
+    // A pin must never outlive the cargo it describes: once the good is gone
+    // the trip is over, and a stale leg would answer for the next one.
+    for (const good of [...this.heldRoute.keys()]) if (!held.has(good)) this.heldRoute.delete(good);
     const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0 && !protectedGoods.has(i.symbol));
     if (leftover.length === 0) return undefined;
     const item = leftover[0]!;
@@ -934,7 +956,9 @@ export class TraderAgent {
     // route was actually worth is abandoned. Hand those back to the route
     // logic instead. Cargo with no live route behind it still gets swept,
     // which is what this function is for.
-    const activeLeg = this.asDirectLeg(this.assignedRoute?.());
+    // The leg this cargo was bought for wins over whatever the dispatcher
+    // wants right now — see heldRoute's comment for the trip it stranded.
+    const activeLeg = this.heldRoute.get(item.symbol) ?? this.asDirectLeg(this.assignedRoute?.());
     if (activeLeg && activeLeg.good === item.symbol && this.systemOf(activeLeg.sellAt) !== this.ship.nav.systemSymbol) {
       this.log(`leftover sweep: leaving ${item.units}u ${item.symbol} to its cross-system route (sells at ${activeLeg.sellAt})`);
       return undefined;
@@ -1133,6 +1157,7 @@ export class TraderAgent {
       this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cargo: res.cargo };
       this.heldCost.set(route.good, res.transaction.pricePerUnit);
+      this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice });
       this.recordLedger?.({
         timestamp: new Date().toISOString(),
         shipSymbol: this.symbol,
