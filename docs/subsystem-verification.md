@@ -481,7 +481,7 @@ gap hides.
 
 ## Step 6 — Contract deliveries and payouts were invisible
 
-**Commit:** `contract visibility` · **Status:** partial — live confirmation pending
+**Commit:** `d21e32b` · **Status:** verified
 
 ### Defect
 
@@ -537,7 +537,26 @@ one of the fleet's largest value transfers missing from them.
   … (x/10)`; the earnings line carries a `contracts +N` field; when the
   contract completes, `fulfilled — 181474c paid` appears and `net` jumps by
   that amount rather than the credits moving unexplained.
-- **Live:** _pending._
+- **Live:**
+
+```
+21:39:48  DRAGOM-1: bought 1u DRUGS @ 11328c at X1-S84-H56 for contract delivery
+21:40:01  DRAGOM-1: delivered 1u DRUGS to contract cmtq3cdo at X1-S84-H56 (4/22)
+21:34:04  earnings 15m: … sold +2041 · contracts +0 · bought -0 …
+```
+
+  The delivery announces itself with progress, and `contracts` is in the
+  earnings line. Thirteen seconds from buy to delivery, on a path that until
+  now produced no output at all.
+
+### What the fix immediately exposed
+
+The `(4/22)` is the point. Twenty-two units at ~11,300c is ~248,700c to
+fulfil a contract paying 181,474c — a **~67,000c guaranteed loss**, accepted
+four hours earlier and worked ever since. The number was unknowable while
+deliveries were silent, which is the argument for the fix stated better than
+I could state it: an instrumentation gap is not cosmetic when it hides a
+decision this size. Logged as bug-log #2.
 
 ### Note on method
 
@@ -557,7 +576,7 @@ confidently wrong about it in front of someone who knew better.
 | 3 | Contract-buy silent stall | verified |
 | 4 | Repair: controller proposes, ship flies | tests only — not exercised live (no hull damaged) |
 | 5 | Trader re-derives trip from observed state | tests only — not exercised live (trader never traded) |
-| 6 | Contract deliveries and payouts made visible | live confirmation pending |
+| 6 | Contract deliveries and payouts made visible | verified |
 | 7 | `priceTable` → registry (single source of truth for prices) | not started |
 | 7 | Finish steps 3/4/5 of the migration — the executor fault line | not started |
 | 8 | Multi-hop routing | not started |
