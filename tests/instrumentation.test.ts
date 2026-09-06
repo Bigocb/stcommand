@@ -221,3 +221,29 @@ describe("scheduling reconciles against the agent, not a memory of the symbol", 
     assert.equal(scheduler.size(), afterFirst, "a healthy agent must not accumulate duplicate chains");
   });
 });
+
+describe("the heartbeat says when parked tasks are due", () => {
+  it("names the soonest tasks and how far out they are when nothing is ready", async () => {
+    // Counts alone cannot tell "parked for thirty seconds" from "parked until
+    // next week", and a task rescheduled on a bad resume time looks exactly
+    // like a healthy idle one.
+    const logs: string[] = [];
+    const s = new Scheduler({ log: (m) => logs.push(m), heartbeatMs: 0 });
+    s.enqueue(task({ id: "soon", earliestRunAt: Date.now() + 45_000 }));
+    s.enqueue(task({ id: "far", earliestRunAt: Date.now() + 3_600_000 }));
+
+    await s.runOnce();
+
+    const beat = logs.find((l) => /queue=/.test(l))!;
+    assert.match(beat, /next due: soon@\+4[0-9]s/);
+    assert.match(beat, /far@\+3[0-9]{2}[0-9]s/);
+  });
+
+  it("omits the due list when work is ready", async () => {
+    const logs: string[] = [];
+    const s = new Scheduler({ log: (m) => logs.push(m), heartbeatMs: 0 });
+    s.enqueue(task());
+    await s.runOnce();
+    assert.doesNotMatch(logs.find((l) => /queue=/.test(l))!, /next due/);
+  });
+});

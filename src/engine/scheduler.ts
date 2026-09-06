@@ -210,10 +210,22 @@ export class Scheduler {
     this.lastHeartbeat = now;
     const idleFor = Math.round((now - this.lastRanAt) / 1000);
     const s = this.stats;
+    // When the queue is full but nothing is ready, the only useful question is
+    // *when* those tasks think they are due — counts alone cannot distinguish
+    // "parked for thirty seconds" from "parked until next week", and a task
+    // rescheduled on a bad resume time looks exactly like a healthy idle one.
+    // Name the soonest few, with how far out they are.
+    const due = this.queue.length > 0 && readyCount === 0
+      ? " · next due: " + [...this.queue]
+          .sort((a, b) => a.earliestRunAt - b.earliestRunAt)
+          .slice(0, 3)
+          .map((t) => `${t.id}@+${Math.round((t.earliestRunAt - now) / 1000)}s`)
+          .join(" ")
+      : "";
     this.log(
       `scheduler: queue=${this.queue.length} ready=${readyCount} tokens=${this.budget.availableTokens().toFixed(2)} ` +
       `· ran=${s.ran} skipped=${s.skipped} failed=${s.failed} no-op=${s.yielded}` +
-      (s.ran === 0 ? ` · NOTHING HAS RUN in ${idleFor}s` : ` · last ran ${idleFor}s ago`),
+      (s.ran === 0 ? ` · NOTHING HAS RUN in ${idleFor}s` : ` · last ran ${idleFor}s ago`) + due,
     );
     this.stats = { ran: 0, skipped: 0, failed: 0, yielded: 0 };
   }
