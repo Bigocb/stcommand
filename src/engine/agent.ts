@@ -5,6 +5,7 @@ import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending } from "./agentStep.js";
 import { Registry } from "./registry.js";
+import { standDownReason } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -80,6 +81,13 @@ export interface AgentOptions {
    * thing that *did* stop was `rescueStranded()`. A halted fleet therefore kept
    * burning fuel with recovery switched off, which is the worst combination.
    */
+  /**
+   * This ship's committed intent, read live from the fleet's board. An agent
+   * stands down rather than acting when the fleet itself is driving the hull
+   * — see intent.ts's drivenByFleet(). Optional, so an agent built without a
+   * board (a test, a bare CLI run) behaves exactly as before.
+   */
+  intentFor?: () => import("./intent.js").ShipIntent | undefined;
   shouldRun?: () => boolean;
 }
 
@@ -154,6 +162,7 @@ export class ShipAgent {
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly keeperMarket?: () => string | undefined;
+  private readonly intentFor?: AgentOptions["intentFor"];
   private readonly shouldRun?: () => boolean;
   private readonly proxy: ShipProxy;
   /** Every `this.ship` read and write in this class goes through the one copy
@@ -222,6 +231,7 @@ export class ShipAgent {
     this.shipyardTourTargets = opts.shipyardTourTargets;
     this.recordShipyard = opts.recordShipyard;
     this.keeperMarket = opts.keeperMarket;
+    this.intentFor = opts.intentFor;
     this.shouldRun = opts.shouldRun;
     // Built last: it owns the ship state the `this.ship` accessor reads
     // through, so nothing may touch that accessor before this line.
@@ -720,6 +730,16 @@ export class ShipAgent {
     return true;
   }
   async tick(): Promise<boolean> {
+    // The fleet itself is driving this hull (repair, fuel ferry, operator
+    // hold), so acting here is the two-owners race that had a diverter and a
+    // tour agent alternately flying the same ship every few seconds for a
+    // day. Stand down until the intent changes.
+    const standDown = standDownReason(this.intentFor?.());
+    if (standDown) {
+      this.log(`standing down, fleet is driving this ship: ${standDown}`);
+      return false;
+    }
+
     if (this.suspended) {
       this.log("suspended: holding position");
       return false;
@@ -1045,6 +1065,16 @@ export class ShipAgent {
    * surveyor mount; it does not need a mining laser or cargo capacity.
    */
   async surveyScout(): Promise<boolean> {
+    // The fleet itself is driving this hull (repair, fuel ferry, operator
+    // hold), so acting here is the two-owners race that had a diverter and a
+    // tour agent alternately flying the same ship every few seconds for a
+    // day. Stand down until the intent changes.
+    const standDown = standDownReason(this.intentFor?.());
+    if (standDown) {
+      this.log(`standing down, fleet is driving this ship: ${standDown}`);
+      return false;
+    }
+
     if (this.suspended) {
       this.log("survey scout: suspended, holding");
       return false;
@@ -1113,6 +1143,16 @@ export class ShipAgent {
    * mount required — just navigation + docking. One target per tick.
    */
   async tourScout(): Promise<boolean> {
+    // The fleet itself is driving this hull (repair, fuel ferry, operator
+    // hold), so acting here is the two-owners race that had a diverter and a
+    // tour agent alternately flying the same ship every few seconds for a
+    // day. Stand down until the intent changes.
+    const standDown = standDownReason(this.intentFor?.());
+    if (standDown) {
+      this.log(`standing down, fleet is driving this ship: ${standDown}`);
+      return false;
+    }
+
     if (this.suspended) {
       this.log("tour scout: suspended, holding");
       return false;
@@ -1441,6 +1481,16 @@ export class ShipAgent {
    * body being the only place this logic existed.
    */
   private async keeperPoll(): Promise<boolean> {
+    // The fleet itself is driving this hull (repair, fuel ferry, operator
+    // hold), so acting here is the two-owners race that had a diverter and a
+    // tour agent alternately flying the same ship every few seconds for a
+    // day. Stand down until the intent changes.
+    const standDown = standDownReason(this.intentFor?.());
+    if (standDown) {
+      this.log(`standing down, fleet is driving this ship: ${standDown}`);
+      return false;
+    }
+
     const market = this.keeperMarket?.();
     if (!market) {
       this.log("keeper: no assigned market");

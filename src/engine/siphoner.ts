@@ -5,6 +5,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending } from "./agentStep.js";
 import { Registry } from "./registry.js";
+import { standDownReason } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -41,6 +42,13 @@ export interface SiphonerOptions {
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
   protectedGoods?: () => Set<string>;
   /** Whether the ship may act right now. False while the fleet is halted. */
+  /**
+   * This ship's committed intent, read live from the fleet's board. An agent
+   * stands down rather than acting when the fleet itself is driving the hull
+   * — see intent.ts's drivenByFleet(). Optional, so an agent built without a
+   * board (a test, a bare CLI run) behaves exactly as before.
+   */
+  intentFor?: () => import("./intent.js").ShipIntent | undefined;
   shouldRun?: () => boolean;
 }
 
@@ -62,6 +70,7 @@ export class SiphonerAgent {
   private readonly protectedGoods?: () => Set<string>;
   /** The world, held by reference — see registry.ts and scout.ts's identical field. */
   private registry: Registry = Registry.standalone();
+  private readonly intentFor?: SiphonerOptions["intentFor"];
   private readonly shouldRun?: () => boolean;
   private readonly proxy: ShipProxy;
   /** Every `this.ship` read and write goes through the one copy the proxy
@@ -99,6 +108,7 @@ export class SiphonerAgent {
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
     this.isMarketWaypoint = opts.isMarketWaypoint;
+    this.intentFor = opts.intentFor;
     this.shouldRun = opts.shouldRun;
     this.protectedGoods = opts.protectedGoods;
     // Built last: it owns the ship state the `this.ship` accessor reads
@@ -390,6 +400,16 @@ export class SiphonerAgent {
   }
 
   async tick(): Promise<boolean> {
+    // The fleet itself is driving this hull (repair, fuel ferry, operator
+    // hold), so acting here is the two-owners race that had a diverter and a
+    // tour agent alternately flying the same ship every few seconds for a
+    // day. Stand down until the intent changes.
+    const standDown = standDownReason(this.intentFor?.());
+    if (standDown) {
+      this.log(`standing down, fleet is driving this ship: ${standDown}`);
+      return false;
+    }
+
     if (this.suspended) {
       this.log("suspended: holding position");
       return false;

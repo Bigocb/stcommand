@@ -5,6 +5,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, Pending } from "./agentStep.js";
 import { Registry } from "./registry.js";
+import { standDownReason } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -43,6 +44,13 @@ export interface ScoutOptions {
   /** Minimum minutes between sensor scans. 0 disables scanning. */
   scanIntervalMin?: number;
   /** Whether the ship may act right now. False while the fleet is halted. */
+  /**
+   * This ship's committed intent, read live from the fleet's board. An agent
+   * stands down rather than acting when the fleet itself is driving the hull
+   * — see intent.ts's drivenByFleet(). Optional, so an agent built without a
+   * board (a test, a bare CLI run) behaves exactly as before.
+   */
+  intentFor?: () => import("./intent.js").ShipIntent | undefined;
   shouldRun?: () => boolean;
 }
 
@@ -63,6 +71,7 @@ export class ScoutAgent {
   private readonly onScan: ScoutOptions["onScan"];
   private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
+  private readonly intentFor?: ScoutOptions["intentFor"];
   private readonly shouldRun?: () => boolean;
   /**
    * The world, held by reference — see registry.ts. Defaults to a standalone
@@ -111,6 +120,7 @@ export class ScoutAgent {
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
     this.isMarketWaypoint = opts.isMarketWaypoint;
+    this.intentFor = opts.intentFor;
     this.shouldRun = opts.shouldRun;
     this.onScan = opts.onScan;
     this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
@@ -336,6 +346,16 @@ export class ScoutAgent {
 
   /** One scout pass: chart the nearest uncharted waypoint. Returns true if a chart was attempted. */
   async tick(): Promise<boolean> {
+    // The fleet itself is driving this hull (repair, fuel ferry, operator
+    // hold), so acting here is the two-owners race that had a diverter and a
+    // tour agent alternately flying the same ship every few seconds for a
+    // day. Stand down until the intent changes.
+    const standDown = standDownReason(this.intentFor?.());
+    if (standDown) {
+      this.log(`standing down, fleet is driving this ship: ${standDown}`);
+      return false;
+    }
+
     if (this.suspended) {
       this.log("scout: suspended, holding");
       return false;

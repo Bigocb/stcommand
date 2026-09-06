@@ -90,6 +90,45 @@ export function sameGoal(a: Goal, b: Goal): boolean {
   return true;
 }
 
+/**
+ * Goals the ship's own agent cannot carry out, because the fleet drives them
+ * directly: a repair diversion, a fuel ferry, an operator hold.
+ *
+ * An agent that sees one of these must stand down. Before agents read the
+ * board at all, ownership was enforced only by `suspend()` — a second,
+ * parallel mechanism whose ordering the agent never checked — which is how
+ * the repair diverter and the tour agent ended up alternately driving the
+ * same hull every few seconds for a day. Standing down on the intent itself
+ * removes the race rather than sequencing it.
+ */
+export function drivenByFleet(goal: Goal): boolean {
+  // `explore` belongs here for now because exploration really is flown by the
+  // fleet (autoExplore launches exploreSystem, which jumps and tours the ship
+  // itself). When the executor learns to fly an explore goal on its own task,
+  // this is the line that changes.
+  //
+  // Anything listed here MUST be cleared when the fleet finishes with the
+  // ship — see FleetManager's forgetIntent() calls — or the agent stands down
+  // against a stale intent and the hull never moves again.
+  return goal.kind === "repair" || goal.kind === "tender" || goal.kind === "hold" || goal.kind === "explore";
+}
+
+/**
+ * Why an agent is standing down, in the operator's words, or undefined when
+ * it is free to act. Shared by every agent so the log line reads the same
+ * whichever role hits it.
+ */
+export function standDownReason(intent: ShipIntent | undefined): string | undefined {
+  if (!intent || !drivenByFleet(intent.goal)) return undefined;
+  const target =
+    intent.goal.kind === "repair" ? ` → ${intent.goal.yard}`
+    : intent.goal.kind === "tender" ? ` → ${intent.goal.to}`
+    : intent.goal.kind === "explore" ? ` → ${intent.goal.system}`
+    : intent.goal.kind === "hold" && intent.goal.waypoint ? ` at ${intent.goal.waypoint}`
+    : "";
+  return `${intent.goal.kind}${target} (${intent.source}): ${intent.reason}`;
+}
+
 /** Goals a ship should be allowed to finish rather than be switched off mid-way. */
 function isEarning(goal: Goal): boolean {
   return goal.kind === "trade" || goal.kind === "mine" || goal.kind === "siphon";

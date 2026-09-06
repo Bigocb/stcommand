@@ -636,6 +636,7 @@ export class FleetManager {
   private traderOptions(shipSymbol: string): TraderOptions {
     return {
       api: this.api,
+      intentFor: () => this.intents.current(shipSymbol),
       log: (m) => this.log(`${shipSymbol}: ${m}`),
       recordLedger: this.recordLedger,
       onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
@@ -1128,6 +1129,7 @@ export class FleetManager {
         new ShipAgent(ship, {
           api: this.api,
           shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -1146,6 +1148,7 @@ export class FleetManager {
         new ShipAgent(ship, {
           api: this.api,
           shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -1169,6 +1172,7 @@ export class FleetManager {
         new SiphonerAgent(ship, {
           api: this.api,
           shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -1199,6 +1203,7 @@ export class FleetManager {
           new ShipAgent(ship, {
             api: this.api,
             shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
             log: (m) => this.log(`${ship.symbol}: ${m}`),
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -1224,6 +1229,7 @@ export class FleetManager {
         new ShipAgent(ship, {
           api: this.api,
           shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -1335,6 +1341,7 @@ export class FleetManager {
           new ShipAgent(ship, {
             api: this.api,
             shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
@@ -1353,6 +1360,7 @@ export class FleetManager {
           new ShipAgent(ship, {
             api: this.api,
             shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
@@ -1374,6 +1382,7 @@ export class FleetManager {
           new SiphonerAgent(ship, {
             api: this.api,
             shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
@@ -1391,6 +1400,7 @@ export class FleetManager {
           new ShipAgent(ship, {
             api: this.api,
             shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
@@ -1410,6 +1420,7 @@ export class FleetManager {
           new ShipAgent(ship, {
             api: this.api,
             shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
@@ -1439,6 +1450,7 @@ export class FleetManager {
       new ScoutAgent(ship, {
         api: this.api,
         shouldRun: () => !this.paused,
+        intentFor: () => this.intents.current(ship.symbol),
         log: (m) => this.log(`${ship.symbol}: ${m}`),
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -3823,6 +3835,7 @@ export class FleetManager {
       const keeper = new ShipAgent(agent.getShip(), {
         api: this.api,
         shouldRun: () => !this.paused,
+        intentFor: () => this.intents.current(sym),
         log: (m) => this.log(`${sym}: ${m}`),
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits),
@@ -3945,6 +3958,9 @@ export class FleetManager {
       this.log(`critical repair dispatch for ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       await this.releaseTo(shipSymbol, "repair");
+      // Same reason as the explore trip: a repair intent stands the agent
+      // down, so it must not outlive the repair.
+      this.forgetIntent(shipSymbol);
     }
   }
 
@@ -4229,6 +4245,12 @@ export class FleetManager {
         this.rescueFailures.set(s.symbol, `tender ${plan.tenderSymbol} failed repeatedly: ${msg}`);
         this.rescuePlans.delete(s.symbol);
         this.rescueStepFailures.delete(s.symbol);
+        // Both hulls go back to the controllers. A tender or hold intent
+        // stands its agent down, so an abandoned rescue must not leave one
+        // committed — the stranded ship would sit holding forever, which is
+        // the opposite of rescuing it.
+        this.forgetIntent(plan.tenderSymbol);
+        this.forgetIntent(s.symbol);
         // releaseTo() looks the ship up via controlledAgent() (every role
         // map, not just miner/trader — a tender suspended under one role
         // that the dispatcher then reassigns mid-rescue, confirmed live: a
@@ -4246,6 +4268,8 @@ export class FleetManager {
       this.rescuePlans.delete(s.symbol);
       // Same as the abandonment path above.
       await this.releaseTo(plan.tenderSymbol, "rescue");
+      this.forgetIntent(plan.tenderSymbol);
+      this.forgetIntent(s.symbol);
     }
   }
 
@@ -4459,6 +4483,10 @@ export class FleetManager {
           // above and needs no separate tracking here.
         } finally {
           this.exploringShips.delete(scout.s);
+          // Release the hull. An explore intent makes the agent stand down
+          // (intent.ts's drivenByFleet), so leaving one committed after the
+          // trip ends would freeze the ship for good.
+          this.forgetIntent(scout.s);
         }
       })();
     }

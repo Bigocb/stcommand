@@ -6,6 +6,7 @@ import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, type TraderAssignment } from "./dispat
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending } from "./agentStep.js";
 import { Registry } from "./registry.js";
+import { standDownReason } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -89,6 +90,13 @@ export interface TraderOptions {
   /** Minimum per-unit margin over cost basis required to sell out of the warehouse. Default 0 (any profit clears). */
   warehouseMinMargin?: () => number;
   /** Whether the ship may act right now. False while the fleet is halted. */
+  /**
+   * This ship's committed intent, read live from the fleet's board. An agent
+   * stands down rather than acting when the fleet itself is driving the hull
+   * — see intent.ts's drivenByFleet(). Optional, so an agent built without a
+   * board (a test, a bare CLI run) behaves exactly as before.
+   */
+  intentFor?: () => import("./intent.js").ShipIntent | undefined;
   shouldRun?: () => boolean;
   /** Recover a cost basis this process never saw, from the trade ledger. */
   recoverCostBasis?: (good: string) => Promise<number | undefined>;
@@ -154,6 +162,7 @@ export class TraderAgent {
   private readonly warehouseDeposit?: TraderOptions["warehouseDeposit"];
   private readonly warehouseWithdraw?: TraderOptions["warehouseWithdraw"];
   private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
+  private readonly intentFor?: TraderOptions["intentFor"];
   private readonly shouldRun?: () => boolean;
   private readonly recoverCostBasis?: TraderOptions["recoverCostBasis"];
   private readonly deliverCargo?: TraderOptions["deliverCargo"];
@@ -221,6 +230,7 @@ export class TraderAgent {
     this.warehouseDeposit = opts.warehouseDeposit;
     this.warehouseWithdraw = opts.warehouseWithdraw;
     this.warehouseMinMargin = opts.warehouseMinMargin;
+    this.intentFor = opts.intentFor;
     this.shouldRun = opts.shouldRun;
     this.recoverCostBasis = opts.recoverCostBasis;
     this.deliverCargo = opts.deliverCargo;
@@ -1368,6 +1378,16 @@ export class TraderAgent {
 
   /** One trade cycle: ensure prices → dispatch on role → act. */
   async tick(): Promise<boolean> {
+    // The fleet itself is driving this hull (repair, fuel ferry, operator
+    // hold), so acting here is the two-owners race that had a diverter and a
+    // tour agent alternately flying the same ship every few seconds for a
+    // day. Stand down until the intent changes.
+    const standDown = standDownReason(this.intentFor?.());
+    if (standDown) {
+      this.log(`standing down, fleet is driving this ship: ${standDown}`);
+      return false;
+    }
+
     if (this.suspended) {
       this.log("suspended: holding position");
       return false;
