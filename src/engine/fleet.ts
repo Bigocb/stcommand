@@ -736,7 +736,7 @@ export class FleetManager {
    * fleet's most profitable route away for hours behind a ship parked at a
    * building site, doing nothing with it.
    */
-  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean }[] {
+  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean; system: string }[] {
     // "auto" is the weakest owner in ShipRegistry's precedence, so
     // availableFor("auto") answers exactly "not held, not suspended, not
     // committed to a mission/warehouse/keeper claim" — same intent as the
@@ -755,6 +755,11 @@ export class FleetManager {
         // Cargo in the hold means the ship is mid-haul on its current route.
         // Reassigning it there strands that cargo, so the dispatcher leaves it be.
         busy: (a.getShip().cargo?.units ?? 0) > 0,
+        // Where the hull actually is. Without this the dispatcher ranks work
+        // purely by profit and hands every trader the richest route in the
+        // galaxy regardless of whether that ship can reach it — see
+        // dispatcher.ts's assignment loop.
+        system: a.getShip().nav.systemSymbol,
       }));
   }
 

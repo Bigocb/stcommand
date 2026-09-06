@@ -344,7 +344,7 @@ export class RouteDispatcher {
    */
   recompute(
     routes: DispatchRoute[],
-    traders: { shipSymbol: string; capacity: number; busy?: boolean }[],
+    traders: { shipSymbol: string; capacity: number; busy?: boolean; system?: string }[],
     warehouseTargets: WarehouseTarget[] = [],
     haulTargets: HaulTarget[] = [],
     missionBuyTargets: MissionBuyTarget[] = [],
@@ -415,7 +415,11 @@ export class RouteDispatcher {
     // kinds of work.
     const targetsByGood = new Map(warehouseTargets.map((t) => [t.good, t]));
     const seenGood = new Set<string>();
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number }[] = [];
+    // `buySystem` is the system a trader has to be standing in (or one gate
+    // from) to start this work. It is what makes the assignment loop below
+    // locality-aware; work with no buy leg leaves it undefined and stays
+    // assignable to anyone.
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -430,9 +434,9 @@ export class RouteDispatcher {
         // full minute on a route no trader could actually take, while the
         // dashboard shows it as "assigned" and profitable.
         if (route.buySystem !== route.sellSystem && !canJump(route.buySystem, route.sellSystem)) continue;
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip });
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem });
       } else if (target.balance < target.target) {
-        work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip });
+        work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem });
       } else if (target.balance > target.target) {
         work.push({ key: `${route.good}:sell`, make: (s) => this.toSellAssignment(s, route), profitPerTrip: route.profitPerTrip });
       }
@@ -472,7 +476,7 @@ export class RouteDispatcher {
       if (taken?.has(route.sellAt)) continue; // that market is already being sold into
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: route.profitPerTrip });
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
@@ -537,7 +541,23 @@ export class RouteDispatcher {
         continue;
       }
       if (next.has(t.shipSymbol)) continue;
-      const item = work.find((w) => !usedKeys.has(w.key));
+      // Prefer work this ship can actually start on. `work` is ranked by
+      // profit alone, and taking the global best for every trader is a
+      // scheduler with no node affinity: when X1-RD37 was first surveyed its
+      // fresh spreads took nine of the top twelve slots, and all six traders
+      // were handed routes starting in a system none of them could reach —
+      // a ~20-second error loop with nothing trading at all.
+      //
+      // Reachability, not distance: single-hop, matching what the executor
+      // can fly. Work with no buy leg, or a trader whose system we do not
+      // know, stays assignable as before. The fallback keeps the old
+      // behaviour rather than idling a hull, so a fleet that genuinely has
+      // only distant work still attempts it — the trader's own viableRoute()
+      // is the authority that declines it.
+      const reachable = (w: { buySystem?: string }): boolean =>
+        w.buySystem === undefined || t.system === undefined ||
+        w.buySystem === t.system || canJump(t.system, w.buySystem);
+      const item = work.find((w) => !usedKeys.has(w.key) && reachable(w)) ?? work.find((w) => !usedKeys.has(w.key));
       if (!item) continue;
       usedKeys.add(item.key);
       next.set(t.shipSymbol, item.make(t.shipSymbol));
