@@ -4411,7 +4411,16 @@ export class FleetManager {
     // to scout — exploration is opportunistic, not worth interrupting a
     // trade cycle for.
     const idle = (a: { isManual(): boolean; getShip(): components["schemas"]["Ship"] }) =>
-      !a.isManual() && a.getShip().cargo.units === 0;
+      // IN_TRANSIT is the third thing that makes a scout unavailable, and it
+      // was missing. exploringShips is in-memory only, so a restart forgets
+      // every trip in flight, and manual holds are cleared on the way back up
+      // — which left a ship mid-leg looking perfectly idle to the next pass.
+      // Seen live: DAGGER-15 was eight minutes into a 76-minute drift to its
+      // jump gate for X1-SR82 when a later pass paired it with X1-JA40 and
+      // dispatched it again, overwriting the intent for a trip already under
+      // way. DAGGER-13 was redirected the same way in the same pass. A hull
+      // that is already flying cannot start a journey.
+      !a.isManual() && a.getShip().cargo.units === 0 && a.getShip().nav.status !== "IN_TRANSIT";
     const rank = (fuel: number) => -fuel; // more fuel = better for a long jump
     type ScoutCandidate = { s: string; a: { isManual(): boolean; getShip(): components["schemas"]["Ship"] }; fuel: number };
     const dedicated: ScoutCandidate[] = [

@@ -164,3 +164,54 @@ describe("a fleet-driven intent is never left standing", () => {
     assert.equal(fleet.intents.current("SCOUT-1"), undefined, "a failed trip must release the hull too, or it never moves again");
   });
 });
+
+describe("autoExplore never re-tasks a ship that is already flying", () => {
+  // exploringShips is in-memory, so a restart forgets every trip in flight,
+  // and manual holds are cleared on the way back up. That left a ship mid-leg
+  // looking idle: DAGGER-15 was eight minutes into a 76-minute drift to its
+  // jump gate for X1-SR82 when a later pass paired it with X1-JA40 and
+  // dispatched it again, overwriting the intent for the trip under way.
+  const fleetWithGates = () => {
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    const atlas = (fleet as any).galaxy;
+    for (const sys of ["X1-A", "X1-B"]) {
+      atlas.systems.set(sys, {
+        symbol: sys,
+        waypoints: [{ symbol: `${sys}-A1`, systemSymbol: sys, x: 0, y: 0, type: "PLANET", orbitals: [], traits: [], isUnderConstruction: false }],
+        jumpGates: [{ symbol: `${sys}-GATE`, connections: [sys === "X1-A" ? "X1-B-GATE" : "X1-A-GATE"] }],
+        markets: [], shipyards: [],
+      });
+    }
+    atlas.gateConstruction.set("X1-A-GATE", true);
+    atlas.gateConstruction.set("X1-B-GATE", true);
+    return fleet;
+  };
+  const scoutAt = (status: string) => {
+    const s = makeShip("SCOUT-1");
+    (s as any).nav = { ...s.nav, status };
+    return { symbol: "SCOUT-1", getShip: () => s, isManual: () => false, isSuspended: () => false, isStranded: () => false };
+  };
+
+  it("skips an IN_TRANSIT scout", async () => {
+    const fleet = fleetWithGates();
+    (fleet as any).tours.set("SCOUT-1", scoutAt("IN_TRANSIT"));
+    let launched = 0;
+    (fleet as any).exploreSystem = async () => { launched += 1; };
+
+    await (fleet as any).autoExplore();
+    fleet.intents.commit();
+    assert.equal(launched, 0, "a hull already flying cannot start a journey");
+    assert.equal(fleet.intents.current("SCOUT-1"), undefined, "and must not have an explore intent written over its trip");
+  });
+
+  it("still picks up a scout sitting in orbit", async () => {
+    const fleet = fleetWithGates();
+    (fleet as any).tours.set("SCOUT-1", scoutAt("IN_ORBIT"));
+    let launched = 0;
+    (fleet as any).exploreSystem = async () => { launched += 1; };
+
+    await (fleet as any).autoExplore();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(launched, 1, "the ordinary case must keep working");
+  });
+});
