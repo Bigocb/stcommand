@@ -116,6 +116,60 @@ Doctrine  (spec — the cluster we want)
 4. **Status is written by the thing that observed it.** The control plane's
    view of a ship comes from that ship's step reports, not from a
    `getMyShips` poll racing the executor.
+5. **A data-plane primitive either changes the world or raises.** No
+   movement, dock or transaction may fail by logging and returning: to its
+   caller that is indistinguishable from success, and the next statement
+   will act on the plan's world instead of the real one. Envoy ejects an
+   endpoint it cannot reach; it does not quietly deliver to the nearest
+   one instead.
+
+### Rule 5, and why it was missing
+
+Rules 1–4 are all about *ownership and freshness* — who drives a hull, and
+whose reading of the world is current. Every bug §1 catalogues is a
+contention bug, and the intent board answers all of them. Rule 5 covers the
+class none of them touch: one agent, uncontested, correctly owning a ship
+and doing the wrong thing because a step it called failed silently.
+
+The case that forced it. `TraderAgent.jumpToSystem()` had four failure
+paths that logged and returned. Its caller's next moves are `ensureDocked()`,
+`liveSellPrice(route.sellAt)` and a purchase or sale — so a ship that never
+moved traded at whatever market it was standing on, while the logs printed
+the route's waypoints. DAGGER-F ran that every ~45 seconds for over twenty
+minutes, parked in X1-ZU53, "buying" at X1-RD37-D20E and "selling" at
+X1-TV75-X20F, at 9,036c a cycle. `want:` said `trade`, which was true; the
+fleet line said `DAGGER-F(trader)`, which was true; every instrument agreed
+the system was healthy. The only true signal was the credit balance, and a
+human noticed it before any of the telemetry did.
+
+Rule 4 already covered this and was scoped too high. The log line
+`bought 18u ANTIMATTER at X1-RD37-D20E` is status written by something that
+did not observe it — it printed desired position as observed position. We
+wrote that rule about the control plane not inventing ship state and never
+applied it inside the agent, where the same substitution was happening.
+
+Rule 3 is the structural fix, and the codebase was already split on it.
+`MissionManager.stepCarrier()` and `stepRescue()` are level-triggered: they
+re-check `nav.waypointSymbol` before every step and a failed move simply
+makes no progress that tick. `runCriticalRepair()` re-reads the ship and
+compares against the yard before repairing. Only the trader's route runs
+straight through — navigate, dock, buy, navigate, dock, sell — with no diff
+between statements, which is the only place in the engine where a silent
+no-op can reach a transaction. `assertAt()` is rule 3's precondition
+retrofitted to that one procedure; the durable fix is to make a trade a
+sequence of reconciled steps like the carrier already is.
+
+Two things this leaves open:
+
+- **The movement primitive is still not one primitive.** Step 3 below
+  claims `ShipProxy` unified navigation across roles. `TraderAgent`
+  overrides `navigateTo()` — and that override is where the cross-system
+  logic lives, so the hardest movement code is the one copy the
+  consolidation missed.
+- **There is no outcome telemetry.** Everything we added reports *intent*,
+  and intent was never wrong here. Realized profit per completed route,
+  against the margin the dispatcher planned, is the signal that would have
+  made this visible in seconds instead of hours.
 
 ---
 

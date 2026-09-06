@@ -438,6 +438,29 @@ export class TraderAgent {
 
   /** Jump to a waypoint in another system using the nearest jump gate. */
   /**
+   * Refuse to transact anywhere but where the plan says the ship is.
+   *
+   * Rule 4 of docs/control-plane-data-plane.md — "status is written by the
+   * thing that observed it" — applied one level down, inside the agent. A
+   * trade is a straight-line procedure (navigate, dock, buy, navigate, dock,
+   * sell) with no diff between statements, so a movement that quietly failed
+   * left every later statement acting on the plan's waypoint instead of the
+   * ship's. DAGGER-F bought at "X1-RD37-D20E" and sold at "X1-TV75-X20F"
+   * while parked in X1-ZU53, losing 9,036c a cycle, and every log line about
+   * it was false.
+   *
+   * jumpToSystem() now throws rather than returning silently, which closes
+   * the case that actually bit. This closes the class: mission.ts and
+   * stepRescue() are safe because they re-check position before every step
+   * and simply make no progress on a failed move. This is that same
+   * precondition for the one role that runs straight through.
+   */
+  private assertAt(waypoint: string, action: string): void {
+    const here = this.ship.nav.waypointSymbol;
+    if (here !== waypoint) throw new Error(`refusing to ${action} at ${waypoint}: ship is at ${here}`);
+  }
+
+  /**
    * Retire the assigned route when the galaxy says its far end cannot be
    * reached at all. Without this the throw above is honest but useless: the
    * dispatcher re-assigns the identical leg next tick and the ship fails on it
@@ -1081,6 +1104,7 @@ export class TraderAgent {
       // Also guard against over-filling the hold with a single oversized buy.
       units = Math.max(0, Math.floor(units));
       this.currentStep = { kind: "transacting", action: "buy", good: route.good };
+      this.assertAt(route.buyAt, `buy ${route.good}`);
       const res = await this.api.purchaseCargo(this.symbol, route.good, units);
       this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cargo: res.cargo };
@@ -1106,6 +1130,7 @@ export class TraderAgent {
         return true;
       }
       this.currentStep = { kind: "transacting", action: "sell", good: route.good };
+      this.assertAt(route.sellAt, `sell ${route.good}`);
       const sold = await this.api.sellCargo(this.symbol, route.good, units);
       this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cargo: sold.cargo };
@@ -1175,6 +1200,7 @@ export class TraderAgent {
     if (units <= 0) return this.discoverPrices([buyAt]);
 
     this.currentStep = { kind: "transacting", action: "buy", good: assigned.good };
+    this.assertAt(buyAt, `buy ${assigned.good}`);
     const res = await this.api.purchaseCargo(this.symbol, assigned.good, units);
     this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: res.cargo };
@@ -1271,6 +1297,7 @@ export class TraderAgent {
       return true;
     }
     this.currentStep = { kind: "transacting", action: "sell", good: assigned.good };
+    this.assertAt(sellAt, `sell ${assigned.good}`);
     const sold = await this.api.sellCargo(this.symbol, assigned.good, withdrawn.units);
     this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: sold.cargo };
@@ -1333,6 +1360,7 @@ export class TraderAgent {
     await this.navigateTo(targetWaypoint);
     await this.ensureDocked();
     try {
+      this.assertAt(targetWaypoint, `supply ${assigned.good}`);
       const res = await this.api.supplyConstruction(this.systemOf(targetWaypoint), targetWaypoint, this.symbol, assigned.good, withdrawn.units);
       this.ship = { ...this.ship, cargo: res.cargo };
       this.log(`hauled ${withdrawn.units}u ${assigned.good} to ${targetWaypoint}`);
@@ -1402,6 +1430,7 @@ export class TraderAgent {
     if (units <= 0) return this.discoverPrices([buyAt]);
 
     this.currentStep = { kind: "transacting", action: "buy", good: assigned.good };
+    this.assertAt(buyAt, `buy ${assigned.good}`);
     const res = await this.api.purchaseCargo(this.symbol, assigned.good, units);
     this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: res.cargo };

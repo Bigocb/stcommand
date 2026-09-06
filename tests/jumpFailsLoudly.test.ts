@@ -68,3 +68,25 @@ describe("a jump that cannot happen fails loudly", () => {
     assert.ok((a as any).deadRoutes.has("ANTIMATTER@X1-RD37-D20E"), "the unreachable leg must not be retried");
   });
 });
+
+describe("a trader refuses to transact anywhere but where the plan says it is", () => {
+  // The class the jump fix closes only one case of. A trade runs straight
+  // through — navigate, dock, buy, navigate, dock, sell — with no diff between
+  // statements, so any movement that quietly fails leaves every later
+  // statement acting on the plan's waypoint instead of the ship's.
+  // mission.ts and stepRescue() are safe because they re-check position each
+  // step; this is that same precondition for the one role that does not.
+  it("throws instead of trading at whatever market it happens to be standing on", () => {
+    const a = trader({});
+    assert.throws(
+      () => (a as any).assertAt("X1-RD37-D20E", "buy ANTIMATTER"),
+      /refusing to buy ANTIMATTER at X1-RD37-D20E: ship is at X1-ZU53-A1/,
+      "this is the check that would have caught DAGGER-F on its first cycle",
+    );
+  });
+
+  it("permits the transaction when the ship really is there", () => {
+    const a = trader({});
+    assert.doesNotThrow(() => (a as any).assertAt("X1-ZU53-A1", "sell ANTIMATTER"));
+  });
+});
