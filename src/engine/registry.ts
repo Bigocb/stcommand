@@ -8,6 +8,13 @@ export interface WaypointPos {
   x: number;
   y: number;
   type?: WaypointType;
+  /**
+   * Carried so a world seeded from plain coordinates can still answer trait
+   * questions — `isMarket()` above all. Without it, a standalone registry has
+   * to be told about markets through a side channel, which is exactly the
+   * `isMarketWaypoint` callback this replaces.
+   */
+  traits?: readonly { symbol: string }[];
 }
 
 /**

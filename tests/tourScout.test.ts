@@ -179,9 +179,15 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
         refuelShip: async () => ({ fuel: { current: 300, capacity: 300 }, transaction: { totalPrice: 100 } }),
       } as any,
       log: () => {},
-      isMarketWaypoint: (wp) => wp === "X1-REMOTE-A1", // atlas knows; no snapshot exists
     });
-    agent.withWorld(remotePositions as any, []); // note: markets list is empty
+    // The waypoint carries the MARKETPLACE trait but has no price snapshot —
+    // the exact case that used to report a ship stranded on a fuel pump.
+    // Seeded as a real trait so this exercises the production path rather
+    // than an injected shortcut.
+    agent.withWorld(
+      remotePositions.map((w: any) => (w.symbol === "X1-REMOTE-A1" ? { ...w, traits: [{ symbol: "MARKETPLACE" }] } : w)) as any,
+      [], // note: markets list is empty
+    );
     let docked = false;
     (agent as any).ensureDocked = async () => { docked = true; };
 
@@ -203,11 +209,10 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
       log: (m) => logs.push(m),
       // Only a far target exists: unreachable on an empty tank, fine on a full one.
       marketTourTargets: async () => ["X1-REMOTE-FAR"],
-      isMarketWaypoint: (wp) => wp === "X1-REMOTE-A1",
     });
     agent.withWorld(
       [
-        { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] },
         { symbol: "X1-REMOTE-FAR", x: 900, y: 0 }, // beyond capacity, so no target is picked
       ] as any,
       [],
@@ -233,11 +238,10 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
       api: { getShip: async () => ship } as any,
       log: (m) => logs.push(m),
       marketTourTargets: async () => ["X1-REMOTE-FAR"],
-      isMarketWaypoint: (wp) => wp === "X1-REMOTE-A1",
     });
     agent.withWorld(
       [
-        { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] },
         { symbol: "X1-REMOTE-FAR", x: 900, y: 0 },
       ] as any,
       [],
@@ -298,10 +302,9 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
       api: { getShip: async () => ship } as any,
       log: () => {},
       marketTourTargets: async () => ["X1-REMOTE-B2", "X1-REMOTE-C3"],
-      isMarketWaypoint: () => true,
       recordMarket: async (wp) => { recorded.push(wp); },
     });
-    agent.withWorld(remotePositions as any, []);
+    agent.withWorld(remotePositions.map((w: any) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }] })) as any, []);
     const navigated: string[] = [];
     (agent as any).refuelIfNeeded = async () => true;
     (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
@@ -320,7 +323,7 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
       api: { getShip: async () => ship } as any,
       log: () => {},
       marketTourTargets: async () => ["X1-REMOTE-B2"],
-      isMarketWaypoint: (wp) => wp === "X1-REMOTE-B2", // not where we stand
+
       recordMarket: async (wp) => { recorded.push(wp); },
     });
     agent.withWorld(remotePositions as any, []);

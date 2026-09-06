@@ -36,14 +36,6 @@ export interface AgentOptions {
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
-  /**
-   * Whether a waypoint carries the MARKETPLACE trait, answered from the galaxy
-   * atlas rather than from cached prices. `markets` only lists waypoints a
-   * snapshot has already been recorded for, and nothing refreshes an agent's
-   * copy of it after construction — so a ship can dock at a market, publish its
-   * prices, and still not believe it is standing at one.
-   */
-  isMarketWaypoint?: (waypointSymbol: string) => boolean;
   /** Shared survey registry: surveyor scouts deposit, miners consume. */
   surveyPool?: SurveyPool;
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
@@ -150,7 +142,6 @@ export class ShipAgent {
   private readonly deliverCargo: AgentOptions["deliverCargo"];
   private readonly onActivity: AgentOptions["onActivity"];
   private readonly recordMarket: AgentOptions["recordMarket"];
-  private readonly isMarketWaypoint?: AgentOptions["isMarketWaypoint"];
   /** The world, held by reference — see registry.ts. */
   private registry: Registry = Registry.standalone();
   private readonly surveyPool: SurveyPool | undefined;
@@ -221,7 +212,6 @@ export class ShipAgent {
     this.deliverCargo = opts.deliverCargo;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
-    this.isMarketWaypoint = opts.isMarketWaypoint;
     this.surveyPool = opts.surveyPool;
     this.protectedGoods = opts.protectedGoods;
     this.getCredits = opts.getCredits;
@@ -574,7 +564,7 @@ export class ShipAgent {
    */
   private atMarketHere(): boolean {
     const here = this.ship.nav.waypointSymbol;
-    return this.registry.isMarket(here) || this.registry.market(here) !== undefined || (this.isMarketWaypoint?.(here) ?? false);
+    return this.registry.isMarket(here) || this.registry.market(here) !== undefined;
   }
 
   private systemOfWaypoint(waypointSymbol: string): string {
@@ -1184,7 +1174,7 @@ export class ShipAgent {
     // It also drives the ping-pong — a market that is never recorded never
     // stops being the stalest, so the pair trade places forever.
     const standingAt = this.ship.nav.waypointSymbol;
-    if (this.isMarketWaypoint?.(standingAt) ?? false) {
+    if (this.registry.isMarket(standingAt) || this.registry.market(standingAt) !== undefined) {
       await this.ensureDocked();
       if (this.recordMarket) await this.recordMarket(standingAt);
     }
@@ -1240,7 +1230,7 @@ export class ShipAgent {
       // range. Only reports work done if the tank actually gained fuel, so a
       // market that sells none can't turn this into a spin.
       const lowFuel = this.ship.fuel.capacity > 0 && this.ship.fuel.current < this.ship.fuel.capacity * 0.9;
-      if (lowFuel && (this.isMarketWaypoint?.(here) ?? false)) {
+      if (lowFuel && this.atMarketHere()) {
         const before = this.ship.fuel.current;
         await this.refuelIfNeeded(5);
         if (this.ship.fuel.current > before) {

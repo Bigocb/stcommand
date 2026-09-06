@@ -38,7 +38,6 @@ export interface ScoutOptions {
    *  `markets` only lists waypoints already snapshotted and is never refreshed
    *  after construction, so a ship can sit on a fuel station it does not know
    *  is one. */
-  isMarketWaypoint?: (waypointSymbol: string) => boolean;
   /** Called with the results of a sensor scan so the fleet can ingest them. */
   onScan?: (res: { systems?: components["schemas"]["ScannedSystem"][]; waypoints?: components["schemas"]["ScannedWaypoint"][] }) => void;
   /** Minimum minutes between sensor scans. 0 disables scanning. */
@@ -67,7 +66,6 @@ export class ScoutAgent {
   private readonly recordLedger: ScoutOptions["recordLedger"];
   private readonly onActivity: ScoutOptions["onActivity"];
   private readonly recordMarket: ScoutOptions["recordMarket"];
-  private readonly isMarketWaypoint?: ScoutOptions["isMarketWaypoint"];
   private readonly onScan: ScoutOptions["onScan"];
   private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
@@ -119,7 +117,6 @@ export class ScoutAgent {
     this.recordLedger = opts.recordLedger;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
-    this.isMarketWaypoint = opts.isMarketWaypoint;
     this.intentFor = opts.intentFor;
     this.shouldRun = opts.shouldRun;
     this.onScan = opts.onScan;
@@ -259,11 +256,11 @@ export class ScoutAgent {
 
   private async refuelIfNeeded(reserve: number, target?: string): Promise<boolean> {
     if (this.ship.fuel.capacity <= 0) return true;
-    // Trait from the atlas, not merely "we have prices for it" — see the
-    // isMarketWaypoint option. A ship parked on an unsnapshotted fuel station
-    // otherwise reports itself stranded while standing on a pump.
+    // Trait from the registry, not merely "we have prices for it": a ship
+    // parked on an unsnapshotted fuel station otherwise reports itself
+    // stranded while standing on a pump.
     const hereWp = this.ship.nav.waypointSymbol;
-    const atMarket = this.registry.isMarket(hereWp) || this.registry.market(hereWp) !== undefined || (this.isMarketWaypoint?.(hereWp) ?? false);
+    const atMarket = this.registry.isMarket(hereWp) || this.registry.market(hereWp) !== undefined;
     const trip = target ? this.fuelNeededRoundTrip(target) : this.ship.fuel.capacity * 0.9;
     if (this.ship.fuel.current > trip + reserve) return true;
     if (atMarket) {
