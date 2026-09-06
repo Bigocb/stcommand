@@ -167,29 +167,6 @@ export class Client {
    * nextTask() comments.
    */
   private callCount = 0;
-  /**
-   * Set once the server tells us this token can never work again.
-   *
-   * A SpaceTraders reset invalidates every token issued before it, and the
-   * API says so explicitly: "Token reset_date does not match the server ...
-   * you should re-register your agent". That is not a transient failure, so
-   * retrying it is not resilience — it is a busy-wait against a shared
-   * budget. Live, two dead tenants retried it roughly every 0.67 seconds
-   * indefinitely, burning most of the per-IP rate limit that the operator's
-   * *new* agent then had to compete for, and burying every real error under
-   * a wall of identical ones.
-   *
-   * Latching here rather than in the fleet is deliberate: this is the one
-   * place every call passes through, so nothing above it can accidentally
-   * keep trying. Same rule as the executor's — a request that cannot
-   * succeed must not be sent.
-   */
-  private fatalAuthError: string | undefined;
-
-  /** Why this client's token is permanently unusable, or undefined while it works. */
-  deadTokenReason(): string | undefined {
-    return this.fatalAuthError;
-  }
 
   constructor(opts: ClientOptions = {}) {
     this.token = opts.token;
@@ -266,11 +243,6 @@ export class Client {
       }
     }
 
-    // Before the limiter, not after: a dead token must not even consume a
-    // rate-limit slot, or the tenants that cannot work crowd out the one that
-    // can.
-    if (this.fatalAuthError) throw new APIError(this.fatalAuthError, 401, "TOKEN_RESET_MISMATCH");
-
     let attempt = 0;
     for (;;) {
       await this.limiter.acquire(this.priority);
@@ -307,13 +279,6 @@ export class Client {
 
       if (!res.ok) {
         const err = extractError(json);
-        // Recognise the one failure re-registration is the only cure for.
-        // Matched on the message because the API returns it under a generic
-        // 401 with no distinguishing code.
-        if (res.status === 401 && /reset_date does not match/i.test(err.message)) {
-          this.fatalAuthError =
-            "agent token is from a previous server reset — re-register this agent to resume";
-        }
         throw new APIError(err.message, res.status, err.code, json);
       }
       return json as T;
@@ -388,11 +353,6 @@ export class SpaceTradersAPI {
   /** Total real HTTP requests sent through this agent's client so far, including retries. */
   getCallCount(): number {
     return this.client.getCallCount();
-  }
-
-  /** Why this agent's token is permanently unusable, or undefined while it works. */
-  deadTokenReason(): string | undefined {
-    return this.client.deadTokenReason();
   }
 
   getMyAgent() {

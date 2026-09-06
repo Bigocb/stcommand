@@ -28,8 +28,6 @@ interface Route extends DirectLeg {
 }
 
 export interface TraderOptions {
-  /** Repair this ship where it stands; forwarded to the shared executor. */
-  repairHere?: (shipSymbol: string) => Promise<void>;
   api: SpaceTradersAPI;
   log?: (msg: string) => void;
   recordLedger?: (entry: {
@@ -267,7 +265,6 @@ export class TraderAgent {
       onActivity: opts.onActivity,
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
-      repairHere: opts.repairHere,
     });
   }
 
@@ -963,14 +960,9 @@ export class TraderAgent {
     // route was actually worth is abandoned. Hand those back to the route
     // logic instead. Cargo with no live route behind it still gets swept,
     // which is what this function is for.
-    // Cargo on a live trip belongs to deliverHeldCargo(), which reconciles it
-    // against the leg it was bought for. This function is for cargo with no
-    // trip behind it — crash recovery, a failed warehouse deposit — which is
-    // what its name says and, before step 3 landed, was not what it did: it
-    // finished every route, at bestSell()'s local pick rather than the
-    // destination the route was chosen for.
-    if (this.heldRoute.has(item.symbol)) return undefined;
-    const activeLeg = this.asDirectLeg(this.assignedRoute?.());
+    // The leg this cargo was bought for wins over whatever the dispatcher
+    // wants right now — see heldRoute's comment for the trip it stranded.
+    const activeLeg = this.heldRoute.get(item.symbol) ?? this.asDirectLeg(this.assignedRoute?.());
     if (activeLeg && activeLeg.good === item.symbol && this.systemOf(activeLeg.sellAt) !== this.ship.nav.systemSymbol) {
       this.log(`leftover sweep: leaving ${item.units}u ${item.symbol} to its cross-system route (sells at ${activeLeg.sellAt})`);
       return undefined;
@@ -1125,97 +1117,13 @@ export class TraderAgent {
   /** The legacy direct buy→sell pipeline: one ship owns the whole round
    *  trip. Used for "direct"/unassigned traders, and as the fallback when a
    *  buy/sell-role assignment can't be flown (e.g. no warehouse ship yet). */
-  /**
-   * Step 3 of docs/control-plane-data-plane.md, for the one role that never
-   * got it: deliver whatever this ship is already carrying, derived from
-   * observed state rather than from where a procedure left off.
-   *
-   * A trade used to run straight through — navigate, dock, buy, navigate,
-   * dock, sell — with no diff between statements. Under the scheduler that
-   * shape cannot even complete: navigateTo() raises NavigationPending the
-   * moment the ship enters transit, so the tick ended right after the buy and
-   * the sell half never ran. The leftover sweep finished the route instead,
-   * at whatever market was nearest rather than the one the route was chosen
-   * for, which is why production showed "bought 20u X / cleared leftover 20u
-   * X" pairs and almost no "sold" lines at all.
-   *
-   * Here the trip is re-derived every tick from two observed facts: what is in
-   * the hold, and where the ship is standing. Arrival is explicit because it
-   * is the precondition for selling rather than an assumption inherited from
-   * the statement above. A move that fails simply makes no progress this tick,
-   * exactly as MissionManager.stepCarrier() has always behaved.
-   *
-   * Returns undefined when there is nothing under way, so the caller falls
-   * through to starting a new trip.
-   */
-  private async deliverHeldCargo(): Promise<boolean | undefined> {
-    const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
-    for (const item of this.ship.cargo.inventory ?? []) {
-      if (item.units <= 0 || protectedGoods.has(item.symbol)) continue;
-      // The leg it was bought for, not the one the dispatcher wants now — see
-      // heldRoute. Cargo with no pin is genuinely orphaned and belongs to the
-      // sweep, not here.
-      const leg = this.heldRoute.get(item.symbol);
-      if (!leg) continue;
-
-      if (this.ship.nav.waypointSymbol !== leg.sellAt) {
-        await this.navigateTo(leg.sellAt);
-        // Reached only on the blocking path; under the scheduler navigateTo()
-        // has already ended the tick and the next one re-enters above.
-        return true;
-      }
-
-      await this.ensureDocked();
-      const live = await this.liveSellPrice(leg.sellAt, item.symbol);
-      if (live !== undefined && (await this.exceedsLossFloor(item.symbol, live))) {
-        this.recordDoctrineFire?.("maxLossPct");
-        this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
-        return true;
-      }
-
-      this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
-      this.assertAt(leg.sellAt, `sell ${item.symbol}`);
-      const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
-      this.currentStep = IDLE_STEP;
-      this.ship = { ...this.ship, cargo: sold.cargo };
-      this.recordLedger?.({
-        timestamp: new Date().toISOString(),
-        shipSymbol: this.symbol,
-        waypointSymbol: this.ship.nav.waypointSymbol,
-        type: "SELL",
-        tradeSymbol: item.symbol,
-        units: item.units,
-        pricePerUnit: sold.transaction.pricePerUnit,
-        total: sold.transaction.totalPrice,
-      });
-      // The buy happened on an earlier tick, so the cost basis comes from
-      // heldCost rather than a purchase response in scope. Signed, because a
-      // loss rendered as "(+-9036c)" is what hid a losing loop for hours.
-      const paid = (this.heldCost.get(item.symbol) ?? 0) * item.units;
-      const delta = sold.transaction.totalPrice - paid;
-      this.log(`sold ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt} (${delta >= 0 ? "+" : ""}${delta}c)`);
-      this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt}`, sold.transaction.totalPrice, this.symbol);
-      this.heldRoute.delete(item.symbol);
-      return true;
-    }
-    return undefined;
-  }
-
   private async runArbitrage(assigned: TraderAssignment | undefined): Promise<boolean> {
-    // A trip already under way is the whole job this tick. Only once the hold
-    // is clear does this ship look for new work.
-    const delivering = await this.deliverHeldCargo();
-    if (delivering !== undefined) return delivering;
-
     // Try routes in order of profitability, skipping any the live buy-price
     // guard rejects, until one actually buys. A single pass: no recursion.
     for (;;) {
       const route = this.findRoute();
       if (!route) break;
-      if (this.ship.nav.waypointSymbol !== route.buyAt) {
-        await this.navigateTo(route.buyAt);
-        return true;
-      }
+      await this.navigateTo(route.buyAt);
       await this.ensureDocked();
       // Re-verify the live buy price before committing. The snapshot that drove
       // the route may be stale; if the price has inflated past the expected sell
@@ -1266,10 +1174,35 @@ export class TraderAgent {
       });
       this.log(`bought ${units}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
       this.onActivity?.("buy", `${units}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
-      // Stop here. The sell is a separate reconciled step — deliverHeldCargo()
-      // picks the trip up next tick from the pin just recorded, and gets to
-      // the market by arriving there rather than by falling through a
-      // navigate whose failure the statements below could not see.
+      await this.navigateTo(route.sellAt);
+      await this.ensureDocked();
+      const live = await this.liveSellPrice(route.sellAt, route.good);
+      if (live !== undefined && (await this.exceedsLossFloor(route.good, live))) {
+        this.recordDoctrineFire?.("maxLossPct");
+        this.log(`holding ${units}u ${route.good}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(route.good)}c)`);
+        return true;
+      }
+      this.currentStep = { kind: "transacting", action: "sell", good: route.good };
+      this.assertAt(route.sellAt, `sell ${route.good}`);
+      const sold = await this.api.sellCargo(this.symbol, route.good, units);
+      this.currentStep = IDLE_STEP;
+      this.ship = { ...this.ship, cargo: sold.cargo };
+      this.recordLedger?.({
+        timestamp: new Date().toISOString(),
+        shipSymbol: this.symbol,
+        waypointSymbol: this.ship.nav.waypointSymbol,
+        type: "SELL",
+        tradeSymbol: route.good,
+        units,
+        pricePerUnit: sold.transaction.pricePerUnit,
+        total: sold.transaction.totalPrice,
+      });
+      // Sign the delta rather than always prefixing "+", which rendered a loss
+      // as "(+-9036c)" — the shape that hid twenty minutes of a losing loop in
+      // plain sight.
+      const delta = sold.transaction.totalPrice - res.transaction.totalPrice;
+      this.log(`sold ${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt} (${delta >= 0 ? "+" : ""}${delta}c)`);
+      this.onActivity?.("sell", `${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt}`, sold.transaction.totalPrice, this.symbol);
       return true;
     }
 
@@ -1572,14 +1505,6 @@ export class TraderAgent {
 
   /** One trade cycle: ensure prices → dispatch on role → act. */
   async tick(): Promise<boolean> {
-    // A goal this ship executes rather than stands down on — step 5. The
-    // repair controller proposes and never touches the hull, so the
-    // two-owners race it used to create cannot happen.
-    const repairIntent = this.intentFor?.();
-    if (repairIntent?.goal.kind === "repair") {
-      return this.proxy.runRepairGoal(repairIntent, () => this.intentFor?.());
-    }
-
     // The fleet itself is driving this hull (repair, fuel ferry, operator
     // hold), so acting here is the two-owners race that had a diverter and a
     // tour agent alternately flying the same ship every few seconds for a

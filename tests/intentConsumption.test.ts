@@ -37,10 +37,7 @@ const intent = (goal: ShipIntent["goal"], source = "repair"): ShipIntent => ({
 
 describe("drivenByFleet", () => {
   it("covers exactly the goals the fleet flies itself", () => {
-    // `repair` left this list in step 5: every role flies its own repair goal
-    // through the shared executor now, so the controller proposes and never
-    // touches the hull.
-    assert.ok(!drivenByFleet({ kind: "repair", yard: "Y" }));
+    assert.ok(drivenByFleet({ kind: "repair", yard: "Y" }));
     assert.ok(drivenByFleet({ kind: "tender", to: "S2" }));
     assert.ok(drivenByFleet({ kind: "hold" }));
     // Exploration really is flown by the fleet today: autoExplore launches
@@ -54,8 +51,7 @@ describe("drivenByFleet", () => {
   });
 
   it("explains itself in the operator's words, naming the target", () => {
-    assert.match(standDownReason(intent({ kind: "tender", to: "X1-A-YARD" }))!, /tender → X1-A-YARD \(repair\): condition 0\.00/);
-    assert.equal(standDownReason(intent({ kind: "repair", yard: "X1-A-YARD" })), undefined, "a repair is the ship's own job now, not a stand-down");
+    assert.match(standDownReason(intent({ kind: "repair", yard: "X1-A-YARD" }))!, /repair → X1-A-YARD \(repair\): condition 0\.00/);
     assert.equal(standDownReason(intent({ kind: "trade" })), undefined, "a goal the agent can execute is not a stand-down");
     assert.equal(standDownReason(undefined), undefined, "no intent is not a stand-down either");
   });
@@ -68,7 +64,7 @@ describe("every role stands down when the fleet is driving its hull", () => {
     const logs: string[] = [];
     const agent = new ShipAgent(makeShip(), {
       api, log: (m) => logs.push(m),
-      intentFor: () => intent({ kind: "tender", to: "X1-A-YARD" }),
+      intentFor: () => intent({ kind: "repair", yard: "X1-A-YARD" }),
       keeperMarket: () => "X1-A-M1",
     });
     assert.equal(await agent.tick(), false);
@@ -95,7 +91,7 @@ describe("every role stands down when the fleet is driving its hull", () => {
 
   it("TraderAgent refuses", async () => {
     const logs: string[] = [];
-    const agent = new TraderAgent(makeShip() as unknown as TraderShip, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "tender", to: "Y" }) });
+    const agent = new TraderAgent(makeShip() as unknown as TraderShip, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "repair", yard: "Y" }) });
     assert.equal(await agent.tick(), false);
     assert.ok(logs.some((l) => l.includes("standing down")));
   });

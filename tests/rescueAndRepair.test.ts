@@ -184,48 +184,86 @@ describe("a successful repair updates the snapshot the repair controller reads",
   });
 });
 
-describe("a repair is proposed while the condition holds, and released when it stops", () => {
-  // Level-triggered. The controller no longer flies the hull — it proposes,
-  // and the ship executes through ShipProxy.runRepairGoal. Without the
-  // release a repaired hull would keep a committed repair intent forever and,
-  // because it now *executes* that goal rather than standing down on it, fly
-  // back to the yard on every tick.
-  const shipWith = (condition: number) =>
-    makeShip("R-1", {
-      nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" },
-      frame: { condition }, engine: { condition: 1 }, reactor: { condition: 1 },
-    } as never);
+describe("a critical repair waits out a leg the agent already started", () => {
+  it("does not fire its hop at a ship that is still in transit somewhere else", async () => {
+    // suspend() only resolves once the agent's in-flight iteration finishes,
+    // and that iteration may have just issued a navigate — the agent could not
+    // have known about the repair, whose intent is committed after its task
+    // began. dispatchShipHop() silently returns for an IN_TRANSIT ship, so the
+    // hop was dropped and the trip gave up at the wrong waypoint: DAGGER-8's
+    // repair "ended at X1-KU72-E49, not X1-KU72-A2" after its tour agent
+    // departed seven seconds before the stand-down took hold.
+    const at = (status: string, waypoint: string) =>
+      makeShip("DAGGER-8", { nav: { status, waypointSymbol: waypoint, systemSymbol: "X1-A", route: { arrival: new Date().toISOString() } } } as any);
 
-  function fleetFor(condition: number) {
-    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as never } as never);
-    seedWorld(fleet);
-    (fleet as never as { tours: Map<string, unknown> }).tours.set("R-1", agentFor(shipWith(condition)));
-    (fleet as never as { nearestShipyard(s: string): string }).nearestShipyard = () => "X1-A-YARD";
-    (fleet as never as { isShipyard(): Promise<boolean> }).isShipyard = async () => false;
-    return fleet;
-  }
+    // In transit to E49 for the first two reads, then arrived, then flown to the yard.
+    const reads = [at("IN_TRANSIT", "X1-A-E49"), at("IN_TRANSIT", "X1-A-E49"), at("IN_ORBIT", "X1-A-E49")];
+    let i = 0;
+    let atYard = false;
+    const hopsWhileInTransit: string[] = [];
+    let repaired = false;
 
-  it("proposes a repair for a critically damaged hull and never touches it", async () => {
-    const fleet = fleetFor(0);
-    await (fleet as never as { maybeRepairFleet(): Promise<void> }).maybeRepairFleet();
-    fleet.intents.commit();
-    const intent = fleet.intents.current("R-1");
-    assert.equal(intent?.goal.kind, "repair");
-    assert.equal((intent?.goal as { yard: string }).yard, "X1-A-YARD");
+    const fleet = new FleetManager({
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => {
+          if (atYard) return at("DOCKED", "X1-A-YARD");
+          return reads[Math.min(i++, reads.length - 1)]!;
+        },
+        dockShip: async () => ({}),
+        getRepairCost: async () => ({ transaction: { totalPrice: 100 } }),
+        getMyAgent: async () => ({ credits: 1_000_000 }),
+        repairShip: async () => { repaired = true; return { transaction: { totalPrice: 100 } }; },
+      } as any,
+    });
+    (fleet as any).tours.set("DAGGER-8", { ...agentFor(at("IN_TRANSIT", "X1-A-E49")), suspend: async () => {}, resume: () => {}, release: () => {} });
+    (fleet as any).isShipyard = async () => true;
+    (fleet as any).dispatchShipHop = async (_s: string, to: string) => {
+      const live = reads[Math.min(i, reads.length - 1)]!;
+      if (!atYard && live.nav.status === "IN_TRANSIT") hopsWhileInTransit.push(to);
+      atYard = true;
+    };
+    (fleet as any).awaitArrival = async () => { i = reads.length - 1; };
+
+    await (fleet as any).runCriticalRepair("DAGGER-8", "X1-A-YARD");
+
+    assert.deepEqual(hopsWhileInTransit, [], "the hop must not be fired while the ship is still flying its previous leg");
+    assert.equal(repaired, true, "and the repair must still happen once it lands");
+  });
+});
+
+describe("shipyardTourTargets finds yards outside the home system", () => {
+  // Modules and prices came back from every system a shuttle reached, but ship
+  // stock only ever from home: the trait scan here was restricted to the home
+  // system, so a remote shipyard was only a target once shipyard_inventory
+  // already held a row for it — and the only thing that writes one is a tour
+  // ship docking there. marketTourTargets() was fixed for this; shipyards were
+  // not.
+  const seed = (fleet: FleetManager, sys: string, yard: string) => {
+    (fleet as any).galaxy.systems.set(sys, {
+      symbol: sys,
+      waypoints: [
+        { symbol: `${sys}-A1`, systemSymbol: sys, x: 0, y: 0, type: "PLANET", orbitals: [], traits: [], isUnderConstruction: false },
+        { symbol: yard, systemSymbol: sys, x: 10, y: 0, type: "PLANET", orbitals: [], traits: [{ symbol: "SHIPYARD", name: "Y", description: "" }], isUnderConstruction: false },
+      ],
+      jumpGates: [], markets: [], shipyards: [],
+    });
+  };
+
+  it("includes a charted remote shipyard, not just the home one", async () => {
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    (fleet as any).systemSymbol = "X1-HOME";
+    seed(fleet, "X1-HOME", "X1-HOME-YARD");
+    seed(fleet, "X1-REMOTE", "X1-REMOTE-YARD");
+
+    const targets = await (fleet as any).shipyardTourTargets();
+    assert.deepEqual(targets, ["X1-HOME-YARD", "X1-REMOTE-YARD"], "a shipyard a scout has charted must be reachable as a tour target");
   });
 
-  it("releases the intent once the hull is no longer critical", async () => {
-    const fleet = fleetFor(0);
-    await (fleet as never as { maybeRepairFleet(): Promise<void> }).maybeRepairFleet();
-    fleet.intents.commit();
-    assert.ok(fleet.intents.current("R-1"), "precondition: a repair is committed");
-
-    // Repaired: the snapshot the controller reads now shows a whole frame.
-    (fleet as never as { tours: Map<string, unknown> }).tours.set("R-1", agentFor(shipWith(1)));
-    await (fleet as never as { maybeRepairFleet(): Promise<void> }).maybeRepairFleet();
-    fleet.intents.commit();
-
-    assert.equal(fleet.intents.current("R-1"), undefined,
-      "a stale repair goal would send a healthy ship back to the yard every tick");
+  it("still lists the home shipyard when it is the only system charted", async () => {
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    (fleet as any).systemSymbol = "X1-HOME";
+    seed(fleet, "X1-HOME", "X1-HOME-YARD");
+    assert.deepEqual(await (fleet as any).shipyardTourTargets(), ["X1-HOME-YARD"]);
   });
 });
