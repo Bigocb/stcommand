@@ -346,7 +346,15 @@ export class SiphonerAgent {
     return true;
   }
 
-  private async sellAllCargo(): Promise<void> {
+  /**
+   * Sell the hold at `expectedAt`. See AgentShip.sellAllCargo() for why the
+   * waypoint is passed in rather than read off the ship: this caller does
+   * check its navigate, but the dock that follows can still leave the ship
+   * somewhere else, and a siphoner selling its gases at the wrong market is
+   * the same silent loss.
+   */
+  private async sellAllCargo(expectedAt: string): Promise<void> {
+    this.proxy.assertAt(expectedAt, "sell cargo");
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
     const inventory = [...this.ship.cargo.inventory];
     for (const item of inventory) {
@@ -437,7 +445,7 @@ export class SiphonerAgent {
           if (!ok) return true;
           await this.ensureDocked();
         }
-        await this.sellAllCargo();
+        await this.sellAllCargo(target.symbol);
         await this.refuelIfNeeded();
         await this.refresh();
         return true;

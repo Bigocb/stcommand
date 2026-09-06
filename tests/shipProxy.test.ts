@@ -208,3 +208,44 @@ describe("ShipProxy.ensureDocked", () => {
     assert.deepEqual(recorded, []);
   });
 });
+
+/**
+ * Rule 5, as a shared primitive.
+ *
+ * The check began as the trader's own private method, because the trader was
+ * the role that had lost money to its absence. Then the miner's
+ * executeArbitrage() turned out to have the identical straight-line shape,
+ * and both sellAllCargo() implementations sold wherever the ship happened to
+ * be standing. Fixing one and leaving the rest wrong is the exact failure
+ * mode this class exists to end, so the check lives here now and every role
+ * calls the same one.
+ */
+describe("ShipProxy.assertAt: a transaction happens where the plan says, or not at all", () => {
+  const at = (waypoint: string) =>
+    new ShipProxy(
+      ship({ nav: { status: "DOCKED", waypointSymbol: waypoint, systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+      { api: {} as any, registry: world() },
+    );
+
+  it("throws when the ship is somewhere else, naming both waypoints", () => {
+    assert.throws(
+      () => at("X1-A-A1").assertAt("X1-A-B2", "buy ANTIMATTER"),
+      /refusing to buy ANTIMATTER at X1-A-B2: ship is at X1-A-A1/,
+      "the message has to name where it actually is, or the log is another false report",
+    );
+  });
+
+  it("permits the transaction when the ship really is there", () => {
+    assert.doesNotThrow(() => at("X1-A-B2").assertAt("X1-A-B2", "sell ANTIMATTER"));
+  });
+
+  it("reads the ship's live position, not a copy taken earlier", () => {
+    // The reason this belongs on the proxy rather than in each agent: an
+    // agent checking its own cached ship would be comparing the plan against
+    // the plan. setShip() is what a refresh() after a navigate does.
+    const proxy = at("X1-A-A1");
+    assert.throws(() => proxy.assertAt("X1-A-B2", "sell ORE"));
+    proxy.setShip(ship({ nav: { status: "DOCKED", waypointSymbol: "X1-A-B2", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any));
+    assert.doesNotThrow(() => proxy.assertAt("X1-A-B2", "sell ORE"), "an arrival must clear the guard");
+  });
+});

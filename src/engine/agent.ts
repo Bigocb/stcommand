@@ -642,6 +642,11 @@ export class ShipAgent {
     if (units <= 0) return false;
     this.log(`arbitrage: buying ${units}u ${route.good} @ ${route.buyPrice}c`);
     this.currentStep = { kind: "transacting", action: "buy", good: route.good };
+    // Rule 5. Same straight-line shape, and the same exposure, as the
+    // trader's runArbitrage(): buy, navigate, sell with nothing re-checking
+    // position between the statements. The trader lost 9,036c a cycle to
+    // exactly this before its own assertAt went in.
+    this.proxy.assertAt(route.buyAt, `buy ${route.good}`);
     const bought = await this.api.purchaseCargo(this.symbol, route.good, units);
     this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: bought.cargo };
@@ -659,6 +664,10 @@ export class ShipAgent {
     await this.navigateTo(route.sellAt);
     await this.ensureDocked();
     this.currentStep = { kind: "transacting", action: "sell", good: route.good };
+    // The leg that carries the loss: the navigate above is the one most
+    // likely to have not arrived, and selling here anyway dumps the cargo at
+    // the buy market for less than it cost.
+    this.proxy.assertAt(route.sellAt, `sell ${route.good}`);
     const sold = await this.api.sellCargo(this.symbol, route.good, units);
     this.currentStep = IDLE_STEP;
     this.ship = { ...this.ship, cargo: sold.cargo };
@@ -780,7 +789,7 @@ export class ShipAgent {
           this.log(`selling ${sellable.length} saleable cargo worth ~${cargoValue}c`);
           await this.navigateTo(target);
           await this.ensureDocked();
-          await this.sellAllCargo();
+          await this.sellAllCargo(target);
           await this.refresh();
           return true;
         }
@@ -1303,7 +1312,18 @@ export class ShipAgent {
     if (safety >= 40) this.log("extract loop hit safety cap");
   }
 
-  private async sellAllCargo(): Promise<void> {
+  /**
+   * Sell the hold at `expectedAt`.
+   *
+   * The waypoint is a parameter rather than "wherever the ship is" because
+   * rule 5 needs something to check against. This is called after a
+   * navigate whose failure the caller does not inspect, so without the
+   * assertion a miner whose trip to the market never happened would sell
+   * its ore at the asteroid field — to whatever market the API found there,
+   * at whatever price, logged as a successful sale at the target.
+   */
+  private async sellAllCargo(expectedAt: string): Promise<void> {
+    this.proxy.assertAt(expectedAt, "sell cargo");
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
     const inventory = [...this.ship.cargo.inventory];
     for (const item of inventory) {

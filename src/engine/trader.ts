@@ -475,10 +475,14 @@ export class TraderAgent {
    * stepRescue() are safe because they re-check position before every step
    * and simply make no progress on a failed move. This is that same
    * precondition for the one role that runs straight through.
+   *
+   * The check itself moved to ShipProxy once the miner and siphoner needed
+   * the same guarantee — it asks where the ship is, which is the proxy's
+   * question, not this class's. This stays as the trader's name for it so
+   * the six call sites below read the way they always did.
    */
   private assertAt(waypoint: string, action: string): void {
-    const here = this.ship.nav.waypointSymbol;
-    if (here !== waypoint) throw new Error(`refusing to ${action} at ${waypoint}: ship is at ${here}`);
+    this.proxy.assertAt(waypoint, action);
   }
 
   /**

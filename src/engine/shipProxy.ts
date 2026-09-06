@@ -276,6 +276,27 @@ export class ShipProxy {
   }
 
   /**
+   * Refuse an action unless the ship is standing where the plan says it is.
+   *
+   * Rule 5 of docs/control-plane-data-plane.md, at the only boundary that can
+   * enforce it: a transaction is irreversible, so the position it assumes has
+   * to be the observed one rather than the one the preceding statements
+   * intended. A navigate that did not arrive — a `Pending` swallowed, a
+   * failure logged and returned, a straight-line procedure resumed after a
+   * restart — leaves the ship somewhere else, and the API will happily buy or
+   * sell at whatever market it is actually docked at. That is how the trader
+   * lost 9,036c per cycle to trades it believed were happening elsewhere.
+   *
+   * It lives here rather than in each agent because the proxy is the one
+   * thing that knows where the ship really is; an agent asserting against its
+   * own cached copy would be checking the plan against the plan.
+   */
+  assertAt(waypoint: string, action: string): void {
+    const here = this.ship.nav.waypointSymbol;
+    if (here !== waypoint) throw new Error(`refusing to ${action} at ${waypoint}: ship is at ${here}`);
+  }
+
+  /**
    * Every market in this system the ship could actually be refuelled at:
    * trait-marked or priced, with a known position. Scoped to one system,
    * because a market a jump away is not somewhere a fuel detour can reach.
