@@ -304,7 +304,23 @@ should mean.
 
 ---
 
-## 8. Migration — incremental, each step shippable
+## 8. Migration — all six steps built
+
+Every step below is implemented on `claude/stcommand-ui-parallel-versions-fd5p9q`.
+Two things this document called for are deliberately *not* done, and are
+recorded here rather than left as silent gaps:
+
+- **Manual dispatch is still its own mechanism.** `dispatchTo()` sets a
+  `manualGoal` on the agent, which is a second ownership channel beside the
+  intent board. Converting it to a `hold` intent is the remaining piece of
+  step 4.
+- **Agents execute their own goals, they do not yet execute *from* the goal.**
+  An agent stands down when the fleet owns its hull, and takes its target
+  from the intent where it has one, but a trader still derives its route
+  from the dispatcher rather than reading `goal.kind === "trade"`. The
+  distinction stops mattering only once `explore` moves off the fleet and
+  onto the ship's own task.
+
 
 1. **Data plane cannot block.** `CooldownPending(resumeAt)` alongside
    `NavigationPending`; `mineAndRefine`/`siphonUntilFull` become one
