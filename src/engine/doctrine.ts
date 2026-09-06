@@ -115,6 +115,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "crossSystemMaxAgeMin",
+    name: "Cross-system intel freshness",
+    description: "A longer freshness window for routes that cross a jump gate. A foreign market is expensive to revisit, so holding it to the same window as a local one means cross-system routes almost never appear at all — both ends have to be fresh at the same moment, and only a keeper can guarantee that.",
+    value: 360, min: 15, max: 10080, step: 30, unit: "m",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "keeperCount",
     name: "Market keepers",
     description: "How many ships to station as market keepers (probes at shipyards, miners at outer buy markets) so prices never go stale.",

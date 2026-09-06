@@ -571,6 +571,17 @@ export class FleetManager {
   }
 
   /**
+   * The same, for a leg that crosses a jump gate. Deliberately longer: a
+   * foreign market is only revisited when a ship happens to go there, so
+   * holding both ends to the local window means the two are almost never
+   * fresh at the same moment and cross-system routes simply never appear.
+   * Never shorter than the local window, whatever the operator sets.
+   */
+  private crossSystemMaxAgeMin(): number {
+    return Math.max(this.intelMaxAgeMin(), this.doctrine.value("crossSystemMaxAgeMin", 5_256_000));
+  }
+
+  /**
    * The market view the whole fleet flies by. The dispatcher ranks routes from
    * this same window (`computeDispatchRoutes`), so when intel goes stale both
    * sides lose the same markets at the same moment. They used to disagree —
@@ -578,9 +589,17 @@ export class FleetManager {
    * left the dispatcher with no routes to hand out while every trader still
    * saw it, ran the same scoring function over the same stale table, and
    * independently picked the same "best" good.
+   *
+   * That agreement is why this uses the *wider* of the two windows. The
+   * strict local window is enforced inside tradeLegs(), which is what decides
+   * a route exists at all; if the table handed to traders were narrower than
+   * that, the dispatcher could assign a cross-system route whose far market
+   * the trader cannot see, and viableRoute() would reject its own assignment
+   * every tick. Feeding the wider window keeps both sides looking at the same
+   * world, and the trader re-reads live prices when it docks regardless.
    */
   private async freshSnapshots(): Promise<{ waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[]> {
-    const rows = await this.store?.freshMarketSnapshots(this.intelMaxAgeMin());
+    const rows = await this.store?.freshMarketSnapshots(this.crossSystemMaxAgeMin());
     return (
       rows?.map((s) => ({
         waypointSymbol: s.waypointSymbol,
@@ -923,7 +942,7 @@ export class FleetManager {
     for (const s of (await this.store?.latestMarketSnapshots()) ?? []) {
       if (s.goodSymbol === "FUEL" && s.purchasePrice > 0) fuelAt.set(s.waypointSymbol, s.purchasePrice);
     }
-    const legs = (await this.store?.tradeLegs(this.intelMaxAgeMin())) ?? [];
+    const legs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
     // Deliberately NOT filtered by gate reachability here: a "buy" or
     // "sell" assignment only needs its own side of the leg (buyAt, or
     // sellAt) to be reachable from the warehouse — not that buyAt and

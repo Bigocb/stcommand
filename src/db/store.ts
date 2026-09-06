@@ -827,7 +827,23 @@ export class Store {
    * two values on one row) isn't valid Postgres, where MIN/MAX are aggregate-
    * only — the two-argument form here is LEAST() instead.
    */
-  async tradeLegs(maxAgeMinutes = 90): Promise<
+  /**
+   * Profitable buy/sell pairs per good, from the hot read model.
+   *
+   * Two windows rather than one. Holding a cross-system leg to the same
+   * freshness as a local one means it almost never appears: both ends have to
+   * be fresh at the same moment, and a market a jump away is only revisited
+   * when a ship happens to go there, so the intersection is usually empty.
+   * That is why no cross-system route ran for a day despite gates being open
+   * and both markets being known. A local market, by contrast, is cheap to
+   * refresh and there is no reason to trade on a stale price for it.
+   *
+   * Staleness here costs trip *selection* quality rather than money directly:
+   * a trader re-reads live prices when it docks, and the maxLossPct doctrine
+   * caps what it will actually accept. So a longer window for the expensive
+   * side buys real opportunities at the price of some wasted trips.
+   */
+  async tradeLegs(maxAgeMinutes = 90, crossSystemMaxAgeMinutes = maxAgeMinutes): Promise<
     {
       goodSymbol: string;
       buyAt: string;
@@ -852,8 +868,12 @@ export class Store {
         volume: number;
         stalest: Date;
       }>(
-        `WITH latest AS (
-           SELECT * FROM market_latest WHERE timestamp >= now() - ($1 || ' minutes')::interval
+        `-- Every window is cast to int before use. Left untyped the driver
+         -- binds these as text, and GREATEST('90','360') compares lexically
+         -- and returns '90', silently narrowing the very window this widens.
+         WITH latest AS (
+           SELECT * FROM market_latest
+           WHERE timestamp >= now() - make_interval(mins => GREATEST($1::int, $2::int))
          )
          SELECT
            b.good_symbol                        AS good_symbol,
@@ -870,8 +890,18 @@ export class Store {
            ON s.good_symbol = b.good_symbol
           AND s.waypoint_symbol != b.waypoint_symbol
          WHERE s.sell_price > b.purchase_price
-           AND b.purchase_price > 0`,
-        [maxAgeMinutes],
+           AND b.purchase_price > 0
+           -- Same system: both ends must be inside the strict window. Across
+           -- a gate: the longer one applies to both, since the expensive side
+           -- is whichever one the fleet is not currently sitting in.
+           AND CASE
+                 WHEN b.system_symbol = s.system_symbol
+                   THEN b.timestamp >= now() - make_interval(mins => $1::int)
+                    AND s.timestamp >= now() - make_interval(mins => $1::int)
+                 ELSE b.timestamp >= now() - make_interval(mins => $2::int)
+                  AND s.timestamp >= now() - make_interval(mins => $2::int)
+               END`,
+        [maxAgeMinutes, crossSystemMaxAgeMinutes],
       );
       return res.rows.map((r) => ({
         goodSymbol: r.good_symbol,
