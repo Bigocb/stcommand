@@ -1451,7 +1451,14 @@ export class TraderAgent {
     const cached = this.priceTable.get(buyAt)?.get(assigned.good);
     const liveBuy = await this.liveBuyPrice(buyAt, assigned.good);
     const buyPrice = liveBuy ?? assigned.buyPrice;
-    if (buyPrice === undefined || buyPrice <= 0) return this.discoverPrices([buyAt]);
+    if (buyPrice === undefined || buyPrice <= 0) {
+      // Genuinely no price to buy at — touring to find one is the right
+      // answer here, unlike the exits below. Say so anyway: every exit from
+      // this function used to be silent, which is how a trader spent an hour
+      // shuttling between two waypoints while the fleet line called it idle.
+      this.log(`contract buy for ${assigned.good}: no price known at ${buyAt}, touring to find one`);
+      return this.discoverPrices([buyAt]);
+    }
     if (assigned.buyPrice !== undefined && buyPrice > assigned.buyPrice * 1.5) {
       // A contract still needs this good regardless of price, so this isn't
       // a hard refusal the way runBuy's margin check is — just avoid
@@ -1470,7 +1477,13 @@ export class TraderAgent {
     // every retry, forever, since the request itself never changed. Same
     // per-transaction cap runBuy() already respects (line ~1025 above).
     const volume = cached?.volume ?? affordable;
-    let cap = Math.min(volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable);
+    const holdRoom = this.ship.cargo.capacity - this.ship.cargo.units;
+    let cap = Math.min(volume, holdRoom, affordable);
+    // Kept as its own variable rather than re-derived from `cap` below: once
+    // three limits have been min()'d together, a zero no longer says which
+    // one produced it, and the whole point of the exits below is to name the
+    // reason correctly.
+    let stillNeeded = Infinity;
     if (this.contractNeeded) {
       // Confirmed live: with only the tradeVolume/cargo/affordability caps
       // above, a ship topping off the last few outstanding units of a
@@ -1480,11 +1493,39 @@ export class TraderAgent {
       // with no role for it, falling through to clearLeftoverCargo() to sell
       // at a loss against the contract's own buy price.
       const alreadyHeld = this.ship.cargo.inventory.find((i) => i.symbol === assigned.good)?.units ?? 0;
-      const needed = Math.max(0, (await this.contractNeeded(assigned.good)) - alreadyHeld);
-      cap = Math.min(cap, needed);
+      stillNeeded = Math.max(0, (await this.contractNeeded(assigned.good)) - alreadyHeld);
+      cap = Math.min(cap, stillNeeded);
     }
     const units = Math.max(0, Math.floor(cap));
-    if (units <= 0) return this.discoverPrices([buyAt]);
+    if (units <= 0) {
+      // Nothing bought, and the reason decides what to do instead — this is
+      // where the hour of shuttling came from. The old code returned
+      // discoverPrices() for every one of these, which tours markets and
+      // reports success, so the ship looked busy, the dispatcher kept the
+      // assignment, and nothing anywhere said why no purchase ever happened.
+      //
+      // Only the price-discovery case is worth touring for. The others are
+      // states touring cannot change: a contract that needs nothing more, a
+      // hold with no room, or — the live case — a balance too small to buy a
+      // single unit of a good a contract pays 181,474c for. A ship that
+      // cannot afford its assignment should go and earn, not orbit.
+      if (stillNeeded <= 0) {
+        this.log(`contract buy for ${assigned.good}: contract needs no more units; trading instead`);
+        return this.runArbitrage(undefined);
+      }
+      if (affordable <= 0) {
+        this.log(
+          `contract buy for ${assigned.good}: cannot afford one unit at ${buyPrice}c with ${liveCredits}c in hand; trading instead`,
+        );
+        return this.runArbitrage(undefined);
+      }
+      if (holdRoom <= 0) {
+        this.log(`contract buy for ${assigned.good}: hold is full, cannot take any on`);
+        return false;
+      }
+      this.log(`contract buy for ${assigned.good}: no units to buy at ${buyAt} (volume ${volume}, affordable ${affordable})`);
+      return this.discoverPrices([buyAt]);
+    }
 
     this.currentStep = { kind: "transacting", action: "buy", good: assigned.good };
     this.assertAt(buyAt, `buy ${assigned.good}`);
