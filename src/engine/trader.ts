@@ -243,6 +243,7 @@ export class TraderAgent {
       log: this.log,
       onActivity: opts.onActivity,
       recordMarket: opts.recordMarket,
+      recordLedger: opts.recordLedger,
     });
   }
 

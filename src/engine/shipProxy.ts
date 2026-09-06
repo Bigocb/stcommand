@@ -15,6 +15,18 @@ export interface ShipProxyOptions {
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
+  /** Records a refuel purchase against the tenant's ledger. Typed exactly as
+   *  the agents' own callback so it can be passed straight through. */
+  recordLedger?: (entry: {
+    timestamp: string;
+    shipSymbol: string;
+    waypointSymbol: string;
+    type: "PURCHASE" | "SELL" | "REFUEL";
+    tradeSymbol?: string;
+    units?: number;
+    pricePerUnit?: number;
+    total: number;
+  }) => void;
 }
 
 /**
@@ -52,6 +64,7 @@ export class ShipProxy {
   private readonly log: (msg: string) => void;
   private readonly onActivity?: ShipProxyOptions["onActivity"];
   private readonly recordMarket?: ShipProxyOptions["recordMarket"];
+  private readonly recordLedger?: ShipProxyOptions["recordLedger"];
   private step: AgentStep = IDLE_STEP;
 
   /**
@@ -70,6 +83,7 @@ export class ShipProxy {
     this.log = opts.log ?? (() => {});
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.recordLedger = opts.recordLedger;
   }
 
   get symbol(): string {
@@ -260,4 +274,123 @@ export class ShipProxy {
       throw err;
     }
   }
+
+  /**
+   * Every market in this system the ship could actually be refuelled at:
+   * trait-marked or priced, with a known position. Scoped to one system,
+   * because a market a jump away is not somewhere a fuel detour can reach.
+   */
+  marketEndpointsHere(): { symbol: string }[] {
+    return this.registry.marketEndpoints(this.ship.nav.systemSymbol);
+  }
+
+  /** Nearest market reachable on the fuel currently aboard, or undefined. */
+  nearestReachableMarket(): string | undefined {
+    let best: string | undefined;
+    let bestNeed = Infinity;
+    for (const m of this.marketEndpointsHere()) {
+      const need = this.registry.fuelFor(this.ship.nav.waypointSymbol, m.symbol);
+      if (need > this.ship.fuel.current) continue;
+      if (need < bestNeed) { bestNeed = need; best = m.symbol; }
+    }
+    return best;
+  }
+
+  /** Nearest market to some other waypoint, for budgeting a return leg. */
+  nearestMarketTo(waypoint: string): string | undefined {
+    let best: string | undefined;
+    let bestDist = Infinity;
+    for (const m of this.registry.marketEndpoints(this.registry.systemOf(waypoint))) {
+      const d = this.registry.fuelFor(waypoint, m.symbol);
+      if (d < bestDist) { bestDist = d; best = m.symbol; }
+    }
+    return best;
+  }
+
+  /** Out to `target`, then on to the nearest market to it, plus a small margin. */
+  fuelNeededRoundTrip(target: string): number {
+    const out = this.registry.fuelFor(this.ship.nav.waypointSymbol, target);
+    const market = this.nearestMarketTo(target);
+    const back = market ? this.registry.fuelFor(target, market) : out;
+    return out + back + 5;
+  }
+
+  /**
+   * Top up if the ship needs it, detouring to a market when it is not at one.
+   * Returns false when it genuinely cannot be fuelled — the caller must then
+   * hold rather than fly the leg anyway.
+   *
+   * Merged from three copies that had drifted into different behaviour, not
+   * just different comments: one refreshed after refuelling while another
+   * patched its cached ship in place, one reported the purchase as activity
+   * and the other did not, and one executed a whole inline detour whose tail
+   * had become dead code — under the scheduler, navigateTo() ends the tick,
+   * so anything written after it never runs and the next tick must re-derive.
+   * The re-entrant shape below is the one that survives that correctly.
+   */
+  async refuelIfNeeded(opts: RefuelOptions = {}): Promise<boolean> {
+    if (this.ship.fuel.capacity <= 0) return true;
+    const reserve = opts.reserve ?? 0;
+    const here = this.ship.nav.waypointSymbol;
+    // The trait is the authority, with a recorded snapshot as the fallback: a
+    // ship parked on an unpriced fuel station is standing on a pump, and
+    // saying otherwise is how one reported itself stranded at 27/300.
+    const atMarket = this.registry.isMarket(here) || this.registry.market(here) !== undefined;
+
+    const enough = opts.belowFraction !== undefined
+      ? this.ship.fuel.current > this.ship.fuel.capacity * opts.belowFraction
+      : this.ship.fuel.current > (opts.target ? this.fuelNeededRoundTrip(opts.target) : this.ship.fuel.capacity * 0.9) + reserve;
+    if (enough) return true;
+
+    if (atMarket) {
+      await this.ensureDocked();
+      this.log(`refueling (${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
+      try {
+        const res = await this.api.refuelShip(this.ship.symbol);
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: this.ship.symbol,
+          waypointSymbol: this.ship.nav.waypointSymbol,
+          type: "REFUEL",
+          units: res.fuel.current,
+          total: res.transaction.totalPrice,
+        });
+        this.onActivity?.("refuel", `${this.ship.symbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice, this.ship.symbol);
+        this.ship = { ...this.ship, fuel: res.fuel };
+        return true;
+      } catch (err) {
+        // The MARKETPLACE trait does not promise the market sells FUEL. Fall
+        // through to the detour rather than throwing into the caller's tick,
+        // which would just trade one error loop for another.
+        this.log(`refuel here failed (${err instanceof Error ? err.message : String(err)}); looking for another market`);
+      }
+    }
+
+    const stop = this.nearestReachableMarket();
+    if (!stop || stop === here) {
+      this.log(`WARN: cannot refuel (${this.ship.fuel.current}/${this.ship.fuel.capacity}) and no reachable market`);
+      return false;
+    }
+    this.log(`fuel ${this.ship.fuel.current}, detouring to ${stop} to refuel`);
+    // Throws NavigationPending under the scheduler, ending the tick; the next
+    // one re-enters here and takes the at-market branch. On the blocking path
+    // the recursion does the same thing immediately.
+    await this.navigateTo(stop);
+    return this.refuelIfNeeded(opts);
+  }
+}
+
+/**
+ * Fuel handling, shared. Split out of the class body only to keep the file
+ * readable; these are methods on ShipProxy via the declaration merge below.
+ */
+export interface RefuelOptions {
+  /** Keep this much fuel spare beyond the trip itself. */
+  reserve?: number;
+  /** Where the ship is about to go, so the round trip can be budgeted. */
+  target?: string;
+  /** Refuel whenever below this fraction of capacity, instead of budgeting a
+   *  trip. What the siphoner wants: it never plans a round trip, it just tops
+   *  up whenever it is at a pump and low. */
+  belowFraction?: number;
 }

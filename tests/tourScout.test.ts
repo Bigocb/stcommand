@@ -173,9 +173,14 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     // waypoints a snapshot exists for and nothing refreshes an agent's copy.
     const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
     Object.assign(ship.fuel, { current: 27, capacity: 300 });
+    let docked = false;
     const agent = new ShipAgent(ship, {
       api: {
         getShip: async () => ship,
+        // Docking is observed through the API rather than by stubbing an
+        // agent method: refuelling lives in the shared ShipProxy now, so a
+        // stub on the agent would not be on the path being exercised.
+        dockShip: async () => { docked = true; Object.assign(ship.nav, { status: "DOCKED" }); return {}; },
         refuelShip: async () => ({ fuel: { current: 300, capacity: 300 }, transaction: { totalPrice: 100 } }),
       } as any,
       log: () => {},
@@ -188,9 +193,6 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
       remotePositions.map((w: any) => (w.symbol === "X1-REMOTE-A1" ? { ...w, traits: [{ symbol: "MARKETPLACE" }] } : w)) as any,
       [], // note: markets list is empty
     );
-    let docked = false;
-    (agent as any).ensureDocked = async () => { docked = true; };
-
     const ok = await (agent as any).refuelIfNeeded(5, "X1-REMOTE-C3");
 
     assert.equal(ok, true, "must refuel in place rather than report itself stranded");

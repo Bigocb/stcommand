@@ -130,6 +130,7 @@ export class ScoutAgent {
       log: this.log,
       onActivity: opts.onActivity,
       recordMarket: opts.recordMarket,
+      recordLedger: opts.recordLedger,
     });
   }
 
@@ -255,45 +256,7 @@ export class ScoutAgent {
   }
 
   private async refuelIfNeeded(reserve: number, target?: string): Promise<boolean> {
-    if (this.ship.fuel.capacity <= 0) return true;
-    // Trait from the registry, not merely "we have prices for it": a ship
-    // parked on an unsnapshotted fuel station otherwise reports itself
-    // stranded while standing on a pump.
-    const hereWp = this.ship.nav.waypointSymbol;
-    const atMarket = this.registry.isMarket(hereWp) || this.registry.market(hereWp) !== undefined;
-    const trip = target ? this.fuelNeededRoundTrip(target) : this.ship.fuel.capacity * 0.9;
-    if (this.ship.fuel.current > trip + reserve) return true;
-    if (atMarket) {
-      await this.ensureDocked();
-      this.log(`refueling (${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
-      try {
-        const res = await this.api.refuelShip(this.symbol);
-        this.recordLedger?.({
-          timestamp: new Date().toISOString(),
-          shipSymbol: this.symbol,
-          waypointSymbol: this.ship.nav.waypointSymbol,
-          type: "REFUEL",
-          units: res.fuel.current,
-          total: res.transaction.totalPrice,
-        });
-        this.onActivity?.("refuel", `${this.symbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice, this.symbol);
-        this.ship = { ...this.ship, fuel: res.fuel };
-        return true;
-      } catch (err) {
-        // The MARKETPLACE trait does not guarantee the market sells FUEL, and
-        // this branch now accepts any marketplace, not just one we hold prices
-        // for. Let the caller fall through rather than throwing into its tick.
-        this.log(`refuel here failed (${err instanceof Error ? err.message : String(err)})`);
-      }
-    }
-    const nearest = this.nearestReachableMarket();
-    if (!nearest) {
-      this.log(`low fuel (${this.ship.fuel.current}) and no reachable market`);
-      return false;
-    }
-    this.log(`fuel ${this.ship.fuel.current}, heading to ${nearest} to refuel`);
-    await this.navigateTo(nearest);
-    return this.refuelIfNeeded(reserve, target);
+    return this.proxy.refuelIfNeeded({ reserve, target });
   }
 
   /** Nearest uncharted waypoint that can be reached and returned from on one tank, or undefined. */

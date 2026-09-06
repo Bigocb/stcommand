@@ -116,6 +116,7 @@ export class SiphonerAgent {
       log: this.log,
       onActivity: opts.onActivity,
       recordMarket: opts.recordMarket,
+      recordLedger: opts.recordLedger,
     });
   }
 
@@ -366,34 +367,9 @@ export class SiphonerAgent {
 
   /** Top up fuel whenever docked at a market; detour to the nearest reachable market when low. */
   private async refuelIfNeeded(): Promise<void> {
-    if (this.ship.fuel.capacity <= 0) return;
-    // Trait from the registry, not merely "we have prices for it": a ship
-    // parked on an unsnapshotted fuel station otherwise reports itself
-    // stranded while standing on a pump.
-    const hereWp = this.ship.nav.waypointSymbol;
-    const atMarket = this.registry.isMarket(hereWp) || this.registry.market(hereWp) !== undefined;
-    if (this.ship.fuel.current > this.ship.fuel.capacity * 0.5) return;
-    if (atMarket) {
-      await this.ensureDocked();
-    } else {
-      const refuelStop = this.nearestReachableMarket();
-      if (!refuelStop || refuelStop === this.ship.nav.waypointSymbol) return;
-      this.log(`fuel low, detouring to refuel at ${refuelStop}`);
-      const ok = await this.navigateTo(refuelStop);
-      if (!ok) return;
-      await this.ensureDocked();
-    }
-    this.log(`refueling (${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
-    const res = await this.api.refuelShip(this.symbol);
-    this.recordLedger?.({
-      timestamp: new Date().toISOString(),
-      shipSymbol: this.symbol,
-      waypointSymbol: this.ship.nav.waypointSymbol,
-      type: "REFUEL",
-      units: res.fuel.current,
-      total: res.transaction.totalPrice,
-    });
-    await this.refresh();
+    // Tops up whenever at a pump and under half a tank; it never plans a
+    // round trip, so it budgets by fraction rather than by leg.
+    await this.proxy.refuelIfNeeded({ belowFraction: 0.5 });
   }
 
   async tick(): Promise<boolean> {
