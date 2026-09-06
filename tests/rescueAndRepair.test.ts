@@ -231,3 +231,39 @@ describe("a critical repair waits out a leg the agent already started", () => {
     assert.equal(repaired, true, "and the repair must still happen once it lands");
   });
 });
+
+describe("shipyardTourTargets finds yards outside the home system", () => {
+  // Modules and prices came back from every system a shuttle reached, but ship
+  // stock only ever from home: the trait scan here was restricted to the home
+  // system, so a remote shipyard was only a target once shipyard_inventory
+  // already held a row for it — and the only thing that writes one is a tour
+  // ship docking there. marketTourTargets() was fixed for this; shipyards were
+  // not.
+  const seed = (fleet: FleetManager, sys: string, yard: string) => {
+    (fleet as any).galaxy.systems.set(sys, {
+      symbol: sys,
+      waypoints: [
+        { symbol: `${sys}-A1`, systemSymbol: sys, x: 0, y: 0, type: "PLANET", orbitals: [], traits: [], isUnderConstruction: false },
+        { symbol: yard, systemSymbol: sys, x: 10, y: 0, type: "PLANET", orbitals: [], traits: [{ symbol: "SHIPYARD", name: "Y", description: "" }], isUnderConstruction: false },
+      ],
+      jumpGates: [], markets: [], shipyards: [],
+    });
+  };
+
+  it("includes a charted remote shipyard, not just the home one", async () => {
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    (fleet as any).systemSymbol = "X1-HOME";
+    seed(fleet, "X1-HOME", "X1-HOME-YARD");
+    seed(fleet, "X1-REMOTE", "X1-REMOTE-YARD");
+
+    const targets = await (fleet as any).shipyardTourTargets();
+    assert.deepEqual(targets, ["X1-HOME-YARD", "X1-REMOTE-YARD"], "a shipyard a scout has charted must be reachable as a tour target");
+  });
+
+  it("still lists the home shipyard when it is the only system charted", async () => {
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    (fleet as any).systemSymbol = "X1-HOME";
+    seed(fleet, "X1-HOME", "X1-HOME-YARD");
+    assert.deepEqual(await (fleet as any).shipyardTourTargets(), ["X1-HOME-YARD"]);
+  });
+});

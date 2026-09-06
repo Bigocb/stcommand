@@ -2413,9 +2413,20 @@ export class FleetManager {
     // reset doesn't have — sending a tour ship after one would just be a
     // wasted navigate call to a waypoint that no longer exists for it.
     for (const r of (await this.store?.shipyardInventory()) ?? []) if (knownSystems.has(r.systemSymbol)) out.add(r.waypointSymbol);
-    const known = this.galaxy.getSystem(this.systemSymbol);
-    for (const w of known?.waypoints ?? []) {
-      if (w.traits.some((t) => t.symbol === "SHIPYARD")) out.add(w.symbol);
+    // Trait-scan every charted system, not just home — the same circle
+    // marketTourTargets() documents, which shipyards never got the fix for.
+    // Restricted to home, a shipyard in an explored system stayed invisible
+    // here until shipyard_inventory already had a row for it, and the only
+    // thing that writes one is a tour ship docking there, which first
+    // requires it to be a target. So a shipyard in a newly explored system
+    // could never be found: modules and prices came back from every system a
+    // shuttle reached, and ship stock only ever from home. Targets outside a
+    // ship's current system are filtered by the tour loop, which flies
+    // same-system legs only.
+    for (const sys of this.galaxy.listSystems()) {
+      for (const w of this.galaxy.getSystem(sys.symbol)?.waypoints ?? []) {
+        if (w.traits.some((t) => t.symbol === "SHIPYARD")) out.add(w.symbol);
+      }
     }
     return [...out].sort();
   }
