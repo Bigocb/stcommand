@@ -16,6 +16,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const HALT_POLL_MS = 1_000;
 
 export interface AgentOptions {
+  /** Repair this ship where it stands; forwarded to the shared executor. */
+  repairHere?: (shipSymbol: string) => Promise<void>;
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
   log?: (msg: string) => void;
@@ -232,6 +234,7 @@ export class ShipAgent {
       onActivity: opts.onActivity ? (k, d, c) => opts.onActivity!(k, d, c) : undefined,
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
+      repairHere: opts.repairHere,
     });
   }
 
@@ -678,6 +681,14 @@ export class ShipAgent {
     return true;
   }
   async tick(): Promise<boolean> {
+    // A goal this ship executes rather than stands down on — step 5. The
+    // repair controller proposes and never touches the hull, so the
+    // two-owners race it used to create cannot happen.
+    const repairIntent = this.intentFor?.();
+    if (repairIntent?.goal.kind === "repair") {
+      return this.proxy.runRepairGoal(repairIntent, () => this.intentFor?.());
+    }
+
     // The fleet itself is driving this hull (repair, fuel ferry, operator
     // hold), so acting here is the two-owners race that had a diverter and a
     // tour agent alternately flying the same ship every few seconds for a

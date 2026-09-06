@@ -228,7 +228,6 @@ export class FleetManager {
    *  (see maybeRepairFleet()) — prevents re-claiming/re-dispatching the same
    *  ship every tick while its dispatch is already in progress, same idea as
    *  rescuePlans above for the rescue tender's own multi-tick lifetime. */
-  private repairPlans = new Set<string>();
   private maxCargoCapacity = 0;
   private credits = 0;
   private lastCreditsFetch = 0;
@@ -1150,6 +1149,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
             deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
           surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
@@ -1168,6 +1168,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
             surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
           ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
@@ -1191,6 +1192,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
             protectedGoods: () => this.allProtectedGoods(),
         }).withRegistry(this.registry),
       );
@@ -1221,6 +1223,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
             getCredits: () => this.spendableCredits(),
@@ -1246,6 +1249,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
             ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
           marketTourTargets: () => this.sectorTourTargets(ship.symbol),
           staleMarketTargets: () => this.staleMarketTargets(),
@@ -1346,6 +1350,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
                 deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
             surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
@@ -1364,6 +1369,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
                 surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
             ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
@@ -1385,6 +1391,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
                 protectedGoods: () => this.allProtectedGoods(),
           }).withRegistry(this.registry),
         );
@@ -1402,6 +1409,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
             getCredits: () => this.spendableCredits(),
@@ -1421,6 +1429,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
                 ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
             marketTourTargets: () => this.sectorTourTargets(shipSymbol),
             staleMarketTargets: () => this.staleMarketTargets(),
@@ -3491,11 +3500,15 @@ export class FleetManager {
     // actively tendering right now", same idea as `committed` below for
     // missions.
     const tendering = new Set([...this.rescuePlans.values()].map((p) => p.tenderSymbol));
-    // Same reasoning as `tendering` above, for maybeRepairFleet()'s critical-
-    // condition diversions — repairPlans is ground truth for "actively being
-    // routed to a shipyard right now", read directly rather than re-derived,
-    // for the identical same-tick-overwrite reason.
-    const repairing = this.repairPlans;
+    // Same reasoning as `tendering` above, for critical-condition repairs.
+    // The intent board is ground truth for "actively being routed to a
+    // shipyard right now" now that the ship flies that goal itself — the
+    // separate repairPlans set existed only because the controller used to do
+    // the flying, and a second record of who owns a hull is exactly what the
+    // control-plane split set out to delete.
+    const repairing = new Set(
+      this.intents.all().filter((i) => i.goal.kind === "repair").map((i) => i.ship),
+    );
     for (const s of this.getShipStatuses()) {
       // The warehouse ship must be checked before `s.paused`: designating
       // it uses the exact same dispatchTo()/manual-hold mechanism as an
@@ -3987,6 +4000,14 @@ export class FleetManager {
       const ship = this.shipFor(s.symbol);
       if (!ship) continue;
       const worst = this.worstCondition(ship);
+      // Release first, and before any other branch can `continue` past it.
+      // Level-triggered means this controller proposes while the condition
+      // holds and clears the moment it stops — and since the hull now
+      // *executes* a repair goal rather than standing down on it, a stale one
+      // would fly a healthy ship back to the yard every tick.
+      if (worst >= CRITICAL_CONDITION && this.intents.current(s.symbol)?.source === "repair") {
+        this.forgetIntent(s.symbol);
+      }
       if (worst >= floor) continue;
       if (ship.nav.status === "DOCKED" && (await this.isShipyard(ship.nav.systemSymbol, ship.nav.waypointSymbol))) {
         try {
@@ -3997,9 +4018,13 @@ export class FleetManager {
         continue;
       }
       if (worst >= CRITICAL_CONDITION) continue;
-      if (this.repairPlans.has(s.symbol) || !available.has(s.symbol)) continue;
+      if (!available.has(s.symbol)) continue;
       const yard = this.nearestShipyard(ship.nav.systemSymbol);
       if (!yard) continue;
+      // Propose, and stop. The hull flies its own repair goal through the
+      // shared executor (ShipProxy.runRepairGoal); this controller never
+      // touches it. That is rule 1, and the end of the race that had a
+      // diverter and a tour agent alternately flying DAGGER-8.
       this.intents.propose({
         ship: s.symbol,
         priority: 1,
@@ -4007,58 +4032,6 @@ export class FleetManager {
         reason: `condition ${worst.toFixed(2)} is below the critical floor`,
         source: "repair",
       });
-      if (!this.shipRegistry.claim(s.symbol, "repair", this.roleOf(s.symbol))) continue;
-      this.repairPlans.add(s.symbol);
-      this.log(`${s.symbol}: condition ${worst.toFixed(2)} critical — diverting to ${yard} for repair`);
-      void this.runCriticalRepair(s.symbol, yard).finally(() => this.repairPlans.delete(s.symbol));
-    }
-  }
-
-  /** Fire-and-forget: suspend the ship's own loop, fly it to the shipyard
-   *  (raw API via dispatchShipHop, same mechanism mission carriers use, so
-   *  a ship out of single-hop range still gets there), repair, hand back.
-   *  Never awaited by maybeRepairFleet() itself — a multi-leg trip can take
-   *  minutes, and the coordinator tick must not block on it. */
-  private async runCriticalRepair(shipSymbol: string, yardSymbol: string): Promise<void> {
-    await this.controlledAgent(shipSymbol)?.suspend();
-    try {
-      // suspend() only resolves once the agent's in-flight loop iteration has
-      // finished, and that iteration may well have just issued a navigate: the
-      // agent could not have known about this repair, because the intent is
-      // committed after its task began. So we frequently take ownership of a
-      // ship that is already flying somewhere else.
-      //
-      // dispatchShipHop() silently returns for an IN_TRANSIT ship ("next tick
-      // notices arrival"), but a critical repair has no next tick — it is this
-      // one fire-and-forget call. The hop was therefore dropped, the wait below
-      // returned at the wrong waypoint, and the trip gave up: DAGGER-8's repair
-      // "ended at X1-KU72-E49, not X1-KU72-A2" after its tour agent departed
-      // seven seconds before the stand-down took hold. Let the leg it is
-      // already on finish, then fly it to the yard from wherever that left it.
-      await this.awaitArrival(shipSymbol);
-      await this.dispatchShipHop(shipSymbol, yardSymbol);
-      // dispatchShipHop() fires one hop and returns immediately, on the
-      // assumption that "next tick notices arrival" — but a critical repair
-      // has no next tick, it is this one fire-and-forget call. Without the
-      // wait and the dock, repairShip() below was reached while the ship was
-      // still in flight and threw every time. This method is deliberately
-      // never awaited by the coordinator (see maybeRepairFleet), so blocking
-      // here costs nothing else.
-      await this.awaitArrival(shipSymbol);
-      const arrived = await this.api.getShip(shipSymbol);
-      if (arrived.nav.waypointSymbol !== yardSymbol) {
-        this.log(`${shipSymbol}: repair trip ended at ${arrived.nav.waypointSymbol}, not ${yardSymbol}; will retry next tick`);
-        return;
-      }
-      if (arrived.nav.status !== "DOCKED") await this.api.dockShip(shipSymbol);
-      await this.repairShip(shipSymbol);
-    } catch (err) {
-      this.log(`critical repair dispatch for ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      await this.releaseTo(shipSymbol, "repair");
-      // Same reason as the explore trip: a repair intent stands the agent
-      // down, so it must not outlive the repair.
-      this.forgetIntent(shipSymbol);
     }
   }
 
