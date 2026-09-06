@@ -182,7 +182,7 @@ material for a later cross-system run — `control-plane-data-plane.md` §10.
 
 ## Step 3 — The contract buy that could not say why
 
-**Commit:** `b2e6a22` · **Status:** partial — live confirmation pending
+**Commit:** `b2e6a22` · **Status:** verified
 
 ### Defect
 
@@ -231,7 +231,28 @@ wrong reason, which is the disease being treated.
 - **Prediction:** a log line naming the reason. If affordability, DRAGOM-1
   stops shuttling and starts arbitraging. If a different reason appears, the
   affordability diagnosis was wrong and the log says so.
-- **Live:** _pending — soak in progress at time of writing._
+- **Live:** the affordability branch, named, with both numbers:
+
+```
+20:34:22  DRAGOM-1: contract buy for DRUGS: cannot afford one unit at 11292c with 8049c in hand; trading instead
+20:38:41  DRAGOM-1: contract buy for DRUGS: cannot afford one unit at 11292c with 8393c in hand; trading instead
+```
+
+  DRUGS cost 11,292c against a balance of ~8,400c. The shuttling loop is
+  gone and the balance is climbing (8,049 → 8,537) as the miners earn while
+  the trader falls back to ordinary trading.
+
+### What this makes a doctrine question
+
+"Wait until you can afford it, trade meanwhile" is currently a hardcoded
+reaction. As policy it is several real questions: how much of the balance
+may one contract buy consume, whether a 181,474c payout justifies committing
+the treasury, whether the fleet should earn *toward* a known contract rather
+than trade opportunistically. Same for step 2's 80% jettison threshold and
+the ore-versus-fuel margin. Each is a constant today that wants to be a
+doctrine rule once the mechanics under it are trustworthy — a rule can only
+govern a subsystem that functions, and this pass is partly how the decision
+points get found.
 
 ---
 
@@ -241,7 +262,7 @@ wrong reason, which is the disease being treated.
 |---|---|---|
 | 1 | Rule 5 at remaining transaction sites | verified |
 | 2 | Cargo-residue deadlock | verified |
-| 3 | Contract-buy silent stall | live confirmation pending |
+| 3 | Contract-buy silent stall | verified |
 | 4 | Re-land `5f2a5df` — repair: controller proposes, ship flies | not started |
 | 5 | Re-land `390a63e` — trader re-derives trip from observed state | not started |
 | 6 | `priceTable` → registry (single source of truth for prices) | not started |
