@@ -151,3 +151,73 @@ describe("the fleet notices when nothing is moving", () => {
     assert.deepEqual(logs.filter((l) => l.startsWith("STALL")), [], "movement must reset the clock");
   });
 })
+
+describe("scheduling reconciles against the agent, not a memory of the symbol", () => {
+  // The stall this whole instrumentation pass was built to find. A ship that
+  // changes role has its old agent stopped and a new one built in a different
+  // role map; the symbol stays in scheduledShips and stays live, so the new
+  // agent was never enqueued and never marked running — a live agent, in a
+  // role map, that could never be scheduled again.
+  const fakeAgent = (symbol: string) => ({
+    symbol, running: false,
+    nextTask: () => ({ id: `${symbol}-t`, shipSymbol: symbol, priority: 2 as const, estimatedCalls: 1, earliestRunAt: 0, run: async () => ({ actualCalls: 0 }) }),
+  });
+
+  async function fleetWithScheduler() {
+    const { FleetManager } = await import("../src/engine/fleet.js");
+    const { Scheduler } = await import("../src/engine/scheduler.js");
+    const scheduler = new Scheduler({ log: () => {} });
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as never, scheduler } as never);
+    return { fleet, scheduler };
+  }
+
+  it("enqueues the new agent when a ship changes role", async () => {
+    const { fleet, scheduler } = await fleetWithScheduler();
+    const miner = fakeAgent("SHIP-1");
+    (fleet as never as { miners: Map<string, unknown> }).miners.set("SHIP-1", miner);
+
+    (fleet as never as { syncSchedulerTasks(): void }).syncSchedulerTasks();
+    assert.equal(miner.running, true, "precondition: the miner was scheduled");
+    const afterFirst = scheduler.size();
+
+    // Promotion: the old agent is stopped and a new one takes its place.
+    miner.running = false;
+    (fleet as never as { miners: Map<string, unknown> }).miners.delete("SHIP-1");
+    const trader = fakeAgent("SHIP-1");
+    (fleet as never as { traders: Map<string, unknown> }).traders.set("SHIP-1", trader);
+
+    (fleet as never as { syncSchedulerTasks(): void }).syncSchedulerTasks();
+
+    assert.equal(trader.running, true, "the promoted ship's new agent must be scheduled");
+    assert.ok(scheduler.size() > afterFirst, "and its task actually enqueued");
+  });
+
+  it("re-enqueues any agent whose chain has ended, whatever ended it", async () => {
+    // Self-healing rather than case-by-case: `running` is observed state and
+    // being enqueued is desired state, so the reconcile covers causes not yet
+    // imagined.
+    const { fleet, scheduler } = await fleetWithScheduler();
+    const miner = fakeAgent("SHIP-2");
+    (fleet as never as { miners: Map<string, unknown> }).miners.set("SHIP-2", miner);
+    (fleet as never as { syncSchedulerTasks(): void }).syncSchedulerTasks();
+    const afterFirst = scheduler.size();
+
+    miner.running = false; // chain ended for some reason
+    (fleet as never as { syncSchedulerTasks(): void }).syncSchedulerTasks();
+
+    assert.equal(miner.running, true);
+    assert.ok(scheduler.size() > afterFirst);
+  });
+
+  it("does not double-enqueue an agent that is still running", async () => {
+    const { fleet, scheduler } = await fleetWithScheduler();
+    const miner = fakeAgent("SHIP-3");
+    (fleet as never as { miners: Map<string, unknown> }).miners.set("SHIP-3", miner);
+    (fleet as never as { syncSchedulerTasks(): void }).syncSchedulerTasks();
+    const afterFirst = scheduler.size();
+
+    for (let i = 0; i < 5; i += 1) (fleet as never as { syncSchedulerTasks(): void }).syncSchedulerTasks();
+
+    assert.equal(scheduler.size(), afterFirst, "a healthy agent must not accumulate duplicate chains");
+  });
+});

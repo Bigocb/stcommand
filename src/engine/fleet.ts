@@ -3621,7 +3621,26 @@ export class FleetManager {
     const live = new Set<string>();
     const schedule = (sym: string, agent: { running: boolean }, makeTask: () => Task): void => {
       live.add(sym);
-      if (this.scheduledShips.has(sym)) return;
+      // Reconcile against the agent, not a memory of the symbol.
+      //
+      // This used to return early on `scheduledShips.has(sym)` alone, which
+      // cannot tell that the agent behind that symbol was replaced. A ship
+      // that changes role — DRAGOM-1's "promoted, largest cargo" from miner to
+      // trader — has its old agent stopped (running=false, and nextTask()'s
+      // first branch then ends that chain with no `next`) and a brand-new
+      // agent built in a different role map. The symbol stayed in
+      // scheduledShips and stayed in `live`, so the new agent was never
+      // enqueued and never marked running: a live agent, in a role map, that
+      // could never be scheduled again. Silently, for the life of the
+      // process. That is what froze DRAGOM with queue=6 ready=0 and fifteen
+      // no-op runs.
+      //
+      // `agent.running` is the observed state and being enqueued is the
+      // desired state, so this is rule 3 applied to scheduling itself: edge-
+      // triggered bookkeeping cannot self-correct, and a level-triggered
+      // check re-enqueues any agent whose chain has ended for *any* reason —
+      // role change, stop(), or something not yet imagined.
+      if (this.scheduledShips.has(sym) && agent.running) return;
       agent.running = true;
       scheduler.enqueue(makeTask());
       this.scheduledShips.add(sym);
