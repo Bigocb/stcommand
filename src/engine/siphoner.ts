@@ -139,6 +139,21 @@ export class SiphonerAgent {
     return this.ship;
   }
 
+  /**
+   * Replace this agent's cached snapshot with one the fleet already fetched.
+   *
+   * The fleet occasionally changes a ship out from under its agent — the
+   * clearest case is a critical repair, which suspends the agent, flies the
+   * hull itself and repairs it. The API hands back the repaired ship, but
+   * nothing used to carry it back here, so the agent's snapshot kept saying
+   * condition 0.00. maybeRepairFleet() reads exactly that snapshot, so it
+   * re-diverted the ship every tick and repaired it again for 0c, forever.
+   * Whoever mutates a ship owns telling its agent.
+   */
+  adoptShip(ship: Ship): void {
+    this.proxy.setShip(ship);
+  }
+
   isManual(): boolean {
     return this.manualGoal !== null;
   }

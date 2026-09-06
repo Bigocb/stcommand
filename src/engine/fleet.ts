@@ -67,6 +67,11 @@ interface ControlledAgent {
   resume(): void;
   /** Optional: real agent classes all implement this (see agentStep.ts); test fakes that don't are treated as always idle. */
   getStep?(): AgentStep;
+  /** Optional: hand the agent a snapshot the fleet fetched itself, so a hull the
+   *  fleet changed out from under its agent (a repair, above all) does not leave
+   *  the agent — and every controller that reads through it — believing the old
+   *  state. Test fakes may omit it. */
+  adoptShip?(ship: Ship): void;
 }
 
 export interface FleetOptions {
@@ -2194,6 +2199,13 @@ export class FleetManager {
       throw new Error(`repair needs ${preview.transaction.totalPrice}c, only ${agent.credits - this.minCashReserve()}c available above the cash floor`);
     }
     const res = await this.api.repairShip(shipSymbol);
+    // The repaired ship comes back in the response, and it is the only place
+    // the new condition exists. maybeRepairFleet() decides from the agent's
+    // cached snapshot, so leaving that snapshot at the pre-repair condition
+    // made a successful repair indistinguishable from a failed one: DAGGER-8
+    // was re-diverted and re-repaired for 0c every 13 seconds after a genuine
+    // 35,638c repair had already fixed it.
+    if (res.ship) this.noteShipState(shipSymbol, res.ship as unknown as Ship);
     this.recordLedger?.({
       timestamp: new Date().toISOString(),
       shipSymbol,
@@ -3270,6 +3282,22 @@ export class FleetManager {
   private shipFor(shipSymbol: string): Ship | undefined {
     const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
     return agent ? agent.getShip() : this.idleShips.get(shipSymbol);
+  }
+
+  /**
+   * The write half of shipFor(): push a snapshot the fleet fetched itself back
+   * into whoever owns the ship, so the next read through shipFor() sees it.
+   *
+   * Every controller in this class decides from shipFor(), which is an agent's
+   * cache. A fleet-level action that changes the ship — repair is the one that
+   * bit, but a fleet-driven nav or transfer is the same shape — leaves that
+   * cache describing a world that no longer exists, and the controller then
+   * re-decides on the stale reading and does the work again.
+   */
+  private noteShipState(shipSymbol: string, ship: Ship): void {
+    const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
+    if (agent) agent.adoptShip?.(ship);
+    else if (this.idleShips.has(shipSymbol)) this.idleShips.set(shipSymbol, ship);
   }
 
   /** What the ship's agent is doing right now (see agentStep.ts) — idle for an idle ship (no agent driving it) or a fake test agent that doesn't implement getStep(). */
