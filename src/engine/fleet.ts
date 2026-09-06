@@ -3235,6 +3235,43 @@ export class FleetManager {
   }
 
   /** One aggregated log line for the whole fleet, logged once per coordinator tick. */
+  private lastEarningsLog = 0;
+  /**
+   * The outcome line: what the fleet actually earned, not what it intended.
+   *
+   * Every other instrument here reports desired state — `want:` per ship, a
+   * route's profitPerTrip, the dispatcher's ranked work list. All of it was
+   * accurate through both of the day's serious incidents. The cross-system
+   * loop logged confident buys and sells at 9,036c a cycle of real loss while
+   * the ship never moved; the X1-RD37 stall had six traders holding
+   * assignments none could fly. In each case the only true signal was the
+   * credit balance, and a human found it hours later.
+   *
+   * Logged on a slow interval because it is a trend, not a tick reading, and
+   * one DB round trip per five minutes is cheap next to what it catches. Rate
+   * is extrapolated so the number is comparable across windows.
+   */
+  private async logEarnings(): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    const windowMin = 15;
+    const now = Date.now();
+    if (now - this.lastEarningsLog < 5 * 60_000) return;
+    this.lastEarningsLog = now;
+    try {
+      const since = new Date(now - windowMin * 60_000).toISOString();
+      const r = await this.store.ledgerSummary(this.tenantId, since);
+      const perHour = Math.round((r.net / windowMin) * 60);
+      const sign = (n: number) => `${n >= 0 ? "+" : ""}${Math.round(n)}`;
+      this.log(
+        `earnings ${windowMin}m: net ${sign(r.net)}c (${sign(perHour)}c/hr) — ` +
+        `sold +${Math.round(r.sells)} · bought -${Math.round(r.purchases)} · ` +
+        `fuel -${Math.round(r.refuel)} · ships/repair -${Math.round(r.ship)} · ${r.trades} sales`,
+      );
+    } catch (err) {
+      this.log(`earnings readout failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private logFleetStatus(): void {
     const parts = this.fleetStatusSummary().map(
       // Intent is appended only when one is committed, so the line stays the
@@ -3794,6 +3831,7 @@ export class FleetManager {
     await this.syncShipClaims();
     this.syncSchedulerTasks();
     this.logFleetStatus();
+    await this.logEarnings();
   }
 
   /**

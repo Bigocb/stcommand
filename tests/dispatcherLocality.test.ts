@@ -80,3 +80,42 @@ describe("the dispatcher assigns work a ship can actually start", () => {
     assert.deepEqual(got, [["T-1", "MEDICINE"]], "no locality information means rank by profit, as before");
   });
 });
+
+describe("a busy trader keeps the leg it is carrying cargo for", () => {
+  // keyFor() collapses a direct assignment to its good alone, so two busy
+  // traders carrying the same good collided in the carry-forward loop: the
+  // first kept its route, the second fell through and was reassigned while
+  // holding cargo — usually to the GOOD@sellAt variant, a different leg
+  // entirely. That is how DAGGER-17, mid-trip with 18u ANTIMATTER bought for
+  // X1-KU72-I59, ended up pointed at X1-TV75-X20F.
+  const antimatter = (sellAt: string): DispatchRoute => ({
+    good: "ANTIMATTER",
+    buyAt: "X1-KU72-I60", sellAt,
+    buySystem: "X1-KU72", sellSystem: "X1-KU72",
+    buyPrice: 5921, sellPrice: 6500, profitPerTrip: 24250,
+  } as unknown as DispatchRoute);
+
+  it("does not reassign the second of two busy ships carrying the same good", () => {
+    const d = new RouteDispatcher();
+    const traders = [
+      { shipSymbol: "T-1", capacity: 80, system: "X1-KU72" },
+      { shipSymbol: "T-2", capacity: 80, system: "X1-KU72" },
+    ];
+    const routes = [antimatter("X1-KU72-I59"), antimatter("X1-KU72-D47")];
+
+    // First pass: both pick up ANTIMATTER legs, to different sell markets.
+    d.recompute(routes, traders, [], [], [], [], canJump);
+    const first = traders.map((t) => d.assignmentFor(t.shipSymbol)?.sellAt);
+    assert.equal(new Set(first.filter(Boolean)).size, 2, "precondition: two distinct legs on the same good");
+
+    // Both now hold cargo. Nothing about their trips has changed.
+    (d as any).lastComputed = 0;
+    d.recompute(routes, traders.map((t) => ({ ...t, busy: true })), [], [], [], [], canJump);
+
+    assert.deepEqual(
+      traders.map((t) => d.assignmentFor(t.shipSymbol)?.sellAt),
+      first,
+      "a hull mid-haul must keep its own leg — reassigning it strands the cargo",
+    );
+  });
+});

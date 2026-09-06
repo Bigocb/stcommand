@@ -141,3 +141,32 @@ describe("a route must start somewhere the ship can actually get to", () => {
     assert.ok((a as any).deadRoutes.has("MEDICINE@X1-RD37-XC5A"), "the buy-side case looped before this");
   });
 });
+
+describe("an unreachable leg stays retired", () => {
+  // deadRoutes is wiped every tick, deliberately: a market's price can
+  // recover. Reachability is not a price — a system with no gate to it does
+  // not become reachable because two seconds passed — so retiring an
+  // unreachable leg into deadRoutes alone gave it a lifetime of one tick and
+  // made markRouteUnreachable() unable to do the one thing it exists for.
+  it("survives the per-tick deadRoutes sweep", () => {
+    const a = trader({ gatesTo: () => [], scanJumpGates: async () => {} },
+      { good: "MEDICINE", role: "direct", buyAt: "X1-RD37-XC5A", sellAt: "X1-RD37-DX2F", buyPrice: 1, sellPrice: 2 });
+    (a as any).markRouteUnreachable("X1-RD37");
+    assert.ok((a as any).deadRoutes.has("MEDICINE@X1-RD37-XC5A"));
+
+    // What tick() does at the top of every pass.
+    (a as any).deadRoutes.clear();
+    for (const key of (a as any).unreachableRoutes) (a as any).deadRoutes.add(key);
+
+    assert.ok((a as any).deadRoutes.has("MEDICINE@X1-RD37-XC5A"),
+      "an unreachable leg must not be retried two seconds later");
+  });
+
+  it("still forgets a route retired for a price reason", () => {
+    const a = trader({});
+    (a as any).deadRoutes.add("COPPER@X1-KU72-A3");
+    (a as any).deadRoutes.clear();
+    for (const key of (a as any).unreachableRoutes) (a as any).deadRoutes.add(key);
+    assert.equal((a as any).deadRoutes.has("COPPER@X1-KU72-A3"), false, "prices recover; that sweep must still work");
+  });
+});

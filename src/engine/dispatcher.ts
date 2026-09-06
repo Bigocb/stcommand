@@ -400,8 +400,22 @@ export class RouteDispatcher {
       if (!t.busy || this.manual.has(t.shipSymbol)) continue;
       const current = this.assignments.get(t.shipSymbol);
       if (!current) continue;
-      const key = keyFor(current);
-      if (usedKeys.has(key)) continue;
+      // Key on the whole leg, not just the good.
+      //
+      // keyFor() collapses a direct assignment to its good alone, so two busy
+      // traders carrying the same good collided here: the first kept its
+      // route and the second silently fell through to the main loop and was
+      // reassigned *while holding cargo* — usually to the `GOOD@sellAt`
+      // variant, which is a different leg entirely. That is how DAGGER-17,
+      // mid-trip with 18u ANTIMATTER bought for X1-KU72-I59, ended up pointed
+      // at X1-TV75-X20F, a system it cannot reach.
+      //
+      // Two ships carrying the same good to *different* markets is exactly
+      // what the sell-destination keying elsewhere in this file exists to
+      // allow, so it must not be a collision here either. A ship already
+      // holding cargo keeps its leg unconditionally: reassigning a hull
+      // mid-haul strands what it is carrying, whatever else wants the slot.
+      const key = current.role === "direct" && current.sellAt ? `${current.good}@${current.sellAt}` : keyFor(current);
       usedKeys.add(key);
       next.set(t.shipSymbol, current);
     }

@@ -1294,6 +1294,45 @@ export class Store {
    * ship purchases are spend. Scrapping is recorded as type SHIP but returns
    * credits, so it is counted as income.
    */
+  /**
+   * Realized cash flow since `sinceIso`, split by what actually moved it.
+   *
+   * Every instrument this engine had reported *intent* — what a ship wants,
+   * what a route is worth on paper. Intent was never wrong during the two
+   * biggest incidents of the day: a cross-system loop that logged confident
+   * buys and sells while the ship never moved and lost 9,036c a cycle, and a
+   * stall where six traders held assignments they could not fly. Both were
+   * found by a human noticing the credit balance, hours later.
+   *
+   * This is the outcome side. `net` is the number that answers "is it
+   * working", and the breakdown says where it went when the answer is no —
+   * fuel and repairs are real costs that a gross trading margin hides.
+   */
+  async ledgerSummary(tenantId: string, sinceIso: string): Promise<{
+    net: number; sells: number; purchases: number; refuel: number; ship: number; trades: number;
+  }> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      // `total` is stored as a positive magnitude regardless of direction —
+      // see ledgerTotals() — so direction comes from `type` alone.
+      const res = await c.query<{ type: string; amount: string | null; n: string }>(
+        `SELECT type, COALESCE(SUM(total), 0) AS amount, COUNT(*) AS n
+         FROM ledger WHERE timestamp >= $1 GROUP BY type`,
+        [sinceIso],
+      );
+      const by = new Map(res.rows.map((r) => [r.type, { amount: Number(r.amount ?? 0), n: Number(r.n) }]));
+      const amt = (t: string) => by.get(t)?.amount ?? 0;
+      const sells = amt("SELL");
+      const purchases = amt("PURCHASE");
+      const refuel = amt("REFUEL");
+      const ship = amt("SHIP");
+      return {
+        net: sells - purchases - refuel - ship,
+        sells, purchases, refuel, ship,
+        trades: by.get("SELL")?.n ?? 0,
+      };
+    });
+  }
+
   async earningsByShip(tenantId: string, sinceIso: string): Promise<{ shipSymbol: string; earned: number; spent: number; net: number }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
       const res = await c.query<{ ship_symbol: string; earned: number; spent: number }>(

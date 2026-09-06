@@ -207,6 +207,9 @@ export class TraderAgent {
   private heldRoute = new Map<string, DirectLeg>();
   /** Routes rejected by the live buy-price guard this tick (good@buyAt). */
   private deadRoutes = new Set<string>();
+  /** Legs whose far end the galaxy says cannot be reached at all — see the
+   *  clear() in tick() for why these must outlive the per-tick sweep. */
+  private unreachableRoutes = new Set<string>();
   private stranded = false;
   running = false;
   private get currentStep(): AgentStep { return this.proxy.getStep(); }
@@ -492,6 +495,7 @@ export class TraderAgent {
     if (!leg) return;
     if (this.systemOf(leg.sellAt) === targetSystem || this.systemOf(leg.buyAt) === targetSystem) {
       this.deadRoutes.add(`${leg.good}@${leg.buyAt}`);
+      this.unreachableRoutes.add(`${leg.good}@${leg.buyAt}`);
     }
   }
 
@@ -1538,7 +1542,17 @@ export class TraderAgent {
     const assignedAtTickStart = this.assignedRoute?.();
     // Dead routes are per-tick: a market's price can recover, so forget them
     // once we've had a chance to pick a different route.
+    //
+    // Reachability is not a price, though. A system with no gate to it does
+    // not become reachable because two seconds passed, and clearing those
+    // here made markRouteUnreachable() a no-op with a lifetime of one tick —
+    // it was added to stop an unreachable leg being retried forever and could
+    // not do that. Keep them separately and permanently: the only thing that
+    // changes reachability is the galaxy itself, and a newly completed gate
+    // arrives through GalaxyAtlas.canJump(), which viableRoute() consults
+    // before deadRoutes is ever reached.
     this.deadRoutes.clear();
+    for (const key of this.unreachableRoutes) this.deadRoutes.add(key);
 
     // Contract delivery outranks everything else, same as ShipAgent's own
     // tick() — a trader holding a contract-deliverable good (from a
