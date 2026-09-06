@@ -358,9 +358,48 @@ should mean.
 
 ---
 
-## 8. Migration — all six steps built
+## 8. Migration — four steps built, two half-built
 
-Every step below is implemented on `claude/stcommand-ui-parallel-versions-fd5p9q`.
+This section previously read "all six steps built". It was wrong, and the
+error was load-bearing: step 3 was marked complete when half of it was
+done, and every bug found since has lived in the half that was skipped.
+Re-audited against the code, step by step.
+
+| Step | State | Evidence |
+| --- | --- | --- |
+| 1. Data plane cannot block | **Done** | No `await sleep(` in any of the four agent classes; `CooldownPending`/`NavigationPending` yield the scheduler |
+| 2. Registry by reference | **Done** | One `Registry`, read by reference. `withWorld()` and `chartSystemFor()` survive but were repurposed — `withWorld()` now *seeds* the registry and has no production callers, `chartSystemFor()` pulls an unscanned system into the atlas. The deletion list above is stale, not the code |
+| 3. One executor | **Half** | `ShipProxy` exists (the primitives). Agents did *not* become `step()` producers over it — they still call it imperatively inside straight-line procedures |
+| 4. Intents + arbiter | **Half** | repair, rescue (priority 0, both hulls), explore and keeper all propose. Manual dispatch still uses `manualGoal` |
+| 5. Controllers | **Half** | Only `maybeAssignKeepers()` is a pure proposer. `maybeRepairFleet()`, `autoExplore()` and the rescue path propose *and then fly the ship themselves* |
+| 6. Telemetry | **Done** | `getStep()`/`stepFor()` feed `getShipStatuses()`; the fleet line and dashboard show intent against observed |
+
+### The three half-steps are one fault line
+
+Steps 3 and 5 and the recorded step-4 gap are not independent. Rule 1 says
+*controllers never call the kubelet* — and `runCriticalRepair()` suspends an
+agent and flies a hull, `exploreSystem()` does the same. They cannot stop
+doing that until an agent can execute **from** an intent rather than merely
+standing down on one, which is exactly the step-4 gap. And an agent cannot
+execute from an intent until it is a `step()` producer, which is step 3.
+
+One missing piece, three faces:
+
+- the executor was never finished (step 3),
+- so agents cannot execute from a goal (step 4's recorded gap),
+- so controllers still fly ships themselves (step 5).
+
+Every failure since the refactor traces here. The repair-vs-tour preemption
+race: a controller flying a hull the agent had already committed to a
+navigate. The phantom trades and the X1-RD37 stall: a straight-line
+procedure with no diff between statements, so a step that failed silently
+was indistinguishable from one that worked.
+
+`MissionManager.stepCarrier()` is the working reference implementation, in
+this repo, for what step 3 should produce: position re-checked before every
+action, a failed move simply making no progress that tick. It has none of
+these bugs.
+
 Two things this document called for are deliberately *not* done, and are
 recorded here rather than left as silent gaps:
 
