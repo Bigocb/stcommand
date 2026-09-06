@@ -488,3 +488,22 @@ delivery intents against the construction site's material requirements.
 That makes gate-building a normal reconciliation loop rather than a manual
 mission, and it is what turns a system the fleet has outgrown into a
 solvable problem instead of a ceiling.
+
+### Unsellable cargo should go to a warehouse, not overboard
+
+Miners jettison material no reachable market lists, because the alternative
+was the deadlock it now prevents: half of what an asteroid yields may have no
+buyer in the home system, the residue holds its slot forever, and a full hold
+mines into itself indefinitely. Destroying it is the crude answer — correct
+against a deadlock, wrong against the material.
+
+The right answer is a warehouse ship. `warehouseWithdraw()`, the warehouse
+state in `trader.ts` and the dashboard's warehouse panel already exist for
+trade goods; what is missing is the deposit side for mined material and a
+policy for when a stockpile is worth a cross-system run. A miner would then
+drop residue at a warehouse hull instead of into space, and it would leave
+the system on the first trader whose route reaches a market that lists it.
+
+This depends on multi-hop routing (the reason there is no buyer is usually
+that the buyer is one jump away), so it belongs after the executor work,
+alongside the jump-gate controller above.

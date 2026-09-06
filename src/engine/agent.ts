@@ -433,46 +433,123 @@ export class ShipAgent {
     return this.registry.distance(this.ship.nav.waypointSymbol, wp.symbol);
   }
 
-  /** Choose a selling destination. Prefer a market that imports the good (profile visible remotely).
-   *  Only markets the ship could actually reach with a full tank are considered, so a ship stranded
-   *  far from a niche-importer (e.g. ore importers at B7, 303 fuel away from an 80-tank ship) does
-   *  not chase an unreachable sell target forever. */
-  private pickSellTarget(): string | undefined {
-    const good = this.ship.cargo.inventory[0];
-    if (!good) return undefined;
-    const candidates = this.registry.markets(this.ship.nav.systemSymbol).filter((m) => {
-      if (m.imports.includes(good.symbol) || m.exchange.includes(good.symbol)) return true;
-      const g = m.tradeGoods[good.symbol];
-      return g && (g.type === "IMPORT" || g.type === "EXCHANGE");
-    });
+  /**
+   * Reachable markets that will actually buy `goodSymbol`, best price first.
+   *
+   * "Will buy" is the market listing it as an import or exchange. A market
+   * that does not list a good rejects the sale outright — "Trade good
+   * SILICON_CRYSTALS is not listed at market X1-S84-H56" — so a target
+   * chosen without this check is a wasted trip at best.
+   */
+  private sellMarketsFor(goodSymbol: string): MarketSnapshot[] {
     const fuelCap = this.ship.fuel.capacity;
-    const reachable = candidates.filter(
-      (m) =>
-        // Same-system, with a known position, for the same reason
-        // nearestReachableMarket() requires both: cross-system distances are
-        // not comparable, and a missing position silently reads as 0 fuel
-        // away, so the least reachable candidates score best.
-        this.registry.position(m.symbol) !== undefined &&
-        (fuelCap <= 0 || this.estimatedFuelTo(m.symbol) <= fuelCap),
-    );
-    // Never chase a market the ship cannot reach even on a full tank (e.g. ore importer
-    // B7 at 303 fuel vs an 80-tank ship) — that just loops on "cannot navigate".
-    const pool = reachable.length > 0 ? reachable : [];
-    if (pool.length === 0) return undefined;
-    // Rank by sellPrice — what this market pays the ship for the good — not
-    // purchasePrice, which is what buying FROM that market would cost and has
-    // no bearing on a sell decision. Sorting by purchasePrice here picked
-    // whichever reachable market was most expensive to buy from, which can
-    // easily be a market that pays poorly to sell to; that produced real
-    // near-zero-proceeds sales (a market with a high purchasePrice but a low
-    // sellPrice looked "best" and won the sort, when it was actually one of
-    // the worst places to sell).
-    pool.sort((a, b) => {
-      const pa = a.tradeGoods[good.symbol]?.sellPrice ?? 0;
-      const pb = b.tradeGoods[good.symbol]?.sellPrice ?? 0;
-      return pb - pa;
-    });
-    return pool[0]?.symbol;
+    return this.registry
+      .markets(this.ship.nav.systemSymbol)
+      .filter((m) => {
+        if (m.imports.includes(goodSymbol) || m.exchange.includes(goodSymbol)) return true;
+        const g = m.tradeGoods[goodSymbol];
+        return g && (g.type === "IMPORT" || g.type === "EXCHANGE");
+      })
+      // Never chase a market the ship cannot reach even on a full tank (e.g.
+      // ore importer B7 at 303 fuel vs an 80-tank ship) — that just loops on
+      // "cannot navigate". Same-system, with a known position, for the same
+      // reason nearestReachableMarket() requires both: cross-system distances
+      // are not comparable, and a missing position silently reads as 0 fuel
+      // away, so the least reachable candidates score best.
+      .filter(
+        (m) =>
+          this.registry.position(m.symbol) !== undefined &&
+          (fuelCap <= 0 || this.estimatedFuelTo(m.symbol) <= fuelCap),
+      )
+      // Rank by sellPrice — what this market pays the ship for the good — not
+      // purchasePrice, which is what buying FROM that market would cost and has
+      // no bearing on a sell decision. Sorting by purchasePrice here picked
+      // whichever reachable market was most expensive to buy from, which can
+      // easily be a market that pays poorly to sell to; that produced real
+      // near-zero-proceeds sales (a market with a high purchasePrice but a low
+      // sellPrice looked "best" and won the sort, when it was actually one of
+      // the worst places to sell).
+      .sort((a, b) => (b.tradeGoods[goodSymbol]?.sellPrice ?? 0) - (a.tradeGoods[goodSymbol]?.sellPrice ?? 0));
+  }
+
+  /**
+   * Choose a selling destination, considering everything in the hold.
+   *
+   * This used to read `inventory[0]` and give up if that one good had no
+   * buyer, which is how four miners bricked themselves. A mining ship
+   * extracts whatever the asteroid yields — at X1-S84-EC5D that was iron,
+   * copper and aluminium ore (all sellable at H56) mixed with quartz sand,
+   * ice water and silicon crystals (none of them listed there). The
+   * unsellable half stayed aboard after every trip, and once it reached the
+   * front of the inventory the ship stopped recognising that it was still
+   * carrying 10u of sellable ore behind it. Sales decayed 12 → 9 → 5 → 1 → 0
+   * and all four sat at a full hold for ninety-five minutes.
+   *
+   * Ranking by proceeds (price × units) rather than unit price, because the
+   * point is to empty the hold profitably, not to get the best price on one
+   * unit of whatever happens to be aboard.
+   */
+  private pickSellTarget(): string | undefined {
+    const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
+    let best: { market: string; proceeds: number } | undefined;
+    for (const item of this.ship.cargo.inventory) {
+      if (protectedGoods.has(item.symbol)) continue;
+      const market = this.sellMarketsFor(item.symbol)[0];
+      if (!market) continue;
+      const proceeds = (market.tradeGoods[item.symbol]?.sellPrice ?? 0) * item.units;
+      if (!best || proceeds > best.proceeds) best = { market: market.symbol, proceeds };
+    }
+    return best?.market;
+  }
+
+  /** Held goods, excluding reserved ones, that no reachable market will buy. */
+  private unsellableGoods(): { symbol: string; units: number }[] {
+    const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
+    return this.ship.cargo.inventory
+      .filter((i) => !protectedGoods.has(i.symbol) && this.sellMarketsFor(i.symbol).length === 0)
+      .map((i) => ({ symbol: i.symbol, units: i.units }));
+  }
+
+  /**
+   * Throw away cargo nothing in range will buy, once it is crowding the hold.
+   *
+   * The deadlock this ends: a good with no reachable buyer occupies its slot
+   * forever. Mining adds more of it every trip, and there is no other exit —
+   * the miner has no equivalent of the trader's clearLeftoverCargo(), so the
+   * hold fills with material the fleet cannot convert to anything and the
+   * ship mines into a full hold indefinitely.
+   *
+   * Deliberately not on first rejection: a market's listings change, and a
+   * few units riding along cost nothing while there is still room to mine.
+   * The threshold is where the cargo stops being free to carry.
+   *
+   * Never touches protectedGoods — contract and mission cargo is reserved
+   * precisely because no market for it is the normal case, and jettisoning
+   * it would destroy the delivery the fleet is being paid for.
+   *
+   * Jettison is the crude version of the right answer. When warehouse ships
+   * can hold material for a later cross-system run, this becomes "haul it
+   * there" instead of "destroy it" — see docs/control-plane-data-plane.md §10.
+   */
+  private async dumpUnsellableCargo(): Promise<boolean> {
+    const capacity = this.ship.cargo.capacity;
+    if (capacity <= 0 || this.ship.cargo.units < capacity * 0.8) return false;
+    const dead = this.unsellableGoods();
+    if (dead.length === 0) return false;
+    for (const item of dead) {
+      try {
+        this.currentStep = { kind: "transacting", action: "jettison", good: item.symbol };
+        await this.api.jettisonCargo(this.symbol, item.symbol, item.units);
+        this.currentStep = IDLE_STEP;
+        this.log(`jettisoned ${item.units}u ${item.symbol}: no reachable market buys it`);
+        this.onActivity?.("jettison", `${item.units}u ${item.symbol} (no buyer in range)`, undefined, this.symbol);
+      } catch (err) {
+        this.currentStep = IDLE_STEP;
+        this.log(`jettison failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    await this.refresh();
+    return true;
   }
 
   /** Dock at a market waypoint and refresh its price snapshot. */
@@ -797,6 +874,11 @@ export class ShipAgent {
         if (this.ship.cargo.units >= this.ship.cargo.capacity * 0.8) {
           const toured = await this.discoverMarkets();
           if (toured) return true;
+          // Nowhere left to look and nowhere to sell. Anything with no
+          // reachable buyer goes overboard, or the hold stays full and this
+          // ship mines into it forever — the state four DRAGOM miners were
+          // in for ninety-five minutes.
+          if (await this.dumpUnsellableCargo()) return true;
         }
       }
     }
