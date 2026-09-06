@@ -1,6 +1,7 @@
 import { describe, it, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
+import { Registry } from "../src/engine/registry.js";
 import { FleetManager, DEFAULT_KEEPER_MARKETS } from "../src/engine/fleet.js";
 import { createPool } from "../src/db/pool.js";
 import { Store } from "../src/db/store.js";
@@ -80,7 +81,18 @@ function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 4
 function stubMarketSystem(fleet: FleetManager, systemSymbol: string, waypointCoords: Record<string, { x: number; y: number }>) {
   const waypoints = Object.keys(waypointCoords);
   (fleet as any).markets = waypoints.map((symbol) => ({ symbol, systemSymbol, tradeGoods: {} }));
-  (fleet as any).positions = waypoints.map((symbol) => ({ symbol, ...waypointCoords[symbol], type: "MOON" }));
+  // Seed the registry, not a side array. The fleet's distance functions read
+  // Registry.distance() now — the one place that knows a cross-system hypot is
+  // meaningless — so a test that stubs `positions` alone is exercising a path
+  // production no longer takes.
+  const registry = Registry.standalone();
+  registry.seed(waypoints.map((symbol) => ({
+    symbol,
+    ...waypointCoords[symbol]!,
+    traits: [{ symbol: "MARKETPLACE", name: "M", description: "" }],
+  })));
+  registry.recordMarkets(waypoints.map((symbol) => ({ symbol, systemSymbol, tradeGoods: {} })) as never);
+  (fleet as any).registry = registry;
   (fleet as any).galaxy = {
     getSystem: (sys: string) =>
       sys === systemSymbol

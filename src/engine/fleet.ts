@@ -2736,12 +2736,21 @@ export class FleetManager {
     this.log(`${shipSymbol}: manually assigned to contract-buy ${tradeSymbol} at ${cheapest.waypoint}`);
   }
 
-  /** Estimate fuel needed to fly a ship from its current waypoint to a target. */
+  /**
+   * Estimate fuel needed to fly a ship from its current waypoint to a target.
+   *
+   * Through the registry, which is the only thing that knows a hypot between
+   * two systems is meaningless — waypoint coordinates are per-system, so a
+   * cross-system distance can land under fuel capacity by pure coincidence
+   * and send a ship at somewhere it cannot reach. This used to read a
+   * separate `positions` array with no such guard, and returned 0 for an
+   * unknown waypoint, which reads as "free" rather than "unknown". Both are
+   * the exact traps Registry.distance() exists to close, and the agents'
+   * copies of this function were fixed for them long ago.
+   */
   estimatedFuelTo(shipSymbol: string, waypointSymbol: string): number {
-    const ship = this.positions.find((p) => p.symbol === waypointSymbol);
-    const here = this.positions.find((p) => p.symbol === this.shipWaypoint(shipSymbol));
-    if (!ship || !here) return 0;
-    return Math.max(1, Math.round(Math.hypot(ship.x - here.x, ship.y - here.y)));
+    const d = this.registry.distance(this.shipWaypoint(shipSymbol), waypointSymbol);
+    return Number.isFinite(d) ? Math.max(1, Math.round(d)) : Infinity;
   }
 
   private shipWaypoint(shipSymbol: string): string {
@@ -4426,12 +4435,17 @@ export class FleetManager {
     }
   }
 
-  /** Distance (≈ fuel) between two waypoints using the atlas. */
+  /**
+   * Distance (≈ fuel) between two waypoints, through the registry.
+   *
+   * dispatchShipHop() picks fuel stops with this, which puts it on the rescue
+   * and critical-repair paths — the two places a wrong number strands a hull
+   * rather than merely wasting a trip. It read `positions` directly and
+   * compared coordinates from different systems as if they shared a plane.
+   */
   private estimatedFuelBetween(a: string, b: string): number {
-    const pa = this.positions.find((p) => p.symbol === a);
-    const pb = this.positions.find((p) => p.symbol === b);
-    if (!pa || !pb) return Infinity;
-    return Math.max(1, Math.round(Math.hypot(pb.x - pa.x, pb.y - pa.y)));
+    const d = this.registry.distance(a, b);
+    return Number.isFinite(d) ? Math.max(1, Math.round(d)) : Infinity;
   }
 
   private async autoExplore(): Promise<void> {

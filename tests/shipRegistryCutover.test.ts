@@ -1,6 +1,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
+import { Registry } from "../src/engine/registry.js";
 import { FleetManager } from "../src/engine/fleet.js";
 import { ContractManager, type Contract } from "../src/engine/contract.js";
 import { resetSupplyChainCacheForTests } from "../src/engine/supplyChain.js";
@@ -80,6 +81,20 @@ function makeFakeAgentWithFuel(symbol: string, waypointSymbol: string, cargoCapa
     ...base,
     getShip: () => ({ ...base.getShip(), fuel: { current: fuelCapacity, capacity: fuelCapacity } }),
   };
+}
+
+/**
+ * Seed the fleet's registry from a coordinate list.
+ *
+ * The fleet's distance functions read Registry.distance() now — the one place
+ * that knows a cross-system hypot is meaningless and that an unknown waypoint
+ * is not "free" — so stubbing a `positions` array alone exercises a path
+ * production no longer takes.
+ */
+function seedRegistry(fleet: unknown, waypoints: readonly { symbol: string; x: number; y: number }[]): void {
+  const registry = Registry.standalone();
+  registry.seed(waypoints.map((w) => ({ symbol: w.symbol, x: w.x, y: w.y })));
+  (fleet as { registry: unknown }).registry = registry;
 }
 
 describe("holdShip / releaseShip claim the registry immediately", () => {
@@ -171,6 +186,7 @@ describe("assignMissionCarrier enforces the claim", () => {
       { symbol: "X1-A-A1", x: 0, y: 0, type: "PLANET" },
       { symbol: "X1-A-FAR", x: 1000, y: 0, type: "JUMP_GATE" },
     ];
+    seedRegistry(fleet, [{ symbol: "X1-A-A1", x: 0, y: 0 }, { symbol: "X1-A-FAR", x: 1000, y: 0 }]);
     (fleet as any).traders.set("SHORT-RANGE", makeFakeAgentWithFuel("SHORT-RANGE", "X1-A-A1", 40, 80));
     await fleet.startMission("X1-A-FAR");
 
@@ -313,6 +329,7 @@ describe("dispatchShipHop is non-blocking", () => {
       { symbol: "X1-A-HOP", x: 100, y: 0, type: "FUEL_STATION" },
       { symbol: "X1-A-TARGET", x: 200, y: 0, type: "JUMP_GATE" },
     ];
+    seedRegistry(fleet, [{ symbol: "X1-A-START", x: 0, y: 0 }, { symbol: "X1-A-HOP", x: 100, y: 0 }, { symbol: "X1-A-TARGET", x: 200, y: 0 }]);
     (fleet as any).galaxy.systems.set("X1-A", {
       symbol: "X1-A",
       waypoints: [{ symbol: "X1-A-HOP", type: "FUEL_STATION" }],
@@ -356,6 +373,7 @@ describe("dispatchShipHop is non-blocking", () => {
       { symbol: "X1-A-START", x: 0, y: 0, type: "PLANET" },
       { symbol: "X1-A-TARGET", x: 469, y: 0, type: "JUMP_GATE" },
     ];
+    seedRegistry(fleet, [{ symbol: "X1-A-START", x: 0, y: 0 }, { symbol: "X1-A-TARGET", x: 469, y: 0 }]);
     (fleet as any).galaxy.systems.set("X1-A", { symbol: "X1-A", waypoints: [], jumpGates: [], markets: [], shipyards: [] });
 
     await (fleet as any).dispatchShipHop("SHIP-1", "X1-A-TARGET");
