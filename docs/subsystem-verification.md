@@ -333,6 +333,52 @@ claim in the design doc.
 
 ---
 
+## Open finding — two processes tick the same fleet during a deploy
+
+Found while checking something else, and worth recording before it is lost.
+
+An operator role change (command ship → surveyor) made two instances
+disagree about the same hull, which is what made the condition legible:
+
+```
+20:42:14  deploy goes live                                   (instance b5qxd)
+20:43:04  [b5qxd]  DRAGOM-1(surveyor)@-H56 docked
+20:43:05  [4d2vs]  DRAGOM-1(trader)@-H56 transit → X1-S84-H56
+20:43:14  [4d2vs]  DRAGOM-3: mining at X1-S84-EC5D    ← last line, mid-command
+```
+
+The old instance was not idling out. It was issuing ship commands right up
+to the moment it stopped, with its own `TenantWorker`, scheduler and
+dispatcher, against the same six hulls. Roughly sixty seconds per deploy.
+
+`shutting down` has never appeared in the logs — not for this deploy, not
+for any of the six today. `src/cli/index.ts:105` registers a SIGTERM handler
+that calls `registry.stopAll()`; it either never fires or the process dies
+before it can log.
+
+**Why it matters.** ADR-0006 makes `ShipRegistry` the single ownership
+arbiter — one claim per ship, precedence-ranked, so two authorities cannot
+silently fight over a hull. That holds *within a process*. Nothing enforces
+it across processes, and ADR-0005's "one long-running process" is an
+assumption, never a check. So every deploy opens a window where the
+ownership model is simply off, producing the exact class of bug this session
+kept chasing: conflicting nav orders, states that should not be reachable,
+and double the API call rate against a per-IP limit. Several earlier wrong
+diagnoses involved a ship being somewhere the plan did not expect; a deploy
+overlap cannot now be ruled out as a contributor to at least one.
+
+**Shape of the fix.** A Postgres advisory lock per tenant, taken by the
+worker at boot and released on shutdown, so a second process declines to
+tick a tenant another process already owns. Bounded and deploy-only, so not
+urgent — but it is mechanics, and it is the same principle as ADR-0006 at a
+level nobody enforced.
+
+**Note on attribution.** The manual role change did not cause this; it
+exposed it. With both instances agreeing on roles the double-ticking would
+have stayed invisible.
+
+---
+
 ## Queue
 
 | # | Step | Status |
