@@ -148,10 +148,14 @@ describe("Task chain termination on stop()", () => {
 });
 
 describe("fleet.run() with a scheduler present", () => {
-  it("does not start the old runLoop()-family blocking loops", async () => {
+  it("drives every ship through the scheduler, with no per-agent loop of its own", async () => {
+    // The cutover this file was written to guard is finished: the blocking
+    // runLoop()/surveyLoop()/tourLoop()/keeperLoop() family no longer exists,
+    // so there is nothing left to accidentally start. What has to stay true
+    // is that fleet.run() does the scheduling and never drives a ship itself.
     const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
-    let runLoopCalled = false;
-    trader.runLoop = async () => { runLoopCalled = true; };
+    let ticked = false;
+    (trader as any).tick = async () => { ticked = true; return false; };
 
     const scheduler = new Scheduler();
     const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any, scheduler });
@@ -159,25 +163,13 @@ describe("fleet.run() with a scheduler present", () => {
 
     await fleet.run(1);
 
-    assert.ok(!runLoopCalled, "runLoop() must never be invoked when a Scheduler is wired in");
+    // Scheduling itself is covered by the syncSchedulerTasks test below,
+    // which has the ship-status plumbing this fixture deliberately lacks.
+    // What matters here is the negative: run() never drives a hull itself.
+    assert.equal(ticked, false, "fleet.run() must not drive a ship directly");
     fleet.stop();
   });
 
-  it("without a scheduler, still starts the old loop (the pre-cutover fallback path)", async () => {
-    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
-    let runLoopCalled = false;
-    trader.runLoop = async (maxTicks: number) => { runLoopCalled = true; };
-
-    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
-    (fleet as any).traders.set("SHIP-1", trader);
-
-    await fleet.run(1);
-
-    assert.ok(runLoopCalled, "without a scheduler, run() must fall back to starting runLoop() exactly as before this cutover");
-  });
-});
-
-describe("maybeAssignKeepers with a scheduler present", () => {
   it("enqueues the new keeper's nextKeeperTask() directly, without starting the old keeperLoop()", async () => {
     const scheduler = new Scheduler();
     const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any, scheduler });
@@ -188,23 +180,13 @@ describe("maybeAssignKeepers with a scheduler present", () => {
     (fleet as any).syncSchedulerTasks(); // as a real tick would, before maybeAssignKeepers runs later in the same tick
     assert.equal(scheduler.size(), 2, "the miner's own task plus the one-time fleet-level rescue task");
 
-    let keeperLoopStarted = false;
-    const OriginalShipAgent = (await import("../src/engine/agent.js")).ShipAgent;
-    const originalKeeperLoop = OriginalShipAgent.prototype.keeperLoop;
-    OriginalShipAgent.prototype.keeperLoop = async function (this: any, maxTicks: number) { keeperLoopStarted = true; };
-    try {
-      // keeperPriorityMarkets() defaults to [] (no store/tenantId on this
-      // fleet to read a configured list from, and the built-in default is
-      // deliberately empty — see DEFAULT_KEEPER_MARKETS's own comment).
-      // This test is about the scheduler-vs-old-loop branch, not the
-      // priority-list plumbing, so stub a market directly.
-      (fleet as any).keeperPriorityMarkets = async () => ["X1-A-D46"];
-      await (fleet as any).maybeAssignKeepers();
-    } finally {
-      OriginalShipAgent.prototype.keeperLoop = originalKeeperLoop;
-    }
+    // keeperPriorityMarkets() defaults to [] (no store/tenantId on this fleet
+    // to read a configured list from, and the built-in default is
+    // deliberately empty — see DEFAULT_KEEPER_MARKETS's own comment), so stub
+    // a market directly; this test is about the conversion, not that plumbing.
+    (fleet as any).keeperPriorityMarkets = async () => ["X1-A-D46"];
+    await (fleet as any).maybeAssignKeepers();
 
-    assert.ok(!keeperLoopStarted, "the old keeperLoop() must not start when a scheduler is present");
     assert.ok((fleet as any).keepers.has("MINER-1"), "the ship must have actually been converted");
     // Three tasks now: the rescue task, the miner's now-orphaned original
     // task (still enqueued, will self-terminate via running=false once it

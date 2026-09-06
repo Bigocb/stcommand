@@ -1,22 +1,21 @@
 /**
- * Greenfield Phase 5: the unified scheduler skeleton — Pillar 3 of the
- * design doc, and the highest-risk phase in the whole sequence (see
- * README's Greenfield section). This file is the queue/runner/budget
- * mechanics only: a priority task queue, a per-tenant call budget, and a
- * runner loop that drains ready tasks within that budget, highest priority
- * first, pausing everything but rescue (priority 0) while the fleet is
- * halted.
+ * The queue/runner/budget mechanics behind every ship's work: a priority task
+ * queue, a per-tenant call budget, and a runner loop that drains ready tasks
+ * within that budget, highest priority first, pausing everything but rescue
+ * (priority 0) while the fleet is halted.
  *
- * What this file deliberately does NOT do: replace any agent's existing
- * `runLoop()`. `fleet.run()` still boots the old per-agent blocking loops
- * exactly as before — nothing here is wired as their replacement. Phase 6/7
- * add `nextTask()` producers to TraderAgent/ShipAgent/ScoutAgent/
- * SiphonerAgent that this scheduler *could* drive, each one built and
- * tested standalone, but `fleet.run()` doesn't call `Scheduler.enqueue()`
- * with any of them — see those files' own comments for why. A `Scheduler`
- * can be instantiated and run per tenant (TenantRegistry does, harmlessly,
- * with an empty queue) without changing a single thing about how the fleet
- * actually operates today.
+ * This is live and load-bearing. Every agent is driven by a `nextTask()`
+ * chain enqueued here from `FleetManager.syncSchedulerTasks()`; the blocking
+ * per-agent loops this once sat alongside have been deleted, so there is no
+ * other path by which a ship acts.
+ *
+ * One consequence shapes everything above it: `runOnce()` executes ready
+ * tasks strictly sequentially, so a task that *waits* occupies the runner and
+ * holds every other ship in the tenant, rescue included. That is why nothing
+ * in the data plane may sleep — a transit, a cooldown or a backoff throws a
+ * `Pending` carrying its real resume time instead, and the task is
+ * rescheduled for exactly then. See agentStep.ts and
+ * docs/control-plane-data-plane.md §5.
  */
 
 export type Priority = 0 | 1 | 2 | 3 | 4; // 0 rescue · 1 mission · 2 trade · 3 survey/keeper · 4 telemetry

@@ -1486,27 +1486,6 @@ export class TraderAgent {
     return this.shouldRun !== undefined && !this.shouldRun();
   }
 
-  async runLoop(maxTicks: number): Promise<void> {
-    this.running = true;
-    let ticks = 0;
-    while (this.running && ticks < maxTicks) {
-      ticks += 1;
-      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
-      try {
-        const p = this.tick();
-        this.inFlight = p;
-        const made = await p;
-        if (!made) await sleep(30_000);
-      } catch (err) {
-        this.handleTickError(err);
-        await sleep(10_000);
-      } finally {
-        this.inFlight = null;
-      }
-    }
-    this.running = false;
-  }
-
   stop(): void {
     this.running = false;
   }

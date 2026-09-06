@@ -520,7 +520,10 @@ describe("TraderAgent.runLoop: a fuel-mentioning error only strands a genuinely 
     });
     (trader as any).tick = async () => { throw new Error("Navigate request failed. Ship requires 358 more fuel for navigation."); };
 
-    await trader.runLoop(1);
+    // Driven through nextTask(), which is the path production actually
+    // takes; the blocking runLoop() this used to call is gone.
+    trader.running = true;
+    await trader.nextTask().run();
 
     assert.equal(trader.isStranded(), false, "a full tank means this leg is simply out of range, not a real stranding");
   });
@@ -533,7 +536,10 @@ describe("TraderAgent.runLoop: a fuel-mentioning error only strands a genuinely 
     });
     (trader as any).tick = async () => { throw new Error("Navigate request failed. Ship requires 8 more fuel for navigation."); };
 
-    await trader.runLoop(1);
+    // Driven through nextTask(), which is the path production actually
+    // takes; the blocking runLoop() this used to call is gone.
+    trader.running = true;
+    await trader.nextTask().run();
 
     assert.equal(trader.isStranded(), true, "a near-empty tank on the same error is a real stranding the tender rescue must still catch");
   });

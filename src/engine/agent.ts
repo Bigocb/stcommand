@@ -1392,75 +1392,8 @@ export class ShipAgent {
     return this.shouldRun !== undefined && !this.shouldRun();
   }
 
-  async runLoop(maxTicks: number): Promise<void> {
-    this.running = true;
-    let ticks = 0;
-    while (this.running && ticks < maxTicks) {
-      ticks += 1;
-      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
-      try {
-        const p = this.tick();
-        this.inFlight = p;
-        const made = await p;
-        if (!made) {
-          await sleep(30_000);
-        }
-      } catch (err) {
-        this.log(`agent error: ${err instanceof Error ? err.message : String(err)}`);
-        await sleep(10_000);
-      } finally {
-        this.inFlight = null;
-      }
-    }
-    this.running = false;
-  }
-
   /** Surveyor-only loop: survey fields and deposit into the shared pool. */
-  async surveyLoop(maxTicks: number): Promise<void> {
-    this.running = true;
-    let ticks = 0;
-    while (this.running && ticks < maxTicks) {
-      ticks += 1;
-      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
-      try {
-        const p = this.surveyScout();
-        this.inFlight = p;
-        const made = await p;
-        if (!made) {
-          await sleep(30_000);
-        }
-      } catch (err) {
-        this.log(`surveyor error: ${err instanceof Error ? err.message : String(err)}`);
-        await sleep(10_000);
-      } finally {
-        this.inFlight = null;
-      }
-    }
-    this.running = false;
-  }
-
   /** Drive the tour scout loop (market/shipyard inventory refresh). */
-  async tourLoop(maxTicks: number): Promise<void> {
-    this.running = true;
-    let ticks = 0;
-    while (this.running && ticks < maxTicks) {
-      ticks += 1;
-      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
-      try {
-        const p = this.tourScout();
-        this.inFlight = p;
-        const made = await p;
-        if (!made) await sleep(30_000);
-      } catch (err) {
-        this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
-        await sleep(10_000);
-      } finally {
-        this.inFlight = null;
-      }
-    }
-    this.running = false;
-  }
-
   /**
    * One keeper poll: reposition to the assigned market if needed, snapshot
    * it, and record shipyard inventory too if this is a shipyard-market.
@@ -1501,33 +1434,6 @@ export class ShipAgent {
     if (this.recordShipyard) await this.recordShipyard(market);
     this.log(`keeper: snapshot ${market} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`);
     return true;
-  }
-
-  /**
-   * Stationary keeper: poll one market on a timer so its prices never go stale.
-   * The ship stays docked at its assigned market and re-snapshots it every
-   * KEEPER_POLL_MS. Used for probes (0 fuel, can only sit at their spawn
-   * shipyard) and repurposed miners parked at outer buy markets.
-   */
-  async keeperLoop(maxTicks: number): Promise<void> {
-    this.running = true;
-    let ticks = 0;
-    while (this.running && ticks < maxTicks) {
-      ticks += 1;
-      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
-      try {
-        const p = this.keeperPoll();
-        this.inFlight = p;
-        const snapshotted = await p;
-        await sleep(snapshotted ? 5 * 60_000 : 30_000);
-      } catch (err) {
-        this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
-        await sleep(10_000);
-      } finally {
-        this.inFlight = null;
-      }
-    }
-    this.running = false;
   }
 
   /**

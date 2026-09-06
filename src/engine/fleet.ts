@@ -94,13 +94,14 @@ export interface FleetOptions {
   /** This tenant's own Discord relay, if they've configured a webhook — never a shared/global one. See discord.ts's class doc comment. */
   discord?: DiscordRelay;
   /**
-   * Cutover (Greenfield Phase 5-7 completing): when provided, `run()` drives
-   * every agent by enqueueing its `nextTask()` onto this Scheduler instead
-   * of starting the old per-agent `runLoop()`-family blocking loops. When
-   * omitted (the default for any caller not yet updated — most of this
-   * repo's own tests), `run()` falls back to the pre-cutover behavior
-   * unchanged. See README's Greenfield section for what this actually
-   * changes.
+   * How every agent is driven: `run()` enqueues each ship's `nextTask()`
+   * chain here. TenantRegistry always supplies one, and it is the only place
+   * a FleetManager is constructed in production, so this is the single path
+   * by which a ship acts. The blocking per-agent loops that used to be the
+   * fallback are gone.
+   *
+   * Omitted, no ship moves on its own — which is what the tests in this repo
+   * want, since they drive agents directly.
    */
   scheduler?: Scheduler;
 }
@@ -1239,20 +1240,9 @@ export class FleetManager {
       // Chart scout: no cargo, no mining — flies to uncharted waypoints and charts them.
       this.registerScout(ship);
     }
-    // The run() loop array is built at startup, so a ship assigned a role
-    // mid-run (purchase, promotion) needs its loop launched here — same
-    // pattern as keeper conversions.
-    if (this.running) {
-      void this.traders.get(ship.symbol)?.runLoop(1_000_000);
-      void this.miners.get(ship.symbol)?.runLoop(1_000_000);
-      void this.surveyors.get(ship.symbol)?.surveyLoop(1_000_000);
-      void this.tours.get(ship.symbol)?.tourLoop(1_000_000);
-      void this.scouts.get(ship.symbol)?.runLoop(1_000_000);
-      void this.siphoners.get(ship.symbol)?.runLoop(1_000_000);
-      if (this.keepers.get(ship.symbol) && ship.frame?.symbol === "FRAME_PROBE") {
-        void this.keepers.get(ship.symbol)!.keeperLoop(1_000_000);
-      }
-    }
+    // A ship assigned a role mid-run (purchase, promotion) gets its task
+    // chain from syncSchedulerTasks() on the next tick — nothing to launch
+    // here now that the blocking per-agent loops are gone.
   }
 
   /**
@@ -2076,14 +2066,6 @@ export class FleetManager {
         }
         this.scheduledShips.add(shipSymbol);
         this.log(`${shipSymbol}: enqueued ${role} task (scheduler size ${before} -> ${scheduler.size()})`);
-      } else {
-        void this.traders.get(shipSymbol)?.runLoop(1_000_000);
-        void this.miners.get(shipSymbol)?.runLoop(1_000_000);
-        void this.surveyors.get(shipSymbol)?.surveyLoop(1_000_000);
-        void this.tours.get(shipSymbol)?.tourLoop(1_000_000);
-        void this.scouts.get(shipSymbol)?.runLoop(1_000_000);
-        void this.siphoners.get(shipSymbol)?.runLoop(1_000_000);
-        void this.keepers.get(shipSymbol)?.keeperLoop(1_000_000);
       }
     }
   }
@@ -3844,10 +3826,6 @@ export class FleetManager {
         // directly starts keeperLoop() for the same reason.
         keeper.running = true;
         this.scheduler.enqueue(keeper.nextKeeperTask());
-      } else {
-        // Launch the keeper loop now — the run() loop array was built at
-        // startup, so a mid-run conversion needs its own loop.
-        void keeper.keeperLoop(1_000_000);
       }
     }
   }
@@ -4475,21 +4453,9 @@ export class FleetManager {
     this.running = true;
     // Cutover: with a scheduler, every agent is driven by nextTask() chains
     // enqueued via syncSchedulerTasks() (called from tick(), including once
-    // at the end of init()) — none of the old blocking loops are started at
-    // all. Without one (the default for any caller not yet updated), fall
-    // back to starting them exactly as before. See FleetOptions.scheduler's
-    // comment.
-    const loops: Promise<void>[] = this.scheduler
-      ? []
-      : [
-          ...[...this.miners.values()].map((a) => a.runLoop(maxTicks)),
-          ...[...this.traders.values()].map((a) => a.runLoop(maxTicks)),
-          ...[...this.surveyors.values()].map((a) => a.surveyLoop(maxTicks)),
-          ...[...this.tours.values()].map((a) => a.tourLoop(maxTicks)),
-          ...[...this.keepers.values()].map((a) => a.keeperLoop(maxTicks)),
-          ...[...this.scouts.values()].map((a) => a.runLoop(maxTicks)),
-          ...[...this.siphoners.values()].map((a) => a.runLoop(maxTicks)),
-        ];
+    // at the end of init()) — the old blocking per-agent loops are gone, so
+    // there is nothing else to start. See FleetOptions.scheduler's comment.
+    const loops: Promise<void>[] = [];
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
