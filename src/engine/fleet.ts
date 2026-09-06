@@ -3838,7 +3838,29 @@ export class FleetManager {
   }
 
   /** One coordination pass over the whole fleet. */
+  private lastDeadTokenLog = 0;
+  /**
+   * Stop working a tenant whose token a server reset has retired.
+   *
+   * The client refuses the calls either way (see Client.deadTokenReason), so
+   * this is about legibility rather than load: without it every ship logs the
+   * same permanent failure every tick, which is how two dead agents produced
+   * a continuous wall of identical errors that hid everything else in the
+   * log. Say it once every ten minutes, name the fix, and do nothing else.
+   */
+  private haltedByDeadToken(): boolean {
+    const reason = this.api.deadTokenReason?.();
+    if (!reason) return false;
+    const now = Date.now();
+    if (now - this.lastDeadTokenLog > 10 * 60_000) {
+      this.lastDeadTokenLog = now;
+      this.log(`halted: ${reason}`);
+    }
+    return true;
+  }
+
   async tick(): Promise<void> {
+    if (this.haltedByDeadToken()) return;
     if (this.paused) {
       // Halt stops *automation*, not *recovery*. Rescue is the one thing that
       // must keep running: a halted fleet still has ships sitting at 0 fuel,
