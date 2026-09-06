@@ -28,6 +28,8 @@ interface Route extends DirectLeg {
 }
 
 export interface TraderOptions {
+  /** Repair this ship where it stands; forwarded to the shared executor. */
+  repairHere?: (shipSymbol: string) => Promise<void>;
   api: SpaceTradersAPI;
   log?: (msg: string) => void;
   recordLedger?: (entry: {
@@ -265,6 +267,7 @@ export class TraderAgent {
       onActivity: opts.onActivity,
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
+      repairHere: opts.repairHere,
     });
   }
 
@@ -1550,6 +1553,14 @@ export class TraderAgent {
 
   /** One trade cycle: ensure prices → dispatch on role → act. */
   async tick(): Promise<boolean> {
+    // A goal this ship executes rather than stands down on — step 5. The
+    // repair controller proposes and never touches the hull, so the
+    // two-owners race it used to create cannot happen.
+    const repairIntent = this.intentFor?.();
+    if (repairIntent?.goal.kind === "repair") {
+      return this.proxy.runRepairGoal(repairIntent, () => this.intentFor?.());
+    }
+
     // The fleet itself is driving this hull (repair, fuel ferry, operator
     // hold), so acting here is the two-owners race that had a diverter and a
     // tour agent alternately flying the same ship every few seconds for a

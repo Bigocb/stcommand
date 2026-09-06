@@ -443,20 +443,25 @@ describe("FleetManager.maybeRepairFleet", () => {
     assert.ok(!repaired);
   });
 
-  it("critical: claims and suspends a ship whose condition is below CRITICAL_CONDITION even when it isn't at a shipyard", async () => {
+  it("critical: proposes a repair goal for a damaged ship, and never touches the hull", async () => {
+    // Step 5. This used to claim the ship and suspend its loop so the
+    // controller could fly it — which is what rule 1 forbids, and what
+    // produced the race that left DAGGER-8's repair "ended at X1-KU72-E49,
+    // not X1-KU72-A2". The ship flies the goal itself now.
     const agent = makeConditionAgent("SHIP-1", "X1-A-Z9", "X1-A", "IN_ORBIT", 0.1);
-    let suspended = false;
-    agent.suspend = async () => { suspended = true; };
+    agent.suspend = async () => { throw new Error("the controller must not suspend a hull it no longer flies"); };
     const fleet = new FleetManager({ api: { getShip: async () => agent.getShip() } as any });
     (fleet as any).traders.set("SHIP-1", agent);
     stubYardSystem(fleet, "X1-A", "X1-A-B1"); // a yard exists in-system, ship is elsewhere
-    (fleet as any).dispatchShipHop = async () => {}; // don't actually simulate the journey
+    (fleet as any).dispatchShipHop = async () => { throw new Error("the controller must not fly a hull it no longer owns"); };
     await fleet.doctrine.set("repairConditionFloor", { value: 0.5, enabled: true });
 
     await (fleet as any).maybeRepairFleet();
+    fleet.intents.commit();
 
-    assert.equal(fleet.shipRegistry.ownerOf("SHIP-1")?.owner, "repair", "must claim the ship through the registry before diverting it, same as makeRescuePlan()");
-    assert.ok(suspended, "the ship's own loop must be suspended before its nav is driven directly");
+    const intent = fleet.intents.current("SHIP-1");
+    assert.equal(intent?.goal.kind, "repair", "the controller's whole job is now the proposal");
+    assert.equal((intent?.goal as { yard: string }).yard, "X1-A-B1");
   });
 
   it("does not divert a ship the operator is already holding", async () => {
@@ -473,19 +478,28 @@ describe("FleetManager.maybeRepairFleet", () => {
     assert.equal(fleet.shipRegistry.ownerOf("SHIP-1"), undefined, "an operator-held ship must not be claimed for repair");
   });
 
-  it("does not re-claim or re-dispatch a ship that already has a repair plan in flight", async () => {
+  it("does not churn the goal of a ship already on its way to a yard", async () => {
+    // The old shape of this test guarded a `repairPlans` set, which existed
+    // only because the controller did the flying. Now the equivalent
+    // guarantee is that re-proposing the same repair across ticks does not
+    // bump `version` — a ship mid-repair must not see its goal change
+    // underneath it, because ShipProxy.runRepairGoal treats a version change
+    // as a supersession and declines to pay.
     const agent = makeConditionAgent("SHIP-1", "X1-A-Z9", "X1-A", "IN_ORBIT", 0.1);
     const fleet = new FleetManager({ api: { getShip: async () => agent.getShip() } as any });
     (fleet as any).traders.set("SHIP-1", agent);
     stubYardSystem(fleet, "X1-A", "X1-A-B1");
-    let dispatchCalls = 0;
-    (fleet as any).dispatchShipHop = async () => { dispatchCalls += 1; };
-    (fleet as any).repairPlans.add("SHIP-1"); // simulates a plan already in flight from a prior tick
+    (fleet as any).dispatchShipHop = async () => { throw new Error("the controller must not fly a hull it no longer owns"); };
     await fleet.doctrine.set("repairConditionFloor", { value: 0.5, enabled: true });
 
     await (fleet as any).maybeRepairFleet();
+    fleet.intents.commit();
+    const first = fleet.intents.current("SHIP-1")?.version;
 
-    assert.equal(dispatchCalls, 0);
+    await (fleet as any).maybeRepairFleet();
+    fleet.intents.commit();
+
+    assert.equal(fleet.intents.current("SHIP-1")?.version, first, "an unchanged goal must keep its version");
   });
 });
 

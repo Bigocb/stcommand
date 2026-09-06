@@ -101,16 +101,42 @@ export function sameGoal(a: Goal, b: Goal): boolean {
  * same hull every few seconds for a day. Standing down on the intent itself
  * removes the race rather than sequencing it.
  */
+/**
+ * Has the control plane changed its mind since a ship started this work?
+ *
+ * `version` is the design's `observedGeneration`: bumped only on a material
+ * goal change, so comparing the version a task began under against the one on
+ * the board now answers "is what I am doing still what is wanted". It was
+ * written, surfaced on the status line — and never read by anything, which
+ * left agents unable to notice a mid-task supersession at all.
+ *
+ * That is not theoretical. DAGGER-17 bought 18u ANTIMATTER for a leg selling
+ * at X1-KU72-I59, and the dispatcher then swapped its assignment to a variant
+ * selling in a system the ship could not reach. Route pinning fixed that one
+ * case at the assignment layer; this is the same question asked generally, at
+ * the layer that was built to answer it.
+ *
+ * An absent intent is not a supersession — plenty of work is unclaimed — so
+ * only a *different* version for the same ship counts.
+ */
+export function supersedes(startedAt: ShipIntent | undefined, now: ShipIntent | undefined): boolean {
+  if (!startedAt) return false;
+  if (!now) return true;
+  return now.ship === startedAt.ship && now.version !== startedAt.version;
+}
+
 export function drivenByFleet(goal: Goal): boolean {
-  // `explore` belongs here for now because exploration really is flown by the
-  // fleet (autoExplore launches exploreSystem, which jumps and tours the ship
-  // itself). When the executor learns to fly an explore goal on its own task,
-  // this is the line that changes.
+  // `repair` has left this list: every role flies its own repair goal now via
+  // the shared executor (ShipProxy.runRepairGoal), which is step 5 — the
+  // controller proposes and never touches the hull. `explore` remains only because exploration is
+  // still flown by the fleet (autoExplore launches exploreSystem, which jumps
+  // and tours the hull itself); when the executor learns to fly an explore
+  // goal, this line changes again and step 5 is finished.
   //
   // Anything listed here MUST be cleared when the fleet finishes with the
   // ship — see FleetManager's forgetIntent() calls — or the agent stands down
   // against a stale intent and the hull never moves again.
-  return goal.kind === "repair" || goal.kind === "tender" || goal.kind === "hold" || goal.kind === "explore";
+  return goal.kind === "tender" || goal.kind === "hold" || goal.kind === "explore";
 }
 
 /**

@@ -3,6 +3,7 @@ import type { components } from "../core/client.js";
 import type { Registry } from "./registry.js";
 import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
+import { supersedes, type ShipIntent } from "./intent.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -15,6 +16,8 @@ export interface ShipProxyOptions {
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
+  /** Repair this ship where it now stands; wired to FleetManager.repairShip(). */
+  repairHere?: (shipSymbol: string) => Promise<void>;
   /** Records a refuel purchase against the tenant's ledger. Typed exactly as
    *  the agents' own callback so it can be passed straight through. */
   recordLedger?: (entry: {
@@ -64,6 +67,7 @@ export class ShipProxy {
   private readonly log: (msg: string) => void;
   private readonly onActivity?: ShipProxyOptions["onActivity"];
   private readonly recordMarket?: ShipProxyOptions["recordMarket"];
+  private readonly repairHere?: ShipProxyOptions["repairHere"];
   private readonly recordLedger?: ShipProxyOptions["recordLedger"];
   private step: AgentStep = IDLE_STEP;
 
@@ -83,6 +87,7 @@ export class ShipProxy {
     this.log = opts.log ?? (() => {});
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.repairHere = opts.repairHere;
     this.recordLedger = opts.recordLedger;
   }
 
@@ -334,6 +339,63 @@ export class ShipProxy {
     const market = this.nearestMarketTo(target);
     const back = market ? this.registry.fuelFor(target, market) : out;
     return out + back + 5;
+  }
+
+  /**
+   * Fly this ship's repair goal — the first goal an agent executes *from*
+   * rather than stands down on, and step 5 of
+   * docs/control-plane-data-plane.md.
+   *
+   * It lives here, not in one agent class, for the reason this whole file
+   * exists: any hull can take damage, so a repair every role can be given but
+   * only one role can carry out is worse than no change at all. Putting it in
+   * the shared executor is what makes "the controller proposes and never
+   * touches the ship" true for traders, scouts and siphoners too.
+   *
+   * The controller used to suspend the agent and fly the hull itself, which
+   * rule 1 forbids and which produced exactly the failure the rule predicts:
+   * suspend() resolves only once the agent's in-flight iteration finishes, so
+   * the controller regularly took a ship that had just been sent elsewhere,
+   * and DAGGER-8's repair "ended at X1-KU72-E49, not X1-KU72-A2". As a goal
+   * the ship executes, there is one owner and the race cannot happen.
+   *
+   * Re-derived from observed position each tick, like a trade: get to the
+   * yard, and repair only once standing there.
+   */
+  async runRepairGoal(intent: ShipIntent, currentIntent: () => ShipIntent | undefined): Promise<boolean> {
+    if (intent.goal.kind !== "repair") return false;
+    const yard = intent.goal.yard;
+    await this.refresh();
+    await this.waitCooldown();
+
+    if (this.ship.nav.waypointSymbol !== yard) {
+      this.log(`repair: heading to ${yard} (${intent.reason})`);
+      await this.navigateTo(yard);
+      return true;
+    }
+
+    await this.ensureDocked();
+    // Re-read the board before spending credits. A repair superseded while the
+    // ship was in transit — outranked by a rescue, or the hull recovered — must
+    // not still be paid for on arrival. This is what `version` was built for
+    // and what nothing read until now.
+    if (supersedes(intent, currentIntent())) {
+      this.log("repair: superseded in transit, standing by for the new goal");
+      return true;
+    }
+
+    // Rule 5: repairing is a transaction, so it gets the same precondition
+    // every other transaction now has. The re-check above already guards the
+    // common case, but ensureDocked() sits between them and this is the
+    // statement that spends credits — the yard the fleet is paying is the
+    // one the ship is standing at, or nothing happens.
+    this.assertAt(yard, "repair");
+    try {
+      await this.repairHere?.(this.ship.symbol);
+    } catch (err) {
+      this.log(`repair at ${yard} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return true;
   }
 
   /**

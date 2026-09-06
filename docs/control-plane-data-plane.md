@@ -370,18 +370,68 @@ Re-audited against the code, step by step.
 | 1. Data plane cannot block | **Done** | No `await sleep(` in any of the four agent classes; `CooldownPending`/`NavigationPending` yield the scheduler |
 | 2. Registry by reference | **Done** | One `Registry`, read by reference. `withWorld()` and `chartSystemFor()` survive but were repurposed — `withWorld()` now *seeds* the registry and has no production callers, `chartSystemFor()` pulls an unscanned system into the atlas. The deletion list above is stale, not the code |
 | 3. One executor | **Half** | `ShipProxy` exists (the primitives). Agents did *not* become `step()` producers over it — they still call it imperatively inside straight-line procedures |
-| 4. Intents + arbiter | **Half** | repair, rescue (priority 0, both hulls), explore and keeper all propose. Manual dispatch still uses `manualGoal` |
-| 5. Controllers | **Half** | Only `maybeAssignKeepers()` is a pure proposer. `maybeRepairFleet()`, `autoExplore()` and the rescue path propose *and then fly the ship themselves* |
+| 4. Intents + arbiter | **Half** | repair, rescue, explore and keeper all propose; `version` is now read (`supersedes()`), so a ship can tell its goal was replaced mid-task. Manual dispatch still uses `manualGoal` |
+| 5. Controllers | **Half** | `maybeAssignKeepers()` and now `maybeRepairFleet()` are pure proposers — repair is flown by the hull itself via `ShipProxy.runRepairGoal()`. `autoExplore()` and the rescue path still fly ships |
 | 6. Telemetry | **Done** | `getStep()`/`stepFor()` feed `getShipStatuses()`; the fleet line and dashboard show intent against observed |
 
-### The three half-steps are one fault line
+### Step 5, half-closed: repair
+
+`maybeRepairFleet()` used to propose *and then* claim the ship, suspend its
+loop, and fly it to the yard. That is rule 1 broken by the controller the
+rule was written for, and it produced exactly the failure the rule predicts:
+`suspend()` resolves only once the agent's in-flight iteration finishes, so
+the controller regularly took ownership of a hull that had just been sent
+somewhere else, and DAGGER-8's repair "ended at X1-KU72-E49, not
+X1-KU72-A2".
+
+Repair is now a goal the ship executes. `drivenByFleet()` no longer lists
+it, so agents do not stand down on it — they run it, through
+`ShipProxy.runRepairGoal()`. It lives in the shared executor rather than in
+`ShipAgent` because any hull can take damage: a repair every role can be
+*given* but only one role can *carry out* would be worse than no change at
+all.
+
+Two properties came with it:
+
+- **The controller is level-triggered.** It proposes while the condition
+  holds and releases the moment it stops. Without the release a repaired
+  hull keeps a committed repair goal forever — and since the ship now
+  executes that goal rather than standing down on it, it would fly back to
+  the yard on every tick.
+- **`version` is finally read.** `supersedes()` compares the intent a task
+  began under against the board now, and `runRepairGoal()` checks it after
+  docking and before spending credits. A repair outranked by a rescue in
+  transit, or one whose hull recovered on the way, is no longer paid for on
+  arrival. That field was written, surfaced on the status line, and read by
+  nothing until now.
+
+`repairPlans` is gone with it — a second record of who owns a hull is
+exactly what the control-plane split exists to delete, and the intent board
+answers the question directly.
+
+### What is left
+
+Exploration is the last controller that flies a ship: `autoExplore()`
+launches `exploreSystem()`, which jumps and tours the hull itself, and
+`explore` is still in `drivenByFleet()`. The rescue path does the same for
+its tender. Both are the same shape repair just left, and finishing them is
+what closes step 5 — at which point `drivenByFleet()` is down to `hold`,
+and step 4's last item (manual dispatch as a `hold` intent rather than the
+parallel `manualGoal` channel) is the only thing between here and done.
+
+### The remaining half-steps are one fault line
 
 Steps 3 and 5 and the recorded step-4 gap are not independent. Rule 1 says
-*controllers never call the kubelet* — and `runCriticalRepair()` suspends an
-agent and flies a hull, `exploreSystem()` does the same. They cannot stop
-doing that until an agent can execute **from** an intent rather than merely
-standing down on one, which is exactly the step-4 gap. And an agent cannot
-execute from an intent until it is a `step()` producer, which is step 3.
+*controllers never call the kubelet* — and `exploreSystem()` still jumps and
+tours a hull from inside the controller, as `runCriticalRepair()` did before
+repair became a goal the ship executes. They cannot stop doing that until an
+agent can execute **from** an intent rather than merely standing down on
+one, which is exactly the step-4 gap. And an agent cannot execute from an
+intent until it is a `step()` producer, which is step 3.
+
+Repair is the worked example that the rest follows: the controller now
+proposes and releases, the hull flies itself through the shared executor,
+and `version` decides whether the goal is still the current one on arrival.
 
 One missing piece, three faces:
 

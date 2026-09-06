@@ -256,6 +256,83 @@ points get found.
 
 ---
 
+## Step 4 — Repair: the controller proposes, the ship flies
+
+**Commit:** re-land of `5f2a5df` · **Status:** partial — live confirmation pending
+
+### Defect
+
+`maybeRepairFleet()` proposed a repair *and then* claimed the ship, suspended
+its loop, and flew it to the yard itself. That is rule 1 — controllers never
+call the kubelet — broken by the very controller the rule was written for,
+and it produced the failure the rule predicts: `suspend()` resolves only once
+the agent's in-flight iteration finishes, so the controller regularly took
+ownership of a hull that had just been sent somewhere else. DAGGER-8's repair
+"ended at X1-KU72-E49, not X1-KU72-A2".
+
+### Change
+
+Repair is a goal the ship executes. `drivenByFleet()` no longer lists it, so
+agents run it rather than standing down on it, through
+`ShipProxy.runRepairGoal()` — in the shared executor rather than `ShipAgent`
+because any hull can take damage, and a repair every role can be *given* but
+only one role can *carry out* would be worse than no change.
+
+Two properties come with it:
+
+- **The controller is level-triggered.** It proposes while the condition
+  holds and releases the moment it stops. Without that release a repaired
+  hull keeps a committed repair goal forever and flies back to the yard every
+  tick. The release sits before any branch that can `continue` past it —
+  where the first attempt put it wrongly.
+- **`version` is finally read.** `supersedes()` compares the intent a task
+  began under against the board now, checked after docking and before
+  spending credits. A repair outranked by a rescue in transit, or one whose
+  hull recovered on the way, is no longer paid for on arrival. That field was
+  written, surfaced on the status line, and read by nothing until now.
+
+`repairPlans` is deleted with `runCriticalRepair()`: a second record of who
+owns a hull is what the control-plane split exists to remove.
+
+### History
+
+This commit and `390a63e` were reverted in `c29a540` during a fleet stall I
+misdiagnosed four times. The stall's actual cause was the onboarding pause
+(`ab87af4`); neither commit was implicated. This is the re-land, one at a
+time with a soak each, rather than both at once.
+
+### Added on re-land
+
+`runRepairGoal()` now calls `assertAt(yard, "repair")` before `repairHere()`.
+The position re-check above it already guards the common case, but
+`ensureDocked()` sits between them and that statement spends credits — step
+1's rule applied to code that landed after it. The seam between two changes
+is where a gap hides.
+
+The doc merge was resolved by hand rather than taken wholesale: `5f2a5df`'s
+version of `control-plane-data-plane.md` also marks step 3 **Done**, which
+belongs to `390a63e` and is not re-landed. Taking it would have put a false
+claim in the design doc.
+
+### Proof
+
+- **Tests:** 6 in `tests/repairGoal.test.ts`, plus `rescueAndRepair.test.ts`
+  rewritten to the new contract — including one that fails if the controller
+  suspends or dispatches a hull. 71 pass across the repair, intent, proxy and
+  step-1/2/3 files; 174 across the wider non-DB set.
+- **Prediction:** a damaged hull produces `repair: heading to <yard>` from
+  the *ship*, and no `suspend`/controller-dispatch of that hull. A hull that
+  recovers, or is outranked in transit, logs `repair: superseded in transit`
+  rather than paying. No repair loop: a repaired hull must not return to the
+  yard on the next tick.
+- **Live:** _pending._
+
+  Note this step is harder to observe than steps 1–3: it fires only when a
+  hull is actually damaged. If no repair occurs during the soak the live
+  result will be recorded as "not exercised", not as success.
+
+---
+
 ## Queue
 
 | # | Step | Status |
@@ -263,7 +340,7 @@ points get found.
 | 1 | Rule 5 at remaining transaction sites | verified |
 | 2 | Cargo-residue deadlock | verified |
 | 3 | Contract-buy silent stall | verified |
-| 4 | Re-land `5f2a5df` — repair: controller proposes, ship flies | not started |
+| 4 | Repair: controller proposes, ship flies | live confirmation pending |
 | 5 | Re-land `390a63e` — trader re-derives trip from observed state | not started |
 | 6 | `priceTable` → registry (single source of truth for prices) | not started |
 | 7 | Finish steps 3/4/5 of the migration — the executor fault line | not started |
