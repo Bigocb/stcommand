@@ -3292,7 +3292,8 @@ export class FleetManager {
       const sign = (n: number) => `${n >= 0 ? "+" : ""}${Math.round(n)}`;
       this.log(
         `earnings ${windowMin}m: net ${sign(r.net)}c (${sign(perHour)}c/hr) — ` +
-        `sold +${Math.round(r.sells)} · bought -${Math.round(r.purchases)} · ` +
+        `sold +${Math.round(r.sells)} · contracts +${Math.round(r.contract)} · ` +
+        `bought -${Math.round(r.purchases)} · ` +
         `fuel -${Math.round(r.refuel)} · ships/repair -${Math.round(r.ship)} · ${r.trades} sales`,
       );
     } catch (err) {

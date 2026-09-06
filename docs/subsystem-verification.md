@@ -479,6 +479,75 @@ gap hides.
 
 ---
 
+## Step 6 — Contract deliveries and payouts were invisible
+
+**Commit:** `contract visibility` · **Status:** partial — live confirmation pending
+
+### Defect
+
+Found by pushing on a wrong assumption of mine. I had described the trader as
+having no work available; it was assigned a contract and was filling it. The
+reason neither of us could see that:
+
+```
+17:35:14  DRAGOM-1: bought 3u DRUGS @ 11164c at X1-S84-H56 for contract delivery
+17:36:01  DRAGOM-1(trader)@-H56 … c0/40
+```
+
+33,492c of cargo — a third of the fleet's capital — left the hold 47 seconds
+after purchase, and there is no line anywhere recording where it went.
+`ContractManager.deliverVia()` called `api.deliverContract()` and then logged
+nothing, recorded no activity and wrote no ledger row. From outside the
+fleet, "delivered against the contract" and "destroyed by a bug" were
+indistinguishable; establishing which took a source read and a timestamp
+cross-reference against the deploy history.
+
+`fulfillCompleted()` was worse. A payout is real money, and with no ledger
+row it never reached `ledgerSummary()`. Buying contract goods was booked as
+cost while the revenue justifying it was booked nowhere — so a fleet working
+a profitable contract reads as one bleeding money.
+
+**This corrupted every economic figure in this document.** The
+`net -81437c … bought -33492` line quoted around step 2 counted the DRUGS as
+a pure loss. My "the loop runs at a loss" claim was computed from books with
+one of the fleet's largest value transfers missing from them.
+
+### Change
+
+- `deliverVia()` logs units, good, contract id and progress (`5/10`), and
+  reports `contract-deliver` activity. No ledger row: a delivery moves goods,
+  not credits, and the purchase that bought them is already booked.
+- `fulfillCompleted()` logs the payout, reports `contract-fulfilled`
+  activity, and writes a `CONTRACT` ledger row.
+- `ledgerSummary()` gains `contract` **and adds it to `net`**. Grouping a row
+  without counting it would have kept the same lie in a tidier shape.
+- The earnings line now carries `contracts +N`.
+- `ContractManager` gains the reporting callbacks it never had;
+  `tenantRegistry` extracts one shared activity recorder so a delivery
+  reaches the dashboard and Discord by the same path as every other event,
+  rather than a parallel copy.
+
+### Proof
+
+- **Tests:** 6 in `tests/contractVisibility.test.ts`. **4 fail with the
+  source stashed.** The other 2 are silence controls — nothing is said for a
+  delivery that did not happen or a contract that is not finished, since a
+  log line for a non-event is the same disease.
+- **Prediction:** the next delivery logs `delivered Nu DRUGS to contract
+  … (x/10)`; the earnings line carries a `contracts +N` field; when the
+  contract completes, `fulfilled — 181474c paid` appears and `net` jumps by
+  that amount rather than the credits moving unexplained.
+- **Live:** _pending._
+
+### Note on method
+
+This one was not on the queue. It surfaced because a wrong claim of mine was
+challenged, and the challenge was right. Worth recording as its own kind of
+evidence: the fastest way to find a silent subsystem was to state something
+confidently wrong about it in front of someone who knew better.
+
+---
+
 ## Queue
 
 | # | Step | Status |
@@ -487,8 +556,9 @@ gap hides.
 | 2 | Cargo-residue deadlock | verified |
 | 3 | Contract-buy silent stall | verified |
 | 4 | Repair: controller proposes, ship flies | tests only — not exercised live (no hull damaged) |
-| 5 | Trader re-derives trip from observed state | live confirmation pending |
-| 6 | `priceTable` → registry (single source of truth for prices) | not started |
+| 5 | Trader re-derives trip from observed state | tests only — not exercised live (trader never traded) |
+| 6 | Contract deliveries and payouts made visible | live confirmation pending |
+| 7 | `priceTable` → registry (single source of truth for prices) | not started |
 | 7 | Finish steps 3/4/5 of the migration — the executor fault line | not started |
 | 8 | Multi-hop routing | not started |
 | 9 | Jump-gate construction status | not started |

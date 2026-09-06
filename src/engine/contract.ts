@@ -55,7 +55,19 @@ export class ContractManager {
   constructor(
     private readonly api: SpaceTradersAPI,
     private readonly store?: Store,
+    private readonly report: {
+      log?: (msg: string) => void;
+      onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
+      recordLedger?: (entry: {
+        timestamp: string; shipSymbol: string; waypointSymbol: string;
+        type: string; tradeSymbol?: string; units?: number; pricePerUnit?: number; total: number;
+      }) => void;
+    } = {},
   ) {}
+
+  private say(msg: string): void {
+    this.report.log?.(msg);
+  }
 
   /** Cheapest known market for a good, or undefined if none is known yet
    *  (also the normal case for a raw ore only obtainable by mining — those
@@ -250,6 +262,26 @@ export class ContractManager {
       if (toDeliver > 0) {
         await this.api.deliverContract(del.contractId, ship.symbol, item.symbol, toDeliver);
         this.invalidate();
+        // A delivery moves goods, not credits, so there is no ledger row —
+        // but it is the single most consequential thing the fleet does, and
+        // until now it happened in total silence. Three units of DRUGS worth
+        // 33,492c left a hold with no log line, no activity entry and no
+        // trace of any kind; from outside, "delivered against the contract"
+        // and "destroyed by a bug" looked identical, and establishing which
+        // took a source read and a timestamp cross-reference. The progress
+        // count is the part that matters: it says whether this contract is
+        // nearly done or barely started.
+        const done = del.unitsFulfilled + toDeliver;
+        this.say(
+          `${ship.symbol}: delivered ${toDeliver}u ${item.symbol} to contract ${del.contractId.slice(0, 8)} ` +
+          `at ${del.destinationSymbol} (${done}/${del.unitsRequired})`,
+        );
+        this.report.onActivity?.(
+          "contract-deliver",
+          `${toDeliver}u ${item.symbol} → contract (${done}/${del.unitsRequired})`,
+          undefined,
+          ship.symbol,
+        );
       }
     }
     return true;
@@ -263,6 +295,23 @@ export class ContractManager {
       if (done) {
         await this.api.fulfillContract(c.id);
         this.invalidate();
+        // Unlike a delivery this *is* money — the whole payout, landing at
+        // once — and it was as silent as the deliveries that earned it. With
+        // no ledger row the payout never reached ledgerSummary(), so every
+        // earnings readout showed the cost of buying contract goods with
+        // nothing on the other side: the fleet's largest single revenue event
+        // was missing from its own books, and a run that made money could
+        // read as one losing it.
+        const payout = c.terms.payment?.onFulfilled ?? 0;
+        this.say(`contract ${c.id.slice(0, 8)} fulfilled — ${payout}c paid`);
+        this.report.onActivity?.("contract-fulfilled", `contract paid out ${payout}c`, payout, "fleet");
+        this.report.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: "fleet",
+          waypointSymbol: "",
+          type: "CONTRACT",
+          total: payout,
+        });
       }
     }
   }

@@ -243,7 +243,6 @@ export class TenantRegistry {
         : `no cached markets for ${systemSymbol}; scanning live in the background`,
     );
 
-    const contracts = new ContractManager(api, store);
     // This tenant's own relay, never a shared one — see discord.ts's class
     // doc comment for why straders' module-level getDiscord() singleton
     // can't be reused in a multi-tenant process.
@@ -251,6 +250,28 @@ export class TenantRegistry {
     const webhookUrl = await getTenantDiscordWebhook(this.pool, tenantId);
     if (webhookUrl) discord.setWebhook(webhookUrl);
     discord.setEnabled(await getTenantDiscordEnabled(this.pool, tenantId));
+
+    /** One activity recorder, shared by the fleet and by ContractManager.
+     *  Extracted rather than duplicated so a contract delivery reaches the
+     *  dashboard feed and Discord by exactly the path every other event
+     *  already takes. */
+    const recordActivity = (kind: string, detail: string, credits?: number, shipSymbol?: string) => {
+      const entry = { timestamp: new Date().toISOString(), shipSymbol: shipSymbol ?? "fleet", kind, detail, credits };
+      store.recordActivity(tenantId, entry);
+      // Trades (buy/sell) and other activity only ever reach the dashboard's
+      // own activity feed via this callback — DiscordRelay.postActivity's
+      // sell/buy filter (discord.ts) was otherwise dead code, since ship
+      // purchases post to Discord directly from fleet.ts and nothing else did.
+      discord.postActivity(entry);
+    };
+
+    // Contract deliveries and payouts happened in total silence until these
+    // were wired in — see ContractManager.deliverVia()/fulfillCompleted().
+    const contracts = new ContractManager(api, store, {
+      log,
+      onActivity: recordActivity,
+      recordLedger: (e) => store.recordLedger(tenantId, e as never),
+    });
     // Cutover: created before FleetManager (which needs the instance itself
     // to enqueue tasks onto) and before its own isPaused callback has
     // anything to call — `fleet` is assigned just below, but closures over
@@ -268,15 +289,7 @@ export class TenantRegistry {
       discord,
       scheduler,
       recordLedger: (e) => store.recordLedger(tenantId, e),
-      onActivity: (kind, detail, credits, shipSymbol) => {
-        const entry = { timestamp: new Date().toISOString(), shipSymbol: shipSymbol ?? "fleet", kind, detail, credits };
-        store.recordActivity(tenantId, entry);
-        // Trades (buy/sell) and other activity only ever reach the dashboard's
-        // own activity feed via this callback — DiscordRelay.postActivity's
-        // sell/buy filter (discord.ts) was otherwise dead code, since ship
-        // purchases post to Discord directly from fleet.ts and nothing else did.
-        discord.postActivity(entry);
-      },
+      onActivity: recordActivity,
       minCashReserve: 20_000,
     });
     // The SpaceTraders API occasionally returns transient 500s during the burst
