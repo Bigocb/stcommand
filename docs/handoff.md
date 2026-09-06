@@ -1,152 +1,407 @@
-# Handoff — parallel UI versions (v3/v4/v5)
+# Handoff — the subsystem verification pass
 
-For whoever picks this up next, cold. Read this before touching anything.
+For whoever picks this up cold. Written at commit `f4e8329`, immediately
+after step 4 of the control-plane migration was closed and pushed, and
+**before** its live prediction had been checked.
 
-Branch: **`ui-parallel-versions`**, ahead of `main`, **not pushed**.
-Working tree clean. `main` is deployed to production and auto-deploys on push.
+The previous handoff (the parallel-UI work, `v3`/`v4`/`v5`) is finished and
+archived at `docs/handoff-ui-versions.md`. It is history, not instructions.
+
+Read in this order:
+
+1. this file — state, method, and the traps;
+2. `CONTEXT.md` — the standing orders (language, tenancy, ownership,
+   scheduling, migration discipline). Non-negotiable house rules;
+3. `docs/control-plane-data-plane.md` — the design and the six-step
+   migration, §8 being the live scoreboard;
+4. `docs/subsystem-verification.md` — the evidence file: what was broken,
+   what changed, what proof exists;
+5. `docs/bug-log.md` — open items only, each mapped to a migration step.
 
 ---
 
-## 1. The job
+## 1. The one-paragraph state of the world
 
-Ship three redesigned UIs alongside the current one, as `/v3`, `/v4`, `/v5`.
-The full plan — measured, phased, with acceptance criteria — is
-**`docs/ui-versions-plan.md`**. Read it; this file only covers state and
-traps that aren't in it.
+`stcommand` is a multi-tenant SpaceTraders fleet-automation service running
+on Render, one process with a `TenantWorker` per tenant, deployed from `main`
+on every push. It is mid-way through a migration from "controllers fly ships"
+to a Kubernetes-shaped control plane / data plane split. Five of the six
+migration steps are done; step 5 (controllers) is half-done. Layered on top of
+the migration is a **verification pass**, requested by the user, in which each
+subsystem is made to work *and shown to work* under a stated standard. Eight
+verification steps have landed. Five are verified against production; three
+are proven by tests only, because production has not yet produced the
+conditions that exercise them.
 
-Designs (published artifacts, all approved by the user):
+---
 
-| What | Link |
+## 2. Exactly where you are standing
+
+| | |
 |---|---|
-| Three directions, Bridge screen each | https://claude.ai/code/artifact/8327f806-3afe-46fc-b34d-8e2ef60314cb |
-| Mission Control's other five screens | https://claude.ai/code/artifact/178b3520-400a-4fba-a0c0-1bfb03d3cbfa |
-| The build plan, rendered | https://claude.ai/code/artifact/a795cd22-6e03-4ea1-9e21-3fee4a15ad39 |
+| Branch | `main`. Pushes to `main` **auto-deploy to the live fleet.** This is explicitly authorized. |
+| HEAD | `f4e8329` "Stop treating a dispatch as a claim on the hull" |
+| Working tree | clean as of the commit; `docs/handoff.md` (this file) and the rename of the old one are the only pending changes |
+| Render service | `stcommand`, `srv-da0veurl550s73eg2sog`, workspace `tea-d78npo450q8c73f2n45g`, region oregon, url https://stcommand.onrender.com |
+| Deploy of `f4e8329` | was `build_in_progress` when this was written. **Its live prediction is unchecked — that is the immediate next action (§6).** |
+| Typecheck | clean |
+| Tests | 266 pass across every non-DB file. The 4 failures are `ECONNREFUSED` in the DB-backed `agentStep.test.ts` — see §9 |
 
-Decisions the user has already made — do not re-litigate:
+There are ten stale `claude/*` branches on the remote from earlier sessions.
+Ignore them; none are in play.
 
-- Build **all three**, in order **v3 → v5 → v4**.
-- Work on a **feature branch**; the user verifies before merge. Pushes to
-  `main` auto-deploy to the live fleet.
-- v1 (`public/index.html`) is **deleted**. Done.
-- Test DB: the user offered their Postgres. Done — see §3.
+---
 
-## 2. Where things actually stand
+## 3. The frame the user set — do not re-litigate these
 
-**Phase 0 has not started. `public/v2.html` is untouched.**
+Quoted, because the wording matters:
 
-Everything committed so far is prerequisite work, not plan work:
+- **"we are going to ensure each step is functioning completely with proof,
+  we will be methodical"**
+- **"I want to make sure the mechanics of each subsystem work perfectly...
+  This is the pass where we start turning this into a real thing."**
+- On money: **"That's fine. I'm not worried about profitability right now"**
+  and, later, **"we will deal with profitability, right I mean and that's
+  where the doctrine rules help. But I just mean for right now let's get the
+  mechanics right and then worry about profitability."** Profitability is
+  **deferred, not abandoned**, and its home is doctrine.
+- **"I want you to write documentation for each of these steps."** Hence
+  `subsystem-verification.md`. Keep writing it; it is a deliverable, not a
+  courtesy.
+- On scope: **"Before you're adding more rules, don't you think we should
+  finish the implementation"**, then **"And which overarching step in the
+  implementation do these fit in."** This is why every entry in
+  `bug-log.md` names its migration step. A fresh agent will feel the same
+  pull toward adding policy instead of finishing structure. Resist it: sort
+  new findings into *finishing a step* vs *new doctrine*, and say which.
+
+**Standing goals**, carried from earlier sessions: in-system and cross-system
+trading working flawlessly; maximise exploration to find new markets and
+pricing; maximise profit; **never let a ship reach zero condition**.
+
+**Working agreements learned the hard way:**
+
+- **Batch documentation commits with code.** Every push redeploys the engine
+  and opens a ~60-second window where two processes tick the same fleet
+  (bug-log #3). A doc-only commit pays that cost for nothing — including,
+  once, the commit that was *recording the overlap bug*.
+- The user is frequently **on mobile**. Keep answers scannable; expect the UI
+  to be judged on a phone.
+- The user runs experiments on the live fleet (switching a ship's role by
+  hand, pressing Hold). Ask before assuming an anomaly is a code defect —
+  more than once it was them.
+
+---
+
+## 4. The method — this is the actual deliverable
+
+`docs/subsystem-verification.md` §"The standard". A step is **verified** only
+when all four hold; anything less is recorded as partial with the gap named:
+
+1. **The defect is stated as a mechanism, not a symptom.** "Sales stopped" is
+   a symptom. "`pickSellTarget()` reads `inventory[0]`, so residue at the
+   front of the hold hides sellable ore behind it" is a mechanism.
+2. **Tests fail without the fix** — written, then checked by *stashing the
+   source change* and re-running. A test that passes both ways proves nothing
+   about the fix; it may still earn its place as a **control**, and is
+   labelled as one.
+3. **A prediction is made before the deploy**, in terms of log lines that will
+   or will not appear.
+4. **The prediction is checked against production, and reported whichever way
+   it came out.**
+
+This exists because absence of errors was repeatedly mistaken for function: a
+fleet sat still for hours behind a log line reading `fleet paused`, and four
+miners spun on a full hold for ninety-five minutes while scheduler
+`failed=0`, tasks ran, and ships logged activity. **Absence of errors is not
+evidence of function.** Record what was positively observed, and — just as
+deliberately — what was not.
+
+---
+
+## 5. The architecture, in one screen
+
+Full text in `docs/control-plane-data-plane.md`. The mapping:
+
+| SpaceTraders | Kubernetes/Envoy |
+|---|---|
+| Ship | Pod |
+| `ShipIntent` | Pod spec |
+| `ShipProxy` | kubelet |
+| controllers (`maybeRepairFleet()`, `maybeAssignKeepers()`, …) | Deployment controllers |
+| `IntentBoard` | scheduler/arbiter |
+| `Registry` | etcd + xDS |
+| `intentVersion` | `observedGeneration` |
+
+**The five rules** (the section heading still says "four" — rule 5 was added
+later; fix the heading if it bothers you, it has misled no one yet):
+
+1. **Controllers never call the kubelet.** Nothing above the executor awaits
+   a ship. `tick()` flying a ship is the API server ssh'ing into a node.
+2. **The kubelet never chooses a route.** A ship picks *endpoints* within
+   policy (nearest healthy fuel, nearest yard, which gate); never *which good
+   to trade* or *whether to explore*. Route = control plane; endpoint
+   selection = data plane.
+3. **Level-triggered, not edge-triggered.** Every controller is
+   `reconcile(registry, spec) → intents`. There is no "after the navigate";
+   there is only the next diff.
+4. **Status is written by the thing that observed it.**
+5. **A data-plane primitive either changes the world or raises.** No movement,
+   dock or transaction may fail by logging and returning — to its caller that
+   is indistinguishable from success, and the next statement then acts on the
+   plan's world instead of the real one.
+
+**Rule 5 is the one that keeps finding bugs.** Nearly every defect in this
+pass is a silent fallback: a cost that reads as zero when unknown, a sell
+that happens wherever the ship is rather than where the plan said, a
+purchase that skips the balance the design nominated. When hunting, look for
+`if (x) { … }` with no `else` that raises.
+
+### The six steps (§8 of the design doc — keep this table honest)
+
+| Step | State | Note |
+|---|---|---|
+| 1. Data plane cannot block | **Done** | no `await sleep(` in any agent; `CooldownPending`/`NavigationPending` yield the scheduler |
+| 2. Registry by reference | **Done** | one `Registry`, read by reference |
+| 3. One executor | **Done** | `ShipProxy` holds the primitives; the trader re-derives its trip each tick |
+| 4. Intents + arbiter | **Done** (just now) | see §6 |
+| 5. Controllers | **Half** | `autoExplore()`/`exploreSystem()` and the rescue tender still fly ships from inside controllers — **this is all that is left of the migration** |
+| 6. Telemetry | **Done** | `getStep()`/`stepFor()` feed `getShipStatuses()` |
+
+§8 previously read "all six steps built". That was wrong, and the error was
+load-bearing: step 3 was marked complete when half of it was done, and every
+bug found since lived in the half that was skipped. **Do not mark a step Done
+to make the table look better.**
+
+### The intent board, concretely
+
+- `propose()` is per-tick and ephemeral; `commit()` resolves to **one intent
+  per ship** by priority: `0 rescue · 1 repair · 2 earn · 3 explore/upkeep ·
+  4 idle`. Ties go to the **first proposal**.
+- `supersedes(intent, current)` reads `version`, so a hull mid-task can tell
+  its goal was replaced.
+- `drivenByFleet(goal)` (`src/engine/intent.ts:128`) decides whether an agent
+  **stands down** or **executes**. It is now down to
+  `goal.kind === "hold" && goal.waypoint === undefined`, `tender`, and
+  `explore`. When the executor learns to fly an explore goal, that line
+  changes again and **step 5 is finished**.
+- Ownership precedence (ADR-0006, `ShipRegistry` as sole arbiter):
+  `operator > rescue > mission > warehouse > keeper > auto`.
+- `NavigationPending` / `CooldownPending` are **control-flow signals, not
+  `Error` subclasses**. Do not catch them as errors.
+
+---
+
+## 6. What just landed, and the very next thing to do
+
+**Step 4 — one owner per hull.** Two commits:
+
+`ea6b622` *Make an operator hold an intent the ship flies.* `holdShip()` used
+to call `agent.dispatchTo()`, which flew the hull *from inside the fleet*
+(rule 1) and set a private `manualGoal` field — a second record of who owned
+the ship. `isManual()` answered from the agent while the arbiter answered
+from the board, so they could disagree, and did: an operator pressed Hold,
+watched the sheet keep saying "Under doctrine", and concluded the button was
+broken, while the engine log said `manual hold`.
+
+A hold now splits on whether it names a waypoint. **With** one it is an
+operator parking a hull, flown by the ship through
+`ShipProxy.runHoldGoal()` (`src/engine/shipProxy.ts:419`) with position
+re-derived each tick — so a hold placed on a moving ship completes on
+arrival. **Without** one it is still the arbiter saying "nothing worth
+doing"; there is nowhere to fly, so standing down *is* executing it, and it
+stays in `drivenByFleet()`. `holdShip()` only persists now;
+`proposeOperatorHolds()` (`fleet.ts:4135`) re-proposes every tick from an
+in-memory mirror, level-triggered, and **runs first in `tick()`
+(`fleet.ts:3975`) so its priority-0 tie beats rescue's own priority-0 hold**,
+matching ADR-0006's precedence.
+
+`f4e8329` *Stop treating a dispatch as a claim on the hull.* The insight that
+made this small: of the ten callers of `dispatchShip()`, **nine are internal
+errands** — reach a jump gate, get to a yard to buy, station a keeper — that
+only ever wanted the hull to *move*. Exactly one, the dashboard's "Send to
+waypoint", wanted it to stay. The side effect was a latent bug the codebase
+already carried a scar for: `exploreSystem()` wraps its trip in a
+`try/finally` that releases the ship purely to undo a hold nobody asked for.
+
+So `dispatchTo()` is a movement primitive in `ShipAgent`, `TraderAgent` and
+`SiphonerAgent`; `manualGoal`/`manualWaypoint`/`isManual()` are gone from all
+three. **`ScoutAgent` keeps its `manualGoal` deliberately** — there it means
+"chart *this* target next", an override of *what to do* like `mineAt()`, not
+a claim on the hull. Do not "finish the cleanup" by deleting it. The one
+caller that wants the ship to stay says so: `sendShipTo()` (`fleet.ts:2922`)
+places the hold, then moves. The four availability checks now ask
+`FleetManager.isHeld()` (`fleet.ts:490`), and **`isManual()` no longer exists
+on the `ControlledAgent` interface**, so the original disagreement is not
+merely fixed but *unrepresentable*.
+
+### → THE IMMEDIATE NEXT ACTION
+
+**Check the prediction written before the deploy**, recorded in
+`subsystem-verification.md` under "Proof of the closing half":
+
+> `dispatch → WP` replaces `manual dispatch → WP` in the logs. A ship sent on
+> an internal errand (a scout reaching its gate, a hull going to a yard to
+> buy) is picked for automatic work again afterwards rather than sitting
+> benched. "Send to waypoint" still parks the ship, now reported as
+> `operator hold at WP`.
+
+How to check (Render MCP tools; `list_workspaces` first if no workspace is
+selected — **do not pick a workspace yourself**):
 
 ```
-          Make `npm test` work with no manual setup  ← newest
-966d5d7   Add a handoff for the parallel-UI work
-c4cd309   Record the RLS false-negative that caused two wrong diagnoses
-2f62f63   Fix three tests the working database exposed
-9adfdf6   Fix a boot crash for any injected fake API (regression from 722401d)
-ee3a6a2   Delete the v1 UI
-bc00a56   Make the DB schema configurable so tests get their own
+mcp__Render__list_deploys  serviceId=srv-da0veurl550s73eg2sog   # wait for status "live"
+mcp__Render__list_logs     resource=["srv-da0veurl550s73eg2sog"]
+                           text=["manual dispatch"]   # expect NONE after the deploy
+                           text=["dispatch →"]        # expect these instead
+                           text=["operator hold"]
 ```
 
-Next action is Phase 0 step 1: extract the 9 base64 `@font-face` blobs out of
-`v2.html` into `public/fonts/*.woff2` + `shared/fonts.css`. That alone takes
-the file from 408KB to roughly 60KB. Then the `shared/*.js` modules.
+Then **write the result into `subsystem-verification.md`, whichever way it
+came out**, replacing `**Live:** _pending._`, and update the Queue row for
+step 8. Reporting a failed prediction is the point of the standard; a
+prediction quietly dropped is worse than one that was wrong.
 
-**The user was asked whether to start Phase 0 or pause for review first, and
-had not answered when this handoff was written.** Confirm before editing
-`v2.html`.
+---
 
-## 3. Running the tests
+## 7. What is NOT verified live, and why it matters
+
+| Verification step | Status | Why not |
+|---|---|---|
+| 4 — repair as a goal the ship flies | tests only | no hull has taken damage since the deploy |
+| 5 — trader re-derives its trip | tests only | the trader has not completed a trade since the deploy |
+| 8 — operator hold as an intent | tests only | **nobody has pressed Hold since the deploy** |
+
+This is a pattern worth naming rather than a coincidence: **the paths hardest
+to verify are exactly the ones that only fire under conditions production has
+not produced.** One click of Hold from the user settles the third in seconds
+— it is fair to ask for it. The user has **parked an alternative approach for
+discussion** ("Maybe there is an alternative, we can discuss later") — likely
+some form of deliberately provoking these conditions, or a staging tenant.
+That conversation is open and unresolved; raise it, don't invent a design and
+ship it.
+
+---
+
+## 8. Open items (`docs/bug-log.md`, kept in sync)
+
+| # | Item | Belongs to |
+|---|---|---|
+| 1 | **Contract acceptance can take a guaranteed loss.** Confirmed with numbers: contract `cmtq3cdo` needs 22u DRUGS at ~11,300c ≈ 248,700c to fulfil, against a payout of 181,474c — a **~67,000c guaranteed loss**, accepted at 17:33 and worked for four hours because deliveries were silent. Two independent defects in `acceptBest()` (`contract.ts:140`), either sufficient alone: (a) **unknown sourcing cost is treated as free** — `if (cheapest) sourcingCost += …`, so with no market snapshots the score is raw payout; (b) **no sign check** — the least-bad contract is accepted however negative. | **rule 5** for the silent zero; **doctrine** for the margin gate. The margin belongs in doctrine, not a hardcoded `> 0`. |
+| 2 | **No way to abandon a contract.** Constraint to know before designing: the API has `accept`/`deliver`/`fulfill`/`negotiate` and **no cancel**. So "abandon" can only mean *stop working it* — release the trader, drop the `contractBuy` assignment, let it lapse, and say so honestly in the UI with the reputation cost stated. Cheaper now: the operator hold is an intent, so "stop working this contract" is the same shape and needs no new ownership channel. | **step 4** shape |
+| 3 | **Two processes tick the same fleet during a deploy.** ~60s per deploy where old and new instances both run a `TenantWorker` against the same hulls; `shutting down` never appears in the logs. Fix shape: a **per-tenant Postgres advisory lock**. | infrastructure |
+| 4 | **Live UI updates (SSE).** Wanted, not a bug. Today: 5s polling, four endpoints per client, `setInterval` — which is what mobile browsers throttle hardest. **Wants the advisory lock (3) first**, or a client pins to a draining process. | step 6 family |
+
+Also queued: **`priceTable` → registry** (single source of truth for prices),
+multi-hop routing, jump-gate construction status. The Queue table at the foot
+of `subsystem-verification.md` has **duplicated row numbers (9, 7, 8, 9)** —
+harmless, but fix it while you are there.
+
+**Ordering principle**, stated in that file and worth keeping: *do the
+loud-failure work before the structural work*, so that when a refactor breaks
+something it screams instead of silently mis-trading.
+
+---
+
+## 9. Environment, tests, and hard constraints
 
 ```bash
-npm test
+npm run typecheck          # tsc --noEmit
+npm test                   # node --test, all tests, needs a DB for some
+npx tsx --test tests/foo.test.ts   # a single file, no DB needed for most
+npm run migrate:test       # applies migrations to the test schema
 ```
 
-That is the whole thing. It loads `.env.test` automatically
-(`--env-file-if-exists`), and a `pretest` guard refuses to start if
-`DB_SCHEMA` is missing or set to the live `stcommand` schema.
+- **The DB-backed suite cannot run from a cloud session.** There is **no
+  egress to Postgres on 5432 from this container at all** — `ETIMEDOUT`,
+  independent of credentials. This was initially misdiagnosed as a scram-auth
+  problem; it is not. Check egress before blaming credentials. Every run in
+  the verification doc is therefore the **non-DB subset**, and each failure is
+  classified individually rather than waved at — so far all
+  `ECONNREFUSED`/`SASL` on Postgres.
+- **`.env.test` is gitignored and must never be committed.** It holds a
+  Postgres URL the user pasted into a transcript; **that credential should be
+  rotated.** Never echo it, commit it, or send it anywhere.
+- **`DB_SCHEMA` must never be `stcommand`** (the production schema) when
+  running tests: `store.test.ts` and `tenantRegistry.test.ts` run
+  `DELETE FROM tenants`. `scripts/assert-test-schema.mjs` enforces this as
+  npm `pretest`. Do not bypass it.
+- The database (`promptoria_db`) is **shared with an unrelated app in
+  `public`**, which is why `search_path` is pinned at the pool level.
+- Postgres uses **FORCE RLS**. An RLS false negative has already caused two
+  wrong diagnoses (commit `c4cd309`).
+- `.claude/settings.json` pre-approves `npm run migrate:test` and
+  `node --test:*` so those do not prompt.
+- SpaceTraders API facts that have bitten: the **rate limit is per-IP and
+  shared across tenants**; `getMarket` returns prices **only when docked**;
+  jumps are **gate→gate, single hop**.
 
-If `.env.test` does not exist yet, copy `.env.test.example` and fill it in —
-**ask the user for the connection string**, it is a live production
-credential and is deliberately not in the repo.
+---
 
-- The suite is **slow** — roughly 25 minutes — because it runs against a
-  real remote Postgres with per-query latency. Run it in the background.
-  Do not pipe it through `tail`, which buffers everything and hides the
-  summary; redirect to a file and grep.
-- To rebuild the test schema from scratch: `npm run migrate:test`.
-- **Never commit the connection string.** `.env` and `.env.test` are both
-  gitignored.
+## 10. Traps — mistakes actually made here, so you don't repeat them
 
-### Why this section used to be longer
+Read this section. Most of it is epistemics, not code.
 
-The first version of this handoff told the next agent to export
-`TEST_DATABASE_URL` and `DB_SCHEMA` by hand before every run. That failed
-on first contact: a fresh session ran `npm test`, got the built-in
-localhost fallback, hit `password authentication failed for user
-"stcommand"`, and reported the database as unreachable — when it was fine.
+- **Reading one short window and reporting a transient as steady state.** I
+  read a 15-minute window minutes after a deploy — dominated by repositioning
+  fuel cost — and declared the mine→sell loop unprofitable. It wasn't.
+- **Declaring a subsystem idle without checking the whole record.** I said the
+  fleet "has never traded" having queried only from 18:34; it had traded
+  17:44–18:09. The user's push-back — *"I think it's assigned a contract which
+  it's supposed to be filling"* — is what led directly to finding the silent
+  contract deliveries.
+- **Books that omit a revenue stream.** `ledgerSummary()` did not count
+  contract payouts, so `net` was wrong. It now includes `contract`:
+  `net = sells + contract - purchases - refuel - ship`.
+- **Blaming the interesting suspect.** A missing Release button "must" be the
+  two-instance overlap; it wasn't — only one instance was logging. The real
+  cause was the ship sheet not being subscribed to the store. When the user
+  asked *"Is it due to your jettison logic"*, the right move was to actually
+  check (wrong class, protected goods excluded, timing 2.5h before deploy, no
+  jettison line) rather than assert innocence.
+- **A fix that reproduces the disease it treats.** In `runContractBuy()`'s
+  exits I inferred "contract needs no more" from `cap <= 0` — which misfires
+  when a *full hold* zeroed it. That is the same silent-wrong-answer shape the
+  fix existed to remove. Hoisting `stillNeeded` as its own variable fixed it.
+  Watch for this: the code you write to make a failure legible can itself lie.
+- **Bending tests back to the old contract.** Two tests asserted the pre-step-4
+  behaviour (`fleetStatusSummary` sourcing `manual hold` from the agent flag;
+  `intentConsumption` expecting a hold-with-waypoint to stand down). They were
+  **rewritten to the new contract**, deliberately — but always ask which of
+  the two is wrong before touching either.
+- **Doc-only commits cost a double-tick window.** See §3.
 
-A setup step that has to be remembered is a setup step that gets skipped.
-`npm test` now works cold, and the guard makes the dangerous
-misconfiguration impossible rather than merely documented.
+---
 
-## 4. The trap that has now cost two investigations
+## 11. File map for the parts in play
 
-`FORCE ROW LEVEL SECURITY` is on every tenant-scoped table, and it applies to
-the table owner too. **A psql session with no `app.tenant_id` set reads zero
-rows from all of them** — no error, just an empty result that looks exactly
-like missing data.
+| Path | What lives there |
+|---|---|
+| `src/engine/fleet.ts` | `FleetManager` — the control plane. `operatorHolds` map (:158), `isHeld()` (:490), `spendableCredits()` (:539), `sendShipTo()` (:2922), `dispatchShip()` (:2930), `holdShip()` (:2951), `updateShipManualState()` (:2985), `getShipStatuses()` (:3222+), `tick()` (:3975), `proposeOperatorHolds()` (:4135) |
+| `src/engine/shipProxy.ts` | the executor/kubelet. `assertAt()` (:299), `runRepairGoal()` (:365), `runHoldGoal()` (:419) |
+| `src/engine/intent.ts` | `ShipIntent`, `IntentBoard`, `supersedes()`, `drivenByFleet()` (:128) |
+| `src/engine/shipRegistry.ts` | ADR-0006 ownership arbiter |
+| `src/engine/agent.ts` / `trader.ts` / `siphoner.ts` / `scout.ts` | the four agent classes. `dispatchTo()` is movement-only in the first three; `scout.ts` keeps `manualGoal` on purpose |
+| `src/engine/contract.ts` | `ContractManager`; `acceptBest()` (:140) is bug-log #1 |
+| `src/engine/doctrine.ts` | policy — where profitability work belongs |
+| `src/db/store.ts` | persistence, `ledgerSummary()` |
+| `src/http/dashboard.ts` | dashboard API; "Send to waypoint" → `sendShipTo()` (~:834) |
+| `src/http/gate.ts` | auth/session; `GET /session` returns `{ agentSymbol, onboardingPending }` |
+| `public/v2..v5.*` + `public/shared/*.js` | the four parallel UIs and their shared modules |
+| `tests/operatorHold.test.ts` | step 4/8 coverage — the one to extend |
 
-```sql
-SET app.tenant_id = '<tenant uuid>';   -- THEN select
-```
+---
 
-This produced two confident, wrong conclusions before it was caught (both
-documented in `docs/adr/0001`):
+## 12. If you do nothing else
 
-1. A long-running "`withTenant()` silently persists zero rows" bug, complete
-   with counters and watchdog instrumentation in `pool.ts`. **There was never
-   a write bug.** The same tenant had 20 doctrine rows, 2 fleet_flags and
-   4,062 ledger rows the whole time. Instrumentation removed.
-2. A claim — stated as fact in commit `cf4c27b`'s message — that the live
-   tenant had zero doctrine rows and was being force-paused at boot. It was
-   not. The `tenants.onboarding_pending` column that motivated is a better
-   design and is worth keeping, but it did not fix a real regression.
-
-The sharper version: the shared galaxy tables (`market_latest`,
-`shipyard_inventory`, `galaxy_systems`) have no RLS and query normally. So a
-session reading those looks perfectly healthy while every tenant-scoped table
-silently reads empty. That is why it was convincing twice.
-
-## 5. Open items for the user (do not decide these yourself)
-
-1. **Start Phase 0, or pause for review first?** Asked, unanswered.
-2. **`snapshotMaxAgeMin` is un-adopted on the live tenant DAGGER.** This is
-   the real cause of the "stale prices in the Markets tab" complaint —
-   `Doctrine.value()` returns the `whenOff` fallback for an un-adopted rule,
-   and `intelMaxAgeMin()` passes `5_256_000` (ten years), so nothing is
-   filtered. Fix is theirs to apply: Book → Library → re-add "Intel
-   freshness". **Their live doctrine has not been touched.**
-3. **Should "off" mean "unconstrained" for intel freshness?** Sensible for a
-   cash floor; for market data it means the dispatcher plans real trades on
-   decade-old prices. A design call, not a bug.
-4. **v4's non-Bridge views are undesigned** (Fleet/Markets/Trade Ops — dense
-   tables fight the HUD idiom). Decide the fallback *before* Phase 4, not
-   during. v5's equivalents are designed; see the artifact above.
-
-## 6. Norms this work has been held to
-
-- **Typecheck after every change** (`npm run typecheck`), and run the suite
-  before pushing. The one regression that reached `main` (`9adfdf6`) got
-  there precisely because the suite could not run.
-- **Verify claims against the database before asserting them in a commit
-  message.** See §4 for what happens otherwise.
-- Commits are grouped by concern and messages explain *why*, including when
-  the previous reasoning was wrong. `c4cd309` corrects `cf4c27b` rather than
-  quietly superseding it.
-- Migrations are numbered and applied with `npm run migrate`; production is
-  currently at `011_galaxy_topology.sql`.
-
-## 7. Stale file to ignore
-
-`HANDOFF.md` in the repo root is untracked, from an older session, and
-describes a GitHub-push-access problem that no longer exists. It is
-misleading. Ignore or delete it — along with `stcommandhandoff.bundle`.
+1. Confirm `f4e8329` is live, check the §6 prediction, and **write the result
+   into `subsystem-verification.md` either way**.
+2. Ask the user for one click on **Hold** to settle step 8 live, and raise the
+   parked question of how to exercise repair and trading deliberately.
+3. Then **finish migration step 5** — `autoExplore()`/`exploreSystem()` and
+   the rescue tender are the last two controllers that fly ships. Repair and
+   the trader are the worked examples to copy: the controller proposes and
+   releases, the hull flies itself through the shared executor, each entry
+   re-derives from what is observed, and `version` decides whether the goal is
+   still current on arrival.
+4. Keep profitability in doctrine, and keep the bug log mapped to steps.
