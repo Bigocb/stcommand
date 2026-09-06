@@ -247,3 +247,28 @@ describe("the heartbeat says when parked tasks are due", () => {
     assert.doesNotMatch(logs.find((l) => /queue=/.test(l))!, /next due/);
   });
 });
+
+describe("a halted fleet is never mistaken for a healthy idle one", () => {
+  it("says PAUSED, rather than reporting overdue tasks that are simply not admitted", async () => {
+    // The afternoon this cost. runOnce() admits only priority 0 while paused,
+    // so ship tasks sit overdue and unready while the rescue task cycles — a
+    // heartbeat identical to a broken scheduler: tokens full, nothing skipped,
+    // nothing failed.
+    const logs: string[] = [];
+    const s = new Scheduler({ log: (m) => logs.push(m), heartbeatMs: 0, isPaused: () => true });
+    s.enqueue(task({ id: "miner", priority: 2, earliestRunAt: Date.now() - 178_000 }));
+
+    await s.runOnce();
+
+    const beat = logs.find((l) => /queue=/.test(l))!;
+    assert.match(beat, /scheduler: PAUSED queue=1 ready=0/);
+  });
+
+  it("says nothing extra when the fleet is running", async () => {
+    const logs: string[] = [];
+    const s = new Scheduler({ log: (m) => logs.push(m), heartbeatMs: 0 });
+    s.enqueue(task());
+    await s.runOnce();
+    assert.doesNotMatch(logs.find((l) => /queue=/.test(l))!, /PAUSED/);
+  });
+});

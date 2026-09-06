@@ -222,8 +222,16 @@ export class Scheduler {
           .map((t) => `${t.id}@+${Math.round((t.earliestRunAt - now) / 1000)}s`)
           .join(" ")
       : "";
+    // PAUSED belongs in the first field, not deduced later. A halted fleet and
+    // a broken one produce identical heartbeats otherwise: tokens full,
+    // nothing skipped, nothing failing, tasks overdue and none of them ready,
+    // because runOnce() admits only priority 0 while paused. That ambiguity
+    // cost an afternoon — the fleet was halted the entire time and every
+    // instrument, including this one, reported a healthy runner with nothing
+    // to do.
+    const halted = this.isPaused() ? "PAUSED " : "";
     this.log(
-      `scheduler: queue=${this.queue.length} ready=${readyCount} tokens=${this.budget.availableTokens().toFixed(2)} ` +
+      `scheduler: ${halted}queue=${this.queue.length} ready=${readyCount} tokens=${this.budget.availableTokens().toFixed(2)} ` +
       `· ran=${s.ran} skipped=${s.skipped} failed=${s.failed} no-op=${s.yielded}` +
       (s.ran === 0 ? ` · NOTHING HAS RUN in ${idleFor}s` : ` · last ran ${idleFor}s ago`) + due,
     );
