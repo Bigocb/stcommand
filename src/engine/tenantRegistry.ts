@@ -258,7 +258,7 @@ export class TenantRegistry {
     // point it's long since been assigned. Same forward-reference pattern
     // MissionManager's own callbacks into FleetManager already use.
     let fleet!: FleetManager;
-    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused() });
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log });
     fleet = new FleetManager({
       api,
       contracts,

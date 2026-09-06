@@ -3281,6 +3281,54 @@ export class FleetManager {
     }
   }
 
+  private fleetFingerprint = "";
+  private fingerprintSince = Date.now();
+  private lastStallWarn = 0;
+  /**
+   * The alarm for the failure mode this engine keeps producing: nothing
+   * happens, and nothing says so.
+   *
+   * Every serious incident today was silent. A repair loop that re-flew a
+   * healthy ship, a trader buying goods it never delivered, six hulls holding
+   * routes none could fly, and finally a fleet that stood still for forty
+   * minutes with no error logged anywhere — each was found by a human noticing
+   * the credit balance or the map, hours late.
+   *
+   * A fingerprint of observed state answers the one question none of the
+   * per-subsystem logs could: is anything actually moving? If no ship has
+   * changed position, status or cargo for several minutes, that is either a
+   * genuinely idle fleet or a stalled one, and both are worth a line — an idle
+   * fleet with work available is itself a bug.
+   */
+  private checkFleetLiveness(): void {
+    const ships = this.fleetStatusSummary();
+    if (ships.length === 0) return;
+    const print = ships
+      .map((s) => `${s.symbol}:${s.waypoint ?? "?"}:${s.doing}:${s.cargo}`)
+      .join("|");
+
+    if (print !== this.fleetFingerprint) {
+      this.fleetFingerprint = print;
+      this.fingerprintSince = Date.now();
+      return;
+    }
+
+    const stalledMs = Date.now() - this.fingerprintSince;
+    if (stalledMs < 3 * 60_000) return;
+    // Once every ten minutes, not every tick — this fires while the condition
+    // holds, and the condition can hold for a long time.
+    if (Date.now() - this.lastStallWarn < 10 * 60_000) return;
+    this.lastStallWarn = Date.now();
+
+    const sched = this.scheduler?.stats_?.();
+    const detail = sched
+      ? `scheduler queue=${sched.queue} ran=${sched.ranSinceHeartbeat} idle=${sched.idleSeconds}s`
+      : "no scheduler attached";
+    this.log(
+      `STALL: no ship has changed position, status or cargo in ${Math.round(stalledMs / 60_000)}m — ${detail}`,
+    );
+  }
+
   private logFleetStatus(): void {
     const parts = this.fleetStatusSummary().map(
       // Intent is appended only when one is committed, so the line stays the
@@ -3787,6 +3835,7 @@ export class FleetManager {
       await this.syncShipClaims();
       this.syncSchedulerTasks();
       this.logFleetStatus();
+    this.checkFleetLiveness();
       return;
     }
     await this.refreshCredits();

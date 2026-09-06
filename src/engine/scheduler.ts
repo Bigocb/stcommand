@@ -84,8 +84,25 @@ export class Scheduler {
   private running = false;
   /** Injected rather than read from a store directly — keeps this class free of any Postgres/tenant dependency, same as ShipRegistry. */
   private isPaused: () => boolean;
+  private readonly burst: number;
+  private readonly log: (msg: string) => void;
+  private readonly heartbeatMs: number;
+  /**
+   * Counters for the heartbeat below. Every one of them exists because a
+   * failure of that kind was, at some point today, completely silent: a task
+   * skipped for budget logged nothing, a task that threw logged nothing from
+   * here, and a scheduler that ran zero tasks for forty minutes looked
+   * exactly like one with nothing to do.
+   */
+  private stats = { ran: 0, skipped: 0, failed: 0, yielded: 0 };
+  /** Consecutive passes each task has been skipped for budget, by task id. */
+  private skips = new Map<string, number>();
+  /** Task ids already reported as permanently unadmittable, so it is said once. */
+  private starved = new Set<string>();
+  private lastHeartbeat = Date.now();
+  private lastRanAt = Date.now();
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -97,8 +114,11 @@ export class Scheduler {
     // any single task be admitted; the Client's own limiter (burst 2) is what
     // actually paces the requests, so this doesn't reintroduce the 429 bursts.
     const rate = opts.ratePerSec ?? 1.5;
-    this.budget = new SchedulerBudget(rate, opts.burst ?? 5);
+    this.burst = opts.burst ?? 5;
+    this.budget = new SchedulerBudget(rate, this.burst);
     this.isPaused = opts.isPaused ?? (() => false);
+    this.log = opts.log ?? (() => {});
+    this.heartbeatMs = opts.heartbeatMs ?? 30_000;
   }
 
   enqueue(task: Task): void {
@@ -120,15 +140,87 @@ export class Scheduler {
 
     let ran = 0;
     for (const task of ready) {
-      let budget = this.budget.availableTokens();
-      if (task.estimatedCalls > budget) continue; // save the remaining budget for a higher-priority task later in this pass
+      const budget = this.budget.availableTokens();
+      if (task.estimatedCalls > budget) {
+        // Skipping is silent by design — save the budget for a higher-priority
+        // task later in this pass — and that silence is how a fleet can stand
+        // still for forty minutes with no error anywhere. Count it, and say
+        // something when a skip stops looking temporary.
+        this.stats.skipped += 1;
+        this.noteSkip(task, budget);
+        continue;
+      }
+      this.skips.delete(task.id);
       this.queue.splice(this.queue.indexOf(task), 1);
-      const result = await task.run();
-      this.budget.consumeTokens(result.actualCalls);
-      ran += 1;
-      if (result.next) this.enqueue(result.next);
+      try {
+        const result = await task.run();
+        this.budget.consumeTokens(result.actualCalls);
+        ran += 1;
+        this.stats.ran += 1;
+        this.lastRanAt = Date.now();
+        if (result.actualCalls === 0) this.stats.yielded += 1;
+        if (result.next) this.enqueue(result.next);
+      } catch (err) {
+        // Without this the whole runner dies on one bad task: runOnce()
+        // rejects, run()'s loop unwinds, and every ship in the tenant stops
+        // for good behind a single log line. A task is allowed to fail; the
+        // scheduler is not allowed to fail with it.
+        this.stats.failed += 1;
+        this.log(`scheduler: task ${task.id} threw — ${err instanceof Error ? err.message : String(err)}`);
+        // Re-enqueue with a small backoff so a persistently failing task
+        // cannot spin the runner, and cannot silently vanish either.
+        this.enqueue({ ...task, earliestRunAt: Date.now() + 5_000 });
+      }
     }
+    this.heartbeat(ready.length);
     return ran;
+  }
+
+  /**
+   * Say something the first time a skip looks permanent rather than momentary.
+   *
+   * Two shapes matter. A task whose `estimatedCalls` exceeds the burst can
+   * *never* be admitted — the constructor's comment has always warned about
+   * this, and nothing ever checked it at runtime. And a task skipped pass
+   * after pass is starving even if it is theoretically admittable. Both look
+   * identical from outside: a fleet that does nothing and reports nothing.
+   */
+  private noteSkip(task: Task, budget: number): void {
+    if (task.estimatedCalls > this.burst && !this.starved.has(task.id)) {
+      this.starved.add(task.id);
+      this.log(
+        `scheduler: task ${task.id} can NEVER run — estimatedCalls ${task.estimatedCalls} exceeds burst ${this.burst}`,
+      );
+      return;
+    }
+    const n = (this.skips.get(task.id) ?? 0) + 1;
+    this.skips.set(task.id, n);
+    // ~100ms a pass, so 100 passes is roughly ten seconds of starvation.
+    if (n === 100) {
+      this.log(
+        `scheduler: task ${task.id} starved for ${n} passes — needs ${task.estimatedCalls} calls, ${budget.toFixed(2)} available`,
+      );
+    }
+  }
+
+  /** Periodic proof of life, and of work. Silence here now means the process is gone, not that the fleet is idle. */
+  private heartbeat(readyCount: number): void {
+    const now = Date.now();
+    if (now - this.lastHeartbeat < this.heartbeatMs) return;
+    this.lastHeartbeat = now;
+    const idleFor = Math.round((now - this.lastRanAt) / 1000);
+    const s = this.stats;
+    this.log(
+      `scheduler: queue=${this.queue.length} ready=${readyCount} tokens=${this.budget.availableTokens().toFixed(2)} ` +
+      `· ran=${s.ran} skipped=${s.skipped} failed=${s.failed} no-op=${s.yielded}` +
+      (s.ran === 0 ? ` · NOTHING HAS RUN in ${idleFor}s` : ` · last ran ${idleFor}s ago`),
+    );
+    this.stats = { ran: 0, skipped: 0, failed: 0, yielded: 0 };
+  }
+
+  /** Current counters, for a caller that wants them in its own diagnostics. */
+  stats_(): { queue: number; ranSinceHeartbeat: number; idleSeconds: number } {
+    return { queue: this.queue.length, ranSinceHeartbeat: this.stats.ran, idleSeconds: Math.round((Date.now() - this.lastRanAt) / 1000) };
   }
 
   /** The coordinator-style loop — same polling shape as FleetManager.run(), until stop() is called or maxTicks is reached. */
