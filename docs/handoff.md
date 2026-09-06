@@ -2,7 +2,11 @@
 
 For whoever picks this up cold. Written at commit `f4e8329`, immediately
 after step 4 of the control-plane migration was closed and pushed, and
-**before** its live prediction had been checked.
+updated once its live prediction had been checked (it missed — §6).
+
+**The next piece of work is migration step 5**, and it is not blocked on
+anything. Skip to §6 if you want the job; read §4 first if you want to know
+the standard it has to be done to.
 
 The previous handoff (the parallel-UI work, `v3`/`v4`/`v5`) is finished and
 archived at `docs/handoff-ui-versions.md`. It is history, not instructions.
@@ -43,7 +47,7 @@ conditions that exercise them.
 | HEAD | `f4e8329` "Stop treating a dispatch as a claim on the hull" |
 | Working tree | clean as of the commit; `docs/handoff.md` (this file) and the rename of the old one are the only pending changes |
 | Render service | `stcommand`, `srv-da0veurl550s73eg2sog`, workspace `tea-d78npo450q8c73f2n45g`, region oregon, url https://stcommand.onrender.com |
-| Deploy of `f4e8329` | was `build_in_progress` when this was written. **Its live prediction is unchecked — that is the immediate next action (§6).** |
+| Deploy of `f4e8329` | live at 23:21:55. Its prediction was checked at 23:29 and **missed** — untested rather than refuted, see §6 |
 | Typecheck | clean |
 | Tests | 266 pass across every non-DB file. The 4 failures are `ECONNREFUSED` in the DB-backed `agentStep.test.ts` — see §9 |
 
@@ -235,9 +239,11 @@ places the hold, then moves. The four availability checks now ask
 on the `ControlledAgent` interface**, so the original disagreement is not
 merely fixed but *unrepresentable*.
 
-### → THE IMMEDIATE NEXT ACTION
+### The prediction that was outstanding — now checked, and it missed
 
-**Check the prediction written before the deploy**, recorded in
+*(Kept in full because how it was checked is the point, not just the result.)*
+
+**Checked the prediction written before the deploy**, recorded in
 `subsystem-verification.md` under "Proof of the closing half":
 
 > `dispatch → WP` replaces `manual dispatch → WP` in the logs. A ship sent on
@@ -273,6 +279,34 @@ deploy double-tick (twice, across two deploys, three instances).
 
 ---
 
+### → THE IMMEDIATE NEXT ACTION: finish migration step 5
+
+**This is the work. It does not wait on anything.**
+
+Step 5 is the last unfinished step of the migration, and it is two
+controllers: `autoExplore()` / `exploreSystem()`, and the rescue tender.
+Both still fly hulls from inside the controller, which is rule 1 broken in
+exactly the way `runCriticalRepair()` broke it before repair became a goal.
+
+You have two worked examples to copy, and they are the whole pattern:
+
+- **repair** — `maybeRepairFleet()` proposes and releases; the hull flies
+  itself through `ShipProxy.runRepairGoal()`.
+- **the trader** — each entry re-derives the trip from the hold and the
+  ship's observed position, rather than running straight through.
+
+The finish line is legible in one line of code: when the executor can fly an
+explore goal, `explore` comes out of `drivenByFleet()`
+(`src/engine/intent.ts:128`) and step 5 is done. That function is currently
+`hold`-without-waypoint, `tender`, and `explore`. Getting it to
+`hold`-without-waypoint alone is the goal.
+
+Do this under the §4 standard like every step before it: state the defect as
+a mechanism, write tests that fail with the source stashed, **write the
+prediction down before deploying**, then check it and report it either way.
+
+---
+
 ## 7. What is NOT verified live, and why it matters
 
 | Verification step | Status | Why not |
@@ -300,6 +334,7 @@ ship it.
 | 2 | **No way to abandon a contract.** Constraint to know before designing: the API has `accept`/`deliver`/`fulfill`/`negotiate` and **no cancel**. So "abandon" can only mean *stop working it* — release the trader, drop the `contractBuy` assignment, let it lapse, and say so honestly in the UI with the reputation cost stated. Cheaper now: the operator hold is an intent, so "stop working this contract" is the same shape and needs no new ownership channel. | **step 4** shape |
 | 3 | **Two processes tick the same fleet during a deploy.** ~60s per deploy where old and new instances both run a `TenantWorker` against the same hulls; `shutting down` never appears in the logs. Fix shape: a **per-tenant Postgres advisory lock**. | infrastructure |
 | 5 | **A trader stays assigned to work it cannot fund.** Observed live: `cannot afford one unit at 11350c with 0c in hand; trading instead`, while `dispatch recompute` re-assigns `DRUGS:contractBuy` every minute for 38 minutes straight. The dispatcher scores the assignment at its payout with no affordability gate, so the trader oscillates between two waypoints discovering prices it will never act on. Step 3's fix made the loop *legible*; it cannot shed the assignment. | **doctrine** — belongs beside item 1's margin gate |
+| 7 | **A ship purchase left the fleet under the floor too — unexplained.** At 17:34 the fleet bought `SHIP_MINING_DRONE` for 48,328c and came out at 5,929c, below the 20,000c floor, on the *ship* path — which already went through `canAfford()`, unlike the trader path item 5's fix repaired. The pre-purchase balance is unknown, so this is **flagged, not claimed**. It is the second purchase to leave the fleet underwater and deserves a check before the trader is assumed to have been the only leak. | **step 2** if real — a call site reading around the single source of truth |
 | 6 | **"0c in hand" is not the balance.** The affordability message prints `spendableNow()`, i.e. `max(0, credits - cashFloor)`. `0c in hand` means "nothing above the 20,000c floor", not "broke". A number that does not mean what its words say. | **rule 5** family |
 | 4 | **Live UI updates (SSE).** Wanted, not a bug. Today: 5s polling, four endpoints per client, `setInterval` — which is what mobile browsers throttle hardest. **Wants the advisory lock (3) first**, or a client pins to a draining process. | step 6 family |
 
@@ -311,6 +346,35 @@ harmless, but fix it while you are there.
 **Ordering principle**, stated in that file and worth keeping: *do the
 loud-failure work before the structural work*, so that when a refactor breaks
 something it screams instead of silently mis-trading.
+
+### The money situation, so you don't misread it as I did
+
+At the time of writing the fleet holds **~8,000c against a 20,000c cash
+floor** — under it, so nothing non-fuel is spendable and the logs print
+`0c in hand`. **This is a recovering system, not a stuck one.** The hole was
+dug at 22:02 by the pre-fix trader (10,336c → 1,407c on one DRUGS buy); the
+cash-floor fix landed at 22:24; the balance has climbed monotonically since,
+with no purchases at all:
+
+```
+22:02  1,407c   ← the DRUGS buy
+22:24  2,690c   ← cash-floor fix deploys
+23:02  6,032c
+23:21  7,319c
+23:31  7,973c    ≈ +4,700c/hr — clears the floor in ~2.5h
+```
+
+I read one window of this and called the fleet stuck. It is not. The fix
+works; the hole simply predates it. **Balances from the `booting DRAGOM @ …,
+N credits` boot lines are the ground truth** — the 15-minute `earnings`
+windows disagreed with them and the balances were right.
+
+Two consequences while it is underwater, worth knowing rather than acting on:
+repair is gated by the same floor (`fleet.ts:2230`), which collides with the
+standing "never let a ship reach zero condition" goal; and the trader cannot
+fund its contract assignment (item 5).
+
+**None of this blocks the engineering.** Step 5 does not touch money.
 
 ---
 
@@ -405,14 +469,13 @@ Read this section. Most of it is epistemics, not code.
 
 ## 12. If you do nothing else
 
-1. Confirm `f4e8329` is live, check the §6 prediction, and **write the result
-   into `subsystem-verification.md` either way**.
+1. **Finish migration step 5** (§6). It is the last unfinished step, it is two
+   controllers, and it waits on nothing — not on credits, not on the user.
+   The pattern to copy is repair and the trader.
 2. Ask the user for one click on **Hold** to settle step 8 live, and raise the
-   parked question of how to exercise repair and trading deliberately.
-3. Then **finish migration step 5** — `autoExplore()`/`exploreSystem()` and
-   the rescue tender are the last two controllers that fly ships. Repair and
-   the trader are the worked examples to copy: the controller proposes and
-   releases, the hull flies itself through the shared executor, each entry
-   re-derives from what is observed, and `version` decides whether the goal is
-   still current on arrival.
+   parked question of how to exercise repair and trading deliberately. Ask;
+   don't block on it. Step 5 proceeds either way.
+3. Keep the verification standard (§4) on every step: mechanism, tests that
+   fail with the source stashed, a prediction written before the deploy, and
+   the result reported whichever way it came out.
 4. Keep profitability in doctrine, and keep the bug log mapped to steps.

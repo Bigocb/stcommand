@@ -21,6 +21,7 @@ doctrine pass.
 | 4 | Live UI updates (SSE) | **step 6** family — delivery of telemetry, not new telemetry |
 | 5 | A trader assigned work it cannot fund, forever | **doctrine** — the dispatcher has no affordability gate |
 | 6 | "0c in hand" is not the balance | **rule 5** family — a number that does not mean what it says |
+| 7 | A ship purchase also left the fleet under the floor — unexplained | **step 2** if real — a call site reading around the source of truth |
 
 ---
 
@@ -135,3 +136,31 @@ Small, and exactly the class of thing this pass exists to remove: a log line
 whose number does not mean what its words say. Someone reading it — including
 me, for a moment — concludes the fleet is bankrupt. Say
 `0c spendable (20000c floor)` or print both figures.
+
+---
+
+## 7. A ship purchase also left the fleet under the floor
+
+**Flagged, not claimed.** At 17:34 the fleet bought `SHIP_MINING_DRONE` for
+48,328c; the next boot line, at 18:29, reads 5,929c — below the 20,000c cash
+floor.
+
+Why it is worth a look rather than a shrug: this is the **ship** path, which
+already went through `canAfford()` long before item 5's trader fix. If a
+48,328c purchase passed a 20,000c floor, then the floor is read around in a
+second place and the trader was not the only leak.
+
+Why it is not yet a claim: **the pre-purchase balance is unknown.** The 17:06
+boot line says 41,684c, and the fleet was earning between then and 17:34, so
+the balance at the moment of purchase is not in evidence. It is entirely
+possible the purchase was legitimate against a balance that had climbed above
+68,328c — though the fleet's earning rate over that half hour makes that a
+stretch worth testing rather than assuming either way.
+
+**How to settle it:** the ledger has the `SHIP` row and its timestamp; the
+balance immediately before it is derivable from the ledger rather than from
+boot lines, which only sample at deploys. Check `shipBudget()` and the
+`canAfford()` call on the purchase path while there.
+
+Recorded because it is the second time a purchase has left the fleet
+underwater, and one confirmed leak is not evidence that it was the only one.
