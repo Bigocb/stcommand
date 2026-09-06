@@ -437,10 +437,36 @@ export class TraderAgent {
   }
 
   /** Jump to a waypoint in another system using the nearest jump gate. */
+  /**
+   * Retire the assigned route when the galaxy says its far end cannot be
+   * reached at all. Without this the throw above is honest but useless: the
+   * dispatcher re-assigns the identical leg next tick and the ship fails on it
+   * forever, which is the same loop with an error line instead of a loss.
+   */
+  private markRouteUnreachable(targetSystem: string): void {
+    const leg = this.asDirectLeg(this.assignedRoute?.());
+    if (leg && this.systemOf(leg.sellAt) === targetSystem) this.deadRoutes.add(`${leg.good}@${leg.buyAt}`);
+  }
+
+  /**
+   * Every failure below throws. It used to log and return, which reads to the
+   * caller exactly like a successful arrival — and the caller's next moves are
+   * ensureDocked(), liveSellPrice(route.sellAt) and a purchase or sale. So a
+   * ship that never moved bought and sold at whatever market it was actually
+   * standing on, while the logs named the route's waypoints.
+   *
+   * Live, DAGGER-F ran this ~every 45 seconds for over twenty minutes: sitting
+   * in X1-ZU53, "no jump gate from X1-ZU53 to X1-TV75", then "bought 18u
+   * ANTIMATTER @ 5919c at X1-RD37-D20E" and "sold 18u ANTIMATTER @ 5417c at
+   * X1-TV75-X20F" — two markets in two other systems, neither of which it was
+   * at — losing 9,036c a cycle. Roughly a quarter of a million credits, and
+   * every log line about it was false.
+   *
+   * A movement primitive that cannot move the ship must not return normally.
+   */
   private async jumpToSystem(targetSystem: string, destination: string): Promise<void> {
     if (!this.atlas) {
-      this.log(`cannot jump to ${targetSystem}: no galaxy atlas`);
-      return;
+      throw new Error(`cannot jump to ${targetSystem}: no galaxy atlas`);
     }
     await this.waitCooldown();
     const fromSystem = this.ship.nav.systemSymbol;
@@ -451,15 +477,14 @@ export class TraderAgent {
       gate = this.atlas.gatesTo(fromSystem, targetSystem)[0];
     }
     if (!gate) {
-      this.log(`no jump gate from ${fromSystem} to ${targetSystem}`);
-      return;
+      this.markRouteUnreachable(targetSystem);
+      throw new Error(`no jump gate from ${fromSystem} to ${targetSystem}`);
     }
     // Guard against infinite recursion: the gate must be in the current system.
     // If the atlas returns a gate in a different system (stale state after a
     // jump), navigating to it would call jumpToSystem again forever.
     if (this.systemOf(gate) !== fromSystem) {
-      this.log(`gate ${gate} is not in ${fromSystem}; skipping jump to ${targetSystem}`);
-      return;
+      throw new Error(`gate ${gate} is not in ${fromSystem}; cannot jump to ${targetSystem}`);
     }
     // The jump endpoint's target must be the destination system's own jump
     // gate waypoint — it never accepts an arbitrary waypoint in that system.
@@ -473,8 +498,8 @@ export class TraderAgent {
     const remoteSystem = await this.atlas.loadSystem(targetSystem);
     const remoteGate = remoteSystem.waypoints.find((w) => w.type === "JUMP_GATE")?.symbol;
     if (!remoteGate) {
-      this.log(`${targetSystem} has no jump gate waypoint`);
-      return;
+      this.markRouteUnreachable(targetSystem);
+      throw new Error(`${targetSystem} has no jump gate waypoint`);
     }
     await this.navigateTo(gate);
     await this.ensureInOrbit();
@@ -1094,7 +1119,11 @@ export class TraderAgent {
         pricePerUnit: sold.transaction.pricePerUnit,
         total: sold.transaction.totalPrice,
       });
-      this.log(`sold ${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt} (+${sold.transaction.totalPrice - res.transaction.totalPrice}c)`);
+      // Sign the delta rather than always prefixing "+", which rendered a loss
+      // as "(+-9036c)" — the shape that hid twenty minutes of a losing loop in
+      // plain sight.
+      const delta = sold.transaction.totalPrice - res.transaction.totalPrice;
+      this.log(`sold ${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt} (${delta >= 0 ? "+" : ""}${delta}c)`);
       this.onActivity?.("sell", `${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c at ${route.sellAt}`, sold.transaction.totalPrice, this.symbol);
       return true;
     }
