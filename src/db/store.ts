@@ -60,6 +60,27 @@ export interface ActivityEntry {
   credits?: number;
 }
 
+export interface ShipLogRow {
+  shipSymbol: string;
+  timestamp: string;
+  personaKey: string;
+  triggerKind: string;
+  notability: number;
+  detail: string;
+  /** Absent when the event earned an entry that was never written. */
+  entry?: string;
+}
+
+interface ShipLogDbRow {
+  ship_symbol: string;
+  ts: Date;
+  persona_key: string;
+  trigger_kind: string;
+  notability: number;
+  detail: string;
+  entry: string | null;
+}
+
 export interface MarketRow {
   systemSymbol: string;
   waypointSymbol: string;
@@ -210,6 +231,84 @@ export class Store {
         [tenantId, entry.timestamp, entry.shipSymbol, entry.kind, entry.detail, entry.credits ?? null],
       ),
     );
+  }
+
+  /* ── crew log ──────────────────────────────────────────────
+     A hull's assigned captain, and the entries that captain has earned.
+     Strictly narrative — nothing here is read by routing, trading or
+     doctrine. See src/engine/personas.ts. */
+
+  /** Explicit persona assignments only. Unassigned hulls fall back to
+   *  personas.ts's deterministic default, so this is usually sparse. */
+  async shipPersonas(tenantId: string): Promise<Map<string, string>> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ ship_symbol: string; persona_key: string }>(
+        `SELECT ship_symbol, persona_key FROM ship_persona`,
+      );
+      return new Map(res.rows.map((r) => [r.ship_symbol, r.persona_key]));
+    });
+  }
+
+  async setShipPersona(tenantId: string, shipSymbol: string, personaKey: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO ship_persona (tenant_id, ship_symbol, persona_key) VALUES ($1, $2, $3)
+         ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET persona_key = EXCLUDED.persona_key, assigned_at = now()`,
+        [tenantId, shipSymbol, personaKey],
+      ),
+    );
+  }
+
+  /**
+   * Record an earned log entry. `entry` is null when the event qualified but
+   * nothing wrote it up — budget spent, or generation switched off. Those
+   * rows are what make the firing rate observable without spending tokens.
+   */
+  async recordShipLog(tenantId: string, row: ShipLogRow): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO ship_log (tenant_id, ship_symbol, ts, persona_key, trigger_kind, notability, detail, entry)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [tenantId, row.shipSymbol, row.timestamp, row.personaKey, row.triggerKind, row.notability, row.detail, row.entry ?? null],
+      ),
+    );
+  }
+
+  /** The feed, newest first. `shipSymbol` narrows it to one hull's log. */
+  async shipLog(tenantId: string, opts: { limit?: number; shipSymbol?: string } = {}): Promise<ShipLogRow[]> {
+    const limit = opts.limit ?? 40;
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = opts.shipSymbol
+        ? await c.query<ShipLogDbRow>(
+            `SELECT ship_symbol, ts, persona_key, trigger_kind, notability, detail, entry
+             FROM ship_log WHERE ship_symbol = $1 ORDER BY ts DESC, id DESC LIMIT $2`,
+            [opts.shipSymbol, limit],
+          )
+        : await c.query<ShipLogDbRow>(
+            `SELECT ship_symbol, ts, persona_key, trigger_kind, notability, detail, entry
+             FROM ship_log ORDER BY ts DESC, id DESC LIMIT $1`,
+            [limit],
+          );
+      return res.rows.map((r) => ({
+        shipSymbol: r.ship_symbol,
+        timestamp: r.ts.toISOString(),
+        personaKey: r.persona_key,
+        triggerKind: r.trigger_kind,
+        notability: r.notability,
+        detail: r.detail,
+        entry: r.entry ?? undefined,
+      }));
+    });
+  }
+
+  /** When each hull last logged, for the per-ship cooldown. */
+  async lastShipLogAt(tenantId: string): Promise<Map<string, number>> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ ship_symbol: string; ts: Date }>(
+        `SELECT ship_symbol, max(ts) AS ts FROM ship_log GROUP BY ship_symbol`,
+      );
+      return new Map(res.rows.map((r) => [r.ship_symbol, r.ts.getTime()]));
+    });
   }
 
   async recentActivity(tenantId: string, limit = 50): Promise<ActivityEntry[]> {
