@@ -567,6 +567,60 @@ confidently wrong about it in front of someone who knew better.
 
 ---
 
+## Step 7 — The cash floor the trader spent straight through
+
+**Commit:** `cash floor` · **Status:** partial — live confirmation pending
+
+**Migration step:** 2 — single source of truth, read by reference. The
+nominated source exists and the call sites read around it, which is the same
+shape as agents keeping private copies of the world.
+
+### Defect
+
+Reported by the operator: a doctrine rule set so the fleet buys nothing but
+fuel below a threshold, not being obeyed.
+
+The rule was not missing. `cashFloor` is adopted by default, `enabled`,
+`enforced`, and says exactly that: *"the catch-all floor for every purchase
+(ships, modules, repairs, cargo). Fuel is always exempt."*
+
+`trader.ts` never consulted it. All three purchase sites read the raw agent
+balance, and `fleet.ts:486` had already documented the hole without closing
+it:
+
+> several real spending paths (a trader's own arbitrage/contract buying,
+> repairShip(), a manual dashboard buy) never checked it at all — a trader
+> could spend the fleet to zero on one big cargo buy with nothing stopping it
+
+Observed live at 21:39:48: holding ~11,400c against a 20,000c floor, DRAGOM-1
+bought 1u DRUGS for 11,328c and was left with about a hundred credits. It was
+already under the floor before the purchase.
+
+### Change
+
+The live read stays — it is deliberate, and the reason is documented at the
+call site: the fleet's cached balance is refreshed once per tick and goes
+stale the moment another ship spends, so swapping it for the cached-but-
+floored `getCredits()` would trade this bug for that one. `spendableNow()`
+takes the live balance and applies the floor to it, and the three sites call
+that one method rather than each remembering to subtract.
+
+`getCredits()` stays as it was for route *ranking*, where the cached figure
+is fine. The two answer different questions and now say so.
+
+### Proof
+
+- **Tests:** 6 in `tests/cashFloor.test.ts`. **5 fail with the source
+  stashed.** The sixth is a control — a fleet with headroom above the floor
+  still buys, so the floor cannot become a blanket refusal.
+- **Prediction:** no further `bought Nu DRUGS` lines while the balance is
+  under 20,000c; the contract-buy path reports `cannot afford one unit …`
+  with the *spendable* figure rather than the raw balance, and falls through
+  to trading. Mining income accumulates instead of being spent down.
+- **Live:** _pending._
+
+---
+
 ## Queue
 
 | # | Step | Status |
@@ -577,7 +631,8 @@ confidently wrong about it in front of someone who knew better.
 | 4 | Repair: controller proposes, ship flies | tests only — not exercised live (no hull damaged) |
 | 5 | Trader re-derives trip from observed state | tests only — not exercised live (trader never traded) |
 | 6 | Contract deliveries and payouts made visible | verified |
-| 7 | `priceTable` → registry (single source of truth for prices) | not started |
+| 7 | Cash floor honoured by trader purchases | live confirmation pending |
+| 8 | `priceTable` → registry (single source of truth for prices) | not started |
 | 7 | Finish steps 3/4/5 of the migration — the executor fault line | not started |
 | 8 | Multi-hop routing | not started |
 | 9 | Jump-gate construction status | not started |

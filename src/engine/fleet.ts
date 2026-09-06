@@ -680,8 +680,13 @@ export class FleetManager {
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
       releaseRoute: () => this.dispatcher.release(shipSymbol),
-      // Already floor-adjusted — see spendableCredits()'s own comment.
+      // Already floor-adjusted — see spendableCredits()'s own comment. This
+      // one is the fleet's cached balance, which is right for ranking routes
+      // and wrong for committing to a purchase.
       getCredits: () => this.spendableCredits(),
+      // The same floor applied to a live balance, for the purchase sites —
+      // see TraderAgent.spendableNow() for why they need both.
+      applyCashFloor: (credits: number) => this.spendableCredits(credits),
       maxLossPct: this.doctrine.value("maxLossPct", 100),
       marginFloor: this.doctrine.value("marginFloor", 0),
       recordDoctrineFire: (key) => this.doctrine.recordFire(key, shipSymbol),

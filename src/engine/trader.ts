@@ -68,6 +68,13 @@ export interface TraderOptions {
   releaseRoute?: () => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
+  /** Apply the cash floor to a balance — `fleet.spendableCredits(live)`.
+   *  Separate from getCredits() because the two answer different questions:
+   *  getCredits() is the fleet's cached balance, fine for ranking routes,
+   *  while a purchase must be sized against the *live* balance (the cache is
+   *  refreshed once per tick and goes stale the moment another ship buys)
+   *  with the floor then subtracted from it. */
+  applyCashFloor?: (credits: number) => number;
   /** Max acceptable loss per unit (percent of cost basis) before refusing to sell. Default 15. */
   maxLossPct?: number;
   /** Minimum per-unit margin for a route to be worth taking. Default 10. */
@@ -154,6 +161,7 @@ export class TraderAgent {
   private readonly claimRoute?: TraderOptions["claimRoute"];
   private readonly releaseRoute?: () => void;
   private readonly getCredits?: () => number;
+  private readonly applyCashFloor?: (credits: number) => number;
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
   private readonly intelMaxAgeMin: () => number;
@@ -243,6 +251,7 @@ export class TraderAgent {
     this.claimRoute = opts.claimRoute;
     this.releaseRoute = opts.releaseRoute;
     this.getCredits = opts.getCredits;
+    this.applyCashFloor = opts.applyCashFloor;
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
@@ -1152,6 +1161,32 @@ export class TraderAgent {
    * Returns undefined when there is nothing under way, so the caller falls
    * through to starting a new trip.
    */
+  /**
+   * Credits this ship may actually commit to a purchase.
+   *
+   * Live, because the fleet's cached balance is refreshed once per tick and
+   * goes stale the moment another ship spends — that staleness is why these
+   * sites read the agent directly in the first place, and dropping the live
+   * read to get the floor back would just trade one bug for the other.
+   *
+   * Floored, because `cashFloor` is doctrine and says so plainly: "the
+   * catch-all floor for every purchase (ships, modules, repairs, cargo).
+   * Fuel is always exempt." It was adopted, enabled and enforced, and the
+   * three purchase sites below simply never consulted it — a fleet holding
+   * ~11,400c against a 20,000c floor bought 1u DRUGS for 11,328c, leaving
+   * about a hundred credits. It was already under the floor before it
+   * bought.
+   *
+   * One method rather than the floor being reapplied at each call site: the
+   * bug was three places reading a different source than the design
+   * nominated, and adding a fourth thing for each of them to remember would
+   * be the same shape of mistake.
+   */
+  private async spendableNow(): Promise<number> {
+    const live = (await this.api.getMyAgent()).credits;
+    return this.applyCashFloor ? this.applyCashFloor(live) : live;
+  }
+
   private async deliverHeldCargo(): Promise<boolean | undefined> {
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
     for (const item of this.ship.cargo.inventory ?? []) {
@@ -1244,7 +1279,7 @@ export class TraderAgent {
       // so after buying a new ship the cached figure is stale and this ship would
       // otherwise over-commit and fail the purchase (observed: trying to buy 58
       // FOOD with far fewer credits in hand).
-      const liveCredits = (await this.api.getMyAgent()).credits;
+      const liveCredits = await this.spendableNow();
       const buyPrice = liveBuy ?? route.buyPrice;
       const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
       let units = Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable);
@@ -1316,7 +1351,7 @@ export class TraderAgent {
       return this.discoverPrices([buyAt]);
     }
 
-    const liveCredits = (await this.api.getMyAgent()).credits;
+    const liveCredits = await this.spendableNow();
     const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
     const volume = cached?.volume ?? affordable;
     let units = Math.min(volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable);
@@ -1536,7 +1571,7 @@ export class TraderAgent {
       return this.discoverPrices([buyAt]);
     }
 
-    const liveCredits = (await this.api.getMyAgent()).credits;
+    const liveCredits = await this.spendableNow();
     const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
     // Confirmed live: without the tradeVolume cap this tried to buy the
     // ship's full cargo space (or however much was affordable) in one

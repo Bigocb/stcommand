@@ -7,54 +7,22 @@ mistaken for a diagnosis that has actually been made.
 Fixed items move to `subsystem-verification.md` with their evidence. This
 file is only the open list.
 
----
+Each entry names the migration step it belongs to
+(`control-plane-data-plane.md` §8), so that fixing it reads as finishing the
+implementation rather than as a pile of unrelated repairs — and so the ones
+that are genuinely *new policy* are visible as such and can wait for the
+doctrine pass.
 
-## 1. The cash floor is bypassed by every trader purchase path
-
-**Reported as:** a doctrine rule set so that below a threshold the fleet buys
-nothing but fuel — and it is not being obeyed.
-
-**Confirmed, including the intent.** The rule exists and already says exactly
-that. `doctrine.ts`, `cashFloor`, default 20,000c, `enabled: true`,
-`enforced: true`:
-
-> "Never let the balance fall below this — the catch-all floor for every
-> purchase (ships, modules, repairs, cargo). **Fuel is always exempt.**"
-
-So nothing needs designing. The rule is right, adopted by default, and simply
-never consulted on the paths that matter.
-
-`fleet.ts:291` wires `getCredits()` to `spendableCredits()`, the
-floor-adjusted figure, and `fleet.ts:512` even has a `canAfford()` built on
-it. But `trader.ts` reads the raw agent balance at all three of its purchase
-sites — lines 1247, 1319 and 1539:
-
-```ts
-const liveCredits = (await this.api.getMyAgent()).credits;
-```
-
-`getCredits()` appears in that file only at lines 775 and 816, neither of
-them a purchase. So every trader buy sizes itself against the entire balance
-and the floor never enters the arithmetic.
-
-Observed live: at 21:39:48 the fleet held roughly 11,400c and bought 1u DRUGS
-for 11,328c, leaving about a hundred credits — with a 20,000c floor set. It
-should not have bought at all; the balance was already under the floor before
-the purchase.
-
-Fuel is correctly exempt by accident of routing rather than by rule: refuel
-goes through `api.refuelShip()` directly and never passes a credit check at
-all.
-
-**Shape of the fix.** Route the three purchase sites through `getCredits()`
-so the floor applies by construction rather than by each call site
-remembering to ask. Worth a test per site that fails without it, since this
-is the third distinct bug today whose cause was a call site quietly reading
-a different source than the one the design nominated.
+| # | Open item | Migration step |
+| --- | --- | --- |
+| 1 | Contract acceptance takes a loss | **rule 5** for the silent-zero half; **doctrine** for the margin gate |
+| 2 | No way to abandon a contract | **step 4** — manual dispatch as a `hold` intent |
+| 3 | Two processes tick one fleet | ADR-0006 at process level; infrastructure, not a step |
+| 4 | Live UI updates (SSE) | **step 6** family — delivery of telemetry, not new telemetry |
 
 ---
 
-## 2. Contract acceptance can take a guaranteed loss
+## 1. Contract acceptance can take a guaranteed loss
 
 **Confirmed, with numbers.** Contract `cmtq3cdo` needs 22 units of DRUGS at
 ~11,300c — about 248,700c to fulfil — against a payout of 181,474c. A
@@ -82,7 +50,7 @@ doctrine, not in a hardcoded `> 0`.
 
 ---
 
-## 3. No way to abandon a contract
+## 2. No way to abandon a contract
 
 **Requested.** An operator needs to be able to cancel a contract from the UI.
 
@@ -102,7 +70,7 @@ that were never accepted.
 
 ---
 
-## 4. Two processes tick the same fleet during a deploy
+## 3. Two processes tick the same fleet during a deploy
 
 Moved from `subsystem-verification.md`'s open findings; see that file for the
 full evidence. Roughly sixty seconds per deploy where an old and a new
@@ -112,9 +80,9 @@ lock. Blocks SSE, which would otherwise pin a client to a draining process.
 
 ---
 
-## 5. Live UI updates (SSE)
+## 4. Live UI updates (SSE)
 
 Not a bug — a wanted change, recorded so it is not confused with the ship
 sheet fix that was mistaken for it. Five-second polling, four endpoints per
 client, and `setInterval` under `document.hidden` is what mobile browsers
-throttle hardest. Wants the advisory lock (4) first.
+throttle hardest. Wants the advisory lock (3) first.
