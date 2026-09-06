@@ -163,7 +163,6 @@ export class ShipAgent {
   private get ship(): Ship { return this.proxy.getShip(); }
   private set ship(s: Ship) { this.proxy.setShip(s); }
   private goal: ShipGoal = { kind: "idle" };
-  private manualGoal: ShipGoal | null = null;
   private suspended = false;
   /** The currently in-flight loop iteration (tick/surveyScout/tourScout/keeperPoll), if any.
    *  suspend() awaits this so a caller that's about to mutate this ship's nav state directly
@@ -797,22 +796,6 @@ export class ShipAgent {
     await this.refresh();
     await this.waitCooldown();
 
-    // Manual override: if dispatched, stay at the target waypoint and idle.
-    if (this.manualGoal) {
-      if (this.manualGoal.kind === "idle" && this.manualGoal.waypoint) {
-        const target = this.manualGoal.waypoint;
-        if (this.ship.nav.waypointSymbol !== target || this.ship.nav.status === "IN_TRANSIT") {
-          this.log(`manual: holding course to ${target}`);
-          await this.refuelIfNeeded(5, target);
-          await this.navigateTo(target);
-          await this.ensureDocked();
-          return true;
-        }
-      }
-      this.log("manual: holding position");
-      return false;
-    }
-
     // If the ship is stranded (no fuel and not at a market), it can't act.
     if (this.ship.fuel.capacity > 0 && this.ship.fuel.current <= 0 && !this.atMarketHere()) {
       this.log(`stranded at ${this.ship.nav.waypointSymbol} (0 fuel, no market); idling`);
@@ -1213,16 +1196,10 @@ export class ShipAgent {
       return false;
     }
     await this.refresh();
-    // If manually dispatched, hold at the target until released — a fleet
-    // operator moving a ship to a shipyard must not have the tour loop yank it
-    // off to the next market.
-    if (this.manualGoal && this.manualGoal.kind === "idle" && this.manualGoal.waypoint) {
-      if (this.ship.nav.waypointSymbol !== this.manualGoal.waypoint || this.ship.nav.status === "IN_TRANSIT") {
-        await this.navigateTo(this.manualGoal.waypoint);
-        await this.ensureDocked();
-      }
-      return true;
-    }
+    // The operator moving a ship somewhere and expecting the tour loop not to
+    // yank it off to the next market used to be handled here, off a private
+    // manualGoal. It is handled at the top of this tick now, off the hold
+    // intent — one owner, decided in one place.
     this.log(`tour scout: tick @ ${this.ship.nav.waypointSymbol} (fuel ${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
 
     // Finish the previous leg before choosing a new one.
@@ -1680,27 +1657,34 @@ export class ShipAgent {
     };
   }
 
-  /** True when the ship is under a manual command instead of autonomous loop. */
-  isManual(): boolean {
-    return this.manualGoal !== null;
-  }
-
   /** True while the fleet holds the ship for coordinated work (rescue/mission). */
   isSuspended(): boolean {
     return this.suspended;
   }
 
-  /** Manually dispatch this ship to a waypoint; once there it will idle until released. */
+  /**
+   * Fly this ship to a waypoint, now.
+   *
+   * A movement primitive, not an ownership change — step 4. It used to also
+   * set `manualGoal`, which took the hull off the board as a side effect of
+   * moving it. Nine of its ten callers are internal errands (reach a jump
+   * gate, get to a shipyard to buy, station a keeper) that want the ship to
+   * *move* and never wanted it benched; that side effect is why
+   * `exploreSystem()` needs a release in a `finally` to undo a hold nobody
+   * asked for, and why a scout that explored once was never picked again.
+   *
+   * Staying somewhere is now a separate instruction: the operator's hold,
+   * carried on the intent board, where exactly one thing decides who owns a
+   * hull.
+   */
   async dispatchTo(waypointSymbol: string): Promise<void> {
-    this.manualGoal = { kind: "idle", waypoint: waypointSymbol };
-    this.log(`manual dispatch → ${waypointSymbol}`);
+    this.log(`dispatch → ${waypointSymbol}`);
     await this.refresh();
     if (this.ship.nav.waypointSymbol !== waypointSymbol || this.ship.nav.status === "IN_TRANSIT") {
       await this.refuelIfNeeded(5, waypointSymbol);
       await this.navigateTo(waypointSymbol);
       await this.ensureDocked();
     }
-    this.manualGoal = { kind: "idle", waypoint: waypointSymbol };
   }
 
   /**
@@ -1755,10 +1739,6 @@ export class ShipAgent {
   /** Release the ship back to autonomous operation. */
   release(): void {
     this.unpinMining();
-    if (this.manualGoal) {
-      this.manualGoal = null;
-      this.log("released to autonomous control");
-    }
   }
 
   stop(): void {

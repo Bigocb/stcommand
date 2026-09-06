@@ -634,7 +634,7 @@ is fine. The two answer different questions and now say so.
 
 ## Step 8 — The operator hold becomes an intent
 
-**Commit:** `operator hold` · **Status:** partial — live confirmation pending
+**Commit:** `ea6b622` + this one · **Status:** partial — live confirmation pending
 
 **Migration step:** 4 — manual dispatch as a `hold` intent. Half of it; see
 "What is left" below.
@@ -688,18 +688,47 @@ is now unrepresentable. The per-tick database read went away with it.
   No `manual dispatch → …` line, since the fleet no longer flies it.
 - **Live:** _pending._
 
-### What is left of step 4
+### Closing it: moving a ship stops meaning owning it
 
-`dispatchShip()` / "Send to waypoint" still goes through `dispatchTo()` and
-`manualGoal`. It is the same shape — an operator parking a hull, described
-in the UI as "holds it there until released" — and wants the same
-conversion, but `exploreSystem()` calls it internally and relies on its
-release-in-`finally`, so it is a larger change than the Hold button and is
-not attempted here.
+The second commit finishes the step. The insight that made it small: of the
+ten callers of `dispatchShip()`, **nine are internal errands** — reach a jump
+gate, get to a shipyard to buy, station a keeper — that only ever wanted the
+hull to *move*. Exactly one, the dashboard's "Send to waypoint", wanted it to
+stay. `dispatchTo()` served both by flying the ship *and* setting a private
+flag that took it off the board.
 
-Step 4 is therefore closer, not closed. Recording that rather than marking
-it Done is the same discipline §8's table needed when it claimed four steps
-built while showing three.
+That side effect was a latent bug in its own right, and the codebase already
+carried the scar: `exploreSystem()` wraps its trip in a `try/finally` that
+releases the ship, purely to undo a hold nobody asked for — without it, "a
+scout left this way never gets picked again".
+
+So `dispatchTo()` is now a movement primitive in every agent, and the one
+caller that wants the ship to stay says so: `sendShipTo()` places a hold at
+the destination and then moves the hull, which is what that control's own
+label has always promised.
+
+`manualGoal` / `manualWaypoint` are gone from `ShipAgent`, `TraderAgent` and
+`SiphonerAgent`, along with their `isManual()`. `ScoutAgent` keeps a
+`manualGoal`, deliberately: there it means "chart *this* target next", an
+override of *what to do* like `mineAt()`, not a claim on the hull.
+
+The four places that asked an agent whether it was available now ask
+`FleetManager.isHeld()`. `ControlledAgent` no longer declares `isManual()` at
+all, so the disagreement that started this — the dashboard reading the agent
+while the arbiter read the board — is not merely fixed but unrepresentable.
+
+### Proof of the closing half
+
+- **Tests:** 2 added. **One fails with the source stashed** — the other
+  exercises `isHeld()`, which landed in the first commit, so it correctly
+  passes against `HEAD`. 266 pass across every non-DB file; the 4 failures
+  are `ECONNREFUSED` in the DB-backed `agentStep.test.ts`.
+- **Prediction:** `dispatch → WP` replaces `manual dispatch → WP` in the
+  logs. A ship sent on an internal errand (a scout reaching its gate, a hull
+  going to a yard to buy) is picked for automatic work again afterwards
+  rather than sitting benched. "Send to waypoint" still parks the ship, now
+  reported as `operator hold at WP`.
+- **Live:** _pending._
 
 ---
 
@@ -714,7 +743,7 @@ built while showing three.
 | 5 | Trader re-derives trip from observed state | tests only — not exercised live (trader never traded) |
 | 6 | Contract deliveries and payouts made visible | verified |
 | 7 | Cash floor honoured by trader purchases | verified |
-| 8 | Operator hold becomes an intent (step 4, first half) | live confirmation pending |
+| 8 | Step 4 closed — one owner per hull | live confirmation pending |
 | 9 | `priceTable` → registry (single source of truth for prices) | not started |
 | 7 | Finish steps 3/4/5 of the migration — the executor fault line | not started |
 | 8 | Multi-hop routing | not started |

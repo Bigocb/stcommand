@@ -83,7 +83,6 @@ export class SiphonerAgent {
    *  can't race a tick that's already mid-flight against stale cached state. */
   private inFlight: Promise<unknown> | null = null;
   /** Manual override: park at this waypoint and hold until released. */
-  private manualGoal: string | null = null;
   running = false;
   private get currentStep(): AgentStep { return this.proxy.getStep(); }
   private set currentStep(s: AgentStep) { this.proxy.setStep(s); }
@@ -157,10 +156,6 @@ export class SiphonerAgent {
     this.proxy.setShip(ship);
   }
 
-  isManual(): boolean {
-    return this.manualGoal !== null;
-  }
-
   isSuspended(): boolean {
     return this.suspended;
   }
@@ -178,14 +173,14 @@ export class SiphonerAgent {
     this.suspended = false;
   }
 
-  /** Park at this waypoint and hold there until `release()` is called. */
-  dispatchTo(waypoint: string): void {
-    this.manualGoal = waypoint;
+  /** Fly there now. Staying is the hold intent's job — see ShipAgent.dispatchTo. */
+  async dispatchTo(waypoint: string): Promise<void> {
+    await this.refresh();
+    await this.navigateTo(waypoint);
   }
 
-  release(): void {
-    this.manualGoal = null;
-  }
+  /** See TraderAgent.release(): an operator hold is board state now. */
+  release(): void {}
 
   private async refresh(): Promise<void> {
     return this.proxy.refresh();
@@ -429,16 +424,8 @@ export class SiphonerAgent {
     await this.refresh();
     await this.waitCooldown();
 
-    // Manual override: fly to the pinned waypoint and park there for good.
-    if (this.manualGoal) {
-      if (this.ship.nav.waypointSymbol === this.manualGoal && this.ship.nav.status === "DOCKED") {
-        this.log(`parked at ${this.manualGoal}, holding`);
-        return false;
-      }
-      const ok = await this.navigateTo(this.manualGoal);
-      if (ok) await this.ensureDocked();
-      return true;
-    }
+    // Parking on an operator's instruction is the hold intent, handled at the
+    // top of this tick — not a private waypoint field read here.
 
     const held = this.ship.cargo.inventory.filter((i) => i.units > 0);
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();

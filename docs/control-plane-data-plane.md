@@ -358,7 +358,7 @@ should mean.
 
 ---
 
-## 8. Migration — four steps built, two half-built
+## 8. Migration — five steps built, one half-built
 
 This section previously read "all six steps built". It was wrong, and the
 error was load-bearing: step 3 was marked complete when half of it was
@@ -370,7 +370,7 @@ Re-audited against the code, step by step.
 | 1. Data plane cannot block | **Done** | No `await sleep(` in any of the four agent classes; `CooldownPending`/`NavigationPending` yield the scheduler |
 | 2. Registry by reference | **Done** | One `Registry`, read by reference. `withWorld()` and `chartSystemFor()` survive but were repurposed — `withWorld()` now *seeds* the registry and has no production callers, `chartSystemFor()` pulls an unscanned system into the atlas. The deletion list above is stale, not the code |
 | 3. One executor | **Done** | `ShipProxy` holds the primitives, and the trader — the one role that ran straight through — now re-derives its trip each tick from the hold and the ship's position (`deliverHeldCargo()`). Arrival is a precondition for selling, not an assumption |
-| 4. Intents + arbiter | **Half** | repair, rescue, explore and keeper all propose; `version` is now read (`supersedes()`), so a ship can tell its goal was replaced mid-task. Manual dispatch still uses `manualGoal` |
+| 4. Intents + arbiter | **Done** | repair, rescue, explore, keeper and the operator all propose; `version` is read (`supersedes()`), so a ship can tell its goal was replaced mid-task. Manual dispatch is a `hold` intent — `manualGoal` is gone from every agent that used it as ownership, and `dispatchTo()` is a movement primitive that no longer benches a hull |
 | 5. Controllers | **Half** | `maybeAssignKeepers()` and now `maybeRepairFleet()` are pure proposers — repair is flown by the hull itself via `ShipProxy.runRepairGoal()`. `autoExplore()` and the rescue path still fly ships |
 | 6. Telemetry | **Done** | `getStep()`/`stepFor()` feed `getShipStatuses()`; the fleet line and dashboard show intent against observed |
 
@@ -448,18 +448,15 @@ parallel `manualGoal` channel) is the only thing between here and done.
 
 ### The remaining half-steps are one fault line
 
-Step 3 is closed, which removes the bottom of the fault line: an agent can
-now execute *from* observed state rather than running a plan straight
-through. What is left is the top two courses.
+Steps 3 and 4 are closed. An agent executes *from* observed state rather
+than running a plan straight through, and there is exactly one record of who
+owns a hull. What is left is step 5's last controllers.
 
 Rule 1 says *controllers never call the kubelet*, and `exploreSystem()`
 still jumps and tours a hull from inside the controller, as
 `runCriticalRepair()` did before repair became a goal the ship executes.
-The rescue path does the same for its tender. Those are step 5. And manual
-dispatch still owns hulls through `manualGoal` rather than a `hold` intent,
-which is step 4's last item — a second ownership channel beside the board,
-and the reason an operator hold and the auto-dispatcher can still both
-believe they hold the same ship.
+The rescue path does the same for its tender. Those are step 5, and they are
+all that is left.
 
 Repair and the trader are the worked examples the rest follows: the
 controller proposes and releases, the hull flies itself through the shared

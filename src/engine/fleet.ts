@@ -56,7 +56,6 @@ const MANUAL_ROLES: ReadonlySet<ManualRole> = new Set<ManualRole>(["miner", "tra
 interface ControlledAgent {
   readonly symbol: string;
   getShip(): Ship;
-  isManual(): boolean;
   isSuspended(): boolean;
   dispatchTo(waypointSymbol: string): void | Promise<void>;
   release(): void;
@@ -2891,7 +2890,7 @@ export class FleetManager {
     for (const s of this.getShipStatuses()) {
       if (out.has(s.symbol) || this.shipRegistry.ownerOf(s.symbol)) continue;
       const agent = this.controlledAgent(s.symbol);
-      if (agent && !agent.isManual() && !agent.isSuspended()) out.add(s.symbol);
+      if (agent && !this.isHeld(s.symbol) && !agent.isSuspended()) out.add(s.symbol);
     }
     return out;
   }
@@ -2910,6 +2909,24 @@ export class FleetManager {
   }
 
   /** Dispatch any ship to a specific waypoint, jumping systems if necessary. */
+  /**
+   * An operator sending a ship somewhere and expecting it to stay.
+   *
+   * `dispatchShip()` only moves a hull — that is deliberate, since nine of its
+   * ten callers are internal errands that never wanted the ship benched. The
+   * dashboard's "Send to waypoint" is the tenth, and its own label promises
+   * "holds it there until released", so it places a hold at the destination
+   * as well. The hull flies there under the same intent every other goal goes
+   * through, and Release withdraws it.
+   */
+  async sendShipTo(shipSymbol: string, waypointSymbol: string): Promise<void> {
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol });
+    this.dispatcher.release(shipSymbol);
+    this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
+    this.log(`${shipSymbol}: operator hold at ${waypointSymbol}`);
+    await this.dispatchShip(shipSymbol, waypointSymbol);
+  }
+
   async dispatchShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
     const ship = await this.api.getShip(shipSymbol);
     const targetSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
@@ -3213,7 +3230,7 @@ export class FleetManager {
     ];
     if (warehouseSymbol) {
       const agent = this.controlledAgent(warehouseSymbol);
-      if (agent) statuses.push({ symbol: warehouseSymbol, role: "warehouse", status: agent.getShip().nav.status, paused: agent.isManual() });
+      if (agent) statuses.push({ symbol: warehouseSymbol, role: "warehouse", status: agent.getShip().nav.status, paused: this.isHeld(warehouseSymbol) });
     }
     return statuses;
   }
@@ -4609,7 +4626,8 @@ export class FleetManager {
     // Money-making traders and miners must never be pulled off their routes
     // to scout — exploration is opportunistic, not worth interrupting a
     // trade cycle for.
-    const idle = (a: { isManual(): boolean; getShip(): components["schemas"]["Ship"] }) =>
+    // Held-ness is the fleet's answer now, not the hull's — see isHeld().
+    const idle = (sym: string, a: { getShip(): components["schemas"]["Ship"] }) =>
       // IN_TRANSIT is the third thing that makes a scout unavailable, and it
       // was missing. exploringShips is in-memory only, so a restart forgets
       // every trip in flight, and manual holds are cleared on the way back up
@@ -4619,9 +4637,9 @@ export class FleetManager {
       // dispatched it again, overwriting the intent for a trip already under
       // way. DAGGER-13 was redirected the same way in the same pass. A hull
       // that is already flying cannot start a journey.
-      !a.isManual() && a.getShip().cargo.units === 0 && a.getShip().nav.status !== "IN_TRANSIT";
+      !this.isHeld(sym) && a.getShip().cargo.units === 0 && a.getShip().nav.status !== "IN_TRANSIT";
     const rank = (fuel: number) => -fuel; // more fuel = better for a long jump
-    type ScoutCandidate = { s: string; a: { isManual(): boolean; getShip(): components["schemas"]["Ship"] }; fuel: number };
+    type ScoutCandidate = { s: string; a: { getShip(): components["schemas"]["Ship"] }; fuel: number };
     const dedicated: ScoutCandidate[] = [
       ...[...this.tours.entries()].map(([s, a]) => ({ s, a, fuel: a.getShip().fuel.capacity })),
       ...[...this.scouts.entries()].map(([s, a]) => ({ s, a, fuel: a.getShip().fuel.capacity })),
@@ -4629,8 +4647,8 @@ export class FleetManager {
       // Never pull a ship whose role was deliberately overridden (manual role,
       // operator hold) off its assigned job to scout — same protection the
       // promotion and keeper logic already give them.
-      .filter((c) => !this.manualRoleShips.has(c.s) && !c.a.isManual())
-      .filter((c) => idle(c.a))
+      .filter((c) => !this.manualRoleShips.has(c.s) && !this.isHeld(c.s))
+      .filter((c) => idle(c.s, c.a))
       .sort((a, b) => rank(a.fuel) - rank(b.fuel));
     if (dedicated.length === 0) return;
 

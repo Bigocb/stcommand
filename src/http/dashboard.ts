@@ -834,7 +834,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
 
     const status = w.fleet.getShipStatuses().find((s) => s.symbol === shipSymbol);
     if (status && status.role !== "idle") {
-      w.fleet.dispatchShip(shipSymbol, waypointSymbol).catch((err) => console.error("[dashboard] dispatch error", err));
+      // sendShipTo, not dispatchShip: this control's own label says it holds
+      // the ship there until released, and holding is now an intent rather
+      // than a side effect of moving.
+      w.fleet.sendShipTo(shipSymbol, waypointSymbol).catch((err) => console.error("[dashboard] dispatch error", err));
     } else {
       const api = w.fleet.getApi();
       api.getShip(shipSymbol)

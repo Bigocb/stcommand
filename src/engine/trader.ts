@@ -189,7 +189,6 @@ export class TraderAgent {
   /** Prices this ship read live at a market, and when. Newer than the store. */
   private observed = new Map<string, Map<string, { buy: number; sell: number; volume: number }>>();
   private observedAt = new Map<string, number>();
-  private manualWaypoint: string | null = null;
   private suspended = false;
   /** The currently in-flight tick(), if any — suspend() awaits this so a caller
    *  about to mutate this ship's nav state directly (rescue/mission dispatch)
@@ -280,29 +279,23 @@ export class TraderAgent {
     });
   }
 
-  isManual(): boolean {
-    return this.manualWaypoint !== null;
-  }
-
   /** True while the fleet holds the ship for coordinated work (rescue/mission). */
   isSuspended(): boolean {
     return this.suspended;
   }
 
+  /** Fly there now. Staying is the hold intent's job — see ShipAgent.dispatchTo. */
   async dispatchTo(waypointSymbol: string): Promise<void> {
-    this.manualWaypoint = waypointSymbol;
-    this.log(`manual dispatch → ${waypointSymbol}`);
+    this.log(`dispatch → ${waypointSymbol}`);
     await this.refresh();
     await this.navigateTo(waypointSymbol);
     await this.ensureDocked();
   }
 
-  release(): void {
-    if (this.manualWaypoint) {
-      this.manualWaypoint = null;
-      this.log("released to autonomous control");
-    }
-  }
+  /** Nothing to undo: an operator hold lives on the intent board now, and
+   *  releasing it is the fleet withdrawing that proposal. Kept because the
+   *  fleet's control surface calls release() on every agent uniformly. */
+  release(): void {}
 
   /**
    * Prevent the agent from acting while the fleet coordinates it manually
@@ -1690,14 +1683,8 @@ export class TraderAgent {
     // there was nothing left to fix. Real fuel is the ground truth here,
     // not the flag.
     if (this.stranded && this.ship.fuel.current > 0) this.clearStranded();
-    // If manually dispatched, hold at the target until released.
-    if (this.manualWaypoint) {
-      if (this.ship.nav.waypointSymbol !== this.manualWaypoint || this.ship.nav.status === "IN_TRANSIT") {
-        await this.navigateTo(this.manualWaypoint);
-        await this.ensureDocked();
-      }
-      return false;
-    }
+    // Parking on an operator's instruction is the hold intent, handled at the
+    // top of this tick — not a private waypoint field read here.
     await this.loadSnapshots();
     const assignedAtTickStart = this.assignedRoute?.();
     // Dead routes are per-tick: a market's price can recover, so forget them

@@ -99,3 +99,43 @@ describe("ShipProxy.runHoldGoal", () => {
     assert.deepEqual(navigations, []);
   });
 });
+
+/**
+ * The rest of step 4: moving a ship and owning a ship stop being the same act.
+ *
+ * `dispatchTo()` used to set a private manual flag as a side effect of flying
+ * a hull. Nine of its ten callers are internal errands — reach a jump gate,
+ * get to a shipyard to buy, station a keeper — that only ever wanted movement,
+ * and the benching they got for free is why `exploreSystem()` carries a
+ * release in a `finally` to undo a hold nobody asked for, and why a scout that
+ * explored once was never picked to explore again.
+ *
+ * Ownership now has exactly one home. The fleet answers `isHeld()`; the agents
+ * have no opinion to disagree with.
+ */
+describe("moving a ship is not the same as owning it", () => {
+  it("no agent class still carries a private ownership flag", async () => {
+    const [{ ShipAgent }, { TraderAgent }, { SiphonerAgent }] = await Promise.all([
+      import("../src/engine/agent.js"),
+      import("../src/engine/trader.js"),
+      import("../src/engine/siphoner.js"),
+    ]);
+    for (const cls of [ShipAgent, TraderAgent, SiphonerAgent]) {
+      assert.equal(
+        typeof (cls.prototype as unknown as Record<string, unknown>).isManual,
+        "undefined",
+        `${cls.name} still answers isManual() — that is the second ownership record step 4 removes`,
+      );
+    }
+  });
+
+  it("the fleet is the one place that knows a hull is held", async () => {
+    const { FleetManager } = await import("../src/engine/fleet.js");
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } } as never);
+    assert.equal(fleet.isHeld("SHIP-1"), false, "an untouched ship is not held");
+    (fleet as never as { operatorHolds: Map<string, string> }).operatorHolds.set("SHIP-1", "X1-A-B2");
+    assert.equal(fleet.isHeld("SHIP-1"), true);
+    (fleet as never as { operatorHolds: Map<string, string> }).operatorHolds.delete("SHIP-1");
+    assert.equal(fleet.isHeld("SHIP-1"), false, "release is the hold going away, not a flag being cleared");
+  });
+});
