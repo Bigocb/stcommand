@@ -728,7 +728,34 @@ while the arbiter read the board — is not merely fixed but unrepresentable.
   going to a yard to buy) is picked for automatic work again afterwards
   rather than sitting benched. "Send to waypoint" still parks the ship, now
   reported as `operator hold at WP`.
-- **Live:** _pending._
+- **Live:** **not confirmed — and not refuted. The prediction is untested.**
+  In the 68 minutes spanning the deploy (21:30–23:29) there is not one
+  `manual dispatch → WP` line. There is also not one `dispatch → WP` line.
+  Every hit on "dispatch" is the dispatcher's own periodic
+  `dispatch recompute:` heartbeat. **No dispatch of either kind occurred**,
+  so the absence of the old line carries no information: it is what a
+  working fix and a dead code path look like from the outside, identically.
+  This is the standard's own trap — absence of errors is not evidence of
+  function — and it is recorded as a miss rather than dressed up as a pass.
+  Still needs: an operator "Send to waypoint" (expect `operator hold at WP`
+  followed by `dispatch → WP`), or any internal errand — a scout reaching a
+  gate, a hull going to a yard — which will emit `dispatch → WP` on its own
+  once one happens.
+
+### What the same window did confirm
+
+Not what was predicted, but positively observed rather than inferred:
+
+- **Step 3's named reason, live and correct.** `DRAGOM-1: contract buy for
+  DRUGS: cannot afford one unit at 11350c with 0c in hand; trading instead`
+  — the exit names the branch and carries both numbers, which is exactly
+  what step 3 was for. Before that fix this was an untraceable hour of
+  shuttling.
+- **The deploy double-tick, again, directly.** Three instances appear in one
+  window: `gcbvm` still logging `fleet:` at 23:22:20 while `j9rqx` was
+  already ticking at 23:22:03, and `j9rqx` still logging at 23:29:08 while
+  `zzlqc` was restoring roles at 23:28:57. Two overlaps, two deploys, no
+  `shutting down` line either time. Bug-log #3 stands as written.
 
 ---
 
@@ -743,11 +770,11 @@ while the arbiter read the board — is not merely fixed but unrepresentable.
 | 5 | Trader re-derives trip from observed state | tests only — not exercised live (trader never traded) |
 | 6 | Contract deliveries and payouts made visible | verified |
 | 7 | Cash floor honoured by trader purchases | verified |
-| 8 | Step 4 closed — one owner per hull | live confirmation pending |
+| 8 | Step 4 closed — one owner per hull | tests only — prediction **untested**, no dispatch of any kind occurred in the window |
 | 9 | `priceTable` → registry (single source of truth for prices) | not started |
-| 7 | Finish steps 3/4/5 of the migration — the executor fault line | not started |
-| 8 | Multi-hop routing | not started |
-| 9 | Jump-gate construction status | not started |
+| 10 | Finish migration step 5 — `autoExplore()`/`exploreSystem()` and the rescue tender still fly ships | not started |
+| 11 | Multi-hop routing | not started |
+| 12 | Jump-gate construction status | not started |
 
 Steps 4–9 and their rationale are in `control-plane-data-plane.md` §8 and
 §10. The ordering principle: do the loud-failure work before the structural

@@ -19,6 +19,8 @@ doctrine pass.
 | 2 | No way to abandon a contract | **step 4** — manual dispatch as a `hold` intent |
 | 3 | Two processes tick one fleet | ADR-0006 at process level; infrastructure, not a step |
 | 4 | Live UI updates (SSE) | **step 6** family — delivery of telemetry, not new telemetry |
+| 5 | A trader assigned work it cannot fund, forever | **doctrine** — the dispatcher has no affordability gate |
+| 6 | "0c in hand" is not the balance | **rule 5** family — a number that does not mean what it says |
 
 ---
 
@@ -91,3 +93,45 @@ Not a bug — a wanted change, recorded so it is not confused with the ship
 sheet fix that was mistaken for it. Five-second polling, four endpoints per
 client, and `setInterval` under `document.hidden` is what mobile browsers
 throttle hardest. Wants the advisory lock (3) first.
+
+---
+
+## 5. A trader stays assigned to work it cannot fund
+
+**Observed live, 23:28.** `DRAGOM-1: contract buy for DRUGS: cannot afford
+one unit at 11350c with 0c in hand; trading instead`, immediately followed by
+`discovering prices...`, a dock, an orbit, and a move — and on the next tick
+`dispatch recompute: 1 traders (1 idle) | work: DRUGS:contractBuy=181474 |
+assigned: DRAGOM-1:DRUGS(contractBuy)` re-assigns the same good. That
+recompute line is identical every minute from 22:51 to 23:29.
+
+The step-3 fix did its job: the ship now *says* it cannot afford the buy and
+goes to trade instead. What it cannot do is shed the assignment. The
+dispatcher scores `DRUGS:contractBuy` at its payout (181,474c) with no regard
+for whether the ship can raise the ~11,350c entry price, so the assignment is
+re-made every tick and the trader oscillates between two waypoints
+discovering prices it will never act on.
+
+This is the *legible* version of the hour of shuttling step 3 was written
+for — the loop is the same, but it now narrates itself. That is the fix
+working, and it is also not enough: **an assignment no ship can execute
+should not keep being made.** The gate belongs with the dispatcher's scoring,
+next to the margin gate in item 1, and both are doctrine.
+
+Compounding: this particular contract is item 1's ~67,000c guaranteed loss.
+The trader is permanently assigned to work that is both unaffordable and, if
+it ever became affordable, unprofitable.
+
+---
+
+## 6. "0c in hand" is not the balance
+
+`spendableCredits()` returns `max(0, credits - cashFloor)`, and
+`spendableNow()` is what the affordability message prints as *"in hand"*. So
+`with 0c in hand` means **"nothing above the 20,000c floor"**, not "broke" —
+the agent may hold up to the entire floor.
+
+Small, and exactly the class of thing this pass exists to remove: a log line
+whose number does not mean what its words say. Someone reading it — including
+me, for a moment — concludes the fleet is bankrupt. Say
+`0c spendable (20000c floor)` or print both figures.

@@ -262,6 +262,15 @@ came out**, replacing `**Live:** _pending._`, and update the Queue row for
 step 8. Reporting a failed prediction is the point of the standard; a
 prediction quietly dropped is worse than one that was wrong.
 
+**Result, recorded 23:29 — the prediction is untested, not confirmed.** Zero
+`manual dispatch → WP` lines in the 68 minutes spanning the deploy, and zero
+`dispatch → WP` lines either: every "dispatch" hit is the dispatcher's
+periodic `dispatch recompute:` heartbeat. No dispatch of either kind
+occurred, so the old line's absence says nothing — a working fix and a dead
+code path look identical from outside. Step 8 joins 4 and 5 in §7. The same
+window did positively confirm step 3's named reason in production and the
+deploy double-tick (twice, across two deploys, three instances).
+
 ---
 
 ## 7. What is NOT verified live, and why it matters
@@ -270,7 +279,7 @@ prediction quietly dropped is worse than one that was wrong.
 |---|---|---|
 | 4 — repair as a goal the ship flies | tests only | no hull has taken damage since the deploy |
 | 5 — trader re-derives its trip | tests only | the trader has not completed a trade since the deploy |
-| 8 — operator hold as an intent | tests only | **nobody has pressed Hold since the deploy** |
+| 8 — operator hold as an intent | tests only | **nobody has pressed Hold, and no ship has been dispatched, since the deploy** |
 
 This is a pattern worth naming rather than a coincidence: **the paths hardest
 to verify are exactly the ones that only fire under conditions production has
@@ -290,6 +299,8 @@ ship it.
 | 1 | **Contract acceptance can take a guaranteed loss.** Confirmed with numbers: contract `cmtq3cdo` needs 22u DRUGS at ~11,300c ≈ 248,700c to fulfil, against a payout of 181,474c — a **~67,000c guaranteed loss**, accepted at 17:33 and worked for four hours because deliveries were silent. Two independent defects in `acceptBest()` (`contract.ts:140`), either sufficient alone: (a) **unknown sourcing cost is treated as free** — `if (cheapest) sourcingCost += …`, so with no market snapshots the score is raw payout; (b) **no sign check** — the least-bad contract is accepted however negative. | **rule 5** for the silent zero; **doctrine** for the margin gate. The margin belongs in doctrine, not a hardcoded `> 0`. |
 | 2 | **No way to abandon a contract.** Constraint to know before designing: the API has `accept`/`deliver`/`fulfill`/`negotiate` and **no cancel**. So "abandon" can only mean *stop working it* — release the trader, drop the `contractBuy` assignment, let it lapse, and say so honestly in the UI with the reputation cost stated. Cheaper now: the operator hold is an intent, so "stop working this contract" is the same shape and needs no new ownership channel. | **step 4** shape |
 | 3 | **Two processes tick the same fleet during a deploy.** ~60s per deploy where old and new instances both run a `TenantWorker` against the same hulls; `shutting down` never appears in the logs. Fix shape: a **per-tenant Postgres advisory lock**. | infrastructure |
+| 5 | **A trader stays assigned to work it cannot fund.** Observed live: `cannot afford one unit at 11350c with 0c in hand; trading instead`, while `dispatch recompute` re-assigns `DRUGS:contractBuy` every minute for 38 minutes straight. The dispatcher scores the assignment at its payout with no affordability gate, so the trader oscillates between two waypoints discovering prices it will never act on. Step 3's fix made the loop *legible*; it cannot shed the assignment. | **doctrine** — belongs beside item 1's margin gate |
+| 6 | **"0c in hand" is not the balance.** The affordability message prints `spendableNow()`, i.e. `max(0, credits - cashFloor)`. `0c in hand` means "nothing above the 20,000c floor", not "broke". A number that does not mean what its words say. | **rule 5** family |
 | 4 | **Live UI updates (SSE).** Wanted, not a bug. Today: 5s polling, four endpoints per client, `setInterval` — which is what mobile browsers throttle hardest. **Wants the advisory lock (3) first**, or a client pins to a draining process. | step 6 family |
 
 Also queued: **`priceTable` → registry** (single source of truth for prices),

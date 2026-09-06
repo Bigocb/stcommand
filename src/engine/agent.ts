@@ -1690,8 +1690,10 @@ export class ShipAgent {
   /**
    * Pin this ship's mining to one asteroid field.
    *
-   * Deliberately NOT a manual goal: `dispatchTo` parks a ship at a waypoint and
-   * stops it working, which is the wrong tool for "go mine over there". The
+   * Deliberately NOT a hold: an operator hold parks a ship at a waypoint and
+   * stops it working, which is the wrong tool for "go mine over there".
+   * (This once said `dispatchTo` parks a ship — it did, and that side effect
+   * was the bug step 4 removed. Moving a ship no longer benches it.) The
    * ship keeps its full autonomous cycle — mine, fill, fly out, sell, come
    * back — it just stops choosing the field for itself. That's the operator
    * overriding one decision rather than taking the ship off the board.
