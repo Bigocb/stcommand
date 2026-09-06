@@ -183,3 +183,51 @@ describe("a successful repair updates the snapshot the repair controller reads",
     assert.equal(agent.getShip().symbol, "DAGGER-9", "still a ship, not undefined");
   });
 });
+
+describe("a critical repair waits out a leg the agent already started", () => {
+  it("does not fire its hop at a ship that is still in transit somewhere else", async () => {
+    // suspend() only resolves once the agent's in-flight iteration finishes,
+    // and that iteration may have just issued a navigate — the agent could not
+    // have known about the repair, whose intent is committed after its task
+    // began. dispatchShipHop() silently returns for an IN_TRANSIT ship, so the
+    // hop was dropped and the trip gave up at the wrong waypoint: DAGGER-8's
+    // repair "ended at X1-KU72-E49, not X1-KU72-A2" after its tour agent
+    // departed seven seconds before the stand-down took hold.
+    const at = (status: string, waypoint: string) =>
+      makeShip("DAGGER-8", { nav: { status, waypointSymbol: waypoint, systemSymbol: "X1-A", route: { arrival: new Date().toISOString() } } } as any);
+
+    // In transit to E49 for the first two reads, then arrived, then flown to the yard.
+    const reads = [at("IN_TRANSIT", "X1-A-E49"), at("IN_TRANSIT", "X1-A-E49"), at("IN_ORBIT", "X1-A-E49")];
+    let i = 0;
+    let atYard = false;
+    const hopsWhileInTransit: string[] = [];
+    let repaired = false;
+
+    const fleet = new FleetManager({
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => {
+          if (atYard) return at("DOCKED", "X1-A-YARD");
+          return reads[Math.min(i++, reads.length - 1)]!;
+        },
+        dockShip: async () => ({}),
+        getRepairCost: async () => ({ transaction: { totalPrice: 100 } }),
+        getMyAgent: async () => ({ credits: 1_000_000 }),
+        repairShip: async () => { repaired = true; return { transaction: { totalPrice: 100 } }; },
+      } as any,
+    });
+    (fleet as any).tours.set("DAGGER-8", { ...agentFor(at("IN_TRANSIT", "X1-A-E49")), suspend: async () => {}, resume: () => {}, release: () => {} });
+    (fleet as any).isShipyard = async () => true;
+    (fleet as any).dispatchShipHop = async (_s: string, to: string) => {
+      const live = reads[Math.min(i, reads.length - 1)]!;
+      if (!atYard && live.nav.status === "IN_TRANSIT") hopsWhileInTransit.push(to);
+      atYard = true;
+    };
+    (fleet as any).awaitArrival = async () => { i = reads.length - 1; };
+
+    await (fleet as any).runCriticalRepair("DAGGER-8", "X1-A-YARD");
+
+    assert.deepEqual(hopsWhileInTransit, [], "the hop must not be fired while the ship is still flying its previous leg");
+    assert.equal(repaired, true, "and the repair must still happen once it lands");
+  });
+});

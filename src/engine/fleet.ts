@@ -1064,6 +1064,7 @@ export class FleetManager {
     this.registry.noteTopologyChanged();
   }
 
+
   /** Drop a ship's desired state — scrapped, sold, or gone from the fleet. */
   private forgetIntent(shipSymbol: string): void {
     this.intents.forget(shipSymbol);
@@ -3936,6 +3937,20 @@ export class FleetManager {
   private async runCriticalRepair(shipSymbol: string, yardSymbol: string): Promise<void> {
     await this.controlledAgent(shipSymbol)?.suspend();
     try {
+      // suspend() only resolves once the agent's in-flight loop iteration has
+      // finished, and that iteration may well have just issued a navigate: the
+      // agent could not have known about this repair, because the intent is
+      // committed after its task began. So we frequently take ownership of a
+      // ship that is already flying somewhere else.
+      //
+      // dispatchShipHop() silently returns for an IN_TRANSIT ship ("next tick
+      // notices arrival"), but a critical repair has no next tick — it is this
+      // one fire-and-forget call. The hop was therefore dropped, the wait below
+      // returned at the wrong waypoint, and the trip gave up: DAGGER-8's repair
+      // "ended at X1-KU72-E49, not X1-KU72-A2" after its tour agent departed
+      // seven seconds before the stand-down took hold. Let the leg it is
+      // already on finish, then fly it to the yard from wherever that left it.
+      await this.awaitArrival(shipSymbol);
       await this.dispatchShipHop(shipSymbol, yardSymbol);
       // dispatchShipHop() fires one hop and returns immediately, on the
       // assumption that "next tick notices arrival" — but a critical repair
