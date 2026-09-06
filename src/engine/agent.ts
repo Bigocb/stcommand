@@ -774,6 +774,11 @@ export class ShipAgent {
     if (repairIntent?.goal.kind === "repair") {
       return this.proxy.runRepairGoal(repairIntent, () => this.intentFor?.());
     }
+    // Step 4: an operator hold is a goal this ship flies, not a private flag
+    // the fleet sets while flying the hull itself. See ShipProxy.runHoldGoal.
+    if (repairIntent?.goal.kind === "hold" && repairIntent.goal.waypoint) {
+      return this.proxy.runHoldGoal(repairIntent, () => this.intentFor?.());
+    }
 
     // The fleet itself is driving this hull (repair, fuel ferry, operator
     // hold), so acting here is the two-owners race that had a diverter and a

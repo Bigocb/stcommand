@@ -42,7 +42,13 @@ describe("drivenByFleet", () => {
     // touches the hull.
     assert.ok(!drivenByFleet({ kind: "repair", yard: "Y" }));
     assert.ok(drivenByFleet({ kind: "tender", to: "S2" }));
+    // A hold splits in step 4. With a waypoint it is an operator parking a
+    // hull somewhere, and the ship flies itself there through the shared
+    // executor — so it is the ship's own job, not a stand-down. Without one
+    // it is the arbiter saying "nothing worth doing", where there is nowhere
+    // to fly and standing down *is* executing it.
     assert.ok(drivenByFleet({ kind: "hold" }));
+    assert.ok(!drivenByFleet({ kind: "hold", waypoint: "X1-A-A1" }));
     // Exploration really is flown by the fleet today: autoExplore launches
     // exploreSystem, which jumps and tours the ship itself.
     assert.ok(drivenByFleet({ kind: "explore", system: "X1-B" }));
@@ -88,9 +94,24 @@ describe("every role stands down when the fleet is driving its hull", () => {
 
   it("SiphonerAgent refuses", async () => {
     const logs: string[] = [];
-    const agent = new SiphonerAgent(makeShip() as any, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "hold", waypoint: "X1-A-A1" }) });
+    const agent = new SiphonerAgent(makeShip() as any, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "hold" }) });
     assert.equal(await agent.tick(), false);
     assert.ok(logs.some((l) => l.includes("standing down")));
+  });
+
+  it("a placed hold is flown, not stood down on", async () => {
+    // Step 4. The operator's hold used to be a private manualGoal the fleet
+    // set while flying the hull itself; now it is an intent the ship
+    // executes. A ship already parked at the hold waypoint reports no work
+    // rather than success, so it gets the scheduler's idle backoff instead of
+    // being re-polled as though it were mid-task.
+    const logs: string[] = [];
+    const agent = new SiphonerAgent(makeShip() as any, {
+      api, log: (m: string) => logs.push(m),
+      intentFor: () => intent({ kind: "hold", waypoint: "X1-A-A1" }, "operator"),
+    });
+    assert.equal(await agent.tick(), false, "already parked: nothing to do");
+    assert.ok(!logs.some((l) => l.includes("standing down")), "it is executing the hold, not refusing it");
   });
 
   it("TraderAgent refuses", async () => {

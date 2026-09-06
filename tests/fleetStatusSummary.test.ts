@@ -29,7 +29,14 @@ describe("FleetManager.fleetStatusSummary", () => {
     const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
     (fleet as any).miners.set("MINER-1", makeAgent("MINER-1", makeShip("MINER-1", { cooldown: { shipSymbol: "MINER-1", totalSeconds: 69, remainingSeconds: 30 } })));
     (fleet as any).traders.set("TRADER-1", makeAgent("TRADER-1", makeShip("TRADER-1", { nav: { status: "IN_TRANSIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", route: { destination: { symbol: "X1-A-B2" } } } as any })));
-    (fleet as any).tours.set("TOUR-1", makeAgent("TOUR-1", makeShip("TOUR-1"), { manual: true }));
+    (fleet as any).tours.set("TOUR-1", makeAgent("TOUR-1", makeShip("TOUR-1")));
+    // Step 4: a hold is the fleet's to know, not the agent's. It used to be
+    // read off the agent's own isManual() flag, which is precisely the second
+    // ownership record that let the dashboard and the arbiter disagree — an
+    // operator saw a Hold that appeared not to take because one answered yes
+    // and the other no. Seeding the fleet's map is now the only way to make a
+    // ship held, which is the point.
+    (fleet as any).operatorHolds.set("TOUR-1", "X1-A-A1");
     (fleet as any).keepers.set("KEEP-1", makeAgent("KEEP-1", makeShip("KEEP-1"), { suspended: true }));
 
     const summary = fleet.fleetStatusSummary();

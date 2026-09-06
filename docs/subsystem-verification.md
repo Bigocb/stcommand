@@ -569,7 +569,7 @@ confidently wrong about it in front of someone who knew better.
 
 ## Step 7 — The cash floor the trader spent straight through
 
-**Commit:** `cash floor` · **Status:** partial — live confirmation pending
+**Commit:** `0830793` · **Status:** verified
 
 **Migration step:** 2 — single source of truth, read by reference. The
 nominated source exists and the call sites read around it, which is the same
@@ -617,7 +617,89 @@ is fine. The two answer different questions and now say so.
   under 20,000c; the contract-buy path reports `cannot afford one unit …`
   with the *spendable* figure rather than the raw balance, and falls through
   to trading. Mining income accumulates instead of being spent down.
+- **Live:**
+
+```
+22:49:28  DRAGOM-1: contract buy for DRUGS: cannot afford one unit at 11350c with 0c in hand; trading instead
+22:49:38  earnings 15m: net +1185c (+4740c/hr) — sold +2409 · contracts +0 · bought -0 · … · 18 sales
+```
+
+  `with 0c in hand` is the proof: that is the spendable figure — live balance
+  minus the 20,000c floor, clamped at zero — where the same line reported the
+  raw balance (`10107c`, `10368c`) before the fix. `bought -0` in every window
+  since. The ~67,000c contract bleed stopped without needing the abandon
+  control.
+
+---
+
+## Step 8 — The operator hold becomes an intent
+
+**Commit:** `operator hold` · **Status:** partial — live confirmation pending
+
+**Migration step:** 4 — manual dispatch as a `hold` intent. Half of it; see
+"What is left" below.
+
+### Defect
+
+`holdShip()` called `agent.dispatchTo()`, which set a private `manualGoal`
+field **and** flew the hull from inside the fleet. Two faults in one call:
+
+- **Rule 1.** The controller touched the kubelet, exactly as the repair
+  controller did before step 5.
+- **A second ownership record.** `isManual()` answered from the agent while
+  the arbiter answered from the intent board. They could disagree, and they
+  did: an operator pressed Hold, watched the ship sheet keep reporting "Under
+  doctrine", and reasonably concluded the button had not worked. The engine
+  and the fleet log said `manual hold` at the same moment.
+
+### Change
+
+`hold` splits by whether it names a waypoint. With one, it is an operator
+parking a hull and the ship flies it through `ShipProxy.runHoldGoal()` —
+position re-derived each tick, so a hold placed on a moving ship simply
+completes on arrival. Without one, it is still the arbiter saying "nothing
+worth doing", where standing down *is* executing it, so it stays in
+`drivenByFleet()`.
+
+`holdShip()` now only persists the instruction. `proposeOperatorHolds()`
+re-proposes it every tick from an in-memory mirror of that state — level
+triggered, like every other controller, so releasing is the proposal
+stopping. It is proposed first so its priority-0 tie beats rescue's own
+priority-0 hold, matching the precedence `ShipRegistry` already enforces
+(operator > rescue).
+
+`getShipStatuses()` reports `paused` from `FleetManager.isHeld()` — the same
+map the controller reads. One source, so the disagreement that started this
+is now unrepresentable. The per-tick database read went away with it.
+
+### Proof
+
+- **Tests:** 5 in `tests/operatorHold.test.ts`, plus `intentConsumption` and
+  `fleetStatusSummary` moved to the new contract. **8 fail with the source
+  stashed.** 267 pass across every non-DB file.
+- **Two existing tests asserted the old contract and were rewritten, not
+  bent back:** a hold-with-waypoint is now flown rather than stood down on,
+  and a ship is made held by seeding the fleet's map rather than by faking
+  the agent's flag — which is the point of the change.
+- **Prediction:** pressing Hold logs `SHIP: operator hold at WP` from the
+  fleet and then `hold: heading to WP (held at WP by the operator)` from the
+  *ship* if it is elsewhere; the sheet shows Held on the next poll without a
+  refresh; Release stops the proposal and the ship returns to doctrine work.
+  No `manual dispatch → …` line, since the fleet no longer flies it.
 - **Live:** _pending._
+
+### What is left of step 4
+
+`dispatchShip()` / "Send to waypoint" still goes through `dispatchTo()` and
+`manualGoal`. It is the same shape — an operator parking a hull, described
+in the UI as "holds it there until released" — and wants the same
+conversion, but `exploreSystem()` calls it internally and relies on its
+release-in-`finally`, so it is a larger change than the Hold button and is
+not attempted here.
+
+Step 4 is therefore closer, not closed. Recording that rather than marking
+it Done is the same discipline §8's table needed when it claimed four steps
+built while showing three.
 
 ---
 
@@ -631,8 +713,9 @@ is fine. The two answer different questions and now say so.
 | 4 | Repair: controller proposes, ship flies | tests only — not exercised live (no hull damaged) |
 | 5 | Trader re-derives trip from observed state | tests only — not exercised live (trader never traded) |
 | 6 | Contract deliveries and payouts made visible | verified |
-| 7 | Cash floor honoured by trader purchases | live confirmation pending |
-| 8 | `priceTable` → registry (single source of truth for prices) | not started |
+| 7 | Cash floor honoured by trader purchases | verified |
+| 8 | Operator hold becomes an intent (step 4, first half) | live confirmation pending |
+| 9 | `priceTable` → registry (single source of truth for prices) | not started |
 | 7 | Finish steps 3/4/5 of the migration — the executor fault line | not started |
 | 8 | Multi-hop routing | not started |
 | 9 | Jump-gate construction status | not started |

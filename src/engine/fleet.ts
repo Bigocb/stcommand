@@ -152,6 +152,11 @@ export class FleetManager {
   private readonly recordLedger: FleetOptions["recordLedger"];
   private readonly onActivity: FleetOptions["onActivity"];
   private readonly minCashReserveDefault: number;
+  /** Ships the operator has parked, mirrored in memory from
+   *  `shipManualState.holdWaypoint`. Read by the tick's hold controller and by
+   *  the dashboard's status, so both answer from one place — the agent's own
+   *  `isManual()` flag was the second record that let them disagree. */
+  private readonly operatorHolds = new Map<string, string>();
   readonly doctrine: Doctrine;
   private systemSymbol = "";
   private positions: WaypointPos[] = [];
@@ -479,6 +484,14 @@ export class FleetManager {
 
   /** Live cash floor. Read from doctrine each time so an edit applies on the
    *  next tick; falls back to the value the coordinator was constructed with. */
+  /** Whether the operator has parked this hull. One answer, from one place —
+   *  the dashboard and the tick's hold controller both read it, where before
+   *  the dashboard asked the agent's private flag and the arbiter asked the
+   *  board, and the two could disagree. */
+  isHeld(shipSymbol: string): boolean {
+    return this.operatorHolds.has(shipSymbol);
+  }
+
   private minCashReserve(): number {
     return this.doctrine.value("cashFloor", 0) || this.minCashReserveDefault;
   }
@@ -2922,7 +2935,11 @@ export class FleetManager {
     const agent = this.controlledAgent(shipSymbol);
     if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
     const here = this.shipWaypoint(shipSymbol) || (await this.api.getShip(shipSymbol)).nav.waypointSymbol;
-    await agent.dispatchTo(here);
+    // Persist the instruction and stop. proposeOperatorHolds() turns it into
+    // an intent on the next tick and the hull flies it through the shared
+    // executor — this used to call agent.dispatchTo(), which set a private
+    // flag *and* flew the ship from here, which is rule 1 broken and a second
+    // ownership record besides.
     await this.updateShipManualState(shipSymbol, { holdWaypoint: here });
     // A held ship stops trading, so it must stop reserving a good — otherwise
     // holding one trader quietly withdraws its route from the whole fleet.
@@ -2932,7 +2949,7 @@ export class FleetManager {
     // operator is the strongest owner, so this always succeeds; preempt:true
     // just makes that explicit rather than relying on precedence math.
     this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
-    this.log(`${shipSymbol} held at ${here} under manual control`);
+    this.log(`${shipSymbol}: operator hold at ${here}`);
   }
 
   /** Manual hold + mining-field pin, keyed by ship, as one `fleet_flags` JSON
@@ -2953,8 +2970,8 @@ export class FleetManager {
     const all = await this.loadShipManualState();
     const next = { ...(all[shipSymbol] ?? {}) };
     if ("holdWaypoint" in patch) {
-      if (patch.holdWaypoint) next.holdWaypoint = patch.holdWaypoint;
-      else delete next.holdWaypoint;
+      if (patch.holdWaypoint) { next.holdWaypoint = patch.holdWaypoint; this.operatorHolds.set(shipSymbol, patch.holdWaypoint); }
+      else { delete next.holdWaypoint; this.operatorHolds.delete(shipSymbol); }
     }
     if ("minePin" in patch) {
       if (patch.minePin) next.minePin = patch.minePin;
@@ -3185,13 +3202,13 @@ export class FleetManager {
     const warehouseSymbol = this.warehouseShip?.shipSymbol;
     const notWarehouse = (s: string) => s !== warehouseSymbol;
     const statuses = [
-      ...[...this.miners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
-      ...[...this.traders.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.surveyors.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
-      ...[...this.tours.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.keepers.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.scouts.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.siphoners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "siphoner", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.miners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: this.isHeld(s), pinnedField: a.pinnedField() })),
+      ...[...this.traders.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: this.isHeld(s) })),
+      ...[...this.surveyors.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: this.isHeld(s), pinnedField: a.pinnedField() })),
+      ...[...this.tours.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: this.isHeld(s) })),
+      ...[...this.keepers.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: this.isHeld(s) })),
+      ...[...this.scouts.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: this.isHeld(s) })),
+      ...[...this.siphoners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "siphoner", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.idleShips.keys()].filter(notWarehouse).map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
     ];
     if (warehouseSymbol) {
@@ -3934,6 +3951,11 @@ export class FleetManager {
       (from, to) => this.galaxy.canJump(from, to),
       (m) => this.log(m),
     );
+    // First, so that its priority-0 proposal wins the tie against rescue's
+    // own priority-0 hold — ties go to the first proposal, and an operator
+    // who took a hull off the board outranks every automatic controller.
+    // Same precedence ShipRegistry already enforces (operator > rescue).
+    this.proposeOperatorHolds();
     await this.maybeAssignKeepers();
     await this.maybeRepairFleet();
     // Resolve this pass's proposals to one intent per ship. Purely local: no
@@ -4076,6 +4098,36 @@ export class FleetManager {
    * it without that claim is exactly the partial-handback pattern behind
    * every bug docs/ship-control-state-audit.md catalogued.
    */
+  /**
+   * Re-propose an intent for every ship the operator has parked.
+   *
+   * This is the step-4 half of removing `manualGoal`. A hold used to be a
+   * private field on the agent, set by `dispatchTo()` — which also flew the
+   * hull from inside the fleet, breaking rule 1 exactly as the repair
+   * controller did before step 5. Worse, it was a second record of who owned
+   * a ship: `isManual()` answered from the agent while the arbiter answered
+   * from the board, and the dashboard could read one while the engine acted
+   * on the other. That is the divergence an operator saw as a Hold that
+   * appeared not to take.
+   *
+   * Proposed fresh each tick from the persisted flag rather than latched, so
+   * it is level-triggered like every other controller: the hold exists while
+   * the operator's instruction exists, and releasing it is simply the
+   * proposal stopping.
+   */
+  private proposeOperatorHolds(): void {
+    for (const [shipSymbol, waypoint] of this.operatorHolds) {
+      if (!this.controlledAgent(shipSymbol)) continue;
+      this.intents.propose({
+        ship: shipSymbol,
+        priority: 0,
+        goal: { kind: "hold", waypoint },
+        reason: `held at ${waypoint} by the operator`,
+        source: "operator",
+      });
+    }
+  }
+
   private async maybeRepairFleet(): Promise<void> {
     const floor = this.doctrine.value("repairConditionFloor", 0);
     const available = this.availableFor("repair");

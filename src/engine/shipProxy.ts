@@ -399,6 +399,50 @@ export class ShipProxy {
   }
 
   /**
+   * Fly an operator hold: get to the waypoint, then sit there.
+   *
+   * The step-4 counterpart of runRepairGoal(). A hold used to be a private
+   * `manualGoal` field on each agent, set by `dispatchTo()` — which also flew
+   * the ship inline, from the fleet, breaking rule 1 the same way the repair
+   * controller did. That made the operator a second owner beside the intent
+   * board: `isManual()` and the board could disagree, and the dashboard read
+   * one while the arbiter read the other.
+   *
+   * Now the operator proposes a `hold` intent like any other controller and
+   * the hull flies it. Position is re-derived every tick, so a hold placed on
+   * a ship in transit simply completes on arrival rather than needing the
+   * operator to wait for it.
+   *
+   * A hold with no waypoint means "stay where you are" — the arbiter's way of
+   * saying there is nothing worth doing — and needs no movement at all.
+   */
+  async runHoldGoal(intent: ShipIntent, currentIntent: () => ShipIntent | undefined): Promise<boolean> {
+    if (intent.goal.kind !== "hold") return false;
+    const target = intent.goal.waypoint;
+    if (!target) return false;
+
+    await this.refresh();
+    if (this.ship.nav.waypointSymbol !== target || this.ship.nav.status === "IN_TRANSIT") {
+      // Re-checked before it is acted on, not assumed from when the hold was
+      // placed: the same reason supersedes() exists below.
+      if (supersedes(intent, currentIntent())) {
+        this.log("hold: superseded in transit, standing by for the new goal");
+        return true;
+      }
+      this.log(`hold: heading to ${target} (${intent.reason})`);
+      await this.refuelIfNeeded({ reserve: intent.policy.fuelReserve, target });
+      await this.navigateTo(target);
+      return true;
+    }
+    // Already parked. Report no work rather than success: a held ship should
+    // get the scheduler's idle backoff, not be re-polled as though it were
+    // mid-task. This also keeps the rescue controller's own hold — proposed
+    // on a stranded ship at its current waypoint — costing nothing, since
+    // there is nowhere for it to fly and no fuel to fly with.
+    return false;
+  }
+
+  /**
    * Top up if the ship needs it, detouring to a market when it is not at one.
    * Returns false when it genuinely cannot be fuelled — the caller must then
    * hold rather than fly the leg anyway.

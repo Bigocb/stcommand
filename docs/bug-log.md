@@ -68,6 +68,11 @@ contract", with the reputation consequence stated.
 `ContractManager` already has a `declined` set, but it only covers contracts
 that were never accepted.
 
+Now cheaper than it was: the operator hold is an intent as of step 8, so
+"stop working this contract" is the same shape — persist the instruction,
+propose it each tick, let the dispatcher stop assigning the good. It no
+longer needs a new ownership channel of its own.
+
 ---
 
 ## 3. Two processes tick the same fleet during a deploy

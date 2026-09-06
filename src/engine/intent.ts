@@ -126,17 +126,23 @@ export function supersedes(startedAt: ShipIntent | undefined, now: ShipIntent | 
 }
 
 export function drivenByFleet(goal: Goal): boolean {
-  // `repair` has left this list: every role flies its own repair goal now via
-  // the shared executor (ShipProxy.runRepairGoal), which is step 5 — the
-  // controller proposes and never touches the hull. `explore` remains only because exploration is
+  // `repair` left this list at step 5 and `hold` at step 4: both are now
+  // goals the hull flies itself through the shared executor
+  // (ShipProxy.runRepairGoal / runHoldGoal), so the controller proposes and
+  // never touches the ship. `explore` remains only because exploration is
   // still flown by the fleet (autoExplore launches exploreSystem, which jumps
   // and tours the hull itself); when the executor learns to fly an explore
   // goal, this line changes again and step 5 is finished.
   //
+  // A `hold` with no waypoint stays here deliberately. That is the arbiter
+  // saying "nothing worth doing", not an operator parking a hull somewhere —
+  // there is nowhere to fly to, so standing down *is* executing it.
+  //
   // Anything listed here MUST be cleared when the fleet finishes with the
   // ship — see FleetManager's forgetIntent() calls — or the agent stands down
   // against a stale intent and the hull never moves again.
-  return goal.kind === "tender" || goal.kind === "hold" || goal.kind === "explore";
+  if (goal.kind === "hold") return goal.waypoint === undefined;
+  return goal.kind === "tender" || goal.kind === "explore";
 }
 
 /**
