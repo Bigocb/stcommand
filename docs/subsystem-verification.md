@@ -418,6 +418,67 @@ request; a persistent stream would not.
 
 ---
 
+## Step 5 — The trader re-derives its trip from observed state
+
+**Commit:** re-land of `390a63e` · **Status:** partial — live confirmation pending
+
+### Defect
+
+`TraderAgent.runArbitrage()` was the last straight-line procedure in the
+engine: navigate, dock, buy, navigate, dock, sell, with no diff between
+statements. Under the scheduler it could not even complete — `navigateTo()`
+raises `NavigationPending` the moment the ship enters transit, so the tick
+ended at the buy and the sell half never ran.
+
+The leftover sweep finished those routes instead, at `bestSell()`'s local
+pick rather than the destination the route was chosen for. The signature in
+production was `bought 20u MACHINERY …` followed by `cleared leftover 20u
+MACHINERY …`, and almost no `sold` lines at all.
+
+### Change
+
+Two reconciled steps over one pinned leg:
+
+- **acquire** — no trip under way, so pick a route, get to `buyAt`, buy, pin
+  the leg, end the tick;
+- **deliver** — cargo carrying a pin, so get to that leg's `sellAt`, and sell
+  only once standing there.
+
+Each entry re-derives from observed state, so a move that fails simply makes
+no progress. That is `MissionManager.stepCarrier()`'s shape, which is why the
+carrier never had these bugs. The sweep goes back to what its name says:
+cargo with no trip behind it.
+
+This closes step 3 of the migration. `control-plane-data-plane.md` §8 now
+reads four built, two half-built, which for the first time matches its own
+heading — the table had said three and three under a heading claiming four.
+
+### History and seam check
+
+Reverted in `c29a540` alongside the repair commit, during a stall neither
+caused. `trader.ts` auto-merged with the contract-buy work from step 3 of
+this pass; both survive intact (`cannot afford one unit at …` and
+`stillNeeded` still present alongside `deliverHeldCargo()`).
+
+Unlike the repair re-land, no rule 5 assertion had to be added:
+`deliverHeldCargo()` already calls `assertAt(leg.sellAt, …)` before selling.
+Checked rather than assumed, since the seam between two changes is where a
+gap hides.
+
+### Proof
+
+- **Tests:** `tests/tradeReconcile.test.ts`. 155 pass across the trader,
+  repair, intent, proxy and step-1/2/3 files.
+- **Prediction:** `sold Nu GOOD @ Pc at <sellAt> (+Nc)` lines — the signed
+  delta is new, and the waypoint must be the leg's `sellAt`, not a local
+  pick. `cleared leftover` must stop following buys; any that remain should
+  be genuine orphans (crash recovery, failed warehouse deposit), not
+  completed routes. A buy on one tick and its sell on a later one, rather
+  than a buy with no matching sell.
+- **Live:** _pending._
+
+---
+
 ## Queue
 
 | # | Step | Status |
@@ -425,8 +486,8 @@ request; a persistent stream would not.
 | 1 | Rule 5 at remaining transaction sites | verified |
 | 2 | Cargo-residue deadlock | verified |
 | 3 | Contract-buy silent stall | verified |
-| 4 | Repair: controller proposes, ship flies | live confirmation pending |
-| 5 | Re-land `390a63e` — trader re-derives trip from observed state | not started |
+| 4 | Repair: controller proposes, ship flies | tests only — not exercised live (no hull damaged) |
+| 5 | Trader re-derives trip from observed state | live confirmation pending |
 | 6 | `priceTable` → registry (single source of truth for prices) | not started |
 | 7 | Finish steps 3/4/5 of the migration — the executor fault line | not started |
 | 8 | Multi-hop routing | not started |

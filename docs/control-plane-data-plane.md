@@ -369,10 +369,37 @@ Re-audited against the code, step by step.
 | --- | --- | --- |
 | 1. Data plane cannot block | **Done** | No `await sleep(` in any of the four agent classes; `CooldownPending`/`NavigationPending` yield the scheduler |
 | 2. Registry by reference | **Done** | One `Registry`, read by reference. `withWorld()` and `chartSystemFor()` survive but were repurposed — `withWorld()` now *seeds* the registry and has no production callers, `chartSystemFor()` pulls an unscanned system into the atlas. The deletion list above is stale, not the code |
-| 3. One executor | **Half** | `ShipProxy` exists (the primitives). Agents did *not* become `step()` producers over it — they still call it imperatively inside straight-line procedures |
+| 3. One executor | **Done** | `ShipProxy` holds the primitives, and the trader — the one role that ran straight through — now re-derives its trip each tick from the hold and the ship's position (`deliverHeldCargo()`). Arrival is a precondition for selling, not an assumption |
 | 4. Intents + arbiter | **Half** | repair, rescue, explore and keeper all propose; `version` is now read (`supersedes()`), so a ship can tell its goal was replaced mid-task. Manual dispatch still uses `manualGoal` |
 | 5. Controllers | **Half** | `maybeAssignKeepers()` and now `maybeRepairFleet()` are pure proposers — repair is flown by the hull itself via `ShipProxy.runRepairGoal()`. `autoExplore()` and the rescue path still fly ships |
 | 6. Telemetry | **Done** | `getStep()`/`stepFor()` feed `getShipStatuses()`; the fleet line and dashboard show intent against observed |
+
+### Step 3, closed
+
+`TraderAgent.runArbitrage()` was the last straight-line procedure: navigate,
+dock, buy, navigate, dock, sell, with no diff between statements. Under the
+scheduler it could not even complete — `navigateTo()` raises
+`NavigationPending` the moment the ship enters transit, so the tick ended at
+the buy and the sell half never ran. The leftover sweep finished routes
+instead, at `bestSell()`'s local pick rather than the destination the route
+was chosen for, which is why production showed "bought 20u X / cleared
+leftover 20u X" pairs and almost no "sold" lines.
+
+It is now two reconciled steps over one pinned leg:
+
+- **acquire** — no trip under way, so pick a route, get to `buyAt`, buy, pin
+  the leg, and end the tick;
+- **deliver** — cargo carrying a pin, so get to that leg's `sellAt`, and sell
+  only once standing there.
+
+Each entry re-derives from observed state, so a move that fails simply makes
+no progress. That is `MissionManager.stepCarrier()`'s shape, which is why the
+carrier never had any of these bugs. The sweep goes back to what its name
+says: cargo with no trip behind it.
+
+### The remaining two half-steps
+
+### The two half-steps are still one fault line
 
 ### Step 5, half-closed: repair
 
@@ -421,17 +448,23 @@ parallel `manualGoal` channel) is the only thing between here and done.
 
 ### The remaining half-steps are one fault line
 
-Steps 3 and 5 and the recorded step-4 gap are not independent. Rule 1 says
-*controllers never call the kubelet* — and `exploreSystem()` still jumps and
-tours a hull from inside the controller, as `runCriticalRepair()` did before
-repair became a goal the ship executes. They cannot stop doing that until an
-agent can execute **from** an intent rather than merely standing down on
-one, which is exactly the step-4 gap. And an agent cannot execute from an
-intent until it is a `step()` producer, which is step 3.
+Step 3 is closed, which removes the bottom of the fault line: an agent can
+now execute *from* observed state rather than running a plan straight
+through. What is left is the top two courses.
 
-Repair is the worked example that the rest follows: the controller now
-proposes and releases, the hull flies itself through the shared executor,
-and `version` decides whether the goal is still the current one on arrival.
+Rule 1 says *controllers never call the kubelet*, and `exploreSystem()`
+still jumps and tours a hull from inside the controller, as
+`runCriticalRepair()` did before repair became a goal the ship executes.
+The rescue path does the same for its tender. Those are step 5. And manual
+dispatch still owns hulls through `manualGoal` rather than a `hold` intent,
+which is step 4's last item — a second ownership channel beside the board,
+and the reason an operator hold and the auto-dispatcher can still both
+believe they hold the same ship.
+
+Repair and the trader are the worked examples the rest follows: the
+controller proposes and releases, the hull flies itself through the shared
+executor, each entry re-derives from what is observed, and `version` decides
+whether the goal is still current on arrival.
 
 One missing piece, three faces:
 
