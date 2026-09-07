@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { Registry } from "./registry.js";
 import type { GalaxyAtlas } from "./galaxy.js";
 import type { Store } from "../db/store.js";
-import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 import { supersedes, type ShipIntent } from "./intent.js";
 
@@ -38,6 +38,15 @@ export interface ShipProxyOptions {
   store?: Store;
   /** Called by runExploreGoal/runTenderGoal when the goal is complete. */
   done?: () => void;
+  /**
+   * Called when runTenderGoal gives up on a rescue after repeated failures —
+   * see that method's own comment for why this exists. Carries the stranded
+   * ship's symbol (not this ship's own) and a human-readable reason, so the
+   * fleet can record it where the dashboard's rescue status already reads
+   * from (`rescueFailures`) rather than the rescue going quiet with no trace
+   * of why.
+   */
+  onTenderAbandoned?: (strandedSymbol: string, reason: string) => void;
 }
 
 /**
@@ -87,6 +96,7 @@ export class ShipProxy {
   private readonly galaxy?: GalaxyAtlas;
   private readonly store?: Store;
   private readonly done?: () => void;
+  private readonly onTenderAbandoned?: ShipProxyOptions["onTenderAbandoned"];
   private step: AgentStep = IDLE_STEP;
 
   /**
@@ -104,6 +114,13 @@ export class ShipProxy {
   private exploreMarketIndex = new Map<string, number>();
   /** Phase for runTenderGoal, keyed by ship symbol. */
   private tenderPhase = new Map<string, TenderPhase>();
+  /**
+   * Consecutive runTenderGoal() failures for the ship's current rescue —
+   * see that method's own comment. Reset on any successful step; the ship
+   * gives up on the third consecutive one rather than retrying an identical
+   * failing step forever.
+   */
+  private tenderFailures = new Map<string, number>();
 
   constructor(ship: Ship, opts: ShipProxyOptions) {
     this.ship = ship;
@@ -117,6 +134,7 @@ export class ShipProxy {
     this.galaxy = opts.galaxy;
     this.store = opts.store;
     this.done = opts.done;
+    this.onTenderAbandoned = opts.onTenderAbandoned;
   }
 
   get symbol(): string {
@@ -133,6 +151,23 @@ export class ShipProxy {
 
   getStep(): AgentStep {
     return this.step;
+  }
+
+  /**
+   * The live phase of this ship's own tender rescue, if it is currently
+   * flying one — "buy" / "transit" / "transfer", or undefined once the plan
+   * itself created the intent but this executor hasn't taken a step yet.
+   *
+   * `TenderPlan` (fleet.ts) stopped carrying a `phase` field when execution
+   * moved from a fleet-driven loop to this class — the plan is now static
+   * routing data, created once, and the live phase only exists here,
+   * per-ship. Without this accessor, `rescueStatusFor()`'s dashboard text
+   * lost its per-phase detail ("buying fuel" / "en route" / "transferring
+   * fuel") and fell back to a single static string regardless of which of
+   * those was actually true.
+   */
+  get currentTenderPhase(): string | undefined {
+    return this.tenderPhase.get(this.ship.symbol);
   }
 
   setStep(step: AgentStep): void {
@@ -624,13 +659,61 @@ export class ShipProxy {
    * the right step across scheduler ticks.
    *
    * done() is called on completion so the fleet can forget the intent.
+   *
+   * Wraps runTenderGoalStep() with the retry-and-abandon safety net the old
+   * fleet-driven stepRescue() had, and this refactor dropped without a
+   * replacement: that plan-execution loop lived in FleetManager, wrapped in
+   * a try/catch that counted consecutive failures and gave up after three,
+   * releasing both hulls back to their normal roles rather than retrying an
+   * identically-failing step forever. When execution moved to the ship
+   * itself, tenderRescueStep() shrank to plan creation and cleanup — it no
+   * longer drives a loop it can wrap — and the counting and cap moved here,
+   * next to the phase state that already lives per-ship. Confirmed by test:
+   * a full-cargo tender's buy step throws every time, and nothing without
+   * this stopped it retrying forever.
+   *
+   * A failure below the cap propagates rather than being swallowed, so the
+   * scheduler's own 10s backoff (nextTask()'s catch) still applies between
+   * attempts — this only changes what happens once retrying is pointless.
    */
   async runTenderGoal(
     intent: ShipIntent,
     currentIntent: () => ShipIntent | undefined,
   ): Promise<boolean> {
     if (intent.goal.kind !== "tender") return false;
+    const key = this.ship.symbol;
+    try {
+      const result = await this.runTenderGoalStep(intent, currentIntent);
+      this.tenderFailures.delete(key);
+      return result;
+    } catch (err) {
+      // NavigationPending/CooldownPending are control flow, not failure — a
+      // tender mid-transit or mid-cooldown throws one of these every tick
+      // until it resolves, and treating that as a failed attempt would
+      // abandon a rescue that is working exactly as designed, three ticks
+      // into an ordinary flight.
+      if (err instanceof Pending) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const failures = (this.tenderFailures.get(key) ?? 0) + 1;
+      if (failures >= 3) {
+        this.log(`tender: abandoning rescue of ${intent.goal.strandedSymbol} after ${failures} failed attempts (${msg})`);
+        this.tenderPhase.delete(key);
+        this.tenderFailures.delete(key);
+        this.onTenderAbandoned?.(intent.goal.strandedSymbol, `tender ${this.ship.symbol} failed repeatedly: ${msg}`);
+        this.done?.();
+        return false;
+      }
+      this.tenderFailures.set(key, failures);
+      this.log(`tender step for ${intent.goal.strandedSymbol} failed (attempt ${failures}/3, tender ${this.ship.symbol}): ${msg}`);
+      throw err;
+    }
+  }
 
+  private async runTenderGoalStep(
+    intent: ShipIntent,
+    currentIntent: () => ShipIntent | undefined,
+  ): Promise<boolean> {
+    if (intent.goal.kind !== "tender") return false;
     const key = this.ship.symbol;
     let phase = this.tenderPhase.get(key) ?? TenderPhase.BUY;
 

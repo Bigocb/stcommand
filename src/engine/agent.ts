@@ -88,6 +88,8 @@ export interface AgentOptions {
   intentFor?: () => import("./intent.js").ShipIntent | undefined;
   /** Called when runExploreGoal or runTenderGoal finishes, so the fleet can forget the intent. */
   done?: () => void;
+  /** Called when runTenderGoal gives up on a rescue after repeated failures — see ShipProxy's own comment. */
+  onTenderAbandoned?: (strandedSymbol: string, reason: string) => void;
   shouldRun?: () => boolean;
 }
 
@@ -163,6 +165,7 @@ export class ShipAgent {
   private readonly keeperMarket?: () => string | undefined;
   private readonly intentFor?: AgentOptions["intentFor"];
   private readonly done?: () => void;
+  private readonly onTenderAbandoned?: (strandedSymbol: string, reason: string) => void;
   private readonly galaxy?: AgentOptions["galaxy"];
   private readonly store?: AgentOptions["store"];
   private readonly shouldRun?: () => boolean;
@@ -214,6 +217,11 @@ export class ShipAgent {
     return this.currentStep;
   }
 
+  /** The live phase of this ship's own tender rescue, if it is flying one right now — see ShipProxy's own comment. */
+  tenderPhase(): string | undefined {
+    return this.proxy.currentTenderPhase;
+  }
+
   constructor(ship: Ship, opts: AgentOptions) {
     this.symbol = ship.symbol;
     this.api = opts.api;
@@ -233,6 +241,7 @@ export class ShipAgent {
     this.keeperMarket = opts.keeperMarket;
     this.intentFor = opts.intentFor;
     this.done = opts.done;
+    this.onTenderAbandoned = opts.onTenderAbandoned;
     this.galaxy = opts.galaxy;
     this.store = opts.store;
     this.shouldRun = opts.shouldRun;
@@ -247,6 +256,7 @@ export class ShipAgent {
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
       done: this.done,
+      onTenderAbandoned: this.onTenderAbandoned,
       galaxy: this.galaxy,
       store: this.store,
     });

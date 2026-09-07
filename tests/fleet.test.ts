@@ -1467,14 +1467,35 @@ describe("FleetManager.init: promotion respects manual role overrides", () => {
 
 describe("FleetManager.rescueStatusFor: surfacing real rescue status", () => {
   it("reports an active tender's phase when a plan exists", () => {
-    const fleet = makeFleet([]);
-    (fleet as any).rescuePlans.set("SHIP-1", { strandedSymbol: "SHIP-1", strandedWaypoint: "X1-A-A1", tenderSymbol: "SHIP-2", market: "X1-A-A2", fuelUnits: 10, phase: "transit" });
+    // TenderPlan itself carries no phase any more — execution moved to the
+    // ship's own ShipProxy (runTenderGoal), so the live phase has to be read
+    // through the tender's agent, not off the static plan object. A fake
+    // agent without tenderPhase() (every other test's makeFakeAgent) would
+    // silently read as "no phase known" rather than catching a regression
+    // here, so this one adds it explicitly.
+    const tender = { ...makeFakeAgent("SHIP-2", "X1-A-A2"), tenderPhase: () => "transit" };
+    const fleet = makeFleet([tender as any]);
+    (fleet as any).rescuePlans.set("SHIP-1", { strandedSymbol: "SHIP-1", strandedWaypoint: "X1-A-A1", tenderSymbol: "SHIP-2", market: "X1-A-A2", fuelUnits: 10 });
 
     const status = (fleet as any).rescueStatusFor("SHIP-1");
 
     assert.equal(status.rescueActive, true);
     assert.match(status.rescueDetail, /SHIP-2/);
     assert.match(status.rescueDetail, /en route/);
+  });
+
+  it("falls back to a plain 'dispatched' when the tender's phase isn't known yet", () => {
+    // The intent was proposed but the executor hasn't taken a step — or a
+    // test fake that doesn't implement tenderPhase() at all, same as every
+    // rescue test elsewhere in this file. Must not throw and must not claim
+    // a phase it doesn't have.
+    const fleet = makeFleet([makeFakeAgent("SHIP-2", "X1-A-A2") as any]);
+    (fleet as any).rescuePlans.set("SHIP-1", { strandedSymbol: "SHIP-1", strandedWaypoint: "X1-A-A1", tenderSymbol: "SHIP-2", market: "X1-A-A2", fuelUnits: 10 });
+
+    const status = (fleet as any).rescueStatusFor("SHIP-1");
+
+    assert.equal(status.rescueActive, true);
+    assert.equal(status.rescueDetail, "fuel tender SHIP-2 dispatched");
   });
 
   it("reports the recorded failure reason when rescue planning couldn't find a tender", () => {
@@ -1565,89 +1586,50 @@ describe("FleetManager.makeRescuePlan: full-cargo tender exclusion", () => {
   });
 });
 
-describe("FleetManager.tenderRescueStep: abandon stuck plans after repeated failures", () => {
-  it("keeps the plan and increments the failure counter on the first two stepRescue failures", async () => {
+describe("FleetManager.tenderRescueStep: plan lifecycle now that the ship flies its own rescue", () => {
+  // stepRescue() and the try/catch that counted its failures are gone —
+  // execution moved to ShipProxy.runTenderGoal() (step 5), and the retry
+  // count and the abandon-after-three cap moved with it; that mechanism is
+  // tested directly in shipProxy.test.ts, next to the phase state it lives
+  // beside. What is left here is what tenderRescueStep() actually still
+  // does: create the plan once, and notice when the tender's intent is gone
+  // so both hulls can be handed back — regardless of whether "gone" means
+  // the rescue succeeded or ShipProxy gave up on it.
+
+  function tenderIntentFor(shipSymbol: string, strandedSymbol: string) {
+    return { ship: shipSymbol, priority: 0 as const, goal: { kind: "tender" as const, to: "X1-A-A1", fuelUnits: 10, market: "X1-A-A2", strandedSymbol }, reason: "test", source: "rescue" };
+  }
+
+  it("leaves an in-progress plan alone while its tender intent is still live", async () => {
     const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
     const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
     const fleet = makeFleet([stranded, tender]);
-    stubMarketSystem(fleet, "X1-A", {
-      "X1-A-A1": { x: 0, y: 0 },
-      "X1-A-A2": { x: 5, y: 0 },
-    });
-    tender.suspend();
-    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10, phase: "buy" };
+    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10 };
     (fleet as any).rescuePlans.set("STRANDED", plan);
-
-    let failures = 0;
-    (fleet as any).stepRescue = async () => {
-      failures += 1;
-      throw new Error("cargo full");
-    };
+    fleet.intents.propose(tenderIntentFor("TENDER", "STRANDED"));
+    fleet.intents.commit();
 
     await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
-    assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "plan must survive the first failure");
-    assert.equal((fleet as any).rescueStepFailures.get("STRANDED"), 1);
-    assert.equal(tender.isSuspended(), true, "tender stays suspended while the plan is live");
 
-    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
-    assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "plan must survive the second failure");
-    assert.equal((fleet as any).rescueStepFailures.get("STRANDED"), 2);
-    assert.equal(tender.isSuspended(), true, "tender still suspended after two failures");
-    assert.equal(failures, 2);
+    assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "the rescue is still in progress — nothing to clean up yet");
   });
 
-  it("abandons the plan and resumes the tender after three stepRescue failures", async () => {
+  it("cleans up once the tender's intent is gone — the rescue finished, one way or the other", async () => {
     const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
     const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
     const fleet = makeFleet([stranded, tender]);
-    stubMarketSystem(fleet, "X1-A", {
-      "X1-A-A1": { x: 0, y: 0 },
-      "X1-A-A2": { x: 5, y: 0 },
-    });
     tender.suspend();
-    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10, phase: "buy" };
+    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10 };
     (fleet as any).rescuePlans.set("STRANDED", plan);
-
-    (fleet as any).stepRescue = async () => {
-      throw new Error("cargo full");
-    };
-
-    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
-    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
-    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
-
-    assert.equal((fleet as any).rescuePlans.has("STRANDED"), false, "plan must be deleted after three failures");
-    assert.equal((fleet as any).rescueStepFailures.has("STRANDED"), false, "failure counter must be cleared after abandonment");
-    assert.equal(tender.isSuspended(), false, "tender must be resumed when the plan is abandoned");
-    const failure = (fleet as any).rescueFailures.get("STRANDED");
-    assert.ok(failure, "a persistent failure reason must be recorded");
-    assert.match(failure, /cargo full/);
-  });
-
-  it("resets the failure counter after a successful stepRescue", async () => {
-    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
-    const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
-    const fleet = makeFleet([stranded, tender]);
-    stubMarketSystem(fleet, "X1-A", {
-      "X1-A-A1": { x: 0, y: 0 },
-      "X1-A-A2": { x: 5, y: 0 },
-    });
-    tender.suspend();
-    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10, phase: "buy" };
-    (fleet as any).rescuePlans.set("STRANDED", plan);
-
-    let calls = 0;
-    (fleet as any).stepRescue = async () => {
-      calls += 1;
-      if (calls < 2) throw new Error("transient");
-    };
+    // No tender intent proposed: runTenderGoal() already called done() and
+    // the fleet forgot it, whether that was a successful delivery or
+    // ShipProxy's own give-up path (handleTenderAbandoned() covers what
+    // that path additionally records — see below).
 
     await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
-    assert.equal((fleet as any).rescueStepFailures.get("STRANDED"), 1);
 
-    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
-    assert.equal((fleet as any).rescueStepFailures.has("STRANDED"), false, "failure counter must reset on success");
-    assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "plan must remain after a successful recovery step");
+    assert.equal((fleet as any).rescuePlans.has("STRANDED"), false, "plan cleaned up");
+    assert.equal(tender.isSuspended(), false, "tender resumed");
   });
 
   it("resumes and releases a tender parked in a non-default role map when the rescue completes", async () => {
@@ -1679,5 +1661,31 @@ describe("FleetManager.tenderRescueStep: abandon stuck plans after repeated fail
 
     assert.equal(tender.isSuspended(), false, "a tender in any role map must be resumed when the rescue completes");
     assert.equal(tender.isManual(), false, "release() must also clear a manual-dispatch goal picked up mid-rescue");
+  });
+});
+
+describe("FleetManager.handleTenderAbandoned: what ShipProxy giving up on a rescue actually does", () => {
+  // Called by ShipProxy.runTenderGoal() (via the onTenderAbandoned callback
+  // wired at construction) after three consecutive failures — see that
+  // method's own comment. done() fires alongside this, generically, for
+  // every fleet-driven goal; done() alone only forgets the tender's own
+  // intent, which is not enough to actually resume the tender or free the
+  // stranded ship — that is this method's job.
+  it("records the reason, drops the plan, frees the stranded ship's intent, and resumes the tender", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
+    const fleet = makeFleet([stranded, tender]);
+    tender.suspend();
+    (fleet as any).rescuePlans.set("STRANDED", { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10 });
+    fleet.intents.propose({ ship: "STRANDED", priority: 0, goal: { kind: "hold" }, reason: "stranded, awaiting rescue", source: "rescue" });
+    fleet.intents.commit();
+    assert.ok(fleet.intents.current("STRANDED"), "sanity check: the stranded ship's hold intent exists before abandonment");
+
+    await (fleet as any).handleTenderAbandoned("TENDER", "STRANDED", "tender TENDER failed repeatedly: cargo full");
+
+    assert.equal((fleet as any).rescueFailures.get("STRANDED"), "tender TENDER failed repeatedly: cargo full", "reason recorded where the dashboard reads it");
+    assert.equal((fleet as any).rescuePlans.has("STRANDED"), false, "plan dropped — the next rescue pass starts fresh, and may pick a different tender");
+    assert.equal(fleet.intents.current("STRANDED"), undefined, "the stranded ship's hold is released — it must not sit held for a rescue that stopped happening");
+    assert.equal(tender.isSuspended(), false, 'the tender is resumed, not left stuck claimed by "rescue"');
   });
 });

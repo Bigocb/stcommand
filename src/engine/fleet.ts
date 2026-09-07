@@ -66,6 +66,8 @@ interface ControlledAgent {
   resume(): void;
   /** Optional: real agent classes all implement this (see agentStep.ts); test fakes that don't are treated as always idle. */
   getStep?(): AgentStep;
+  /** Optional: the live phase of this ship's own tender rescue, if flying one — see ShipProxy.currentTenderPhase. Test fakes that don't implement it fall back to a generic label. */
+  tenderPhase?(): string | undefined;
   /** Optional: hand the agent a snapshot the fleet fetched itself, so a hull the
    *  fleet changed out from under its agent (a repair, above all) does not leave
    *  the agent — and every controller that reads through it — believing the old
@@ -710,6 +712,7 @@ export class FleetManager {
       },
       warehouseMinMargin: () => this.doctrine.value("warehouseMinMargin", 0),
       done: () => this.forgetIntent(shipSymbol),
+      onTenderAbandoned: (strandedSymbol, reason) => void this.handleTenderAbandoned(shipSymbol, strandedSymbol, reason),
       store: this.store,
     };
   }
@@ -1194,6 +1197,7 @@ export class FleetManager {
           galaxy: this.galaxy,
           store: this.store,
           done: () => this.forgetIntent(ship.symbol),
+          onTenderAbandoned: (strandedSymbol, reason) => void this.handleTenderAbandoned(ship.symbol, strandedSymbol, reason),
         }).withRegistry(this.registry),
       );
       this.log(`role: miner ${ship.symbol}`);
@@ -1408,6 +1412,7 @@ export class FleetManager {
             galaxy: this.galaxy,
             store: this.store,
             done: () => this.forgetIntent(shipSymbol),
+            onTenderAbandoned: (strandedSymbol, reason) => void this.handleTenderAbandoned(shipSymbol, strandedSymbol, reason),
           }).withRegistry(this.registry),
         );
         return undefined;
@@ -3824,7 +3829,15 @@ export class FleetManager {
   private rescueStatusFor(shipSymbol: string): { rescueActive: boolean; rescueDetail: string } {
     const plan = this.rescuePlans.get(shipSymbol);
     if (plan) {
-      return { rescueActive: true, rescueDetail: `fuel tender ${plan.tenderSymbol} dispatched (in transit)` };
+      // Live phase, read from the tender's own executor — TenderPlan itself
+      // stopped carrying phase when execution moved to ShipProxy; the plan
+      // is now static routing data, not the ground truth of where the
+      // rescue actually stands. Undefined (the intent proposed, not yet
+      // stepped) falls back to the same generic wording this always used to
+      // show while the plan was being made.
+      const phase = this.controlledAgent(plan.tenderSymbol)?.tenderPhase?.();
+      const phaseLabel = phase ? { buy: "buying fuel", transit: "en route", transfer: "transferring fuel" }[phase] : undefined;
+      return { rescueActive: true, rescueDetail: `fuel tender ${plan.tenderSymbol} dispatched${phaseLabel ? ` (${phaseLabel})` : ""}` };
     }
     const failure = this.rescueFailures.get(shipSymbol);
     if (failure) return { rescueActive: false, rescueDetail: `no rescue possible: ${failure}` };
@@ -4491,6 +4504,27 @@ export class FleetManager {
       market: market.sym,
       fuelUnits,
     };
+  }
+
+  /**
+   * Called (fire-and-forget, matching resumeAgent()'s own style) when
+   * ShipProxy.runTenderGoal() gives up on a rescue after repeated failures.
+   *
+   * Mirrors the abandon branch the old fleet-driven stepRescue() had before
+   * execution moved to the ship itself — see runTenderGoal()'s own comment
+   * for why that safety net needed a new home rather than being dropped.
+   * `done()` is called generically alongside this (every fleet-driven goal
+   * calls it on completion) and forgets the tender's own intent, but that is
+   * not enough on its own: the stranded ship would keep its hold intent for
+   * a rescue that has stopped happening, and the tender would stay claimed
+   * by "rescue" and suspended — `releaseTo()` is what actually resumes it.
+   */
+  private async handleTenderAbandoned(tenderSymbol: string, strandedSymbol: string, reason: string): Promise<void> {
+    this.log(`rescue for ${strandedSymbol}: ${reason}`);
+    this.rescueFailures.set(strandedSymbol, reason);
+    this.rescuePlans.delete(strandedSymbol);
+    this.forgetIntent(strandedSymbol);
+    await this.releaseTo(tenderSymbol, "rescue");
   }
 
   private async tenderRescueStep(s: { symbol: string; waypointSymbol: string; fuel: number }): Promise<void> {

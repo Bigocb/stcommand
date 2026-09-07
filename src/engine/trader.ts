@@ -110,6 +110,8 @@ export interface TraderOptions {
   intentFor?: () => import("./intent.js").ShipIntent | undefined;
   /** Called when runExploreGoal or runTenderGoal finishes, so the fleet can forget the intent. */
   done?: () => void;
+  /** Called when runTenderGoal gives up on a rescue after repeated failures — see ShipProxy's own comment. */
+  onTenderAbandoned?: (strandedSymbol: string, reason: string) => void;
   shouldRun?: () => boolean;
   /** Recover a cost basis this process never saw, from the trade ledger. */
   recoverCostBasis?: (good: string) => Promise<number | undefined>;
@@ -179,6 +181,7 @@ export class TraderAgent {
   private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
   private readonly intentFor?: TraderOptions["intentFor"];
   private readonly done?: () => void;
+  private readonly onTenderAbandoned?: (strandedSymbol: string, reason: string) => void;
   private readonly shouldRun?: () => boolean;
   private readonly recoverCostBasis?: TraderOptions["recoverCostBasis"];
   private readonly deliverCargo?: TraderOptions["deliverCargo"];
@@ -242,6 +245,11 @@ export class TraderAgent {
     return this.currentStep;
   }
 
+  /** The live phase of this ship's own tender rescue, if it is flying one right now — see ShipProxy's own comment. */
+  tenderPhase(): string | undefined {
+    return this.proxy.currentTenderPhase;
+  }
+
   constructor(ship: Ship, opts: TraderOptions) {
     this.symbol = ship.symbol;
     this.api = opts.api;
@@ -271,6 +279,7 @@ export class TraderAgent {
     this.intentFor = opts.intentFor;
     this.shouldRun = opts.shouldRun;
     this.done = opts.done;
+    this.onTenderAbandoned = opts.onTenderAbandoned;
     this.recoverCostBasis = opts.recoverCostBasis;
     this.deliverCargo = opts.deliverCargo;
     this.contractNeeded = opts.contractNeeded;
@@ -285,6 +294,7 @@ export class TraderAgent {
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
       done: this.done,
+      onTenderAbandoned: this.onTenderAbandoned,
       galaxy: this.atlas,
       store: this.store,
     });
