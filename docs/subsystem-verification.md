@@ -826,6 +826,80 @@ replayed at boot before anything can act on them.
   `contracts: 1 stood down by the operator, not being worked`.
 - **Live:** _pending — needs one press of the button._
 
+## Step 10 — Three of ShipAgent's four scheduler entry points ignored the fleet
+
+### Defect
+
+`ShipAgent` has four scheduler entry points sharing one class: `tick()`
+(miner), `surveyScout()` (surveyor), `tourScout()` (tour), `keeperPoll()`
+(keeper). Step 4/5's fix — intercept repair/hold/explore/tender before
+falling through to the role's own logic — landed only in `tick()`. The other
+three opened with a comment claiming *"the fleet itself is driving this hull
+... so acting here is the two-owners race"* and went straight to
+`standDownReason()`, which deliberately returns "not standing down" for a
+hold WITH a waypoint (that case is the ship's own job, not a stand-down) and,
+after `0f06a29`, for explore and tender too. So a fleet-driven goal proposed
+for a surveyor, tour, or keeper ship was committed, shown correctly on the
+dashboard, and then never even read by the code that runs the ship.
+
+### Change
+
+`ShipProxy.runFleetDrivenGoal(intent, currentIntent)` is now the one place
+that decides whether an intent is one the ship flies itself, and flies it if
+so — every entry point on the class calls it first, `tick()` included, so
+there is one copy of the dispatch instead of four kept in sync by memory.
+
+### Proof
+
+- **Tests:** `tests/intentConsumption.test.ts`'s `drivenByFleet` and "every
+  role stands down" blocks were rewritten to the actual contract (they still
+  asserted the pre-step-5 behavior for tender/explore, patched only enough to
+  compile after `0f06a29`) and given direct regression coverage of all four
+  entry points. All 6 fail with `agent.ts`/`shipProxy.ts` stashed.
+- **Live, not read — caught in the act.** DRAGOM-7 was placed under an
+  operator hold at X1-S84-C46 (18:06:46). Three minutes later:
+  `DRAGOM-7: tour scout: touring X1-S84-C47`, while the fleet status line
+  kept reporting `manual hold ... want:hold X1-S84-C46` throughout. This is
+  the mechanism, observed directly, not inferred from logs after the fact —
+  the standard's own bar.
+- **Prediction, for the next deploy:** an operator hold or a "Send to
+  waypoint" placed on a surveyor, tour, or keeper ship is obeyed —
+  `hold: heading to <wp>` / `hold: superseded` lines appear from those roles,
+  where before nothing did. **Live:** _pending — this session cannot deploy
+  to production; the next one to touch this service should check it._
+
+---
+
+## Step 11 — Tours never scanned shipyards, the market fix's own flagged gap
+
+### Defect
+
+`tourScout()`'s tail sequence — `navigateTo() → ensureDocked() →
+recordMarket(target) → recordShipyard(target)` — never runs in production:
+`navigateTo()` raises `NavigationPending` the instant the ship enters
+transit, unwinding the call before the three lines after it execute. Commit
+`26e8ac1` added a separate arrival-handling block to fix this for
+`recordMarket()`, and its own message named the identical gap for
+`recordShipyard()` as still open. It stayed open: a tour ship arriving at a
+shipyard-market refreshed its price snapshot and never its ship-stock
+snapshot.
+
+### Change
+
+`recordShipyard(standingAt)` now runs alongside `recordMarket()` in the
+arrival block, gated on the waypoint actually being a known shipyard target
+(computed just above the check rather than fetched twice below it).
+
+### Proof
+
+- **Tests:** 2 added to `tests/tourScout.test.ts` (one control: a plain
+  market must not trigger a spurious shipyard scan). Both fail with the
+  change stashed.
+- **Prediction:** the next time a tour ship arrives at and docks with a
+  shipyard-market, an `onActivity("shipyard", "snapshot <wp> (N ships)")`
+  line appears for it — something that has never happened from the tour
+  fleet before. **Live:** _pending — same constraint as step 10._
+
 ---
 
 ## Queue
@@ -841,10 +915,12 @@ replayed at boot before anything can act on them.
 | 7 | Cash floor honoured by trader purchases | verified |
 | 8 | Step 4 closed — one owner per hull | tests only — prediction **untested**, no dispatch of any kind occurred in the window |
 | 9 | "Stop working this contract" + operator decisions that survive a deploy | tests only — live confirmation needs one button press |
-| 10 | `priceTable` → registry (single source of truth for prices) | not started |
-| 11 | Finish migration step 5 — `autoExplore()`/`exploreSystem()` and the rescue tender still fly ships | not started |
-| 12 | Multi-hop routing | not started |
-| 13 | Jump-gate construction status | not started |
+| 10 | Three ShipAgent entry points (surveyor/tour/keeper) never checked for a fleet-driven goal | tests only — mechanism caught live (DRAGOM-7), prediction pending next deploy |
+| 11 | Tours never scanned shipyards on arrival | tests only — prediction pending next deploy |
+| 12 | `priceTable` → registry (single source of truth for prices) | not started |
+| 13 | Migration step 5 pushed (`0f06a29`) but not sound — see `bug-log.md` #8 | needs a second pass: 6 failing tests in its own new suite, 2 regressed tests (one a safety net for a stuck rescue tender) |
+| 14 | Multi-hop routing | not started |
+| 15 | Jump-gate construction status | not started |
 
 Steps 4–9 and their rationale are in `control-plane-data-plane.md` §8 and
 §10. The ordering principle: do the loud-failure work before the structural

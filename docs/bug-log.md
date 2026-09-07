@@ -21,6 +21,7 @@ doctrine pass.
 | 5 | A trader assigned work it cannot fund, forever | **doctrine** — the dispatcher has no affordability gate |
 | 6 | "0c in hand" is not the balance | **rule 5** family — a number that does not mean what it says |
 | 7 | A ship purchase also left the fleet under the floor — unexplained | **step 2** if real — a call site reading around the source of truth |
+| 8 | Step 5's own push (`0f06a29`) shipped with defects in code it added | **step 5** — not this bug log's kind of item, see the note below |
 
 ---
 
@@ -147,3 +148,40 @@ boot lines, which only sample at deploys. Check `shipBudget()` and the
 
 Recorded because it is the second time a purchase has left the fleet
 underwater, and one confirmed leak is not evidence that it was the only one.
+
+## 8. Step 5's push shipped with defects in its own new code
+
+Not a bug the way the others here are — this is a note that a commit already
+on `main` needs follow-up, so it isn't lost between sessions. `0f06a29`
+("complete migration step 5") extended `drivenByFleet()` correctly and wrote
+`ShipProxy.runExploreGoal()`/`runTenderGoal()`, but three things in it are
+not yet sound:
+
+- **Its own new tests don't pass.** `tests/shipProxy.test.ts` (317 new
+  lines) has 6 failing subtests against the code it was written to cover —
+  three are incomplete test mocks (a fake `api`/`galaxy` missing methods the
+  new goal runners call), and two ("still working" assertions on the
+  TRANSIT/TRANSFER tender phases) look like a real state-machine issue,
+  not yet root-caused.
+- **Two previously-passing tests regressed**, confirmed by a clean
+  before/after run of the exact same suite: `FleetManager.rescueStatusFor`
+  (the dashboard-visible rescue status text changed from matching `/en
+  route/` to `"dispatched (in transit)"`, undocumented) and
+  `FleetManager.tenderRescueStep: abandon stuck plans after repeated
+  failures` — the safety net that stops a stuck rescue tender retrying
+  forever now throws `Cannot read properties of undefined` reading its own
+  failure-count map. This one is worth prioritizing: a stuck tender that
+  can no longer detect "stuck" is a real risk to the "never let a ship
+  reach zero condition" standing goal.
+- **`autoExplore does not block the coordinator`** and **`autoExplore never
+  re-tasks a ship that is already flying`** also regressed — both in the
+  dispatch logic whose candidate pool is `tours` (first) and `scouts`, per
+  its own code comment. `tours` being the primary pool is exactly what made
+  the fix above load-bearing: an explore goal is routinely handed to a tour
+  ship, and until that fix, `tourScout()` never even looked at it.
+
+None of this was checked against the four-part verification standard before
+it shipped: no defect stated as a mechanism, no prediction, no live check —
+the commit message is one line. Recorded here rather than fixed, since it's
+outside the two bugs this pass was asked to chase; whoever picks up step 5
+next should treat `0f06a29` as needing a second pass, not as done.
