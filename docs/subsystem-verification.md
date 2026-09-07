@@ -902,6 +902,89 @@ arrival block, gated on the waypoint actually being a known shipyard target
 
 ---
 
+## Step 12 — Migration step 5's push, checked against this standard after shipping
+
+### Defect
+
+`0f06a29` ("complete migration step 5") shipped without going through this
+file's own standard first — no mechanism named, no prediction, a one-line
+commit message. Checking it afterward found four things:
+
+1. **The same bug as step 10, twice more.** `drivenByFleet()` correctly
+   stopped treating `explore`/`tender` as fleet-driven, but `tourScout()`,
+   `surveyScout()`, and `keeperPoll()` still had no interception for them —
+   the identical gap step 10 closed for `hold`, reopened for two more goal
+   kinds by the same push that should have known to check all four entry
+   points. `tours` is `autoExplore()`'s own first-choice candidate pool, so
+   this wasn't a corner case: an explore goal handed to a tour ship was
+   silently dropped the same way a hold was.
+2. **The rescue retry-and-abandon safety net, dropped.** The old
+   fleet-driven `stepRescue()` counted consecutive failures and gave up
+   after three — the confirmed fix for "a full-cargo tender's buy step
+   throws every single time." Moving execution to `ShipProxy.runTenderGoal()`
+   left nothing catching those failures at all; a permanently-failing tender
+   step would retry forever with no cap.
+3. **Per-phase rescue status, lost.** `TenderPlan` stopped carrying a live
+   `phase` once execution moved to the ship; the dashboard's rescue detail
+   collapsed from "buying fuel" / "en route" / "transferring fuel" to one
+   static string.
+4. **Two `autoExplore()` regressions and 6 failing tests in the push's own
+   new suite** — a stale test fixture modeling gates in the wrong field, two
+   tests mocking a method (`exploreSystem()`) that no longer exists, and
+   mocks in `shipProxy.test.ts` that returned one fixed ship snapshot
+   regardless of which ship was asked for, so a `refresh()` call anywhere
+   silently overwrote a prior phase's state.
+
+### Change
+
+- `ShipProxy.runFleetDrivenGoal(intent, currentIntent)` is now the **one**
+  place that decides whether an intent is one the ship flies itself. All
+  four `ShipAgent` entry points call it, `tick()` included — there is one
+  copy of the four-way dispatch, not five drifting copies.
+- `runTenderGoal()` wraps its step in a try/catch, counting consecutive
+  failures in a `tenderFailures` map beside `tenderPhase`. Below the cap, the
+  failure still propagates — the scheduler's own 10s backoff applies exactly
+  as before. At three, it clears phase state, fires a new
+  `onTenderAbandoned(strandedSymbol, reason)` callback, and calls `done()`.
+  `NavigationPending`/`CooldownPending` are explicitly exempted from the
+  count — they are the mechanism working, not a failed attempt.
+- `FleetManager.handleTenderAbandoned()` is the new home for what the old
+  abandon branch did beyond retrying: record the reason in `rescueFailures`,
+  drop the plan, forget the stranded ship's hold intent, and `releaseTo()`
+  the tender — `done()` alone only forgets the tender's own intent.
+- `ShipProxy.currentTenderPhase` (threaded through `ShipAgent`/`TraderAgent`
+  as `tenderPhase()`, the same pattern `getStep()` already uses) restores
+  the live phase `rescueStatusFor()` reads.
+- The test fixture and mock fixes are corrections, not new behavior: a real
+  jump gate is a `.waypoints` entry with `type: "JUMP_GATE"`, matching how
+  `trader.ts`'s cross-system routing and `fleet.ts`'s own `jumpShip()` path
+  already read gates; `shipProxy.test.ts`'s mocks became stateful per-symbol
+  fakes so a multi-phase goal is actually exercised phase by phase.
+
+### Proof
+
+- **Tests:** 4 new tests in `shipProxy.test.ts` for the retry cap (all fail
+  with the retry-cap change stashed), plus its `runExploreGoal`/
+  `runTenderGoal` suites rewritten against a correct stateful mock — 28/28
+  pass. 3 new/rewritten tests in `fleet.test.ts` for
+  `handleTenderAbandoned`/`rescueStatusFor`/`tenderRescueStep` fail with
+  `fleet.ts`'s wiring stashed (55→52 pass). The two `autoExplore()` test
+  files (`fleetNonBlocking.test.ts`, `intentConsumption.test.ts`) pass in
+  full once their fixtures matched what `loadSystem()` actually produces.
+  **Full non-DB suite: 12 pre-existing failures, unchanged** — before this
+  pass and after it, the same 12, none new.
+- **Prediction:** an operator hold or "Send to waypoint" placed on a
+  surveyor, tour, or keeper ship is obeyed (same as step 10's prediction,
+  now covering `explore`/`tender` too). A tender that fails its step three
+  times in a row logs `tender: abandoning rescue of <stranded> after 3
+  failed attempts`, and the dashboard's rescue detail for that ship changes
+  to `no rescue possible: tender <symbol> failed repeatedly: <reason>`
+  rather than continuing to say `dispatched`. **Live:** _pending — this
+  session cannot deploy to production; needs a genuinely stuck rescue (or a
+  deliberately induced one) to exercise, same caveat as steps 4/5/8._
+
+---
+
 ## Queue
 
 | # | Step | Status |
@@ -917,8 +1000,8 @@ arrival block, gated on the waypoint actually being a known shipyard target
 | 9 | "Stop working this contract" + operator decisions that survive a deploy | tests only — live confirmation needs one button press |
 | 10 | Three ShipAgent entry points (surveyor/tour/keeper) never checked for a fleet-driven goal | tests only — mechanism caught live (DRAGOM-7), prediction pending next deploy |
 | 11 | Tours never scanned shipyards on arrival | tests only — prediction pending next deploy |
-| 12 | `priceTable` → registry (single source of truth for prices) | not started |
-| 13 | Migration step 5 pushed (`0f06a29`) but not sound — see `bug-log.md` #8 | needs a second pass: 6 failing tests in its own new suite, 2 regressed tests (one a safety net for a stuck rescue tender) |
+| 12 | Migration step 5's push checked against this standard — 4 defects found and fixed | tests only — live confirmation needs a genuinely stuck rescue |
+| 13 | `priceTable` → registry (single source of truth for prices) | not started |
 | 14 | Multi-hop routing | not started |
 | 15 | Jump-gate construction status | not started |
 

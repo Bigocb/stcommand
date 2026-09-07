@@ -149,39 +149,38 @@ boot lines, which only sample at deploys. Check `shipBudget()` and the
 Recorded because it is the second time a purchase has left the fleet
 underwater, and one confirmed leak is not evidence that it was the only one.
 
-## 8. Step 5's push shipped with defects in its own new code
+## 8. Step 5's push shipped with defects — FIXED, see `subsystem-verification.md` step 12
 
-Not a bug the way the others here are — this is a note that a commit already
-on `main` needs follow-up, so it isn't lost between sessions. `0f06a29`
-("complete migration step 5") extended `drivenByFleet()` correctly and wrote
-`ShipProxy.runExploreGoal()`/`runTenderGoal()`, but three things in it are
-not yet sound:
+`0f06a29` ("complete migration step 5") extended `drivenByFleet()` correctly
+and wrote `ShipProxy.runExploreGoal()`/`runTenderGoal()`, but shipped without
+being checked against this file's own four-part standard — no mechanism, no
+prediction, a one-line commit message — and it showed: 6 failing tests in
+its own new suite, 2 regressed tests (one of them the safety net that stops
+a stuck rescue tender retrying forever), and 2 more regressions in
+`autoExplore()`'s own dispatch logic. All fixed in a follow-up pass:
 
-- **Its own new tests don't pass.** `tests/shipProxy.test.ts` (317 new
-  lines) has 6 failing subtests against the code it was written to cover —
-  three are incomplete test mocks (a fake `api`/`galaxy` missing methods the
-  new goal runners call), and two ("still working" assertions on the
-  TRANSIT/TRANSFER tender phases) look like a real state-machine issue,
-  not yet root-caused.
-- **Two previously-passing tests regressed**, confirmed by a clean
-  before/after run of the exact same suite: `FleetManager.rescueStatusFor`
-  (the dashboard-visible rescue status text changed from matching `/en
-  route/` to `"dispatched (in transit)"`, undocumented) and
-  `FleetManager.tenderRescueStep: abandon stuck plans after repeated
-  failures` — the safety net that stops a stuck rescue tender retrying
-  forever now throws `Cannot read properties of undefined` reading its own
-  failure-count map. This one is worth prioritizing: a stuck tender that
-  can no longer detect "stuck" is a real risk to the "never let a ship
-  reach zero condition" standing goal.
-- **`autoExplore does not block the coordinator`** and **`autoExplore never
-  re-tasks a ship that is already flying`** also regressed — both in the
-  dispatch logic whose candidate pool is `tours` (first) and `scouts`, per
-  its own code comment. `tours` being the primary pool is exactly what made
-  the fix above load-bearing: an explore goal is routinely handed to a tour
-  ship, and until that fix, `tourScout()` never even looked at it.
-
-None of this was checked against the four-part verification standard before
-it shipped: no defect stated as a mechanism, no prediction, no live check —
-the commit message is one line. Recorded here rather than fixed, since it's
-outside the two bugs this pass was asked to chase; whoever picks up step 5
-next should treat `0f06a29` as needing a second pass, not as done.
+- **The retry-and-abandon safety net** — dropped when execution moved from a
+  fleet-driven loop to the ship's own executor, with nowhere obvious to land
+  — is restored inside `ShipProxy.runTenderGoal()` itself, next to the phase
+  state it already tracks. `FleetManager.handleTenderAbandoned()` is the new
+  home for what the old abandon branch did beyond retrying: record the
+  reason, drop the plan, and actually release the tender.
+- **Per-phase rescue status** ("buying fuel" / "en route" / "transferring
+  fuel") is restored via a `ShipProxy.currentTenderPhase` accessor, since
+  `TenderPlan` no longer carries a live phase to read.
+- **`tourScout()` never checking for a fleet-driven goal** (surveyor/tour/
+  keeper, all three) was the same bug already found and fixed for hold —
+  0f06a29 just gave it two more goal kinds to miss. One shared dispatcher,
+  `ShipProxy.runFleetDrivenGoal()`, now covers all four ShipAgent entry
+  points, so a future goal kind can't repeat this by landing in only one.
+- **The two `autoExplore()` test regressions** were a stale test fixture
+  (gates modeled only in `.jumpGates`, never as a `.waypoints` entry with
+  `type: "JUMP_GATE"` — the new code needs the latter, matching how
+  `trader.ts` and `fleet.ts`'s own `jumpShip()` already read gates) and
+  tests still mocking `exploreSystem()`, a method that no longer exists.
+- **The 6 failing tests in `shipProxy.test.ts`'s own new suite** were mostly
+  the mocks, not the code: a single fixed ship snapshot returned from every
+  `getShip()` call regardless of which ship (tender or stranded) was asked
+  for meant a `refresh()` call anywhere silently overwrote a prior phase's
+  own state — one test was found to fall through two whole tender phases in
+  a single call because of it. Rewritten with a stateful per-symbol fake.
