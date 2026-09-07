@@ -265,7 +265,15 @@ describe("autoExplore never re-tasks a ship that is already flying", () => {
     for (const sys of ["X1-A", "X1-B"]) {
       atlas.systems.set(sys, {
         symbol: sys,
-        waypoints: [{ symbol: `${sys}-A1`, systemSymbol: sys, x: 0, y: 0, type: "PLANET", orbitals: [], traits: [], isUnderConstruction: false }],
+        // The gate is a real waypoint (type JUMP_GATE), same as
+        // fleetNonBlocking.test.ts's own fixture — autoExplore()'s remote-
+        // gate lookup reads .waypoints for that type, matching how
+        // trader.ts's cross-system routing and fleet.ts's own jumpShip()
+        // path already do it.
+        waypoints: [
+          { symbol: `${sys}-A1`, systemSymbol: sys, x: 0, y: 0, type: "PLANET", orbitals: [], traits: [], isUnderConstruction: false },
+          { symbol: `${sys}-GATE`, systemSymbol: sys, x: 10, y: 10, type: "JUMP_GATE", orbitals: [], traits: [], isUnderConstruction: false },
+        ],
         jumpGates: [{ symbol: `${sys}-GATE`, connections: [sys === "X1-A" ? "X1-B-GATE" : "X1-A-GATE"] }],
         markets: [], shipyards: [],
       });
@@ -281,25 +289,23 @@ describe("autoExplore never re-tasks a ship that is already flying", () => {
   };
 
   it("skips an IN_TRANSIT scout", async () => {
+    // exploreSystem() no longer exists — step 5 moved the trip onto the
+    // scout's own executor, so "launched" is now "an explore intent was
+    // proposed", not a fleet-driven method call.
     const fleet = fleetWithGates();
     (fleet as any).tours.set("SCOUT-1", scoutAt("IN_TRANSIT"));
-    let launched = 0;
-    (fleet as any).exploreSystem = async () => { launched += 1; };
 
     await (fleet as any).autoExplore();
     fleet.intents.commit();
-    assert.equal(launched, 0, "a hull already flying cannot start a journey");
-    assert.equal(fleet.intents.current("SCOUT-1"), undefined, "and must not have an explore intent written over its trip");
+    assert.equal(fleet.intents.current("SCOUT-1"), undefined, "a hull already flying must not have an explore intent written over its trip");
   });
 
   it("still picks up a scout sitting in orbit", async () => {
     const fleet = fleetWithGates();
     (fleet as any).tours.set("SCOUT-1", scoutAt("IN_ORBIT"));
-    let launched = 0;
-    (fleet as any).exploreSystem = async () => { launched += 1; };
 
     await (fleet as any).autoExplore();
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(launched, 1, "the ordinary case must keep working");
+    fleet.intents.commit();
+    assert.equal(fleet.intents.current("SCOUT-1")?.goal.kind, "explore", "the ordinary case must keep working");
   });
 });

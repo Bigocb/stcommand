@@ -39,7 +39,18 @@ function seedGalaxy(fleet: FleetManager): void {
   for (const sys of ["X1-A", "X1-B"]) {
     atlas.systems.set(sys, {
       symbol: sys,
-      waypoints: [{ symbol: `${sys}-A1`, systemSymbol: sys, x: 0, y: 0, type: "PLANET", orbitals: [], traits: [], isUnderConstruction: false }],
+      // A gate is a real waypoint (type JUMP_GATE) as well as an entry in
+      // jumpGates — autoExplore()'s remote-gate lookup reads .waypoints the
+      // same way fleet.ts's own dispatchShip()/jumpShip() path and
+      // trader.ts's cross-system routing already do (both search .waypoints
+      // for type === "JUMP_GATE", never .jumpGates). Omitting it here isn't
+      // a smaller stub, it's a system shaped unlike anything loadSystem()
+      // actually produces — autoExplore() logged "no remote jump gate,
+      // skipping" against it and never once proposed a trip.
+      waypoints: [
+        { symbol: `${sys}-A1`, systemSymbol: sys, x: 0, y: 0, type: "PLANET", orbitals: [], traits: [], isUnderConstruction: false },
+        { symbol: `${sys}-GATE`, systemSymbol: sys, x: 10, y: 10, type: "JUMP_GATE", orbitals: [], traits: [], isUnderConstruction: false },
+      ],
       jumpGates: [{ symbol: `${sys}-GATE`, connections: [sys === "X1-A" ? "X1-B-GATE" : "X1-A-GATE"] }],
       markets: [], shipyards: [],
     });
@@ -49,24 +60,27 @@ function seedGalaxy(fleet: FleetManager): void {
 }
 
 describe("autoExplore does not block the coordinator", () => {
-  it("returns immediately even while the exploration trip is still flying", async () => {
+  it("returns immediately, having proposed the trip rather than flown it", async () => {
+    // exploreSystem() — the fleet-driven method these tests used to mock —
+    // no longer exists. Step 5 moved the trip itself onto the scout's own
+    // executor (ShipProxy.runExploreGoal, tested in shipProxy.test.ts);
+    // autoExplore() now only proposes the intent and records the claim, both
+    // synchronous, so "does not block" is no longer about detaching an
+    // awaited call — it is that this method was never async work to begin
+    // with. What's left to prove is that the launch actually happens: an
+    // intent proposed and exploringShips claimed.
     const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
     seedGalaxy(fleet);
     (fleet as any).scouts.set("SCOUT-1", scoutAgent(makeShip("SCOUT-1")));
-
-    let tripStarted = false;
-    let releaseTrip: () => void = () => {};
-    const trip = new Promise<void>((r) => { releaseTrip = r; });
-    (fleet as any).exploreSystem = async () => { tripStarted = true; await trip; };
 
     const start = Date.now();
     await (fleet as any).autoExplore();
     const elapsed = Date.now() - start;
 
-    assert.ok(elapsed < 500, `autoExplore must not wait for the trip (took ${elapsed}ms)`);
-    assert.equal(tripStarted, true, "but the trip must actually have been launched");
-    releaseTrip();
-    await trip;
+    assert.ok(elapsed < 500, `autoExplore must not block (took ${elapsed}ms)`);
+    fleet.intents.commit();
+    assert.equal(fleet.intents.current("SCOUT-1")?.goal.kind, "explore", "but the trip must actually have been proposed");
+    assert.equal((fleet as any).exploringShips.has("SCOUT-1"), true, "and the scout claimed so a second pass does not double-dispatch it");
   });
 
   it("records who owns the scout and why, so a second subsystem cannot take it", async () => {
@@ -92,18 +106,19 @@ describe("autoExplore does not block the coordinator", () => {
     const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
     seedGalaxy(fleet);
     (fleet as any).scouts.set("SCOUT-1", scoutAgent(makeShip("SCOUT-1")));
-    let launches = 0;
-    let release: () => void = () => {};
-    const trip = new Promise<void>((r) => { release = r; });
-    (fleet as any).exploreSystem = async () => { launches += 1; await trip; };
 
     await (fleet as any).autoExplore();
+    fleet.intents.commit();
+    const firstVersion = fleet.intents.current("SCOUT-1")?.version;
     (fleet as any).lastExploreTick = 0; // let the throttle allow another pass
     await (fleet as any).autoExplore();
+    fleet.intents.commit();
 
-    assert.equal(launches, 1, "a scout already on a trip must not be dispatched again");
-    release();
-    await trip;
+    assert.equal(
+      fleet.intents.current("SCOUT-1")?.version,
+      firstVersion,
+      "a scout already claimed in exploringShips must not be re-proposed with a new goal",
+    );
   });
 });
 
