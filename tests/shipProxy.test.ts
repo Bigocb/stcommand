@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ShipProxy, type Ship } from "../src/engine/shipProxy.js";
 import { Registry } from "../src/engine/registry.js";
 import { NavigationPending, CooldownPending, Pending } from "../src/engine/agentStep.js";
+import { DEFAULT_POLICY, type ShipIntent } from "../src/engine/intent.js";
 
 /**
  * Step 3 of docs/control-plane-data-plane.md: the one movement primitive every
@@ -247,5 +248,321 @@ describe("ShipProxy.assertAt: a transaction happens where the plan says, or not 
     assert.throws(() => proxy.assertAt("X1-A-B2", "sell ORE"));
     proxy.setShip(ship({ nav: { status: "DOCKED", waypointSymbol: "X1-A-B2", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any));
     assert.doesNotThrow(() => proxy.assertAt("X1-A-B2", "sell ORE"), "an arrival must clear the guard");
+  });
+});
+
+/**
+ * Step 5: explore and tender are goals the ship flies itself, not the controller.
+ *
+ * Before this change, `autoExplore()` proposed an intent and then immediately
+ * called `exploreSystem()` which called `jumpShip`/`surveyMarkets`/`dispatchShip`
+ * directly — two owners on the same hull, the same rule 1 break the repair
+ * controller caused before step 4. The same applied to `tenderRescueStep()`.
+ *
+ * Now the controller proposes the full intent and releases; `runExploreGoal()`
+ * and `runTenderGoal()` on the ship's own executor drive it to completion.
+ *
+ * These tests verify the executor flies the hull and calls `done()` on
+ * completion or supersession. They are the step-8 tests: they fail with the
+ * old controller-driven code (which never calls `done()` and drives the ship
+ * from outside the executor) and pass once the fix is in.
+ */
+
+function makeExploreIntent(
+  overrides: Partial<{ version: number; system: string; gate: string; remoteGate: string; markets: string[] }> = {},
+): ShipIntent {
+  return {
+    ship: "SHIP-1",
+    version: overrides.version ?? 1,
+    priority: 3,
+    goal: {
+      kind: "explore",
+      system: overrides.system ?? "X1-B",
+      gate: overrides.gate ?? "X1-A-GATE",
+      remoteGate: overrides.remoteGate ?? "X1-B-GATE",
+      markets: overrides.markets ?? ["X1-B-M1", "X1-B-M2"],
+    },
+    policy: DEFAULT_POLICY,
+    reason: "X1-B is unsurveyed",
+    source: "explore",
+  };
+}
+
+function makeTenderIntent(
+  overrides: Partial<{ version: number; to: string; fuelUnits: number; market: string; strandedSymbol: string }> = {},
+): ShipIntent {
+  return {
+    ship: "SHIP-1",
+    version: overrides.version ?? 1,
+    priority: 0,
+    goal: {
+      kind: "tender",
+      to: overrides.to ?? "X1-A-S1",
+      fuelUnits: overrides.fuelUnits ?? 30,
+      market: overrides.market ?? "X1-A-M1",
+      strandedSymbol: overrides.strandedSymbol ?? "SHIP-2",
+    },
+    policy: DEFAULT_POLICY,
+    reason: "ferrying 30u FUEL to SHIP-2",
+    source: "rescue",
+  };
+}
+
+describe("ShipProxy.runExploreGoal: the executor flies the hull", () => {
+  it("GATE phase: navigates to the gate when not already there", async () => {
+    const navs: string[] = [];
+    const proxy = new ShipProxy(
+      ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+      {
+        api: {
+          getShip: async () => ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-GATE", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+          navigateShip: async (_s: string, wp: string) => { navs.push(wp); return {} as any; },
+        } as any,
+        registry: world(),
+        done: () => {},
+      },
+    );
+
+    const intent = makeExploreIntent();
+    const current = () => intent;
+    const result = await proxy.runExploreGoal(intent, current);
+    assert.equal(result, true, "still working");
+    assert.deepEqual(navs, ["X1-A-GATE"], "the executor navigates to the gate, not the controller");
+  });
+
+  it("JUMP phase: jumps, loads the target system, advances to SURVEY", async () => {
+    const jumps: string[] = [];
+    const systemLoaded: string[] = [];
+    const proxy = new ShipProxy(
+      ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-GATE", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+      {
+        api: {
+          getShip: async () => ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-B-GATE", systemSymbol: "X1-B", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+          jumpShip: async (_s: string, gate: string) => { jumps.push(gate); return {} as any; },
+        } as any,
+        registry: world(),
+        galaxy: { loadSystem: async (sys: string) => { systemLoaded.push(sys); } } as any,
+        done: () => {},
+      },
+    );
+
+    const intent = makeExploreIntent();
+    const current = () => intent;
+    const result = await proxy.runExploreGoal(intent, current);
+    assert.equal(result, true, "still working");
+    assert.deepEqual(jumps, ["X1-B-GATE"], "the executor jumps, not the controller");
+    assert.deepEqual(systemLoaded, ["X1-B"], "target system loaded so the registry knows the ship moved");
+  });
+
+  it("MARKET phase: visits each pre-computed market and records it", async () => {
+    const navs: string[] = [];
+    const recorded: string[] = [];
+    const proxy = new ShipProxy(
+      ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-B-GATE", systemSymbol: "X1-B", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+      {
+        api: {
+          getShip: async () => ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-B-M2", systemSymbol: "X1-B", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+          navigateShip: async (_s: string, wp: string) => { navs.push(wp); return {} as any; },
+        } as any,
+        registry: world(),
+        galaxy: { loadSystem: async () => {}, surveyMarkets: async () => {} } as any,
+        recordMarket: async (wp: string) => { recorded.push(wp); },
+        done: () => {},
+      },
+    );
+
+    // Pretend we've already done GATE, JUMP, SURVEY — seed the phase map
+    (proxy as any).explorePhase.set("SHIP-1", "market");
+    const intent = makeExploreIntent();
+    const current = () => intent;
+    const result = await proxy.runExploreGoal(intent, current);
+    assert.equal(result, true, "still working after first market");
+    assert.deepEqual(navs, ["X1-B-M1"], "navigates to first market");
+    assert.deepEqual(recorded, ["X1-B-M1"], "records the market");
+  });
+
+  it("DONE: calls done() and returns false", async () => {
+    let doneCalled = false;
+    const proxy = new ShipProxy(
+      ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-B-M2", systemSymbol: "X1-B", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+      {
+        api: { getShip: async () => ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-B-M2", systemSymbol: "X1-B", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any) } as any,
+        registry: world(),
+        galaxy: { loadSystem: async () => {}, surveyMarkets: async () => {} } as any,
+        recordMarket: async () => {},
+        done: () => { doneCalled = true; },
+      },
+    );
+
+    // Pretend all markets are done
+    (proxy as any).explorePhase.set("SHIP-1", "done");
+    const intent = makeExploreIntent();
+    const current = () => intent;
+    const result = await proxy.runExploreGoal(intent, current);
+    assert.equal(result, false, "no more work");
+    assert.equal(doneCalled, true, "done() called so the fleet forgets the intent");
+  });
+
+  it("superseded: calls done() and returns false without doing work", async () => {
+    const navs: string[] = [];
+    let doneCalled = false;
+    const proxy = new ShipProxy(
+      ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+      {
+        api: {
+          getShip: async () => ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-GATE", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+          navigateShip: async (_s: string, wp: string) => { navs.push(wp); return {} as any; },
+        } as any,
+        registry: world(),
+        done: () => { doneCalled = true; },
+      },
+    );
+
+    const superseded = makeExploreIntent({ version: 1 });
+    const newer = { ...makeExploreIntent({ version: 2 }), goal: { kind: "repair" as const, yard: "X1-A-REPAIR" } };
+    const current = (): ShipIntent => newer;
+    const result = await proxy.runExploreGoal(superseded, current);
+    assert.equal(result, false, "superseded work stops");
+    assert.equal(doneCalled, true, "done() called so the fleet forgets the stale intent");
+    assert.deepEqual(navs, [], "no navigation attempted with a superseded intent");
+  });
+});
+
+describe("ShipProxy.runTenderGoal: the executor flies the hull", () => {
+  it("BUY phase: navigates to market, docks, refuels and buys FUEL", async () => {
+    const navs: string[] = [];
+    const docks: string[] = [];
+    const refuels: string[] = [];
+    const purchases: [string, number][] = [];
+    const proxy = new ShipProxy(
+      ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+      {
+        api: {
+          getShip: async () => ship({ nav: { status: "DOCKED", waypointSymbol: "X1-A-M1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() }, fuel: { current: 200, capacity: 400 }, cargo: { capacity: 20, units: 0, inventory: [] } } } as any),
+          navigateShip: async (_s: string, wp: string) => { navs.push(wp); return {} as any; },
+          dockShip: async (_s: string) => { docks.push(_s); return {} as any; },
+          refuelShip: async (s: string) => { refuels.push(s); return { fuel: { current: 400, capacity: 400 }, transaction: { totalPrice: 0 } } as any; },
+          purchaseCargo: async (s: string, good: string, units: number) => { purchases.push([good, units]); return { transaction: { totalPrice: 0, units } } as any; },
+        } as any,
+        registry: world(),
+        done: () => {},
+      },
+    );
+
+    const intent = makeTenderIntent();
+    const current = () => intent;
+    const result = await proxy.runTenderGoal(intent, current);
+    assert.equal(result, true, "still working");
+    assert.deepEqual(navs, ["X1-A-M1"], "the executor navigates to the market");
+    assert.deepEqual(docks, ["SHIP-1"], "docks before buying");
+    assert.equal(refuels.length, 1, "tender tops off its own tank");
+    assert.deepEqual(purchases, [["FUEL", 30]], "buys the fuel units for the stranded ship");
+  });
+
+  it("TRANSIT phase: navigates to the stranded ship waypoint", async () => {
+    const navs: string[] = [];
+    const proxy = new ShipProxy(
+      ship({ nav: { status: "DOCKED", waypointSymbol: "X1-A-M1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() }, fuel: { current: 400, capacity: 400 }, cargo: { capacity: 20, units: 30, inventory: [{ symbol: "FUEL", units: 30 }] } } } as any),
+      {
+        api: {
+          getShip: async () => ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-S1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+          navigateShip: async (_s: string, wp: string) => { navs.push(wp); return {} as any; },
+          orbitShip: async () => ({} as any),
+        } as any,
+        registry: world(),
+        done: () => {},
+      },
+    );
+
+    (proxy as any).tenderPhase.set("SHIP-1", "transit");
+    const intent = makeTenderIntent();
+    const current = () => intent;
+    const result = await proxy.runTenderGoal(intent, current);
+    assert.equal(result, true, "still working");
+    assert.deepEqual(navs, ["X1-A-S1"], "navigates to the stranded ship's waypoint");
+  });
+
+  it("TRANSFER phase: aligns dock state, transfers FUEL and refuels the stranded ship", async () => {
+    const transfers: [string, number][] = [];
+    const refuels: string[] = [];
+    const tNav = { status: "IN_ORBIT" as const, waypointSymbol: "X1-A-S1", systemSymbol: "X1-A", flightMode: "CRUISE" as const, route: { arrival: new Date().toISOString() } };
+    const tCargo = { capacity: 20, units: 30, inventory: [{ symbol: "FUEL" as const, units: 30 }] };
+    const tFuel = { current: 400, capacity: 400 };
+    const tenderAtS1 = ship({ nav: tNav, fuel: tFuel, cargo: tCargo } as any);
+    const sNav = { status: "IN_ORBIT" as const, waypointSymbol: "X1-A-S1", systemSymbol: "X1-A", flightMode: "CRUISE" as const, route: { arrival: new Date().toISOString() } };
+    const sCargo = { capacity: 20, units: 10, inventory: [{ symbol: "ORE" as const, units: 10 }] };
+    const strandedWithOre = ship({ nav: sNav, cargo: sCargo } as any);
+    const proxy = new ShipProxy(tenderAtS1, {
+      api: {
+        getShip: async () => strandedWithOre,
+        orbitShip: async () => ({} as any),
+        dockShip: async () => ({} as any),
+        jettisonCargo: async (_s: string, _g: string, _u: number) => {},
+        transferCargo: async (_s: string, good: string, units: number, _t: string) => { transfers.push([good, units]); return {} as any; },
+        refuelShip: async (s: string) => { refuels.push(s); return { fuel: { current: 400, capacity: 400 }, transaction: { totalPrice: 0 } } as any; },
+      } as any,
+      registry: world(),
+      done: () => {},
+    });
+
+    (proxy as any).tenderPhase.set("SHIP-1", "transfer");
+    const intent = makeTenderIntent();
+    const current = () => intent;
+    const result = await proxy.runTenderGoal(intent, current);
+    assert.equal(result, true, "still working after transfer");
+    assert.equal(transfers.length, 1, "transfers FUEL to the stranded ship");
+    assert.equal(refuels.length, 1, "refuels the stranded ship");
+    assert.equal(refuels[0], "SHIP-2", "refuels the stranded ship, not the tender");
+  });
+
+  it("DONE: calls done() and returns false", async () => {
+    let doneCalled = false;
+    const doneNav = { status: "DOCKED" as const, waypointSymbol: "X1-A-S1", systemSymbol: "X1-A", flightMode: "CRUISE" as const, route: { arrival: new Date().toISOString() } };
+    const doneCargo = { capacity: 20, units: 0, inventory: [] };
+    const doneFuel = { current: 400, capacity: 400 };
+    const d1 = ship({ nav: doneNav, fuel: doneFuel, cargo: doneCargo } as any);
+    const proxy = new ShipProxy(d1, {
+      api: {
+        getShip: async () => d1,
+        orbitShip: async () => ({} as any),
+        dockShip: async () => ({} as any),
+        jettisonCargo: async () => {},
+        transferCargo: async () => ({} as any),
+        refuelShip: async () => ({ fuel: { current: 400, capacity: 400 }, transaction: { totalPrice: 0 } } as any),
+      } as any,
+      registry: world(),
+      done: () => { doneCalled = true; },
+    });
+
+    (proxy as any).tenderPhase.set("SHIP-1", "done");
+    const intent = makeTenderIntent();
+    const current = () => intent;
+    const result = await proxy.runTenderGoal(intent, current);
+    assert.equal(result, false, "no more work");
+    assert.equal(doneCalled, true, "done() called so the fleet forgets the intent");
+  });
+
+  it("superseded: calls done() and returns false without doing work", async () => {
+    const navs: string[] = [];
+    let doneCalled = false;
+    const proxy = new ShipProxy(
+      ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+      {
+        api: {
+          getShip: async () => ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-M1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any),
+          navigateShip: async (_s: string, wp: string) => { navs.push(wp); return {} as any; },
+        } as any,
+        registry: world(),
+        done: () => { doneCalled = true; },
+      },
+    );
+
+    const superseded = makeTenderIntent({ version: 1 });
+    const newer = { ...makeTenderIntent({ version: 2 }), goal: { kind: "hold" as const, waypoint: "X1-A-A1" } };
+    const current = (): ShipIntent => newer;
+    const result = await proxy.runTenderGoal(superseded, current);
+    assert.equal(result, false, "superseded work stops");
+    assert.equal(doneCalled, true, "done() called so the fleet forgets the stale intent");
+    assert.deepEqual(navs, [], "no navigation attempted with a superseded intent");
   });
 });

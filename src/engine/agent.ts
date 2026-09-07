@@ -21,6 +21,10 @@ export interface AgentOptions {
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
   log?: (msg: string) => void;
+  /** GalaxyAtlas for runExploreGoal to survey markets in the target system. */
+  galaxy?: import("./galaxy.js").GalaxyAtlas;
+  /** Store for runExploreGoal to record module catalogs and shipyard data. */
+  store?: import("../db/store.js").Store;
   /** Optional persistence hook, called for sell/refuel transactions. */
   recordLedger?: (entry: {
     timestamp: string;
@@ -82,6 +86,8 @@ export interface AgentOptions {
    * board (a test, a bare CLI run) behaves exactly as before.
    */
   intentFor?: () => import("./intent.js").ShipIntent | undefined;
+  /** Called when runExploreGoal or runTenderGoal finishes, so the fleet can forget the intent. */
+  done?: () => void;
   shouldRun?: () => boolean;
 }
 
@@ -156,6 +162,9 @@ export class ShipAgent {
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly keeperMarket?: () => string | undefined;
   private readonly intentFor?: AgentOptions["intentFor"];
+  private readonly done?: () => void;
+  private readonly galaxy?: AgentOptions["galaxy"];
+  private readonly store?: AgentOptions["store"];
   private readonly shouldRun?: () => boolean;
   private readonly proxy: ShipProxy;
   /** Every `this.ship` read and write in this class goes through the one copy
@@ -223,6 +232,9 @@ export class ShipAgent {
     this.recordShipyard = opts.recordShipyard;
     this.keeperMarket = opts.keeperMarket;
     this.intentFor = opts.intentFor;
+    this.done = opts.done;
+    this.galaxy = opts.galaxy;
+    this.store = opts.store;
     this.shouldRun = opts.shouldRun;
     // Built last: it owns the ship state the `this.ship` accessor reads
     // through, so nothing may touch that accessor before this line.
@@ -234,6 +246,9 @@ export class ShipAgent {
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
+      done: this.done,
+      galaxy: this.galaxy,
+      store: this.store,
     });
   }
 
@@ -767,22 +782,27 @@ export class ShipAgent {
   }
   async tick(): Promise<boolean> {
     // A goal this ship executes rather than stands down on — step 5. The
-    // repair controller proposes and never touches the hull, so the
-    // two-owners race it used to create cannot happen.
-    const repairIntent = this.intentFor?.();
-    if (repairIntent?.goal.kind === "repair") {
-      return this.proxy.runRepairGoal(repairIntent, () => this.intentFor?.());
+    // Step 4/5: repair, hold, explore, and tender are all goals the ship flies
+    // itself — the controller proposes and never touches the hull. These run at
+    // the top of tick so they execute before any earning work.
+    const intent = this.intentFor?.();
+    if (intent?.goal.kind === "repair") {
+      return this.proxy.runRepairGoal(intent, () => this.intentFor?.());
     }
-    // Step 4: an operator hold is a goal this ship flies, not a private flag
-    // the fleet sets while flying the hull itself. See ShipProxy.runHoldGoal.
-    if (repairIntent?.goal.kind === "hold" && repairIntent.goal.waypoint) {
-      return this.proxy.runHoldGoal(repairIntent, () => this.intentFor?.());
+    if (intent?.goal.kind === "hold" && intent.goal.waypoint) {
+      return this.proxy.runHoldGoal(intent, () => this.intentFor?.());
+    }
+    if (intent?.goal.kind === "explore") {
+      return this.proxy.runExploreGoal(intent, () => this.intentFor?.());
+    }
+    if (intent?.goal.kind === "tender") {
+      return this.proxy.runTenderGoal(intent, () => this.intentFor?.());
     }
 
-    // The fleet itself is driving this hull (repair, fuel ferry, operator
-    // hold), so acting here is the two-owners race that had a diverter and a
-    // tour agent alternately flying the same ship every few seconds for a
-    // day. Stand down until the intent changes.
+    // A hold with no waypoint means "nothing worth doing" — the arbiter's way
+    // of saying so. Standing down is executing it. Nothing above this line
+    // should be adding to the standDown list; if it does, it belongs in the
+    // block above with the other fleet-driven goals.
     const standDown = standDownReason(this.intentFor?.());
     if (standDown) {
       this.log(`standing down, fleet is driving this ship: ${standDown}`);

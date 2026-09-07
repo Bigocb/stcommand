@@ -50,6 +50,8 @@ export interface SiphonerOptions {
    * board (a test, a bare CLI run) behaves exactly as before.
    */
   intentFor?: () => import("./intent.js").ShipIntent | undefined;
+  /** Called when runExploreGoal or runTenderGoal finishes, so the fleet can forget the intent. */
+  done?: () => void;
   shouldRun?: () => boolean;
 }
 
@@ -71,6 +73,7 @@ export class SiphonerAgent {
   /** The world, held by reference — see registry.ts and scout.ts's identical field. */
   private registry: Registry = Registry.standalone();
   private readonly intentFor?: SiphonerOptions["intentFor"];
+  private readonly done?: () => void;
   private readonly shouldRun?: () => boolean;
   private readonly proxy: ShipProxy;
   /** Every `this.ship` read and write goes through the one copy the proxy
@@ -107,6 +110,7 @@ export class SiphonerAgent {
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
     this.intentFor = opts.intentFor;
+    this.done = opts.done;
     this.shouldRun = opts.shouldRun;
     this.protectedGoods = opts.protectedGoods;
     // Built last: it owns the ship state the `this.ship` accessor reads
@@ -119,6 +123,7 @@ export class SiphonerAgent {
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
+      done: this.done,
     });
   }
 
@@ -394,23 +399,22 @@ export class SiphonerAgent {
   }
 
   async tick(): Promise<boolean> {
-    // A goal this ship executes rather than stands down on — step 5. The
-    // repair controller proposes and never touches the hull, so the
-    // two-owners race it used to create cannot happen.
-    const repairIntent = this.intentFor?.();
-    if (repairIntent?.goal.kind === "repair") {
-      return this.proxy.runRepairGoal(repairIntent, () => this.intentFor?.());
+    // Step 4/5: repair, hold, explore, and tender are all goals the ship flies
+    // itself — the controller proposes and never touches the hull.
+    const intent = this.intentFor?.();
+    if (intent?.goal.kind === "repair") {
+      return this.proxy.runRepairGoal(intent, () => this.intentFor?.());
     }
-    // Step 4: an operator hold is a goal this ship flies, not a private flag
-    // the fleet sets while flying the hull itself. See ShipProxy.runHoldGoal.
-    if (repairIntent?.goal.kind === "hold" && repairIntent.goal.waypoint) {
-      return this.proxy.runHoldGoal(repairIntent, () => this.intentFor?.());
+    if (intent?.goal.kind === "hold" && intent.goal.waypoint) {
+      return this.proxy.runHoldGoal(intent, () => this.intentFor?.());
+    }
+    if (intent?.goal.kind === "explore") {
+      return this.proxy.runExploreGoal(intent, () => this.intentFor?.());
+    }
+    if (intent?.goal.kind === "tender") {
+      return this.proxy.runTenderGoal(intent, () => this.intentFor?.());
     }
 
-    // The fleet itself is driving this hull (repair, fuel ferry, operator
-    // hold), so acting here is the two-owners race that had a diverter and a
-    // tour agent alternately flying the same ship every few seconds for a
-    // day. Stand down until the intent changes.
     const standDown = standDownReason(this.intentFor?.());
     if (standDown) {
       this.log(`standing down, fleet is driving this ship: ${standDown}`);

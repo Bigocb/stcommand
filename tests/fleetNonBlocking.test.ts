@@ -112,7 +112,7 @@ describe("repair and explore no longer take turns driving the same hull", () => 
     // The live failure: the repair diverter claimed the ship, the tour agent
     // kept flying it, and the two alternated every few seconds all day.
     const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
-    fleet.intents.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-B" }, reason: "unsurveyed", source: "explore" });
+    fleet.intents.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-B", gate: "X1-B-GATE", remoteGate: "X1-A-GATE", markets: ["X1-B-MARKET1"] }, reason: "unsurveyed", source: "explore" });
     fleet.intents.commit();
     assert.equal(fleet.intents.current("S1")!.goal.kind, "explore");
 
@@ -134,7 +134,7 @@ describe("fleet status reports intent alongside observed state", () => {
     const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
     const ship = makeShip("TOUR-1");
     (fleet as any).tours.set("TOUR-1", scoutAgent(ship));
-    fleet.intents.propose({ ship: "TOUR-1", priority: 3, goal: { kind: "explore", system: "X1-TV75" }, reason: "X1-TV75 is unsurveyed", source: "explore" });
+    fleet.intents.propose({ ship: "TOUR-1", priority: 3, goal: { kind: "explore", system: "X1-TV75", gate: "X1-TV75-GATE", remoteGate: "X1-A-GATE", markets: [] }, reason: "X1-TV75 is unsurveyed", source: "explore" });
     fleet.intents.commit();
 
     const [row] = fleet.fleetStatusSummary().filter((r) => r.symbol === "TOUR-1");

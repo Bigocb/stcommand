@@ -27,11 +27,20 @@ export type Goal =
   | { kind: "tour" }
   /** Sit at one market keeping its prices fresh. */
   | { kind: "keep"; waypoint: string }
-  /** Reach and chart one system. One system per intent, replaced on arrival. */
-  | { kind: "explore"; system: string }
+  /**
+   * Explore a connected system: jump through the gate, survey the system, then
+   * tour up to three market waypoints before returning control to the agent.
+   * All data the executor needs to carry this out is embedded — it reads no
+   * fleet state beyond the intent itself.
+   */
+  | { kind: "explore"; system: string; gate: string; remoteGate: string; markets: string[] }
   | { kind: "repair"; yard: string }
-  /** Carry fuel to a stranded ship. */
-  | { kind: "tender"; to: string }
+  /**
+   * Ferry fuel to a stranded ship: navigate to a market, top off the tank and
+   * load fuel, jump if needed, then deliver to the stranded ship.
+   * All data the executor needs is embedded in the goal.
+   */
+  | { kind: "tender"; to: string; fuelUnits: number; market: string; strandedSymbol: string }
   /** Operator hold, or nothing worth doing. */
   | { kind: "hold"; waypoint?: string };
 
@@ -83,9 +92,14 @@ export interface IntentProposal {
 export function sameGoal(a: Goal, b: Goal): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "keep" && b.kind === "keep") return a.waypoint === b.waypoint;
-  if (a.kind === "explore" && b.kind === "explore") return a.system === b.system;
+  if (a.kind === "explore" && b.kind === "explore") {
+    return a.system === b.system && a.gate === b.gate && a.remoteGate === b.remoteGate
+      && a.markets.length === b.markets.length && a.markets.every((m, i) => m === b.markets[i]);
+  }
   if (a.kind === "repair" && b.kind === "repair") return a.yard === b.yard;
-  if (a.kind === "tender" && b.kind === "tender") return a.to === b.to;
+  if (a.kind === "tender" && b.kind === "tender") {
+    return a.to === b.to && a.fuelUnits === b.fuelUnits && a.market === b.market && a.strandedSymbol === b.strandedSymbol;
+  }
   if (a.kind === "hold" && b.kind === "hold") return a.waypoint === b.waypoint;
   return true;
 }
@@ -126,13 +140,10 @@ export function supersedes(startedAt: ShipIntent | undefined, now: ShipIntent | 
 }
 
 export function drivenByFleet(goal: Goal): boolean {
-  // `repair` left this list at step 5 and `hold` at step 4: both are now
-  // goals the hull flies itself through the shared executor
-  // (ShipProxy.runRepairGoal / runHoldGoal), so the controller proposes and
-  // never touches the ship. `explore` remains only because exploration is
-  // still flown by the fleet (autoExplore launches exploreSystem, which jumps
-  // and tours the hull itself); when the executor learns to fly an explore
-  // goal, this line changes again and step 5 is finished.
+  // `repair` and `hold` left this list at step 4/5 — both are now goals the
+  // hull flies itself through the shared executor (ShipProxy.runRepairGoal /
+  // runHoldGoal), so the controller proposes and never touches the ship.
+  // `explore` and `tender` are now handled the same way; step 5 is finished.
   //
   // A `hold` with no waypoint stays here deliberately. That is the arbiter
   // saying "nothing worth doing", not an operator parking a hull somewhere —
@@ -142,7 +153,7 @@ export function drivenByFleet(goal: Goal): boolean {
   // ship — see FleetManager's forgetIntent() calls — or the agent stands down
   // against a stale intent and the hull never moves again.
   if (goal.kind === "hold") return goal.waypoint === undefined;
-  return goal.kind === "tender" || goal.kind === "explore";
+  return false;
 }
 
 /**
@@ -154,8 +165,6 @@ export function standDownReason(intent: ShipIntent | undefined): string | undefi
   if (!intent || !drivenByFleet(intent.goal)) return undefined;
   const target =
     intent.goal.kind === "repair" ? ` → ${intent.goal.yard}`
-    : intent.goal.kind === "tender" ? ` → ${intent.goal.to}`
-    : intent.goal.kind === "explore" ? ` → ${intent.goal.system}`
     : intent.goal.kind === "hold" && intent.goal.waypoint ? ` at ${intent.goal.waypoint}`
     : "";
   return `${intent.goal.kind}${target} (${intent.source}): ${intent.reason}`;

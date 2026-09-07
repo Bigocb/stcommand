@@ -59,11 +59,11 @@ describe("IntentBoard: versioning tracks the work, not the wording", () => {
     // Anything comparing desired against executing reads the version. A
     // re-worded reason is not new work and must not look like a reassignment.
     const board = new IntentBoard();
-    board.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-B" }, reason: "nothing charted", source: "explore" });
+    board.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-B", gate: "X1-B-GATE", remoteGate: "X1-A-GATE", markets: [] }, reason: "nothing charted", source: "explore" });
     board.commit();
     const v1 = board.current("S1")!.version;
 
-    board.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-B" }, reason: "still nothing charted", source: "explore" });
+    board.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-B", gate: "X1-B-GATE", remoteGate: "X1-A-GATE", markets: [] }, reason: "still nothing charted", source: "explore" });
     const changes = board.commit();
     assert.equal(changes.length, 1, "the reason did change, so it is a change");
     assert.equal(board.current("S1")!.version, v1, "but the work did not, so the version holds");
@@ -71,10 +71,10 @@ describe("IntentBoard: versioning tracks the work, not the wording", () => {
 
   it("treats a different target of the same kind as different work", () => {
     const board = new IntentBoard();
-    board.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-B" }, reason: "r", source: "e" });
+    board.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-B", gate: "X1-B-GATE", remoteGate: "X1-A-GATE", markets: [] }, reason: "r", source: "e" });
     board.commit();
     const v1 = board.current("S1")!.version;
-    board.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-C" }, reason: "r", source: "e" });
+    board.propose({ ship: "S1", priority: 3, goal: { kind: "explore", system: "X1-C", gate: "X1-C-GATE", remoteGate: "X1-A-GATE", markets: [] }, reason: "r", source: "e" });
     board.commit();
     assert.equal(board.current("S1")!.version, v1 + 1);
   });
@@ -152,7 +152,7 @@ describe("IntentBoard: policy and lifecycle", () => {
     const board = new IntentBoard();
     board.propose({ ship: "S1", priority: 2, goal: { kind: "trade" }, reason: "IRON", source: "trade" });
     board.commit();
-    board.propose({ ship: "S1", priority: 0, goal: { kind: "tender", to: "S2" }, reason: "S2 stranded", source: "rescue" });
+    board.propose({ ship: "S1", priority: 0, goal: { kind: "tender", to: "S2", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "S2" }, reason: "S2 stranded", source: "rescue" });
     const [change] = board.commit();
     assert.equal(change!.from!.goal.kind, "trade");
     assert.equal(change!.to.goal.kind, "tender");

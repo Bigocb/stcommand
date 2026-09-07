@@ -41,7 +41,7 @@ describe("drivenByFleet", () => {
     // through the shared executor now, so the controller proposes and never
     // touches the hull.
     assert.ok(!drivenByFleet({ kind: "repair", yard: "Y" }));
-    assert.ok(drivenByFleet({ kind: "tender", to: "S2" }));
+    assert.ok(drivenByFleet({ kind: "tender", to: "S2", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "S2" }));
     // A hold splits in step 4. With a waypoint it is an operator parking a
     // hull somewhere, and the ship flies itself there through the shared
     // executor — so it is the ship's own job, not a stand-down. Without one
@@ -51,7 +51,7 @@ describe("drivenByFleet", () => {
     assert.ok(!drivenByFleet({ kind: "hold", waypoint: "X1-A-A1" }));
     // Exploration really is flown by the fleet today: autoExplore launches
     // exploreSystem, which jumps and tours the ship itself.
-    assert.ok(drivenByFleet({ kind: "explore", system: "X1-B" }));
+    assert.ok(drivenByFleet({ kind: "explore", system: "X1-B", gate: "X1-B-GATE", remoteGate: "X1-A-GATE", markets: [] }));
     // These the agent carries out on its own task.
     assert.ok(!drivenByFleet({ kind: "trade" }));
     assert.ok(!drivenByFleet({ kind: "mine" }));
@@ -60,7 +60,7 @@ describe("drivenByFleet", () => {
   });
 
   it("explains itself in the operator's words, naming the target", () => {
-    assert.match(standDownReason(intent({ kind: "tender", to: "X1-A-YARD" }))!, /tender → X1-A-YARD \(repair\): condition 0\.00/);
+    assert.match(standDownReason(intent({ kind: "tender", to: "X1-A-YARD", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "X1-A-YARD" }))!, /tender → X1-A-YARD \(repair\): condition 0\.00/);
     assert.equal(standDownReason(intent({ kind: "repair", yard: "X1-A-YARD" })), undefined, "a repair is the ship's own job now, not a stand-down");
     assert.equal(standDownReason(intent({ kind: "trade" })), undefined, "a goal the agent can execute is not a stand-down");
     assert.equal(standDownReason(undefined), undefined, "no intent is not a stand-down either");
@@ -74,7 +74,7 @@ describe("every role stands down when the fleet is driving its hull", () => {
     const logs: string[] = [];
     const agent = new ShipAgent(makeShip(), {
       api, log: (m) => logs.push(m),
-      intentFor: () => intent({ kind: "tender", to: "X1-A-YARD" }),
+      intentFor: () => intent({ kind: "tender", to: "X1-A-YARD", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "X1-A-YARD" }),
       keeperMarket: () => "X1-A-M1",
     });
     assert.equal(await agent.tick(), false);
@@ -87,7 +87,7 @@ describe("every role stands down when the fleet is driving its hull", () => {
 
   it("ScoutAgent refuses", async () => {
     const logs: string[] = [];
-    const agent = new ScoutAgent(makeShip() as any, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "tender", to: "S2" }) });
+    const agent = new ScoutAgent(makeShip() as any, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "tender", to: "S2", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "S2" }) });
     assert.equal(await agent.tick(), false);
     assert.ok(logs.some((l) => l.includes("standing down")));
   });
@@ -116,7 +116,7 @@ describe("every role stands down when the fleet is driving its hull", () => {
 
   it("TraderAgent refuses", async () => {
     const logs: string[] = [];
-    const agent = new TraderAgent(makeShip() as unknown as TraderShip, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "tender", to: "Y" }) });
+    const agent = new TraderAgent(makeShip() as unknown as TraderShip, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "tender", to: "Y", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "Y" }) });
     assert.equal(await agent.tick(), false);
     assert.ok(logs.some((l) => l.includes("standing down")));
   });

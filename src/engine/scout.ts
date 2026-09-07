@@ -52,6 +52,12 @@ export interface ScoutOptions {
    * board (a test, a bare CLI run) behaves exactly as before.
    */
   intentFor?: () => import("./intent.js").ShipIntent | undefined;
+  /** Called when runExploreGoal or runTenderGoal finishes, so the fleet can forget the intent. */
+  done?: () => void;
+  /** GalaxyAtlas for runExploreGoal to survey markets in the target system. */
+  galaxy?: import("./galaxy.js").GalaxyAtlas;
+  /** Store for runExploreGoal to record module catalogs and shipyard data. */
+  store?: import("../db/store.js").Store;
   shouldRun?: () => boolean;
 }
 
@@ -72,6 +78,9 @@ export class ScoutAgent {
   private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
   private readonly intentFor?: ScoutOptions["intentFor"];
+  private readonly done?: () => void;
+  private readonly galaxy?: ScoutOptions["galaxy"];
+  private readonly store?: ScoutOptions["store"];
   private readonly shouldRun?: () => boolean;
   /**
    * The world, held by reference — see registry.ts. Defaults to a standalone
@@ -120,6 +129,9 @@ export class ScoutAgent {
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
     this.intentFor = opts.intentFor;
+    this.done = opts.done;
+    this.galaxy = opts.galaxy;
+    this.store = opts.store;
     this.shouldRun = opts.shouldRun;
     this.onScan = opts.onScan;
     this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
@@ -134,6 +146,9 @@ export class ScoutAgent {
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
+      done: this.done,
+      galaxy: this.galaxy,
+      store: this.store,
     });
   }
 
@@ -324,23 +339,22 @@ export class ScoutAgent {
 
   /** One scout pass: chart the nearest uncharted waypoint. Returns true if a chart was attempted. */
   async tick(): Promise<boolean> {
-    // A goal this ship executes rather than stands down on — step 5. The
-    // repair controller proposes and never touches the hull, so the
-    // two-owners race it used to create cannot happen.
-    const repairIntent = this.intentFor?.();
-    if (repairIntent?.goal.kind === "repair") {
-      return this.proxy.runRepairGoal(repairIntent, () => this.intentFor?.());
+    // Step 4/5: repair, hold, explore, and tender are all goals the ship flies
+    // itself — the controller proposes and never touches the hull.
+    const intent = this.intentFor?.();
+    if (intent?.goal.kind === "repair") {
+      return this.proxy.runRepairGoal(intent, () => this.intentFor?.());
     }
-    // Step 4: an operator hold is a goal this ship flies, not a private flag
-    // the fleet sets while flying the hull itself. See ShipProxy.runHoldGoal.
-    if (repairIntent?.goal.kind === "hold" && repairIntent.goal.waypoint) {
-      return this.proxy.runHoldGoal(repairIntent, () => this.intentFor?.());
+    if (intent?.goal.kind === "hold" && intent.goal.waypoint) {
+      return this.proxy.runHoldGoal(intent, () => this.intentFor?.());
+    }
+    if (intent?.goal.kind === "explore") {
+      return this.proxy.runExploreGoal(intent, () => this.intentFor?.());
+    }
+    if (intent?.goal.kind === "tender") {
+      return this.proxy.runTenderGoal(intent, () => this.intentFor?.());
     }
 
-    // The fleet itself is driving this hull (repair, fuel ferry, operator
-    // hold), so acting here is the two-owners race that had a diverter and a
-    // tour agent alternately flying the same ship every few seconds for a
-    // day. Stand down until the intent changes.
     const standDown = standDownReason(this.intentFor?.());
     if (standDown) {
       this.log(`standing down, fleet is driving this ship: ${standDown}`);

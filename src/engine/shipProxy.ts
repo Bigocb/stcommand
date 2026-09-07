@@ -1,6 +1,8 @@
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { Registry } from "./registry.js";
+import type { GalaxyAtlas } from "./galaxy.js";
+import type { Store } from "../db/store.js";
 import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 import { supersedes, type ShipIntent } from "./intent.js";
@@ -30,6 +32,12 @@ export interface ShipProxyOptions {
     pricePerUnit?: number;
     total: number;
   }) => void;
+  /** GalaxyAtlas instance for runExploreGoal to survey markets in the target system. */
+  galaxy?: GalaxyAtlas;
+  /** Store for runExploreGoal to record module catalogs and shipyard data. */
+  store?: Store;
+  /** Called by runExploreGoal/runTenderGoal when the goal is complete. */
+  done?: () => void;
 }
 
 /**
@@ -60,6 +68,13 @@ export interface ShipProxyOptions {
  * write in those classes goes on working untouched while there is only one
  * copy of the state.
  */
+
+// Phase states for runExploreGoal. Defined at module scope since TypeScript
+// does not permit enum declarations inside class bodies.
+const enum ExplorePhase { GATE = "gate", JUMP = "jump", SURVEY = "survey", MARKET = "market", DONE = "done" }
+// Phase states for runTenderGoal.
+const enum TenderPhase { BUY = "buy", TRANSIT = "transit", TRANSFER = "transfer", DONE = "done" }
+
 export class ShipProxy {
   private ship: Ship;
   private readonly api: SpaceTradersAPI;
@@ -69,6 +84,9 @@ export class ShipProxy {
   private readonly recordMarket?: ShipProxyOptions["recordMarket"];
   private readonly repairHere?: ShipProxyOptions["repairHere"];
   private readonly recordLedger?: ShipProxyOptions["recordLedger"];
+  private readonly galaxy?: GalaxyAtlas;
+  private readonly store?: Store;
+  private readonly done?: () => void;
   private step: AgentStep = IDLE_STEP;
 
   /**
@@ -80,6 +98,13 @@ export class ShipProxy {
    */
   schedulerDriven = false;
 
+  /** Phase for runExploreGoal, keyed by ship symbol (one ship can have only one active explore). */
+  private explorePhase = new Map<string, ExplorePhase>();
+  /** Market index during the MARKET phase of explore — separate from phase so the Map stays type-safe. */
+  private exploreMarketIndex = new Map<string, number>();
+  /** Phase for runTenderGoal, keyed by ship symbol. */
+  private tenderPhase = new Map<string, TenderPhase>();
+
   constructor(ship: Ship, opts: ShipProxyOptions) {
     this.ship = ship;
     this.api = opts.api;
@@ -89,6 +114,9 @@ export class ShipProxy {
     this.recordMarket = opts.recordMarket;
     this.repairHere = opts.repairHere;
     this.recordLedger = opts.recordLedger;
+    this.galaxy = opts.galaxy;
+    this.store = opts.store;
+    this.done = opts.done;
   }
 
   get symbol(): string {
@@ -440,6 +468,234 @@ export class ShipProxy {
     // on a stranded ship at its current waypoint — costing nothing, since
     // there is nowhere for it to fly and no fuel to fly with.
     return false;
+  }
+
+  // ─── Explore phase ──────────────────────────────────────────────────────────
+
+  /**
+   * Fly an explore goal: navigate to the home gate, jump, survey the target
+   * system, then tour up to three market waypoints before returning control.
+   *
+   * All routing data is embedded in the intent goal itself — gate, remoteGate,
+   * and the pre-computed list of markets to visit — so the executor reads no
+   * fleet state beyond the intent board.
+   *
+   * Phase is tracked per-ship in explorePhase so the executor can resume on
+   * the right step across scheduler ticks without re-doing work already done.
+   *
+   * done() is called on completion so the fleet can forget the intent.
+   */
+  async runExploreGoal(
+    intent: ShipIntent,
+    currentIntent: () => ShipIntent | undefined,
+  ): Promise<boolean> {
+    if (intent.goal.kind !== "explore") return false;
+
+    const key = this.ship.symbol;
+    let phase = this.explorePhase.get(key) ?? ExplorePhase.GATE;
+
+    if (supersedes(intent, currentIntent())) {
+      this.explorePhase.delete(key);
+      this.exploreMarketIndex.delete(key);
+      this.log("explore: superseded, standing by for the new goal");
+      this.done?.();
+      return false;
+    }
+
+    // GATE — navigate to the local jump gate
+    if (phase === ExplorePhase.GATE) {
+      if (this.ship.nav.waypointSymbol !== intent.goal.gate) {
+        this.log(`explore: heading to gate ${intent.goal.gate}`);
+        await this.navigateTo(intent.goal.gate);
+        return true;
+      }
+      // At the gate: proceed to the jump
+      phase = ExplorePhase.JUMP;
+      this.explorePhase.set(key, phase);
+    }
+
+    // JUMP — execute the jump, then load the target system so the registry
+    // knows the ship is now in the new system before navigating to markets
+    if (phase === ExplorePhase.JUMP) {
+      await this.refresh();
+      await this.waitCooldown();
+      this.log(`explore: jumping to ${intent.goal.system} via ${intent.goal.remoteGate}`);
+      await this.api.jumpShip(this.ship.symbol, intent.goal.remoteGate);
+      // Reload the ship's position so the registry knows it is now in the
+      // target system before the next navigation leg is budgeted
+      if (this.galaxy) await this.galaxy.loadSystem(intent.goal.system);
+      await this.refresh();
+      phase = ExplorePhase.SURVEY;
+      this.explorePhase.set(key, phase);
+    }
+
+    // SURVEY — survey markets in the target system (persisted via the store)
+    if (phase === ExplorePhase.SURVEY) {
+      await this.waitCooldown();
+      if (this.galaxy) {
+        this.log(`explore: surveying markets in ${intent.goal.system}`);
+        await this.galaxy.surveyMarkets(intent.goal.system, this.store);
+      }
+      phase = ExplorePhase.MARKET;
+      this.explorePhase.set(key, phase);
+    }
+
+    // MARKET — visit each pre-computed market in the target system
+    if (phase === ExplorePhase.MARKET) {
+      const markets = intent.goal.markets;
+      let idx = this.exploreMarketIndex.get(key) ?? 0;
+
+      if (idx < markets.length) {
+        const market = markets[idx]!;
+        if (this.ship.nav.waypointSymbol !== market) {
+          this.log(`explore: touring market ${market}`);
+          await this.navigateTo(market);
+          return true;
+        }
+        // At the market: record the snapshot and advance
+        await this.recordMarket?.(market);
+        idx++;
+        this.exploreMarketIndex.set(key, idx);
+        return true;
+      }
+      phase = ExplorePhase.DONE;
+      this.explorePhase.set(key, phase);
+    }
+
+    // DONE — explore complete
+    if (phase === ExplorePhase.DONE) {
+      this.explorePhase.delete(key);
+      this.exploreMarketIndex.delete(key);
+      this.log(`explore: ${intent.goal.system} complete`);
+      this.done?.();
+      return false;
+    }
+
+    return true;
+  }
+
+  // ─── Tender phase ────────────────────────────────────────────────────────────
+
+  /**
+   * Fly a tender goal: buy fuel at a market, deliver it to a stranded ship.
+   *
+   * All routing data is embedded in the intent goal itself — market waypoint,
+   * fuel units, and stranded ship symbol — so the executor reads no fleet state.
+   *
+   * Phase is tracked per-ship in tenderPhase so the executor can resume on
+   * the right step across scheduler ticks.
+   *
+   * done() is called on completion so the fleet can forget the intent.
+   */
+  async runTenderGoal(
+    intent: ShipIntent,
+    currentIntent: () => ShipIntent | undefined,
+  ): Promise<boolean> {
+    if (intent.goal.kind !== "tender") return false;
+
+    const key = this.ship.symbol;
+    let phase = this.tenderPhase.get(key) ?? TenderPhase.BUY;
+
+    if (supersedes(intent, currentIntent())) {
+      this.tenderPhase.delete(key);
+      this.log("tender: superseded, standing by for the new goal");
+      this.done?.();
+      return false;
+    }
+
+    // BUY — navigate to the fuel market, top off, and buy fuel units
+    if (phase === TenderPhase.BUY) {
+      if (this.ship.nav.waypointSymbol !== intent.goal.market) {
+        await this.ensureInOrbit();
+        this.log(`tender: heading to market ${intent.goal.market} to load fuel`);
+        await this.navigateTo(intent.goal.market);
+        return true;
+      }
+      // At the market: dock, top off, buy fuel
+      await this.ensureDocked();
+      if (this.ship.fuel.capacity > 0 && this.ship.fuel.current < this.ship.fuel.capacity) {
+        await this.api.refuelShip(this.ship.symbol);
+      }
+      const held = this.ship.cargo.inventory?.find((i) => i.symbol === "FUEL")?.units ?? 0;
+      const toBuy = Math.max(0, intent.goal.fuelUnits - held);
+      if (toBuy > 0) {
+        await this.api.purchaseCargo(this.ship.symbol, "FUEL", toBuy);
+        this.log(`tender: loaded ${toBuy}u FUEL for ${intent.goal.strandedSymbol}`);
+      }
+      phase = TenderPhase.TRANSIT;
+      this.tenderPhase.set(key, phase);
+    }
+
+    // TRANSIT — navigate to the stranded ship
+    if (phase === TenderPhase.TRANSIT) {
+      await this.ensureInOrbit();
+      if (this.ship.nav.waypointSymbol !== intent.goal.to) {
+        this.log(`tender: en route to ${intent.goal.to} with fuel`);
+        await this.navigateTo(intent.goal.to);
+        return true;
+      }
+      phase = TenderPhase.TRANSFER;
+      this.tenderPhase.set(key, phase);
+    }
+
+    // TRANSFER — align dock states, jettison from the stranded ship if needed,
+    // transfer fuel, and refuel the stranded ship
+    if (phase === TenderPhase.TRANSFER) {
+      const stranded = await this.api.getShip(intent.goal.strandedSymbol);
+
+      // Align dock state: both ships must be docked or both in orbit
+      if (stranded.nav.status !== this.ship.nav.status) {
+        if (stranded.nav.status === "DOCKED" && this.ship.nav.status === "IN_ORBIT") {
+          await this.api.dockShip(this.ship.symbol);
+        } else if (stranded.nav.status === "IN_ORBIT" && this.ship.nav.status === "DOCKED") {
+          await this.api.orbitShip(this.ship.symbol);
+        }
+      }
+
+      // Jettison from the stranded ship to make room for fuel if needed
+      const freeSpace = stranded.cargo.capacity - stranded.cargo.units;
+      if (freeSpace < intent.goal.fuelUnits) {
+        const overflow = intent.goal.fuelUnits - freeSpace;
+        let dumped = 0;
+        for (const item of [...(stranded.cargo.inventory ?? [])]) {
+          if (dumped >= overflow) break;
+          if (item.symbol === "FUEL") continue;
+          const drop = Math.min(overflow - dumped, item.units);
+          await this.api.jettisonCargo(intent.goal.strandedSymbol, item.symbol, drop);
+          dumped += drop;
+        }
+        if (dumped > 0) this.log(`tender: jettisoned ${dumped}u from ${intent.goal.strandedSymbol} to make room`);
+      }
+
+      // Transfer fuel and refuel the stranded ship
+      try {
+        await this.api.transferCargo(this.ship.symbol, "FUEL", intent.goal.fuelUnits, intent.goal.strandedSymbol);
+        await this.api.refuelShip(intent.goal.strandedSymbol, undefined, true);
+        this.log(`tender: transferred ${intent.goal.fuelUnits}u FUEL to ${intent.goal.strandedSymbol}`);
+      } catch (err) {
+        this.log(`tender transfer failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      phase = TenderPhase.DONE;
+      this.tenderPhase.set(key, phase);
+    }
+
+    // DONE
+    if (phase === TenderPhase.DONE) {
+      this.tenderPhase.delete(key);
+      this.log(`tender: delivery complete for ${intent.goal.strandedSymbol}`);
+      this.done?.();
+      return false;
+    }
+
+    return true;
+  }
+
+  /** Clear phase state for a ship — called when the fleet forgets its intent. */
+  forgetPhase(shipSymbol: string): void {
+    this.explorePhase.delete(shipSymbol);
+    this.exploreMarketIndex.delete(shipSymbol);
+    this.tenderPhase.delete(shipSymbol);
   }
 
   /**

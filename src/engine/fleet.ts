@@ -136,7 +136,6 @@ interface TenderPlan {
   tenderSymbol: string;
   market: string;
   fuelUnits: number;
-  phase: "buy" | "transit" | "transfer" | "done";
 }
 
 /**
@@ -221,13 +220,6 @@ export class FleetManager {
    *  needs to be surfaced rather than just logged. Cleared once a plan is
    *  found (or the ship recovers on its own; see getStrandedShips()). */
   private rescueFailures = new Map<string, string>();
-  /** Consecutive stepRescue() failures for a stranded ship's current tender
-   *  plan — see tenderRescueStep()'s own comment for why this exists: without
-   *  it, a plan that fails for a persistent reason (e.g. the tender's cargo
-   *  filled up between planning and buying) retried the identical failing
-   *  step forever, since nothing previously dropped a plan except reaching
-   *  phase==="done". */
-  private rescueStepFailures = new Map<string, number>();
   /** Ships currently mid-flight to a shipyard for a critical-condition repair
    *  (see maybeRepairFleet()) — prevents re-claiming/re-dispatching the same
    *  ship every tick while its dispatch is already in progress, same idea as
@@ -717,6 +709,8 @@ export class FleetManager {
         return this.store.warehouseWithdraw(this.tenantId, good, units, current, shipSymbol, "sell");
       },
       warehouseMinMargin: () => this.doctrine.value("warehouseMinMargin", 0),
+      done: () => this.forgetIntent(shipSymbol),
+      store: this.store,
     };
   }
 
@@ -1197,6 +1191,9 @@ export class FleetManager {
           surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
           getCredits: () => this.spendableCredits(),
+          galaxy: this.galaxy,
+          store: this.store,
+          done: () => this.forgetIntent(ship.symbol),
         }).withRegistry(this.registry),
       );
       this.log(`role: miner ${ship.symbol}`);
@@ -1219,6 +1216,9 @@ export class FleetManager {
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           getCredits: () => this.spendableCredits(),
+          galaxy: this.galaxy,
+          store: this.store,
+          done: () => this.forgetIntent(ship.symbol),
         }).withRegistry(this.registry),
       );
       this.log(`role: surveyor ${ship.symbol}`);
@@ -1237,6 +1237,7 @@ export class FleetManager {
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
             protectedGoods: () => this.allProtectedGoods(),
+          done: () => this.forgetIntent(ship.symbol),
         }).withRegistry(this.registry),
       );
       this.log(`role: siphoner ${ship.symbol}`);
@@ -1270,6 +1271,9 @@ export class FleetManager {
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
             getCredits: () => this.spendableCredits(),
+            galaxy: this.galaxy,
+            store: this.store,
+            done: () => this.forgetIntent(ship.symbol),
           }).withRegistry(this.registry),
         );
         this.keeperMarkets.set(ship.symbol, keeperMarket);
@@ -1299,6 +1303,9 @@ export class FleetManager {
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           getCredits: () => this.spendableCredits(),
+          galaxy: this.galaxy,
+          store: this.store,
+          done: () => this.forgetIntent(ship.symbol),
         }).withRegistry(this.registry),
       );
       this.log(`role: tour ${ship.symbol} (market/shipyard intel)`);
@@ -1398,6 +1405,9 @@ export class FleetManager {
             surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
             getCredits: () => this.spendableCredits(),
+            galaxy: this.galaxy,
+            store: this.store,
+            done: () => this.forgetIntent(shipSymbol),
           }).withRegistry(this.registry),
         );
         return undefined;
@@ -1420,6 +1430,9 @@ export class FleetManager {
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             getCredits: () => this.spendableCredits(),
+            galaxy: this.galaxy,
+            store: this.store,
+            done: () => this.forgetIntent(shipSymbol),
           }).withRegistry(this.registry),
         );
         return undefined;
@@ -1436,6 +1449,7 @@ export class FleetManager {
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
                 protectedGoods: () => this.allProtectedGoods(),
+            done: () => this.forgetIntent(shipSymbol),
           }).withRegistry(this.registry),
         );
         return undefined;
@@ -1456,6 +1470,9 @@ export class FleetManager {
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
             getCredits: () => this.spendableCredits(),
+            galaxy: this.galaxy,
+            store: this.store,
+            done: () => this.forgetIntent(shipSymbol),
           }).withRegistry(this.registry),
         );
         this.keeperMarkets.set(shipSymbol, resolvedKeeperMarket);
@@ -1479,6 +1496,9 @@ export class FleetManager {
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             getCredits: () => this.spendableCredits(),
+            galaxy: this.galaxy,
+            store: this.store,
+            done: () => this.forgetIntent(shipSymbol),
           }).withRegistry(this.registry),
         );
         return undefined;
@@ -1504,6 +1524,9 @@ export class FleetManager {
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
+        galaxy: this.galaxy,
+        store: this.store,
+        done: () => this.forgetIntent(ship.symbol),
       })
         .withRegistry(this.registry)
         .withCharted(this.rawWaypoints.filter((w) => w.chart).map((w) => w.symbol)),
@@ -3801,8 +3824,7 @@ export class FleetManager {
   private rescueStatusFor(shipSymbol: string): { rescueActive: boolean; rescueDetail: string } {
     const plan = this.rescuePlans.get(shipSymbol);
     if (plan) {
-      const phaseLabel = { buy: "buying fuel", transit: "en route", transfer: "transferring fuel", done: "delivering" }[plan.phase];
-      return { rescueActive: true, rescueDetail: `fuel tender ${plan.tenderSymbol} dispatched (${phaseLabel})` };
+      return { rescueActive: true, rescueDetail: `fuel tender ${plan.tenderSymbol} dispatched (in transit)` };
     }
     const failure = this.rescueFailures.get(shipSymbol);
     if (failure) return { rescueActive: false, rescueDetail: `no rescue possible: ${failure}` };
@@ -4094,6 +4116,9 @@ export class FleetManager {
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         keeperMarket: () => this.keeperMarkets.get(sym),
         getCredits: () => this.spendableCredits(),
+        galaxy: this.galaxy,
+        store: this.store,
+        done: () => this.forgetIntent(sym),
       }).withRegistry(this.registry);
       this.keepers.set(sym, keeper);
       this.keeperMarkets.set(sym, market);
@@ -4447,7 +4472,7 @@ export class FleetManager {
     this.intents.propose({
       ship: tender.sym,
       priority: 0,
-      goal: { kind: "tender", to: s.symbol },
+      goal: { kind: "tender", to: s.waypointSymbol, fuelUnits, market: market.sym, strandedSymbol: s.symbol },
       reason: `ferrying ${fuelUnits}u FUEL from ${market.sym} to ${s.symbol}`,
       source: "rescue",
     });
@@ -4465,8 +4490,6 @@ export class FleetManager {
       tenderSymbol: tender.sym,
       market: market.sym,
       fuelUnits,
-      // Skip the buy step entirely if the tender is already hauling enough fuel.
-      phase: heldFuel >= fuelUnits ? "transit" : "buy",
     };
   }
 
@@ -4477,135 +4500,13 @@ export class FleetManager {
       if (plan) this.rescuePlans.set(s.symbol, plan);
       if (!plan) return;
     }
-    try {
-      await this.stepRescue(plan);
-      this.rescueStepFailures.delete(s.symbol);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const failures = (this.rescueStepFailures.get(s.symbol) ?? 0) + 1;
-      if (failures >= 3) {
-        // This plan is broken (not just unlucky) — give up on it rather than
-        // retrying the identical failing step forever (the actual deadlock:
-        // a full-cargo tender's buy step throws every single time, and
-        // nothing previously ever dropped the plan except phase==="done").
-        // Release the tender and drop the plan so the next rescue cycle
-        // calls makeRescuePlan() fresh, which (with Fix 1) will skip this
-        // tender and try a different one.
-        this.log(`rescue for ${s.symbol}: abandoning tender ${plan.tenderSymbol} after ${failures} failed attempts (${msg})`);
-        this.rescueFailures.set(s.symbol, `tender ${plan.tenderSymbol} failed repeatedly: ${msg}`);
-        this.rescuePlans.delete(s.symbol);
-        this.rescueStepFailures.delete(s.symbol);
-        // Both hulls go back to the controllers. A tender or hold intent
-        // stands its agent down, so an abandoned rescue must not leave one
-        // committed — the stranded ship would sit holding forever, which is
-        // the opposite of rescuing it.
-        this.forgetIntent(plan.tenderSymbol);
-        this.forgetIntent(s.symbol);
-        // releaseTo() looks the ship up via controlledAgent() (every role
-        // map, not just miner/trader — a tender suspended under one role
-        // that the dispatcher then reassigns mid-rescue, confirmed live: a
-        // miner pulled into fuel-trading duty, was found in neither map
-        // here before this, so it never got resumed at all) and clears
-        // resume/release/dispatcher/registry/manual-state together.
-        await this.releaseTo(plan.tenderSymbol, "rescue");
-      } else {
-        this.rescueStepFailures.set(s.symbol, failures);
-        this.log(`rescue step for ${s.symbol} failed (attempt ${failures}/3, tender ${plan.tenderSymbol}): ${msg}`);
-      }
-      return;
-    }
-    if (plan.phase === "done") {
+    // If the tender intent is no longer on the board, the tender finished
+    // (runTenderGoal called done()) — clear the rescue plan and the stranded
+    // ship's hold intent so the ship can resume autonomous work.
+    if (!this.intents.current(plan.tenderSymbol)?.goal || this.intents.current(plan.tenderSymbol)?.goal.kind !== "tender") {
       this.rescuePlans.delete(s.symbol);
-      // Same as the abandonment path above.
-      await this.releaseTo(plan.tenderSymbol, "rescue");
-      this.forgetIntent(plan.tenderSymbol);
       this.forgetIntent(s.symbol);
-    }
-  }
-
-  /** Advance one rescue phase per coordinator tick (never blocks on transit). */
-  private async stepRescue(plan: TenderPlan): Promise<void> {
-    const tender = await this.api.getShip(plan.tenderSymbol);
-    if (tender.nav.status === "IN_TRANSIT") return;
-
-    if (plan.phase === "buy") {
-      if (tender.nav.waypointSymbol !== plan.market) {
-        if (tender.nav.status === "DOCKED") await this.api.orbitShip(plan.tenderSymbol);
-        await this.api.navigateShip(plan.tenderSymbol, plan.market);
-        this.log(`tender ${plan.tenderSymbol}: flying to ${plan.market} to load FUEL`);
-        return;
-      }
-      if (tender.nav.status === "IN_ORBIT") await this.api.dockShip(plan.tenderSymbol);
-      // Top off the tank so the tender can actually make the trip to the stranded ship.
-      if (tender.fuel.capacity > 0 && tender.fuel.current < tender.fuel.capacity) {
-        await this.api.refuelShip(plan.tenderSymbol);
-      }
-      const held = tender.cargo.inventory?.find((i) => i.symbol === "FUEL")?.units ?? 0;
-      const toBuy = Math.max(0, plan.fuelUnits - held);
-      if (toBuy > 0) {
-        // FUEL is exempt from canAfford() fleet-wide (see buyCargo()'s same
-        // exemption) — a stranded ship's recovery cost matters more than the
-        // cash floor's strategic reserve.
-        const res = await this.api.purchaseCargo(plan.tenderSymbol, "FUEL", toBuy);
-        this.log(`tender ${plan.tenderSymbol}: loaded ${res.transaction.units}u FUEL @ ${res.transaction.pricePerUnit}c`);
-      } else {
-        this.log(`tender ${plan.tenderSymbol}: already holding ${held}u FUEL, skipping buy`);
-      }
-      plan.phase = "transit";
-      return;
-    }
-
-    if (plan.phase === "transit") {
-      if (tender.nav.waypointSymbol !== plan.strandedWaypoint) {
-        await this.api.orbitShip(plan.tenderSymbol);
-        await this.api.navigateShip(plan.tenderSymbol, plan.strandedWaypoint);
-        this.log(`tender ${plan.tenderSymbol}: en route to ${plan.strandedWaypoint} with ${plan.fuelUnits}u FUEL`);
-        return;
-      }
-      plan.phase = "transfer";
-    }
-
-    if (plan.phase === "transfer") {
-      // Both ships must be at the same waypoint AND in the same dock state
-      // (both docked or both in orbit) for cargo transfer to work.
-      const stranded = await this.api.getShip(plan.strandedSymbol);
-      if (stranded.nav.waypointSymbol !== tender.nav.waypointSymbol) {
-        this.log(`tender ${plan.tenderSymbol}: ${tender.nav.waypointSymbol} != stranded ${stranded.nav.waypointSymbol}; returning to buy phase`);
-        plan.phase = "buy";
-        return;
-      }
-      if (stranded.nav.status !== tender.nav.status) {
-        this.log(`tender ${plan.tenderSymbol}: aligning dock state (${tender.nav.status} vs ${stranded.nav.status})`);
-        if (stranded.nav.status === "DOCKED" && tender.nav.status === "IN_ORBIT") {
-          await this.api.dockShip(plan.tenderSymbol);
-        } else if (stranded.nav.status === "IN_ORBIT" && tender.nav.status === "DOCKED") {
-          await this.api.orbitShip(plan.tenderSymbol);
-        }
-      }
-      // The stranded ship must have cargo room to receive the fuel. If it's carrying ore,
-      // jettison just enough to fit (the stranded can't use the ore while out of fuel anyway).
-      const fresh = await this.api.getShip(plan.strandedSymbol);
-      const freeSpace = fresh.cargo.capacity - fresh.cargo.units;
-      if (freeSpace < plan.fuelUnits) {
-        const overflow = plan.fuelUnits - freeSpace;
-        let toDump = overflow;
-        for (const item of [...fresh.cargo.inventory]) {
-          if (toDump <= 0) break;
-          if (item.symbol === "FUEL") continue;
-          const drop = Math.min(toDump, item.units);
-          await this.api.jettisonCargo(plan.strandedSymbol, item.symbol, drop);
-          toDump -= drop;
-        }
-        this.log(`tender ${plan.tenderSymbol}: jettisoned ${overflow - toDump}u ore from ${plan.strandedSymbol} to make room for fuel`);
-      }
-      await this.api.transferCargo(plan.tenderSymbol, "FUEL", plan.fuelUnits, plan.strandedSymbol);
-      const refueled = await this.api.refuelShip(plan.strandedSymbol, undefined, true);
-      this.log(`tender ${plan.tenderSymbol}: transferred ${plan.fuelUnits}u FUEL to ${plan.strandedSymbol}; stranded refueled to ${refueled.fuel.current}/${refueled.fuel.capacity}`);
-      this.onActivity?.("refuel", `${plan.strandedSymbol} rescued: fuel tender delivered ${plan.fuelUnits}u FUEL`, 0, plan.strandedSymbol);
-      // Clear the stranded flag so the ship can resume autonomous trading.
-      this.traders.get(plan.strandedSymbol)?.clearStranded();
-      this.miners.get(plan.strandedSymbol)?.clearStranded();
-      plan.phase = "done";
+      await this.releaseTo(plan.tenderSymbol, "rescue");
     }
   }
 
@@ -4722,38 +4623,29 @@ export class FleetManager {
     // finally below. Same shape as runCriticalRepair(), for the same reason.
     for (const { scout, target } of pairs) {
       if (this.exploringShips.has(scout.s)) continue;
-      // Record ownership before launching, so repair or rescue proposing for
-      // this hull on a later pass wins on priority rather than the two
-      // subsystems taking turns driving it.
+      // Compute the full explore goal data the executor needs: gate, remote gate,
+      // and up to 3 markets to tour. This matches what exploreSystem() computed
+      // inline, now embedded in the goal so the ship flies it itself via
+      // runExploreGoal — the controller proposes and releases, one owner per hull.
+      const from = scout.a.getShip().nav.systemSymbol;
+      const gates = this.galaxy.gatesTo(from, target);
+      const gate = gates[0];
+      if (!gate) { this.log(`auto-explore ${target}: no gate from ${from}, skipping`); continue; }
+      const remoteGateWP = this.galaxy.getSystem(target)?.waypoints.find((w) => w.type === "JUMP_GATE");
+      if (!remoteGateWP) { this.log(`auto-explore ${target}: no remote jump gate, skipping`); continue; }
+      const markets = (this.galaxy.getSystem(target)?.waypoints ?? [])
+        .filter((w) => w.symbol !== remoteGateWP.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE"))
+        .slice(0, 3)
+        .map((w) => w.symbol);
+
       this.intents.propose({
         ship: scout.s,
         priority: 3,
-        goal: { kind: "explore", system: target },
+        goal: { kind: "explore", system: target, gate, remoteGate: remoteGateWP.symbol, markets },
         reason: `${target} is unsurveyed and reachable from here`,
         source: "explore",
       });
       this.exploringShips.add(scout.s);
-      void (async () => {
-        try {
-          this.log(`auto-exploring ${target} with ${scout.s} (${scout.fuel} fuel)`);
-          await this.exploreSystem(scout.s, target);
-          this.surveyedSystems.add(target);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.log(`auto-explore ${target} failed: ${msg}`);
-          // Deliberately NOT marked surveyed here, for any failure reason: a
-          // transient error should be retried on a later pass (throttled the
-          // same 10 minutes as every other attempt), not excluded forever. A
-          // gate under construction is already filtered out of `reachable`
-          // above and needs no separate tracking here.
-        } finally {
-          this.exploringShips.delete(scout.s);
-          // Release the hull. An explore intent makes the agent stand down
-          // (intent.ts's drivenByFleet), so leaving one committed after the
-          // trip ends would freeze the ship for good.
-          this.forgetIntent(scout.s);
-        }
-      })();
     }
   }
 

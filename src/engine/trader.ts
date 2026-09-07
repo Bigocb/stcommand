@@ -50,6 +50,8 @@ export interface TraderOptions {
   getMarketSnapshots?: () => Promise<{ waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[]>;
   /** Multi-system atlas for jump routing between systems. */
   atlas?: GalaxyAtlas;
+  /** Store for runExploreGoal to record module catalogs and shipyard data. */
+  store?: import("../db/store.js").Store;
   /** Trade symbols reserved for missions; the trader must never buy/sell these. */
   protectedGoods?: () => Set<string>;
   /** Trade symbols being carried / traded by another ship; avoid these to prevent buying competition. */
@@ -106,6 +108,8 @@ export interface TraderOptions {
    * board (a test, a bare CLI run) behaves exactly as before.
    */
   intentFor?: () => import("./intent.js").ShipIntent | undefined;
+  /** Called when runExploreGoal or runTenderGoal finishes, so the fleet can forget the intent. */
+  done?: () => void;
   shouldRun?: () => boolean;
   /** Recover a cost basis this process never saw, from the trade ledger. */
   recoverCostBasis?: (good: string) => Promise<number | undefined>;
@@ -167,12 +171,14 @@ export class TraderAgent {
   private readonly intelMaxAgeMin: () => number;
   private readonly recordDoctrineFire?: TraderOptions["recordDoctrineFire"];
   private readonly atlas?: GalaxyAtlas;
+  private readonly store?: TraderOptions["store"];
   private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
   private readonly warehouseBalance?: TraderOptions["warehouseBalance"];
   private readonly warehouseDeposit?: TraderOptions["warehouseDeposit"];
   private readonly warehouseWithdraw?: TraderOptions["warehouseWithdraw"];
   private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
   private readonly intentFor?: TraderOptions["intentFor"];
+  private readonly done?: () => void;
   private readonly shouldRun?: () => boolean;
   private readonly recoverCostBasis?: TraderOptions["recoverCostBasis"];
   private readonly deliverCargo?: TraderOptions["deliverCargo"];
@@ -256,6 +262,7 @@ export class TraderAgent {
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
     this.recordDoctrineFire = opts.recordDoctrineFire;
     this.atlas = opts.atlas;
+    this.store = opts.store;
     this.getWarehouseShip = opts.getWarehouseShip;
     this.warehouseBalance = opts.warehouseBalance;
     this.warehouseDeposit = opts.warehouseDeposit;
@@ -263,6 +270,7 @@ export class TraderAgent {
     this.warehouseMinMargin = opts.warehouseMinMargin;
     this.intentFor = opts.intentFor;
     this.shouldRun = opts.shouldRun;
+    this.done = opts.done;
     this.recoverCostBasis = opts.recoverCostBasis;
     this.deliverCargo = opts.deliverCargo;
     this.contractNeeded = opts.contractNeeded;
@@ -276,6 +284,9 @@ export class TraderAgent {
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
+      done: this.done,
+      galaxy: this.atlas,
+      store: this.store,
     });
   }
 
@@ -1645,23 +1656,22 @@ export class TraderAgent {
 
   /** One trade cycle: ensure prices → dispatch on role → act. */
   async tick(): Promise<boolean> {
-    // A goal this ship executes rather than stands down on — step 5. The
-    // repair controller proposes and never touches the hull, so the
-    // two-owners race it used to create cannot happen.
-    const repairIntent = this.intentFor?.();
-    if (repairIntent?.goal.kind === "repair") {
-      return this.proxy.runRepairGoal(repairIntent, () => this.intentFor?.());
+    // Step 4/5: repair, hold, explore, and tender are all goals the ship flies
+    // itself — the controller proposes and never touches the hull.
+    const intent = this.intentFor?.();
+    if (intent?.goal.kind === "repair") {
+      return this.proxy.runRepairGoal(intent, () => this.intentFor?.());
     }
-    // Step 4: an operator hold is a goal this ship flies, not a private flag
-    // the fleet sets while flying the hull itself. See ShipProxy.runHoldGoal.
-    if (repairIntent?.goal.kind === "hold" && repairIntent.goal.waypoint) {
-      return this.proxy.runHoldGoal(repairIntent, () => this.intentFor?.());
+    if (intent?.goal.kind === "hold" && intent.goal.waypoint) {
+      return this.proxy.runHoldGoal(intent, () => this.intentFor?.());
+    }
+    if (intent?.goal.kind === "explore") {
+      return this.proxy.runExploreGoal(intent, () => this.intentFor?.());
+    }
+    if (intent?.goal.kind === "tender") {
+      return this.proxy.runTenderGoal(intent, () => this.intentFor?.());
     }
 
-    // The fleet itself is driving this hull (repair, fuel ferry, operator
-    // hold), so acting here is the two-owners race that had a diverter and a
-    // tour agent alternately flying the same ship every few seconds for a
-    // day. Stand down until the intent changes.
     const standDown = standDownReason(this.intentFor?.());
     if (standDown) {
       this.log(`standing down, fleet is driving this ship: ${standDown}`);
