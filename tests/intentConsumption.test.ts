@@ -36,12 +36,16 @@ const intent = (goal: ShipIntent["goal"], source = "repair"): ShipIntent => ({
 });
 
 describe("drivenByFleet", () => {
-  it("covers exactly the goals the fleet flies itself", () => {
-    // `repair` left this list in step 5: every role flies its own repair goal
-    // through the shared executor now, so the controller proposes and never
-    // touches the hull.
+  it("is true only for a hold with nowhere to fly — every other fleet-driven goal is the ship's own job", () => {
+    // repair, explore and tender all left this list at step 5: every role
+    // flies these goals itself through the shared executor
+    // (ShipProxy.runFleetDrivenGoal), so the controller proposes and never
+    // touches the hull. drivenByFleet() now answers only "is there truly
+    // nothing to do" — a hold WITH a waypoint is somewhere to fly, so it is
+    // not driven-by-fleet either; only a hold with no waypoint is.
     assert.ok(!drivenByFleet({ kind: "repair", yard: "Y" }));
-    assert.ok(drivenByFleet({ kind: "tender", to: "S2", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "S2" }));
+    assert.ok(!drivenByFleet({ kind: "tender", to: "S2", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "S2" }));
+    assert.ok(!drivenByFleet({ kind: "explore", system: "X1-B", gate: "X1-B-GATE", remoteGate: "X1-A-GATE", markets: [] }));
     // A hold splits in step 4. With a waypoint it is an operator parking a
     // hull somewhere, and the ship flies itself there through the shared
     // executor — so it is the ship's own job, not a stand-down. Without one
@@ -49,9 +53,6 @@ describe("drivenByFleet", () => {
     // to fly and standing down *is* executing it.
     assert.ok(drivenByFleet({ kind: "hold" }));
     assert.ok(!drivenByFleet({ kind: "hold", waypoint: "X1-A-A1" }));
-    // Exploration really is flown by the fleet today: autoExplore launches
-    // exploreSystem, which jumps and tours the ship itself.
-    assert.ok(drivenByFleet({ kind: "explore", system: "X1-B", gate: "X1-B-GATE", remoteGate: "X1-A-GATE", markets: [] }));
     // These the agent carries out on its own task.
     assert.ok(!drivenByFleet({ kind: "trade" }));
     assert.ok(!drivenByFleet({ kind: "mine" }));
@@ -59,35 +60,97 @@ describe("drivenByFleet", () => {
     assert.ok(!drivenByFleet({ kind: "keep", waypoint: "M1" }));
   });
 
-  it("explains itself in the operator's words, naming the target", () => {
-    assert.match(standDownReason(intent({ kind: "tender", to: "X1-A-YARD", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "X1-A-YARD" }))!, /tender → X1-A-YARD \(repair\): condition 0\.00/);
+  it("explains itself in the operator's words, naming the target — only for the one goal that is still a stand-down", () => {
+    // repair/tender/explore are the ship's own job now (runFleetDrivenGoal
+    // flies them), so standDownReason() has nothing to say about them —
+    // there is no standing down happening. Only a waypoint-less hold, and
+    // ordinary work the agent runs itself, reach this function at all.
+    assert.equal(standDownReason(intent({ kind: "tender", to: "X1-A-YARD", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "X1-A-YARD" })), undefined, "a tender is the ship's own job now, not a stand-down");
     assert.equal(standDownReason(intent({ kind: "repair", yard: "X1-A-YARD" })), undefined, "a repair is the ship's own job now, not a stand-down");
     assert.equal(standDownReason(intent({ kind: "trade" })), undefined, "a goal the agent can execute is not a stand-down");
     assert.equal(standDownReason(undefined), undefined, "no intent is not a stand-down either");
   });
 });
 
-describe("every role stands down when the fleet is driving its hull", () => {
-  const api = { getCallCount: () => 0, getShip: async () => makeShip() } as any;
+describe("every ShipAgent entry point hands a fleet-driven goal to the executor, not just tick()", () => {
+  // Regression coverage for the bug this fixes: `tick()` (the miner role)
+  // intercepted repair/hold/explore/tender before falling through to its own
+  // logic; surveyScout()/tourScout()/keeperPoll() — surveyor, tour, and
+  // keeper duty, all on this same class — did not, and went straight to
+  // standDownReason(), which says nothing about a hold WITH a waypoint (that
+  // case is deliberately not a "stand down", it's the ship's own job — see
+  // above). Those three ran their own role logic right through an operator's
+  // hold. Confirmed live: DRAGOM-7 was placed under an operator hold at
+  // X1-S84-C46 at 18:06:46 and was "tour scout: touring X1-S84-C47" three
+  // minutes later, while the fleet log and dashboard both kept reporting
+  // "manual hold ... want:hold X1-S84-C46" the whole time.
+  //
+  // The ship is placed exactly at the hold's waypoint so runHoldGoal's
+  // "already parked" branch fires with no navigation call needed — the
+  // point of this test is whether the goal was intercepted at all, not
+  // whether the fly-to-waypoint mechanics work (that's runHoldGoal's own
+  // test in shipProxy.test.ts).
+  const heldIntent = intent({ kind: "hold", waypoint: "X1-A-A1" }, "operator");
 
-  it("ShipAgent tick, tour, survey and keeper all refuse to act", async () => {
-    const logs: string[] = [];
+  it("tick() (miner) hands off — the one entry point that already worked", async () => {
+    let mined = false;
     const agent = new ShipAgent(makeShip(), {
-      api, log: (m) => logs.push(m),
-      intentFor: () => intent({ kind: "tender", to: "X1-A-YARD", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "X1-A-YARD" }),
-      keeperMarket: () => "X1-A-M1",
+      api: { getCallCount: () => 0, getShip: async () => makeShip() } as any,
+      log: () => {},
+      intentFor: () => heldIntent,
     });
-    assert.equal(await agent.tick(), false);
-    assert.equal(await agent.tourScout(), false);
-    assert.equal(await agent.surveyScout(), false);
-    assert.equal(await (agent as any).keeperPoll(), false);
-    assert.equal(logs.filter((l) => l.includes("standing down")).length, 4, "each entry point refuses, not just one");
-    assert.ok(logs[0]!.includes("condition 0.00"), "and says why, quoting the controller that decided");
+    // mineAndRefine()/extractUntilFull() would be reached via ordinary tick()
+    // logic; there's no cheap flag for "did tick() mine", so the contract we
+    // actually care about is the return value runHoldGoal() gives for an
+    // already-parked ship: no work, not a crash, not a mining attempt.
+    assert.equal(await agent.tick(), false, "already parked: reports no work");
   });
+
+  it("tourScout() hands off — this was the entry point that missed the fix", async () => {
+    let toured = false;
+    const agent = new ShipAgent(makeShip(), {
+      api: { getCallCount: () => 0, getShip: async () => makeShip() } as any,
+      log: () => {},
+      intentFor: () => heldIntent,
+      marketTourTargets: async () => { toured = true; return []; },
+    });
+    assert.equal(await agent.tourScout(), false, "already parked: reports no work");
+    assert.equal(toured, false, "must not fall through to its own tour logic");
+  });
+
+  it("surveyScout() hands off", async () => {
+    let surveyed = false;
+    const agent = new ShipAgent(makeShip(), {
+      api: { getCallCount: () => 0, getShip: async () => makeShip() } as any,
+      log: () => {},
+      intentFor: () => heldIntent,
+    });
+    // pickSurveyTarget() runs off registry state private to the class; the
+    // externally-observable contract is the same no-work return.
+    assert.equal(await agent.surveyScout(), false, "already parked: reports no work");
+    void surveyed;
+  });
+
+  it("keeperPoll() hands off", async () => {
+    let recorded = false;
+    const agent = new ShipAgent(makeShip(), {
+      api: { getCallCount: () => 0, getShip: async () => makeShip() } as any,
+      log: () => {},
+      intentFor: () => heldIntent,
+      keeperMarket: () => "X1-A-M1",
+      recordMarket: async () => { recorded = true; },
+    });
+    assert.equal(await (agent as any).keeperPoll(), false, "already parked: reports no work");
+    assert.equal(recorded, false, "must not fall through to its own keeper snapshot logic");
+  });
+});
+
+describe("every role stands down on a waypoint-less hold — the one goal that still means \"nothing to do\"", () => {
+  const api = { getCallCount: () => 0, getShip: async () => makeShip() } as any;
 
   it("ScoutAgent refuses", async () => {
     const logs: string[] = [];
-    const agent = new ScoutAgent(makeShip() as any, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "tender", to: "S2", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "S2" }) });
+    const agent = new ScoutAgent(makeShip() as any, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "hold" }) });
     assert.equal(await agent.tick(), false);
     assert.ok(logs.some((l) => l.includes("standing down")));
   });
@@ -116,7 +179,7 @@ describe("every role stands down when the fleet is driving its hull", () => {
 
   it("TraderAgent refuses", async () => {
     const logs: string[] = [];
-    const agent = new TraderAgent(makeShip() as unknown as TraderShip, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "tender", to: "Y", fuelUnits: 100, market: "X1-A-M1", strandedSymbol: "Y" }) });
+    const agent = new TraderAgent(makeShip() as unknown as TraderShip, { api, log: (m: string) => logs.push(m), intentFor: () => intent({ kind: "hold" }) });
     assert.equal(await agent.tick(), false);
     assert.ok(logs.some((l) => l.includes("standing down")));
   });

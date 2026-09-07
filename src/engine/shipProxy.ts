@@ -390,6 +390,44 @@ export class ShipProxy {
    * Re-derived from observed position each tick, like a trade: get to the
    * yard, and repair only once standing there.
    */
+  /**
+   * The one place that decides whether the fleet's current intent for this
+   * hull is one the ship flies itself, and if so, flies it.
+   *
+   * Every scheduler entry point that reads an intent (tick(), surveyScout(),
+   * tourScout(), keeperPoll()) must call this before running its own
+   * role logic — repair, hold-with-waypoint, explore, and tender are all
+   * goals no role's own loop should ever act around. Centralising the
+   * dispatch here, rather than repeating the four `if (goal.kind === ...)`
+   * checks at each entry point, is a deliberate fix for how the bug this
+   * replaces happened: `tick()` got the checks when a goal kind was added,
+   * and three sibling entry points on the exact same class — surveyor, tour,
+   * and keeper duty — did not. A ship on a tour role that was placed under
+   * an operator hold or handed an explore goal kept touring right through
+   * it; the fleet log and the dashboard both said "manual hold" while the
+   * ship sailed off to its next market. Confirmed live: DRAGOM-7, held at
+   * X1-S84-C46 at 18:06, was touring X1-S84-C47 three minutes later.
+   *
+   * Returns undefined when the intent is not one of these — the caller's own
+   * logic should run normally. Returns a boolean (the ship's usual "did it do
+   * anything" report) when this method flew the goal itself.
+   */
+  async runFleetDrivenGoal(intent: ShipIntent | undefined, currentIntent: () => ShipIntent | undefined): Promise<boolean | undefined> {
+    if (!intent) return undefined;
+    switch (intent.goal.kind) {
+      case "repair":
+        return this.runRepairGoal(intent, currentIntent);
+      case "hold":
+        return intent.goal.waypoint ? this.runHoldGoal(intent, currentIntent) : undefined;
+      case "explore":
+        return this.runExploreGoal(intent, currentIntent);
+      case "tender":
+        return this.runTenderGoal(intent, currentIntent);
+      default:
+        return undefined;
+    }
+  }
+
   async runRepairGoal(intent: ShipIntent, currentIntent: () => ShipIntent | undefined): Promise<boolean> {
     if (intent.goal.kind !== "repair") return false;
     const yard = intent.goal.yard;

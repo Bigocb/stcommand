@@ -781,28 +781,18 @@ export class ShipAgent {
     return true;
   }
   async tick(): Promise<boolean> {
-    // A goal this ship executes rather than stands down on — step 5. The
-    // Step 4/5: repair, hold, explore, and tender are all goals the ship flies
-    // itself — the controller proposes and never touches the hull. These run at
-    // the top of tick so they execute before any earning work.
-    const intent = this.intentFor?.();
-    if (intent?.goal.kind === "repair") {
-      return this.proxy.runRepairGoal(intent, () => this.intentFor?.());
-    }
-    if (intent?.goal.kind === "hold" && intent.goal.waypoint) {
-      return this.proxy.runHoldGoal(intent, () => this.intentFor?.());
-    }
-    if (intent?.goal.kind === "explore") {
-      return this.proxy.runExploreGoal(intent, () => this.intentFor?.());
-    }
-    if (intent?.goal.kind === "tender") {
-      return this.proxy.runTenderGoal(intent, () => this.intentFor?.());
-    }
+    // Step 4/5: repair, hold, explore, and tender are all goals the ship
+    // flies itself — the controller proposes and never touches the hull.
+    // runFleetDrivenGoal() is the one place that decides this; every
+    // scheduler entry point on this class calls it first. See its own
+    // comment for why that centralisation is load-bearing, not tidiness.
+    const flown = await this.proxy.runFleetDrivenGoal(this.intentFor?.(), () => this.intentFor?.());
+    if (flown !== undefined) return flown;
 
     // A hold with no waypoint means "nothing worth doing" — the arbiter's way
     // of saying so. Standing down is executing it. Nothing above this line
-    // should be adding to the standDown list; if it does, it belongs in the
-    // block above with the other fleet-driven goals.
+    // should be adding to the standDown list; if it does, it belongs inside
+    // runFleetDrivenGoal() with the other fleet-driven goals.
     const standDown = standDownReason(this.intentFor?.());
     if (standDown) {
       this.log(`standing down, fleet is driving this ship: ${standDown}`);
@@ -1123,10 +1113,20 @@ export class ShipAgent {
    * surveyor mount; it does not need a mining laser or cargo capacity.
    */
   async surveyScout(): Promise<boolean> {
-    // The fleet itself is driving this hull (repair, fuel ferry, operator
-    // hold), so acting here is the two-owners race that had a diverter and a
-    // tour agent alternately flying the same ship every few seconds for a
-    // day. Stand down until the intent changes.
+    // Step 4/5: repair, an operator hold, an explore trip, or a fuel ferry
+    // are all goals this hull flies itself, through the same executor tick()
+    // uses — see ShipProxy.runFleetDrivenGoal()'s own comment. This entry
+    // point used to skip straight to standDownReason(), which only refuses a
+    // hold with no waypoint; a hold WITH one, or an explore/tender goal, was
+    // silently ignored and this method ran its own logic instead. Confirmed
+    // live: DRAGOM-7, a tour ship, was placed under an operator hold and kept
+    // touring anyway three minutes later, while the fleet log and dashboard
+    // both still said "manual hold".
+    const flown = await this.proxy.runFleetDrivenGoal(this.intentFor?.(), () => this.intentFor?.());
+    if (flown !== undefined) return flown;
+
+    // A hold with no waypoint means "nothing worth doing" — the arbiter's way
+    // of saying so. Standing down is executing it.
     const standDown = standDownReason(this.intentFor?.());
     if (standDown) {
       this.log(`standing down, fleet is driving this ship: ${standDown}`);
@@ -1201,10 +1201,20 @@ export class ShipAgent {
    * mount required — just navigation + docking. One target per tick.
    */
   async tourScout(): Promise<boolean> {
-    // The fleet itself is driving this hull (repair, fuel ferry, operator
-    // hold), so acting here is the two-owners race that had a diverter and a
-    // tour agent alternately flying the same ship every few seconds for a
-    // day. Stand down until the intent changes.
+    // Step 4/5: repair, an operator hold, an explore trip, or a fuel ferry
+    // are all goals this hull flies itself, through the same executor tick()
+    // uses — see ShipProxy.runFleetDrivenGoal()'s own comment. This entry
+    // point used to skip straight to standDownReason(), which only refuses a
+    // hold with no waypoint; a hold WITH one, or an explore/tender goal, was
+    // silently ignored and this method ran its own logic instead. Confirmed
+    // live: DRAGOM-7, a tour ship, was placed under an operator hold and kept
+    // touring anyway three minutes later, while the fleet log and dashboard
+    // both still said "manual hold".
+    const flown = await this.proxy.runFleetDrivenGoal(this.intentFor?.(), () => this.intentFor?.());
+    if (flown !== undefined) return flown;
+
+    // A hold with no waypoint means "nothing worth doing" — the arbiter's way
+    // of saying so. Standing down is executing it.
     const standDown = standDownReason(this.intentFor?.());
     if (standDown) {
       this.log(`standing down, fleet is driving this ship: ${standDown}`);
@@ -1477,10 +1487,20 @@ export class ShipAgent {
    * body being the only place this logic existed.
    */
   private async keeperPoll(): Promise<boolean> {
-    // The fleet itself is driving this hull (repair, fuel ferry, operator
-    // hold), so acting here is the two-owners race that had a diverter and a
-    // tour agent alternately flying the same ship every few seconds for a
-    // day. Stand down until the intent changes.
+    // Step 4/5: repair, an operator hold, an explore trip, or a fuel ferry
+    // are all goals this hull flies itself, through the same executor tick()
+    // uses — see ShipProxy.runFleetDrivenGoal()'s own comment. This entry
+    // point used to skip straight to standDownReason(), which only refuses a
+    // hold with no waypoint; a hold WITH one, or an explore/tender goal, was
+    // silently ignored and this method ran its own logic instead. Confirmed
+    // live: DRAGOM-7, a tour ship, was placed under an operator hold and kept
+    // touring anyway three minutes later, while the fleet log and dashboard
+    // both still said "manual hold".
+    const flown = await this.proxy.runFleetDrivenGoal(this.intentFor?.(), () => this.intentFor?.());
+    if (flown !== undefined) return flown;
+
+    // A hold with no waypoint means "nothing worth doing" — the arbiter's way
+    // of saying so. Standing down is executing it.
     const standDown = standDownReason(this.intentFor?.());
     if (standDown) {
       this.log(`standing down, fleet is driving this ship: ${standDown}`);
