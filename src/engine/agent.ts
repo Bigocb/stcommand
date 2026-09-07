@@ -1245,14 +1245,27 @@ export class ShipAgent {
     // them. Home markets only have data because keepers sit docked at them.
     // It also drives the ping-pong — a market that is never recorded never
     // stops being the stalest, so the pair trade places forever.
+    // Computed here, ahead of the arrival check below, so a shipyard sits in
+    // hand at the moment that check runs — see the note on recordShipyard()
+    // just below for why this matters.
+    const marketTargets = (await this.marketTourTargets?.()) ?? [];
+    const yardTargets = (await this.shipyardTourTargets?.()) ?? [];
+
     const standingAt = this.ship.nav.waypointSymbol;
     if (this.registry.isMarket(standingAt) || this.registry.market(standingAt) !== undefined) {
       await this.ensureDocked();
       if (this.recordMarket) await this.recordMarket(standingAt);
+      // The exact same gap recordMarket() above was added to close, left
+      // open for shipyards: recordShipyard(target) at the foot of this
+      // method sits after navigateTo(), which raises NavigationPending the
+      // instant the ship enters transit and unwinds the call before that
+      // line is ever reached in production. Ship stock at a shipyard-market
+      // was refreshed on arrival for prices and never for inventory, for the
+      // identical reason prices used to never update — flagged and left open
+      // when the market half was fixed (see that commit's own message).
+      if (this.recordShipyard && yardTargets.includes(standingAt)) await this.recordShipyard(standingAt);
     }
 
-    const marketTargets = (await this.marketTourTargets?.()) ?? [];
-    const yardTargets = (await this.shipyardTourTargets?.()) ?? [];
     const targets = [...marketTargets, ...yardTargets];
     if (targets.length === 0) {
       this.log("tour scout: no tour targets");

@@ -354,3 +354,62 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     assert.deepEqual(navigated, ["X1-REMOTE-B2"]);
   });
 });
+
+describe("ShipAgent.tourScout: shipyard inventory on arrival, the market fix's own open gap closed", () => {
+  // 26e8ac1 fixed the market half of this exact bug (a tour that never
+  // records anything, because navigateTo() raises NavigationPending the
+  // instant the ship enters transit and unwinds the method before the
+  // recordMarket()/recordShipyard() at its foot ever run) and, in its own
+  // commit message, flagged the shipyard half as the identical gap, left
+  // open. It stayed open: a tour ship arriving at a shipyard-market kept its
+  // price snapshot fresh and its ship-stock snapshot never updated, for the
+  // same reason prices never used to update.
+  it("records ship stock on arrival at a shipyard-market, not just prices", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    const marketsRecorded: string[] = [];
+    const shipyardsRecorded: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      // No other target: the only listed waypoint is the one we are already
+      // standing on, so `t !== here` filters it out of the reachable set and
+      // the method returns "no reachable target" right after the arrival
+      // block — keeping this test to exactly the arrival-recording behavior,
+      // not target selection (covered by the rest of this file).
+      marketTourTargets: async () => [],
+      shipyardTourTargets: async () => ["X1-REMOTE-A1"], // standing here IS a shipyard
+      recordMarket: async (wp) => { marketsRecorded.push(wp); },
+      recordShipyard: async (wp) => { shipyardsRecorded.push(wp); },
+    });
+    agent.withWorld(remotePositions.map((w: any) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }, { symbol: "SHIPYARD" }] })) as any, []);
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async () => { throw new Error("must not navigate — nothing else is reachable"); };
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.deepEqual(marketsRecorded, ["X1-REMOTE-A1"], "market snapshot on arrival — unchanged");
+    assert.deepEqual(shipyardsRecorded, ["X1-REMOTE-A1"], "BUG (pre-fix): always empty — shipyard stock never refreshed on arrival");
+  });
+
+  it("does not scan for ship stock at an arrival waypoint that isn't a shipyard", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    const shipyardsRecorded: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => [],
+      shipyardTourTargets: async () => [], // standing here is NOT a shipyard (and nothing else to tour)
+      recordMarket: async () => {},
+      recordShipyard: async (wp) => { shipyardsRecorded.push(wp); },
+    });
+    agent.withWorld(remotePositions.map((w: any) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }] })) as any, []);
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async () => { throw new Error("must not navigate — nothing else is reachable"); };
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.deepEqual(shipyardsRecorded, [], "a plain market must not get a spurious shipyard scan");
+  });
+});
