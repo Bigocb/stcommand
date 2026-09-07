@@ -52,7 +52,7 @@ function harness(contracts: Contract[]) {
       delivered.push({ good, units });
     },
   } as never;
-  const cm = new ContractManager(api, undefined, {
+  const cm = new ContractManager(api, undefined, undefined, {
     log: (m) => logs.push(m),
     onActivity: (kind, detail, credits, shipSymbol) => activity.push({ kind, detail, credits, shipSymbol }),
     recordLedger: (e) => ledger.push({ type: e.type, total: e.total }),

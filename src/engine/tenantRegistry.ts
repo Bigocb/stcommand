@@ -267,11 +267,15 @@ export class TenantRegistry {
 
     // Contract deliveries and payouts happened in total silence until these
     // were wired in — see ContractManager.deliverVia()/fulfillCompleted().
-    const contracts = new ContractManager(api, store, {
+    const contracts = new ContractManager(api, store, tenantId, {
       log,
       onActivity: recordActivity,
       recordLedger: (e) => store.recordLedger(tenantId, e as never),
     });
+    // Replay the operator's own contract decisions before anything can act on
+    // them. These used to live only in memory, so a deploy discarded them and
+    // the fleet could auto-accept a contract the operator had just declined.
+    await contracts.loadOperatorState();
     // Cutover: created before FleetManager (which needs the instance itself
     // to enqueue tasks onto) and before its own isPaused callback has
     // anything to call — `fleet` is assigned just below, but closures over

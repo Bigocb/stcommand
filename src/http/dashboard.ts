@@ -542,6 +542,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
             unitsFulfilled: d.unitsFulfilled,
           })),
           declined: w.contracts!.isDeclined(c.id),
+          abandoned: w.contracts!.isAbandoned(c.id),
         })),
       });
     } catch (err) {
@@ -550,21 +551,53 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
-  router.post("/contracts/decline", (req, res) => {
+  router.post("/contracts/decline", async (req, res) => {
     const w = worker(req);
     if (!w?.contracts) return res.status(503).json({ error: "contracts not ready" });
     const { contractId } = req.body ?? {};
     if (typeof contractId !== "string") return res.status(400).json({ error: "contractId required" });
-    w.contracts.decline(contractId);
+    await w.contracts.decline(contractId);
     res.json({ ok: true });
   });
 
-  router.post("/contracts/undecline", (req, res) => {
+  router.post("/contracts/undecline", async (req, res) => {
     const w = worker(req);
     if (!w?.contracts) return res.status(503).json({ error: "contracts not ready" });
     const { contractId } = req.body ?? {};
     if (typeof contractId !== "string") return res.status(400).json({ error: "contractId required" });
-    w.contracts.undecline(contractId);
+    await w.contracts.undecline(contractId);
+    res.json({ ok: true });
+  });
+
+  /**
+   * Stop working an accepted contract. Deliberately not called "cancel": the
+   * API has no cancel, so this stops the fleet sourcing for it and releases
+   * any trader pinned to its goods. The contract stays accepted and lapses at
+   * its deadline.
+   */
+  router.post("/contracts/abandon", async (req, res) => {
+    const w = worker(req);
+    if (!w?.contracts) return res.status(503).json({ error: "contracts not ready" });
+    const { contractId } = req.body ?? {};
+    if (typeof contractId !== "string") return res.status(400).json({ error: "contractId required" });
+    try {
+      await w.contracts.abandon(contractId);
+      // Release right now rather than waiting for the next tick to notice:
+      // the operator pressed a button and should see the trader let go of the
+      // good, not watch it keep buying for another cycle.
+      const released = await w.fleet.releaseContractCarriers(contractId, w.contracts);
+      res.json({ ok: true, released });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/contracts/resume", async (req, res) => {
+    const w = worker(req);
+    if (!w?.contracts) return res.status(503).json({ error: "contracts not ready" });
+    const { contractId } = req.body ?? {};
+    if (typeof contractId !== "string") return res.status(400).json({ error: "contractId required" });
+    await w.contracts.resume(contractId);
     res.json({ ok: true });
   });
 

@@ -3230,6 +3230,7 @@ function renderContracts(list) {
         <span class="ops-title">${escapeHtml(c.type)} · ${escapeHtml(c.factionSymbol)}</span>
         <span class="tag ${c.accepted ? "accepted" : ""}">${c.accepted ? "accepted" : "offered"}</span>
         ${c.declined ? '<span class="tag declined">declined</span>' : ""}
+        ${c.abandoned ? '<span class="tag declined">not being worked</span>' : ""}
         <span class="fill"></span>
         <span class="ops-sub">+${fmt(c.onAccepted)} / +${fmt(c.onFulfilled)} · ${fmt(total)} total</span>
       </div>
@@ -3238,7 +3239,10 @@ function renderContracts(list) {
         <span class="ops-dead ${urgent && !c.accepted ? "urgent" : ""}">accept by ${countdown(c.deadlineToAccept ?? c.deadline)}</span>
         <span class="fill"></span>
         ${c.accepted
-          ? `<span class="ops-sub">deadline ${countdown(c.deadline)}</span>`
+          ? `<span class="ops-sub">deadline ${countdown(c.deadline)}</span>
+             ${c.abandoned
+               ? `<button class="btn" data-act="resume" data-id="${escapeAttr(c.id)}">Resume work</button>`
+               : `<button class="btn" data-act="abandon" data-id="${escapeAttr(c.id)}">Stop working</button>`}`
           : c.declined
             ? `<button class="btn" data-act="undecline" data-id="${escapeAttr(c.id)}">Allow</button>
                <button class="btn pri" data-act="accept" data-id="${escapeAttr(c.id)}">Accept</button>`
@@ -3337,6 +3341,18 @@ async function onContractClick(e) {
       const path = act === "accept" ? "/api/contracts/accept" : act === "decline" ? "/api/contracts/decline" : "/api/contracts/undecline";
       await api("POST", path, { contractId: id });
       showToastGlobal(`Contract ${act === "accept" ? "accepted" : act === "decline" ? "declined" : "allowed again"}`);
+    } else if (act === "abandon") {
+      // Deliberately not called "cancel". The SpaceTraders API has accept,
+      // deliver, fulfil and negotiate — and no cancel — so the honest promise
+      // is that the fleet stops working it, and the operator is told the rest
+      // rather than finding out at the deadline.
+      if (!confirm("Stop working this contract?\n\nThe fleet will stop buying for it and release any ship assigned to it.\n\nIt cannot be handed back — there is no cancel in the API. The contract stays accepted and will lapse at its deadline, which costs reputation.")) return;
+      const res = await api("POST", "/api/contracts/abandon", { contractId: id });
+      const freed = res?.released ?? [];
+      showToastGlobal(freed.length ? `Stopped. Released ${freed.join(", ")}` : "Stopped working this contract");
+    } else if (act === "resume") {
+      await api("POST", "/api/contracts/resume", { contractId: id });
+      showToastGlobal("Back in work");
     } else {
       return;
     }

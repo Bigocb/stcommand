@@ -39,6 +39,29 @@ export class ContractManager {
   /** Contracts the operator declined: never auto-accepted, still listed. */
   private declined = new Set<string>();
   /**
+   * Contracts the operator accepted and then chose to stop working.
+   *
+   * The SpaceTraders API has accept, deliver, fulfil and negotiate — and no
+   * cancel. An accepted contract cannot be handed back; it can only be
+   * completed or allowed to lapse. So "abandon" here means exactly one thing,
+   * and the UI says so rather than offering a Cancel button that implies
+   * something the API cannot do: **stop sourcing for it.** The contract stays
+   * accepted, stays listed, and lapses at its own deadline at the usual
+   * reputation cost.
+   *
+   * Enforced in one place — outstandingDeliveries() — because that is the
+   * single source every sourcing path reads: computeContractBuyTargets()
+   * builds its targets from it, so the good stops being dispatched, and
+   * releaseFulfilledManualContractBuys() then clears any manual assignment
+   * pinned to it on the same tick. One filter, not a flag re-checked at four
+   * call sites that can each forget it.
+   *
+   * fulfillCompleted() deliberately does NOT filter on this. Standing down
+   * means refusing to spend more on a contract, not refusing money already
+   * earned — if an abandoned contract is somehow complete, take the payout.
+   */
+  private abandoned = new Set<string>();
+  /**
    * The last fetched contract list.
    *
    * Without this, every caller of `listActive()` hit the API — and the
@@ -55,6 +78,7 @@ export class ContractManager {
   constructor(
     private readonly api: SpaceTradersAPI,
     private readonly store?: Store,
+    private readonly tenantId?: string,
     private readonly report: {
       log?: (msg: string) => void;
       onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
@@ -95,17 +119,84 @@ export class ContractManager {
   }
 
   /** Mark a contract as declined so the fleet never auto-accepts it. */
-  decline(contractId: string): void {
+  async decline(contractId: string): Promise<void> {
     this.declined.add(contractId);
+    await this.persistOperatorState();
   }
 
   /** Undo a decline (the contract becomes auto-acceptable again). */
-  undecline(contractId: string): void {
+  async undecline(contractId: string): Promise<void> {
     this.declined.delete(contractId);
+    await this.persistOperatorState();
   }
 
   isDeclined(contractId: string): boolean {
     return this.declined.has(contractId);
+  }
+
+  /**
+   * Stop working an accepted contract: the fleet stops sourcing its goods and
+   * releases any trader assigned to them. Not a cancel — see `abandoned`.
+   */
+  async abandon(contractId: string): Promise<void> {
+    this.abandoned.add(contractId);
+    this.say(`contract ${contractId.slice(0, 8)}: no longer being worked (operator) — it will lapse at its deadline`);
+    await this.persistOperatorState();
+  }
+
+  /** Resume working a contract that was stood down. */
+  async resume(contractId: string): Promise<void> {
+    this.abandoned.delete(contractId);
+    this.say(`contract ${contractId.slice(0, 8)}: back in work (operator)`);
+    await this.persistOperatorState();
+  }
+
+  isAbandoned(contractId: string): boolean {
+    return this.abandoned.has(contractId);
+  }
+
+  /** The goods one contract still wants, abandoned or not — so a caller can
+   *  release the traders pinned to them. Reads the contract directly rather
+   *  than outstandingDeliveries(), which by design no longer lists it. */
+  async deliverablesFor(contractId: string): Promise<string[]> {
+    const c = (await this.listActive()).find((x) => x.id === contractId);
+    return [...new Set((c?.terms.deliver ?? []).map((d) => d.tradeSymbol))];
+  }
+
+  /**
+   * Both operator decisions, persisted as one small JSON blob under the same
+   * `fleet_flags` mechanism shipManualState already uses.
+   *
+   * This is not decoration. `declined` was in-memory only, and this service
+   * redeploys on every push — so an operator declining a contract had that
+   * decision silently discarded minutes later, and the fleet was free to
+   * auto-accept the very contract they had just refused. A decision an
+   * operator makes has to outlive the process that took it.
+   */
+  private async persistOperatorState(): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    await this.store.setFleetFlag(
+      this.tenantId,
+      "contractOperatorState",
+      JSON.stringify({ declined: [...this.declined], abandoned: [...this.abandoned] }),
+    );
+  }
+
+  /** Replay the operator's decisions at boot. Call once, before the first tick. */
+  async loadOperatorState(): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    const raw = await this.store.getFleetFlag(this.tenantId, "contractOperatorState");
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as { declined?: string[]; abandoned?: string[] };
+      this.declined = new Set(parsed.declined ?? []);
+      this.abandoned = new Set(parsed.abandoned ?? []);
+      if (this.abandoned.size) this.say(`contracts: ${this.abandoned.size} stood down by the operator, not being worked`);
+    } catch {
+      // A corrupt blob must not stop the fleet booting, and must not pass
+      // silently either — the operator can set the decisions again.
+      this.say("contracts: operator state could not be read, starting with none");
+    }
   }
 
   listDeclined(): string[] {
@@ -191,7 +282,8 @@ export class ContractManager {
 
   /** Deliveries still outstanding across all accepted contracts. */
   async outstandingDeliveries(): Promise<Deliverable[]> {
-    const accepted = (await this.listActive()).filter((c) => c.accepted);
+    // The one place "stop working this contract" is enforced — see `abandoned`.
+    const accepted = (await this.listActive()).filter((c) => c.accepted && !this.abandoned.has(c.id));
     const out: Deliverable[] = [];
     for (const c of accepted) {
       for (const d of c.terms.deliver ?? []) {

@@ -16,7 +16,6 @@ doctrine pass.
 | # | Open item | Migration step |
 | --- | --- | --- |
 | 1 | Contract acceptance takes a loss | **rule 5** for the silent-zero half; **doctrine** for the margin gate |
-| 2 | No way to abandon a contract | **step 4** — manual dispatch as a `hold` intent |
 | 3 | Two processes tick one fleet | ADR-0006 at process level; infrastructure, not a step |
 | 4 | Live UI updates (SSE) | **step 6** family — delivery of telemetry, not new telemetry |
 | 5 | A trader assigned work it cannot fund, forever | **doctrine** — the dispatcher has no affordability gate |
@@ -53,28 +52,12 @@ doctrine, not in a hardcoded `> 0`.
 
 ---
 
-## 2. No way to abandon a contract
+## 2. No way to abandon a contract — **FIXED**, see `subsystem-verification.md` step 9
 
-**Requested.** An operator needs to be able to cancel a contract from the UI.
-
-**Constraint worth knowing before designing it.** The SpaceTraders API has
-`accept`, `deliver`, `fulfill` and `negotiate` — and no cancel. An accepted
-contract cannot be handed back; it can only be completed or allowed to
-expire, and expiry costs reputation.
-
-So "abandon" can only mean: stop *working* it. Release the trader, drop the
-`contractBuy` assignment, stop sourcing the good, and let it lapse. The UI
-should say that plainly rather than offering a Cancel button that implies
-something the API cannot do — the honest control is "stop working this
-contract", with the reputation consequence stated.
-
-`ContractManager` already has a `declined` set, but it only covers contracts
-that were never accepted.
-
-Now cheaper than it was: the operator hold is an intent as of step 8, so
-"stop working this contract" is the same shape — persist the instruction,
-propose it each tick, let the dispatcher stop assigning the good. It no
-longer needs a new ownership channel of its own.
+Kept as a stub because the constraint behind it is worth not rediscovering:
+the API has `accept`, `deliver`, `fulfill` and `negotiate` and **no cancel**,
+so the control is "stop working this contract", not "cancel" — and the UI
+says so.
 
 ---
 

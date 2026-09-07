@@ -759,6 +759,75 @@ Not what was predicted, but positively observed rather than inferred:
 
 ---
 
+## Step 9 — "Stop working this contract"
+
+### Defect
+
+Requested twice and logged instead of built. An operator could watch a
+contract lose money — the confirmed case is a ~67,000c guaranteed loss worked
+for four hours — with no control anywhere in the UI to make the fleet let go
+of it. The contract card showed Decline/Accept while a contract was *offered*
+and, the moment it was accepted, nothing but a deadline countdown.
+
+A second defect found while building it, and the more serious of the two:
+**`declined` was an in-memory `Set`.** This service redeploys on every push.
+So an operator declining a contract had that decision silently discarded
+minutes later, and `acceptBest()` was free to accept the very contract they
+had just refused. The control that did exist did not survive its own process.
+
+### Change
+
+The API has `accept`, `deliver`, `fulfill` and `negotiate` — and **no
+cancel**. An accepted contract cannot be handed back. So the honest control is
+*stop working it*, and the UI says exactly that rather than offering a Cancel
+button that implies something the API cannot do. The confirm dialog states the
+consequence in full: the contract stays accepted, lapses at its deadline, and
+that costs reputation.
+
+Enforced in **one** place — `outstandingDeliveries()` filters abandoned
+contracts — because that is the single source every sourcing path already
+reads. `computeContractBuyTargets()` builds from it, so the good stops being
+dispatched; `releaseFulfilledManualContractBuys()` then clears any manual pin
+on the same tick. One filter, not a flag re-checked at four call sites that
+can each forget it.
+
+Two deliberate non-symmetries:
+
+- **`fulfillCompleted()` does not filter on it.** Standing down means refusing
+  to spend more, not refusing money already earned. If an abandoned contract
+  is somehow complete, take the payout.
+- **`deliverablesFor()` reads the contract directly**, not through
+  `outstandingDeliveries()` — which by design no longer lists it. A release
+  path routed through the filtered view would release nothing and the trader
+  would keep buying. That is the exact silent-wrong-answer shape rule 5 exists
+  for, and it was one keystroke away.
+
+`releaseContractCarriers()` lets the traders go immediately rather than
+waiting for the next tick to reconcile. Level-triggered reconciliation is the
+floor, not an excuse for a button that appears to do nothing for a cycle.
+
+Both operator decisions — declined and abandoned — now persist as one JSON
+blob under the same `fleet_flags` mechanism `shipManualState` uses, and are
+replayed at boot before anything can act on them.
+
+### Proof
+
+- **Tests:** 7 added; **all 7 fail with `contract.ts` stashed.** Whole-suite
+  control run: baseline 757 tests / 523 pass / 149 fail / 85 cancelled;
+  with the change 764 / 530 / **149** / **85** — every pre-existing failure
+  unchanged, all `ECONNREFUSED` on Postgres. Four UI files syntax-checked.
+- **Prediction:** pressing **Stop working** on the DRUGS contract produces
+  `contract cmtq3cdo: no longer being worked (operator) — it will lapse at its
+  deadline`, and, if a trader is pinned, `… released from DRUGS — contract
+  cmtq3cdo is no longer being worked`. The next `dispatch recompute:` line
+  drops `DRUGS:contractBuy` from its `work:` list — that line has been
+  byte-identical every minute for over an hour, so a change in it is
+  unambiguous. Across a redeploy the decision survives: boot logs
+  `contracts: 1 stood down by the operator, not being worked`.
+- **Live:** _pending — needs one press of the button._
+
+---
+
 ## Queue
 
 | # | Step | Status |
@@ -771,10 +840,11 @@ Not what was predicted, but positively observed rather than inferred:
 | 6 | Contract deliveries and payouts made visible | verified |
 | 7 | Cash floor honoured by trader purchases | verified |
 | 8 | Step 4 closed — one owner per hull | tests only — prediction **untested**, no dispatch of any kind occurred in the window |
-| 9 | `priceTable` → registry (single source of truth for prices) | not started |
-| 10 | Finish migration step 5 — `autoExplore()`/`exploreSystem()` and the rescue tender still fly ships | not started |
-| 11 | Multi-hop routing | not started |
-| 12 | Jump-gate construction status | not started |
+| 9 | "Stop working this contract" + operator decisions that survive a deploy | tests only — live confirmation needs one button press |
+| 10 | `priceTable` → registry (single source of truth for prices) | not started |
+| 11 | Finish migration step 5 — `autoExplore()`/`exploreSystem()` and the rescue tender still fly ships | not started |
+| 12 | Multi-hop routing | not started |
+| 13 | Jump-gate construction status | not started |
 
 Steps 4–9 and their rationale are in `control-plane-data-plane.md` §8 and
 §10. The ordering principle: do the loud-failure work before the structural

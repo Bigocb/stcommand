@@ -913,6 +913,32 @@ export class FleetManager {
    * releases any manual contractBuy assignment whose good no longer
    * appears in it.
    */
+  /**
+   * Let go of every trader sourcing for one contract, now.
+   *
+   * The tick would get there on its own — an abandoned contract drops out of
+   * outstandingDeliveries(), so its goods stop appearing in
+   * computeContractBuyTargets() and both the auto and manual paths clear. But
+   * an operator who presses "Stop working" should see the ship let go, not
+   * watch it buy for one more cycle: level-triggered reconciliation is the
+   * floor, not an excuse for a control that appears to do nothing.
+   *
+   * Returns the ships released, so the caller can say what happened.
+   */
+  async releaseContractCarriers(contractId: string, contracts: { deliverablesFor(contractId: string): Promise<string[]> }): Promise<string[]> {
+    const goods = new Set(await contracts.deliverablesFor(contractId));
+    if (!goods.size) return [];
+    const released: string[] = [];
+    for (const a of this.dispatcher.list()) {
+      if (a.role !== "contractBuy" || !goods.has(a.good)) continue;
+      if (a.source === "manual") await this.setManualDispatch(a.shipSymbol, undefined);
+      else this.dispatcher.release(a.shipSymbol);
+      released.push(a.shipSymbol);
+      this.log(`${a.shipSymbol}: released from ${a.good} — contract ${contractId.slice(0, 8)} is no longer being worked`);
+    }
+    return released;
+  }
+
   private async releaseFulfilledManualContractBuys(contractBuyTargets: ContractBuyTarget[]): Promise<void> {
     const stillNeeded = new Set(contractBuyTargets.map((t) => t.good));
     for (const a of this.dispatcher.list()) {
