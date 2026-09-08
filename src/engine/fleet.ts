@@ -2539,7 +2539,26 @@ export class FleetManager {
     // a jump of TP98.
     const here = this.tours.get(shipSymbol)?.getShip().nav.systemSymbol;
     const inThisSystem = (w: string) => here !== undefined && w.slice(0, w.lastIndexOf("-")) === here;
-    return all.filter((w, i) => inThisSystem(w) || i % tourShips.length === idx);
+
+    // "Never slice away this ship's own system" above meant *every* ship
+    // touring the same system saw the identical full local list — the
+    // round-robin below only ever differentiated *other* systems' markets,
+    // which is moot when several tour ships share one system. All of them
+    // computed the same "most stale, nearest" sort over the same shared
+    // staleness data and picked the same next target, tick after tick:
+    // four shuttles doing one shuttle's tour in lockstep, seen live in
+    // X1-S84. Split a system's own markets round-robin too, but only across
+    // the ships actually touring *that* system — a lone ship in its system
+    // still gets everything, which is the exact case the comment above
+    // exists to protect.
+    const localShips = here === undefined ? [] : tourShips.filter((sym) => this.tours.get(sym)?.getShip().nav.systemSymbol === here);
+    const localIdx = localShips.indexOf(shipSymbol);
+    const localMarkets = all.filter(inThisSystem);
+    const includedLocal = new Set(
+      localShips.length <= 1 ? localMarkets : localMarkets.filter((_, i) => i % localShips.length === localIdx),
+    );
+
+    return all.filter((w, i) => (inThisSystem(w) ? includedLocal.has(w) : i % tourShips.length === idx));
   }
 
   /**
