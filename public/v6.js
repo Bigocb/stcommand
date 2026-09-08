@@ -1813,7 +1813,7 @@ function fitSystemScale(pool) {
   const minY = Math.min(...ys, 0), maxY = Math.max(...ys, 0);
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
   const span = Math.max(maxX - minX, maxY - minY, 20);
-  const scale = 44 / span; // world units -> scene units, ~44 across at rest
+  const scale = 80 / span; // world units -> scene units, ~80 across at rest
   return { cx, cy, scale };
 }
 
@@ -1877,7 +1877,7 @@ function renderMap(ships, _trails = new Map()) {
 
   const s = fitSystemScale(sceneWaypoints);
   mapScale = s;
-  systemSpan = 44;
+  systemSpan = 80;
 
   clearGroup(bodiesGroup);
   clearGroup(ringsGroup);
@@ -1911,7 +1911,7 @@ function renderMap(ships, _trails = new Map()) {
       continue;
     }
     const maxEffR = Math.max(...group.map(effR));
-    const ringR = maxEffR * 1.7 + Math.min(group.length, 6) * 1.4;
+    const ringR = maxEffR * 3.2 + Math.min(group.length, 6) * 3;
     group.forEach((wp, i) => {
       const angle = (2 * Math.PI * i) / group.length;
       posBySymbol.set(wp.symbol, { x: baseX + ringR * Math.cos(angle), z: baseZ + ringR * Math.sin(angle) });
@@ -1924,7 +1924,7 @@ function renderMap(ships, _trails = new Map()) {
         const a = relaxEntries[i], b = relaxEntries[j];
         let dx = b.x - a.x, dz = b.z - a.z;
         let dist = Math.hypot(dx, dz);
-        const minDist = a.r + b.r + 1.5;
+        const minDist = a.r + b.r + 5;
         if (dist >= minDist) continue;
         if (dist < 0.01) { dx = 1; dz = 0; dist = 1; }
         const push = ((minDist - dist) / dist) * 0.5;
@@ -1999,7 +1999,7 @@ function renderMap(ships, _trails = new Map()) {
 
   // Frame the whole system, same intent as the flat map's default fit.
   orbitGoal.target.set(0, 0, 0);
-  orbitGoal.radius = 62;
+  orbitGoal.radius = 112;
   orbitGoal.phi = 1.0;
 
   renderShipsInto(ships, s);
@@ -2099,7 +2099,7 @@ function clearHullPulse() {
 
 function resetMapView() {
   orbitGoal.target.set(0, 0, 0);
-  orbitGoal.radius = 62;
+  orbitGoal.radius = 112;
   orbitGoal.theta = 0.7;
   orbitGoal.phi = 1.0;
 }
