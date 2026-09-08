@@ -9,7 +9,7 @@ import { resolve, join } from "node:path";
  * offer it as a destination, and because escaping back to it is how an
  * operator recovers from a half-finished newer version.
  */
-export const UI_VERSIONS = ["v2", "v3", "v4", "v5"] as const;
+export const UI_VERSIONS = ["v2", "v3", "v4", "v5", "v6"] as const;
 export type UiVersion = (typeof UI_VERSIONS)[number];
 
 /** Everything but v2 — the ones that need an explicit route. */

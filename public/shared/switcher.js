@@ -18,13 +18,14 @@ const VERSIONS = [
   { id: "v3", path: "/v3", label: "v3", title: "Refined Bridge" },
   { id: "v4", path: "/v4", label: "v4", title: "Deep Field" },
   { id: "v5", path: "/v5", label: "v5", title: "Mission Control" },
+  { id: "v6", path: "/v6", label: "v6", title: "3D Bridge (experimental)" },
 ];
 
 const STORAGE_KEY = "ui-version";
 
 /** Which version this document is, derived from its own path. */
 export function currentVersion() {
-  const m = window.location.pathname.match(/^\/(v[345])\b/);
+  const m = window.location.pathname.match(/^\/(v[3456])\b/);
   return m ? m[1] : "v2";
 }
 

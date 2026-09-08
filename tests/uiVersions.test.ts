@@ -77,7 +77,7 @@ describe("UI version routing", () => {
     // Whatever state a half-finished version gets into, going back to the
     // working one has to be reachable from inside it.
     assert.ok(UI_VERSIONS.includes("v2"));
-    assert.deepEqual([...UI_VERSIONS], ["v2", "v3", "v4", "v5"]);
+    assert.deepEqual([...UI_VERSIONS], ["v2", "v3", "v4", "v5", "v6"]);
   });
 });
 
