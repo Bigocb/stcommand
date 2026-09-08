@@ -2147,18 +2147,29 @@ function panCamera(dx, dy) {
   orbitGoal.target.z -= dx * rightZ * panSpeed - dy * fwdZ * panSpeed;
 }
 
+function rotateCamera(dx, dy) {
+  orbitGoal.theta -= dx * 0.006;
+  orbitGoal.phi = Math.max(0.2, Math.min(Math.PI - 0.2, orbitGoal.phi - dy * 0.005));
+}
+
 function attachMapControls() {
   $("map-fit")?.addEventListener("click", resetMapView);
+  // Right-click-drag orbits (desktop's usual "secondary drag" gesture) —
+  // genuine depth is one of the few things a 3D map has over the flat one,
+  // worth keeping reachable even though plain drag now pans.
+  host.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  let dragging = false, lastX = 0, lastY = 0, downX = 0, downY = 0;
+  let dragging = false, rotating = false, lastX = 0, lastY = 0, downX = 0, downY = 0;
   host.addEventListener("pointerdown", (e) => {
-    dragging = true; lastX = downX = e.clientX; lastY = downY = e.clientY;
+    if (e.button === 2) rotating = true; else dragging = true;
+    lastX = downX = e.clientX; lastY = downY = e.clientY;
     host.classList.add("dragging");
   });
   window.addEventListener("pointerup", (e) => {
-    dragging = false;
+    const wasRotating = rotating;
+    dragging = false; rotating = false;
     host.classList.remove("dragging");
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // was a drag, not a click
+    if (wasRotating || Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // was a drag, not a click
     const hit = pickAt(e.clientX, e.clientY);
     if (!hit) { if (mapTipFor) hideWaypointTip(); return; }
     if (hit.kind === "ship") openShipDetails(hit.symbol);
@@ -2168,10 +2179,10 @@ function attachMapControls() {
     }
   });
   window.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
+    if (!dragging && !rotating) return;
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
-    panCamera(dx, dy);
+    if (rotating) rotateCamera(dx, dy); else panCamera(dx, dy);
   });
   host.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -2180,10 +2191,17 @@ function attachMapControls() {
   }, { passive: false });
   host.addEventListener("dblclick", resetMapView);
 
-  let pinchDist = null;
+  // Touch: one finger pans, two fingers combine pinch-to-zoom (distance)
+  // with drag-to-rotate (midpoint movement) in the same gesture.
+  let pinchDist = null, pinchMidX = 0, pinchMidY = 0;
   host.addEventListener("touchstart", (e) => {
     if (e.touches.length === 1) { dragging = true; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }
-    else if (e.touches.length === 2) pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    else if (e.touches.length === 2) {
+      const [a, b] = e.touches;
+      pinchDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      pinchMidX = (a.clientX + b.clientX) / 2;
+      pinchMidY = (a.clientY + b.clientY) / 2;
+    }
   }, { passive: true });
   host.addEventListener("touchmove", (e) => {
     if (e.touches.length === 1 && dragging) {
@@ -2192,10 +2210,14 @@ function attachMapControls() {
       lastX = t.clientX; lastY = t.clientY;
       panCamera(dx, dy);
     } else if (e.touches.length === 2 && pinchDist != null) {
-      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      const [a, b] = e.touches;
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
       const min = systemSpan * 0.35, max = systemSpan * 6;
       orbitGoal.radius = Math.max(min, Math.min(max, orbitGoal.radius * (1 + (pinchDist - d) * 0.004)));
       pinchDist = d;
+      const midX = (a.clientX + b.clientX) / 2, midY = (a.clientY + b.clientY) / 2;
+      rotateCamera(midX - pinchMidX, midY - pinchMidY);
+      pinchMidX = midX; pinchMidY = midY;
     }
   }, { passive: true });
   host.addEventListener("touchend", () => { dragging = false; pinchDist = null; });
