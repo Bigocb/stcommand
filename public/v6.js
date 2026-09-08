@@ -1732,6 +1732,18 @@ function initMap3D() {
   glowGroup = new THREE.Group();
   scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup);
 
+  // Bodies use a lit material now (see WP3D_MATERIAL below) instead of flat
+  // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object; an
+  // unlit one always reads as a flat colored disc no matter how good the
+  // geometry underneath it is. Hemisphere light gives a soft, ambient
+  // "in-space" fill with no true shadow side (nothing here should go fully
+  // black); the point light does the actual modeling — a highlight and a
+  // falloff so each body reads as a sphere, not a circle.
+  scene.add(new THREE.HemisphereLight(0x99aaff, 0x0a0a12, 0.55));
+  const keyLight = new THREE.PointLight(0xffffff, 1.4, 0, 0.7);
+  keyLight.position.set(60, 90, 40);
+  scene.add(keyLight);
+
   raycaster = new THREE.Raycaster();
   pointerNdc = new THREE.Vector2();
 
@@ -1965,7 +1977,7 @@ function renderMap(ships, _trails = new Map()) {
 
     const body = new THREE.Mesh(
       new THREE.SphereGeometry(size, 20, 16),
-      new THREE.MeshBasicMaterial({ color }),
+      new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 }),
     );
     body.position.set(x, 0, z);
     bodiesGroup.add(body);
