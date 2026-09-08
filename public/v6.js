@@ -2107,7 +2107,11 @@ function renderShipsInto(ships, s) {
   const dockedOffset = new Map();
   for (const [wpSymbol, symbols] of dockedByWaypoint) {
     const bodyR = WP3D_SIZE[waypoints.find((w) => w.symbol === wpSymbol)?.type] ?? 1.8;
-    const ringR = bodyR + 1.6 + Math.min(symbols.length, 6) * 0.55;
+    // Extra margin beyond the body's true radius: the camera views from an
+    // angle, so a ship offset only just past the sphere's edge can still
+    // land inside its on-screen silhouette from some angles even though
+    // it's not actually touching in 3D.
+    const ringR = bodyR + 2.6 + Math.min(symbols.length, 6) * 0.55;
     symbols.forEach((sym, i) => {
       const angle = (2 * Math.PI * i) / symbols.length;
       dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dz: ringR * Math.sin(angle) });
@@ -2122,7 +2126,7 @@ function renderShipsInto(ships, s) {
 
     const group = new THREE.Group();
     const body = new THREE.Mesh(
-      new THREE.ConeGeometry(0.7, 1.7, 4),
+      new THREE.ConeGeometry(0.45, 1.1, 4),
       // Lit like the waypoint bodies now, but with a strong emissive glow
       // in the same color rather than plain unlit — a ship still has to
       // read as a bright, glanceable marker at a glance, not a shaded
@@ -2133,7 +2137,7 @@ function renderShipsInto(ships, s) {
     group.add(body);
     if (sel) {
       const halo = new THREE.Mesh(
-        new THREE.RingGeometry(1.7, 2.1, 32),
+        new THREE.RingGeometry(1.1, 1.4, 32),
         new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
       );
       halo.rotation.x = -Math.PI / 2;
