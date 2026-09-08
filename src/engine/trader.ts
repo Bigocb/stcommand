@@ -230,7 +230,17 @@ export class TraderAgent {
    * read it back here, so what the ship does with cargo depends on why it
    * bought it, not on what the scheduler happens to want now.
    */
-  private heldRoute = new Map<string, DirectLeg>();
+  // lotSize here is the same per-transaction cap the buy loop chunked
+  // against — deliverHeldCargo() needs it to sell in the same size chunks.
+  // A single sellCargo() call for the whole held quantity (up to
+  // route.volume, now sized against cargo/credits rather than trade volume
+  // — see viableRoute()) hits the market's own "limit of Nu per
+  // transaction" the instant a trip buys more than one lot's worth, which
+  // it now routinely does. Confirmed live: ships buying a full 80u hold on
+  // a 20u/tx market, spending the whole purchase, then failing every sell
+  // attempt forever — the money leaves on the buy, and the trip never
+  // completes to bring any of it back.
+  private heldRoute = new Map<string, DirectLeg & { lotSize: number }>();
   /** Routes rejected by the live buy-price guard this tick (good@buyAt). */
   private deadRoutes = new Set<string>();
   /** Legs whose far end the galaxy says cannot be reached at all — see the
@@ -1055,30 +1065,62 @@ export class TraderAgent {
         this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
         return true;
       }
-      this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
-      const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
-      this.currentStep = IDLE_STEP;
-      this.ship = { ...this.ship, cargo: sold.cargo };
-      this.recordLedger?.({
-        timestamp: new Date().toISOString(),
-        shipSymbol: this.symbol,
-        waypointSymbol: this.ship.nav.waypointSymbol,
-        type: "SELL",
-        tradeSymbol: item.symbol,
-        units: item.units,
-        pricePerUnit: sold.transaction.pricePerUnit,
-        total: sold.transaction.totalPrice,
-      });
-      this.log(`cleared leftover ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${this.ship.nav.waypointSymbol}`);
-      this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice, this.symbol);
+      // A single sellCargo() call is capped at the market's own advertised
+      // trade volume per transaction — route.volume upstream can now be well
+      // past that (see viableRoute()'s comment), so a hold bigger than one
+      // lot must be sold in lotSize-sized chunks. Getting this wrong here is
+      // worse than in deliverHeldCargo(): a "trade volume exceeded" error
+      // was indistinguishable from "market won't buy this good at all", and
+      // the catch below jettisoned — destroyed — the *entire* held quantity
+      // on that assumption. Confirmed live: a full 80u hold of an expensive
+      // good bought fine (in its own lotSize-sized chunks) and then this
+      // sweep tried to sell all 80 in one call, got the trade-volume error,
+      // and threw the whole purchase away with nothing recovered.
+      const lotSize = this.priceTable.get(this.ship.nav.waypointSymbol)?.get(item.symbol)?.volume || item.units;
+      let remaining = item.units;
+      let totalReceived = 0;
+      let soldAny = 0;
+      while (remaining > 0) {
+        const lot = Math.min(lotSize, remaining);
+        this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
+        const sold = await this.api.sellCargo(this.symbol, item.symbol, lot);
+        this.currentStep = IDLE_STEP;
+        this.ship = { ...this.ship, cargo: sold.cargo };
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: this.symbol,
+          waypointSymbol: this.ship.nav.waypointSymbol,
+          type: "SELL",
+          tradeSymbol: item.symbol,
+          units: lot,
+          pricePerUnit: sold.transaction.pricePerUnit,
+          total: sold.transaction.totalPrice,
+        });
+        this.onActivity?.("sell", `${lot}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice, this.symbol);
+        remaining -= lot;
+        soldAny += lot;
+        totalReceived += sold.transaction.totalPrice;
+        if (remaining > 0 && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
+          this.recordDoctrineFire?.("maxLossPct");
+          this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
+          break;
+        }
+      }
+      this.log(`cleared leftover ${soldAny}u ${item.symbol} at ${this.ship.nav.waypointSymbol} (${totalReceived}c)`);
       return true;
     } catch (err) {
-      // market doesn't buy it — jettison to free the hold
+      // Reached when a lot itself fails outright — a real "market doesn't
+      // buy this good", not merely "not this many at once" (the loop above
+      // already chunks around that). Jettison only what's still actually in
+      // the hold: `remaining`, not the original item.units — a failure
+      // partway through the loop has already sold some of it for real.
+      const stillHeld = (this.ship.cargo.inventory ?? []).find((i) => i.symbol === item.symbol)?.units ?? 0;
+      if (stillHeld <= 0) return true;
       this.currentStep = { kind: "transacting", action: "jettison", good: item.symbol };
-      const j = await this.api.jettisonCargo(this.symbol, item.symbol, item.units);
+      const j = await this.api.jettisonCargo(this.symbol, item.symbol, stillHeld);
       this.currentStep = IDLE_STEP;
       this.ship = { ...this.ship, cargo: j.cargo };
-      this.log(`jettisoned ${item.units}u ${item.symbol} (no buyer)`);
+      this.log(`jettisoned ${stillHeld}u ${item.symbol} (no buyer): ${err instanceof Error ? err.message : String(err)}`);
       return true;
     }
   }
@@ -1246,29 +1288,59 @@ export class TraderAgent {
         return true;
       }
 
-      this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
-      this.assertAt(leg.sellAt, `sell ${item.symbol}`);
-      const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
-      this.currentStep = IDLE_STEP;
-      this.ship = { ...this.ship, cargo: sold.cargo };
-      this.recordLedger?.({
-        timestamp: new Date().toISOString(),
-        shipSymbol: this.symbol,
-        waypointSymbol: this.ship.nav.waypointSymbol,
-        type: "SELL",
-        tradeSymbol: item.symbol,
-        units: item.units,
-        pricePerUnit: sold.transaction.pricePerUnit,
-        total: sold.transaction.totalPrice,
-      });
+      // A single sellCargo() call is capped at the market's own advertised
+      // trade volume per transaction, same as a purchase — route.volume can
+      // now be well past that (see viableRoute()'s comment), so a hold
+      // bought in several lots is sold off in the same lot.lotSize-sized
+      // chunks. lotSize falls back to the whole quantity for cargo pinned by
+      // an older in-memory leg (pre-dating this field) rather than treating
+      // a missing value as "sell nothing".
+      const lotSize = leg.lotSize > 0 ? leg.lotSize : item.units;
+      let remaining = item.units;
+      let totalReceived = 0;
+      let soldAny = 0;
+      while (remaining > 0) {
+        const lot = Math.min(lotSize, remaining);
+        this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
+        this.assertAt(leg.sellAt, `sell ${item.symbol}`);
+        const sold = await this.api.sellCargo(this.symbol, item.symbol, lot);
+        this.currentStep = IDLE_STEP;
+        this.ship = { ...this.ship, cargo: sold.cargo };
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: this.symbol,
+          waypointSymbol: this.ship.nav.waypointSymbol,
+          type: "SELL",
+          tradeSymbol: item.symbol,
+          units: lot,
+          pricePerUnit: sold.transaction.pricePerUnit,
+          total: sold.transaction.totalPrice,
+        });
+        this.onActivity?.("sell", `${lot}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt}`, sold.transaction.totalPrice, this.symbol);
+        remaining -= lot;
+        soldAny += lot;
+        totalReceived += sold.transaction.totalPrice;
+        // Selling in bulk depresses the local price lot over lot — stop
+        // dumping the rest of the hold once a lot's own realized price has
+        // fallen below the loss floor, same guard the pre-loop live-price
+        // check already applied once, up front.
+        if (remaining > 0 && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
+          this.recordDoctrineFire?.("maxLossPct");
+          this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
+          break;
+        }
+      }
       // The buy happened on an earlier tick, so the cost basis comes from
       // heldCost rather than a purchase response in scope. Signed, because a
       // loss rendered as "(+-9036c)" is what hid a losing loop for hours.
-      const paid = (this.heldCost.get(item.symbol) ?? 0) * item.units;
-      const delta = sold.transaction.totalPrice - paid;
-      this.log(`sold ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt} (${delta >= 0 ? "+" : ""}${delta}c)`);
-      this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt}`, sold.transaction.totalPrice, this.symbol);
-      this.heldRoute.delete(item.symbol);
+      const paid = (this.heldCost.get(item.symbol) ?? 0) * soldAny;
+      const delta = totalReceived - paid;
+      this.log(`sold ${soldAny}u ${item.symbol} at ${leg.sellAt} (${delta >= 0 ? "+" : ""}${delta}c)`);
+      // Only the units actually sold are done — a lot cut short by the loss
+      // floor left real cargo in the hold, and deleting the pin here would
+      // hand it to clearLeftoverCargo()'s sweep instead of retrying this
+      // same route (and its already-verified sellAt) on the next tick.
+      if (remaining <= 0) this.heldRoute.delete(item.symbol);
       return true;
     }
     return undefined;
@@ -1362,7 +1434,7 @@ export class TraderAgent {
       }
       if (bought <= 0) return true;
       this.heldCost.set(route.good, totalPaid / bought);
-      this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice });
+      this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize });
       // Stop here. The sell is a separate reconciled step — deliverHeldCargo()
       // picks the trip up next tick from the pin just recorded, and gets to
       // the market by arriving there rather than by falling through a
