@@ -1633,46 +1633,288 @@ function shipGlyphMarkup(role, docked, headingDeg) {
 
 
 
-/** The ships array and sx/sy scale functions from the most recent renderMap()
- *  call, reused by repositionShips() so per-frame animation never recomputes
- *  view bounds or drifts from what was actually drawn — see that function's
- *  own comment for why it can't just read state.ships directly (replay scrub
- *  draws a synthetic ship list renderMap() was actually called with, not
- *  live state). */
+
+
+/**
+ * ── 3D map (v6) ──────────────────────────────────────────────────────────
+ *
+ * v3's flat SVG map replaced by a WebGL scene: the current system's
+ * waypoints laid out at their real x/y (unchanged data, just plotted on a
+ * horizontal plane instead of a flat screen), viewed through a camera that
+ * orbits instead of panning/zooming a 2D transform. A waypoint sharing its
+ * exact x/y with another (a station orbiting its planet — SpaceTraders does
+ * this routinely) sits at the same point in 3D too, same as it always did;
+ * the win over the flat map is that "same point" now separates visibly the
+ * moment the camera tilts even slightly, with no cluster-ring math needed.
+ *
+ * A faint ring is drawn at each waypoint's real distance from the system's
+ * origin (0,0) — an orbit path, not decoration: that radius is the same
+ * hypot(x,y) the flat map already had, just drawn instead of implied.
+ *
+ * Everything downstream of "where is this waypoint/ship in the scene" is
+ * unchanged: showWaypointTip()/openShipDetails() are the exact same
+ * functions v3 called, and shipTransitLerp() (imported from domain.js) is
+ * the exact same world-space interpolation the flat map used — only the
+ * projection from world (x,y) to something on screen changed.
+ *
+ * Not ported in this pass: motion trails, and pinch/scroll-zoom's old
+ * fixed 0.5–24x range (replaced by an orbit radius clamp scaled to each
+ * system's own span, so "zoomed out" always means "the whole system", not
+ * a magic number tuned for one).
+ */
+
 let lastRenderedShips = [];
+/** World-space → scene-space transform from the most recent renderMap()
+ *  call: an offset (the system's own centroid) and a uniform scale, so
+ *  repositionShips() places a ship exactly where renderMap() would have
+ *  placed a waypoint at the same coordinate. */
 let mapScale = null;
 let shipAnimHandle = null;
-/** Live motion-trail state (repositionShips()'s own — distinct from the
- *  replay scrubber's waypoint-history trails passed into renderMap()).
- *  shipSymbol -> recent screen positions, oldest first, sampled by on-screen
- *  distance moved (not a fixed time cadence) and capped short: this is a
- *  "yes, it's really moving" cue for a transit whose per-frame pixel
- *  displacement is otherwise too small to notice at real game speed, not a
- *  flight-path record. Distance-based sampling (rather than the original
- *  fixed-interval one) matters because a 200ms tick of real flight time is
- *  often a fraction of a pixel at real game speed — a time-based sample was
- *  visually indistinguishable from a solid dot. Sampling by distance instead
- *  guarantees every recorded segment is actually long enough to see,
- *  independent of ship speed or zoom level. */
+/** Live motion-trail state — same idea as the flat map's own liveTrails/
+ *  lastTrailSamplePos (a per-ship buffer of recently sampled scene
+ *  positions, sampled by distance moved rather than by frame or timer, so
+ *  a ship sitting still doesn't fill the buffer with duplicate points). */
 let liveTrails = new Map();
 let lastTrailSamplePos = new Map();
-const TRAIL_SAMPLE_MIN_PX = 4;
-const TRAIL_MAX_POINTS = 10; // ~40px of trail at the sample distance above — longer reads as more deliberate motion than the original 6
+/** The THREE.Line[] currently drawn for each ship's live trail, so
+ *  repositionShips() can replace just that ship's segments each frame
+ *  without touching linesGroup's renderMap()-owned contents. */
+let liveTrailObjects = new Map();
+const TRAIL_SAMPLE_MIN_SCENE = 0.5; // scene units — the flat map's 4px analog
+const TRAIL_MAX_POINTS = 10;
 
+const WP3D_COLOR = {
+  PLANET: "--ice", GAS_GIANT: "--violet", MOON: "--buff",
+  ORBITAL_STATION: "--bone", ASTEROID_BASE: "--bone",
+  JUMP_GATE: "--teal", ASTEROID_FIELD: "--warn", ASTEROID: "--warn",
+  ENGINEERED_ASTEROID: "--red", FUEL_STATION: "--teal",
+  NEBULA: "--violet", DEBRIS_FIELD: "--violet", GRAVITY_WELL: "--violet",
+  ARTIFICIAL_GRAVITY_WELL: "--violet",
+};
+// Kept small deliberately: a body's own radius feeds straight into the
+// anti-overlap minimum distance below, so a large radius swallows small
+// real coordinate differences under "just enough padding to not overlap."
+// Shrinking the bodies gives real distances room to read as real distances.
+const WP3D_SIZE = {
+  PLANET: 1.5, GAS_GIANT: 2.1, MOON: 0.72,
+  ORBITAL_STATION: 0.72, ASTEROID_BASE: 0.72,
+  JUMP_GATE: 1.05, ASTEROID_FIELD: 1, ASTEROID: 0.9,
+  ENGINEERED_ASTEROID: 1, FUEL_STATION: 1,
+  NEBULA: 1.2, DEBRIS_FIELD: 1.05, GRAVITY_WELL: 1.05,
+  ARTIFICIAL_GRAVITY_WELL: 1.05,
+};
+const SHIP3D_COLOR = {
+  miner: "--buff", scout: "--violet", tour: "--violet",
+  surveyor: "--teal", siphoner: "--teal",
+  keeper: "--bone", warehouse: "--bone",
+};
+
+/** A CSS custom property, resolved to whatever color space it's actually
+ *  declared in (oklch, hex, whatever the hue picker set) via the browser's
+ *  own conversion, so the 3D scene tracks the live theme — including the
+ *  operator's hue choice — instead of a hardcoded copy of it. */
+const cssColorCache = new Map();
+const colorProbe = document.createElement("span");
+colorProbe.style.display = "none";
+document.body.appendChild(colorProbe);
+// Read back through a 1x1 canvas rather than THREE.Color.setStyle(): the
+// theme's --accent is declared in oklch (so the hue picker can rotate it),
+// and modern browsers hand that straight back from getComputedStyle() as an
+// oklch() string. THREE r128 predates CSS Color 4 and can't parse that —
+// setStyle() fails silently, leaving the accent black. Canvas fillStyle
+// parsing goes through the browser's own CSS color engine and always reads
+// back as sRGB bytes via getImageData(), so it handles any color syntax the
+// stylesheet throws at it without this needing to know which one that is.
+const probeCanvas = document.createElement("canvas");
+probeCanvas.width = 1; probeCanvas.height = 1;
+const probeCtx = probeCanvas.getContext("2d", { willReadFrequently: true });
+function cssColor(varName) {
+  colorProbe.style.color = `var(${varName})`;
+  const value = getComputedStyle(colorProbe).color;
+  probeCtx.fillStyle = value;
+  probeCtx.fillRect(0, 0, 1, 1);
+  const [r, g, b] = probeCtx.getImageData(0, 0, 1, 1).data;
+  return new THREE.Color(r / 255, g / 255, b / 255);
+}
+function invalidateColorCache() { cssColorCache.clear(); }
+function themedColor(varName) {
+  if (!cssColorCache.has(varName)) cssColorCache.set(varName, cssColor(varName));
+  return cssColorCache.get(varName);
+}
+// The hue picker (header) repaints --accent-hue on click; ship/selection
+// materials below are read once at scene-build time, so a hue change needs
+// this to know the cache is stale. Cheap: only fires on an explicit click.
+document.getElementById("hue-picker")?.addEventListener("click", (e) => {
+  if (e.target.closest(".hue-btn")) { invalidateColorCache(); scheduleRebuild(); }
+});
+
+let scene, camera, renderer, host;
+let bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup, chromeGroup;
+const pickables = []; // { mesh, kind: 'waypoint'|'ship', symbol }
+let raycaster, pointerNdc;
+const orbitCam = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
+const orbitGoal = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
+let systemSpan = 60; // current system's own radius, used to scale zoom limits to it
+let sceneReady = false;
+let pendingRebuild = null;
+let mapUnavailable = false;
+let framedSystem = null; // which system the camera was last auto-fit to
+
+function initMap3D() {
+  if (sceneReady || mapUnavailable) return;
+  host = $("map3d");
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(50, host.clientWidth / host.clientHeight || 1, 0.1, 4000);
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  } catch (err) {
+    mapUnavailable = true;
+    host.innerHTML = '<div class="map3d-unavailable">3D map unavailable — this browser has no WebGL support.</div>';
+    return;
+  }
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(host.clientWidth || 1, host.clientHeight || 1);
+  host.appendChild(renderer.domElement);
+
+  bodiesGroup = new THREE.Group();
+  ringsGroup = new THREE.Group();
+  shipsGroup = new THREE.Group();
+  glowGroup = new THREE.Group();
+  linesGroup = new THREE.Group();
+  // Separate from linesGroup deliberately: renderMap() clears and rebuilds
+  // linesGroup on every state refresh, but a live trail has to survive
+  // that — it's built up frame by frame in repositionShips(), independent
+  // of the slower render cycle.
+  liveTrailGroup = new THREE.Group();
+  // The instrument chrome (range rings + polar spokes) this version's flat
+  // map always had — ported to 3D as actual geometry at each ring's real
+  // world distance (run through the same sqrt-compressed worldToScene()
+  // every waypoint uses) rather than dropped for v6's plainer look.
+  chromeGroup = new THREE.Group();
+  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup, chromeGroup);
+
+  // Bodies use a lit material now (see WP3D_MATERIAL below) instead of flat
+  // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object; an
+  // unlit one always reads as a flat colored disc no matter how good the
+  // geometry underneath it is. Hemisphere light gives a soft, ambient
+  // "in-space" fill with no true shadow side (nothing here should go fully
+  // black); the point light does the actual modeling — a highlight and a
+  // falloff so each body reads as a sphere, not a circle.
+  scene.add(new THREE.HemisphereLight(0x99aaff, 0x0a0a12, 0.55));
+  const keyLight = new THREE.PointLight(0xffffff, 1.4, 0, 0.7);
+  keyLight.position.set(60, 90, 40);
+  scene.add(keyLight);
+
+  raycaster = new THREE.Raycaster();
+  pointerNdc = new THREE.Vector2();
+
+  applyOrbitCamera();
+  attachMapControls();
+  new ResizeObserver(onMapResize).observe(host);
+  sceneReady = true;
+  tickMap3D();
+}
+
+function onMapResize() {
+  if (!sceneReady) return;
+  const w = host.clientWidth || 1, h = host.clientHeight || 1;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+
+function applyOrbitCamera() {
+  const sp = orbitCam.radius * Math.sin(orbitCam.phi);
+  camera.position.set(
+    orbitCam.target.x + sp * Math.cos(orbitCam.theta),
+    orbitCam.target.y + orbitCam.radius * Math.cos(orbitCam.phi),
+    orbitCam.target.z + sp * Math.sin(orbitCam.theta),
+  );
+  camera.up.set(0, 1, 0);
+  camera.lookAt(orbitCam.target);
+}
+
+function makeGlowSprite(color, size) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  const hex = "#" + color.getHexString();
+  g.addColorStop(0, hex + "aa");
+  g.addColorStop(1, hex + "00");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  sp.scale.set(size, size, 1);
+  return sp;
+}
+
+function makeLabelSprite(text, color) {
+  // The sprite maps its *whole* texture onto whatever quad sp.scale gives
+  // it — sizing that quad from the measured text width while the canvas
+  // stayed a fixed, mostly-blank 220x28 squished the entire texture (glyphs
+  // included) down to a sliver. Sizing the canvas to the text itself keeps
+  // canvas pixels and sprite-scale units in the same frame, so nothing gets
+  // squeezed.
+  const scale = 3;
+  const font = "600 13px Rajdhani, sans-serif";
+  const measure = document.createElement("canvas").getContext("2d");
+  measure.font = font;
+  const w = Math.ceil(measure.measureText(text).width) + 6;
+  const h = 20;
+  const c = document.createElement("canvas");
+  c.width = w * scale; c.height = h * scale;
+  const ctx = c.getContext("2d");
+  ctx.scale(scale, scale);
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textBaseline = "top";
+  ctx.fillText(text, 3, 3);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  sp.scale.set(w * 0.1, h * 0.1, 1);
+  sp.center.set(0, 0.5);
+  return sp;
+}
+
+/**
+ * Same shape as the flat map's own bounding-box fit (renderMap()'s
+ * min/max/span/pad math) — the whole system framed by default rather than
+ * cropped to whatever happens to be active — just producing a 3D scale
+ * factor and centroid instead of an SVG viewBox.
+ */
+/**
+ * A linear world->scene scale cannot show both ends of a real SpaceTraders
+ * system at once: a home cluster's own members are often tens of units
+ * apart while a genuine outlier sits hundreds of units out — two orders of
+ * magnitude apart. Scaled to keep the outlier on screen, the home cluster's
+ * real spacing collapses to sub-body-size and the anti-overlap pass alone
+ * decides its layout; scaled to resolve the home cluster, outliers go off
+ * the edge. Distance from the system's star (its natural center, (0,0) in
+ * SpaceTraders' own coordinates) is compressed through sqrt() instead — the
+ * same trick subway maps and fisheye views use for data with a huge dynamic
+ * range: nearby differences get outsized visual room, a distant point still
+ * reads as clearly farther, without either end swallowing the other's
+ * resolution.
+ */
 /* ── the display's instrument chrome ───────────────────────────
-   What separates a sector plot from a scatter chart is that a plot tells
-   you how far apart things are. The waypoints alone never did: the scale
-   is fitted to whatever the system happens to span, so two maps of two
-   systems look identical and mean completely different distances.
-
-   Two layers, and they are separate for a reason. The graticule and the
-   range rings measure the world, so they live inside #map-view and scale
-   with it — a ring stays the same distance when you zoom. The corner
-   ticks and the readouts describe the *viewport*, so they sit outside the
-   group in screen space and stay put.
-
-   Rings and grid share one step, so the two read as one scale rather than
-   as two decorations that happen to overlap. */
+   This version's flat map always drew range rings and a grid so a system's
+   scale read at a glance rather than being implied by whatever the system
+   happened to span. In 3D that becomes real geometry: rings at true world
+   distance from the system's origin (run through the same sqrt-compressed
+   worldToScene() every waypoint uses, so a ring and the bodies inside it
+   agree on distance), plus polar spokes standing in for the flat map's
+   Cartesian graticule — a straight x/y grid line doesn't survive radial
+   compression as a straight line, but a spoke from the origin does, and a
+   polar grid is the honest chrome for a radially-scaled display anyway.
+   The corner ticks and the readout are screen-space HTML/CSS overlay
+   elements (see #map3d-frame in the markup) rather than SVG, since the
+   scene itself is now a WebGL canvas with no SVG layer to draw them into —
+   but they stay fixed over the viewport exactly as they did on the flat
+   map. */
+const CHROME_COLOR = 0x7ea6d6;
 
 /** The 1-2-5 step at or just above `target` — the spacings a scale can use
  *  and still be read off at a glance. */
@@ -1686,62 +1928,100 @@ function niceStep(target) {
   return 10 * mag;
 }
 
-function displayGraticule(sx, sy, minX, maxX, minY, maxY, w, h, pad, ringStep) {
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const pxPerWorld = (w - pad * 2) / (maxX - minX || 1);
-  const maxR = Math.min(w, h) / 2 - pad / 2;
-  let g = '<g class="chrome" aria-hidden="true">';
-  // Drawn well past the viewport so the grid still covers the frame when
-  // the operator zooms out below 1x, which this map allows.
-  const span = (v) => [-v, v * 2];
-  for (let x = Math.ceil(minX / ringStep) * ringStep; x <= maxX; x += ringStep) {
-    const [y0, y1] = span(h);
-    g += `<line class="grat" x1="${sx(x).toFixed(1)}" y1="${y0}" x2="${sx(x).toFixed(1)}" y2="${y1}"/>`;
-  }
-  for (let y = Math.ceil(minY / ringStep) * ringStep; y <= maxY; y += ringStep) {
-    const [x0, x1] = span(w);
-    g += `<line class="grat" x1="${x0}" y1="${sy(y).toFixed(1)}" x2="${x1}" y2="${sy(y).toFixed(1)}"/>`;
-  }
+/** Rebuilds chromeGroup for the current system and returns the ring step
+ *  used (or null if the system has too little span to plot one), so
+ *  updateMapFrameOverlay() can report the same number the rings show. */
+function renderChrome3D(sceneWaypoints, s) {
+  clearGroup(chromeGroup);
+  let maxR = 20;
+  for (const wp of sceneWaypoints) maxR = Math.max(maxR, Math.hypot(wp.x, wp.y));
+  if (sceneWaypoints.length < 2) return null;
+  // Three rings fit inside the plotted frame whatever the system spans —
+  // same target the flat map's own graticule solved for, just in world
+  // units instead of pixels since there's no fixed pad/viewport here.
+  const ringStep = niceStep(maxR / 3);
+
   for (let i = 1; i <= 4; i++) {
-    const r = i * ringStep * pxPerWorld;
-    if (r > maxR) break;
-    g += `<circle class="ring" cx="${sx(cx).toFixed(1)}" cy="${sy(cy).toFixed(1)}" r="${r.toFixed(1)}"/>`;
-    g += `<text class="rng" x="${(sx(cx) + r).toFixed(1)}" y="${(sy(cy) - 5).toFixed(1)}" text-anchor="end">${fmt(i * ringStep)}</text>`;
+    const worldR = i * ringStep;
+    if (worldR > maxR * 1.3) break;
+    const sceneR = Math.sqrt(worldR) * s.scale;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(sceneR - 0.05, sceneR + 0.05, 96),
+      new THREE.MeshBasicMaterial({ color: CHROME_COLOR, transparent: true, opacity: 0.22, side: THREE.DoubleSide }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    chromeGroup.add(ring);
+
+    const label = makeLabelSprite(`${fmt(worldR)}u`, "#7ea6d6");
+    label.position.set(sceneR + 1.2, 0.4, 0);
+    chromeGroup.add(label);
   }
-  return g + "</g>";
+
+  // Polar spokes stand in for the flat map's Cartesian graticule — a
+  // straight world-space grid line doesn't survive radial (sqrt) distance
+  // compression as a straight line, but a ray from the origin does.
+  const spokeR = Math.sqrt(maxR * 1.3) * s.scale;
+  for (let deg = 0; deg < 360; deg += 45) {
+    const rad = (deg * Math.PI) / 180;
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0.02, 0),
+      new THREE.Vector3(spokeR * Math.cos(rad), 0.02, spokeR * Math.sin(rad)),
+    ]);
+    const mat = new THREE.LineBasicMaterial({ color: CHROME_COLOR, transparent: true, opacity: 0.08 });
+    chromeGroup.add(new THREE.Line(geo, mat));
+  }
+
+  return ringStep;
 }
 
-/** Viewport furniture: corner ticks and a readout line, in screen space. */
-function displayFrame(w, h, wpCount, ringStep) {
-  const t = 13, m = 9;
-  const corner = (x, y, dx, dy) =>
-    `<path class="tick" d="M${x} ${y + dy * t}L${x} ${y}L${x + dx * t} ${y}"/>`;
-  // No ring step means no rings were drawn, so the readout must not claim one.
-  const scale = ringStep == null ? "" : ` &#183; RING ${fmt(ringStep)}u`;
-  return `<g class="frame" aria-hidden="true">
-    ${corner(m, m, 1, 1)}${corner(w - m, m, -1, 1)}${corner(m, h - m, 1, -1)}${corner(w - m, h - m, -1, -1)}
-    <text class="readout" x="${w - m - 8}" y="${h - m - 22}" text-anchor="end">${wpCount} WAYPOINT${wpCount === 1 ? "" : "S"}${scale}</text>
-  </g>`;
+/** The corner ticks are static CSS on #map3d-frame; only the readout text
+ *  changes per render, same information the flat map's displayFrame()
+ *  printed (waypoint count + ring step), sourced from the same numbers. */
+function updateMapFrameOverlay(wpCount, ringStep) {
+  const el = document.getElementById("map3d-readout");
+  if (!el) return;
+  const scale = ringStep == null ? "" : ` · RING ${fmt(ringStep)}u`;
+  el.textContent = `${wpCount} WAYPOINT${wpCount === 1 ? "" : "S"}${scale}`;
+}
+
+function fitSystemScale(pool) {
+  let maxR = 20;
+  for (const p of pool) maxR = Math.max(maxR, Math.hypot(p.x, p.y));
+  const scale = 80 / Math.sqrt(maxR); // world units -> scene units, ~80 across at rest
+  return { scale };
+}
+
+function worldToScene(x, y, s) {
+  const r = Math.hypot(x, y);
+  if (r < 1e-6) return { x: 0, z: 0 };
+  const rPrime = Math.sqrt(r) * s.scale;
+  return { x: (x / r) * rPrime, z: (y / r) * rPrime };
+}
+
+function clearGroup(g) {
+  while (g.children.length) {
+    const c = g.children.pop();
+    c.geometry?.dispose?.();
+    c.material?.map?.dispose?.();
+    c.material?.dispose?.();
+  }
+}
+
+function scheduleRebuild() {
+  if (pendingRebuild) return;
+  pendingRebuild = requestAnimationFrame(() => { pendingRebuild = null; renderMap(state?.ships ?? []); });
 }
 
 function renderMap(ships, trails = new Map()) {
-  const svg = $("map");
-  const w = svg.clientWidth || 800;
-  const h = svg.clientHeight || 600;
+  if (!sceneReady && !mapUnavailable) initMap3D();
+  if (mapUnavailable) return;
   const sys = currentSystem || state.agent.headquarters.slice(0, state.agent.headquarters.lastIndexOf("-"));
   $("map-hud").innerHTML = `Sector <b>${sys}</b>`;
 
-  // A docked/orbiting ship in a different system already silently dropped
-  // here (its waypoint symbol just never matches anything in `waypoints`
-  // below) — but an in-transit one didn't: shipTransitLerp() computes a
-  // position purely from that ship's own route's raw world coordinates,
-  // with no system check, so a foreign system's ship mid-flight got its
-  // completely unrelated coordinates run through *this* system's scale
-  // functions and landed somewhere on the wrong map. Filtering the whole
-  // list once up front, before any of that math (or lastRenderedShips,
-  // which repositionShips() below reads on every live-scrub frame using
-  // this same system's mapScale) runs, is the one fix that covers every
-  // case instead of patching shipTransitLerp() for just this one leak.
+  // Same cross-system leak guard the flat map had: an in-transit ship's
+  // route carries raw world coordinates with no system tag of its own, so
+  // filtering the whole list up front (before shipTransitLerp() runs on any
+  // of it) is the one fix that covers every case.
   ships = ships.filter((s) => s.nav.systemSymbol === sys);
   lastRenderedShips = ships;
 
@@ -1753,518 +2033,537 @@ function renderMap(ships, trails = new Map()) {
       const wp = s.nav.waypointSymbol;
       if (!seen.has(wp)) seen.set(wp, { x: Math.random() * 100, y: Math.random() * 100 });
     }
-    waypoints = [...seen.entries()].map(([symbol, p]) => ({ symbol, x: p.x, y: p.y }));
+    waypoints = [...seen.entries()].map(([symbol, p]) => ({ symbol, x: p.x, y: p.y, type: "PLANET", traits: [] }));
   }
 
-  const bySymbol = new Map(waypoints.map((p) => [p.symbol, p]));
+  // A real home system commonly runs 50-90 waypoints, most of them bare
+  // asteroids/debris with no market, shipyard, or fleet reason to ever be
+  // shown — plotting all of them turned the map into unreadable noise for
+  // no operational payoff. Keep only what an operator would ever act on: a
+  // market or shipyard, a jump gate, or wherever a ship actually is. This
+  // is a rendering-only subset — the shared `waypoints` stays the full
+  // list, since other panels (the miner field picker, ship-details lookup)
+  // need waypoints this map no longer draws.
+  const activeSymbols = new Set(ships.map((s) => s.nav.waypointSymbol));
+  const sceneWaypoints = waypoints.filter((wp) => {
+    const traits = wp.traits ?? [];
+    if (traits.some((t) => (t.symbol ?? t) === "MARKETPLACE" || (t.symbol ?? t) === "SHIPYARD")) return true;
+    if (wp.type === "JUMP_GATE") return true;
+    return activeSymbols.has(wp.symbol);
+  });
 
-  // Frame the whole system by default — not just "active" waypoints (ships,
-  // headquarters, trade route endpoints). Cropping to active-only used to
-  // leave most of a system permanently out of view whenever ships happened
-  // to cluster in one area, with no way to see the rest since zoom couldn't
-  // go below 1x either (fixed below).
-  const pool = waypoints;
-  const xs = pool.map((p) => p.x);
-  const ys = pool.map((p) => p.y);
-  let minX = Math.min(...xs), maxX = Math.max(...xs);
-  let minY = Math.min(...ys), maxY = Math.max(...ys);
-  const spanX = maxX - minX || 1;
-  const spanY = maxY - minY || 1;
-  const pad = 60;
-  if (spanX > spanY) {
-    const extra = (spanX - spanY) / 2;
-    minY -= extra; maxY += extra;
-  } else {
-    const extra = (spanY - spanX) / 2;
-    minX -= extra; maxX += extra;
-  }
-  const sx = (x) => pad + ((x - minX) / (maxX - minX || 1)) * (w - pad * 2);
-  const sy = (y) => pad + ((y - minY) / (maxY - minY || 1)) * (h - pad * 2);
-  // Cache these exact closures (not a recomputed copy) for repositionShips()
-  // to reuse every frame — guarantees it can never drift from the scale this
-  // render actually used, and costs nothing extra to compute.
-  mapScale = { sx, sy };
+  const s = fitSystemScale(sceneWaypoints);
+  mapScale = s;
+  systemSpan = 80;
+
+  clearGroup(bodiesGroup);
+  clearGroup(ringsGroup);
+  clearGroup(glowGroup);
+  clearGroup(linesGroup);
+  pickables.length = 0;
+
+  const chromeRingStep = renderChrome3D(sceneWaypoints, s);
+  updateMapFrameOverlay(sceneWaypoints.length, chromeRingStep);
+
+  const seenRadii = new Set();
 
   // SpaceTraders routinely puts several waypoints at the exact same x/y — a
-  // gas giant and the stations orbiting it share one coordinate. Left as-is
-  // they'd render as one stacked, unreadable blob. Each member of a shared
-  // coordinate gets a small ring offset instead, computed in this pre-scale
-  // coordinate space — since #map-view (below) gets scale(mapZoom) applied
-  // as one group, that fixed offset grows right along with everything else
-  // as the operator zooms in, so a cluster that reads as one dot at a
-  // distance visibly separates into its real members up close, with no
-  // separate zoom-aware logic needed here.
+  // gas giant and the stations orbiting it share one coordinate. Ported from
+  // the flat map's byCoord/relaxation pass (same algorithm, scene-space x/z
+  // in place of screen-space sx/sy): a coincident group first fans out on a
+  // ring sized to its members, then a few relaxation passes nudge any two
+  // waypoints — clustered or not — that still overlap apart. Left as raw
+  // worldToScene() output, every member of such a group rendered as one
+  // stacked sphere with the rest hidden behind it.
+  const effR = (wp) => WP3D_SIZE[wp.type] ?? 1.8;
   const byCoord = new Map();
-  for (const p of waypoints) {
-    const key = `${p.x},${p.y}`;
+  for (const wp of sceneWaypoints) {
+    const key = `${wp.x},${wp.y}`;
     if (!byCoord.has(key)) byCoord.set(key, []);
-    byCoord.get(key).push(p);
+    byCoord.get(key).push(wp);
   }
-  // labelDir mirrors each waypoint's cluster-ring angle (or "straight right"
-  // for an unclustered point) so its label radiates outward in the same
-  // direction as its glyph offset — fanning labels around a cluster instead
-  // of stacking them all to the right, where they'd overlap.
   const posBySymbol = new Map();
-  const labelDir = new Map();
-  // A rotated square's corners reach further than its nominal r (roughly
-  // r*sqrt(2)), so a diamond/gate needs more breathing room than a circle of
-  // the same r or its members visibly overlap — derive spacing from each
-  // waypoint's real glyph footprint rather than a flat constant. Shared by
-  // the ring-offset step below and the general relaxation pass after it.
-  const effR = (p) => {
-    const wg = WP_GLYPH[p.type] ?? WP_GLYPH.__default;
-    return wg.shape === "diamond" || wg.shape === "gate" ? wg.r * 1.45 : wg.r;
-  };
   for (const group of byCoord.values()) {
-    const baseX = sx(group[0].x), baseY = sy(group[0].y);
+    const { x: baseX, z: baseZ } = worldToScene(group[0].x, group[0].y, s);
     if (group.length === 1) {
-      posBySymbol.set(group[0].symbol, { x: baseX, y: baseY });
-      labelDir.set(group[0].symbol, { dx: 1, dy: 0 });
+      posBySymbol.set(group[0].symbol, { x: baseX, z: baseZ });
       continue;
     }
     const maxEffR = Math.max(...group.map(effR));
-    const ringR = maxEffR * 1.7 + Math.min(group.length, 6) * 1.4;
-    group.forEach((p, i) => {
+    const ringR = maxEffR * 1.6 + Math.min(group.length, 6) * 0.6;
+    group.forEach((wp, i) => {
       const angle = (2 * Math.PI * i) / group.length;
-      const dx = Math.cos(angle), dy = Math.sin(angle);
-      posBySymbol.set(p.symbol, { x: baseX + ringR * dx, y: baseY + ringR * dy });
-      labelDir.set(p.symbol, { dx, dy });
+      posBySymbol.set(wp.symbol, { x: baseX + ringR * Math.cos(angle), z: baseZ + ringR * Math.sin(angle) });
     });
   }
-
-  // General relaxation pass: the ring-offset above only ever considered a
-  // waypoint's own same-coordinate siblings, so two *different* clusters (or
-  // a cluster and a lone waypoint) sitting near each other could still end
-  // up visibly overlapping — confirmed live (A1's cluster reaching into
-  // CZ5C). A closed-form cap tried to prevent that by shrinking ring radius
-  // near a neighbor and consistently broke the common case instead (see git
-  // history) — a cluster's own internal spacing and its distance to
-  // unrelated neighbors are two different constraints that don't reduce to
-  // one number. This instead runs a handful of iterations over *every*
-  // waypoint pair, nudging any two that are still overlapping apart along
-  // their connecting line — self-correcting for whatever density a given
-  // system actually has, rather than a formula trying to predict it.
-  // O(n^2) per iteration but n is a waypoint count (tens, not thousands),
-  // so a few iterations is trivial even at the 1s map redraw cadence.
-  const relaxEntries = waypoints.map((p) => ({ symbol: p.symbol, r: effR(p), ...posBySymbol.get(p.symbol) }));
-  const displacement = new Map(relaxEntries.map((e) => [e.symbol, { dx: 0, dy: 0 }]));
+  const relaxEntries = sceneWaypoints.map((wp) => ({ symbol: wp.symbol, r: effR(wp), ...posBySymbol.get(wp.symbol) }));
   for (let iter = 0; iter < 4; iter++) {
     for (let i = 0; i < relaxEntries.length; i++) {
       for (let j = i + 1; j < relaxEntries.length; j++) {
         const a = relaxEntries[i], b = relaxEntries[j];
-        let dx = b.x - a.x, dy = b.y - a.y;
-        let dist = Math.hypot(dx, dy);
-        const minDist = a.r + b.r + 1.5;
+        let dx = b.x - a.x, dz = b.z - a.z;
+        let dist = Math.hypot(dx, dz);
+        const minDist = a.r + b.r + 0.4;
         if (dist >= minDist) continue;
-        if (dist < 0.01) { dx = 1; dy = 0; dist = 1; } // coincident — pick a direction
+        if (dist < 0.01) { dx = 1; dz = 0; dist = 1; }
         const push = ((minDist - dist) / dist) * 0.5;
-        const ox = dx * push, oy = dy * push;
-        a.x -= ox; a.y -= oy;
-        b.x += ox; b.y += oy;
-        const da = displacement.get(a.symbol), db = displacement.get(b.symbol);
-        da.dx -= ox; da.dy -= oy;
-        db.dx += ox; db.dy += oy;
+        const ox = dx * push, oz = dz * push;
+        a.x -= ox; a.z -= oz;
+        b.x += ox; b.z += oz;
       }
     }
   }
-  for (const e of relaxEntries) {
-    posBySymbol.set(e.symbol, { x: e.x, y: e.y });
-    const d = displacement.get(e.symbol);
-    const mag = Math.hypot(d.dx, d.dy);
-    // Only re-point the label if relaxation actually moved this waypoint by
-    // more than a rounding error — an untouched point keeps whichever
-    // direction the ring-offset step (or its "straight right" default) gave
-    // it, rather than snapping to an arbitrary near-zero vector.
-    if (mag > 0.5) labelDir.set(e.symbol, { dx: d.dx / mag, dy: d.dy / mag });
-  }
+  for (const e of relaxEntries) posBySymbol.set(e.symbol, { x: e.x, z: e.z });
 
-  let out = `<g id="map-view">`;
+  for (const wp of sceneWaypoints) {
+    const { x, z } = posBySymbol.get(wp.symbol);
+    const color = themedColor(WP3D_COLOR[wp.type] ?? "--ice");
+    const size = WP3D_SIZE[wp.type] ?? 1.8;
 
-  // One step for the grid and the rings both, chosen so roughly three rings
-  // fit inside the plotted frame whatever the system happens to span.
-  const ringStep = niceStep(
-    (Math.min(w, h) / 2 - pad / 2) / 3 / ((w - pad * 2) / (maxX - minX || 1)),
-  );
-  // A single-waypoint system has no span to fit, so the projection is
-  // degenerate and a grid drawn against it would be measuring nothing. Draw
-  // the plot without a scale rather than a scale that is not true.
-  const plottable = waypoints.length > 1;
-  if (plottable) out += displayGraticule(sx, sy, minX, maxX, minY, maxY, w, h, pad, ringStep);
+    const body = new THREE.Mesh(
+      new THREE.SphereGeometry(size, 20, 16),
+      new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 }),
+    );
+    body.position.set(x, 0, z);
+    bodiesGroup.add(body);
+    pickables.push({ mesh: body, kind: "waypoint", symbol: wp.symbol });
 
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  out += `<text class="syslabel" x="${sx(cx)}" y="${sy(cy)}" text-anchor="middle" dominant-baseline="middle">${sys}</text>`;
+    if (wp.type === "GAS_GIANT") {
+      const belt = new THREE.Mesh(
+        new THREE.RingGeometry(size * 1.5, size * 1.9, 48),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide }),
+      );
+      belt.position.copy(body.position);
+      belt.rotation.x = -Math.PI / 2 + 0.35;
+      bodiesGroup.add(belt);
+    }
+    if (wp.type === "JUMP_GATE" || wp.type === "FUEL_STATION") {
+      const glow = makeGlowSprite(color, size * 5);
+      glow.position.copy(body.position);
+      glowGroup.add(glow);
+    }
+    const isMarket = (wp.traits ?? []).some((t) => (t.symbol ?? t) === "MARKETPLACE");
+    if (isMarket) {
+      const marketGlow = makeGlowSprite(themedColor("--buff"), size * 3.5);
+      marketGlow.position.copy(body.position);
+      glowGroup.add(marketGlow);
+    }
 
-  for (const c of jumpConnections) {
-    const a = posBySymbol.get(c.from);
-    const b = posBySymbol.get(c.to);
-    if (a && b) {
-      out += `<path class="jump" d="M ${a.x} ${a.y} L ${b.x} ${b.y}"></path>`;
+    const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
+    label.position.set(x, size + 2.4, z);
+    bodiesGroup.add(label);
+
+    // A real orbit path — the waypoint's actual distance from the system's
+    // origin, not a fabricated one. Deduped by radius so a station sharing
+    // its planet's exact x/y doesn't draw the same ring twice.
+    const radius = Math.sqrt(Math.hypot(wp.x, wp.y)) * s.scale;
+    const key = Math.round(radius * 4);
+    if (radius > 0.5 && !seenRadii.has(key)) {
+      seenRadii.add(key);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(radius - 0.08, radius + 0.08, 96),
+        new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.12, side: THREE.DoubleSide }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ringsGroup.add(ring);
     }
   }
 
-  const routes = tradeRoutes.slice(0, 6);
-  routes.forEach((r, i) => {
-    const a = posBySymbol.get(r.cheapestMarket);
-    const b = posBySymbol.get(r.expensiveMarket);
-    if (!a || !b) return;
-    const ax = a.x, ay = a.y, bx = b.x, by = b.y;
-    const dx = bx - ax, dy = by - ay;
-    const len = Math.hypot(dx, dy) || 1;
-    const off = Math.min(len * 0.2, 42);
-    const mx = (ax + bx) / 2, my = (ay + by) / 2;
-    const cx2 = mx - (dy / len) * off, cy2 = my + (dx / len) * off;
-    out += `<path class="route${i === 0 ? " active" : ""}" d="M ${ax} ${ay} Q ${cx2} ${cy2} ${bx} ${by}"></path>`;
-  });
+  // Trade lanes: removed for now — two rounds of tuning (occlusion, then
+  // arc height) still didn't read well in the real, dense-cluster case.
+  // Revisit with a different approach rather than a third parameter tweak.
 
-  for (const p of waypoints) {
-    const isMarket = p.traits && p.traits.includes("MARKETPLACE");
-    const isYard = p.traits && p.traits.includes("SHIPYARD");
-    const pos = posBySymbol.get(p.symbol);
-    const g = WP_GLYPH[p.type] ?? WP_GLYPH.__default;
-    out += drawWaypointGlyph(g, pos, p.symbol, isMarket, isYard);
-    if (isMarket || isYard || g.labeled) {
-      const dir = labelDir.get(p.symbol) ?? { dx: 1, dy: 0 };
-      const off = g.r + 5;
-      const anchor = dir.dx < -0.15 ? "end" : dir.dx > 0.15 ? "start" : "middle";
-      out += `<text class="wplabel" x="${pos.x + dir.dx * off}" y="${pos.y + dir.dy * off + 3}" text-anchor="${anchor}">${shortWp(p.symbol)}</text>`;
-    }
-  }
-  // Scrubbing draws each ship's recent path as a fading trail — real
-  // movement history, not the static trade lanes above. Segments nearer the
-  // ship's current position are more opaque than older ones, so the trail
-  // reads as a direction of travel, not just a static line.
+  // Ship trails — real recent movement history during scrub playback (see
+  // renderScrubFrame()), not the static trade lanes above. Segments nearer
+  // the ship's current position are more opaque than older ones, matching
+  // the flat map's own fading-trail treatment. Same depthTest reasoning as
+  // the trade lanes above.
+  const trailColor = themedColor("--dim");
   for (const [, trail] of trails) {
     for (let i = 1; i < trail.length; i++) {
-      const a = posBySymbol.get(trail[i - 1]);
-      const b = posBySymbol.get(trail[i]);
+      const a = scenePosForWaypoint(trail[i - 1], s);
+      const b = scenePosForWaypoint(trail[i], s);
       if (!a || !b) continue;
       const frac = i / (trail.length - 1);
-      const opacity = (0.1 + frac * 0.4).toFixed(2);
-      out += `<line class="ship-trail" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" opacity="${opacity}"></line>`;
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(a.x, 0.08, a.z),
+        new THREE.Vector3(b.x, 0.08, b.z),
+      ]);
+      const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity: 0.1 + frac * 0.4, depthTest: false });
+      const line = new THREE.Line(geo, mat);
+      line.renderOrder = 9;
+      linesGroup.add(line);
     }
   }
 
-  shipScreenPos.clear();
-  // nav.waypointSymbol is already the *destination* the instant a ship
-  // departs — SpaceTraders doesn't wait for arrival to update it — so an
-  // in-transit ship drawn at posBySymbol.get(waypointSymbol) has always
-  // just sat at its destination for the whole flight instead of visibly
-  // traveling. route.departureTime/arrival/origin/destination are on every
-  // ship object untouched (confirmed: listAllShips() -> state.update()
-  // does no narrowing), so a straight lerp between them — no speed or
-  // flight-mode math needed, whatever mode was used already shaped the
-  // arrival timestamp — gives a real interpolated position instead.
-  const rawShipPos = new Map();
-  for (const s of ships) {
-    const worldPos = shipTransitLerp(s);
-    const pos = worldPos ? { x: sx(worldPos.x), y: sy(worldPos.y) } : posBySymbol.get(s.nav.waypointSymbol);
-    if (pos) rawShipPos.set(s.symbol, pos);
-  }
-  // Same fix as the waypoint coordinate-clustering above, for the same
-  // reason: several ships docked/orbiting at one waypoint (or, rarer,
-  // mid-transit ships that happen to land on the same interpolated point)
-  // land on the exact same screen coordinate and stack into one
-  // indistinguishable blob. Ring them apart instead. Ships are now a single
-  // shared shape/size (see shipGlyphMarkup), so unlike the waypoint version
-  // this doesn't need a per-glyph effective-radius lookup — one fixed ring
-  // size for every cluster.
-  // Two stationary ships at the same waypoint should always land in the same
-  // cluster, but grouping by a *rounded* screen pixel can split them apart:
-  // a ship that just arrived is drawn via shipTransitLerp() at frac≈1, whose
-  // lerp arithmetic (origin + (destination-origin)*1) isn't always bit-
-  // identical to the destination's own cached posBySymbol value, so a tiny
-  // floating-point epsilon can land the two ships' *rounded* coordinates on
-  // opposite sides of a rounding boundary. Grouping stationary ships by
-  // their actual waypoint symbol sidesteps that entirely; only genuinely
-  // in-transit ships (no shared waypoint identity to key off — they're
-  // literally between two points) fall back to the rounded-pixel grouping,
-  // for the much rarer case of two flights coinciding mid-route.
-  const shipsByCoord = new Map();
-  for (const s of ships) {
-    const pos = rawShipPos.get(s.symbol);
-    if (!pos) continue;
-    const key = s.nav.status === "IN_TRANSIT" ? `xy:${Math.round(pos.x)},${Math.round(pos.y)}` : `wp:${s.nav.waypointSymbol}`;
-    if (!shipsByCoord.has(key)) shipsByCoord.set(key, []);
-    shipsByCoord.get(key).push(s.symbol);
-  }
-  const clusteredShipPos = new Map();
-  for (const group of shipsByCoord.values()) {
-    const base = rawShipPos.get(group[0]);
-    if (group.length === 1) { clusteredShipPos.set(group[0], base); continue; }
-    const ringR = 4 + Math.min(group.length, 6) * 1.3;
-    group.forEach((sym, i) => {
-      const angle = (2 * Math.PI * i) / group.length;
-      clusteredShipPos.set(sym, { x: base.x + ringR * Math.cos(angle), y: base.y + ringR * Math.sin(angle) });
-    });
+  // Frame the whole system, same intent as the flat map's default fit —
+  // but only on first arriving here or switching systems. renderMap() runs
+  // on every periodic state refresh, not just navigation; resetting the
+  // camera every time was undoing any zoom or pan the operator had just
+  // made mid-session.
+  if (framedSystem !== sys) {
+    framedSystem = sys;
+    orbitGoal.target.set(0, 0, 0);
+    orbitGoal.radius = 112;
+    orbitGoal.phi = 1.0;
+    // A live trail's points are in the old system's scene coordinates —
+    // meaningless (and, worse, plottable-looking garbage) once worldToScene
+    // is scaled for a different system.
+    liveTrails.clear();
+    lastTrailSamplePos.clear();
+    for (const obj of liveTrailObjects.values()) disposeTrailGroup(obj);
+    liveTrailGroup?.clear();
+    liveTrailObjects.clear();
   }
 
-  for (const s of ships) {
-    const pos = clusteredShipPos.get(s.symbol);
-    if (!pos) continue;
-    const { x, y } = pos;
-    shipScreenPos.set(s.symbol, { x, y });
-    const docked = s.nav.status === "DOCKED";
-    const sel = s.symbol === selectedShip;
-    const role = (fleetStatus.ships ?? []).find((r) => r.symbol === s.symbol)?.role;
-    const heading = shipHeadingDeg(s, sx, sy);
-    // The selection halo lives *inside* the ship's own <g> now, at local
-    // (0,0), instead of as a sibling circle positioned with its own cx/cy —
-    // so it rides along with the ship's transform for free (repositionShips()
-    // only ever touches the <g>'s transform, never re-renders these circles).
-    out += `<g class="ship ${docked ? "docked" : ""}${sel ? " selected" : ""}" transform="translate(${x} ${y})" data-wp="${s.nav.waypointSymbol}" data-ship="${s.symbol}">
-      ${sel ? `<circle class="sel-halo" cx="0" cy="0" r="22"></circle><circle class="sel-ring" cx="0" cy="0" r="22"></circle>` : ""}
-      ${shipGlyphMarkup(role, docked, heading)}<title>${s.symbol} — ${s.nav.status}</title>
-    </g>`;
-  }
-  svg.innerHTML = out + `</g>` + displayFrame(w, h, waypoints.length, plottable ? ringStep : null);
-  svg.querySelectorAll("[data-wp]").forEach((el) => {
-    el.addEventListener("mouseenter", () => showWaypointTip(el.dataset.wp));
-    el.addEventListener("mouseleave", hideWaypointTip);
-  });
-  // Tap-to-inspect for touch: mouseenter/mouseleave above never fire on a
-  // touchscreen, so a waypoint's info (ships docked there, market prices,
-  // shipyard offers) was completely unreachable on mobile — the only way in
-  // was hovering with a mouse. Scoped to plain waypoint glyphs (excludes
-  // ships, which carry data-wp too but already have their own tap handler
-  // just below, opening ship details instead) so the two never fight over
-  // the same tap. Second tap on the same waypoint closes it, matching the
-  // toggle behavior a touch UI needs in place of mouseleave.
-  svg.querySelectorAll("[data-wp]:not([data-ship])").forEach((el) => {
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const wp = el.dataset.wp;
-      if (mapTipFor === wp) hideWaypointTip();
-      else { showWaypointTip(wp); mapTipFor = wp; }
-    });
-  });
-  // Selection replaces navigation: clicking a hull on the map re-focuses the
-  // whole HUD on it (fills the left rail), the same as picking it from triage.
-  svg.querySelectorAll("[data-ship]").forEach((el) => {
-    el.addEventListener("click", (e) => { e.stopPropagation(); openShipDetails(el.dataset.ship); });
-  });
-  applyMapView();
-  // Restart the per-frame ship animation against the DOM this call just
-  // built. Cancel any chain from a previous render first — otherwise a full
-  // rebuild mid-animation would leave two rAF chains racing the same nodes.
-  // Skipped entirely while scrubbing: repositionShips() would just no-op on
-  // every frame anyway (see its own guard), so don't bother scheduling one.
+  renderShipsInto(ships, s);
   if (shipAnimHandle) cancelAnimationFrame(shipAnimHandle);
   if (scrubLive) shipAnimHandle = requestAnimationFrame(repositionShips);
 }
 
-/** Per-frame ship-motion animation, replacing the old fixed 1s redraw timer.
- *  Only ever touches each in-transit ship's own <g transform> (translate +
- *  the hull's rotate) — never rebuilds the map SVG, so this is cheap enough
- *  to run every frame instead of once a second. Self-terminates (no
- *  reschedule) the moment there's nothing to animate; the next full
- *  renderMap() call (from a real data poll, a view switch, or a scrub frame)
- *  restarts it. See docs/smooth-ship-flying.md for the full design.
- *
- *  Reads `lastRenderedShips`, not `state.ships` — during replay scrub,
- *  renderMap() is called with a synthetic historical ship list that has no
- *  route timing at all, and state.ships (live data) would be a completely
- *  different set of ships than what's actually on screen. The scrubLive
- *  guard below means this never actually runs during a scrub either way,
- *  but reading the cached array (rather than state.ships) keeps this
- *  correct even if that guard is ever relaxed. */
+function renderShipsInto(ships, s) {
+  clearGroup(shipsGroup);
+
+  // Ships docked/orbiting at the same waypoint would otherwise all sit at
+  // that waypoint's own scene position — the exact center of its body's
+  // sphere. On the flat map that's harmless (a ship glyph just paints on
+  // top); in 3D it means the ship ends up inside that sphere's actual
+  // geometry, hidden rather than merely overlapping. Every waypoint's
+  // stationary ships (a group of one included, so a lone ship still clears
+  // the body's surface) fan onto a ring sized to that body's own radius.
+  // In-transit ships are left alone — they're moving through empty space
+  // with no body to hide inside, and repositionShips() moves them every
+  // frame without recomputing this grouping.
+  const dockedByWaypoint = new Map();
+  for (const sh of ships) {
+    if (sh.nav.status === "IN_TRANSIT") continue;
+    const wp = sh.nav.waypointSymbol;
+    if (!dockedByWaypoint.has(wp)) dockedByWaypoint.set(wp, []);
+    dockedByWaypoint.get(wp).push(sh.symbol);
+  }
+  const dockedOffset = new Map();
+  for (const [wpSymbol, symbols] of dockedByWaypoint) {
+    const bodyR = WP3D_SIZE[waypoints.find((w) => w.symbol === wpSymbol)?.type] ?? 1.8;
+    // Extra margin beyond the body's true radius: the camera views from an
+    // angle, so a ship offset only just past the sphere's edge can still
+    // land inside its on-screen silhouette from some angles even though
+    // it's not actually touching in 3D.
+    const ringR = bodyR + 2.6 + Math.min(symbols.length, 6) * 0.55;
+    symbols.forEach((sym, i) => {
+      const angle = (2 * Math.PI * i) / symbols.length;
+      dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dz: ringR * Math.sin(angle) });
+    });
+  }
+
+  for (const sh of ships) {
+    const role = (fleetStatus.ships ?? []).find((r) => r.symbol === sh.symbol)?.role;
+    const docked = sh.nav.status === "DOCKED";
+    const sel = sh.symbol === selectedShip;
+    const color = sel ? themedColor("--accent") : themedColor(SHIP3D_COLOR[role] ?? "--star");
+
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.ConeGeometry(0.45, 1.1, 4),
+      // Lit like the waypoint bodies now, but with a strong emissive glow
+      // in the same color rather than plain unlit — a ship still has to
+      // read as a bright, glanceable marker at a glance, not a shaded
+      // model with a dark side that can wash out against space.
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 }),
+    );
+    body.rotation.x = Math.PI / 2;
+    group.add(body);
+    if (sel) {
+      const halo = new THREE.Mesh(
+        new THREE.RingGeometry(1.1, 1.4, 32),
+        new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
+      );
+      halo.rotation.x = -Math.PI / 2;
+      group.add(halo);
+    }
+
+    const pos = sh.nav.status === "IN_TRANSIT" ? (shipTransitLerp(sh) ?? { x: sh.nav.route?.origin?.x ?? 0, y: sh.nav.route?.origin?.y ?? 0 }) : findWaypointPos(sh.nav.waypointSymbol, s);
+    const scenePos = worldToScene(pos.x, pos.y, s);
+    const off = dockedOffset.get(sh.symbol);
+    group.position.set(scenePos.x + (off?.dx ?? 0), 0, scenePos.z + (off?.dz ?? 0));
+    if (sh.nav.status === "IN_TRANSIT") {
+      // shipHeadingDeg()'s "+90" is calibrated for the flat map's own sy(),
+      // which flips y for SVG screen space — passing it identity functions
+      // here (no such flip exists in 3D) silently mirrored every heading.
+      // Also: origin and destination can sit at different distances from
+      // the system's star, and the map's sqrt-distance compression bends a
+      // straight real-world route's apparent angle once both ends are
+      // projected — so the heading has to come from the two endpoints'
+      // actual *scene* positions, not from raw world coordinates.
+      const r = sh.nav.route;
+      if (r?.origin && r?.destination) {
+        const o = worldToScene(r.origin.x, r.origin.y, s);
+        const d = worldToScene(r.destination.x, r.destination.y, s);
+        const dx = d.x - o.x, dz = d.z - o.z;
+        if (dx !== 0 || dz !== 0) group.rotation.y = Math.atan2(dx, dz);
+      }
+    }
+
+    shipsGroup.add(group);
+    pickables.push({ mesh: body, kind: "ship", symbol: sh.symbol, group });
+  }
+}
+
+function findWaypointPos(symbol, s) {
+  const wp = waypoints.find((w) => w.symbol === symbol);
+  return wp ? { x: wp.x, y: wp.y } : { x: 0, y: 0 };
+}
+
+/** Scene position of a waypoint by symbol, looked up against the full
+ *  `waypoints` list rather than the map's own purposeful-only subset —
+ *  trade-route markets and ship-trail history can name a waypoint that
+ *  isn't itself drawn as a body (a plain rock a ship passed through). */
+function scenePosForWaypoint(symbol, s) {
+  const wp = waypoints.find((w) => w.symbol === symbol);
+  return wp ? worldToScene(wp.x, wp.y, s) : null;
+}
+
+function disposeTrailGroup(group) {
+  for (const line of group.children) {
+    line.geometry?.dispose?.();
+    line.material?.dispose?.();
+  }
+}
+
 function repositionShips() {
   shipAnimHandle = null;
   const mapVisible = (!isMobile() && currentView === "bridge") || (isMobile() && mobileView === "map");
   if (!mapVisible || !scrubLive || !mapScale || !lastRenderedShips.length) return;
-  const svg = $("map");
-  const inTransitSymbols = new Set(lastRenderedShips.filter((s) => s.nav.status === "IN_TRANSIT").map((s) => s.symbol));
-  // Prune trail state for any ship that isn't in transit *right now* before
-  // anything else, including the early return just below for "nothing to
-  // animate" — otherwise the pass where the last in-transit ship of the
-  // whole fleet arrives never reaches this at all (anyTransit was false, so
-  // the old code bailed above the loop this used to live at the bottom of),
-  // leaving that ship's sample buffer stale forever. Harmless in the
-  // moment (bounded by fleet size), but a real bug the moment that same
-  // ship starts a new transit later: its old trail would still be sitting
-  // in liveTrails, so the new transit's first few points would jump from
-  // the previous leg's stale tail instead of starting fresh.
+  const inTransitSymbols = new Set(lastRenderedShips.filter((sh) => sh.nav.status === "IN_TRANSIT").map((sh) => sh.symbol));
+  // Prune trail state for any ship not in transit *right now*, before the
+  // early return below for "nothing to animate" — otherwise the pass where
+  // the fleet's last in-transit ship arrives at its destination never
+  // reaches this, leaving its sample buffer stale for whenever it next
+  // departs (its new trail would jump from the previous leg's tail).
   for (const symbol of [...liveTrails.keys()]) {
     if (inTransitSymbols.has(symbol)) continue;
     liveTrails.delete(symbol);
     lastTrailSamplePos.delete(symbol);
-    svg.querySelector(`[data-trail-for="${symbol}"]`)?.remove();
+    const obj = liveTrailObjects.get(symbol);
+    if (obj) {
+      liveTrailGroup.remove(obj);
+      disposeTrailGroup(obj);
+      liveTrailObjects.delete(symbol);
+    }
   }
   if (inTransitSymbols.size === 0) return;
-  const view = svg.querySelector("#map-view");
-  const { sx, sy } = mapScale;
-  for (const s of lastRenderedShips) {
-    if (s.nav.status !== "IN_TRANSIT") continue;
-    const world = shipTransitLerp(s);
-    if (!world) continue; // stale/missing route data — leave it at its last drawn position
-    const g = svg.querySelector(`[data-ship="${s.symbol}"]`);
-    if (!g) continue; // not on the currently-viewed system's map
-    const x = sx(world.x), y = sy(world.y);
-    g.setAttribute("transform", `translate(${x} ${y})`);
-    const heading = shipHeadingDeg(s, sx, sy);
-    g.querySelector(".hull")?.setAttribute("transform", `rotate(${heading ?? 45})`);
+  const trailColor = themedColor("--star");
+  for (const p of pickables) {
+    if (p.kind !== "ship") continue;
+    const sh = lastRenderedShips.find((x) => x.symbol === p.symbol);
+    if (!sh || sh.nav.status !== "IN_TRANSIT") continue;
+    const world = shipTransitLerp(sh);
+    if (!world) continue;
+    const { x, z } = worldToScene(world.x, world.y, mapScale);
+    p.group.position.set(x, 0, z);
 
-    // Subtle motion trail: sampled by on-screen distance moved, not every
-    // frame and not on a fixed timer (at 60fps, or at 200ms real-game-speed
-    // ticks, consecutive points would sit fractions of a pixel apart —
-    // indistinguishable from a solid line, and pointless overhead). Reuses
-    // the scrub trail's own .ship-trail line style for a consistent visual
-    // language, just at a lower opacity ceiling — this is a background
-    // motion cue, not something meant to be read the way a reviewed replay
-    // path is.
-    if (view) {
-      const points = liveTrails.get(s.symbol) ?? [];
-      const lastPos = lastTrailSamplePos.get(s.symbol);
-      if (!lastPos || Math.hypot(x - lastPos.x, y - lastPos.y) >= TRAIL_SAMPLE_MIN_PX) {
-        points.push({ x, y });
-        if (points.length > TRAIL_MAX_POINTS) points.shift();
-        liveTrails.set(s.symbol, points);
-        lastTrailSamplePos.set(s.symbol, { x, y });
+    // Subtle motion trail — same idea as the flat map's own: sampled by
+    // scene distance moved, not every frame (at 60fps consecutive points
+    // would sit fractions of a unit apart, indistinguishable from a solid
+    // line and pointless overhead).
+    const points = liveTrails.get(sh.symbol) ?? [];
+    const lastPos = lastTrailSamplePos.get(sh.symbol);
+    if (!lastPos || Math.hypot(x - lastPos.x, z - lastPos.z) >= TRAIL_SAMPLE_MIN_SCENE) {
+      points.push({ x, z });
+      if (points.length > TRAIL_MAX_POINTS) points.shift();
+      liveTrails.set(sh.symbol, points);
+      lastTrailSamplePos.set(sh.symbol, { x, z });
+    }
+    if (points.length > 1) {
+      const old = liveTrailObjects.get(sh.symbol);
+      if (old) {
+        liveTrailGroup.remove(old);
+        disposeTrailGroup(old);
       }
-      if (points.length > 1) {
-        let trailGroup = svg.querySelector(`[data-trail-for="${s.symbol}"]`);
-        if (!trailGroup) {
-          // Lazily (re)created here rather than in renderMap()'s own markup:
-          // a full rebuild wipes the whole #map-view subtree (svg.innerHTML
-          // reassignment), but liveTrails' sample data lives outside the DOM
-          // and survives that — this just re-attaches a home for it,
-          // trail continuity across a real data poll is preserved for free.
-          trailGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
-          trailGroup.setAttribute("data-trail-for", s.symbol);
-          view.insertBefore(trailGroup, g); // directly before this ship's own <g> — renders underneath it
-        }
-        let segments = "";
-        for (let i = 1; i < points.length; i++) {
-          const a = points[i - 1], b = points[i];
-          // 0.32 max (matched to the replay scrub trail's own subtlety) read
-          // as invisible in practice — even the newest segment barely
-          // registered. 0.25-0.7 keeps a real fade from tail to head while
-          // making sure no segment is ever too faint to notice.
-          const opacity = (0.25 + (i / (points.length - 1)) * 0.45).toFixed(2);
-          segments += `<line class="ship-trail live" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" opacity="${opacity}"></line>`;
-        }
-        trailGroup.innerHTML = segments;
+      const trailGroup = new THREE.Group();
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1], b = points[i];
+        // 0.25-0.7: a real fade from tail to head while making sure no
+        // segment is ever too faint to notice — matches the flat map's own
+        // live-trail opacity range.
+        const opacity = 0.25 + (i / (points.length - 1)) * 0.45;
+        const geo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(a.x, 0.06, a.z),
+          new THREE.Vector3(b.x, 0.06, b.z),
+        ]);
+        const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity, depthTest: false });
+        const line = new THREE.Line(geo, mat);
+        line.renderOrder = 8;
+        trailGroup.add(line);
       }
+      liveTrailGroup.add(trailGroup);
+      liveTrailObjects.set(sh.symbol, trailGroup);
     }
   }
   shipAnimHandle = requestAnimationFrame(repositionShips);
 }
 
-/** Book mode's clause hover: ring the real hulls a rule fired against this
- *  watch, at their real map positions. Ships not currently on the visible
- *  map (different system, or not yet loaded) are silently skipped — there's
- *  nowhere on this chart to point at them. */
+/** Book mode's clause hover: ring the real hulls a rule fired against, at
+ *  their real (projected) screen position. Same idea as the flat map's
+ *  version — draw at shipScreenPos — just filled from a 3D→screen
+ *  projection instead of an SVG transform's own x/y. */
 function pulseHulls(shipSymbols) {
   clearHullPulse();
-  const view = document.querySelector("#map-view");
-  if (!view) return;
-  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-  g.setAttribute("id", "hull-pulse-group");
+  if (!sceneReady) return;
+  const rect = host.getBoundingClientRect();
+  const group = document.createElement("div");
+  group.id = "hull-pulse-group-3d";
   for (const sym of shipSymbols) {
-    const p = shipScreenPos.get(sym);
+    const p = pickables.find((x) => x.kind === "ship" && x.symbol === sym);
     if (!p) continue;
-    g.insertAdjacentHTML("beforeend",
-      `<circle class="hull-pulse" cx="${p.x}" cy="${p.y}" r="15" opacity="0.9"></circle>
-       <circle class="hull-pulse" cx="${p.x}" cy="${p.y}" r="26" opacity="0.35"></circle>`);
+    const v = p.group.position.clone().project(camera);
+    const x = (v.x * 0.5 + 0.5) * rect.width;
+    const y = (-v.y * 0.5 + 0.5) * rect.height;
+    shipScreenPos.set(sym, { x, y });
+    const dot = document.createElement("div");
+    dot.className = "hull-pulse-3d";
+    dot.style.left = `${x}px`;
+    dot.style.top = `${y}px`;
+    group.appendChild(dot);
   }
-  view.appendChild(g);
+  host.appendChild(group);
 }
 
 function clearHullPulse() {
-  document.querySelector("#hull-pulse-group")?.remove();
-}
-
-function applyMapView() {
-  const view = document.querySelector("#map-view");
-  if (!view) return;
-  view.setAttribute("transform", `translate(${mapPanX} ${mapPanY}) scale(${mapZoom})`);
-  const svg = $("map");
-  svg.style.setProperty("--map-zoom", mapZoom.toFixed(2));
-  svg.setAttribute("data-zoom-high", mapZoom > 1.6 ? "true" : "false");
+  document.getElementById("hull-pulse-group-3d")?.remove();
 }
 
 function resetMapView() {
-  mapZoom = 1; mapPanX = 0; mapPanY = 0;
-  applyMapView();
+  orbitGoal.target.set(0, 0, 0);
+  orbitGoal.radius = 112;
+  orbitGoal.theta = 0.7;
+  orbitGoal.phi = 1.0;
+}
+
+// Drag pans the target across the ground plane rather than orbiting the
+// camera around a fixed point — this is a top-down strategic map (v3's
+// flat map has no rotation at all, just pan and zoom), so a fixed point
+// you can only orbit around meant an outer waypoint stayed out of reach
+// short of zooming out far enough to shrink everything else with it.
+// Panning direction is derived from the camera's current facing (theta)
+// so a drag always moves the world the way it visually should, whatever
+// angle the map happens to be at.
+function panCamera(dx, dy) {
+  const panSpeed = orbitCam.radius * 0.0022;
+  const theta = orbitCam.theta;
+  const rightX = Math.sin(theta), rightZ = -Math.cos(theta);
+  const fwdX = -Math.cos(theta), fwdZ = -Math.sin(theta);
+  orbitGoal.target.x -= dx * rightX * panSpeed - dy * fwdX * panSpeed;
+  orbitGoal.target.z -= dx * rightZ * panSpeed - dy * fwdZ * panSpeed;
+}
+
+function rotateCamera(dx, dy) {
+  orbitGoal.theta -= dx * 0.006;
+  orbitGoal.phi = Math.max(0.2, Math.min(Math.PI - 0.2, orbitGoal.phi - dy * 0.005));
+}
+
+function attachMapControls() {
+  $("map-fit")?.addEventListener("click", resetMapView);
+  // Right-click-drag orbits (desktop's usual "secondary drag" gesture) —
+  // genuine depth is one of the few things a 3D map has over the flat one,
+  // worth keeping reachable even though plain drag now pans.
+  host.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  let dragging = false, rotating = false, lastX = 0, lastY = 0, downX = 0, downY = 0;
+  host.addEventListener("pointerdown", (e) => {
+    if (e.button === 2) rotating = true; else dragging = true;
+    lastX = downX = e.clientX; lastY = downY = e.clientY;
+    host.classList.add("dragging");
+  });
+  window.addEventListener("pointerup", (e) => {
+    const wasRotating = rotating;
+    dragging = false; rotating = false;
+    host.classList.remove("dragging");
+    if (wasRotating || Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // was a drag, not a click
+    const hit = pickAt(e.clientX, e.clientY);
+    if (!hit) { if (mapTipFor) hideWaypointTip(); return; }
+    if (hit.kind === "ship") openShipDetails(hit.symbol);
+    else {
+      if (mapTipFor === hit.symbol) hideWaypointTip();
+      else { showWaypointTip(hit.symbol); mapTipFor = hit.symbol; }
+    }
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!dragging && !rotating) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    if (rotating) rotateCamera(dx, dy); else panCamera(dx, dy);
+  });
+  host.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const min = systemSpan * 0.35, max = systemSpan * 6;
+    orbitGoal.radius = Math.max(min, Math.min(max, orbitGoal.radius * (1 + e.deltaY * 0.0012)));
+  }, { passive: false });
+  host.addEventListener("dblclick", resetMapView);
+
+  // Touch: one finger pans, two fingers combine pinch-to-zoom (distance)
+  // with drag-to-rotate (midpoint movement) in the same gesture.
+  let pinchDist = null, pinchMidX = 0, pinchMidY = 0;
+  host.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) { dragging = true; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }
+    else if (e.touches.length === 2) {
+      const [a, b] = e.touches;
+      pinchDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      pinchMidX = (a.clientX + b.clientX) / 2;
+      pinchMidY = (a.clientY + b.clientY) / 2;
+    }
+  }, { passive: true });
+  host.addEventListener("touchmove", (e) => {
+    if (e.touches.length === 1 && dragging) {
+      const t = e.touches[0];
+      const dx = t.clientX - lastX, dy = t.clientY - lastY;
+      lastX = t.clientX; lastY = t.clientY;
+      panCamera(dx, dy);
+    } else if (e.touches.length === 2 && pinchDist != null) {
+      const [a, b] = e.touches;
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const min = systemSpan * 0.35, max = systemSpan * 6;
+      orbitGoal.radius = Math.max(min, Math.min(max, orbitGoal.radius * (1 + (pinchDist - d) * 0.004)));
+      pinchDist = d;
+      const midX = (a.clientX + b.clientX) / 2, midY = (a.clientY + b.clientY) / 2;
+      rotateCamera(midX - pinchMidX, midY - pinchMidY);
+      pinchMidX = midX; pinchMidY = midY;
+    }
+  }, { passive: true });
+  host.addEventListener("touchend", () => { dragging = false; pinchDist = null; });
+  host.addEventListener("touchcancel", () => { dragging = false; pinchDist = null; });
+}
+
+function pickAt(clientX, clientY) {
+  const rect = host.getBoundingClientRect();
+  pointerNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointerNdc, camera);
+  const meshes = pickables.map((p) => p.mesh);
+  const hits = raycaster.intersectObjects(meshes);
+  if (!hits.length) return null;
+  return pickables.find((p) => p.mesh === hits[0].object) || null;
+}
+
+function tickMap3D() {
+  requestAnimationFrame(tickMap3D);
+  if (!sceneReady) return;
+  orbitCam.theta += (orbitGoal.theta - orbitCam.theta) * 0.14;
+  orbitCam.phi += (orbitGoal.phi - orbitCam.phi) * 0.14;
+  orbitCam.radius += (orbitGoal.radius - orbitCam.radius) * 0.14;
+  orbitCam.target.lerp(orbitGoal.target, 0.14);
+  applyOrbitCamera();
+  // Billboard every sprite (labels, glows) toward the camera every frame —
+  // cheap now that renderMap() only builds a body for waypoints an operator
+  // would actually act on, and correct regardless of orbit angle.
+  bodiesGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
+  glowGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
+  renderer.render(scene, camera);
 }
 
 function initMapInteractions() {
-  const svg = $("map");
-  const wrap = svg.parentElement;
-
-  $("map-fit")?.addEventListener("click", resetMapView);
-
-  // Tap-to-inspect's counterpart: dismiss the open tip on a tap anywhere
-  // else on the map. Per-waypoint click handlers (renderMap()) call
-  // stopPropagation(), so this only ever fires for a tap that missed every
-  // waypoint/ship glyph — exactly "tap elsewhere to close." Attached once
-  // here rather than in renderMap() (which re-runs on every poll) since the
-  // svg element itself, unlike its children, survives each rebuild.
-  svg.addEventListener("click", () => { if (mapTipFor) hideWaypointTip(); });
-
-  wrap.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const rect = wrap.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
-    // Floor lowered from 1 to 0.5 — the default view now already fits the
-    // whole system at 1x (see renderMap()'s pool comment), so this is just
-    // breathing room for zooming out a bit further, not the fix itself.
-    const next = Math.min(MAX_MAP_ZOOM, Math.max(0.5, mapZoom * factor));
-    mapPanX = mx - ((mx - mapPanX) / mapZoom) * next;
-    mapPanY = my - ((my - mapPanY) / mapZoom) * next;
-    mapZoom = next;
-    applyMapView();
-  }, { passive: false });
-
-  svg.addEventListener("mousedown", (e) => {
-    dragState = { x: e.clientX, y: e.clientY, px: mapPanX, py: mapPanY };
-  });
-  window.addEventListener("mousemove", (e) => {
-    if (!dragState) return;
-    mapPanX = dragState.px + (e.clientX - dragState.x);
-    mapPanY = dragState.py + (e.clientY - dragState.y);
-    applyMapView();
-  });
-  window.addEventListener("mouseup", () => { dragState = null; });
-  wrap.addEventListener("dblclick", resetMapView);
-
-  // Touch: single-finger drag pans, two-finger pinch zooms — same
-  // mapPanX/mapPanY/mapZoom + applyMapView() state the mouse handlers use.
-  let touchState = null; // { mode:"pan", x, y, px, py } | { mode:"pinch", d0, z0, cx, cy, px, py }
-  wrap.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 1) {
-      const t = e.touches[0];
-      touchState = { mode: "pan", x: t.clientX, y: t.clientY, px: mapPanX, py: mapPanY };
-    } else if (e.touches.length === 2) {
-      const [a, b] = e.touches;
-      const d0 = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-      const cx = (a.clientX + b.clientX) / 2, cy = (a.clientY + b.clientY) / 2;
-      const rect = wrap.getBoundingClientRect();
-      touchState = { mode: "pinch", d0, z0: mapZoom, cx: cx - rect.left, cy: cy - rect.top, px: mapPanX, py: mapPanY };
-    }
-  }, { passive: true });
-  wrap.addEventListener("touchmove", (e) => {
-    if (!touchState) return;
-    e.preventDefault();
-    if (touchState.mode === "pan" && e.touches.length === 1) {
-      const t = e.touches[0];
-      mapPanX = touchState.px + (t.clientX - touchState.x);
-      mapPanY = touchState.py + (t.clientY - touchState.y);
-      applyMapView();
-    } else if (touchState.mode === "pinch" && e.touches.length === 2) {
-      const [a, b] = e.touches;
-      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-      const next = Math.min(MAX_MAP_ZOOM, Math.max(0.5, touchState.z0 * (d / touchState.d0)));
-      mapPanX = touchState.cx - ((touchState.cx - touchState.px) / touchState.z0) * next;
-      mapPanY = touchState.cy - ((touchState.cy - touchState.py) / touchState.z0) * next;
-      mapZoom = next;
-      applyMapView();
-    }
-  }, { passive: false });
-  wrap.addEventListener("touchend", () => { touchState = null; });
-  wrap.addEventListener("touchcancel", () => { touchState = null; });
+  // Scene construction is lazy (first renderMap() call, once #map3d has a
+  // real size) rather than here — matches the flat map's own timing, where
+  // initMapInteractions() ran once at boot before any data existed.
 }
 
 function showWaypointTip(symbol) {
@@ -3132,7 +3431,9 @@ document.addEventListener("visibilitychange", () => {
     if (mapHiddenAt !== null && Date.now() - mapHiddenAt >= 2000) {
       liveTrails.clear();
       lastTrailSamplePos.clear();
-      document.querySelectorAll("#map [data-trail-for]").forEach((el) => el.remove());
+      for (const obj of liveTrailObjects.values()) disposeTrailGroup(obj);
+      liveTrailGroup?.clear();
+      liveTrailObjects.clear();
     }
     mapHiddenAt = null;
     loadState();

@@ -93,7 +93,7 @@
           <button class="map-fit-btn" id="map-fit" title="Fit whole system">⛶ Fit</button>
           <div class="system-strip" id="system-strip"></div>
           <div class="map-gallery" id="map-gallery"></div>
-          <svg id="map"></svg>
+          <div id="map3d"></div>
           <div class="map-tip" id="map-tip"></div>
           <div class="map-legend">
             <span><span class="sw planet"></span>Planet</span>
@@ -101,8 +101,6 @@
             <span><span class="sw gate"></span>Gate</span>
             <span><span class="sw asteroid"></span>Asteroid</span>
             <span><span class="sw fuel"></span>Fuel</span>
-            <span><span class="sw market"></span>Market</span>
-            <span><span class="sw yard"></span>Shipyard</span>
             <span><span class="sw ship"></span>Ship</span>
           </div>
         </div>
@@ -433,6 +431,7 @@
 
 <div class="modal-backdrop" id="trade-backdrop"><div class="modal" id="trade-modal"></div></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script type="module" src="/v4.js"></script>
 </body>
 </html>
