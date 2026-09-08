@@ -20,7 +20,7 @@ import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
 import { getSupplyChain } from "./supplyChain.js";
-import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
+import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -1057,7 +1057,20 @@ export class FleetManager {
           ? this.crossSystemLegCost(l.buySystem, l.sellSystem)
           : fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
         const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
-        const volume = Math.max(0, Math.min(maxTraderCargo, affordable));
+        // Real depth beyond a market's own advertised trade volume is not
+        // unlimited: each successive lot draws down supply and moves the
+        // price further, which this leg's flat buyPrice/sellPrice cannot
+        // see. Confirmed live: sizing a trip to the full 80-unit hold on a
+        // 20u/tx market (4 lots) turned a route ranked profitable at the
+        // snapshot price into a real -40,540c loss once the later lots
+        // actually executed. Capped at a few multiples of the market's own
+        // lot size rather than the whole hold — enough to fix the original
+        // bug (a trip no longer stops at exactly one transaction) without
+        // assuming a depth of market real SpaceTraders markets don't have.
+        // A placeholder ratio, same as CROSS_SYSTEM_JUMP_COST_ESTIMATE
+        // above: tune against real executed-trip totals once there's a
+        // basis for something better than "a few lots."
+        const volume = Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * MAX_LOTS_PER_TRIP));
         const gross = (l.sellPrice - l.buyPrice) * volume;
         const profitPerTrip = Math.round(gross - fuelCost);
         return {

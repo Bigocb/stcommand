@@ -2,7 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
-import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, type TraderAssignment } from "./dispatcher.js";
+import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type TraderAssignment } from "./dispatcher.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending } from "./agentStep.js";
 import { Registry } from "./registry.js";
@@ -822,8 +822,14 @@ export class TraderAgent {
     // hold: a market capped at 20u/tx scored the same as a trip that could
     // only ever move 20 units, when the ship could carry — and afford — far
     // more.
-    const volume = Math.min(this.ship.cargo.capacity, affordable);
     const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
+    // Capped at a few lots' worth, not the whole hold — see fleet.ts's
+    // matching MAX_LOTS_PER_TRIP comment: each lot beyond a market's own
+    // depth moves the price further than this leg's flat buy/sell prices
+    // can see, and assuming the entire cargo capacity trades at one flat
+    // price turned a route that looked profitable into a real loss once
+    // later lots actually executed.
+    const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
     if (volume <= 0 || lotSize <= 0) return undefined;
     const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize };
     if (this.routeProfit(route) <= 0) return undefined;
@@ -865,9 +871,10 @@ export class TraderAgent {
       const credits = this.getCredits?.() ?? Infinity;
       const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
       // See viableRoute()'s matching comment: the trip's ceiling is the hold
-      // and the wallet, not either market's own per-transaction limit.
-      const volume = Math.min(this.ship.cargo.capacity, affordable);
+      // and the wallet, capped at a few lots' worth rather than either
+      // market's own per-transaction limit OR the whole hold.
       const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
+      const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
       if (volume <= 0 || lotSize <= 0) continue;
       const candidate: Route = {
         good,

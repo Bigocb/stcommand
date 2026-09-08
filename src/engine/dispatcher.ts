@@ -39,6 +39,28 @@ export interface DispatchRoute {
 export const CROSS_SYSTEM_JUMP_COST_ESTIMATE = 5_000;
 
 /**
+ * How many of a market's own per-transaction lots a single trip is assumed
+ * able to move at that market's flat buy/sell price, in both the ranking
+ * model (fleet.ts's computeDispatchRoutes()) and the trader's own live
+ * sizing (viableRoute()/freeChoice() in trader.ts) — shared so the two
+ * never disagree on what "the trip's volume" means.
+ *
+ * A real market's depth beyond its advertised trade volume is not the rest
+ * of a ship's cargo hold: each successive lot draws down supply and moves
+ * the price further than a flat buyPrice/sellPrice can see. Confirmed
+ * live: sizing a trip to a full 80-unit hold on a 20u/tx market (4 lots)
+ * scored as profitable at the snapshot price and landed a real -40,540c
+ * loss once the later lots actually executed at a crashed price.
+ *
+ * Placeholder value, same caveat as CROSS_SYSTEM_JUMP_COST_ESTIMATE above:
+ * picked to fix the original bug (a trip capped at exactly one
+ * transaction, which hid every route needing more than one) without
+ * assuming unlimited market depth. Tune against real executed-trip totals
+ * once there's a basis for something better than "a few lots."
+ */
+export const MAX_LOTS_PER_TRIP = 3;
+
+/**
  * "direct"      — buy here, carry it yourself, sell there. One trader owns
  *                 the whole round trip; this is every assignment before
  *                 warehousing.
