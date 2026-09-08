@@ -1859,7 +1859,23 @@ function renderMap(ships, _trails = new Map()) {
     waypoints = [...seen.entries()].map(([symbol, p]) => ({ symbol, x: p.x, y: p.y, type: "PLANET", traits: [] }));
   }
 
-  const s = fitSystemScale(waypoints);
+  // A real home system commonly runs 50-90 waypoints, most of them bare
+  // asteroids/debris with no market, shipyard, or fleet reason to ever be
+  // shown — plotting all of them turned the map into unreadable noise for
+  // no operational payoff. Keep only what an operator would ever act on: a
+  // market or shipyard, a jump gate, or wherever a ship actually is. This
+  // is a rendering-only subset — the shared `waypoints` stays the full
+  // list, since other panels (the miner field picker, ship-details lookup)
+  // need waypoints this map no longer draws.
+  const activeSymbols = new Set(ships.map((s) => s.nav.waypointSymbol));
+  const sceneWaypoints = waypoints.filter((wp) => {
+    const traits = wp.traits ?? [];
+    if (traits.some((t) => (t.symbol ?? t) === "MARKETPLACE" || (t.symbol ?? t) === "SHIPYARD")) return true;
+    if (wp.type === "JUMP_GATE") return true;
+    return activeSymbols.has(wp.symbol);
+  });
+
+  const s = fitSystemScale(sceneWaypoints);
   mapScale = s;
   systemSpan = 44;
 
@@ -1882,7 +1898,7 @@ function renderMap(ships, _trails = new Map()) {
   // stacked sphere with the rest hidden behind it.
   const effR = (wp) => WP3D_SIZE[wp.type] ?? 1.8;
   const byCoord = new Map();
-  for (const wp of waypoints) {
+  for (const wp of sceneWaypoints) {
     const key = `${wp.x},${wp.y}`;
     if (!byCoord.has(key)) byCoord.set(key, []);
     byCoord.get(key).push(wp);
@@ -1901,7 +1917,7 @@ function renderMap(ships, _trails = new Map()) {
       posBySymbol.set(wp.symbol, { x: baseX + ringR * Math.cos(angle), z: baseZ + ringR * Math.sin(angle) });
     });
   }
-  const relaxEntries = waypoints.map((wp) => ({ symbol: wp.symbol, r: effR(wp), ...posBySymbol.get(wp.symbol) }));
+  const relaxEntries = sceneWaypoints.map((wp) => ({ symbol: wp.symbol, r: effR(wp), ...posBySymbol.get(wp.symbol) }));
   for (let iter = 0; iter < 4; iter++) {
     for (let i = 0; i < relaxEntries.length; i++) {
       for (let j = i + 1; j < relaxEntries.length; j++) {
@@ -1920,7 +1936,7 @@ function renderMap(ships, _trails = new Map()) {
   }
   for (const e of relaxEntries) posBySymbol.set(e.symbol, { x: e.x, z: e.z });
 
-  for (const wp of waypoints) {
+  for (const wp of sceneWaypoints) {
     const { x, z } = posBySymbol.get(wp.symbol);
     const color = themedColor(WP3D_COLOR[wp.type] ?? "--ice");
     const size = WP3D_SIZE[wp.type] ?? 1.8;
@@ -1963,7 +1979,6 @@ function renderMap(ships, _trails = new Map()) {
 
     const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
     label.position.set(x, size + 2.4, z);
-    label.userData.isLabel = true;
     bodiesGroup.add(label);
 
     // A real orbit path — the waypoint's actual distance from the system's
@@ -2166,18 +2181,9 @@ function tickMap3D() {
   orbitCam.target.lerp(orbitGoal.target, 0.14);
   applyOrbitCamera();
   // Billboard every sprite (labels, glows) toward the camera every frame —
-  // cheap at this body count, and correct regardless of orbit angle. Labels
-  // additionally fade in only once zoomed past roughly the system's own
-  // span: a dense system (real ones commonly run 50-90 waypoints) framed at
-  // "Fit" would otherwise show every label at once and read as a wall of
-  // overlapping text — the same reason any map hides place names until you
-  // zoom in on them.
-  const labelsVisible = orbitCam.radius < systemSpan;
-  bodiesGroup.children.forEach((c) => {
-    if (!c.isSprite) return;
-    c.quaternion.copy(camera.quaternion);
-    if (c.userData.isLabel) c.visible = labelsVisible;
-  });
+  // cheap now that renderMap() only builds a body for waypoints an operator
+  // would actually act on, and correct regardless of orbit angle.
+  bodiesGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
   glowGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
   renderer.render(scene, camera);
 }
