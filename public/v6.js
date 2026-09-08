@@ -1,6 +1,5 @@
 import {
   worstConditionPct,
-  shipHeadingDeg,
   shipTransitLerp,
   systemOf,
   shortWp,
@@ -1627,17 +1626,24 @@ let lastRenderedShips = [];
  *  placed a waypoint at the same coordinate. */
 let mapScale = null;
 let shipAnimHandle = null;
-/** Vestigial: the flat map's motion-trail buffers. Not reimplemented for
- *  the 3D view yet; kept as empty Maps purely so the existing
- *  visibilitychange handler's cleanup calls have something to clear. */
+/** Live motion-trail state — same idea as the flat map's own liveTrails/
+ *  lastTrailSamplePos (a per-ship buffer of recently sampled scene
+ *  positions, sampled by distance moved rather than by frame or timer, so
+ *  a ship sitting still doesn't fill the buffer with duplicate points). */
 let liveTrails = new Map();
 let lastTrailSamplePos = new Map();
+/** The THREE.Line[] currently drawn for each ship's live trail, so
+ *  repositionShips() can replace just that ship's segments each frame
+ *  without touching linesGroup's renderMap()-owned contents. */
+let liveTrailObjects = new Map();
+const TRAIL_SAMPLE_MIN_SCENE = 0.5; // scene units — the flat map's 4px analog
+const TRAIL_MAX_POINTS = 10;
 
 const WP3D_COLOR = {
   PLANET: "--ice", GAS_GIANT: "--violet", MOON: "--buff",
   ORBITAL_STATION: "--bone", ASTEROID_BASE: "--bone",
   JUMP_GATE: "--teal", ASTEROID_FIELD: "--warn", ASTEROID: "--warn",
-  ENGINEERED_ASTEROID: "--green", FUEL_STATION: "--teal",
+  ENGINEERED_ASTEROID: "--red", FUEL_STATION: "--teal",
   NEBULA: "--violet", DEBRIS_FIELD: "--violet", GRAVITY_WELL: "--violet",
   ARTIFICIAL_GRAVITY_WELL: "--violet",
 };
@@ -1699,7 +1705,7 @@ document.getElementById("hue-picker")?.addEventListener("click", (e) => {
 });
 
 let scene, camera, renderer, host;
-let bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup;
+let bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup;
 const pickables = []; // { mesh, kind: 'waypoint'|'ship', symbol }
 let raycaster, pointerNdc;
 const orbitCam = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
@@ -1731,7 +1737,12 @@ function initMap3D() {
   shipsGroup = new THREE.Group();
   glowGroup = new THREE.Group();
   linesGroup = new THREE.Group();
-  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup);
+  // Separate from linesGroup deliberately: renderMap() clears and rebuilds
+  // linesGroup on every state refresh, but a live trail has to survive
+  // that — it's built up frame by frame in repositionShips(), independent
+  // of the slower render cycle.
+  liveTrailGroup = new THREE.Group();
+  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup);
 
   // Bodies use a lit material now (see WP3D_MATERIAL below) instead of flat
   // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object; an
@@ -2021,35 +2032,9 @@ function renderMap(ships, trails = new Map()) {
     }
   }
 
-  // Trade lanes — the same cheapest-to-priciest market pairs the flat map
-  // draws as curved lines, arced upward in y here rather than bowed
-  // sideways, so a lane reads as a flight path over the intervening space
-  // instead of a flat line cutting through whatever else sits between the
-  // two markets. depthTest is off: this is an informational overlay, same
-  // as the flat map's always-visible route lines — without it, a lane that
-  // dips near a cluster's bodies would duck behind one and re-emerge,
-  // reading as a kink in the line rather than a smooth arc.
-  const routeColor = themedColor("--accent");
-  tradeRoutes.slice(0, 6).forEach((r, i) => {
-    const a = scenePosForWaypoint(r.cheapestMarket, s);
-    const b = scenePosForWaypoint(r.expensiveMarket, s);
-    if (!a || !b) return;
-    // Purely proportional to the lane's own span — a flat minimum lift
-    // read as a tall spike/loop for two markets close together (small
-    // horizontal span, same fixed vertical rise), rather than the gentle
-    // arc it's supposed to be.
-    const lift = Math.hypot(b.x - a.x, b.z - a.z) * 0.3 + 0.6;
-    const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(a.x, 0.15, a.z),
-      new THREE.Vector3((a.x + b.x) / 2, lift, (a.z + b.z) / 2),
-      new THREE.Vector3(b.x, 0.15, b.z),
-    );
-    const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(24));
-    const mat = new THREE.LineBasicMaterial({ color: routeColor, transparent: true, opacity: i === 0 ? 0.85 : 0.35, depthTest: false });
-    const line = new THREE.Line(geo, mat);
-    line.renderOrder = 10;
-    linesGroup.add(line);
-  });
+  // Trade lanes: removed for now — two rounds of tuning (occlusion, then
+  // arc height) still didn't read well in the real, dense-cluster case.
+  // Revisit with a different approach rather than a third parameter tweak.
 
   // Ship trails — real recent movement history during scrub playback (see
   // renderScrubFrame()), not the static trade lanes above. Segments nearer
@@ -2084,6 +2069,14 @@ function renderMap(ships, trails = new Map()) {
     orbitGoal.target.set(0, 0, 0);
     orbitGoal.radius = 112;
     orbitGoal.phi = 1.0;
+    // A live trail's points are in the old system's scene coordinates —
+    // meaningless (and, worse, plottable-looking garbage) once worldToScene
+    // is scaled for a different system.
+    liveTrails.clear();
+    lastTrailSamplePos.clear();
+    for (const obj of liveTrailObjects.values()) disposeTrailGroup(obj);
+    liveTrailGroup?.clear();
+    liveTrailObjects.clear();
   }
 
   renderShipsInto(ships, s);
@@ -2152,8 +2145,21 @@ function renderShipsInto(ships, s) {
     const off = dockedOffset.get(sh.symbol);
     group.position.set(scenePos.x + (off?.dx ?? 0), 0, scenePos.z + (off?.dz ?? 0));
     if (sh.nav.status === "IN_TRANSIT") {
-      const heading = shipHeadingDeg(sh, (wx) => wx, (wy) => wy);
-      if (heading != null) group.rotation.y = -((heading - 90) * Math.PI) / 180;
+      // shipHeadingDeg()'s "+90" is calibrated for the flat map's own sy(),
+      // which flips y for SVG screen space — passing it identity functions
+      // here (no such flip exists in 3D) silently mirrored every heading.
+      // Also: origin and destination can sit at different distances from
+      // the system's star, and the map's sqrt-distance compression bends a
+      // straight real-world route's apparent angle once both ends are
+      // projected — so the heading has to come from the two endpoints'
+      // actual *scene* positions, not from raw world coordinates.
+      const r = sh.nav.route;
+      if (r?.origin && r?.destination) {
+        const o = worldToScene(r.origin.x, r.origin.y, s);
+        const d = worldToScene(r.destination.x, r.destination.y, s);
+        const dx = d.x - o.x, dz = d.z - o.z;
+        if (dx !== 0 || dz !== 0) group.rotation.y = Math.atan2(dx, dz);
+      }
     }
 
     shipsGroup.add(group);
@@ -2175,12 +2181,36 @@ function scenePosForWaypoint(symbol, s) {
   return wp ? worldToScene(wp.x, wp.y, s) : null;
 }
 
+function disposeTrailGroup(group) {
+  for (const line of group.children) {
+    line.geometry?.dispose?.();
+    line.material?.dispose?.();
+  }
+}
+
 function repositionShips() {
   shipAnimHandle = null;
   const mapVisible = (!isMobile() && currentView === "bridge") || (isMobile() && mobileView === "map");
   if (!mapVisible || !scrubLive || !mapScale || !lastRenderedShips.length) return;
-  const inTransit = lastRenderedShips.some((sh) => sh.nav.status === "IN_TRANSIT");
-  if (!inTransit) return;
+  const inTransitSymbols = new Set(lastRenderedShips.filter((sh) => sh.nav.status === "IN_TRANSIT").map((sh) => sh.symbol));
+  // Prune trail state for any ship not in transit *right now*, before the
+  // early return below for "nothing to animate" — otherwise the pass where
+  // the fleet's last in-transit ship arrives at its destination never
+  // reaches this, leaving its sample buffer stale for whenever it next
+  // departs (its new trail would jump from the previous leg's tail).
+  for (const symbol of [...liveTrails.keys()]) {
+    if (inTransitSymbols.has(symbol)) continue;
+    liveTrails.delete(symbol);
+    lastTrailSamplePos.delete(symbol);
+    const obj = liveTrailObjects.get(symbol);
+    if (obj) {
+      liveTrailGroup.remove(obj);
+      disposeTrailGroup(obj);
+      liveTrailObjects.delete(symbol);
+    }
+  }
+  if (inTransitSymbols.size === 0) return;
+  const trailColor = themedColor("--star");
   for (const p of pickables) {
     if (p.kind !== "ship") continue;
     const sh = lastRenderedShips.find((x) => x.symbol === p.symbol);
@@ -2189,6 +2219,44 @@ function repositionShips() {
     if (!world) continue;
     const { x, z } = worldToScene(world.x, world.y, mapScale);
     p.group.position.set(x, 0, z);
+
+    // Subtle motion trail — same idea as the flat map's own: sampled by
+    // scene distance moved, not every frame (at 60fps consecutive points
+    // would sit fractions of a unit apart, indistinguishable from a solid
+    // line and pointless overhead).
+    const points = liveTrails.get(sh.symbol) ?? [];
+    const lastPos = lastTrailSamplePos.get(sh.symbol);
+    if (!lastPos || Math.hypot(x - lastPos.x, z - lastPos.z) >= TRAIL_SAMPLE_MIN_SCENE) {
+      points.push({ x, z });
+      if (points.length > TRAIL_MAX_POINTS) points.shift();
+      liveTrails.set(sh.symbol, points);
+      lastTrailSamplePos.set(sh.symbol, { x, z });
+    }
+    if (points.length > 1) {
+      const old = liveTrailObjects.get(sh.symbol);
+      if (old) {
+        liveTrailGroup.remove(old);
+        disposeTrailGroup(old);
+      }
+      const trailGroup = new THREE.Group();
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1], b = points[i];
+        // 0.25-0.7: a real fade from tail to head while making sure no
+        // segment is ever too faint to notice — matches the flat map's own
+        // live-trail opacity range.
+        const opacity = 0.25 + (i / (points.length - 1)) * 0.45;
+        const geo = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(a.x, 0.06, a.z),
+          new THREE.Vector3(b.x, 0.06, b.z),
+        ]);
+        const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity, depthTest: false });
+        const line = new THREE.Line(geo, mat);
+        line.renderOrder = 8;
+        trailGroup.add(line);
+      }
+      liveTrailGroup.add(trailGroup);
+      liveTrailObjects.set(sh.symbol, trailGroup);
+    }
   }
   shipAnimHandle = requestAnimationFrame(repositionShips);
 }
@@ -3222,7 +3290,9 @@ document.addEventListener("visibilitychange", () => {
     if (mapHiddenAt !== null && Date.now() - mapHiddenAt >= 2000) {
       liveTrails.clear();
       lastTrailSamplePos.clear();
-      document.querySelectorAll("#map [data-trail-for]").forEach((el) => el.remove());
+      for (const obj of liveTrailObjects.values()) disposeTrailGroup(obj);
+      liveTrailGroup?.clear();
+      liveTrailObjects.clear();
     }
     mapHiddenAt = null;
     loadState();
