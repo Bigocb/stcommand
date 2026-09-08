@@ -2025,7 +2025,7 @@ function renderMap(ships, trails = new Map()) {
       seenRadii.add(key);
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(radius - 0.08, radius + 0.08, 96),
-        new THREE.MeshBasicMaterial({ color: themedColor("--star"), transparent: true, opacity: 0.28, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.12, side: THREE.DoubleSide }),
       );
       ring.rotation.x = -Math.PI / 2;
       ringsGroup.add(ring);
