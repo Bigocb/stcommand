@@ -1641,13 +1641,17 @@ const WP3D_COLOR = {
   NEBULA: "--violet", DEBRIS_FIELD: "--violet", GRAVITY_WELL: "--violet",
   ARTIFICIAL_GRAVITY_WELL: "--violet",
 };
+// Kept small deliberately: a body's own radius feeds straight into the
+// anti-overlap minimum distance below, so a large radius swallows small
+// real coordinate differences under "just enough padding to not overlap."
+// Shrinking the bodies gives real distances room to read as real distances.
 const WP3D_SIZE = {
-  PLANET: 3.2, GAS_GIANT: 4.4, MOON: 1.5,
-  ORBITAL_STATION: 1.5, ASTEROID_BASE: 1.5,
-  JUMP_GATE: 2.2, ASTEROID_FIELD: 2.1, ASTEROID: 1.9,
-  ENGINEERED_ASTEROID: 2.1, FUEL_STATION: 2.1,
-  NEBULA: 2.6, DEBRIS_FIELD: 2.2, GRAVITY_WELL: 2.2,
-  ARTIFICIAL_GRAVITY_WELL: 2.2,
+  PLANET: 1.3, GAS_GIANT: 1.8, MOON: 0.6,
+  ORBITAL_STATION: 0.6, ASTEROID_BASE: 0.6,
+  JUMP_GATE: 0.9, ASTEROID_FIELD: 0.85, ASTEROID: 0.75,
+  ENGINEERED_ASTEROID: 0.85, FUEL_STATION: 0.85,
+  NEBULA: 1, DEBRIS_FIELD: 0.9, GRAVITY_WELL: 0.9,
+  ARTIFICIAL_GRAVITY_WELL: 0.9,
 };
 const SHIP3D_COLOR = {
   miner: "--buff", scout: "--violet", tour: "--violet",
@@ -1807,18 +1811,32 @@ function makeLabelSprite(text, color) {
  * cropped to whatever happens to be active — just producing a 3D scale
  * factor and centroid instead of an SVG viewBox.
  */
+/**
+ * A linear world->scene scale cannot show both ends of a real SpaceTraders
+ * system at once: a home cluster's own members are often tens of units
+ * apart while a genuine outlier sits hundreds of units out — two orders of
+ * magnitude apart. Scaled to keep the outlier on screen, the home cluster's
+ * real spacing collapses to sub-body-size and the anti-overlap pass alone
+ * decides its layout; scaled to resolve the home cluster, outliers go off
+ * the edge. Distance from the system's star (its natural center, (0,0) in
+ * SpaceTraders' own coordinates) is compressed through sqrt() instead — the
+ * same trick subway maps and fisheye views use for data with a huge dynamic
+ * range: nearby differences get outsized visual room, a distant point still
+ * reads as clearly farther, without either end swallowing the other's
+ * resolution.
+ */
 function fitSystemScale(pool) {
-  const xs = pool.map((p) => p.x), ys = pool.map((p) => p.y);
-  const minX = Math.min(...xs, 0), maxX = Math.max(...xs, 0);
-  const minY = Math.min(...ys, 0), maxY = Math.max(...ys, 0);
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const span = Math.max(maxX - minX, maxY - minY, 20);
-  const scale = 80 / span; // world units -> scene units, ~80 across at rest
-  return { cx, cy, scale };
+  let maxR = 20;
+  for (const p of pool) maxR = Math.max(maxR, Math.hypot(p.x, p.y));
+  const scale = 80 / Math.sqrt(maxR); // world units -> scene units, ~80 across at rest
+  return { scale };
 }
 
 function worldToScene(x, y, s) {
-  return { x: (x - s.cx) * s.scale, z: (y - s.cy) * s.scale };
+  const r = Math.hypot(x, y);
+  if (r < 1e-6) return { x: 0, z: 0 };
+  const rPrime = Math.sqrt(r) * s.scale;
+  return { x: (x / r) * rPrime, z: (y / r) * rPrime };
 }
 
 function clearGroup(g) {
@@ -1911,7 +1929,7 @@ function renderMap(ships, _trails = new Map()) {
       continue;
     }
     const maxEffR = Math.max(...group.map(effR));
-    const ringR = maxEffR * 2.2 + Math.min(group.length, 6) * 1.8;
+    const ringR = maxEffR * 1.6 + Math.min(group.length, 6) * 0.6;
     group.forEach((wp, i) => {
       const angle = (2 * Math.PI * i) / group.length;
       posBySymbol.set(wp.symbol, { x: baseX + ringR * Math.cos(angle), z: baseZ + ringR * Math.sin(angle) });
@@ -1924,7 +1942,7 @@ function renderMap(ships, _trails = new Map()) {
         const a = relaxEntries[i], b = relaxEntries[j];
         let dx = b.x - a.x, dz = b.z - a.z;
         let dist = Math.hypot(dx, dz);
-        const minDist = a.r + b.r + 1.5;
+        const minDist = a.r + b.r + 0.4;
         if (dist >= minDist) continue;
         if (dist < 0.01) { dx = 1; dz = 0; dist = 1; }
         const push = ((minDist - dist) / dist) * 0.5;
@@ -1984,7 +2002,7 @@ function renderMap(ships, _trails = new Map()) {
     // A real orbit path — the waypoint's actual distance from the system's
     // origin, not a fabricated one. Deduped by radius so a station sharing
     // its planet's exact x/y doesn't draw the same ring twice.
-    const radius = Math.hypot(wp.x, wp.y) * s.scale;
+    const radius = Math.sqrt(Math.hypot(wp.x, wp.y)) * s.scale;
     const key = Math.round(radius * 4);
     if (radius > 0.5 && !seenRadii.has(key)) {
       seenRadii.add(key);
@@ -2046,7 +2064,7 @@ function renderShipsInto(ships, s) {
 
 function findWaypointPos(symbol, s) {
   const wp = waypoints.find((w) => w.symbol === symbol);
-  return wp ? { x: wp.x, y: wp.y } : { x: s.cx, y: s.cy };
+  return wp ? { x: wp.x, y: wp.y } : { x: 0, y: 0 };
 }
 
 function repositionShips() {
