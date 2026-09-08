@@ -1963,6 +1963,7 @@ function renderMap(ships, _trails = new Map()) {
 
     const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
     label.position.set(x, size + 2.4, z);
+    label.userData.isLabel = true;
     bodiesGroup.add(label);
 
     // A real orbit path — the waypoint's actual distance from the system's
@@ -2165,8 +2166,18 @@ function tickMap3D() {
   orbitCam.target.lerp(orbitGoal.target, 0.14);
   applyOrbitCamera();
   // Billboard every sprite (labels, glows) toward the camera every frame —
-  // cheap at this body count, and correct regardless of orbit angle.
-  bodiesGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
+  // cheap at this body count, and correct regardless of orbit angle. Labels
+  // additionally fade in only once zoomed past roughly the system's own
+  // span: a dense system (real ones commonly run 50-90 waypoints) framed at
+  // "Fit" would otherwise show every label at once and read as a wall of
+  // overlapping text — the same reason any map hides place names until you
+  // zoom in on them.
+  const labelsVisible = orbitCam.radius < systemSpan;
+  bodiesGroup.children.forEach((c) => {
+    if (!c.isSprite) return;
+    c.quaternion.copy(camera.quaternion);
+    if (c.userData.isLabel) c.visible = labelsVisible;
+  });
   glowGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
   renderer.render(scene, camera);
 }
