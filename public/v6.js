@@ -2130,6 +2130,23 @@ function resetMapView() {
   orbitGoal.phi = 1.0;
 }
 
+// Drag pans the target across the ground plane rather than orbiting the
+// camera around a fixed point — this is a top-down strategic map (v3's
+// flat map has no rotation at all, just pan and zoom), so a fixed point
+// you can only orbit around meant an outer waypoint stayed out of reach
+// short of zooming out far enough to shrink everything else with it.
+// Panning direction is derived from the camera's current facing (theta)
+// so a drag always moves the world the way it visually should, whatever
+// angle the map happens to be at.
+function panCamera(dx, dy) {
+  const panSpeed = orbitCam.radius * 0.0022;
+  const theta = orbitCam.theta;
+  const rightX = Math.sin(theta), rightZ = -Math.cos(theta);
+  const fwdX = -Math.cos(theta), fwdZ = -Math.sin(theta);
+  orbitGoal.target.x -= dx * rightX * panSpeed - dy * fwdX * panSpeed;
+  orbitGoal.target.z -= dx * rightZ * panSpeed - dy * fwdZ * panSpeed;
+}
+
 function attachMapControls() {
   $("map-fit")?.addEventListener("click", resetMapView);
 
@@ -2154,8 +2171,7 @@ function attachMapControls() {
     if (!dragging) return;
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
-    orbitGoal.theta -= dx * 0.006;
-    orbitGoal.phi = Math.max(0.2, Math.min(Math.PI - 0.2, orbitGoal.phi - dy * 0.005));
+    panCamera(dx, dy);
   });
   host.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -2174,8 +2190,7 @@ function attachMapControls() {
       const t = e.touches[0];
       const dx = t.clientX - lastX, dy = t.clientY - lastY;
       lastX = t.clientX; lastY = t.clientY;
-      orbitGoal.theta -= dx * 0.006;
-      orbitGoal.phi = Math.max(0.2, Math.min(Math.PI - 0.2, orbitGoal.phi - dy * 0.005));
+      panCamera(dx, dy);
     } else if (e.touches.length === 2 && pinchDist != null) {
       const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       const min = systemSpan * 0.35, max = systemSpan * 6;
