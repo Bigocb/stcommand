@@ -1663,12 +1663,24 @@ const cssColorCache = new Map();
 const colorProbe = document.createElement("span");
 colorProbe.style.display = "none";
 document.body.appendChild(colorProbe);
+// Read back through a 1x1 canvas rather than THREE.Color.setStyle(): the
+// theme's --accent is declared in oklch (so the hue picker can rotate it),
+// and modern browsers hand that straight back from getComputedStyle() as an
+// oklch() string. THREE r128 predates CSS Color 4 and can't parse that —
+// setStyle() fails silently, leaving the accent black. Canvas fillStyle
+// parsing goes through the browser's own CSS color engine and always reads
+// back as sRGB bytes via getImageData(), so it handles any color syntax the
+// stylesheet throws at it without this needing to know which one that is.
+const probeCanvas = document.createElement("canvas");
+probeCanvas.width = 1; probeCanvas.height = 1;
+const probeCtx = probeCanvas.getContext("2d", { willReadFrequently: true });
 function cssColor(varName) {
   colorProbe.style.color = `var(${varName})`;
-  const rgb = getComputedStyle(colorProbe).color;
-  const c = new THREE.Color();
-  c.setStyle(rgb);
-  return c;
+  const value = getComputedStyle(colorProbe).color;
+  probeCtx.fillStyle = value;
+  probeCtx.fillRect(0, 0, 1, 1);
+  const [r, g, b] = probeCtx.getImageData(0, 0, 1, 1).data;
+  return new THREE.Color(r / 255, g / 255, b / 255);
 }
 function invalidateColorCache() { cssColorCache.clear(); }
 function themedColor(varName) {
@@ -1761,20 +1773,30 @@ function makeGlowSprite(color, size) {
 }
 
 function makeLabelSprite(text, color) {
+  // The sprite maps its *whole* texture onto whatever quad sp.scale gives
+  // it — sizing that quad from the measured text width while the canvas
+  // stayed a fixed, mostly-blank 220x28 squished the entire texture (glyphs
+  // included) down to a sliver. Sizing the canvas to the text itself keeps
+  // canvas pixels and sprite-scale units in the same frame, so nothing gets
+  // squeezed.
   const scale = 3;
+  const font = "600 13px Rajdhani, sans-serif";
+  const measure = document.createElement("canvas").getContext("2d");
+  measure.font = font;
+  const w = Math.ceil(measure.measureText(text).width) + 6;
+  const h = 20;
   const c = document.createElement("canvas");
-  c.width = 220 * scale; c.height = 28 * scale;
+  c.width = w * scale; c.height = h * scale;
   const ctx = c.getContext("2d");
   ctx.scale(scale, scale);
-  ctx.font = "600 13px Rajdhani, sans-serif";
+  ctx.font = font;
   ctx.fillStyle = color;
   ctx.textBaseline = "top";
-  ctx.fillText(text, 0, 0);
-  const w = ctx.measureText(text).width;
+  ctx.fillText(text, 3, 3);
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-  sp.scale.set(w * 0.22, 28 * 0.22, 1);
+  sp.scale.set(w * 0.22, h * 0.22, 1);
   sp.center.set(0, 0.5);
   return sp;
 }
@@ -1850,8 +1872,56 @@ function renderMap(ships, _trails = new Map()) {
   const marketRing = themedColor("--buff");
   const yardRing = themedColor("--accent");
 
+  // SpaceTraders routinely puts several waypoints at the exact same x/y — a
+  // gas giant and the stations orbiting it share one coordinate. Ported from
+  // the flat map's byCoord/relaxation pass (same algorithm, scene-space x/z
+  // in place of screen-space sx/sy): a coincident group first fans out on a
+  // ring sized to its members, then a few relaxation passes nudge any two
+  // waypoints — clustered or not — that still overlap apart. Left as raw
+  // worldToScene() output, every member of such a group rendered as one
+  // stacked sphere with the rest hidden behind it.
+  const effR = (wp) => WP3D_SIZE[wp.type] ?? 1.8;
+  const byCoord = new Map();
   for (const wp of waypoints) {
-    const { x, z } = worldToScene(wp.x, wp.y, s);
+    const key = `${wp.x},${wp.y}`;
+    if (!byCoord.has(key)) byCoord.set(key, []);
+    byCoord.get(key).push(wp);
+  }
+  const posBySymbol = new Map();
+  for (const group of byCoord.values()) {
+    const { x: baseX, z: baseZ } = worldToScene(group[0].x, group[0].y, s);
+    if (group.length === 1) {
+      posBySymbol.set(group[0].symbol, { x: baseX, z: baseZ });
+      continue;
+    }
+    const maxEffR = Math.max(...group.map(effR));
+    const ringR = maxEffR * 1.7 + Math.min(group.length, 6) * 1.4;
+    group.forEach((wp, i) => {
+      const angle = (2 * Math.PI * i) / group.length;
+      posBySymbol.set(wp.symbol, { x: baseX + ringR * Math.cos(angle), z: baseZ + ringR * Math.sin(angle) });
+    });
+  }
+  const relaxEntries = waypoints.map((wp) => ({ symbol: wp.symbol, r: effR(wp), ...posBySymbol.get(wp.symbol) }));
+  for (let iter = 0; iter < 4; iter++) {
+    for (let i = 0; i < relaxEntries.length; i++) {
+      for (let j = i + 1; j < relaxEntries.length; j++) {
+        const a = relaxEntries[i], b = relaxEntries[j];
+        let dx = b.x - a.x, dz = b.z - a.z;
+        let dist = Math.hypot(dx, dz);
+        const minDist = a.r + b.r + 1.5;
+        if (dist >= minDist) continue;
+        if (dist < 0.01) { dx = 1; dz = 0; dist = 1; }
+        const push = ((minDist - dist) / dist) * 0.5;
+        const ox = dx * push, oz = dz * push;
+        a.x -= ox; a.z -= oz;
+        b.x += ox; b.z += oz;
+      }
+    }
+  }
+  for (const e of relaxEntries) posBySymbol.set(e.symbol, { x: e.x, z: e.z });
+
+  for (const wp of waypoints) {
+    const { x, z } = posBySymbol.get(wp.symbol);
     const color = themedColor(WP3D_COLOR[wp.type] ?? "--ice");
     const size = WP3D_SIZE[wp.type] ?? 1.8;
     const traits = wp.traits ?? [];
@@ -1875,7 +1945,11 @@ function renderMap(ships, _trails = new Map()) {
       belt.rotation.x = -Math.PI / 2 + 0.35;
       bodiesGroup.add(belt);
     }
-    if (wp.type === "JUMP_GATE" || wp.type === "FUEL_STATION") glowGroup.add(Object.assign(makeGlowSprite(color, size * 5), { position: body.position.clone() }));
+    if (wp.type === "JUMP_GATE" || wp.type === "FUEL_STATION") {
+      const glow = makeGlowSprite(color, size * 5);
+      glow.position.copy(body.position);
+      glowGroup.add(glow);
+    }
 
     if (isMarket || isYard) {
       const ring = new THREE.Mesh(
@@ -1887,7 +1961,7 @@ function renderMap(ships, _trails = new Map()) {
       bodiesGroup.add(ring);
     }
 
-    const label = makeLabelSprite(wp.symbol, "#" + themedColor("--dim").getHexString());
+    const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
     label.position.set(x, size + 2.4, z);
     bodiesGroup.add(label);
 
