@@ -1634,7 +1634,7 @@ let liveTrails = new Map();
 let lastTrailSamplePos = new Map();
 
 const WP3D_COLOR = {
-  PLANET: "--ice", GAS_GIANT: "--violet", MOON: "--ice",
+  PLANET: "--ice", GAS_GIANT: "--violet", MOON: "--star",
   ORBITAL_STATION: "--bone", ASTEROID_BASE: "--bone",
   JUMP_GATE: "--teal", ASTEROID_FIELD: "--ice", ASTEROID: "--ice",
   ENGINEERED_ASTEROID: "--ice", FUEL_STATION: "--teal",
@@ -1699,7 +1699,7 @@ document.getElementById("hue-picker")?.addEventListener("click", (e) => {
 });
 
 let scene, camera, renderer, host;
-let bodiesGroup, ringsGroup, shipsGroup, glowGroup;
+let bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup;
 const pickables = []; // { mesh, kind: 'waypoint'|'ship', symbol }
 let raycaster, pointerNdc;
 const orbitCam = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
@@ -1730,7 +1730,8 @@ function initMap3D() {
   ringsGroup = new THREE.Group();
   shipsGroup = new THREE.Group();
   glowGroup = new THREE.Group();
-  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup);
+  linesGroup = new THREE.Group();
+  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup);
 
   // Bodies use a lit material now (see WP3D_MATERIAL below) instead of flat
   // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object; an
@@ -1866,7 +1867,7 @@ function scheduleRebuild() {
   pendingRebuild = requestAnimationFrame(() => { pendingRebuild = null; renderMap(state?.ships ?? []); });
 }
 
-function renderMap(ships, _trails = new Map()) {
+function renderMap(ships, trails = new Map()) {
   if (!sceneReady && !mapUnavailable) initMap3D();
   if (mapUnavailable) return;
   const sys = currentSystem || state.agent.headquarters.slice(0, state.agent.headquarters.lastIndexOf("-"));
@@ -1913,11 +1914,10 @@ function renderMap(ships, _trails = new Map()) {
   clearGroup(bodiesGroup);
   clearGroup(ringsGroup);
   clearGroup(glowGroup);
+  clearGroup(linesGroup);
   pickables.length = 0;
 
   const seenRadii = new Set();
-  const marketRing = themedColor("--buff");
-  const yardRing = themedColor("--accent");
 
   // SpaceTraders routinely puts several waypoints at the exact same x/y — a
   // gas giant and the stations orbiting it share one coordinate. Ported from
@@ -1971,9 +1971,6 @@ function renderMap(ships, _trails = new Map()) {
     const { x, z } = posBySymbol.get(wp.symbol);
     const color = themedColor(WP3D_COLOR[wp.type] ?? "--ice");
     const size = WP3D_SIZE[wp.type] ?? 1.8;
-    const traits = wp.traits ?? [];
-    const isMarket = traits.some((t) => (t.symbol ?? t) === "MARKETPLACE");
-    const isYard = traits.some((t) => (t.symbol ?? t) === "SHIPYARD");
 
     const body = new THREE.Mesh(
       new THREE.SphereGeometry(size, 20, 16),
@@ -1998,16 +1995,6 @@ function renderMap(ships, _trails = new Map()) {
       glowGroup.add(glow);
     }
 
-    if (isMarket || isYard) {
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(size + 0.5, size + (isYard ? 1.5 : 0.9), 32),
-        new THREE.MeshBasicMaterial({ color: isYard ? yardRing : marketRing, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
-      );
-      ring.position.set(x, 0.02, z);
-      ring.rotation.x = -Math.PI / 2;
-      bodiesGroup.add(ring);
-    }
-
     const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
     label.position.set(x, size + 2.4, z);
     bodiesGroup.add(label);
@@ -2025,6 +2012,45 @@ function renderMap(ships, _trails = new Map()) {
       );
       ring.rotation.x = -Math.PI / 2;
       ringsGroup.add(ring);
+    }
+  }
+
+  // Trade lanes — the same cheapest-to-priciest market pairs the flat map
+  // draws as curved lines, arced upward in y here rather than bowed
+  // sideways, so a lane reads as a flight path over the intervening space
+  // instead of a flat line cutting through whatever else sits between the
+  // two markets.
+  const routeColor = themedColor("--accent");
+  tradeRoutes.slice(0, 6).forEach((r, i) => {
+    const a = scenePosForWaypoint(r.cheapestMarket, s);
+    const b = scenePosForWaypoint(r.expensiveMarket, s);
+    if (!a || !b) return;
+    const lift = Math.hypot(b.x - a.x, b.z - a.z) * 0.18 + 1.5;
+    const curve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(a.x, 0.15, a.z),
+      new THREE.Vector3((a.x + b.x) / 2, lift, (a.z + b.z) / 2),
+      new THREE.Vector3(b.x, 0.15, b.z),
+    );
+    const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(24));
+    linesGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: routeColor, transparent: true, opacity: i === 0 ? 0.85 : 0.35 })));
+  });
+
+  // Ship trails — real recent movement history during scrub playback (see
+  // renderScrubFrame()), not the static trade lanes above. Segments nearer
+  // the ship's current position are more opaque than older ones, matching
+  // the flat map's own fading-trail treatment.
+  const trailColor = themedColor("--dim");
+  for (const [, trail] of trails) {
+    for (let i = 1; i < trail.length; i++) {
+      const a = scenePosForWaypoint(trail[i - 1], s);
+      const b = scenePosForWaypoint(trail[i], s);
+      if (!a || !b) continue;
+      const frac = i / (trail.length - 1);
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(a.x, 0.08, a.z),
+        new THREE.Vector3(b.x, 0.08, b.z),
+      ]);
+      linesGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity: 0.1 + frac * 0.4 })));
     }
   }
 
@@ -2047,6 +2073,34 @@ function renderMap(ships, _trails = new Map()) {
 
 function renderShipsInto(ships, s) {
   clearGroup(shipsGroup);
+
+  // Ships docked/orbiting at the same waypoint would otherwise all sit at
+  // that waypoint's own scene position — the exact center of its body's
+  // sphere. On the flat map that's harmless (a ship glyph just paints on
+  // top); in 3D it means the ship ends up inside that sphere's actual
+  // geometry, hidden rather than merely overlapping. Every waypoint's
+  // stationary ships (a group of one included, so a lone ship still clears
+  // the body's surface) fan onto a ring sized to that body's own radius.
+  // In-transit ships are left alone — they're moving through empty space
+  // with no body to hide inside, and repositionShips() moves them every
+  // frame without recomputing this grouping.
+  const dockedByWaypoint = new Map();
+  for (const sh of ships) {
+    if (sh.nav.status === "IN_TRANSIT") continue;
+    const wp = sh.nav.waypointSymbol;
+    if (!dockedByWaypoint.has(wp)) dockedByWaypoint.set(wp, []);
+    dockedByWaypoint.get(wp).push(sh.symbol);
+  }
+  const dockedOffset = new Map();
+  for (const [wpSymbol, symbols] of dockedByWaypoint) {
+    const bodyR = WP3D_SIZE[waypoints.find((w) => w.symbol === wpSymbol)?.type] ?? 1.8;
+    const ringR = bodyR + 1.6 + Math.min(symbols.length, 6) * 0.55;
+    symbols.forEach((sym, i) => {
+      const angle = (2 * Math.PI * i) / symbols.length;
+      dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dz: ringR * Math.sin(angle) });
+    });
+  }
+
   for (const sh of ships) {
     const role = (fleetStatus.ships ?? []).find((r) => r.symbol === sh.symbol)?.role;
     const docked = sh.nav.status === "DOCKED";
@@ -2055,14 +2109,18 @@ function renderShipsInto(ships, s) {
 
     const group = new THREE.Group();
     const body = new THREE.Mesh(
-      new THREE.ConeGeometry(1.1, 2.6, 4),
-      new THREE.MeshBasicMaterial({ color }),
+      new THREE.ConeGeometry(0.7, 1.7, 4),
+      // Lit like the waypoint bodies now, but with a strong emissive glow
+      // in the same color rather than plain unlit — a ship still has to
+      // read as a bright, glanceable marker at a glance, not a shaded
+      // model with a dark side that can wash out against space.
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9, roughness: 0.4 }),
     );
     body.rotation.x = Math.PI / 2;
     group.add(body);
     if (sel) {
       const halo = new THREE.Mesh(
-        new THREE.RingGeometry(2.6, 3.1, 32),
+        new THREE.RingGeometry(1.7, 2.1, 32),
         new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
       );
       halo.rotation.x = -Math.PI / 2;
@@ -2071,7 +2129,8 @@ function renderShipsInto(ships, s) {
 
     const pos = sh.nav.status === "IN_TRANSIT" ? (shipTransitLerp(sh) ?? { x: sh.nav.route?.origin?.x ?? 0, y: sh.nav.route?.origin?.y ?? 0 }) : findWaypointPos(sh.nav.waypointSymbol, s);
     const scenePos = worldToScene(pos.x, pos.y, s);
-    group.position.set(scenePos.x, 0, scenePos.z);
+    const off = dockedOffset.get(sh.symbol);
+    group.position.set(scenePos.x + (off?.dx ?? 0), 0, scenePos.z + (off?.dz ?? 0));
     if (sh.nav.status === "IN_TRANSIT") {
       const heading = shipHeadingDeg(sh, (wx) => wx, (wy) => wy);
       if (heading != null) group.rotation.y = -((heading - 90) * Math.PI) / 180;
@@ -2085,6 +2144,15 @@ function renderShipsInto(ships, s) {
 function findWaypointPos(symbol, s) {
   const wp = waypoints.find((w) => w.symbol === symbol);
   return wp ? { x: wp.x, y: wp.y } : { x: 0, y: 0 };
+}
+
+/** Scene position of a waypoint by symbol, looked up against the full
+ *  `waypoints` list rather than the map's own purposeful-only subset —
+ *  trade-route markets and ship-trail history can name a waypoint that
+ *  isn't itself drawn as a body (a plain rock a ship passed through). */
+function scenePosForWaypoint(symbol, s) {
+  const wp = waypoints.find((w) => w.symbol === symbol);
+  return wp ? worldToScene(wp.x, wp.y, s) : null;
 }
 
 function repositionShips() {

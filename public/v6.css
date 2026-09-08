@@ -674,8 +674,6 @@
   .map-legend .sw { width:6px; height:6px; display:inline-block; margin-right:4px; }
   .map-legend .sw.planet { background:var(--ice); border-radius:50%; opacity:0.85; }
   .map-legend .sw.station { background:var(--bone); transform:rotate(45deg); }
-  .map-legend .sw.market { background:none; border:1px solid var(--buff); border-radius:50%; width:5px; height:5px; margin:1px 5px 1px 1px; }
-  .map-legend .sw.yard { background:none; border:1px solid var(--teal); border-radius:50%; width:5px; height:5px; margin:1px 5px 1px 1px; }
   .map-legend .sw.asteroid { border:1px solid var(--ice); border-radius:50%; }
   .map-legend .sw.fuel { background:var(--teal); border-radius:50%; }
   .map-legend .sw.ship { background:var(--accent); clip-path:polygon(50% 0,100% 100%,0 100%); }
