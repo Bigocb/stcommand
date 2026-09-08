@@ -21,10 +21,18 @@ interface DirectLeg {
   sellPrice: number;
 }
 
-/** A direct leg the ship has priced against its own table and can fly now. */
+/** A direct leg the ship has priced against its own table and can fly now.
+ *  `volume` is the trip's real ceiling — cargo hold space and affordability —
+ *  not the market's own per-transaction limit; `lotSize` is that limit, the
+ *  chunk size the buy loop must respect one purchaseCargo() call at a time
+ *  to actually reach `volume`. See computeDispatchRoutes()'s matching
+ *  comment in fleet.ts for why these used to be the same number and that
+ *  was the bug: a market capped at 20u/tx was treated as though 20u was the
+ *  entire trip, when the ship's hold (and its wallet) could carry far more. */
 interface Route extends DirectLeg {
   margin: number;
   volume: number;
+  lotSize: number;
 }
 
 export interface TraderOptions {
@@ -797,9 +805,17 @@ export class TraderAgent {
     }
     const credits = this.getCredits?.() ?? Infinity;
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
-    const volume = Math.min(buy.volume, sell.volume, this.ship.cargo.capacity, affordable);
-    if (volume <= 0) return undefined;
-    const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume };
+    // The trip's real ceiling is the hold and the wallet — buy.volume/
+    // sell.volume are each market's own per-transaction limit, which the buy
+    // loop below chunks around (lotSize), not a cap on the whole trip. This
+    // is what hid every route needing more than one purchase call to fill a
+    // hold: a market capped at 20u/tx scored the same as a trip that could
+    // only ever move 20 units, when the ship could carry — and afford — far
+    // more.
+    const volume = Math.min(this.ship.cargo.capacity, affordable);
+    const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
+    if (volume <= 0 || lotSize <= 0) return undefined;
+    const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize };
     if (this.routeProfit(route) <= 0) return undefined;
     return route;
   }
@@ -838,8 +854,11 @@ export class TraderAgent {
       }
       const credits = this.getCredits?.() ?? Infinity;
       const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
-      const volume = Math.min(buy.volume, sell.volume, this.ship.cargo.capacity, affordable);
-      if (volume <= 0) continue;
+      // See viableRoute()'s matching comment: the trip's ceiling is the hold
+      // and the wallet, not either market's own per-transaction limit.
+      const volume = Math.min(this.ship.cargo.capacity, affordable);
+      const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
+      if (volume <= 0 || lotSize <= 0) continue;
       const candidate: Route = {
         good,
         buyAt: buy.waypoint,
@@ -848,6 +867,7 @@ export class TraderAgent {
         sellPrice: sell.sell,
         margin,
         volume,
+        lotSize,
       };
       const profit = this.routeProfit(candidate);
       if (profit <= 0) continue;
@@ -1293,32 +1313,56 @@ export class TraderAgent {
       // so after buying a new ship the cached figure is stale and this ship would
       // otherwise over-commit and fail the purchase (observed: trying to buy 58
       // FOOD with far fewer credits in hand).
-      const liveCredits = await this.spendableNow();
+      let liveCredits = await this.spendableNow();
       const buyPrice = liveBuy ?? route.buyPrice;
-      const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
-      let units = Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable);
-      if (units <= 0) return true;
-      // Also guard against over-filling the hold with a single oversized buy.
-      units = Math.max(0, Math.floor(units));
-      this.currentStep = { kind: "transacting", action: "buy", good: route.good };
-      this.assertAt(route.buyAt, `buy ${route.good}`);
-      const res = await this.api.purchaseCargo(this.symbol, route.good, units);
-      this.currentStep = IDLE_STEP;
-      this.ship = { ...this.ship, cargo: res.cargo };
-      this.heldCost.set(route.good, res.transaction.pricePerUnit);
+      const target = Math.max(0, Math.floor(Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units)));
+      if (target <= 0) return true;
+      // A single purchaseCargo() call is capped at the market's own
+      // advertised trade volume per transaction (confirmed live: "SILVER has
+      // a limit of 60 units per transaction") — route.volume is now sized
+      // against the hold and the wallet (see viableRoute()'s comment), which
+      // can be well past that per-call limit, so filling it takes several
+      // successive lots of at most route.lotSize each. Each lot's real paid
+      // price feeds the next lot's affordability check and is tracked into a
+      // weighted average cost basis, since supply depletion can move the
+      // price between lots.
+      let bought = 0;
+      let totalPaid = 0;
+      let lastPrice = buyPrice;
+      while (bought < target) {
+        const affordable = lastPrice > 0 ? Math.floor(liveCredits / lastPrice) : 0;
+        const lot = Math.max(0, Math.min(route.lotSize, target - bought, affordable));
+        if (lot <= 0) break;
+        this.currentStep = { kind: "transacting", action: "buy", good: route.good };
+        this.assertAt(route.buyAt, `buy ${route.good}`);
+        const res = await this.api.purchaseCargo(this.symbol, route.good, lot);
+        this.currentStep = IDLE_STEP;
+        this.ship = { ...this.ship, cargo: res.cargo };
+        bought += lot;
+        totalPaid += res.transaction.totalPrice;
+        lastPrice = res.transaction.pricePerUnit;
+        liveCredits -= res.transaction.totalPrice;
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: this.symbol,
+          waypointSymbol: this.ship.nav.waypointSymbol,
+          type: "PURCHASE",
+          tradeSymbol: route.good,
+          units: lot,
+          pricePerUnit: res.transaction.pricePerUnit,
+          total: res.transaction.totalPrice,
+        });
+        this.log(`bought ${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
+        this.onActivity?.("buy", `${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
+        // Stop topping off once the price has drifted (supply depleting lot
+        // over lot) past what still clears the margin floor against this
+        // route's sell price — the same guard the pre-loop stale-snapshot
+        // check already applied, now re-checked between lots too.
+        if (route.sellPrice - lastPrice < this.marginFloor) break;
+      }
+      if (bought <= 0) return true;
+      this.heldCost.set(route.good, totalPaid / bought);
       this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice });
-      this.recordLedger?.({
-        timestamp: new Date().toISOString(),
-        shipSymbol: this.symbol,
-        waypointSymbol: this.ship.nav.waypointSymbol,
-        type: "PURCHASE",
-        tradeSymbol: route.good,
-        units,
-        pricePerUnit: res.transaction.pricePerUnit,
-        total: res.transaction.totalPrice,
-      });
-      this.log(`bought ${units}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
-      this.onActivity?.("buy", `${units}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
       // Stop here. The sell is a separate reconciled step — deliverHeldCargo()
       // picks the trip up next tick from the pin just recorded, and gets to
       // the market by arriving there rather than by falling through a

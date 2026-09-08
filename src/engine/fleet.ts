@@ -1008,6 +1008,22 @@ export class FleetManager {
       if (s.goodSymbol === "FUEL" && s.purchasePrice > 0) fuelAt.set(s.waypointSymbol, s.purchasePrice);
     }
     const legs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
+    // A single purchaseCargo() call is capped at the market's own advertised
+    // trade volume — l.volume above, straight from tradeLegs()'s
+    // LEAST(b.trade_volume, s.trade_volume) — but that is a per-*transaction*
+    // limit, not a per-*trip* one: a trader can and does issue several
+    // back-to-back purchases at the same dock to fill its hold past it (see
+    // trader.ts's buy loop). Pricing a leg's profit against just one
+    // transaction's worth of units undercounted — and for a low-trade-volume,
+    // high-margin good like DRUGS, entirely hid — every route that needed
+    // more than one purchase call to fill a hold. Confirmed live: X1-S84's
+    // H56→J63 DRUGS leg (2,985c → 5,628c) priced at trade_volume 20 nets
+    // -9,788c after fuel and never appears; at a Light Freighter's 80-unit
+    // hold it nets a solidly positive trip. The real ceiling on a trip's
+    // volume is the largest hold in the fleet that could actually fly it,
+    // and the credits on hand to fill it.
+    const maxTraderCargo = Math.max(15, ...[...this.traders.values()].map((a) => a.getShip().cargo.capacity));
+    const spendable = this.spendableCredits();
     // Deliberately NOT filtered by gate reachability here: a "buy" or
     // "sell" assignment only needs its own side of the leg (buyAt, or
     // sellAt) to be reachable from the warehouse — not that buyAt and
@@ -1040,7 +1056,9 @@ export class FleetManager {
         const fuelCost = crossSystem
           ? this.crossSystemLegCost(l.buySystem, l.sellSystem)
           : fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
-        const gross = (l.sellPrice - l.buyPrice) * l.volume;
+        const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
+        const volume = Math.max(0, Math.min(maxTraderCargo, affordable));
+        const gross = (l.sellPrice - l.buyPrice) * volume;
         const profitPerTrip = Math.round(gross - fuelCost);
         return {
           good: l.goodSymbol,
@@ -1050,7 +1068,8 @@ export class FleetManager {
           sellAt: l.sellAt,
           sellSystem: l.sellSystem,
           sellPrice: l.sellPrice,
-          volume: l.volume,
+          volume,
+          lotSize: l.volume,
           distance: dist ?? 0,
           fuelUnits: fuelUnits ?? 0,
           fuelCost: Math.round(fuelCost),

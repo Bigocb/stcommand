@@ -36,7 +36,7 @@ describe("RouteDispatcher: contractBuy assignments", () => {
     const d = new RouteDispatcher();
     const routes = [{
       good: "IRON_ORE", buyAt: "X1-A-M1", buySystem: "X1-A", buyPrice: 10,
-      sellAt: "X1-A-M2", sellSystem: "X1-A", sellPrice: 20, volume: 10,
+      sellAt: "X1-A-M2", sellSystem: "X1-A", sellPrice: 20, volume: 10, lotSize: 10,
       distance: 5, fuelUnits: 5, fuelCost: 5, profitPerTrip: 100, ageMinutes: 1,
     }];
     const targets: ContractBuyTarget[] = [{ good: "IRON_ORE", buyAt: "X1-A-M1", buyPrice: 10, needed: 20 }];
@@ -79,7 +79,7 @@ describe("RouteDispatcher: contractBuy priority reflects the contract's real pay
     const d = new RouteDispatcher();
     const routes = [{
       good: "IRON_ORE", buyAt: "X1-A-M1", buySystem: "X1-A", buyPrice: 10,
-      sellAt: "X1-A-M2", sellSystem: "X1-A", sellPrice: 110, volume: 10,
+      sellAt: "X1-A-M2", sellSystem: "X1-A", sellPrice: 110, volume: 10, lotSize: 10,
       distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
     }];
     const targets: ContractBuyTarget[] = [{ good: "COPPER", buyAt: "X1-A-M3", buyPrice: 10, needed: 4 }];
@@ -93,7 +93,7 @@ describe("RouteDispatcher: contractBuy priority reflects the contract's real pay
     const d = new RouteDispatcher();
     const routes = [{
       good: "IRON_ORE", buyAt: "X1-A-M1", buySystem: "X1-A", buyPrice: 10,
-      sellAt: "X1-A-M2", sellSystem: "X1-A", sellPrice: 110, volume: 10,
+      sellAt: "X1-A-M2", sellSystem: "X1-A", sellPrice: 110, volume: 10, lotSize: 10,
       distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
     }];
     // Same 4-unit shortfall as above, but now the caller supplies the
@@ -115,7 +115,7 @@ describe("RouteDispatcher: cross-system direct routes", () => {
     const crossSystem = {
       good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
       sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
-      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+      volume: 60, lotSize: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
     };
 
     d.recompute([crossSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }]);
@@ -128,7 +128,7 @@ describe("RouteDispatcher: cross-system direct routes", () => {
     const crossSystem = {
       good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
       sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
-      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+      volume: 60, lotSize: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
     };
 
     d.recompute([crossSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }], [], [], [], [], () => true);
@@ -143,7 +143,7 @@ describe("RouteDispatcher: cross-system direct routes", () => {
     const crossSystem = {
       good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
       sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
-      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+      volume: 60, lotSize: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
     };
 
     // A predicate that only recognizes a different system pair — this gate
@@ -158,7 +158,7 @@ describe("RouteDispatcher: cross-system direct routes", () => {
     const sameSystem = {
       good: "COPPER", buyAt: "X1-TQ19-H48", buySystem: "X1-TQ19", buyPrice: 255,
       sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
-      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+      volume: 60, lotSize: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
     };
 
     d.recompute([sameSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }]);
@@ -173,7 +173,7 @@ describe("RouteDispatcher: cross-system direct routes", () => {
     const crossSystem = {
       good: "COPPER", buyAt: "X1-SS66-H48", buySystem: "X1-SS66", buyPrice: 255,
       sellAt: "X1-TQ19-A3", sellSystem: "X1-TQ19", sellPrice: 277,
-      volume: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
+      volume: 60, lotSize: 60, distance: 10, fuelUnits: 10, fuelCost: 720, profitPerTrip: 1320, ageMinutes: 1,
     };
 
     d.recompute([crossSystem], [{ shipSymbol: "SHIP-1", capacity: 40 }], [{ good: "COPPER", target: 100, balance: 0 }]);
@@ -187,7 +187,7 @@ describe("RouteDispatcher: idle traders and sell-market spreading", () => {
   const route = (good: string, sellAt: string, profit: number, buyAt = "X1-A-BUY") => ({
     good, buyAt, buySystem: "X1-A", buyPrice: 100,
     sellAt, sellSystem: "X1-A", sellPrice: 100 + profit,
-    volume: 10, distance: 10, fuelUnits: 10, fuelCost: 0,
+    volume: 10, lotSize: 10, distance: 10, fuelUnits: 10, fuelCost: 0,
     profitPerTrip: profit, ageMinutes: 1,
   });
   const traders = (n: number) => Array.from({ length: n }, (_, i) => ({ shipSymbol: `T${i + 1}`, capacity: 40 }));

@@ -6,7 +6,14 @@ export interface DispatchRoute {
   sellAt: string;
   sellSystem: string;
   sellPrice: number;
+  /** The trip's real ceiling — the largest hold in the fleet that could fly
+   *  it, and what's affordable — not either market's own per-transaction
+   *  limit. See computeDispatchRoutes()'s own comment. */
   volume: number;
+  /** Each market's per-transaction trade-volume cap (the smaller of the two
+   *  sides), for a buyer to chunk purchases against to actually reach
+   *  `volume`. */
+  lotSize: number;
   distance: number;
   fuelUnits: number;
   fuelCost: number;
