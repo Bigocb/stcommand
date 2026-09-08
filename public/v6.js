@@ -1911,7 +1911,7 @@ function renderMap(ships, _trails = new Map()) {
       continue;
     }
     const maxEffR = Math.max(...group.map(effR));
-    const ringR = maxEffR * 3.2 + Math.min(group.length, 6) * 3;
+    const ringR = maxEffR * 5.1 + Math.min(group.length, 6) * 4.8;
     group.forEach((wp, i) => {
       const angle = (2 * Math.PI * i) / group.length;
       posBySymbol.set(wp.symbol, { x: baseX + ringR * Math.cos(angle), z: baseZ + ringR * Math.sin(angle) });
@@ -1924,7 +1924,7 @@ function renderMap(ships, _trails = new Map()) {
         const a = relaxEntries[i], b = relaxEntries[j];
         let dx = b.x - a.x, dz = b.z - a.z;
         let dist = Math.hypot(dx, dz);
-        const minDist = a.r + b.r + 5;
+        const minDist = a.r + b.r + 8;
         if (dist >= minDist) continue;
         if (dist < 0.01) { dx = 1; dz = 0; dist = 1; }
         const push = ((minDist - dist) / dist) * 0.5;
