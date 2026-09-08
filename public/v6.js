@@ -1634,7 +1634,7 @@ let liveTrails = new Map();
 let lastTrailSamplePos = new Map();
 
 const WP3D_COLOR = {
-  PLANET: "--ice", GAS_GIANT: "--violet", MOON: "--star",
+  PLANET: "--ice", GAS_GIANT: "--violet", MOON: "--buff",
   ORBITAL_STATION: "--bone", ASTEROID_BASE: "--bone",
   JUMP_GATE: "--teal", ASTEROID_FIELD: "--ice", ASTEROID: "--ice",
   ENGINEERED_ASTEROID: "--ice", FUEL_STATION: "--teal",
@@ -2019,26 +2019,33 @@ function renderMap(ships, trails = new Map()) {
   // draws as curved lines, arced upward in y here rather than bowed
   // sideways, so a lane reads as a flight path over the intervening space
   // instead of a flat line cutting through whatever else sits between the
-  // two markets.
+  // two markets. depthTest is off: this is an informational overlay, same
+  // as the flat map's always-visible route lines — without it, a lane that
+  // dips near a cluster's bodies would duck behind one and re-emerge,
+  // reading as a kink in the line rather than a smooth arc.
   const routeColor = themedColor("--accent");
   tradeRoutes.slice(0, 6).forEach((r, i) => {
     const a = scenePosForWaypoint(r.cheapestMarket, s);
     const b = scenePosForWaypoint(r.expensiveMarket, s);
     if (!a || !b) return;
-    const lift = Math.hypot(b.x - a.x, b.z - a.z) * 0.18 + 1.5;
+    const lift = Math.hypot(b.x - a.x, b.z - a.z) * 0.35 + 4;
     const curve = new THREE.QuadraticBezierCurve3(
       new THREE.Vector3(a.x, 0.15, a.z),
       new THREE.Vector3((a.x + b.x) / 2, lift, (a.z + b.z) / 2),
       new THREE.Vector3(b.x, 0.15, b.z),
     );
     const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(24));
-    linesGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: routeColor, transparent: true, opacity: i === 0 ? 0.85 : 0.35 })));
+    const mat = new THREE.LineBasicMaterial({ color: routeColor, transparent: true, opacity: i === 0 ? 0.85 : 0.35, depthTest: false });
+    const line = new THREE.Line(geo, mat);
+    line.renderOrder = 10;
+    linesGroup.add(line);
   });
 
   // Ship trails — real recent movement history during scrub playback (see
   // renderScrubFrame()), not the static trade lanes above. Segments nearer
   // the ship's current position are more opaque than older ones, matching
-  // the flat map's own fading-trail treatment.
+  // the flat map's own fading-trail treatment. Same depthTest reasoning as
+  // the trade lanes above.
   const trailColor = themedColor("--dim");
   for (const [, trail] of trails) {
     for (let i = 1; i < trail.length; i++) {
@@ -2050,7 +2057,10 @@ function renderMap(ships, trails = new Map()) {
         new THREE.Vector3(a.x, 0.08, a.z),
         new THREE.Vector3(b.x, 0.08, b.z),
       ]);
-      linesGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity: 0.1 + frac * 0.4 })));
+      const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity: 0.1 + frac * 0.4, depthTest: false });
+      const line = new THREE.Line(geo, mat);
+      line.renderOrder = 9;
+      linesGroup.add(line);
     }
   }
 
