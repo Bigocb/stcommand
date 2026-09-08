@@ -1708,6 +1708,7 @@ let systemSpan = 60; // current system's own radius, used to scale zoom limits t
 let sceneReady = false;
 let pendingRebuild = null;
 let mapUnavailable = false;
+let framedSystem = null; // which system the camera was last auto-fit to
 
 function initMap3D() {
   if (sceneReady || mapUnavailable) return;
@@ -1800,7 +1801,7 @@ function makeLabelSprite(text, color) {
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-  sp.scale.set(w * 0.15, h * 0.15, 1);
+  sp.scale.set(w * 0.1, h * 0.1, 1);
   sp.center.set(0, 0.5);
   return sp;
 }
@@ -2015,10 +2016,17 @@ function renderMap(ships, _trails = new Map()) {
     }
   }
 
-  // Frame the whole system, same intent as the flat map's default fit.
-  orbitGoal.target.set(0, 0, 0);
-  orbitGoal.radius = 112;
-  orbitGoal.phi = 1.0;
+  // Frame the whole system, same intent as the flat map's default fit —
+  // but only on first arriving here or switching systems. renderMap() runs
+  // on every periodic state refresh, not just navigation; resetting the
+  // camera every time was undoing any zoom or pan the operator had just
+  // made mid-session.
+  if (framedSystem !== sys) {
+    framedSystem = sys;
+    orbitGoal.target.set(0, 0, 0);
+    orbitGoal.radius = 112;
+    orbitGoal.phi = 1.0;
+  }
 
   renderShipsInto(ships, s);
   if (shipAnimHandle) cancelAnimationFrame(shipAnimHandle);
