@@ -1636,8 +1636,8 @@ let lastTrailSamplePos = new Map();
 const WP3D_COLOR = {
   PLANET: "--ice", GAS_GIANT: "--violet", MOON: "--buff",
   ORBITAL_STATION: "--bone", ASTEROID_BASE: "--bone",
-  JUMP_GATE: "--teal", ASTEROID_FIELD: "--ice", ASTEROID: "--ice",
-  ENGINEERED_ASTEROID: "--ice", FUEL_STATION: "--teal",
+  JUMP_GATE: "--teal", ASTEROID_FIELD: "--warn", ASTEROID: "--warn",
+  ENGINEERED_ASTEROID: "--green", FUEL_STATION: "--teal",
   NEBULA: "--violet", DEBRIS_FIELD: "--violet", GRAVITY_WELL: "--violet",
   ARTIFICIAL_GRAVITY_WELL: "--violet",
 };
@@ -1994,6 +1994,12 @@ function renderMap(ships, trails = new Map()) {
       glow.position.copy(body.position);
       glowGroup.add(glow);
     }
+    const isMarket = (wp.traits ?? []).some((t) => (t.symbol ?? t) === "MARKETPLACE");
+    if (isMarket) {
+      const marketGlow = makeGlowSprite(themedColor("--buff"), size * 3.5);
+      marketGlow.position.copy(body.position);
+      glowGroup.add(marketGlow);
+    }
 
     const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
     label.position.set(x, size + 2.4, z);
@@ -2028,7 +2034,11 @@ function renderMap(ships, trails = new Map()) {
     const a = scenePosForWaypoint(r.cheapestMarket, s);
     const b = scenePosForWaypoint(r.expensiveMarket, s);
     if (!a || !b) return;
-    const lift = Math.hypot(b.x - a.x, b.z - a.z) * 0.35 + 4;
+    // Purely proportional to the lane's own span — a flat minimum lift
+    // read as a tall spike/loop for two markets close together (small
+    // horizontal span, same fixed vertical rise), rather than the gentle
+    // arc it's supposed to be.
+    const lift = Math.hypot(b.x - a.x, b.z - a.z) * 0.3 + 0.6;
     const curve = new THREE.QuadraticBezierCurve3(
       new THREE.Vector3(a.x, 0.15, a.z),
       new THREE.Vector3((a.x + b.x) / 2, lift, (a.z + b.z) / 2),
@@ -2124,7 +2134,7 @@ function renderShipsInto(ships, s) {
       // in the same color rather than plain unlit — a ship still has to
       // read as a bright, glanceable marker at a glance, not a shaded
       // model with a dark side that can wash out against space.
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.9, roughness: 0.4 }),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 }),
     );
     body.rotation.x = Math.PI / 2;
     group.add(body);
