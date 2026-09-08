@@ -1646,12 +1646,12 @@ const WP3D_COLOR = {
 // real coordinate differences under "just enough padding to not overlap."
 // Shrinking the bodies gives real distances room to read as real distances.
 const WP3D_SIZE = {
-  PLANET: 1.3, GAS_GIANT: 1.8, MOON: 0.6,
-  ORBITAL_STATION: 0.6, ASTEROID_BASE: 0.6,
-  JUMP_GATE: 0.9, ASTEROID_FIELD: 0.85, ASTEROID: 0.75,
-  ENGINEERED_ASTEROID: 0.85, FUEL_STATION: 0.85,
-  NEBULA: 1, DEBRIS_FIELD: 0.9, GRAVITY_WELL: 0.9,
-  ARTIFICIAL_GRAVITY_WELL: 0.9,
+  PLANET: 1.5, GAS_GIANT: 2.1, MOON: 0.72,
+  ORBITAL_STATION: 0.72, ASTEROID_BASE: 0.72,
+  JUMP_GATE: 1.05, ASTEROID_FIELD: 1, ASTEROID: 0.9,
+  ENGINEERED_ASTEROID: 1, FUEL_STATION: 1,
+  NEBULA: 1.2, DEBRIS_FIELD: 1.05, GRAVITY_WELL: 1.05,
+  ARTIFICIAL_GRAVITY_WELL: 1.05,
 };
 const SHIP3D_COLOR = {
   miner: "--buff", scout: "--violet", tour: "--violet",
@@ -1800,7 +1800,7 @@ function makeLabelSprite(text, color) {
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-  sp.scale.set(w * 0.22, h * 0.22, 1);
+  sp.scale.set(w * 0.15, h * 0.15, 1);
   sp.center.set(0, 0.5);
   return sp;
 }
