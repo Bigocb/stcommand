@@ -323,10 +323,18 @@ export class RouteDispatcher {
     if (!route) {
       // Nothing left to fly: drop the stale assignment so the good is freed for
       // a fleetmate and this trader goes price-hunting instead.
+      const had = this.assignments.get(shipSymbol);
+      if (had) {
+        console.log(`[dispatcher] ${shipSymbol}: claim found no acceptable route, releasing assigned ${had.good} ${had.buyAt} -> ${had.sellAt}`);
+      }
       this.assignments.delete(shipSymbol);
       return undefined;
     }
     const assignment = this.toAssignment(shipSymbol, route);
+    const old = this.assignments.get(shipSymbol);
+    if (!old || old.buyAt !== assignment.buyAt || old.sellAt !== assignment.sellAt || old.good !== assignment.good) {
+      console.log(`[dispatcher] ${shipSymbol}: claim reassigned ${old ? `${old.good} ${old.buyAt} -> ${old.sellAt}` : "(none)"} => ${assignment.good} ${assignment.buyAt} -> ${assignment.sellAt}`);
+    }
     this.assignments.set(shipSymbol, assignment);
     return assignment;
   }
