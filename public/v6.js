@@ -1903,6 +1903,14 @@ function makeGlowSprite(color, size) {
   return sp;
 }
 
+function shouldLabelWaypoint(wp) {
+  const traits = wp.traits ?? [];
+  const hasMarket = traits.some((t) => (t.symbol ?? t) === "MARKETPLACE");
+  const hasShipyard = traits.some((t) => (t.symbol ?? t) === "SHIPYARD");
+  const isParent = wp.type === "PLANET" || wp.type === "GAS_GIANT";
+  return isParent || wp.type === "JUMP_GATE" || hasMarket || hasShipyard;
+}
+
 function makeLabelSprite(text, color) {
   // The sprite maps its *whole* texture onto whatever quad sp.scale gives
   // it — sizing that quad from the measured text width while the canvas
@@ -1911,11 +1919,11 @@ function makeLabelSprite(text, color) {
   // canvas pixels and sprite-scale units in the same frame, so nothing gets
   // squeezed.
   const scale = 3;
-  const font = "600 13px Rajdhani, sans-serif";
+  const font = "500 10px Rajdhani, sans-serif";
   const measure = document.createElement("canvas").getContext("2d");
   measure.font = font;
   const w = Math.ceil(measure.measureText(text).width) + 6;
-  const h = 20;
+  const h = 16;
   const c = document.createElement("canvas");
   c.width = w * scale; c.height = h * scale;
   const ctx = c.getContext("2d");
@@ -1923,11 +1931,11 @@ function makeLabelSprite(text, color) {
   ctx.font = font;
   ctx.fillStyle = color;
   ctx.textBaseline = "top";
-  ctx.fillText(text, 3, 3);
+  ctx.fillText(text, 3, 2);
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-  sp.scale.set(w * 0.1, h * 0.1, 1);
+  sp.scale.set(w * 0.08, h * 0.08, 1);
   sp.center.set(0, 0.5);
   return sp;
 }
@@ -2059,7 +2067,7 @@ function renderMap(ships, trails = new Map()) {
       continue;
     }
     const maxEffR = Math.max(...group.map(effR));
-    const ringR = maxEffR * 1.6 + Math.min(group.length, 6) * 0.6;
+    const ringR = maxEffR * 1.15 + Math.min(group.length, 6) * 0.35;
     group.forEach((wp, i) => {
       const angle = (2 * Math.PI * i) / group.length;
       posBySymbol.set(wp.symbol, { x: baseX + ringR * Math.cos(angle), z: baseZ + ringR * Math.sin(angle) });
@@ -2132,9 +2140,11 @@ function renderMap(ships, trails = new Map()) {
       glowGroup.add(marketGlow);
     }
 
-    const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
-    label.position.set(x, y + size + 1.3, z);
-    bodiesGroup.add(label);
+    if (shouldLabelWaypoint(wp)) {
+      const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
+      label.position.set(x, y + size + 1.3, z);
+      bodiesGroup.add(label);
+    }
 
     // A real orbit path — the waypoint's actual distance from the system's
     // origin, not a fabricated one. Deduped by radius so a station sharing
@@ -2229,14 +2239,14 @@ function renderShipsInto(ships, s) {
   const dockedOffset = new Map();
   for (const [wpSymbol, symbols] of dockedByWaypoint) {
     const bodyR = WP3D_SIZE[waypoints.find((w) => w.symbol === wpSymbol)?.type] ?? 1.8;
-    // Extra margin beyond the body's true radius: the camera views from an
-    // angle, so a ship offset only just past the sphere's edge can still
-    // land inside its on-screen silhouette from some angles even though
-    // it's not actually touching in 3D.
-    const ringR = bodyR + 2.6 + Math.min(symbols.length, 6) * 0.55;
+    // Tight orbit for small bodies (moons/stations) so ships stay visually
+    // attached to their waypoint inside a planet cluster, not floating in
+    // the parent planet's space. Lifted slightly in y so they read as
+    // orbiting rather than embedded in the surface.
+    const ringR = bodyR * 1.0 + 0.7 + Math.min(symbols.length, 6) * 0.35;
     symbols.forEach((sym, i) => {
       const angle = (2 * Math.PI * i) / symbols.length;
-      dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dz: ringR * Math.sin(angle) });
+      dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dy: bodyR * 0.35, dz: ringR * Math.sin(angle) });
     });
   }
 
