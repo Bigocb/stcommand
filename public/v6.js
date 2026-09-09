@@ -1854,22 +1854,28 @@ function initMap3D() {
   // A dim hemisphere fill keeps the shadow side from going fully black
   // (space has bounced/scattered light), and a small marker at the origin
   // sells the star itself.
-  scene.add(new THREE.HemisphereLight(0x1a2030, 0x05070a, 0.45));
-  const starLight = new THREE.PointLight(0xfff8e7, 2.2, 0, 0.35);
+  // system star is the light source: a point light at the origin radiates
+  // outward in all directions. Low decay keeps distant outliers from going
+  // dim. A strong ambient fill lightens the shadow side of every body
+  // without introducing a second visible source.
+  scene.add(new THREE.AmbientLight(0x0f172a, 0.55));
+  const starLight = new THREE.PointLight(0xff9e9e, 2.4, 0, 0.32);
   starLight.position.set(0, 0, 0);
   scene.add(starLight);
 
   // A central star marker, bigger than planets so it reads as the system
-  // primary and justifies pushing everything else outward.
+  // primary and justifies pushing everything else outward. Red dwarf tone
+  // is easier on the eyes than a blazing white sun and still reads as a star.
+  const STAR_COLOR = 0xff7b72;
   const star = new THREE.Mesh(
-    new THREE.SphereGeometry(5.0, 32, 24),
-    new THREE.MeshBasicMaterial({ color: 0xfff8e7 }),
+    new THREE.SphereGeometry(6.5, 32, 24),
+    new THREE.MeshBasicMaterial({ color: STAR_COLOR }),
   );
   star.position.set(0, 0, 0);
   scene.add(star);
 
   // A soft radial glow around the star so it doesn't look like a solid ball.
-  const starGlow = makeGlowSprite(new THREE.Color(0xfff8e7), 22);
+  const starGlow = makeGlowSprite(new THREE.Color(STAR_COLOR), 28);
   starGlow.position.set(0, 0, 0);
   glowGroup.add(starGlow);
 
@@ -2385,11 +2391,9 @@ function repositionShips() {
     const { y } = transitArcHeight(base, originWP, destWP, mapScale);
     p.group.position.set(base.x, y, base.z);
 
-    // Subtle motion trail — same idea as the flat map's own: sampled by
-    // scene distance moved, not every frame (at 60fps consecutive points
-    // would sit fractions of a unit apart, indistinguishable from a solid
-    // line and pointless overhead). Now includes elevation so the trail
-    // follows the ship's arc through 3D space.
+    // Motion trail for in-transit ships. Sampled by scene distance moved,
+    // not every frame, and tinted by the ship's own role color so each
+    // trajectory is glanceable against the dark map.
     const points = liveTrails.get(sh.symbol) ?? [];
     const lastPos = lastTrailSamplePos.get(sh.symbol);
     if (!lastPos || Math.hypot(base.x - lastPos.x, base.z - lastPos.z) >= TRAIL_SAMPLE_MIN_SCENE) {
