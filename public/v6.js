@@ -1858,7 +1858,7 @@ function initMap3D() {
   // outward in all directions. Low decay keeps distant outliers from going
   // dim. A strong ambient fill lightens the shadow side of every body
   // without introducing a second visible source.
-  scene.add(new THREE.AmbientLight(0x0f172a, 0.55));
+  scene.add(new THREE.AmbientLight(0x151e2e, 0.75));
   const starLight = new THREE.PointLight(0xff9e9e, 2.4, 0, 0.32);
   starLight.position.set(0, 0, 0);
   scene.add(starLight);
@@ -1875,7 +1875,7 @@ function initMap3D() {
   scene.add(star);
 
   // A soft radial glow around the star so it doesn't look like a solid ball.
-  const starGlow = makeGlowSprite(new THREE.Color(STAR_COLOR), 28);
+  const starGlow = makeGlowSprite(new THREE.Color(STAR_COLOR), 48);
   starGlow.position.set(0, 0, 0);
   glowGroup.add(starGlow);
 
@@ -2377,7 +2377,7 @@ function repositionShips() {
     }
   }
   if (inTransitSymbols.size === 0) return;
-  const trailColor = themedColor("--star");
+  const trailColor = themedColor("--accent");
   for (const p of pickables) {
     if (p.kind !== "ship") continue;
     const sh = lastRenderedShips.find((x) => x.symbol === p.symbol);
@@ -2419,9 +2419,10 @@ function repositionShips() {
           new THREE.Vector3(a.x, a.y + 0.06, a.z),
           new THREE.Vector3(b.x, b.y + 0.06, b.z),
         ]);
-        const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity, depthTest: false });
+        const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity, depthTest: false, linewidth: 2 });
         const line = new THREE.Line(geo, mat);
         line.renderOrder = 8;
+        line.material.linewidth = 2;
         trailGroup.add(line);
       }
       liveTrailGroup.add(trailGroup);
