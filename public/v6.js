@@ -1652,12 +1652,12 @@ const WP3D_COLOR = {
 // real coordinate differences under "just enough padding to not overlap."
 // Shrinking the bodies gives real distances room to read as real distances.
 const WP3D_SIZE = {
-  PLANET: 1.5, GAS_GIANT: 2.1, MOON: 0.72,
-  ORBITAL_STATION: 0.72, ASTEROID_BASE: 0.72,
-  JUMP_GATE: 1.05, ASTEROID_FIELD: 1, ASTEROID: 0.9,
-  ENGINEERED_ASTEROID: 1, FUEL_STATION: 1,
-  NEBULA: 1.2, DEBRIS_FIELD: 1.05, GRAVITY_WELL: 1.05,
-  ARTIFICIAL_GRAVITY_WELL: 1.05,
+  PLANET: 3.0, GAS_GIANT: 4.2, MOON: 1.0,
+  ORBITAL_STATION: 0.8, ASTEROID_BASE: 0.8,
+  JUMP_GATE: 1.4, ASTEROID_FIELD: 0.6, ASTEROID: 0.45,
+  ENGINEERED_ASTEROID: 0.6, FUEL_STATION: 1.0,
+  NEBULA: 0.8, DEBRIS_FIELD: 0.6, GRAVITY_WELL: 1.4,
+  ARTIFICIAL_GRAVITY_WELL: 1.4,
 };
 const SHIP3D_COLOR = {
   miner: "--buff", scout: "--violet", tour: "--violet",
@@ -1812,7 +1812,7 @@ const pickables = []; // { mesh, kind: 'waypoint'|'ship', symbol }
 let raycaster, pointerNdc;
 const orbitCam = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
 const orbitGoal = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
-let systemSpan = 60; // current system's own radius, used to scale zoom limits to it
+let systemSpan = 90; // current system's own radius, used to scale zoom limits to it
 let sceneReady = false;
 let pendingRebuild = null;
 let mapUnavailable = false;
@@ -1955,14 +1955,18 @@ function makeLabelSprite(text, color) {
 function fitSystemScale(pool) {
   let maxR = 20;
   for (const p of pool) maxR = Math.max(maxR, Math.hypot(p.x, p.y));
-  const scale = 80 / Math.sqrt(maxR); // world units -> scene units, ~80 across at rest
-  return { scale };
+  // A slightly gentler compression than sqrt() so nearby planets keep more
+  // of their real separation while distant outliers still fit. Tuned for the
+  // new "readable" body sizes (planets ~3-4, orbiters ~0.5-1).
+  const pow = 0.55;
+  const scale = 110 / Math.pow(maxR, pow); // world units -> scene units
+  return { scale, pow };
 }
 
 function worldToScene(x, y, s) {
   const r = Math.hypot(x, y);
   if (r < 1e-6) return { x: 0, z: 0 };
-  const rPrime = Math.sqrt(r) * s.scale;
+  const rPrime = Math.pow(r, s.pow) * s.scale;
   return { x: (x / r) * rPrime, z: (y / r) * rPrime };
 }
 
@@ -2068,7 +2072,7 @@ function renderMap(ships, trails = new Map()) {
         const a = relaxEntries[i], b = relaxEntries[j];
         let dx = b.x - a.x, dz = b.z - a.z;
         let dist = Math.hypot(dx, dz);
-        const minDist = a.r + b.r + 0.4;
+        const minDist = a.r + b.r + 0.6;
         if (dist >= minDist) continue;
         if (dist < 0.01) { dx = 1; dz = 0; dist = 1; }
         const push = ((minDist - dist) / dist) * 0.5;
@@ -2100,7 +2104,7 @@ function renderMap(ships, trails = new Map()) {
     if (Math.abs(y) > 0.3) {
       const stalkLen = Math.max(0.2, Math.abs(y) - size * 0.4);
       const stalk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, stalkLen, 8),
+        new THREE.CylinderGeometry(0.03, 0.03, stalkLen, 8),
         new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.22 }),
       );
       stalk.position.set(x, Math.sign(y) * (stalkLen / 2 + size * 0.35), z);
@@ -2129,19 +2133,19 @@ function renderMap(ships, trails = new Map()) {
     }
 
     const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
-    label.position.set(x, y + size + 2.4, z);
+    label.position.set(x, y + size + 1.3, z);
     bodiesGroup.add(label);
 
     // A real orbit path — the waypoint's actual distance from the system's
     // origin, not a fabricated one. Deduped by radius so a station sharing
     // its planet's exact x/y doesn't draw the same ring twice. Kept on the
     // ecliptic plane (y=0); the body itself floats at its computed elevation.
-    const radius = Math.sqrt(Math.hypot(wp.x, wp.y)) * s.scale;
+    const radius = Math.pow(Math.hypot(wp.x, wp.y), s.pow) * s.scale;
     const key = Math.round(radius * 4);
     if (radius > 0.5 && !seenRadii.has(key)) {
       seenRadii.add(key);
       const ring = new THREE.Mesh(
-        new THREE.RingGeometry(radius - 0.08, radius + 0.08, 96),
+        new THREE.RingGeometry(radius - 0.05, radius + 0.05, 96),
         new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.12, side: THREE.DoubleSide }),
       );
       ring.rotation.x = -Math.PI / 2;
@@ -2185,7 +2189,7 @@ function renderMap(ships, trails = new Map()) {
   if (framedSystem !== sys) {
     framedSystem = sys;
     orbitGoal.target.set(0, 0, 0);
-    orbitGoal.radius = 112;
+    orbitGoal.radius = 160;
     orbitGoal.phi = 1.0;
     // A live trail's points are in the old system's scene coordinates —
     // meaningless (and, worse, plottable-looking garbage) once worldToScene
@@ -2244,7 +2248,7 @@ function renderShipsInto(ships, s) {
 
     const group = new THREE.Group();
     const body = new THREE.Mesh(
-      new THREE.ConeGeometry(0.45, 1.1, 4),
+      new THREE.ConeGeometry(0.2, 0.5, 4),
       // Lit like the waypoint bodies now, but with a strong emissive glow
       // in the same color rather than plain unlit — a ship still has to
       // read as a bright, glanceable marker at a glance, not a shaded
