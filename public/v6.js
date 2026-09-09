@@ -2129,13 +2129,13 @@ function renderMap(ships, trails = new Map()) {
       bodiesGroup.add(belt);
     }
     if (wp.type === "JUMP_GATE" || wp.type === "FUEL_STATION") {
-      const glow = makeGlowSprite(color, size * 5);
+      const glow = makeGlowSprite(color, size * 3.5);
       glow.position.copy(body.position);
       glowGroup.add(glow);
     }
     const isMarket = (wp.traits ?? []).some((t) => (t.symbol ?? t) === "MARKETPLACE");
     if (isMarket) {
-      const marketGlow = makeGlowSprite(themedColor("--buff"), size * 3.5);
+      const marketGlow = makeGlowSprite(themedColor("--buff"), size * 2.5);
       marketGlow.position.copy(body.position);
       glowGroup.add(marketGlow);
     }
@@ -2156,7 +2156,7 @@ function renderMap(ships, trails = new Map()) {
       seenRadii.add(key);
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(radius - 0.05, radius + 0.05, 96),
-        new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.12, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.22, side: THREE.DoubleSide }),
       );
       ring.rotation.x = -Math.PI / 2;
       ringsGroup.add(ring);
@@ -2268,11 +2268,14 @@ function renderShipsInto(ships, s) {
     body.rotation.x = Math.PI / 2;
     group.add(body);
     if (sel) {
+      // A 3D torus ring that stays oriented with the ship instead of a flat
+      // disk lying on the ecliptic plane. It scales with the tiny new ship
+      // size so the selection read is tight, not a giant pancake.
       const halo = new THREE.Mesh(
-        new THREE.RingGeometry(1.1, 1.4, 32),
-        new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
+        new THREE.TorusGeometry(0.55, 0.06, 8, 32),
+        new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.75 }),
       );
-      halo.rotation.x = -Math.PI / 2;
+      halo.rotation.x = Math.PI / 2;
       group.add(halo);
     }
 
