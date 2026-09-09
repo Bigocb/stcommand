@@ -605,9 +605,13 @@ export class RouteDispatcher {
       // behaviour rather than idling a hull, so a fleet that genuinely has
       // only distant work still attempts it — the trader's own viableRoute()
       // is the authority that declines it.
-      const reachable = (w: { buySystem?: string }): boolean =>
-        w.buySystem === undefined || t.system === undefined ||
-        w.buySystem === t.system || canJump(t.system, w.buySystem);
+      const reachable = (w: { buySystem?: string }): boolean => {
+        const r = w.buySystem === undefined || t.system === undefined || w.buySystem === t.system || canJump(t.system, w.buySystem);
+        if (!r && log && t.shipSymbol === "DRAGOM-A") {
+          log(`dispatch reachability: ${t.shipSymbol} in ${t.system} cannot reach ${w.buySystem ?? "?"} (canJump=${canJump(t.system ?? "", w.buySystem ?? "")})`);
+        }
+        return r;
+      };
       const item = work.find((w) => !usedKeys.has(w.key) && reachable(w)) ?? work.find((w) => !usedKeys.has(w.key));
       if (!item) continue;
       usedKeys.add(item.key);

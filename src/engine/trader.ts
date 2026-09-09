@@ -443,7 +443,11 @@ export class TraderAgent {
    *  never reachable" — the same conservative default a standalone trader
    *  (no dispatcher, no atlas) already had before gate-awareness existed. */
   private systemsConnected(fromSystem: string, toSystem: string): boolean {
-    return fromSystem === toSystem || (this.atlas?.canJump(fromSystem, toSystem) ?? false);
+    const r = fromSystem === toSystem || (this.atlas?.canJump(fromSystem, toSystem) ?? false);
+    if (this.symbol === "DRAGOM-A" && !r) {
+      this.log(`systemsConnected: ${fromSystem} -> ${toSystem} = ${r} (atlas=${this.atlas ? "yes" : "no"})`);
+    }
+    return r;
   }
 
   /** Nearest known fuel-selling waypoint (same system, reachable on a full
