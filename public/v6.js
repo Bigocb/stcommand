@@ -1847,16 +1847,25 @@ function initMap3D() {
   scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup);
 
   // Bodies use a lit material now (see WP3D_MATERIAL below) instead of flat
-  // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object; an
-  // unlit one always reads as a flat colored disc no matter how good the
-  // geometry underneath it is. Hemisphere light gives a soft, ambient
-  // "in-space" fill with no true shadow side (nothing here should go fully
-  // black); the point light does the actual modeling — a highlight and a
-  // falloff so each body reads as a sphere, not a circle.
-  scene.add(new THREE.HemisphereLight(0x99aaff, 0x0a0a12, 0.55));
-  const keyLight = new THREE.PointLight(0xffffff, 1.4, 0, 0.7);
-  keyLight.position.set(60, 90, 40);
-  scene.add(keyLight);
+  // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object. The
+  // system star is the light source: a directional light from the origin
+  // illuminates every body consistently from the center, like a real star
+  // would. A dim hemisphere fill keeps the shadow side from going fully black
+  // (space has bounced/scattered light), and a point glow at the origin
+  // sells the star itself.
+  scene.add(new THREE.HemisphereLight(0x1a2030, 0x05070a, 0.45));
+  const starLight = new THREE.DirectionalLight(0xfff8e7, 1.2);
+  starLight.position.set(0, 8, 0);
+  scene.add(starLight);
+
+  // A small central star marker — mostly a subtle bloom anchor, not a
+  // billboard sun.
+  const star = new THREE.Mesh(
+    new THREE.SphereGeometry(1.2, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xfff8e7 }),
+  );
+  star.position.set(0, 0, 0);
+  scene.add(star);
 
   raycaster = new THREE.Raycaster();
   pointerNdc = new THREE.Vector2();
