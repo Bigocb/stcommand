@@ -1859,14 +1859,19 @@ function initMap3D() {
   starLight.position.set(0, 0, 0);
   scene.add(starLight);
 
-  // A small central star marker — mostly a subtle bloom anchor, not a
-  // billboard sun.
+  // A central star marker, bigger than planets so it reads as the system
+  // primary and justifies pushing everything else outward.
   const star = new THREE.Mesh(
-    new THREE.SphereGeometry(1.5, 16, 12),
+    new THREE.SphereGeometry(5.0, 32, 24),
     new THREE.MeshBasicMaterial({ color: 0xfff8e7 }),
   );
   star.position.set(0, 0, 0);
   scene.add(star);
+
+  // A soft radial glow around the star so it doesn't look like a solid ball.
+  const starGlow = makeGlowSprite(new THREE.Color(0xfff8e7), 22);
+  starGlow.position.set(0, 0, 0);
+  glowGroup.add(starGlow);
 
   raycaster = new THREE.Raycaster();
   pointerNdc = new THREE.Vector2();
@@ -1975,9 +1980,11 @@ function fitSystemScale(pool) {
   for (const p of pool) maxR = Math.max(maxR, Math.hypot(p.x, p.y));
   // A slightly gentler compression than sqrt() so nearby planets keep more
   // of their real separation while distant outliers still fit. Tuned for the
-  // new "readable" body sizes (planets ~3-4, orbiters ~0.5-1).
+  // new "readable" body sizes (planets ~3-4, orbiters ~0.5-1). The larger
+  // target pushes the home cluster farther from the central star so the map
+  // reads as a real solar system rather than a tight knot.
   const pow = 0.55;
-  const scale = 110 / Math.pow(maxR, pow); // world units -> scene units
+  const scale = 140 / Math.pow(maxR, pow); // world units -> scene units
   return { scale, pow };
 }
 
