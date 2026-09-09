@@ -323,18 +323,10 @@ export class RouteDispatcher {
     if (!route) {
       // Nothing left to fly: drop the stale assignment so the good is freed for
       // a fleetmate and this trader goes price-hunting instead.
-      const had = this.assignments.get(shipSymbol);
-      if (had) {
-        console.log(`[dispatcher] ${shipSymbol}: claim found no acceptable route, releasing assigned ${had.good} ${had.buyAt} -> ${had.sellAt}`);
-      }
       this.assignments.delete(shipSymbol);
       return undefined;
     }
     const assignment = this.toAssignment(shipSymbol, route);
-    const old = this.assignments.get(shipSymbol);
-    if (!old || old.buyAt !== assignment.buyAt || old.sellAt !== assignment.sellAt || old.good !== assignment.good) {
-      console.log(`[dispatcher] ${shipSymbol}: claim reassigned ${old ? `${old.good} ${old.buyAt} -> ${old.sellAt}` : "(none)"} => ${assignment.good} ${assignment.buyAt} -> ${assignment.sellAt}`);
-    }
     this.assignments.set(shipSymbol, assignment);
     return assignment;
   }
@@ -605,14 +597,9 @@ export class RouteDispatcher {
       // behaviour rather than idling a hull, so a fleet that genuinely has
       // only distant work still attempts it — the trader's own viableRoute()
       // is the authority that declines it.
-      const reachable = (w: { buySystem?: string }): boolean => {
-        const r = w.buySystem === undefined || t.system === undefined || w.buySystem === t.system || canJump(t.system, w.buySystem);
-        if (!r && log && t.shipSymbol === "DRAGOM-A") {
-          log(`dispatch reachability: ${t.shipSymbol} in ${t.system} cannot reach ${w.buySystem ?? "?"} (canJump=${canJump(t.system ?? "", w.buySystem ?? "")})`);
-        }
-        return r;
-      };
-      const item = work.find((w) => !usedKeys.has(w.key) && reachable(w)) ?? work.find((w) => !usedKeys.has(w.key));
+      const reachable = (w: { buySystem?: string }): boolean =>
+        w.buySystem === undefined || t.system === undefined || w.buySystem === t.system || canJump(t.system, w.buySystem);
+      const item = work.find((w) => !usedKeys.has(w.key) && reachable(w));
       if (!item) continue;
       usedKeys.add(item.key);
       next.set(t.shipSymbol, item.make(t.shipSymbol));

@@ -443,11 +443,7 @@ export class TraderAgent {
    *  never reachable" — the same conservative default a standalone trader
    *  (no dispatcher, no atlas) already had before gate-awareness existed. */
   private systemsConnected(fromSystem: string, toSystem: string): boolean {
-    const r = fromSystem === toSystem || (this.atlas?.canJump(fromSystem, toSystem) ?? false);
-    if (this.symbol === "DRAGOM-A" && !r) {
-      this.log(`systemsConnected: ${fromSystem} -> ${toSystem} = ${r} (atlas=${this.atlas ? "yes" : "no"})`);
-    }
-    return r;
+    return fromSystem === toSystem || (this.atlas?.canJump(fromSystem, toSystem) ?? false);
   }
 
   /** Nearest known fuel-selling waypoint (same system, reachable on a full
@@ -741,6 +737,10 @@ export class TraderAgent {
       }
       const why = this.whyNotViable(assigned);
       this.log(`findRoute: assigned ${assignment?.good} ${assigned.buyAt} -> ${assigned.sellAt} rejected: ${why}`);
+      // The dispatcher owns assignments. If it handed us a route we can't fly,
+      // don't silently claim a replacement that mutates shared state and churns
+      // the dashboard — fall through to discovery/idle instead.
+      return undefined;
     }
 
     if (this.claimRoute) {
