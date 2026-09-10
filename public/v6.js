@@ -1831,7 +1831,18 @@ function initMap3D() {
   if (sceneReady || mapUnavailable) return;
   host = $("map3d");
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(50, host.clientWidth / host.clientHeight || 1, 0.1, 4000);
+  // Near/far tightened to what the camera actually ever uses (zoom clamps
+  // to [systemSpan*0.35, systemSpan*6] ≈ [28, 480] — see the wheel/pinch
+  // handlers below) rather than an arbitrary 0.1-4000. A standard (non-
+  // logarithmic) depth buffer's precision is worst at the far end of its
+  // range and wasted almost entirely on distances nothing ever renders at;
+  // a 40,000:1 near:far ratio left too little precision at the distances
+  // that matter, which read as z-fighting flicker between a body and its
+  // own atmosphere rim — worse on mobile GPUs' typically lower-precision
+  // depth buffers, confirmed live as exactly where it showed up. 1500 (not
+  // 480) keeps headroom for wide pans/edge cases without giving back the
+  // precision this was fixing.
+  camera = new THREE.PerspectiveCamera(50, host.clientWidth / host.clientHeight || 1, 1, 1500);
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   } catch (err) {
@@ -1858,7 +1869,15 @@ function initMap3D() {
       new THREE.Vector2(host.clientWidth || 1, host.clientHeight || 1),
       0.9,  // strength
       0.5,  // radius
-      0.18, // threshold — low, since everything outside the bright markers is already near-black space
+      // threshold — raised from an initial 0.18. A normal lit body surface
+      // (diffuse shading + the small 0.05 emissive floor) already sits
+      // well above a low threshold, so *everything* bloomed a little and
+      // the per-type surface textures — much subtler contrast than the
+      // star or a glow sprite — got crushed into a uniform soft blur
+      // along with it. 0.55 keeps bloom for what's actually meant to look
+      // like it's emitting light (the star, glow sprites, jump-gate/fuel
+      // halos) without smearing out ordinary lit-surface detail.
+      0.55,
     );
     composer.addPass(bloomPass);
   }
