@@ -432,6 +432,23 @@ export class MissionManager {
     t.market = undefined;
   }
 
+  /** Free the hold of anything that isn't `keep` (the mission's own material)
+   *  or FUEL — selling for real credits at the ship's current market where
+   *  possible, jettisoning only what genuinely can't be sold there. Confirmed
+   *  live: this used to jettison unconditionally, which silently discarded
+   *  an 80u FOOD purchase (~104,860c) the moment a mission commandeered a
+   *  trader mid-buy (EWOK-14). */
+  private async clearUnrelatedCargo(shipSymbol: string, keep: string, inventory: { symbol: string; units: number }[]): Promise<void> {
+    for (const item of inventory) {
+      if (item.symbol === keep || item.symbol === "FUEL" || item.units <= 0) continue;
+      try {
+        await this.sellCargo?.(shipSymbol, item.symbol, item.units);
+      } catch {
+        await this.jettisonCargo?.(shipSymbol, item.symbol, item.units);
+      }
+    }
+  }
+
   /** Drive the carrier ship through the supply loop. */
   private async stepCarrier(mission: Mission, t: TaskState): Promise<void> {
     const ship = await this.getShip?.(mission.assignedShip!);
@@ -526,12 +543,7 @@ export class MissionManager {
       t.currentMaterial = undefined;
       // Free cargo so the carrier can haul the next batch.
       const freshCargo = await this.api.getShipCargo(ship.symbol);
-      if (this.jettisonCargo) {
-        for (const item of freshCargo.inventory) {
-          if (item.symbol === neededHeld.mat.tradeSymbol || item.symbol === "FUEL") continue;
-          if (item.units > 0) await this.jettisonCargo(ship.symbol, item.symbol, item.units);
-        }
-      }
+      await this.clearUnrelatedCargo(ship.symbol, neededHeld.mat.tradeSymbol, freshCargo.inventory);
       return;
     }
     if (ship.nav.waypointSymbol !== market && t.step !== "supply") {
@@ -540,7 +552,20 @@ export class MissionManager {
     }
     if (ship.nav.waypointSymbol === market && t.step === "source") {
       if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
-      const toBuy = Math.min(need.required - need.fulfilled, ship.cargo.capacity - ship.cargo.units);
+      const freeSpace = ship.cargo.capacity - ship.cargo.units;
+      if (freeSpace <= 0) {
+        // The hold is full of something that isn't this mission's material —
+        // confirmed live: a trader grabbed as carrier mid-purchase (80u FOOD,
+        // ~104,860c already paid) arrived here with zero room to buy, and the
+        // old code advanced to "supply" regardless, silently discarding it a
+        // tick later once the supply step found nothing worth delivering.
+        // Clear it now, at a real market, so the very next tick can actually
+        // buy — recovering real credits where this market takes the good,
+        // not just discarding it.
+        await this.clearUnrelatedCargo(ship.symbol, material, ship.cargo.inventory);
+        return;
+      }
+      const toBuy = Math.min(need.required - need.fulfilled, freeSpace);
       if (toBuy > 0) {
         const credits = (await this.getCredits?.()) ?? 0;
         const buyer = (await this.listBuyers?.(material, mission.targetSystem))?.find((b) => b.waypoint === market);
@@ -563,8 +588,8 @@ export class MissionManager {
           this.log(`mission ${mission.targetWaypoint}: buy ${material} failed: ${err instanceof Error ? err.message : String(err)}`);
           return;
         }
+        t.step = "supply";
       }
-      t.step = "supply";
     }
     if (t.step === "supply") {
       if (ship.nav.waypointSymbol !== mission.targetWaypoint) {
@@ -583,12 +608,7 @@ export class MissionManager {
       t.step = "source";
       t.currentMaterial = undefined; // move to next material (or end)
       // Free cargo for the next material so the carrier can keep working.
-      if (this.jettisonCargo) {
-        for (const item of cargo.inventory) {
-          if (item.symbol === material || item.symbol === "FUEL") continue;
-          if (item.units > 0) await this.jettisonCargo(ship.symbol, item.symbol, item.units);
-        }
-      }
+      await this.clearUnrelatedCargo(ship.symbol, material, cargo.inventory);
     }
   }
 

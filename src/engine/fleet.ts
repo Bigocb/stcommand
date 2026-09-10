@@ -292,7 +292,15 @@ export class FleetManager {
       // mission.ts itself, same trick used for every other injected agent.
       getCredits: async () => this.spendableCredits(),
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
-      jettisonCargo: (s, g, u) => this.api.jettisonCargo(s, g, u),
+      // Confirmed live: this used to call this.api.jettisonCargo() directly —
+      // the raw API, bypassing this.jettisonCargo()'s own ledger/activity/log
+      // recording entirely. A mission that grabbed a trader mid-purchase
+      // (EWOK-14, 80u FOOD, ~104,860c already paid) had its unrelated cargo
+      // thrown overboard with zero trace anywhere — no log line, no ledger
+      // entry, no activity feed row. This wrapper already exists and already
+      // records properly; nothing here was stopping mission.ts from using it
+      // except this line pointing at the wrong target.
+      jettisonCargo: (s, g, u) => this.jettisonCargo(s, g, u),
     });
   }
 
