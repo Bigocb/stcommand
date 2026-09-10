@@ -2170,11 +2170,23 @@ function makeBodyGeometry(symbol, type, traits, radius) {
 // own symbol, so two PLANET waypoints in the same system can look
 // genuinely different (continents vs. ice vs. cracked-volcanic) instead of
 // every one being a minor random reshuffle of the same single pattern.
-// Deliberately grayscale still: the variant changes the *pattern*, never
-// the hue, since hue is how the rest of this map's legend (and the
-// WP3D_COLOR table) says "this is a planet" vs "this is a gas giant" —
-// changing that per-waypoint would break the one color contract the whole
-// map already leans on.
+//
+// This used to say every variant was deliberately grayscale — pattern
+// only, never hue — to protect the map's one color contract (WP3D_COLOR
+// says "this is a planet" vs "this is a gas giant" by hue). Confirmed
+// live: that was the actual reason only the volcanic variant ever read as
+// textured. A pure `rgba(v,v,v,a)` blotch only shifts *lightness*, and
+// this map's real lighting (a strong point light plus PBR specular
+// response) compresses lightness differences hard — volcanic's orange
+// embers survived because a hue shift doesn't get compressed the same
+// way, not because its blotches were bigger or more opaque (the failed
+// first attempt at this fix pushed every variant's alpha and value range
+// toward volcanic's own and it made no visible difference). Every variant
+// below now carries a small hue accent the same way volcanic always did.
+// The accents are subtly off-neutral, not saturated — the base fill (most
+// of the visible disc) stays close to the type's own palette color, so
+// "this is a planet" still reads at a glance; only the feature blotches
+// that are supposed to stand out now actually can.
 const BODY_TEXTURE_DRAWERS = {
   PLANET: [
     // Continents: soft overlapping blotches at varying lightness — reads
@@ -2188,21 +2200,38 @@ const BODY_TEXTURE_DRAWERS = {
         const r = size * (0.08 + rand() * 0.22);
         const v = Math.round(140 + rand() * 115);
         const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(${v},${v},${v},0.55)`);
-        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        // A warm tan/green landmass hue, not pure gray — see the comment
+        // above BODY_TEXTURE_DRAWERS for why a hue accent (not just alpha/
+        // range) is what actually survives this map's real lighting.
+        g.addColorStop(0, `rgba(${v + 12},${v + 4},${Math.max(0, v - 22)},0.85)`);
+        g.addColorStop(1, `rgba(${v + 12},${v + 4},${Math.max(0, v - 22)},0)`);
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
       }
     },
-    // Ice: a bright base with a network of thin cracks, like pack ice —
-    // higher base lightness and hard-edged lines instead of soft blotches.
+    // Ice: a bright base with soft frost patches for area coverage plus a
+    // network of cracks on top — the patches alone (cracks are thin lines
+    // that cover almost no area) are what make this variant actually read
+    // from a distance instead of just looking like a flat pale ball with
+    // a few hairline scratches.
     (ctx, size, rand) => {
       ctx.fillStyle = "#c9d2da";
       ctx.fillRect(0, 0, size, size);
-      ctx.strokeStyle = "rgba(90,110,130,0.5)";
+      for (let i = 0; i < 14; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.06 + rand() * 0.16);
+        const v = Math.round(150 + rand() * 105);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        // Cold blue-white frost, not pure gray.
+        g.addColorStop(0, `rgba(${Math.max(0, v - 20)},${v},${Math.min(255, v + 15)},0.8)`);
+        g.addColorStop(1, `rgba(${Math.max(0, v - 20)},${v},${Math.min(255, v + 15)},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+      ctx.strokeStyle = "rgba(70,90,110,0.85)";
       const cracks = 8 + Math.floor(rand() * 6);
       for (let i = 0; i < cracks; i++) {
-        ctx.lineWidth = 1 + rand() * 1.5;
+        ctx.lineWidth = 2 + rand() * 2;
         let x = rand() * size, y = rand() * size;
         ctx.beginPath();
         ctx.moveTo(x, y);
@@ -2243,12 +2272,13 @@ const BODY_TEXTURE_DRAWERS = {
         const r = size * (0.03 + rand() * 0.09);
         const v = Math.round(30 + rand() * 40);
         const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(${v},${v},${v},0.6)`);
-        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        // Murky bog green, not pure gray.
+        g.addColorStop(0, `rgba(${Math.max(0, v - 10)},${v + 12},${Math.max(0, v - 15)},0.85)`);
+        g.addColorStop(1, `rgba(${Math.max(0, v - 10)},${v + 12},${Math.max(0, v - 15)},0)`);
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
       }
-      ctx.strokeStyle = "rgba(50,50,45,0.4)";
+      ctx.strokeStyle = "rgba(35,55,35,0.75)";
       const channels = 5 + Math.floor(rand() * 4);
       for (let i = 0; i < channels; i++) {
         ctx.lineWidth = 1 + rand() * 1.2;
@@ -2279,7 +2309,8 @@ const BODY_TEXTURE_DRAWERS = {
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(rand() * Math.PI);
-        ctx.fillStyle = `rgba(${v},${v},${v},0.55)`;
+        // Warm reddish-brown stone, not pure gray.
+        ctx.fillStyle = `rgba(${Math.min(255, v + 15)},${Math.max(0, v - 10)},${Math.max(0, v - 25)},0.85)`;
         ctx.fillRect(-w / 2, -h / 2, w, h);
         ctx.restore();
       }
@@ -2288,29 +2319,29 @@ const BODY_TEXTURE_DRAWERS = {
         const x = rand() * size, y = rand() * size;
         const r = size * (0.02 + rand() * 0.05);
         ctx.beginPath();
-        ctx.fillStyle = "rgba(25,25,25,0.4)";
+        ctx.fillStyle = "rgba(30,22,18,0.7)";
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.fillStyle = "rgba(220,220,220,0.25)";
+        ctx.fillStyle = "rgba(230,210,190,0.55)";
         ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.5, 0, Math.PI * 2);
         ctx.fill();
       }
     },
-    // Barren: flat and mostly featureless — a dusty, low-contrast base with
-    // only a handful of faint soft patches and no sharp features at all,
-    // reading as "nothing much going on here" next to every other variant's
-    // busier surface.
+    // Barren: flat and mostly featureless — deliberately the quietest
+    // variant of the set, but still real enough to read as *something*
+    // rather than vanishing entirely once real lighting gets hold of it.
     (ctx, size, rand) => {
       ctx.fillStyle = "#8f8b82";
       ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         const x = rand() * size, y = rand() * size;
         const r = size * (0.1 + rand() * 0.2);
-        const v = Math.round(120 + rand() * 40);
+        const v = Math.round(90 + rand() * 110);
         const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(${v},${v},${v},0.25)`);
-        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        // Dusty tan, not pure gray — kept subtler than the busier variants.
+        g.addColorStop(0, `rgba(${Math.min(255, v + 10)},${v},${Math.max(0, v - 14)},0.5)`);
+        g.addColorStop(1, `rgba(${Math.min(255, v + 10)},${v},${Math.max(0, v - 14)},0)`);
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
       }
@@ -2326,8 +2357,9 @@ const BODY_TEXTURE_DRAWERS = {
         const r = size * (0.05 + rand() * 0.12);
         const v = Math.round(90 + rand() * 110);
         const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(${v},${v},${v},0.4)`);
-        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        // Real canopy green, not pure gray.
+        g.addColorStop(0, `rgba(${Math.max(0, v - 35)},${v + 10},${Math.max(0, v - 35)},0.8)`);
+        g.addColorStop(1, `rgba(${Math.max(0, v - 35)},${v + 10},${Math.max(0, v - 35)},0)`);
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
       }
@@ -2341,10 +2373,11 @@ const BODY_TEXTURE_DRAWERS = {
       const islands = 3 + Math.floor(rand() * 4);
       for (let i = 0; i < islands; i++) {
         const x = rand() * size, y = rand() * size;
-        const r = size * (0.02 + rand() * 0.05);
+        const r = size * (0.03 + rand() * 0.07);
         const v = Math.round(160 + rand() * 80);
         ctx.beginPath();
-        ctx.fillStyle = `rgba(${v},${v},${v},0.6)`;
+        // Sandy tan islands against blue water, not pure gray.
+        ctx.fillStyle = `rgba(${Math.min(255, v + 15)},${v},${Math.max(0, v - 35)},0.85)`;
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fill();
       }
@@ -2353,8 +2386,8 @@ const BODY_TEXTURE_DRAWERS = {
       for (let i = 0; i < 3; i++) {
         const y = rand() * size;
         const h = size * (0.08 + rand() * 0.1);
-        const v = Math.round(70 + rand() * 20);
-        ctx.fillStyle = `rgba(${v},${v},${v},0.15)`;
+        const v = Math.round(60 + rand() * 30);
+        ctx.fillStyle = `rgba(${Math.max(0, v - 20)},${Math.max(0, v - 10)},${Math.min(255, v + 25)},0.4)`;
         ctx.fillRect(0, y, size, h);
       }
     },
@@ -2367,16 +2400,21 @@ const BODY_TEXTURE_DRAWERS = {
       ctx.fillRect(0, 0, size, size);
       for (let i = 0; i < 200; i++) {
         const x = rand() * size, y = rand() * size;
-        const v = Math.round(rand() < 0.5 ? 30 + rand() * 30 : 190 + rand() * 50);
-        ctx.fillStyle = `rgba(${v},${v},${v},0.5)`;
-        ctx.fillRect(x, y, 1.5, 1.5);
+        // Sickly green-yellow glow specks and dark scarring, not pure gray.
+        if (rand() < 0.5) {
+          ctx.fillStyle = "rgba(20,24,16,0.75)";
+        } else {
+          const v = Math.round(200 + rand() * 55);
+          ctx.fillStyle = `rgba(${Math.max(0, v - 40)},${v},${Math.max(0, v - 130)},0.75)`;
+        }
+        ctx.fillRect(x, y, 2, 2);
       }
       for (let i = 0; i < 8; i++) {
         const x = rand() * size, y = rand() * size;
         const r = size * (0.02 + rand() * 0.05);
         const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, "rgba(255,255,255,0.7)");
-        g.addColorStop(1, "rgba(255,255,255,0)");
+        g.addColorStop(0, "rgba(210,255,90,0.9)");
+        g.addColorStop(1, "rgba(210,255,90,0)");
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
       }
@@ -2439,11 +2477,14 @@ const BODY_TEXTURE_DRAWERS = {
         const x = rand() * size, y = rand() * size;
         const r = size * (0.02 + rand() * 0.07);
         ctx.beginPath();
-        ctx.fillStyle = "rgba(30,30,30,0.5)";
+        ctx.fillStyle = "rgba(25,22,20,0.8)";
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.fillStyle = "rgba(210,210,210,0.3)";
+        // Warm rim highlight, not pure gray — see the comment above
+        // BODY_TEXTURE_DRAWERS for why hue (not just alpha) is what
+        // actually survives this map's real lighting.
+        ctx.fillStyle = "rgba(225,205,180,0.6)";
         ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.5, 0, Math.PI * 2);
         ctx.fill();
       }
@@ -2458,8 +2499,8 @@ const BODY_TEXTURE_DRAWERS = {
         const r = size * (0.1 + rand() * 0.18);
         const v = Math.round(90 + rand() * 100);
         const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(${v},${v},${v},0.4)`);
-        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        g.addColorStop(0, `rgba(${Math.min(255, v + 15)},${v},${Math.max(0, v - 18)},0.75)`);
+        g.addColorStop(1, `rgba(${Math.min(255, v + 15)},${v},${Math.max(0, v - 18)},0)`);
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, size, size);
       }
