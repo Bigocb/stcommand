@@ -341,11 +341,23 @@ export class FleetManager {
     // handed to traderOptions() below so a restart doesn't leave a ship
     // holding real cargo with no memory of where it was headed. See
     // migration 013_held_route.sql's comment for the incident this closes.
+    //
+    // Soft-fails rather than propagating: this whole call sits inside
+    // tenantRegistry.ts's boot() retry loop, which retries init() forever on
+    // any thrown error — a missing held_route table (this code deployed
+    // before its migration has run) would otherwise wedge every tenant's
+    // boot permanently instead of just booting without restart-protection
+    // for open positions this one cycle, the same degraded-but-alive
+    // tradeoff `loadCachedMarkets()`'s own empty-cache fallback makes.
     if (this.tenantId && this.store) {
       this.heldRoutesByShip.clear();
-      for (const row of await this.store.getAllHeldRoutes(this.tenantId)) {
-        if (!this.heldRoutesByShip.has(row.shipSymbol)) this.heldRoutesByShip.set(row.shipSymbol, new Map());
-        this.heldRoutesByShip.get(row.shipSymbol)!.set(row.goodSymbol, row);
+      try {
+        for (const row of await this.store.getAllHeldRoutes(this.tenantId)) {
+          if (!this.heldRoutesByShip.has(row.shipSymbol)) this.heldRoutesByShip.set(row.shipSymbol, new Map());
+          this.heldRoutesByShip.get(row.shipSymbol)!.set(row.goodSymbol, row);
+        }
+      } catch (err) {
+        this.log(`held_route load failed, booting without restart-recovered positions: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     // Reserve every persisted keeper market up front so the coordinator never
