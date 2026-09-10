@@ -749,7 +749,7 @@ export class FleetManager {
    * fleet's most profitable route away for hours behind a ship parked at a
    * building site, doing nothing with it.
    */
-  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean; system: string }[] {
+  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean; system: string; waypoint: string; fuelCapacity: number }[] {
     // "auto" is the weakest owner in ShipRegistry's precedence, so
     // availableFor("auto") answers exactly "not held, not suspended, not
     // committed to a mission/warehouse/keeper claim" — same intent as the
@@ -773,6 +773,11 @@ export class FleetManager {
         // galaxy regardless of whether that ship can reach it — see
         // dispatcher.ts's assignment loop.
         system: a.getShip().nav.systemSymbol,
+        // Same-system reachability alone isn't enough — see
+        // dispatcher.ts's distanceBetween param for the live DRAGOM-3 case
+        // (a route 99 units off with an 80-unit tank) this pair closes.
+        waypoint: a.getShip().nav.waypointSymbol,
+        fuelCapacity: a.getShip().fuel?.capacity ?? 0,
       }));
   }
 
@@ -4078,6 +4083,7 @@ export class FleetManager {
       missionBuyTargets,
       contractBuyTargets,
       (from, to) => this.galaxy.canJump(from, to),
+      (a, b) => this.estimatedFuelBetween(a, b),
       (m) => this.log(m),
     );
     // First, so that its priority-0 proposal wins the tie against rescue's

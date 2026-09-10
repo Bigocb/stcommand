@@ -139,6 +139,55 @@ describe("RouteDispatcher: only assigns reachable direct routes", () => {
   });
 });
 
+describe("RouteDispatcher: same-system routes still need a fuel-distance check", () => {
+  // Confirmed live: DRAGOM-3 (80-unit tank) was assigned an AMMUNITION leg
+  // whose buy waypoint sat 99 units away — same system as the ship, so the
+  // old reachable() check (system membership only) waved it through. The
+  // trader's own whyNotViable() rejected it a cycle later, but the
+  // assignment was already burned. distanceBetween closes that gap.
+  const farLeg = {
+    good: "AMMUNITION", buyAt: "X1-S84-E51", buySystem: "X1-S84", buyPrice: 50,
+    sellAt: "X1-S84-F53", sellSystem: "X1-S84", sellPrice: 100,
+    volume: 10, lotSize: 10, distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
+  };
+
+  it("does not assign a same-system route whose buy leg exceeds the ship's own fuel capacity", () => {
+    const d = new RouteDispatcher();
+    d.recompute(
+      [farLeg],
+      [{ shipSymbol: "DRAGOM-3", capacity: 15, system: "X1-S84", waypoint: "X1-S84-H56", fuelCapacity: 80 }],
+      [], [], [], [],
+      () => false,
+      (a, b) => (a === "X1-S84-H56" && b === "X1-S84-E51" ? 99 : 0),
+    );
+
+    assert.equal(d.assignmentFor("DRAGOM-3"), undefined, "99 units needed against an 80-unit tank must not be offered");
+  });
+
+  it("still assigns the same route to a ship (or from a position) that can actually make it", () => {
+    const d = new RouteDispatcher();
+    d.recompute(
+      [farLeg],
+      [{ shipSymbol: "DRAGOM-9", capacity: 15, system: "X1-S84", waypoint: "X1-S84-H56", fuelCapacity: 600 }],
+      [], [], [], [],
+      () => false,
+      (a, b) => (a === "X1-S84-H56" && b === "X1-S84-E51" ? 99 : 0),
+    );
+
+    assert.equal(d.assignmentFor("DRAGOM-9")?.good, "AMMUNITION");
+  });
+
+  it("without a distanceBetween predicate, stays distance-blind — the safe default for an unmigrated caller", () => {
+    const d = new RouteDispatcher();
+    d.recompute(
+      [farLeg],
+      [{ shipSymbol: "DRAGOM-3", capacity: 15, system: "X1-S84", waypoint: "X1-S84-H56", fuelCapacity: 80 }],
+    );
+
+    assert.equal(d.assignmentFor("DRAGOM-3")?.good, "AMMUNITION", "no predicate supplied means the old behavior, not every route rejected");
+  });
+});
+
 describe("RouteDispatcher: cross-system direct routes", () => {
   it("without a canJump predicate, never assigns a cross-system route as 'direct' — the safe default when reachability is unknown", () => {
     const d = new RouteDispatcher();

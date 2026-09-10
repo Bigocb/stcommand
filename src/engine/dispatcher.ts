@@ -373,7 +373,7 @@ export class RouteDispatcher {
    */
   recompute(
     routes: DispatchRoute[],
-    traders: { shipSymbol: string; capacity: number; busy?: boolean; system?: string }[],
+    traders: { shipSymbol: string; capacity: number; busy?: boolean; system?: string; waypoint?: string; fuelCapacity?: number }[],
     warehouseTargets: WarehouseTarget[] = [],
     haulTargets: HaulTarget[] = [],
     missionBuyTargets: MissionBuyTarget[] = [],
@@ -387,6 +387,17 @@ export class RouteDispatcher {
     // only, matching this class's pre-gate-check behavior, so a caller that
     // doesn't pass one gets the old, safe result rather than an error.
     canJump: (fromSystem: string, toSystem: string) => boolean = () => false,
+    // Same-system fuel distance between two waypoints. Confirmed live:
+    // without this, `reachable()` below only checked *system* membership,
+    // so DRAGOM-3 was handed an AMMUNITION leg whose buy waypoint sat 99
+    // units off with an 80-unit tank — same system, real route, un-flyable.
+    // The trader's own whyNotViable() already rejects that leg, but only
+    // after the assignment burned a cycle; this lets the dispatcher not
+    // offer it in the first place. Optional and defaults to "always in
+    // range" (0), same reasoning as canJump above — a caller that doesn't
+    // pass one gets the old, distance-blind behavior rather than every
+    // same-system route wrongly rejected.
+    distanceBetween: (a: string, b: string) => number = () => 0,
     // Temporary diagnostic hook (docs: "why are idle traders not getting
     // assigned when profitable routes exist"). Logs, on every recompute that
     // actually runs (not throttled-skipped), the full work list this cycle
@@ -461,8 +472,15 @@ export class RouteDispatcher {
     // `buySystem` is the system a trader has to be standing in (or one gate
     // from) to start this work. It is what makes the assignment loop below
     // locality-aware; work with no buy leg leaves it undefined and stays
-    // assignable to anyone.
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string }[] = [];
+    // assignable to anyone. `buyAt` is the actual waypoint within that
+    // system — same-system reachability alone isn't enough: confirmed live,
+    // DRAGOM-3 was assigned an AMMUNITION leg whose buy waypoint was 99
+    // units away with an 80-unit tank, a route the trader's own
+    // whyNotViable() correctly rejects but only *after* burning an
+    // assignment cycle discovering that. buyAt lets the loop below check
+    // the same fuel-distance constraint before handing the work out, not
+    // after.
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -477,9 +495,9 @@ export class RouteDispatcher {
         // full minute on a route no trader could actually take, while the
         // dashboard shows it as "assigned" and profitable.
         if (route.buySystem !== route.sellSystem && !canJump(route.buySystem, route.sellSystem)) continue;
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem });
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance < target.target) {
-        work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem });
+        work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance > target.target) {
         work.push({ key: `${route.good}:sell`, make: (s) => this.toSellAssignment(s, route), profitPerTrip: route.profitPerTrip });
       }
@@ -519,7 +537,7 @@ export class RouteDispatcher {
       if (taken?.has(route.sellAt)) continue; // that market is already being sold into
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem });
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
@@ -591,14 +609,23 @@ export class RouteDispatcher {
       // were handed routes starting in a system none of them could reach —
       // a ~20-second error loop with nothing trading at all.
       //
-      // Reachability, not distance: single-hop, matching what the executor
-      // can fly. Work with no buy leg, or a trader whose system we do not
-      // know, stays assignable as before. The fallback keeps the old
+      // Reachability, not just distance: single-hop, matching what the
+      // executor can fly. Work with no buy leg, or a trader whose system we
+      // do not know, stays assignable as before. The fallback keeps the old
       // behaviour rather than idling a hull, so a fleet that genuinely has
       // only distant work still attempts it — the trader's own viableRoute()
       // is the authority that declines it.
-      const reachable = (w: { buySystem?: string }): boolean =>
-        w.buySystem === undefined || t.system === undefined || w.buySystem === t.system || canJump(t.system, w.buySystem);
+      //
+      // Same-system work still needs its own fuel check: system membership
+      // alone doesn't mean the ship can actually reach the buy waypoint
+      // *from where it's standing* — see the distanceBetween param's own
+      // comment for the live DRAGOM-3 case this closes.
+      const reachable = (w: { buySystem?: string; buyAt?: string }): boolean => {
+        if (w.buySystem === undefined || t.system === undefined) return true;
+        if (w.buySystem !== t.system) return canJump(t.system, w.buySystem);
+        if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return true;
+        return distanceBetween(t.waypoint, w.buyAt) <= t.fuelCapacity;
+      };
       const item = work.find((w) => !usedKeys.has(w.key) && reachable(w));
       if (!item) continue;
       usedKeys.add(item.key);
