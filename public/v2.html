@@ -97,6 +97,10 @@
         <div class="map-wrap" id="map-wrap">
           <div class="map-hud" id="map-hud">Sector <b>—</b></div>
           <button class="map-fit-btn" id="map-fit" title="Fit whole system">⛶ Fit</button>
+          <div class="map-zoom-controls">
+            <button class="map-zoom-btn" id="map-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+            <button class="map-zoom-btn" id="map-zoom-out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+          </div>
           <div class="system-strip" id="system-strip"></div>
           <div class="map-gallery" id="map-gallery"></div>
           <svg id="map"></svg>
@@ -329,6 +333,7 @@
         <!-- Ops screen: reuse existing Contracts / Missions / Warehouse panes
              as-is, just grouped under this tab -->
         <div class="m-screen" data-mscreen="ops">
+          <div class="m-screen-title">Ops</div>
           <div class="pane">
             <div class="pane-h"><span class="dot"></span>Contracts<span class="count" id="mobile-contract-count">—</span></div>
             <div class="pane-b" id="mobile-contracts"></div>

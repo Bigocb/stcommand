@@ -596,6 +596,12 @@
     font-family:var(--chrome); font-size:9px; letter-spacing:0.08em; padding:4px 9px; cursor:pointer;
   }
   .map-fit-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .map-zoom-controls { position:absolute; top:46px; right:302px; z-index:6; display:flex; flex-direction:column; gap:4px; }
+  .map-zoom-btn {
+    width:30px; height:30px; background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice);
+    font-family:var(--chrome); font-size:16px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .map-zoom-btn:hover { border-color:var(--accent); color:var(--accent); }
   .system-strip { position:absolute; top:34px; left:306px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 590px); }
   .system-strip button { background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice); font-family:var(--mono); font-size:10px; padding:3px 9px; cursor:pointer; }
   .system-strip button.active { border-color:var(--accent); color:var(--accent); }
@@ -937,6 +943,8 @@
     body.mobile-map-active .map-hud { left:12px; top:12px; }
     body.mobile-map-active .system-strip { left:12px; top:34px; max-width:calc(100% - 24px); }
     body.mobile-map-active .map-fit-btn { right:12px; top:10px; padding:8px 12px; min-height:38px; font-size:10px; }
+    body.mobile-map-active .map-zoom-controls { top:56px; right:12px; }
+    body.mobile-map-active .map-zoom-btn { width:38px; height:38px; font-size:20px; }
     body.mobile-map-active .map-legend { left:12px; bottom:10px; }
     body.mobile-map-active .map-gallery { left:12px; bottom:34px; }
     /* Tap-to-inspect's tip: desktop's right:302px hover panel would sit
@@ -972,6 +980,7 @@
     body.mobile-ship-active .view-bridge .map-legend,
     body.mobile-ship-active .view-bridge .map-gallery,
     body.mobile-ship-active .view-bridge .map-fit-btn,
+    body.mobile-ship-active .view-bridge .map-zoom-controls,
     body.mobile-ship-active .view-bridge .rail-r { display:none; }
     body.mobile-ship-active .view-bridge .rail-l {
       left:8px; right:8px; top:8px; bottom:8px; width:auto;
@@ -980,11 +989,23 @@
        one bounded grid cell and scrolls its own overflow. The mobile page is
        a plain vertical stack instead — panes must grow to fit their content
        so the PAGE scrolls once, not six independently clipped panes. */
+    .m-screen-title {
+      font-family:var(--disp); font-size:11px; letter-spacing:0.18em; text-transform:uppercase;
+      color:var(--accent); padding:10px 12px 2px;
+    }
     .view-mobile .pane { flex:none; }
+    .view-mobile .pane-h {
+      background:var(--glass); font-size:12px; font-weight:600; padding:9px 12px;
+    }
     .view-mobile .pane-b { flex:none; overflow:visible; padding:10px 12px; font-size:12.5px; }
     .view-mobile .dispatch-toolbar { flex-direction:column; align-items:stretch; }
     .view-mobile select, .view-mobile input[type=text], .view-mobile input[type=number] {
       font-size:14px; padding:11px 10px; width:100%; min-height:42px;
+      background:var(--ink); color:var(--bone); border:1px solid var(--hairline);
+      font-family:var(--mono); -webkit-appearance:none; appearance:none;
+    }
+    .view-mobile select:focus, .view-mobile input[type=text]:focus, .view-mobile input[type=number]:focus {
+      outline:none; border-color:var(--accent);
     }
     .view-mobile .btn, .view-mobile button:not(.sw) { font-size:12.5px; padding:11px 14px; min-height:42px; }
     .view-mobile .dispatch-row, .view-mobile .warehouse-row, .view-mobile .ops-card { font-size:12.5px; }

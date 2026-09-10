@@ -2076,11 +2076,29 @@ function resetMapView() {
   applyMapView();
 }
 
+// Same math as the wheel handler below, zooming toward the wrap's center
+// instead of a cursor position — used by the +/- buttons, which exist
+// because pinch-to-zoom is unreliable across mobile browsers/touchscreens.
+function zoomMapBy(factor) {
+  const wrap = $("map")?.parentElement;
+  if (!wrap) return;
+  const rect = wrap.getBoundingClientRect();
+  const mx = rect.width / 2;
+  const my = rect.height / 2;
+  const next = Math.min(MAX_MAP_ZOOM, Math.max(0.5, mapZoom * factor));
+  mapPanX = mx - ((mx - mapPanX) / mapZoom) * next;
+  mapPanY = my - ((my - mapPanY) / mapZoom) * next;
+  mapZoom = next;
+  applyMapView();
+}
+
 function initMapInteractions() {
   const svg = $("map");
   const wrap = svg.parentElement;
 
   $("map-fit")?.addEventListener("click", resetMapView);
+  $("map-zoom-in")?.addEventListener("click", () => zoomMapBy(1.4));
+  $("map-zoom-out")?.addEventListener("click", () => zoomMapBy(1 / 1.4));
 
   // Tap-to-inspect's counterpart: dismiss the open tip on a tap anywhere
   // else on the map. Per-waypoint click handlers (renderMap()) call
