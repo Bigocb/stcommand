@@ -1817,6 +1817,7 @@ let sceneReady = false;
 let pendingRebuild = null;
 let mapUnavailable = false;
 let framedSystem = null; // which system the camera was last auto-fit to
+let starGlowPulse = null; // { core, corona, t } — set once in initMap3D(), animated in tickMap3D()
 
 function initMap3D() {
   if (sceneReady || mapUnavailable) return;
@@ -1851,33 +1852,69 @@ function initMap3D() {
   // system star is the light source: a point light at the origin radiates
   // outward in all directions, so every body is lit from the center no
   // matter where it orbits. Low decay keeps distant outliers from going dim.
-  // A dim hemisphere fill keeps the shadow side from going fully black
-  // (space has bounced/scattered light), and a small marker at the origin
-  // sells the star itself.
-  // system star is the light source: a point light at the origin radiates
-  // outward in all directions. Low decay keeps distant outliers from going
-  // dim. A strong ambient fill lightens the shadow side of every body
-  // without introducing a second visible source.
-  scene.add(new THREE.AmbientLight(0x151e2e, 0.75));
-  const starLight = new THREE.PointLight(0xff9e9e, 2.4, 0, 0.32);
+  //
+  // The star's own *visible* color (STAR_COLOR below, a warm red dwarf
+  // tone) and the *light* it casts are deliberately different colors now —
+  // confirmed live: casting light in that same warm-pink tone washed every
+  // lit body pink, since it was the only real light source in the scene.
+  // A near-neutral warm-white light keeps the star looking like a red
+  // dwarf without tinting everything else.
+  //
+  // The dark side was also crushed to near-black: a PointLight decays with
+  // distance, so anything shadow-facing got only whatever the flat ambient
+  // fill provided, and that fill was too dim/dark a color to matter. A
+  // HemisphereLight fills from every direction with NO distance falloff
+  // (unlike the star), so it's what actually keeps a shadow face legible
+  // regardless of how far that body orbits — the flat AmbientLight is kept
+  // too, small, just to lift the absolute floor a touch further.
+  scene.add(new THREE.HemisphereLight(0x4a5578, 0x1a1420, 1.35));
+  scene.add(new THREE.AmbientLight(0x2a3040, 0.35));
+  const starLight = new THREE.PointLight(0xfff1d8, 2.6, 0, 0.32);
   starLight.position.set(0, 0, 0);
   scene.add(starLight);
 
   // A central star marker, bigger than planets so it reads as the system
   // primary and justifies pushing everything else outward. Red dwarf tone
-  // is easier on the eyes than a blazing white sun and still reads as a star.
+  // is easier on the eyes than a blazing white sun and still reads as a
+  // star. The sphere itself is unlit (MeshBasicMaterial — it IS the light
+  // source, nothing should shade it), but a flat single fillStyle read as
+  // a placeholder dot rather than a star: a radial gradient texture gives
+  // it a hot white-yellow core fading to the red-dwarf edge, the same
+  // "limb" cue a real star photo has.
   const STAR_COLOR = 0xff7b72;
+  const starTex = (() => {
+    const c = document.createElement("canvas");
+    c.width = c.height = 128;
+    const ctx = c.getContext("2d");
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, "#fff8e8");
+    g.addColorStop(0.35, "#ffd9a0");
+    g.addColorStop(0.7, "#ff9a72");
+    g.addColorStop(1, "#" + new THREE.Color(STAR_COLOR).getHexString());
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
   const star = new THREE.Mesh(
     new THREE.SphereGeometry(6.5, 32, 24),
-    new THREE.MeshBasicMaterial({ color: STAR_COLOR }),
+    new THREE.MeshBasicMaterial({ map: starTex }),
   );
   star.position.set(0, 0, 0);
   scene.add(star);
 
-  // A soft radial glow around the star so it doesn't look like a solid ball.
-  const starGlow = makeGlowSprite(new THREE.Color(STAR_COLOR), 48);
-  starGlow.position.set(0, 0, 0);
-  glowGroup.add(starGlow);
+  // Layered glow instead of one flat halo: a tight hot-white core glow
+  // reads as brightness right at the surface, a much larger, softer,
+  // dimmer corona around that reads as light actually spilling into
+  // space. `starGlowPulse` holds both so tickMap3D() can breathe them —
+  // a static glow read as another placeholder once the sphere itself
+  // stopped looking like one.
+  const starCoreGlow = makeGlowSprite(new THREE.Color(0xfff2d0), 26);
+  const starCorona = makeGlowSprite(new THREE.Color(STAR_COLOR), 70);
+  starCoreGlow.position.set(0, 0, 0);
+  starCorona.position.set(0, 0, 0);
+  starCorona.material.opacity = 0.55;
+  glowGroup.add(starCorona, starCoreGlow);
+  starGlowPulse = { core: starCoreGlow, corona: starCorona, t: 0 };
 
   raycaster = new THREE.Raycaster();
   pointerNdc = new THREE.Vector2();
@@ -2123,7 +2160,12 @@ function renderMap(ships, trails = new Map()) {
 
     const body = new THREE.Mesh(
       new THREE.SphereGeometry(size, 20, 16),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 }),
+      // A small emissive floor in the body's own color, independent of any
+      // light reaching it — the HemisphereLight above already keeps the
+      // shadow side well off pure black at normal distances, but this is
+      // the actual floor for a body far enough out that even that fill
+      // reads as dim: a hint of the body's own hue rather than a void.
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.05, roughness: 0.55, metalness: 0.15 }),
     );
     body.position.set(x, y, z);
     bodiesGroup.add(body);
@@ -2587,6 +2629,18 @@ function tickMap3D() {
   // would actually act on, and correct regardless of orbit angle.
   bodiesGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
   glowGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
+  // A slow, subtle breathing pulse on the star's glow — the one thing a
+  // static sun-shaped sprite can't sell on its own is that it's a light
+  // source rather than a painted decal. Small range (±6%/±10%) so it reads
+  // as alive without looking like a strobing bug.
+  if (starGlowPulse) {
+    starGlowPulse.t += 0.012;
+    const corePulse = 1 + Math.sin(starGlowPulse.t) * 0.06;
+    const coronaPulse = 1 + Math.sin(starGlowPulse.t * 0.7 + 1.1) * 0.1;
+    starGlowPulse.core.scale.set(26 * corePulse, 26 * corePulse, 1);
+    starGlowPulse.corona.scale.set(70 * coronaPulse, 70 * coronaPulse, 1);
+    starGlowPulse.corona.material.opacity = 0.55 + Math.sin(starGlowPulse.t * 0.7) * 0.08;
+  }
   renderer.render(scene, camera);
 }
 
