@@ -2130,6 +2130,156 @@ const BODY_TEXTURE_DRAWERS = {
         ctx.fillRect(0, 0, size, size);
       }
     },
+    // Swamp: a mid-grey base pocked with small dark bog pools plus a
+    // network of thin winding waterways — busier and more irregular than
+    // continents' broad soft blotches, reading as wet, low terrain rather
+    // than dry landmasses.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#8a8a80";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 22; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.03 + rand() * 0.09);
+        const v = Math.round(30 + rand() * 40);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${v},${v},${v},0.6)`);
+        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+      ctx.strokeStyle = "rgba(50,50,45,0.4)";
+      const channels = 5 + Math.floor(rand() * 4);
+      for (let i = 0; i < channels; i++) {
+        ctx.lineWidth = 1 + rand() * 1.2;
+        let x = rand() * size, y = rand() * size;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        const segs = 5 + Math.floor(rand() * 4);
+        for (let s = 0; s < segs; s++) {
+          x += (rand() - 0.5) * size * 0.3;
+          y += (rand() - 0.5) * size * 0.3;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    },
+    // Rocky: a barren, cracked rock face — jagged angular facets at varying
+    // lightness plus a few sharper impact-style dark/light pairs, closer to
+    // the moon's cratered look than continents' soft terrain but denser and
+    // more fractured, since this is a whole planet's worth of exposed stone.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#7d7a74";
+      ctx.fillRect(0, 0, size, size);
+      const facets = 20 + Math.floor(rand() * 14);
+      for (let i = 0; i < facets; i++) {
+        const x = rand() * size, y = rand() * size;
+        const w = size * (0.04 + rand() * 0.16), h = size * (0.02 + rand() * 0.06);
+        const v = Math.round(90 + rand() * 130);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rand() * Math.PI);
+        ctx.fillStyle = `rgba(${v},${v},${v},0.55)`;
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
+      const craters = 4 + Math.floor(rand() * 5);
+      for (let i = 0; i < craters; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.02 + rand() * 0.05);
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(25,25,25,0.4)";
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(220,220,220,0.25)";
+        ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+    // Barren: flat and mostly featureless — a dusty, low-contrast base with
+    // only a handful of faint soft patches and no sharp features at all,
+    // reading as "nothing much going on here" next to every other variant's
+    // busier surface.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#8f8b82";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 6; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.1 + rand() * 0.2);
+        const v = Math.round(120 + rand() * 40);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${v},${v},${v},0.25)`);
+        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
+    // Jungle: dense, heavily overlapping blotches at high count — reads as
+    // near-total canopy cover, the busiest and most textured of the
+    // vegetated variants next to continents' sparser landmasses.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#6f6f60";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 34; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.05 + rand() * 0.12);
+        const v = Math.round(90 + rand() * 110);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${v},${v},${v},0.4)`);
+        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
+    // Ocean: mostly a flat, smooth base (open water) with just a few small,
+    // crisp light patches (islands/reefs) — the inverse of continents'
+    // land-dominant look, land is the exception here instead of the rule.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#9a9a9a";
+      ctx.fillRect(0, 0, size, size);
+      const islands = 3 + Math.floor(rand() * 4);
+      for (let i = 0; i < islands; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.02 + rand() * 0.05);
+        const v = Math.round(160 + rand() * 80);
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${v},${v},${v},0.6)`;
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // A few broad, very soft current/depth bands so it doesn't read as
+      // perfectly flat.
+      for (let i = 0; i < 3; i++) {
+        const y = rand() * size;
+        const h = size * (0.08 + rand() * 0.1);
+        const v = Math.round(70 + rand() * 20);
+        ctx.fillStyle = `rgba(${v},${v},${v},0.15)`;
+        ctx.fillRect(0, y, size, h);
+      }
+    },
+    // Radioactive: a scarred, speckled base with scattered small glowing
+    // hot-spots — similar idea to volcanic's accent glow but colder, finer,
+    // and much more numerous, reading as widespread contamination rather
+    // than a few active vents.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#7a7a78";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 200; i++) {
+        const x = rand() * size, y = rand() * size;
+        const v = Math.round(rand() < 0.5 ? 30 + rand() * 30 : 190 + rand() * 50);
+        ctx.fillStyle = `rgba(${v},${v},${v},0.5)`;
+        ctx.fillRect(x, y, 1.5, 1.5);
+      }
+      for (let i = 0; i < 8; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.02 + rand() * 0.05);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, "rgba(255,255,255,0.7)");
+        g.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
   ],
   GAS_GIANT: [
     // Storm bands: horizontal bands of varying lightness plus a couple of
@@ -2277,10 +2427,22 @@ BODY_TEXTURE_DRAWERS.DEBRIS_FIELD = BODY_TEXTURE_DRAWERS.ASTEROID;
 // makeBodyTexture() — most waypoints only carry economy/settlement traits
 // (MARKETPLACE, HIGH_TECH, ...) with nothing environmental to key off.
 const BODY_TEXTURE_TRAITS = {
+  // Every real SpaceTraders planet-biome trait (ROCKY, VOLCANIC, FROZEN,
+  // SWAMP, BARREN, TEMPERATE, JUNGLE, OCEAN, RADIOACTIVE) gets its own
+  // explicit entry here — a planet with none of these (rare; most carry
+  // exactly one) is the only case that reaches the symbol-hash fallback in
+  // makeBodyTexture(). Leaving a trait unmapped is what let a JUNGLE planet
+  // draw as volcanic purely by hash luck; every biome trait needs a home.
   PLANET: [
-    [], // continents — no traits map here; it's the default when nothing else matches
+    ["TEMPERATE"], // continents — also the fallback default
     ["FROZEN", "ICE_CRYSTALS"], // ice
     ["VOLCANIC", "MAGMA_SEAS", "SUPERVOLCANOES", "ASH_CLOUDS"], // volcanic
+    ["SWAMP"], // swamp
+    ["ROCKY"], // rocky
+    ["BARREN"], // barren
+    ["JUNGLE"], // jungle
+    ["OCEAN"], // ocean
+    ["RADIOACTIVE"], // radioactive
   ],
   MOON: [
     ["DEEP_CRATERS", "SHALLOW_CRATERS", "ROCKY"], // cratered
