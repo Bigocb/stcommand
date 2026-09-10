@@ -365,9 +365,24 @@ export class SiphonerAgent {
         this.log(`keeping ${item.symbol} (reserved for mission)`);
         continue;
       }
+      await this.sellCargoInLots(item.symbol, item.units);
+    }
+  }
+
+  /**
+   * Sell `units` of `good`, splitting into the market's own per-transaction
+   * limit when it has one. See AgentShip.sellCargoInLots() for the live
+   * incident this fixes (a miner sitting on unsellable cargo for hours) —
+   * the same bug, same duplicated code, in the siphoner's sell path.
+   */
+  private async sellCargoInLots(good: string, units: number): Promise<void> {
+    let remaining = units;
+    let lotSize = remaining;
+    while (remaining > 0) {
+      const lot = Math.min(lotSize, remaining);
       try {
-        this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
-        const res = await this.api.sellCargo(this.symbol, item.symbol, item.units);
+        this.currentStep = { kind: "transacting", action: "sell", good };
+        const res = await this.api.sellCargo(this.symbol, good, lot);
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo };
         this.recordLedger?.({
@@ -375,18 +390,23 @@ export class SiphonerAgent {
           shipSymbol: this.symbol,
           waypointSymbol: this.ship.nav.waypointSymbol,
           type: "SELL",
-          tradeSymbol: item.symbol,
-          units: item.units,
+          tradeSymbol: good,
+          units: lot,
           pricePerUnit: res.transaction.pricePerUnit,
           total: res.transaction.totalPrice,
         });
-        this.log(
-          `sold ${item.units}u ${item.symbol} @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`,
-        );
-        this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice, this.symbol);
+        this.log(`sold ${lot}u ${good} @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
+        this.onActivity?.("sell", `${lot}u ${good} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice, this.symbol);
+        remaining -= lot;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const limitMatch = /limit of (\d+) units? per transaction/i.exec(msg);
+        if (limitMatch && Number(limitMatch[1]) < lot) {
+          lotSize = Number(limitMatch[1]);
+          continue;
+        }
         this.log(`sell failed: ${msg}`);
+        return;
       }
     }
   }

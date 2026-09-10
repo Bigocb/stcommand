@@ -145,3 +145,53 @@ describe("dumpUnsellableCargo breaks the deadlock", () => {
     assert.deepEqual(jettisoned, []);
   });
 });
+
+describe("sellAllCargo chunks around a market's real per-transaction limit", () => {
+  const PARTS = "SHIP_PARTS";
+
+  /**
+   * DRAGOM-5 sat on ~100,243c of unsellable SHIP_PARTS for over 10 hours —
+   * a single sellCargo() call for the whole 13u hold hit the market's real
+   * 6-unit-per-transaction cap, failed outright, and sellAllCargo() just
+   * logged it and gave up, leaving the hold full and the miner unable to
+   * mine anything else all night. This fixture is that market: it rejects
+   * any single sell over 6 units with the exact error SpaceTraders sends.
+   */
+  function limitedMarketMiner(units: number) {
+    const calls: number[] = [];
+    let remaining = units;
+    const ship = {
+      symbol: "MINER-1",
+      nav: { status: "DOCKED", waypointSymbol: "X1-A-EC5D", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date(0).toISOString() } },
+      cargo: { capacity: 15, units, inventory: [{ symbol: PARTS, units }] },
+      fuel: { current: 80, capacity: 80 },
+      cooldown: { remainingSeconds: 0 },
+      mounts: [], modules: [],
+    } as unknown as Ship;
+    const agent = new ShipAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        sellCargo: async (_s: string, good: string, lot: number) => {
+          calls.push(lot);
+          if (lot > 6) throw new Error(`Market transaction failed. Trade good ${good} has a limit of 6 units per transaction.`);
+          remaining -= lot;
+          return {
+            cargo: { capacity: 15, units: remaining, inventory: remaining > 0 ? [{ symbol: good, units: remaining }] : [] },
+            transaction: { pricePerUnit: 7711, totalPrice: 7711 * lot },
+          };
+        },
+      },
+    } as never);
+    (agent as never as { withRegistry(r: Registry): unknown }).withRegistry(world());
+    return { agent, calls };
+  }
+
+  const sellAll = (agent: unknown, at: string) => (agent as { sellAllCargo(expectedAt: string): Promise<void> }).sellAllCargo(at);
+
+  it("retries at the market's advertised lot size instead of giving up on the whole hold", async () => {
+    const { agent, calls } = limitedMarketMiner(13);
+    await sellAll(agent, "X1-A-EC5D");
+    assert.equal(agent.getShip().cargo.units, 0, "the full hold should have sold, not stayed stuck aboard");
+    assert.deepEqual(calls, [13, 6, 6, 1], "first tries the whole hold, then re-chunks to the limit the market reported back");
+  });
+});

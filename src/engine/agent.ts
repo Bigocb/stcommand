@@ -1459,9 +1459,32 @@ export class ShipAgent {
         this.log(`keeping ${item.symbol} (reserved for mission)`);
         continue;
       }
+      await this.sellCargoInLots(item.symbol, item.units);
+    }
+  }
+
+  /**
+   * Sell `units` of `good`, splitting into the market's own per-transaction
+   * limit when it has one. A single sellCargo() call for the whole mined
+   * hold used to be the only path here — confirmed live, DRAGOM-5 sat on
+   * ~100,243c of unsellable SHIP_PARTS for over 10 hours because a 13-15u
+   * hold hit SHIP_PARTS' real 6-unit-per-transaction cap: the call failed
+   * outright, sellAllCargo() logged it and moved on, and the ship — full —
+   * could never mine again. trader.ts's chunked buy/sell loops already know
+   * their lotSize ahead of time from the assigned route; a miner/siphoner
+   * selling whatever it happened to dig up has no such route, so this
+   * parses the real limit straight out of the API's own error message
+   * ("... has a limit of Nu per transaction") and retries at that size —
+   * the same number the market already told it, not a guess.
+   */
+  private async sellCargoInLots(good: string, units: number): Promise<void> {
+    let remaining = units;
+    let lotSize = remaining;
+    while (remaining > 0) {
+      const lot = Math.min(lotSize, remaining);
       try {
-        this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
-        const res = await this.api.sellCargo(this.symbol, item.symbol, item.units);
+        this.currentStep = { kind: "transacting", action: "sell", good };
+        const res = await this.api.sellCargo(this.symbol, good, lot);
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo };
         this.recordLedger?.({
@@ -1469,18 +1492,23 @@ export class ShipAgent {
           shipSymbol: this.symbol,
           waypointSymbol: this.ship.nav.waypointSymbol,
           type: "SELL",
-          tradeSymbol: item.symbol,
-          units: item.units,
+          tradeSymbol: good,
+          units: lot,
           pricePerUnit: res.transaction.pricePerUnit,
           total: res.transaction.totalPrice,
         });
-        this.log(
-          `sold ${item.units}u ${item.symbol} @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`,
-        );
-        this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice);
+        this.log(`sold ${lot}u ${good} @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
+        this.onActivity?.("sell", `${lot}u ${good} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice);
+        remaining -= lot;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const limitMatch = /limit of (\d+) units? per transaction/i.exec(msg);
+        if (limitMatch && Number(limitMatch[1]) < lot) {
+          lotSize = Number(limitMatch[1]);
+          continue;
+        }
         this.log(`sell failed: ${msg}`);
+        return;
       }
     }
   }
