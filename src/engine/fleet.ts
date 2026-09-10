@@ -8,7 +8,7 @@ import { ContractManager } from "./contract.js";
 import { MissionManager } from "./mission.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
-import type { Store, CargoIntent } from "../db/store.js";
+import type { Store, CargoIntent, HeldRouteRow } from "../db/store.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { IDLE_STEP, type AgentStep } from "./agentStep.js";
@@ -171,6 +171,10 @@ export class FleetManager {
   private keepers = new Map<string, ShipAgent>();
   /** Keeper ship → market it polls. Mutable so the fleet can reassign keepers. */
   private keeperMarkets = new Map<string, string>();
+  /** Every trader's open positions, by ship symbol then good — bulk-loaded
+   *  from `held_route` at init() and consulted by traderOptions() to seed
+   *  each TraderAgent's initialHeldRoutes. See init()'s own comment. */
+  private heldRoutesByShip = new Map<string, Map<string, HeldRouteRow>>();
   /** Ships whose role was set deliberately via setShipRole()/a persisted
    *  override — never repurposed by opportunistic systems (autoExplore,
    *  promotion, etc.). Survives restarts: rehydrated from fleet_state in
@@ -293,7 +297,7 @@ export class FleetManager {
   }
 
   /** Load world state and register all owned ships. */
-  async init(markets?: MarketSnapshot[]): Promise<void> {
+  async init(markets?: MarketSnapshot[], prefetchedAgent?: Awaited<ReturnType<SpaceTradersAPI["getMyAgent"]>>): Promise<{ ships: Ship[] }> {
     // Both reads before anything else — see the constructor's comment on why
     // this is the earliest point a halted fleet can be guaranteed to actually
     // stay halted now that the store is async.
@@ -309,7 +313,11 @@ export class FleetManager {
     // has zero rows, but is grandfathered, not pending — inferring from row
     // presence alone force-paused DAGGER (created weeks before this
     // feature existed) on every restart.
-    const agent = await this.api.getMyAgent();
+    // `boot()` (tenantRegistry.ts) already fetched the agent — needed there
+    // to derive systemSymbol before loadCachedMarkets() can run — so reuse
+    // it instead of a second live round-trip against the shared per-IP rate
+    // limiter every other tenant is also competing for.
+    const agent = prefetchedAgent ?? (await this.api.getMyAgent());
     this.credits = agent.credits;
     this.systemSymbol = agent.headquarters.slice(0, agent.headquarters.lastIndexOf("-"));
     await this.galaxy.loadSystem(this.systemSymbol);
@@ -328,6 +336,18 @@ export class FleetManager {
     const ships = await this.api.listAllShips();
     // Prefer the largest-cargo ship as the arbitrage trader once we have enough miners.
     this.maxCargoCapacity = Math.max(0, ...ships.map((s) => s.cargo?.capacity ?? 0));
+    // Every trader's open positions, grouped by ship — bulk-fetched once
+    // here rather than per-TraderAgent (its constructor can't await), and
+    // handed to traderOptions() below so a restart doesn't leave a ship
+    // holding real cargo with no memory of where it was headed. See
+    // migration 013_held_route.sql's comment for the incident this closes.
+    if (this.tenantId && this.store) {
+      this.heldRoutesByShip.clear();
+      for (const row of await this.store.getAllHeldRoutes(this.tenantId)) {
+        if (!this.heldRoutesByShip.has(row.shipSymbol)) this.heldRoutesByShip.set(row.shipSymbol, new Map());
+        this.heldRoutesByShip.get(row.shipSymbol)!.set(row.goodSymbol, row);
+      }
+    }
     // Reserve every persisted keeper market up front so the coordinator never
     // re-stations a second keeper on a covered market while roles restore.
     const persistedFleetState = this.tenantId ? await this.store?.getFleetState(this.tenantId) : undefined;
@@ -473,6 +493,10 @@ export class FleetManager {
     await this.syncShipManifests();
     await this.syncShipClaims();
     this.syncSchedulerTasks();
+    // Handed back so the caller (tenantRegistry.ts's boot()) can reuse this
+    // same fetch for its own first state refresh instead of a redundant
+    // listAllShips() call moments later against the shared rate limiter.
+    return { ships };
   }
 
   /** Live cash floor. Read from doctrine each time so an edit applies on the
@@ -678,6 +702,22 @@ export class FleetManager {
           (await this.store?.lastPurchasePrice(this.tenantId, shipSymbol, good)) ??
           (await this.store?.avgPurchasePrice(this.tenantId, good))
         );
+      },
+      // Seeded once at init() from held_route (see that method's own
+      // comment) — a restart-surviving replacement for the in-memory-only
+      // heldRoute/heldCost a fresh TraderAgent would otherwise start empty.
+      initialHeldRoutes: (() => {
+        const rows = this.heldRoutesByShip.get(shipSymbol);
+        if (!rows) return undefined;
+        const out = new Map<string, { buyAt: string; sellAt: string; buyPrice: number; sellPrice: number; lotSize: number; costBasis: number }>();
+        for (const [good, r] of rows) out.set(good, { buyAt: r.buyAt, sellAt: r.sellAt, buyPrice: r.buyPrice, sellPrice: r.sellPrice, lotSize: r.lotSize, costBasis: r.costBasis });
+        return out;
+      })(),
+      persistHeldRoute: async (good, leg, costBasis) => {
+        if (this.tenantId) await this.store?.setHeldRoute(this.tenantId, shipSymbol, good, leg, costBasis);
+      },
+      clearPersistedHeldRoute: async (good) => {
+        if (this.tenantId) await this.store?.deleteHeldRoute(this.tenantId, shipSymbol, good);
       },
       protectedGoods: () => this.allProtectedGoods(),
       deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),

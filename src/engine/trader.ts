@@ -141,6 +141,26 @@ export interface TraderOptions {
    *  market-limit lot regardless, and is left holding the rest with nowhere
    *  to deliver it. */
   contractNeeded?: (tradeSymbol: string) => Promise<number>;
+  /**
+   * Seed `heldRoute`/`heldCost` from what's already persisted for this ship
+   * (`Store.getAllHeldRoutes()`), keyed by good — the constructor can't
+   * await, so fleet.ts bulk-fetches this once at boot (mirroring
+   * `persistedFleetState`) and hands each TraderAgent its own slice. Without
+   * this a restart leaves both maps empty even for a ship still physically
+   * holding cargo it bought before the restart.
+   */
+  initialHeldRoutes?: Map<string, { buyAt: string; sellAt: string; buyPrice: number; sellPrice: number; lotSize: number; costBasis: number }>;
+  /**
+   * Persist a newly-bought leg the moment it's set in memory
+   * (`runArbitrage()`'s buy loop), so it survives a restart before the sell
+   * half ever runs. Mirrors `recoverCostBasis`'s "closure over tenantId"
+   * shape — `TraderAgent` itself doesn't know its tenant.
+   */
+  persistHeldRoute?: (good: string, leg: { buyAt: string; sellAt: string; buyPrice: number; sellPrice: number; lotSize: number }, costBasis: number) => Promise<void>;
+  /** Clear a persisted leg once its cargo is gone — a full sale
+   *  (`deliverHeldCargo()`) or a stale pin no longer backed by real cargo
+   *  (`clearLeftoverCargo()`'s own pruning pass). */
+  clearPersistedHeldRoute?: (good: string) => Promise<void>;
 }
 
 
@@ -194,6 +214,8 @@ export class TraderAgent {
   private readonly recoverCostBasis?: TraderOptions["recoverCostBasis"];
   private readonly deliverCargo?: TraderOptions["deliverCargo"];
   private readonly contractNeeded?: TraderOptions["contractNeeded"];
+  private readonly persistHeldRoute?: TraderOptions["persistHeldRoute"];
+  private readonly clearPersistedHeldRoute?: TraderOptions["clearPersistedHeldRoute"];
   private readonly proxy: ShipProxy;
   /** Every `this.ship` read and write in this class goes through the one copy
    *  the proxy owns — see shipProxy.ts. */
@@ -301,6 +323,21 @@ export class TraderAgent {
     this.recoverCostBasis = opts.recoverCostBasis;
     this.deliverCargo = opts.deliverCargo;
     this.contractNeeded = opts.contractNeeded;
+    this.persistHeldRoute = opts.persistHeldRoute;
+    this.clearPersistedHeldRoute = opts.clearPersistedHeldRoute;
+    // Seed from whatever the caller already loaded from `held_route` —
+    // fleet.ts fetches this once at boot (mirroring `persistedFleetState`)
+    // rather than each TraderAgent loading its own slice async, since a
+    // constructor can't await. Without this, a restart wipes heldRoute/
+    // heldCost even though the ship still physically holds the cargo, and
+    // the next tick's clearLeftoverCargo() treats it as newly orphaned —
+    // see migration 013_held_route.sql's comment for the incident this closes.
+    if (opts.initialHeldRoutes) {
+      for (const [good, row] of opts.initialHeldRoutes) {
+        this.heldRoute.set(good, { good, buyAt: row.buyAt, sellAt: row.sellAt, buyPrice: row.buyPrice, sellPrice: row.sellPrice, lotSize: row.lotSize });
+        this.heldCost.set(good, row.costBasis);
+      }
+    }
     // Built last: it owns the ship state the `this.ship` accessor reads
     // through, so nothing may touch that accessor before this line.
     this.proxy = new ShipProxy(ship as never, {
@@ -1086,7 +1123,11 @@ export class TraderAgent {
     const held = new Set<string>((this.ship.cargo.inventory ?? []).filter((i) => i.units > 0).map((i) => i.symbol));
     // A pin must never outlive the cargo it describes: once the good is gone
     // the trip is over, and a stale leg would answer for the next one.
-    for (const good of [...this.heldRoute.keys()]) if (!held.has(good)) this.heldRoute.delete(good);
+    for (const good of [...this.heldRoute.keys()]) {
+      if (held.has(good)) continue;
+      this.heldRoute.delete(good);
+      await this.clearPersistedHeldRoute?.(good);
+    }
     const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0 && !protectedGoods.has(i.symbol));
     if (leftover.length === 0) return undefined;
     const item = leftover[0]!;
@@ -1432,7 +1473,10 @@ export class TraderAgent {
       // floor left real cargo in the hold, and deleting the pin here would
       // hand it to clearLeftoverCargo()'s sweep instead of retrying this
       // same route (and its already-verified sellAt) on the next tick.
-      if (remaining <= 0) this.heldRoute.delete(item.symbol);
+      if (remaining <= 0) {
+        this.heldRoute.delete(item.symbol);
+        await this.clearPersistedHeldRoute?.(item.symbol);
+      }
       return true;
     }
     return undefined;
@@ -1525,8 +1569,14 @@ export class TraderAgent {
         if (route.sellPrice - lastPrice < this.marginFloor) break;
       }
       if (bought <= 0) return true;
-      this.heldCost.set(route.good, totalPaid / bought);
+      const avgCost = totalPaid / bought;
+      this.heldCost.set(route.good, avgCost);
       this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize });
+      // Persisted the same moment it's set in memory, not lazily on some
+      // later tick — a restart between here and the sell half must find
+      // this leg already durable, not lose it. See migration
+      // 013_held_route.sql's comment for the incident this closes.
+      await this.persistHeldRoute?.(route.good, { buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize }, avgCost);
       // Stop here. The sell is a separate reconciled step — deliverHeldCargo()
       // picks the trip up next tick from the pin just recorded, and gets to
       // the market by arriving there rather than by falling through a

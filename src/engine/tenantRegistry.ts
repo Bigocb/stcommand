@@ -3,7 +3,7 @@ import { Client, RateLimiter, SpaceTradersAPI } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { ContractManager } from "./contract.js";
-import { FleetManager } from "./fleet.js";
+import { FleetManager, type Ship } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
 import { NarrativeWriter } from "./narrative.js";
 import { MarketIntel, type MarketSnapshot } from "./market.js";
@@ -196,11 +196,15 @@ export class TenantRegistry {
     // Boosted for the duration of boot only — see Client.setPriority()'s own
     // comment for why this has to mutate the one shared Client in place
     // rather than handing FleetManager/GalaxyAtlas a separately-prioritized
-    // clone. Flipped back to routine priority right after fleet.init()
-    // completes, below, before this tenant's steady-state ticking starts —
-    // otherwise this boost would leak forever into that ticking and start
-    // starving every other tenant instead of just getting this one started
-    // faster.
+    // clone. Flipped back to routine priority right after the *first*
+    // `refreshState()` call below, not right after fleet.init() — that call
+    // is awaited before this function returns (getOrCreate() blocks on it
+    // too), so its three live calls are just as boot-critical as anything
+    // inside init() and were confirmed queuing behind other tenants'
+    // routine ticking when the drop happened too early. Only the one-time
+    // initial call gets the boost; the periodic setInterval-driven calls
+    // after that still run at routine priority, so this doesn't leak the
+    // boost into steady-state ticking.
     // Optional-called: a test's injected fake API legitimately has no rate
     // limiter to prioritise, and boot must not die on its absence.
     api.setPriority?.(0);
@@ -299,9 +303,10 @@ export class TenantRegistry {
     // The SpaceTraders API occasionally returns transient 500s during the burst
     // of init requests — retry indefinitely (capped backoff) so a boot self-heals
     // when the API recovers instead of leaving a tenant permanently un-started.
+    let bootedShips: Ship[] = [];
     for (let attempt = 1; ; attempt += 1) {
       try {
-        await fleet.init(markets);
+        bootedShips = (await fleet.init(markets, agent)).ships;
         break;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -310,8 +315,6 @@ export class TenantRegistry {
         await new Promise((r) => setTimeout(r, backoffSec * 1000));
       }
     }
-    // Boot-critical work is done — see the setPriority(0) call above.
-    api.setPriority?.(1);
 
     // Derived from the galaxy atlas fleet.init() just populated (see this
     // function's own earlier comment) rather than fetched separately.
@@ -388,10 +391,13 @@ export class TenantRegistry {
     // recorded fresh snapshots. Errors are caught and logged; never awaited.
     this.backgroundMarketRefresh(log, store, intel, systemSymbol, waypoints, fleet);
 
-    const refreshState = async () => {
+    // `prefetched` is used only by the first, boot-critical call below — a
+    // periodic refresh (from setInterval) always wants a fresh live read,
+    // never the stale pair from whenever boot() ran.
+    const refreshState = async (prefetched?: { agent: Awaited<ReturnType<typeof api.getMyAgent>>; ships: Ship[] }) => {
       try {
-        const freshAgent = await api.getMyAgent();
-        const ships = await api.listAllShips();
+        const freshAgent = prefetched?.agent ?? (await api.getMyAgent());
+        const ships = prefetched?.ships ?? (await api.listAllShips());
         const liveContracts = await api.getContracts();
         const systems = fleet.getGalaxy().listSystems().map((s) => ({
           symbol: s.symbol,
@@ -424,7 +430,11 @@ export class TenantRegistry {
         log(`state refresh error: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
-    await refreshState();
+    await refreshState({ agent, ships: bootedShips });
+    // Boot-critical work is done — see the setPriority(0) call above. Only
+    // now, after the one initial refreshState() call, so that call keeps
+    // the boost through its three live API calls too.
+    api.setPriority?.(1);
     setInterval(refreshState, STATE_REFRESH_MS).unref();
 
     return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative };

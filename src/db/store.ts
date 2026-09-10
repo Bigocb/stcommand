@@ -133,6 +133,25 @@ export interface ShipStateRow {
 }
 
 /**
+ * The durable twin of TraderAgent's in-memory `heldRoute`/`heldCost`
+ * (src/engine/trader.ts) — what a ship bought a good for and where it's
+ * committed to sell it, so a process restart doesn't leave the ship holding
+ * real cargo with no memory of the trip it was on. See migration
+ * `013_held_route.sql`'s own comment for the incident this closes.
+ */
+export interface HeldRouteRow {
+  shipSymbol: string;
+  goodSymbol: string;
+  buyAt: string;
+  sellAt: string;
+  buyPrice: number;
+  sellPrice: number;
+  lotSize: number;
+  costBasis: number;
+  updatedAt: string;
+}
+
+/**
  * Greenfield Phase 3: what a ship's cargo is FOR, not just what's in the
  * hold — reconciled from real cargo once per coordinator tick
  * (FleetManager.syncShipManifests). `intent` is a strict subset of the
@@ -442,6 +461,54 @@ export class Store {
     );
   }
 
+  // ── Held routes (durable twin of TraderAgent's heldRoute/heldCost) ─
+
+  async getAllHeldRoutes(tenantId: string): Promise<HeldRouteRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{
+        ship_symbol: string; good_symbol: string; buy_at: string; sell_at: string;
+        buy_price: number; sell_price: number; lot_size: number; cost_basis: number; updated_at: Date;
+      }>(`SELECT ship_symbol, good_symbol, buy_at, sell_at, buy_price, sell_price, lot_size, cost_basis, updated_at FROM held_route`);
+      return res.rows.map((r) => ({
+        shipSymbol: r.ship_symbol,
+        goodSymbol: r.good_symbol,
+        buyAt: r.buy_at,
+        sellAt: r.sell_at,
+        buyPrice: r.buy_price,
+        sellPrice: r.sell_price,
+        lotSize: r.lot_size,
+        costBasis: r.cost_basis,
+        updatedAt: r.updated_at.toISOString(),
+      }));
+    });
+  }
+
+  async setHeldRoute(
+    tenantId: string,
+    shipSymbol: string,
+    good: string,
+    leg: { buyAt: string; sellAt: string; buyPrice: number; sellPrice: number; lotSize: number },
+    costBasis: number,
+  ): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO held_route (tenant_id, ship_symbol, good_symbol, buy_at, sell_at, buy_price, sell_price, lot_size, cost_basis, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+         ON CONFLICT (tenant_id, ship_symbol, good_symbol) DO UPDATE SET
+           buy_at = excluded.buy_at, sell_at = excluded.sell_at, buy_price = excluded.buy_price,
+           sell_price = excluded.sell_price, lot_size = excluded.lot_size, cost_basis = excluded.cost_basis,
+           updated_at = excluded.updated_at`,
+        [tenantId, shipSymbol, good, leg.buyAt, leg.sellAt, leg.buyPrice, leg.sellPrice, leg.lotSize, costBasis],
+      ),
+    );
+  }
+
+  async deleteHeldRoute(tenantId: string, shipSymbol: string, good: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(`DELETE FROM held_route WHERE ship_symbol = $1 AND good_symbol = $2`, [shipSymbol, good]),
+    );
+  }
+
   // ── Cargo manifest (Greenfield Phase 3: intent-tagged holds) ─
 
   private static mapManifestRow(r: { ship_symbol: string; good_symbol: string; units: number; cost_basis: number; basis_kind: CostBasisKind; intent: CargoIntent; acquired_at: Date }): ManifestRow {
@@ -717,15 +784,31 @@ export class Store {
 
   // ── Cost-basis recovery (ported from the straders A3 fix) ──
 
+  /**
+   * This ship's cost basis for a good it's still holding — the weighted
+   * average of purchase lots since its last full sale, not just the most
+   * recent transaction's price. Confirmed live: an 80-unit buy in two lots
+   * (60u@1991c, 20u@2244c — true weighted average 2054c) recovered as a
+   * flat 2244c (just the last lot) after a restart wiped `heldCost`,
+   * understating the real basis and letting the loss-floor check
+   * (`exceedsLossFloor()` in trader.ts) pass a sale it should have blocked.
+   * "Since the last full sale" is a purchase-timestamp cutoff at the most
+   * recent SELL row for this ship+good — everything bought before that sale
+   * is presumed already sold off, same assumption `heldRoute`'s own pruning
+   * makes (a good not currently in the hold has no live pin).
+   */
   async lastPurchasePrice(tenantId: string, shipSymbol: string, goodSymbol: string): Promise<number | undefined> {
     return withTenant(this.pool, tenantId, async (c) => {
-      const res = await c.query<{ price_per_unit: number }>(
-        `SELECT price_per_unit FROM ledger
-         WHERE type = 'PURCHASE' AND ship_symbol = $1 AND trade_symbol = $2 AND price_per_unit > 0
-         ORDER BY timestamp DESC, id DESC LIMIT 1`,
+      const res = await c.query<{ avg_cost: number | null }>(
+        `SELECT SUM(units * price_per_unit) / NULLIF(SUM(units), 0) AS avg_cost FROM ledger
+         WHERE type = 'PURCHASE' AND ship_symbol = $1 AND trade_symbol = $2 AND units > 0 AND price_per_unit > 0
+           AND timestamp > COALESCE(
+             (SELECT MAX(timestamp) FROM ledger WHERE type = 'SELL' AND ship_symbol = $1 AND trade_symbol = $2),
+             '-infinity'::timestamptz
+           )`,
         [shipSymbol, goodSymbol],
       );
-      return res.rows[0]?.price_per_unit;
+      return res.rows[0]?.avg_cost ?? undefined;
     });
   }
 
