@@ -2060,6 +2060,9 @@ function makeBodyTexture(symbol, type, traits) {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
+  // Reused across every renderMap() rebuild — see clearGroup()'s comment for
+  // why this must survive the mesh that's currently wearing it.
+  tex.__persistent = true;
   bodyTextureCache.set(symbol, tex);
   return tex;
 }
@@ -2540,6 +2543,8 @@ function getAsteroidDotTexture() {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 16, 16);
   asteroidDotTexture = new THREE.CanvasTexture(c);
+  // Shared across every field/every rebuild — see clearGroup()'s comment.
+  asteroidDotTexture.__persistent = true;
   return asteroidDotTexture;
 }
 
@@ -2668,11 +2673,27 @@ function worldToScene(x, y, s) {
   return { x: (x / r) * rPrime, z: (y / r) * rPrime };
 }
 
+/**
+ * Confirmed live: every biome texture (bodyTextureCache) and the shared
+ * asteroid-dot sprite (asteroidDotTexture) were rendering as a flat,
+ * patternless gradient — never the jungle/rocky/ice/etc. surface pattern,
+ * even fully unlit with the atmosphere rim hidden. Root cause: this ran on
+ * every ~1s renderMap() poll, disposing `material.map` for every mesh being
+ * torn down. That's correct for a label sprite's one-off canvas-text
+ * texture (freshly redrawn each render, genuinely needs freeing), but wrong
+ * for a *cached* texture that's deliberately reused across rebuilds — the
+ * first poll disposed the GPU resource bodyTextureCache/asteroidDotTexture
+ * still held a JS reference to, so the very next rebuild rebound an already-
+ * disposed texture. The first frame after a fresh page load looked fine
+ * (nothing had been disposed yet); every frame after the first poll didn't.
+ * Persistent textures are tagged `.__persistent` where created
+ * (makeBodyTexture(), getAsteroidDotTexture()) and skipped here.
+ */
 function clearGroup(g) {
   while (g.children.length) {
     const c = g.children.pop();
     c.geometry?.dispose?.();
-    c.material?.map?.dispose?.();
+    if (c.material?.map && !c.material.map.__persistent) c.material.map.dispose();
     c.material?.dispose?.();
   }
 }
