@@ -1945,6 +1945,195 @@ function applyOrbitCamera() {
   camera.lookAt(orbitCam.target);
 }
 
+/** A tiny deterministic PRNG seeded from a string (via hashString above), so
+ *  a body's surface texture and crater/blotch placement are stable across
+ *  every re-render instead of re-randomizing (and visibly flickering) on
+ *  every ~1s poll. Not cryptographic — a linear congruential generator is
+ *  plenty for "these blotches always land in the same place." */
+function seededRandom(seedStr) {
+  let seed = Math.abs(Math.floor(hashString(seedStr) * 2147483647)) || 1;
+  return function () {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+}
+
+/**
+ * Procedural per-body surface texture — grayscale lightness only, drawn
+ * once per waypoint symbol and cached (elevationCache's own pattern) so a
+ * periodic renderMap() doesn't regenerate a canvas, and re-roll its random
+ * placement, on every poll. Applied as `material.map` alongside the
+ * existing flat `color`: Three multiplies the two, so a system still reads
+ * by its established WP3D_COLOR palette — this only adds real surface
+ * detail (continents, bands, craters) on top of it instead of replacing it.
+ * Types with no plausible natural surface (stations, gates, gravity wells)
+ * return null and stay flat, same as before this pass.
+ */
+const bodyTextureCache = new Map();
+function makeBodyTexture(symbol, type) {
+  if (bodyTextureCache.has(symbol)) return bodyTextureCache.get(symbol);
+  const draw = BODY_TEXTURE_DRAWERS[type];
+  if (!draw) {
+    bodyTextureCache.set(symbol, null);
+    return null;
+  }
+  const size = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  draw(ctx, size, seededRandom(symbol));
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  bodyTextureCache.set(symbol, tex);
+  return tex;
+}
+
+const BODY_TEXTURE_DRAWERS = {
+  // Soft overlapping blotches at varying lightness — reads as continents/
+  // terrain from orbit without needing anything as heavy as real Perlin
+  // noise for a sphere this small on screen.
+  PLANET(ctx, size, rand) {
+    ctx.fillStyle = "#8c8c8c";
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 16; i++) {
+      const x = rand() * size, y = rand() * size;
+      const r = size * (0.08 + rand() * 0.22);
+      const v = Math.round(140 + rand() * 115);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(${v},${v},${v},0.55)`);
+      g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+    }
+  },
+  // Horizontal bands of varying lightness plus a couple of wavy streaks
+  // breaking up the hard band edges — the classic gas-giant look.
+  GAS_GIANT(ctx, size, rand) {
+    const bands = 6 + Math.floor(rand() * 5);
+    for (let i = 0; i < bands; i++) {
+      const v = Math.round(150 + rand() * 105);
+      ctx.fillStyle = `rgb(${v},${v},${v})`;
+      ctx.fillRect(0, (i / bands) * size, size, size / bands + 1);
+    }
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = "#fff";
+    for (let i = 0; i < 3; i++) {
+      const yBase = rand() * size;
+      const phase = rand() * 10;
+      ctx.lineWidth = 2 + rand() * 4;
+      ctx.beginPath();
+      ctx.moveTo(0, yBase);
+      for (let x = 0; x <= size; x += 8) ctx.lineTo(x, yBase + Math.sin(x * 0.05 + phase) * 6);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  },
+  // Dark base with light/dark crater pairs (rim + highlight) scattered
+  // across the surface.
+  MOON(ctx, size, rand) {
+    ctx.fillStyle = "#6e6e6e";
+    ctx.fillRect(0, 0, size, size);
+    const count = 10 + Math.floor(rand() * 10);
+    for (let i = 0; i < count; i++) {
+      const x = rand() * size, y = rand() * size;
+      const r = size * (0.02 + rand() * 0.07);
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(30,30,30,0.5)";
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(210,210,210,0.3)";
+      ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  },
+  // Coarse blocky noise — a rough, jagged rock face rather than a smooth
+  // gradient, matching how much smaller/nearer these bodies read.
+  ASTEROID(ctx, size, rand) {
+    const cell = 8;
+    for (let y = 0; y < size; y += cell) {
+      for (let x = 0; x < size; x += cell) {
+        const v = Math.round(120 + rand() * 130);
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillRect(x, y, cell, cell);
+      }
+    }
+  },
+  // Soft, large, overlapping wisps — a gas cloud rather than a solid
+  // surface, so blobs are bigger and softer than a planet's continents.
+  NEBULA(ctx, size, rand) {
+    ctx.fillStyle = "#999";
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 6; i++) {
+      const x = rand() * size, y = rand() * size;
+      const r = size * (0.2 + rand() * 0.35);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, "rgba(255,255,255,0.35)");
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, size, size);
+    }
+  },
+};
+BODY_TEXTURE_DRAWERS.ASTEROID_FIELD = BODY_TEXTURE_DRAWERS.ASTEROID;
+BODY_TEXTURE_DRAWERS.ENGINEERED_ASTEROID = BODY_TEXTURE_DRAWERS.ASTEROID;
+BODY_TEXTURE_DRAWERS.DEBRIS_FIELD = BODY_TEXTURE_DRAWERS.ASTEROID;
+
+/**
+ * Atmospheric fresnel rim: a slightly larger, additive-blended shell around
+ * a body that's nearly invisible face-on and brightens toward the visible
+ * silhouette edge — the standard cheap "planet glow" trick (no post-
+ * processing pipeline needed, unlike real bloom). Real atmospheres scatter
+ * light most at a grazing angle, which is exactly what `1 - dot(normal,
+ * viewDir)` measures, so this doubles as the fix for airless-looking
+ * terminators: the edge now reads as lit air, not a hard cutoff into black.
+ */
+const ATMOSPHERE_RIM_VERTEX = `
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vViewDir = normalize(-mvPosition.xyz);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+const ATMOSPHERE_RIM_FRAGMENT = `
+  uniform vec3 rimColor;
+  uniform float rimPower;
+  uniform float rimIntensity;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  void main() {
+    float rim = 1.0 - max(dot(normalize(vNormal), normalize(vViewDir)), 0.0);
+    gl_FragColor = vec4(rimColor, pow(rim, rimPower) * rimIntensity);
+  }
+`;
+function makeAtmosphereRim(size, colorHex, power, intensity) {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      rimColor: { value: new THREE.Color(colorHex) },
+      rimPower: { value: power },
+      rimIntensity: { value: intensity },
+    },
+    vertexShader: ATMOSPHERE_RIM_VERTEX,
+    fragmentShader: ATMOSPHERE_RIM_FRAGMENT,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  return new THREE.Mesh(new THREE.SphereGeometry(size * 1.16, 24, 18), mat);
+}
+// Per-type atmosphere tint/power/intensity — planets and gas giants get a
+// confident glow; moons (mostly airless) get a much fainter one, just
+// enough to soften the terminator without implying a real atmosphere.
+const ATMOSPHERE_RIM = {
+  PLANET: { color: 0x9fd0ff, power: 2.4, intensity: 0.8 },
+  GAS_GIANT: { color: 0xffcf8a, power: 1.9, intensity: 0.9 },
+  MOON: { color: 0xcdd8e8, power: 3.0, intensity: 0.35 },
+};
+
 function makeGlowSprite(color, size) {
   const c = document.createElement("canvas");
   c.width = c.height = 64;
@@ -2165,11 +2354,24 @@ function renderMap(ships, trails = new Map()) {
       // shadow side well off pure black at normal distances, but this is
       // the actual floor for a body far enough out that even that fill
       // reads as dim: a hint of the body's own hue rather than a void.
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.05, roughness: 0.55, metalness: 0.15 }),
+      // `map` (when this type has a texture drawer) rides alongside color:
+      // Three multiplies the two, so the surface detail below tints to
+      // this system's own palette rather than replacing it.
+      new THREE.MeshStandardMaterial({
+        color, emissive: color, emissiveIntensity: 0.05, roughness: 0.55, metalness: 0.15,
+        map: makeBodyTexture(wp.symbol, wp.type),
+      }),
     );
     body.position.set(x, y, z);
     bodiesGroup.add(body);
     pickables.push({ mesh: body, kind: "waypoint", symbol: wp.symbol });
+
+    const rim = ATMOSPHERE_RIM[wp.type];
+    if (rim) {
+      const rimMesh = makeAtmosphereRim(size, rim.color, rim.power, rim.intensity);
+      rimMesh.position.copy(body.position);
+      bodiesGroup.add(rimMesh);
+    }
 
     // A faint vertical stalk connects elevated orbiters back to the
     // ecliptic plane, so the operator can see which planet/region they
