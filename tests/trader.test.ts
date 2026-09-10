@@ -80,6 +80,28 @@ describe("TraderAgent.tick: contract delivery priority", () => {
     assert.equal(made, true);
   });
 
+  it("does not mutate dispatcher assignment when the assigned direct route is rejected", async () => {
+    const ship = makeShip();
+    let claimed = false;
+    const assigned = {
+      shipSymbol: "SHIP-1", good: "COPPER", role: "direct" as const,
+      buyAt: "X1-B-A1", sellAt: "X1-B-A2", buyPrice: 100, sellPrice: 200,
+      profitPerTrip: 1000, source: "auto" as const,
+    };
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      assignedRoute: () => assigned,
+      claimRoute: () => { claimed = true; return undefined; },
+      getMarketSnapshots: async () => [],
+    });
+    // No prices in the table means viableRoute rejects the assignment; the
+    // trader should then fall through to discovery without calling claimRoute.
+    const made = await trader.tick();
+
+    assert.equal(claimed, false, "a rejected assigned route must not trigger claimRoute");
+    assert.equal(made, false, "with no reachable market to discover, the tick makes no progress");
+  });
+
   it("without a deliverCargo hook, falls through to clearLeftoverCargo exactly as before", async () => {
     const ship = makeShip([{ symbol: "IRON_ORE", units: 5 }]);
     let sold = false;

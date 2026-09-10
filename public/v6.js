@@ -1652,18 +1652,120 @@ const WP3D_COLOR = {
 // real coordinate differences under "just enough padding to not overlap."
 // Shrinking the bodies gives real distances room to read as real distances.
 const WP3D_SIZE = {
-  PLANET: 1.5, GAS_GIANT: 2.1, MOON: 0.72,
-  ORBITAL_STATION: 0.72, ASTEROID_BASE: 0.72,
-  JUMP_GATE: 1.05, ASTEROID_FIELD: 1, ASTEROID: 0.9,
-  ENGINEERED_ASTEROID: 1, FUEL_STATION: 1,
-  NEBULA: 1.2, DEBRIS_FIELD: 1.05, GRAVITY_WELL: 1.05,
-  ARTIFICIAL_GRAVITY_WELL: 1.05,
+  PLANET: 3.0, GAS_GIANT: 4.2, MOON: 1.0,
+  ORBITAL_STATION: 0.8, ASTEROID_BASE: 0.8,
+  JUMP_GATE: 1.4, ASTEROID_FIELD: 0.6, ASTEROID: 0.45,
+  ENGINEERED_ASTEROID: 0.6, FUEL_STATION: 1.0,
+  NEBULA: 0.8, DEBRIS_FIELD: 0.6, GRAVITY_WELL: 1.4,
+  ARTIFICIAL_GRAVITY_WELL: 1.4,
 };
 const SHIP3D_COLOR = {
   miner: "--buff", scout: "--violet", tour: "--violet",
   surveyor: "--teal", siphoner: "--teal",
   keeper: "--bone", warehouse: "--bone",
 };
+
+/**
+ * Artificial Z-axis (elevation) for the 3D map.
+ *
+ * SpaceTraders only gives x/y, so we invent a stable, meaningful height
+ * per waypoint. The goal is visual depth and natural-looking ship flight:
+ * not everything sits on the same pancake plane.
+ *
+ * Rules:
+ *  - Planets/gas giants define the ecliptic plane (z ≈ 0).
+ *  - Moons orbit above/below their planet in a narrow band.
+ *  - Stations orbit farther out from the plane than moons.
+ *  - Asteroid fields and nebulae form a thick belt with a gentle wobble.
+ *  - Jump gates sit on the plane but get a vertical glow instead of height.
+ *  - A deterministic per-symbol micro-jitter separates multiple orbiters
+ *    sharing the same x/y (common for stations orbiting a planet).
+ *
+ * All heights are in scene units, scaled so the camera can still frame the
+ * whole system comfortably.
+ */
+const WP3D_ELEVATION = {
+  PLANET: 0,
+  GAS_GIANT: 0,
+  JUMP_GATE: 0,
+  MOON: 2.2,
+  ORBITAL_STATION: 4.5,
+  ASTEROID_BASE: 4.5,
+  FUEL_STATION: 4.0,
+  ASTEROID_FIELD: 2.0,
+  ASTEROID: 1.5,
+  ENGINEERED_ASTEROID: 1.8,
+  NEBULA: 3.0,
+  DEBRIS_FIELD: 2.2,
+  GRAVITY_WELL: 2.5,
+  ARTIFICIAL_GRAVITY_WELL: 2.5,
+};
+const ELEVATION_MICRO_RANGE = 1.2; // ± this much, deterministic per symbol
+const TRANSIT_ARC_FACTOR = 0.12;    // arc height as fraction of scene distance
+
+/** Stable pseudo-random float in [-1, 1] from a string. */
+function hashString(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h / 2147483647);
+}
+
+/** Elevation for a single waypoint. Cached by symbol because it is called
+ *  from several places (bodies, rings, labels, ships, trails). */
+const elevationCache = new Map();
+function computeElevation(symbol, type, x, y) {
+  const key = symbol;
+  if (elevationCache.has(key)) return elevationCache.get(key);
+  const base = WP3D_ELEVATION[type] ?? 0;
+  const micro = hashString(symbol) * ELEVATION_MICRO_RANGE;
+  // Belt objects (asteroid/nebula) also get a slow radial wave so the belt
+  // reads as a volume rather than a flat ribbon.
+  const r = Math.hypot(x, y);
+  const beltWobble = (type === "ASTEROID_FIELD" || type === "ASTEROID" || type === "NEBULA" || type === "DEBRIS_FIELD")
+    ? Math.sin(r * 0.15 + hashString(symbol) * 2) * 0.8
+    : 0;
+  const z = base + micro + beltWobble;
+  elevationCache.set(key, z);
+  return z;
+}
+
+function clearElevationCache() {
+  elevationCache.clear();
+}
+
+/** Scene position with artificial elevation baked in. */
+function waypointScenePos(wp, s) {
+  const { x, z } = worldToScene(wp.x, wp.y, s);
+  const y = computeElevation(wp.symbol, wp.type, wp.x, wp.y);
+  return { x, y, z };
+}
+
+/** Elevation of a ship mid-transit. It arcs above/below the straight line
+ *  between origin and destination so long hops read as climbs/dives rather
+ *  than flat crawls. The arc peaks at the midpoint and returns to the
+ *  destination's own elevation. */
+function transitArcHeight(baseScenePos, originWP, destWP, s) {
+  const originY = originWP ? computeElevation(originWP.symbol, originWP.type, originWP.x, originWP.y) : 0;
+  const destY = destWP ? computeElevation(destWP.symbol, destWP.type, destWP.x, destWP.y) : 0;
+  // Estimate fraction along the route from the base (flat) position. If
+  // either endpoint is missing, just use the straight interpolation.
+  let frac = 0.5;
+  let routeDist = 0;
+  if (originWP && destWP) {
+    const o = worldToScene(originWP.x, originWP.y, s);
+    const d = worldToScene(destWP.x, destWP.y, s);
+    routeDist = Math.hypot(d.x - o.x, d.z - o.z);
+    const done = Math.hypot(baseScenePos.x - o.x, baseScenePos.z - o.z);
+    frac = routeDist > 0 ? Math.min(1, Math.max(0, done / routeDist)) : 0.5;
+  }
+  const linearY = originY + (destY - originY) * frac;
+  // Arc above the straight line: taller for longer hops, peaking mid-route.
+  const arc = routeDist > 0 ? Math.sin(Math.PI * frac) * routeDist * TRANSIT_ARC_FACTOR : 0;
+  return { y: linearY + arc };
+}
 
 /** A CSS custom property, resolved to whatever color space it's actually
  *  declared in (oklch, hex, whatever the hue picker set) via the browser's
@@ -1710,7 +1812,7 @@ const pickables = []; // { mesh, kind: 'waypoint'|'ship', symbol }
 let raycaster, pointerNdc;
 const orbitCam = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
 const orbitGoal = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
-let systemSpan = 60; // current system's own radius, used to scale zoom limits to it
+let systemSpan = 90; // current system's own radius, used to scale zoom limits to it
 let sceneReady = false;
 let pendingRebuild = null;
 let mapUnavailable = false;
@@ -1745,16 +1847,37 @@ function initMap3D() {
   scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup);
 
   // Bodies use a lit material now (see WP3D_MATERIAL below) instead of flat
-  // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object; an
-  // unlit one always reads as a flat colored disc no matter how good the
-  // geometry underneath it is. Hemisphere light gives a soft, ambient
-  // "in-space" fill with no true shadow side (nothing here should go fully
-  // black); the point light does the actual modeling — a highlight and a
-  // falloff so each body reads as a sphere, not a circle.
-  scene.add(new THREE.HemisphereLight(0x99aaff, 0x0a0a12, 0.55));
-  const keyLight = new THREE.PointLight(0xffffff, 1.4, 0, 0.7);
-  keyLight.position.set(60, 90, 40);
-  scene.add(keyLight);
+  // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object. The
+  // system star is the light source: a point light at the origin radiates
+  // outward in all directions, so every body is lit from the center no
+  // matter where it orbits. Low decay keeps distant outliers from going dim.
+  // A dim hemisphere fill keeps the shadow side from going fully black
+  // (space has bounced/scattered light), and a small marker at the origin
+  // sells the star itself.
+  // system star is the light source: a point light at the origin radiates
+  // outward in all directions. Low decay keeps distant outliers from going
+  // dim. A strong ambient fill lightens the shadow side of every body
+  // without introducing a second visible source.
+  scene.add(new THREE.AmbientLight(0x151e2e, 0.75));
+  const starLight = new THREE.PointLight(0xff9e9e, 2.4, 0, 0.32);
+  starLight.position.set(0, 0, 0);
+  scene.add(starLight);
+
+  // A central star marker, bigger than planets so it reads as the system
+  // primary and justifies pushing everything else outward. Red dwarf tone
+  // is easier on the eyes than a blazing white sun and still reads as a star.
+  const STAR_COLOR = 0xff7b72;
+  const star = new THREE.Mesh(
+    new THREE.SphereGeometry(6.5, 32, 24),
+    new THREE.MeshBasicMaterial({ color: STAR_COLOR }),
+  );
+  star.position.set(0, 0, 0);
+  scene.add(star);
+
+  // A soft radial glow around the star so it doesn't look like a solid ball.
+  const starGlow = makeGlowSprite(new THREE.Color(STAR_COLOR), 48);
+  starGlow.position.set(0, 0, 0);
+  glowGroup.add(starGlow);
 
   raycaster = new THREE.Raycaster();
   pointerNdc = new THREE.Vector2();
@@ -1801,6 +1924,14 @@ function makeGlowSprite(color, size) {
   return sp;
 }
 
+function shouldLabelWaypoint(wp) {
+  const traits = wp.traits ?? [];
+  const hasMarket = traits.some((t) => (t.symbol ?? t) === "MARKETPLACE");
+  const hasShipyard = traits.some((t) => (t.symbol ?? t) === "SHIPYARD");
+  const isParent = wp.type === "PLANET" || wp.type === "GAS_GIANT";
+  return isParent || wp.type === "JUMP_GATE" || hasMarket || hasShipyard;
+}
+
 function makeLabelSprite(text, color) {
   // The sprite maps its *whole* texture onto whatever quad sp.scale gives
   // it — sizing that quad from the measured text width while the canvas
@@ -1809,11 +1940,11 @@ function makeLabelSprite(text, color) {
   // canvas pixels and sprite-scale units in the same frame, so nothing gets
   // squeezed.
   const scale = 3;
-  const font = "600 13px Rajdhani, sans-serif";
+  const font = "500 10px Rajdhani, sans-serif";
   const measure = document.createElement("canvas").getContext("2d");
   measure.font = font;
   const w = Math.ceil(measure.measureText(text).width) + 6;
-  const h = 20;
+  const h = 16;
   const c = document.createElement("canvas");
   c.width = w * scale; c.height = h * scale;
   const ctx = c.getContext("2d");
@@ -1821,11 +1952,11 @@ function makeLabelSprite(text, color) {
   ctx.font = font;
   ctx.fillStyle = color;
   ctx.textBaseline = "top";
-  ctx.fillText(text, 3, 3);
+  ctx.fillText(text, 3, 2);
   const tex = new THREE.CanvasTexture(c);
   tex.minFilter = THREE.LinearFilter;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-  sp.scale.set(w * 0.1, h * 0.1, 1);
+  sp.scale.set(w * 0.08, h * 0.08, 1);
   sp.center.set(0, 0.5);
   return sp;
 }
@@ -1853,14 +1984,20 @@ function makeLabelSprite(text, color) {
 function fitSystemScale(pool) {
   let maxR = 20;
   for (const p of pool) maxR = Math.max(maxR, Math.hypot(p.x, p.y));
-  const scale = 80 / Math.sqrt(maxR); // world units -> scene units, ~80 across at rest
-  return { scale };
+  // A slightly gentler compression than sqrt() so nearby planets keep more
+  // of their real separation while distant outliers still fit. Tuned for the
+  // new "readable" body sizes (planets ~3-4, orbiters ~0.5-1). The larger
+  // target pushes the home cluster farther from the central star so the map
+  // reads as a real solar system rather than a tight knot.
+  const pow = 0.55;
+  const scale = 140 / Math.pow(maxR, pow); // world units -> scene units
+  return { scale, pow };
 }
 
 function worldToScene(x, y, s) {
   const r = Math.hypot(x, y);
   if (r < 1e-6) return { x: 0, z: 0 };
-  const rPrime = Math.sqrt(r) * s.scale;
+  const rPrime = Math.pow(r, s.pow) * s.scale;
   return { x: (x / r) * rPrime, z: (y / r) * rPrime };
 }
 
@@ -1953,7 +2090,7 @@ function renderMap(ships, trails = new Map()) {
       continue;
     }
     const maxEffR = Math.max(...group.map(effR));
-    const ringR = maxEffR * 1.6 + Math.min(group.length, 6) * 0.6;
+    const ringR = maxEffR * 1.15 + Math.min(group.length, 6) * 0.35;
     group.forEach((wp, i) => {
       const angle = (2 * Math.PI * i) / group.length;
       posBySymbol.set(wp.symbol, { x: baseX + ringR * Math.cos(angle), z: baseZ + ringR * Math.sin(angle) });
@@ -1966,7 +2103,7 @@ function renderMap(ships, trails = new Map()) {
         const a = relaxEntries[i], b = relaxEntries[j];
         let dx = b.x - a.x, dz = b.z - a.z;
         let dist = Math.hypot(dx, dz);
-        const minDist = a.r + b.r + 0.4;
+        const minDist = a.r + b.r + 0.6;
         if (dist >= minDist) continue;
         if (dist < 0.01) { dx = 1; dz = 0; dist = 1; }
         const push = ((minDist - dist) / dist) * 0.5;
@@ -1982,14 +2119,28 @@ function renderMap(ships, trails = new Map()) {
     const { x, z } = posBySymbol.get(wp.symbol);
     const color = themedColor(WP3D_COLOR[wp.type] ?? "--ice");
     const size = WP3D_SIZE[wp.type] ?? 1.8;
+    const y = computeElevation(wp.symbol, wp.type, wp.x, wp.y);
 
     const body = new THREE.Mesh(
       new THREE.SphereGeometry(size, 20, 16),
       new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 }),
     );
-    body.position.set(x, 0, z);
+    body.position.set(x, y, z);
     bodiesGroup.add(body);
     pickables.push({ mesh: body, kind: "waypoint", symbol: wp.symbol });
+
+    // A faint vertical stalk connects elevated orbiters back to the
+    // ecliptic plane, so the operator can see which planet/region they
+    // belong to even when the camera is looking edge-on.
+    if (Math.abs(y) > 0.3) {
+      const stalkLen = Math.max(0.2, Math.abs(y) - size * 0.4);
+      const stalk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.03, 0.03, stalkLen, 8),
+        new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.22 }),
+      );
+      stalk.position.set(x, Math.sign(y) * (stalkLen / 2 + size * 0.35), z);
+      ringsGroup.add(stalk);
+    }
 
     if (wp.type === "GAS_GIANT") {
       const belt = new THREE.Mesh(
@@ -2001,31 +2152,34 @@ function renderMap(ships, trails = new Map()) {
       bodiesGroup.add(belt);
     }
     if (wp.type === "JUMP_GATE" || wp.type === "FUEL_STATION") {
-      const glow = makeGlowSprite(color, size * 5);
+      const glow = makeGlowSprite(color, size * 3.5);
       glow.position.copy(body.position);
       glowGroup.add(glow);
     }
     const isMarket = (wp.traits ?? []).some((t) => (t.symbol ?? t) === "MARKETPLACE");
     if (isMarket) {
-      const marketGlow = makeGlowSprite(themedColor("--buff"), size * 3.5);
+      const marketGlow = makeGlowSprite(themedColor("--buff"), size * 2.5);
       marketGlow.position.copy(body.position);
       glowGroup.add(marketGlow);
     }
 
-    const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
-    label.position.set(x, size + 2.4, z);
-    bodiesGroup.add(label);
+    if (shouldLabelWaypoint(wp)) {
+      const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
+      label.position.set(x, y + size + 1.3, z);
+      bodiesGroup.add(label);
+    }
 
     // A real orbit path — the waypoint's actual distance from the system's
     // origin, not a fabricated one. Deduped by radius so a station sharing
-    // its planet's exact x/y doesn't draw the same ring twice.
-    const radius = Math.sqrt(Math.hypot(wp.x, wp.y)) * s.scale;
+    // its planet's exact x/y doesn't draw the same ring twice. Kept on the
+    // ecliptic plane (y=0); the body itself floats at its computed elevation.
+    const radius = Math.pow(Math.hypot(wp.x, wp.y), s.pow) * s.scale;
     const key = Math.round(radius * 4);
     if (radius > 0.5 && !seenRadii.has(key)) {
       seenRadii.add(key);
       const ring = new THREE.Mesh(
-        new THREE.RingGeometry(radius - 0.08, radius + 0.08, 96),
-        new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.12, side: THREE.DoubleSide }),
+        new THREE.RingGeometry(radius - 0.05, radius + 0.05, 96),
+        new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.22, side: THREE.DoubleSide }),
       );
       ring.rotation.x = -Math.PI / 2;
       ringsGroup.add(ring);
@@ -2040,7 +2194,8 @@ function renderMap(ships, trails = new Map()) {
   // renderScrubFrame()), not the static trade lanes above. Segments nearer
   // the ship's current position are more opaque than older ones, matching
   // the flat map's own fading-trail treatment. Same depthTest reasoning as
-  // the trade lanes above.
+  // the trade lanes above. Elevation is included so trails follow the same
+  // 3D layout as live ship movement.
   const trailColor = themedColor("--dim");
   for (const [, trail] of trails) {
     for (let i = 1; i < trail.length; i++) {
@@ -2049,8 +2204,8 @@ function renderMap(ships, trails = new Map()) {
       if (!a || !b) continue;
       const frac = i / (trail.length - 1);
       const geo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(a.x, 0.08, a.z),
-        new THREE.Vector3(b.x, 0.08, b.z),
+        new THREE.Vector3(a.x, a.y + 0.08, a.z),
+        new THREE.Vector3(b.x, b.y + 0.08, b.z),
       ]);
       const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity: 0.1 + frac * 0.4, depthTest: false });
       const line = new THREE.Line(geo, mat);
@@ -2067,7 +2222,7 @@ function renderMap(ships, trails = new Map()) {
   if (framedSystem !== sys) {
     framedSystem = sys;
     orbitGoal.target.set(0, 0, 0);
-    orbitGoal.radius = 112;
+    orbitGoal.radius = 160;
     orbitGoal.phi = 1.0;
     // A live trail's points are in the old system's scene coordinates —
     // meaningless (and, worse, plottable-looking garbage) once worldToScene
@@ -2107,14 +2262,14 @@ function renderShipsInto(ships, s) {
   const dockedOffset = new Map();
   for (const [wpSymbol, symbols] of dockedByWaypoint) {
     const bodyR = WP3D_SIZE[waypoints.find((w) => w.symbol === wpSymbol)?.type] ?? 1.8;
-    // Extra margin beyond the body's true radius: the camera views from an
-    // angle, so a ship offset only just past the sphere's edge can still
-    // land inside its on-screen silhouette from some angles even though
-    // it's not actually touching in 3D.
-    const ringR = bodyR + 2.6 + Math.min(symbols.length, 6) * 0.55;
+    // Tight orbit for small bodies (moons/stations) so ships stay visually
+    // attached to their waypoint inside a planet cluster, not floating in
+    // the parent planet's space. Lifted slightly in y so they read as
+    // orbiting rather than embedded in the surface.
+    const ringR = bodyR * 1.0 + 0.7 + Math.min(symbols.length, 6) * 0.35;
     symbols.forEach((sym, i) => {
       const angle = (2 * Math.PI * i) / symbols.length;
-      dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dz: ringR * Math.sin(angle) });
+      dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dy: bodyR * 0.35, dz: ringR * Math.sin(angle) });
     });
   }
 
@@ -2126,7 +2281,7 @@ function renderShipsInto(ships, s) {
 
     const group = new THREE.Group();
     const body = new THREE.Mesh(
-      new THREE.ConeGeometry(0.45, 1.1, 4),
+      new THREE.ConeGeometry(0.2, 0.5, 4),
       // Lit like the waypoint bodies now, but with a strong emissive glow
       // in the same color rather than plain unlit — a ship still has to
       // read as a bright, glanceable marker at a glance, not a shaded
@@ -2136,35 +2291,43 @@ function renderShipsInto(ships, s) {
     body.rotation.x = Math.PI / 2;
     group.add(body);
     if (sel) {
+      // A 3D torus ring that stays oriented with the ship instead of a flat
+      // disk lying on the ecliptic plane. It scales with the tiny new ship
+      // size so the selection read is tight, not a giant pancake.
       const halo = new THREE.Mesh(
-        new THREE.RingGeometry(1.1, 1.4, 32),
-        new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
+        new THREE.TorusGeometry(0.55, 0.06, 8, 32),
+        new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.75 }),
       );
-      halo.rotation.x = -Math.PI / 2;
+      halo.rotation.x = Math.PI / 2;
       group.add(halo);
     }
 
-    const pos = sh.nav.status === "IN_TRANSIT" ? (shipTransitLerp(sh) ?? { x: sh.nav.route?.origin?.x ?? 0, y: sh.nav.route?.origin?.y ?? 0 }) : findWaypointPos(sh.nav.waypointSymbol, s);
-    const scenePos = worldToScene(pos.x, pos.y, s);
-    const off = dockedOffset.get(sh.symbol);
-    group.position.set(scenePos.x + (off?.dx ?? 0), 0, scenePos.z + (off?.dz ?? 0));
+    let scenePos;
     if (sh.nav.status === "IN_TRANSIT") {
-      // shipHeadingDeg()'s "+90" is calibrated for the flat map's own sy(),
-      // which flips y for SVG screen space — passing it identity functions
-      // here (no such flip exists in 3D) silently mirrored every heading.
-      // Also: origin and destination can sit at different distances from
-      // the system's star, and the map's sqrt-distance compression bends a
-      // straight real-world route's apparent angle once both ends are
-      // projected — so the heading has to come from the two endpoints'
-      // actual *scene* positions, not from raw world coordinates.
       const r = sh.nav.route;
+      const world = shipTransitLerp(sh) ?? { x: r?.origin?.x ?? 0, y: r?.origin?.y ?? 0 };
+      const originWP = waypoints.find((w) => w.symbol === r?.origin?.symbol);
+      const destWP = waypoints.find((w) => w.symbol === r?.destination?.symbol);
+      const base = worldToScene(world.x, world.y, s);
+      const arc = transitArcHeight(base, originWP, destWP, s);
+      scenePos = { x: base.x, y: arc.y, z: base.z };
       if (r?.origin && r?.destination) {
-        const o = worldToScene(r.origin.x, r.origin.y, s);
-        const d = worldToScene(r.destination.x, r.destination.y, s);
-        const dx = d.x - o.x, dz = d.z - o.z;
-        if (dx !== 0 || dz !== 0) group.rotation.y = Math.atan2(dx, dz);
+        const o = scenePosForWaypoint(r.origin.symbol, s) ?? { ...worldToScene(r.origin.x, r.origin.y, s), y: 0 };
+        const d = scenePosForWaypoint(r.destination.symbol, s) ?? { ...worldToScene(r.destination.x, r.destination.y, s), y: 0 };
+        const dx = d.x - o.x, dy = d.y - o.y, dz = d.z - o.z;
+        if (dx !== 0 || dz !== 0) {
+          group.rotation.y = Math.atan2(dx, dz);
+          // A small pitch so the hull tilts toward/away from the destination's elevation.
+          const dist = Math.hypot(dx, dz) || 1;
+          group.rotation.x = Math.PI / 2 + Math.atan2(dy, dist);
+        }
       }
+    } else {
+      const wp = waypoints.find((w) => w.symbol === sh.nav.waypointSymbol);
+      scenePos = wp ? waypointScenePos(wp, s) : { x: 0, y: 0, z: 0 };
     }
+    const off = dockedOffset.get(sh.symbol);
+    group.position.set(scenePos.x + (off?.dx ?? 0), scenePos.y + (off?.dy ?? 0), scenePos.z + (off?.dz ?? 0));
 
     shipsGroup.add(group);
     pickables.push({ mesh: body, kind: "ship", symbol: sh.symbol, group });
@@ -2182,7 +2345,7 @@ function findWaypointPos(symbol, s) {
  *  isn't itself drawn as a body (a plain rock a ship passed through). */
 function scenePosForWaypoint(symbol, s) {
   const wp = waypoints.find((w) => w.symbol === symbol);
-  return wp ? worldToScene(wp.x, wp.y, s) : null;
+  return wp ? waypointScenePos(wp, s) : null;
 }
 
 function disposeTrailGroup(group) {
@@ -2214,27 +2377,30 @@ function repositionShips() {
     }
   }
   if (inTransitSymbols.size === 0) return;
-  const trailColor = themedColor("--star");
+  const trailColor = themedColor("--accent");
   for (const p of pickables) {
     if (p.kind !== "ship") continue;
     const sh = lastRenderedShips.find((x) => x.symbol === p.symbol);
     if (!sh || sh.nav.status !== "IN_TRANSIT") continue;
     const world = shipTransitLerp(sh);
     if (!world) continue;
-    const { x, z } = worldToScene(world.x, world.y, mapScale);
-    p.group.position.set(x, 0, z);
+    const r = sh.nav.route;
+    const base = worldToScene(world.x, world.y, mapScale);
+    const originWP = waypoints.find((w) => w.symbol === r?.origin?.symbol);
+    const destWP = waypoints.find((w) => w.symbol === r?.destination?.symbol);
+    const { y } = transitArcHeight(base, originWP, destWP, mapScale);
+    p.group.position.set(base.x, y, base.z);
 
-    // Subtle motion trail — same idea as the flat map's own: sampled by
-    // scene distance moved, not every frame (at 60fps consecutive points
-    // would sit fractions of a unit apart, indistinguishable from a solid
-    // line and pointless overhead).
+    // Motion trail for in-transit ships. Sampled by scene distance moved,
+    // not every frame, and tinted by the ship's own role color so each
+    // trajectory is glanceable against the dark map.
     const points = liveTrails.get(sh.symbol) ?? [];
     const lastPos = lastTrailSamplePos.get(sh.symbol);
-    if (!lastPos || Math.hypot(x - lastPos.x, z - lastPos.z) >= TRAIL_SAMPLE_MIN_SCENE) {
-      points.push({ x, z });
+    if (!lastPos || Math.hypot(base.x - lastPos.x, base.z - lastPos.z) >= TRAIL_SAMPLE_MIN_SCENE) {
+      points.push({ x: base.x, y, z: base.z });
       if (points.length > TRAIL_MAX_POINTS) points.shift();
       liveTrails.set(sh.symbol, points);
-      lastTrailSamplePos.set(sh.symbol, { x, z });
+      lastTrailSamplePos.set(sh.symbol, { x: base.x, y, z: base.z });
     }
     if (points.length > 1) {
       const old = liveTrailObjects.get(sh.symbol);
@@ -2250,12 +2416,13 @@ function repositionShips() {
         // live-trail opacity range.
         const opacity = 0.25 + (i / (points.length - 1)) * 0.45;
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(a.x, 0.06, a.z),
-          new THREE.Vector3(b.x, 0.06, b.z),
+          new THREE.Vector3(a.x, a.y + 0.06, a.z),
+          new THREE.Vector3(b.x, b.y + 0.06, b.z),
         ]);
-        const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity, depthTest: false });
+        const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity, depthTest: false, linewidth: 2 });
         const line = new THREE.Line(geo, mat);
         line.renderOrder = 8;
+        line.material.linewidth = 2;
         trailGroup.add(line);
       }
       liveTrailGroup.add(trailGroup);

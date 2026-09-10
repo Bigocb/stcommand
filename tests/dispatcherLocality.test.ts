@@ -62,14 +62,16 @@ describe("the dispatcher assigns work a ship can actually start", () => {
       `both reachable routes must be worked, got ${JSON.stringify(goods)}`);
   });
 
-  it("still assigns distant work rather than idling when there is nothing else", () => {
-    // The trader's own viableRoute() is the authority that declines it; the
-    // dispatcher should not silently park a hull.
+  it("leaves a ship unassigned when no reachable work exists", () => {
+    // Previously the dispatcher fell back to the globally best route even when
+    // unreachable, and the trader's viableRoute() rejected it on every tick.
+    // That produced fake assignments that churned the dashboard. Now the
+    // dispatcher only assigns work the ship can actually start.
     const got = assign(
       [{ shipSymbol: "T-1", capacity: 40, system: "X1-KU72" }],
       [route("MEDICINE", "X1-RD37", 18072)],
     );
-    assert.deepEqual(got, [["T-1", "MEDICINE"]]);
+    assert.deepEqual(got, [["T-1", undefined]], "with no reachable work the ship should receive no auto-assignment");
   });
 
   it("behaves exactly as before for a trader whose system is unknown", () => {

@@ -109,6 +109,36 @@ describe("RouteDispatcher: contractBuy priority reflects the contract's real pay
   });
 });
 
+describe("RouteDispatcher: only assigns reachable direct routes", () => {
+  it("does not assign an unreachable direct route to a ship in a different system", () => {
+    const d = new RouteDispatcher();
+    const unreachable = {
+      good: "CLOTHING", buyAt: "X1-YN70-K90", buySystem: "X1-YN70", buyPrice: 100,
+      sellAt: "X1-YN70-A1", sellSystem: "X1-YN70", sellPrice: 200,
+      volume: 10, lotSize: 10, distance: 10, fuelUnits: 10, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
+    };
+
+    d.recompute([unreachable], [{ shipSymbol: "SHIP-1", capacity: 40, system: "X1-S84" }], [], [], [], [], () => false);
+
+    assert.equal(d.assignmentFor("SHIP-1"), undefined, "a ship in X1-S84 must not be assigned a route it cannot jump to");
+  });
+
+  it("assigns a direct route that is reachable via a completed jump gate", () => {
+    const d = new RouteDispatcher();
+    const reachable = {
+      good: "CLOTHING", buyAt: "X1-YN70-K90", buySystem: "X1-YN70", buyPrice: 100,
+      sellAt: "X1-YN70-A1", sellSystem: "X1-YN70", sellPrice: 200,
+      volume: 10, lotSize: 10, distance: 10, fuelUnits: 10, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
+    };
+
+    d.recompute([reachable], [{ shipSymbol: "SHIP-1", capacity: 40, system: "X1-S84" }], [], [], [], [], () => true);
+
+    const a = d.assignmentFor("SHIP-1");
+    assert.equal(a?.role, "direct");
+    assert.equal(a?.good, "CLOTHING");
+  });
+});
+
 describe("RouteDispatcher: cross-system direct routes", () => {
   it("without a canJump predicate, never assigns a cross-system route as 'direct' — the safe default when reachability is unknown", () => {
     const d = new RouteDispatcher();

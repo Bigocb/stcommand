@@ -727,15 +727,30 @@ export class TraderAgent {
    *    back to picking for ourselves.
    */
   private findRoute(): Route | undefined {
-    const assigned = this.asDirectLeg(this.assignedRoute?.());
+    const assignment = this.assignedRoute?.();
+    const assigned = this.asDirectLeg(assignment);
     if (assigned) {
       const viable = this.viableRoute(assigned);
-      if (viable) return viable;
+      if (viable) {
+        this.log(`findRoute: flying assigned ${assigned.good} ${assigned.buyAt} -> ${assigned.sellAt}`);
+        return viable;
+      }
+      const why = this.whyNotViable(assigned);
+      this.log(`findRoute: assigned ${assignment?.good} ${assigned.buyAt} -> ${assigned.sellAt} rejected: ${why}`);
+      // The dispatcher owns assignments. If it handed us a route we can't fly,
+      // don't silently claim a replacement that mutates shared state and churns
+      // the dashboard — fall through to discovery/idle instead.
+      return undefined;
     }
 
     if (this.claimRoute) {
       const claimed = this.asDirectLeg(this.claimRoute((r) => this.viableRoute(r) !== undefined));
-      return claimed ? this.viableRoute(claimed) : undefined;
+      if (claimed) {
+        this.log(`findRoute: claimed ${claimed.good} ${claimed.buyAt} -> ${claimed.sellAt}`);
+        return this.viableRoute(claimed);
+      }
+      this.log("findRoute: no claimable route viable");
+      return undefined;
     }
 
     return this.freeChoice();
@@ -759,6 +774,41 @@ export class TraderAgent {
    * undefined if it can't: wrong system, no prices for those markets, margin
    * below the floor, nothing affordable, or fuel eats the profit.
    */
+  private whyNotViable(r: DirectLeg): string {
+    if (r.buyAt === r.sellAt) return "buyAt === sellAt";
+    if (this.protectedGoods?.().has(r.good)) return `protected good ${r.good}`;
+    if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return `dead route ${r.good}@${r.buyAt}`;
+    const buySystem = this.systemOf(r.buyAt);
+    const sellSystem = this.systemOf(r.sellAt);
+    const crossSystem = buySystem !== sellSystem;
+    if (!this.systemsConnected(buySystem, sellSystem)) return `systems not connected ${buySystem} <-> ${sellSystem}`;
+    if (!this.systemsConnected(this.systemOf(this.ship.nav.waypointSymbol), buySystem))
+      return `cannot reach buy system ${buySystem} from ${this.ship.nav.systemSymbol}`;
+    if (this.ship.fuel.capacity > 0) {
+      if (this.systemOf(this.ship.nav.waypointSymbol) === buySystem &&
+          this.distBetween(this.ship.nav.waypointSymbol, r.buyAt) > this.ship.fuel.capacity)
+        return `here->buyAt distance ${this.distBetween(this.ship.nav.waypointSymbol, r.buyAt)} exceeds fuel capacity ${this.ship.fuel.capacity}`;
+      if (!crossSystem && this.distBetween(r.buyAt, r.sellAt) > this.ship.fuel.capacity)
+        return `buyAt->sellAt distance ${this.distBetween(r.buyAt, r.sellAt)} exceeds fuel capacity ${this.ship.fuel.capacity}`;
+    }
+    const buy = this.priceTable.get(r.buyAt)?.get(r.good);
+    const sell = this.priceTable.get(r.sellAt)?.get(r.good);
+    if (!buy || !sell || buy.buy <= 0) {
+      return `missing prices buy=${buy?.buy ?? "?"} sell=${sell?.sell ?? "?"} (priceTable has ${this.priceTable.has(r.buyAt) ? r.buyAt : "no " + r.buyAt}${this.priceTable.has(r.sellAt) ? "/" + r.sellAt : "/no " + r.sellAt})`;
+    }
+    const margin = sell.sell - buy.buy;
+    if (margin <= this.marginFloor) return `margin ${margin}c <= floor ${this.marginFloor}c`;
+    const credits = this.getCredits?.() ?? Infinity;
+    const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
+    const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
+    const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
+    if (volume <= 0 || lotSize <= 0) return `volume=${volume} lotSize=${lotSize} cargo=${this.ship.cargo.capacity} credits=${credits}`;
+    const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize };
+    const profit = this.routeProfit(route);
+    if (profit <= 0) return `profit ${profit} <= 0 (trip cost ${this.tripCost(r.buyAt, r.sellAt)})`;
+    return "viable";
+  }
+
   private viableRoute(r: DirectLeg): Route | undefined {
     if (r.buyAt === r.sellAt) return undefined;
     if (this.protectedGoods?.().has(r.good)) return undefined;

@@ -598,9 +598,8 @@ export class RouteDispatcher {
       // only distant work still attempts it — the trader's own viableRoute()
       // is the authority that declines it.
       const reachable = (w: { buySystem?: string }): boolean =>
-        w.buySystem === undefined || t.system === undefined ||
-        w.buySystem === t.system || canJump(t.system, w.buySystem);
-      const item = work.find((w) => !usedKeys.has(w.key) && reachable(w)) ?? work.find((w) => !usedKeys.has(w.key));
+        w.buySystem === undefined || t.system === undefined || w.buySystem === t.system || canJump(t.system, w.buySystem);
+      const item = work.find((w) => !usedKeys.has(w.key) && reachable(w));
       if (!item) continue;
       usedKeys.add(item.key);
       next.set(t.shipSymbol, item.make(t.shipSymbol));
