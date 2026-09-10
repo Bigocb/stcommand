@@ -2015,6 +2015,129 @@ function seededRandom(seedStr) {
   };
 }
 
+/** 3D simplex noise (Gustavson's public-domain algorithm), permutation
+ *  table shuffled by the same seeded `rand` a body's drawer already
+ *  receives — so a waypoint's noise field is exactly as stable as
+ *  everything else keyed off its symbol. Returns roughly [-1, 1]. Sampled
+ *  in 3D (never the flat 2D canvas directly) so wrapping it around a
+ *  sphere has no seam at U=0/1 and no pinching at the poles — see
+ *  sphereNoise() below. */
+function makeSimplex3(rand) {
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
+  }
+  const perm = new Uint8Array(512);
+  const permMod12 = new Uint8Array(512);
+  for (let i = 0; i < 512; i++) {
+    perm[i] = p[i & 255];
+    permMod12[i] = perm[i] % 12;
+  }
+  const grad3 = [
+    [1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0],
+    [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1],
+    [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1],
+  ];
+  const F3 = 1 / 3, G3 = 1 / 6;
+  return function simplex3(xin, yin, zin) {
+    let n0, n1, n2, n3;
+    const s = (xin + yin + zin) * F3;
+    const i = Math.floor(xin + s), j = Math.floor(yin + s), k = Math.floor(zin + s);
+    const t = (i + j + k) * G3;
+    const X0 = i - t, Y0 = j - t, Z0 = k - t;
+    const x0 = xin - X0, y0 = yin - Y0, z0 = zin - Z0;
+    let i1, j1, k1, i2, j2, k2;
+    if (x0 >= y0) {
+      if (y0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+      else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1; }
+      else { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1; }
+    } else {
+      if (y0 < z0) { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1; }
+      else if (x0 < z0) { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1; }
+      else { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+    }
+    const x1 = x0 - i1 + G3, y1 = y0 - j1 + G3, z1 = z0 - k1 + G3;
+    const x2 = x0 - i2 + 2 * G3, y2 = y0 - j2 + 2 * G3, z2 = z0 - k2 + 2 * G3;
+    const x3 = x0 - 1 + 3 * G3, y3 = y0 - 1 + 3 * G3, z3 = z0 - 1 + 3 * G3;
+    const ii = i & 255, jj = j & 255, kk = k & 255;
+    let t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0;
+    if (t0 < 0) n0 = 0;
+    else {
+      const gi0 = permMod12[ii + perm[jj + perm[kk]]];
+      t0 *= t0;
+      n0 = t0 * t0 * (grad3[gi0][0] * x0 + grad3[gi0][1] * y0 + grad3[gi0][2] * z0);
+    }
+    let t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1;
+    if (t1 < 0) n1 = 0;
+    else {
+      const gi1 = permMod12[ii + i1 + perm[jj + j1 + perm[kk + k1]]];
+      t1 *= t1;
+      n1 = t1 * t1 * (grad3[gi1][0] * x1 + grad3[gi1][1] * y1 + grad3[gi1][2] * z1);
+    }
+    let t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2;
+    if (t2 < 0) n2 = 0;
+    else {
+      const gi2 = permMod12[ii + i2 + perm[jj + j2 + perm[kk + k2]]];
+      t2 *= t2;
+      n2 = t2 * t2 * (grad3[gi2][0] * x2 + grad3[gi2][1] * y2 + grad3[gi2][2] * z2);
+    }
+    let t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3;
+    if (t3 < 0) n3 = 0;
+    else {
+      const gi3 = permMod12[ii + 1 + perm[jj + 1 + perm[kk + 1]]];
+      t3 *= t3;
+      n3 = t3 * t3 * (grad3[gi3][0] * x3 + grad3[gi3][1] * y3 + grad3[gi3][2] * z3);
+    }
+    return 32 * (n0 + n1 + n2 + n3);
+  };
+}
+
+/** Sums `octaves` layers of the given noise fn at doubling frequency and
+ *  `persistence`-scaled amplitude (standard fractal Brownian motion),
+ *  normalized back to roughly [-1, 1]. */
+function fbm3(noiseFn, x, y, z, octaves, persistence) {
+  let total = 0, amplitude = 1, maxAmplitude = 0, freq = 1;
+  for (let o = 0; o < octaves; o++) {
+    total += noiseFn(x * freq, y * freq, z * freq) * amplitude;
+    maxAmplitude += amplitude;
+    amplitude *= persistence;
+    freq *= 2;
+  }
+  return total / maxAmplitude;
+}
+
+/** UV→sphere→fbm3 glue: converts a canvas pixel's (u, v) to a point on a
+ *  unit sphere and samples fbm3 there, so the resulting texture has no
+ *  seam where U wraps and no pinch at the poles. */
+function sphereNoise(noiseFn, u, v, octaves, persistence, freq) {
+  const theta = u * Math.PI * 2;
+  const phi = v * Math.PI;
+  const x = Math.sin(phi) * Math.cos(theta) * freq;
+  const y = Math.cos(phi) * freq;
+  const z = Math.sin(phi) * Math.sin(theta) * freq;
+  return fbm3(noiseFn, x, y, z, octaves, persistence);
+}
+
+/** Fills the whole canvas from a per-pixel (u, v) -> [r, g, b, a] callback
+ *  in one ImageData write instead of thousands of individual fillRect
+ *  calls — the noise-driven drawer backgrounds below all use this. */
+function paintNoiseCanvas(ctx, size, colorAt) {
+  const img = ctx.createImageData(size, size);
+  const data = img.data;
+  for (let y = 0; y < size; y++) {
+    const v = y / size;
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const [r, g, b, a] = colorAt(u, v);
+      const idx = (y * size + x) * 4;
+      data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = a;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 /**
  * Procedural per-body surface texture — grayscale lightness only, drawn
  * once per waypoint symbol and cached (elevationCache's own pattern) so a
@@ -2193,21 +2316,22 @@ const BODY_TEXTURE_DRAWERS = {
     // as terrain from orbit without needing real Perlin noise for a
     // sphere this small on screen.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#8c8c8c";
-      ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 16; i++) {
-        const x = rand() * size, y = rand() * size;
-        const r = size * (0.08 + rand() * 0.22);
-        const v = Math.round(140 + rand() * 115);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        // A warm tan/green landmass hue, not pure gray — see the comment
-        // above BODY_TEXTURE_DRAWERS for why a hue accent (not just alpha/
-        // range) is what actually survives this map's real lighting.
-        g.addColorStop(0, `rgba(${v + 12},${v + 4},${Math.max(0, v - 22)},0.85)`);
-        g.addColorStop(1, `rgba(${v + 12},${v + 4},${Math.max(0, v - 22)},0)`);
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, size, size);
-      }
+      const noise = makeSimplex3(rand);
+      // Land above the noise field's median, base tone below it — real
+      // jagged coastlines instead of soft round blobs.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 3, 0.5, 1.8);
+        if (n > 0) {
+          const t = Math.min(1, n * 1.8);
+          const val = Math.round(140 + t * 95);
+          // Warm tan/green landmass hue, not pure gray — see the comment
+          // above BODY_TEXTURE_DRAWERS for why a hue accent (not just
+          // alpha/range) is what actually survives this map's real lighting.
+          return [Math.min(255, val + 12), Math.min(255, val + 4), Math.max(0, val - 22), 255];
+        }
+        const val = Math.round(130 + n * 25);
+        return [val, val, val, 255];
+      });
     },
     // Ice: a bright base with soft frost patches for area coverage plus a
     // network of cracks on top — the patches alone (cracks are thin lines
@@ -2215,40 +2339,36 @@ const BODY_TEXTURE_DRAWERS = {
     // from a distance instead of just looking like a flat pale ball with
     // a few hairline scratches.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#c9d2da";
-      ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 14; i++) {
-        const x = rand() * size, y = rand() * size;
-        const r = size * (0.06 + rand() * 0.16);
-        const v = Math.round(150 + rand() * 105);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const noise = makeSimplex3(rand);
+      // A lower-frequency fbm layer for frost-patch area coverage, plus a
+      // ridge-noise pass (1 - abs(noise), the standard trick for linear
+      // crack-like features) for the crack network — a real fracture
+      // pattern instead of hand-drawn random-walk lines.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const frost = sphereNoise(noise, u, v, 3, 0.5, 1.6);
+        const ridge = 1 - Math.abs(sphereNoise(noise, u + 7.3, v + 2.1, 1, 0.5, 2.6));
+        if (ridge > 0.92) return [70, 90, 110, 255];
+        const base = Math.round(160 + frost * 70);
         // Cold blue-white frost, not pure gray.
-        g.addColorStop(0, `rgba(${Math.max(0, v - 20)},${v},${Math.min(255, v + 15)},0.8)`);
-        g.addColorStop(1, `rgba(${Math.max(0, v - 20)},${v},${Math.min(255, v + 15)},0)`);
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, size, size);
-      }
-      ctx.strokeStyle = "rgba(70,90,110,0.85)";
-      const cracks = 8 + Math.floor(rand() * 6);
-      for (let i = 0; i < cracks; i++) {
-        ctx.lineWidth = 2 + rand() * 2;
-        let x = rand() * size, y = rand() * size;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        const segs = 3 + Math.floor(rand() * 3);
-        for (let s = 0; s < segs; s++) {
-          x += (rand() - 0.5) * size * 0.35;
-          y += (rand() - 0.5) * size * 0.35;
-          ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-      }
+        return [Math.max(0, base - 20), base, Math.min(255, base + 15), 255];
+      });
     },
     // Volcanic: a dark base with glowing cracks/blotches — same silhouette
     // as the continents variant but inverted lightness and hot accents.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#3a3230";
-      ctx.fillRect(0, 0, size, size);
+      const noise = makeSimplex3(rand);
+      // Higher-frequency ridge noise for the fracture network itself,
+      // thresholded and colored with the same warm-ember hue at the ridge
+      // crests. The radial-gradient glow below is a lighting effect on top
+      // of the fractures, not a background pattern — left untouched.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const ridge = 1 - Math.abs(sphereNoise(noise, u, v, 1, 0.5, 3.2));
+        if (ridge > 0.85) {
+          const t = (ridge - 0.85) / 0.15;
+          return [Math.round(200 + t * 55), Math.round(90 + t * 90), Math.round(50 + t * 70), 255];
+        }
+        return [58, 50, 48, 255];
+      });
       for (let i = 0; i < 10; i++) {
         const x = rand() * size, y = rand() * size;
         const r = size * (0.03 + rand() * 0.1);
@@ -2265,55 +2385,37 @@ const BODY_TEXTURE_DRAWERS = {
     // continents' broad soft blotches, reading as wet, low terrain rather
     // than dry landmasses.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#8a8a80";
-      ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 22; i++) {
-        const x = rand() * size, y = rand() * size;
-        const r = size * (0.03 + rand() * 0.09);
-        const v = Math.round(30 + rand() * 40);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        // Murky bog green, not pure gray.
-        g.addColorStop(0, `rgba(${Math.max(0, v - 10)},${v + 12},${Math.max(0, v - 15)},0.85)`);
-        g.addColorStop(1, `rgba(${Math.max(0, v - 10)},${v + 12},${Math.max(0, v - 15)},0)`);
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, size, size);
-      }
-      ctx.strokeStyle = "rgba(35,55,35,0.75)";
-      const channels = 5 + Math.floor(rand() * 4);
-      for (let i = 0; i < channels; i++) {
-        ctx.lineWidth = 1 + rand() * 1.2;
-        let x = rand() * size, y = rand() * size;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        const segs = 5 + Math.floor(rand() * 4);
-        for (let s = 0; s < segs; s++) {
-          x += (rand() - 0.5) * size * 0.3;
-          y += (rand() - 0.5) * size * 0.3;
-          ctx.lineTo(x, y);
+      const noise = makeSimplex3(rand);
+      // Low-threshold blotchy fbm for bog-pool coverage, plus a ridge-noise
+      // pass for the waterway channels — a real drainage-like network
+      // instead of hand-drawn random-walk lines.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const bog = sphereNoise(noise, u, v, 2, 0.55, 1.8);
+        const channel = 1 - Math.abs(sphereNoise(noise, u + 4.1, v + 9.7, 1, 0.5, 2.8));
+        if (channel > 0.93) return [35, 55, 35, 255];
+        if (bog > 0.25) {
+          const val = Math.round(30 + (bog - 0.25) * 40);
+          // Murky bog green, not pure gray.
+          return [Math.max(0, val - 10), val + 12, Math.max(0, val - 15), 255];
         }
-        ctx.stroke();
-      }
+        return [138, 138, 128, 255];
+      });
     },
     // Rocky: a barren, cracked rock face — jagged angular facets at varying
     // lightness plus a few sharper impact-style dark/light pairs, closer to
     // the moon's cratered look than continents' soft terrain but denser and
     // more fractured, since this is a whole planet's worth of exposed stone.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#7d7a74";
-      ctx.fillRect(0, 0, size, size);
-      const facets = 20 + Math.floor(rand() * 14);
-      for (let i = 0; i < facets; i++) {
-        const x = rand() * size, y = rand() * size;
-        const w = size * (0.04 + rand() * 0.16), h = size * (0.02 + rand() * 0.06);
-        const v = Math.round(90 + rand() * 130);
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(rand() * Math.PI);
+      const noise = makeSimplex3(rand);
+      // High-frequency, low-octave noise for jagged facet coverage — the
+      // discrete crater stamps below are genuinely better represented as
+      // shapes than noise, so they stay as-is.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 2, 0.5, 3.5);
+        const val = Math.round(125 + n * 65);
         // Warm reddish-brown stone, not pure gray.
-        ctx.fillStyle = `rgba(${Math.min(255, v + 15)},${Math.max(0, v - 10)},${Math.max(0, v - 25)},0.85)`;
-        ctx.fillRect(-w / 2, -h / 2, w, h);
-        ctx.restore();
-      }
+        return [Math.min(255, val + 15), Math.max(0, val - 10), Math.max(0, val - 25), 255];
+      });
       const craters = 4 + Math.floor(rand() * 5);
       for (let i = 0; i < craters; i++) {
         const x = rand() * size, y = rand() * size;
@@ -2332,55 +2434,49 @@ const BODY_TEXTURE_DRAWERS = {
     // variant of the set, but still real enough to read as *something*
     // rather than vanishing entirely once real lighting gets hold of it.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#8f8b82";
-      ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 8; i++) {
-        const x = rand() * size, y = rand() * size;
-        const r = size * (0.1 + rand() * 0.2);
-        const v = Math.round(90 + rand() * 110);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const noise = makeSimplex3(rand);
+      // A single low-amplitude, low-frequency octave only — deliberately
+      // the quietest variant, matching its "nothing much going on"
+      // character; noise here should barely read, not disappear.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 1, 0.5, 1.2);
+        const val = Math.round(135 + n * 18);
         // Dusty tan, not pure gray — kept subtler than the busier variants.
-        g.addColorStop(0, `rgba(${Math.min(255, v + 10)},${v},${Math.max(0, v - 14)},0.5)`);
-        g.addColorStop(1, `rgba(${Math.min(255, v + 10)},${v},${Math.max(0, v - 14)},0)`);
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, size, size);
-      }
+        return [Math.min(255, val + 10), val, Math.max(0, val - 14), 255];
+      });
     },
     // Jungle: dense, heavily overlapping blotches at high count — reads as
     // near-total canopy cover, the busiest and most textured of the
     // vegetated variants next to continents' sparser landmasses.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#6f6f60";
-      ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 34; i++) {
-        const x = rand() * size, y = rand() * size;
-        const r = size * (0.05 + rand() * 0.12);
-        const v = Math.round(90 + rand() * 110);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const noise = makeSimplex3(rand);
+      // High-frequency, high-octave-count fbm thresholded broadly — canopy
+      // covers most of the surface, the busiest variant of the set.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 3, 0.6, 2.4);
+        const t = Math.max(0, Math.min(1, (n + 0.6) / 1.2));
+        const val = Math.round(80 + t * 130);
         // Real canopy green, not pure gray.
-        g.addColorStop(0, `rgba(${Math.max(0, v - 35)},${v + 10},${Math.max(0, v - 35)},0.8)`);
-        g.addColorStop(1, `rgba(${Math.max(0, v - 35)},${v + 10},${Math.max(0, v - 35)},0)`);
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, size, size);
-      }
+        return [Math.max(0, val - 35), Math.min(255, val + 10), Math.max(0, val - 35), 255];
+      });
     },
     // Ocean: mostly a flat, smooth base (open water) with just a few small,
     // crisp light patches (islands/reefs) — the inverse of continents'
     // land-dominant look, land is the exception here instead of the rule.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#9a9a9a";
-      ctx.fillRect(0, 0, size, size);
-      const islands = 3 + Math.floor(rand() * 4);
-      for (let i = 0; i < islands; i++) {
-        const x = rand() * size, y = rand() * size;
-        const r = size * (0.03 + rand() * 0.07);
-        const v = Math.round(160 + rand() * 80);
-        ctx.beginPath();
-        // Sandy tan islands against blue water, not pure gray.
-        ctx.fillStyle = `rgba(${Math.min(255, v + 15)},${v},${Math.max(0, v - 35)},0.85)`;
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      const noise = makeSimplex3(rand);
+      // The inverse of continents: a high threshold so only small isolated
+      // bright regions surface as islands against an otherwise flat field.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 2, 0.55, 2.2);
+        if (n > 0.55) {
+          const val = Math.round(160 + (n - 0.55) * 180);
+          // Sandy tan islands against blue water, not pure gray.
+          return [Math.min(255, val + 15), val, Math.max(0, val - 35), 255];
+        }
+        const val = Math.round(150 + n * 20);
+        return [val, val, val, 255];
+      });
       // A few broad, very soft current/depth bands so it doesn't read as
       // perfectly flat.
       for (let i = 0; i < 3; i++) {
@@ -2396,19 +2492,21 @@ const BODY_TEXTURE_DRAWERS = {
     // and much more numerous, reading as widespread contamination rather
     // than a few active vents.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#7a7a78";
-      ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 200; i++) {
-        const x = rand() * size, y = rand() * size;
+      const noise = makeSimplex3(rand);
+      // The scattered-hotspot glow loop below already works and isn't a
+      // "background pattern" problem — untouched. Only the base speckle
+      // fill swaps from per-pixel random dots to very-high-frequency,
+      // low-octave noise.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 1, 0.5, 6);
         // Sickly green-yellow glow specks and dark scarring, not pure gray.
-        if (rand() < 0.5) {
-          ctx.fillStyle = "rgba(20,24,16,0.75)";
-        } else {
-          const v = Math.round(200 + rand() * 55);
-          ctx.fillStyle = `rgba(${Math.max(0, v - 40)},${v},${Math.max(0, v - 130)},0.75)`;
+        if (n > 0.6) return [20, 24, 16, 255];
+        if (n < -0.6) {
+          const val = Math.round(200 + (-n - 0.6) * 130);
+          return [Math.max(0, val - 40), val, Math.max(0, val - 130), 255];
         }
-        ctx.fillRect(x, y, 2, 2);
-      }
+        return [122, 122, 120, 255];
+      });
       for (let i = 0; i < 8; i++) {
         const x = rand() * size, y = rand() * size;
         const r = size * (0.02 + rand() * 0.05);
@@ -2470,8 +2568,14 @@ const BODY_TEXTURE_DRAWERS = {
     // Cratered: dark base with light/dark crater pairs (rim + highlight)
     // scattered across the surface.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#6e6e6e";
-      ctx.fillRect(0, 0, size, size);
+      const noise = makeSimplex3(rand);
+      // Discrete crater stamps stay as-is; only the flat base fill swaps
+      // for a low-octave noise background.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 2, 0.5, 2.5);
+        const val = Math.round(100 + n * 35);
+        return [val, val, val, 255];
+      });
       const count = 10 + Math.floor(rand() * 10);
       for (let i = 0; i < count; i++) {
         const x = rand() * size, y = rand() * size;
@@ -2492,18 +2596,14 @@ const BODY_TEXTURE_DRAWERS = {
     // Smooth/mottled: fewer, larger soft patches and no crisp craters — a
     // moon that reads as geologically quieter than its cratered sibling.
     (ctx, size, rand) => {
-      ctx.fillStyle = "#78756e";
-      ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 7; i++) {
-        const x = rand() * size, y = rand() * size;
-        const r = size * (0.1 + rand() * 0.18);
-        const v = Math.round(90 + rand() * 100);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(${Math.min(255, v + 15)},${v},${Math.max(0, v - 18)},0.75)`);
-        g.addColorStop(1, `rgba(${Math.min(255, v + 15)},${v},${Math.max(0, v - 18)},0)`);
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, size, size);
-      }
+      const noise = makeSimplex3(rand);
+      // A single low-octave fbm blotch field, replacing the radial-gradient
+      // patches — a geologically quiet moon.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 2, 0.5, 2);
+        const val = Math.round(105 + n * 45);
+        return [Math.min(255, val + 15), val, Math.max(0, val - 18), 255];
+      });
     },
   ],
   ASTEROID: [
