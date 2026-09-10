@@ -2027,18 +2027,31 @@ function seededRandom(seedStr) {
  * return null and stay flat, same as before this pass.
  */
 const bodyTextureCache = new Map();
-function makeBodyTexture(symbol, type) {
+function makeBodyTexture(symbol, type, traits) {
   if (bodyTextureCache.has(symbol)) return bodyTextureCache.get(symbol);
   const variants = BODY_TEXTURE_DRAWERS[type];
   if (!variants) {
     bodyTextureCache.set(symbol, null);
     return null;
   }
-  // Which variant a waypoint gets is picked once, from a hash of its own
-  // symbol — a real SpaceTraders symbol never changes, so this is stable
-  // forever with no need to actually assign-and-persist a "subtype" on
-  // first discovery: the hash IS the persisted assignment, for free.
-  const variant = variants[Math.floor(Math.abs(hashString(symbol + ":variant")) * variants.length) % variants.length];
+  // Prefer the waypoint's own real SpaceTraders traits over a coin flip: a
+  // VOLCANIC-tagged planet should look volcanic, not whichever variant its
+  // symbol happened to hash to. BODY_TEXTURE_TRAITS lists, per type, which
+  // trait symbols point at which variant index — first match wins. Only
+  // waypoints with none of the listed traits (or a type with no mapping at
+  // all) fall back to the old hash, which is still what keeps two otherwise
+  // identical bodies from looking like carbon copies.
+  const traitSymbols = (traits ?? []).map((t) => t?.symbol ?? t);
+  const traitMap = BODY_TEXTURE_TRAITS[type];
+  let variantIndex = traitMap ? traitMap.findIndex((symbols) => symbols.some((s) => traitSymbols.includes(s))) : -1;
+  if (variantIndex < 0) {
+    // Which variant a waypoint gets is picked once, from a hash of its own
+    // symbol — a real SpaceTraders symbol never changes, so this is stable
+    // forever with no need to actually assign-and-persist a "subtype" on
+    // first discovery: the hash IS the persisted assignment, for free.
+    variantIndex = Math.floor(Math.abs(hashString(symbol + ":variant")) * variants.length) % variants.length;
+  }
+  const variant = variants[variantIndex];
   const size = 128;
   const c = document.createElement("canvas");
   c.width = c.height = size;
@@ -2256,6 +2269,24 @@ const BODY_TEXTURE_DRAWERS = {
 BODY_TEXTURE_DRAWERS.ASTEROID_FIELD = BODY_TEXTURE_DRAWERS.ASTEROID;
 BODY_TEXTURE_DRAWERS.ENGINEERED_ASTEROID = BODY_TEXTURE_DRAWERS.ASTEROID;
 BODY_TEXTURE_DRAWERS.DEBRIS_FIELD = BODY_TEXTURE_DRAWERS.ASTEROID;
+
+// Real waypoint traits (WaypointTraitSymbol from the SpaceTraders schema)
+// that point at a specific BODY_TEXTURE_DRAWERS variant index for that type.
+// Index in this array === index into that type's drawer array above.
+// A waypoint with none of a type's listed traits falls back to the hash in
+// makeBodyTexture() — most waypoints only carry economy/settlement traits
+// (MARKETPLACE, HIGH_TECH, ...) with nothing environmental to key off.
+const BODY_TEXTURE_TRAITS = {
+  PLANET: [
+    [], // continents — no traits map here; it's the default when nothing else matches
+    ["FROZEN", "ICE_CRYSTALS"], // ice
+    ["VOLCANIC", "MAGMA_SEAS", "SUPERVOLCANOES", "ASH_CLOUDS"], // volcanic
+  ],
+  MOON: [
+    ["DEEP_CRATERS", "SHALLOW_CRATERS", "ROCKY"], // cratered
+    ["TERRAFORMED", "TEMPERATE"], // smooth/mottled
+  ],
+};
 
 /**
  * Atmospheric fresnel rim: a slightly larger, additive-blended shell around
@@ -2608,7 +2639,7 @@ function renderMap(ships, trails = new Map()) {
       // this system's own palette rather than replacing it.
       new THREE.MeshStandardMaterial({
         color, emissive: color, emissiveIntensity: 0.05, roughness: 0.55, metalness: 0.15,
-        map: makeBodyTexture(wp.symbol, wp.type),
+        map: makeBodyTexture(wp.symbol, wp.type, wp.traits),
       }),
     );
     body.position.set(x, y, z);
