@@ -1867,7 +1867,9 @@ function initMap3D() {
     composer.addPass(new THREE.RenderPass(scene, camera));
     bloomPass = new THREE.UnrealBloomPass(
       new THREE.Vector2(host.clientWidth || 1, host.clientHeight || 1),
-      0.9,  // strength
+      0.75, // strength — dimmed slightly from 0.9; the star's own glow (a
+            // separate corona sprite, dimmed alongside this) still bloomed
+            // brighter than intended even after the threshold fix
       0.5,  // radius
       // threshold — raised from an initial 0.18. A normal lit body surface
       // (diffuse shading + the small 0.05 emissive floor) already sits
@@ -1920,7 +1922,7 @@ function initMap3D() {
   // too, small, just to lift the absolute floor a touch further.
   scene.add(new THREE.HemisphereLight(0x4a5578, 0x1a1420, 1.35));
   scene.add(new THREE.AmbientLight(0x2a3040, 0.35));
-  const starLight = new THREE.PointLight(0xfff1d8, 2.6, 0, 0.32);
+  const starLight = new THREE.PointLight(0xfff1d8, 2.2, 0, 0.32);
   starLight.position.set(0, 0, 0);
   scene.add(starLight);
 
@@ -1963,7 +1965,7 @@ function initMap3D() {
   const starCorona = makeGlowSprite(new THREE.Color(STAR_COLOR), 70);
   starCoreGlow.position.set(0, 0, 0);
   starCorona.position.set(0, 0, 0);
-  starCorona.material.opacity = 0.55;
+  starCorona.material.opacity = 0.42;
   glowGroup.add(starCorona, starCoreGlow);
   starGlowPulse = { core: starCoreGlow, corona: starCorona, t: 0 };
 
@@ -3119,7 +3121,7 @@ function tickMap3D() {
     const coronaPulse = 1 + Math.sin(starGlowPulse.t * 0.7 + 1.1) * 0.1;
     starGlowPulse.core.scale.set(26 * corePulse, 26 * corePulse, 1);
     starGlowPulse.corona.scale.set(70 * coronaPulse, 70 * coronaPulse, 1);
-    starGlowPulse.corona.material.opacity = 0.55 + Math.sin(starGlowPulse.t * 0.7) * 0.08;
+    starGlowPulse.corona.material.opacity = 0.42 + Math.sin(starGlowPulse.t * 0.7) * 0.08;
   }
   // Jump-gate "active portal" pulse: a ring sprite expanding outward from
   // 1x to ~2.6x its base size while fading out, looping continuously. Each
