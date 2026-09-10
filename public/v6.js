@@ -1807,6 +1807,7 @@ document.getElementById("hue-picker")?.addEventListener("click", (e) => {
 });
 
 let scene, camera, renderer, host;
+let composer, bloomPass; // undefined if the postprocessing addons failed to load — see initMap3D()
 let bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup;
 const pickables = []; // { mesh, kind: 'waypoint'|'ship', symbol }
 let raycaster, pointerNdc;
@@ -1818,6 +1819,13 @@ let pendingRebuild = null;
 let mapUnavailable = false;
 let framedSystem = null; // which system the camera was last auto-fit to
 let starGlowPulse = null; // { core, corona, t } — set once in initMap3D(), animated in tickMap3D()
+// Jump-gate "active portal" pulse rings. A persistent group (like
+// liveTrailGroup) rather than something renderMap() rebuilds every poll —
+// a gate's own animation phase would otherwise reset every ~1s and never
+// visibly progress. renderMap() only adds/removes entries as gates appear/
+// disappear from the current system; tickMap3D() animates them every frame.
+let gatePulseGroup;
+const gatePulses = new Map(); // symbol -> { sprite, phase }
 
 function initMap3D() {
   if (sceneReady || mapUnavailable) return;
@@ -1835,6 +1843,26 @@ function initMap3D() {
   renderer.setSize(host.clientWidth || 1, host.clientHeight || 1);
   host.appendChild(renderer.domElement);
 
+  // Bloom: without it, the star/glow sprites/emissive markers are just
+  // bright-colored pixels, no different from any other mesh — a real
+  // bloom pass is what actually sells "this is emitting light" rather
+  // than "this is painted a bright color". The addon scripts load as
+  // plain classic <script> tags in v6.html (same pattern three.min.js
+  // itself already uses), so this checks for them rather than assuming —
+  // the map has to keep working even if that CDN load fails for any
+  // reason, just without the bloom.
+  if (typeof THREE.EffectComposer === "function") {
+    composer = new THREE.EffectComposer(renderer);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+    bloomPass = new THREE.UnrealBloomPass(
+      new THREE.Vector2(host.clientWidth || 1, host.clientHeight || 1),
+      0.9,  // strength
+      0.5,  // radius
+      0.18, // threshold — low, since everything outside the bright markers is already near-black space
+    );
+    composer.addPass(bloomPass);
+  }
+
   bodiesGroup = new THREE.Group();
   ringsGroup = new THREE.Group();
   shipsGroup = new THREE.Group();
@@ -1845,7 +1873,11 @@ function initMap3D() {
   // that — it's built up frame by frame in repositionShips(), independent
   // of the slower render cycle.
   liveTrailGroup = new THREE.Group();
-  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup);
+  // Same reasoning as liveTrailGroup: a gate's pulse animation has to keep
+  // progressing across renderMap()'s ~1s poll cycle, so it lives outside
+  // the groups that cycle gets cleared and rebuilt.
+  gatePulseGroup = new THREE.Group();
+  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup, gatePulseGroup);
 
   // Bodies use a lit material now (see WP3D_MATERIAL below) instead of flat
   // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object. The
@@ -1932,6 +1964,10 @@ function onMapResize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
+  if (composer) {
+    composer.setSize(w, h);
+    bloomPass.resolution.set(w, h);
+  }
 }
 
 function applyOrbitCamera() {
@@ -1972,16 +2008,21 @@ function seededRandom(seedStr) {
 const bodyTextureCache = new Map();
 function makeBodyTexture(symbol, type) {
   if (bodyTextureCache.has(symbol)) return bodyTextureCache.get(symbol);
-  const draw = BODY_TEXTURE_DRAWERS[type];
-  if (!draw) {
+  const variants = BODY_TEXTURE_DRAWERS[type];
+  if (!variants) {
     bodyTextureCache.set(symbol, null);
     return null;
   }
+  // Which variant a waypoint gets is picked once, from a hash of its own
+  // symbol — a real SpaceTraders symbol never changes, so this is stable
+  // forever with no need to actually assign-and-persist a "subtype" on
+  // first discovery: the hash IS the persisted assignment, for free.
+  const variant = variants[Math.floor(Math.abs(hashString(symbol + ":variant")) * variants.length) % variants.length];
   const size = 128;
   const c = document.createElement("canvas");
   c.width = c.height = size;
   const ctx = c.getContext("2d");
-  draw(ctx, size, seededRandom(symbol));
+  variant(ctx, size, seededRandom(symbol));
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -1989,92 +2030,207 @@ function makeBodyTexture(symbol, type) {
   return tex;
 }
 
+// Each type maps to an array of *variant* drawers, not one — which variant
+// a given waypoint gets is picked in makeBodyTexture() from a hash of its
+// own symbol, so two PLANET waypoints in the same system can look
+// genuinely different (continents vs. ice vs. cracked-volcanic) instead of
+// every one being a minor random reshuffle of the same single pattern.
+// Deliberately grayscale still: the variant changes the *pattern*, never
+// the hue, since hue is how the rest of this map's legend (and the
+// WP3D_COLOR table) says "this is a planet" vs "this is a gas giant" —
+// changing that per-waypoint would break the one color contract the whole
+// map already leans on.
 const BODY_TEXTURE_DRAWERS = {
-  // Soft overlapping blotches at varying lightness — reads as continents/
-  // terrain from orbit without needing anything as heavy as real Perlin
-  // noise for a sphere this small on screen.
-  PLANET(ctx, size, rand) {
-    ctx.fillStyle = "#8c8c8c";
-    ctx.fillRect(0, 0, size, size);
-    for (let i = 0; i < 16; i++) {
-      const x = rand() * size, y = rand() * size;
-      const r = size * (0.08 + rand() * 0.22);
-      const v = Math.round(140 + rand() * 115);
-      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, `rgba(${v},${v},${v},0.55)`);
-      g.addColorStop(1, `rgba(${v},${v},${v},0)`);
-      ctx.fillStyle = g;
+  PLANET: [
+    // Continents: soft overlapping blotches at varying lightness — reads
+    // as terrain from orbit without needing real Perlin noise for a
+    // sphere this small on screen.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#8c8c8c";
       ctx.fillRect(0, 0, size, size);
-    }
-  },
-  // Horizontal bands of varying lightness plus a couple of wavy streaks
-  // breaking up the hard band edges — the classic gas-giant look.
-  GAS_GIANT(ctx, size, rand) {
-    const bands = 6 + Math.floor(rand() * 5);
-    for (let i = 0; i < bands; i++) {
-      const v = Math.round(150 + rand() * 105);
-      ctx.fillStyle = `rgb(${v},${v},${v})`;
-      ctx.fillRect(0, (i / bands) * size, size, size / bands + 1);
-    }
-    ctx.globalAlpha = 0.25;
-    ctx.strokeStyle = "#fff";
-    for (let i = 0; i < 3; i++) {
-      const yBase = rand() * size;
-      const phase = rand() * 10;
-      ctx.lineWidth = 2 + rand() * 4;
-      ctx.beginPath();
-      ctx.moveTo(0, yBase);
-      for (let x = 0; x <= size; x += 8) ctx.lineTo(x, yBase + Math.sin(x * 0.05 + phase) * 6);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  },
-  // Dark base with light/dark crater pairs (rim + highlight) scattered
-  // across the surface.
-  MOON(ctx, size, rand) {
-    ctx.fillStyle = "#6e6e6e";
-    ctx.fillRect(0, 0, size, size);
-    const count = 10 + Math.floor(rand() * 10);
-    for (let i = 0; i < count; i++) {
-      const x = rand() * size, y = rand() * size;
-      const r = size * (0.02 + rand() * 0.07);
-      ctx.beginPath();
-      ctx.fillStyle = "rgba(30,30,30,0.5)";
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.fillStyle = "rgba(210,210,210,0.3)";
-      ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  },
-  // Coarse blocky noise — a rough, jagged rock face rather than a smooth
-  // gradient, matching how much smaller/nearer these bodies read.
-  ASTEROID(ctx, size, rand) {
-    const cell = 8;
-    for (let y = 0; y < size; y += cell) {
-      for (let x = 0; x < size; x += cell) {
-        const v = Math.round(120 + rand() * 130);
-        ctx.fillStyle = `rgb(${v},${v},${v})`;
-        ctx.fillRect(x, y, cell, cell);
+      for (let i = 0; i < 16; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.08 + rand() * 0.22);
+        const v = Math.round(140 + rand() * 115);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${v},${v},${v},0.55)`);
+        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
       }
-    }
-  },
-  // Soft, large, overlapping wisps — a gas cloud rather than a solid
-  // surface, so blobs are bigger and softer than a planet's continents.
-  NEBULA(ctx, size, rand) {
-    ctx.fillStyle = "#999";
-    ctx.fillRect(0, 0, size, size);
-    for (let i = 0; i < 6; i++) {
-      const x = rand() * size, y = rand() * size;
-      const r = size * (0.2 + rand() * 0.35);
-      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, "rgba(255,255,255,0.35)");
+    },
+    // Ice: a bright base with a network of thin cracks, like pack ice —
+    // higher base lightness and hard-edged lines instead of soft blotches.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#c9d2da";
+      ctx.fillRect(0, 0, size, size);
+      ctx.strokeStyle = "rgba(90,110,130,0.5)";
+      const cracks = 8 + Math.floor(rand() * 6);
+      for (let i = 0; i < cracks; i++) {
+        ctx.lineWidth = 1 + rand() * 1.5;
+        let x = rand() * size, y = rand() * size;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        const segs = 3 + Math.floor(rand() * 3);
+        for (let s = 0; s < segs; s++) {
+          x += (rand() - 0.5) * size * 0.35;
+          y += (rand() - 0.5) * size * 0.35;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    },
+    // Volcanic: a dark base with glowing cracks/blotches — same silhouette
+    // as the continents variant but inverted lightness and hot accents.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#3a3230";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 10; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.03 + rand() * 0.1);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, "rgba(255,180,120,0.9)");
+        g.addColorStop(0.4, "rgba(200,90,50,0.5)");
+        g.addColorStop(1, "rgba(200,90,50,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
+  ],
+  GAS_GIANT: [
+    // Storm bands: horizontal bands of varying lightness plus a couple of
+    // wavy streaks breaking up the hard edges — the classic look.
+    (ctx, size, rand) => {
+      const bands = 6 + Math.floor(rand() * 5);
+      for (let i = 0; i < bands; i++) {
+        const v = Math.round(150 + rand() * 105);
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillRect(0, (i / bands) * size, size, size / bands + 1);
+      }
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = "#fff";
+      for (let i = 0; i < 3; i++) {
+        const yBase = rand() * size;
+        const phase = rand() * 10;
+        ctx.lineWidth = 2 + rand() * 4;
+        ctx.beginPath();
+        ctx.moveTo(0, yBase);
+        for (let x = 0; x <= size; x += 8) ctx.lineTo(x, yBase + Math.sin(x * 0.05 + phase) * 6);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    },
+    // Great storm: fewer, wider bands plus one big swirling oval accent —
+    // reads as a single dominant storm system rather than uniform stripes.
+    (ctx, size, rand) => {
+      const bands = 3 + Math.floor(rand() * 3);
+      for (let i = 0; i < bands; i++) {
+        const v = Math.round(150 + rand() * 105);
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillRect(0, (i / bands) * size, size, size / bands + 1);
+      }
+      const sx = size * (0.3 + rand() * 0.4), sy = size * (0.3 + rand() * 0.4);
+      const sr = size * (0.12 + rand() * 0.08);
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+      g.addColorStop(0, "rgba(255,255,255,0.5)");
       g.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = g;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.scale(1.6, 1);
+      ctx.translate(-sx, -sy);
       ctx.fillRect(0, 0, size, size);
-    }
-  },
+      ctx.restore();
+    },
+  ],
+  MOON: [
+    // Cratered: dark base with light/dark crater pairs (rim + highlight)
+    // scattered across the surface.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#6e6e6e";
+      ctx.fillRect(0, 0, size, size);
+      const count = 10 + Math.floor(rand() * 10);
+      for (let i = 0; i < count; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.02 + rand() * 0.07);
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(30,30,30,0.5)";
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(210,210,210,0.3)";
+        ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+    // Smooth/mottled: fewer, larger soft patches and no crisp craters — a
+    // moon that reads as geologically quieter than its cratered sibling.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#78756e";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 7; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.1 + rand() * 0.18);
+        const v = Math.round(90 + rand() * 100);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(${v},${v},${v},0.4)`);
+        g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
+  ],
+  ASTEROID: [
+    // Coarse blocky noise — a rough, jagged rock face rather than a
+    // smooth gradient, matching how small/near these bodies read.
+    (ctx, size, rand) => {
+      const cell = 8;
+      for (let y = 0; y < size; y += cell) {
+        for (let x = 0; x < size; x += cell) {
+          const v = Math.round(120 + rand() * 130);
+          ctx.fillStyle = `rgb(${v},${v},${v})`;
+          ctx.fillRect(x, y, cell, cell);
+        }
+      }
+    },
+    // Streaked: elongated jagged facets instead of a uniform grid — reads
+    // as a more angular, fractured chunk of rock.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#8a8a8a";
+      ctx.fillRect(0, 0, size, size);
+      const facets = 14 + Math.floor(rand() * 10);
+      for (let i = 0; i < facets; i++) {
+        const x = rand() * size, y = rand() * size;
+        const w = size * (0.05 + rand() * 0.2), h = size * (0.03 + rand() * 0.08);
+        const v = Math.round(100 + rand() * 140);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rand() * Math.PI);
+        ctx.fillStyle = `rgba(${v},${v},${v},0.6)`;
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
+    },
+  ],
+  // Soft, large, overlapping wisps — a gas cloud rather than a solid
+  // surface, so blobs are bigger and softer than a planet's continents.
+  // Left as a single variant: a nebula is diffuse by nature, so the same
+  // technique already varies plenty from its own random blob placement.
+  NEBULA: [
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#999";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 6; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.2 + rand() * 0.35);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, "rgba(255,255,255,0.35)");
+        g.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
+  ],
 };
 BODY_TEXTURE_DRAWERS.ASTEROID_FIELD = BODY_TEXTURE_DRAWERS.ASTEROID;
 BODY_TEXTURE_DRAWERS.ENGINEERED_ASTEROID = BODY_TEXTURE_DRAWERS.ASTEROID;
@@ -2133,6 +2289,77 @@ const ATMOSPHERE_RIM = {
   GAS_GIANT: { color: 0xffcf8a, power: 1.9, intensity: 0.9 },
   MOON: { color: 0xcdd8e8, power: 3.0, intensity: 0.35 },
 };
+
+/** Shared hollow-ring gradient for jump-gate pulses — transparent center
+ *  and outside, bright only in a band partway out, so scaling the whole
+ *  sprite up over time reads as a ring expanding outward from the gate
+ *  rather than a glow blob growing in place. */
+let gatePulseTexture = null;
+function getGatePulseTexture() {
+  if (gatePulseTexture) return gatePulseTexture;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, "#fff0");
+  g.addColorStop(0.62, "#fff0");
+  g.addColorStop(0.78, "#fffc");
+  g.addColorStop(1, "#fff0");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  gatePulseTexture = new THREE.CanvasTexture(c);
+  return gatePulseTexture;
+}
+
+/** Shared soft-round point sprite for asteroid-field particles — generated
+ *  once (not per field) since every field's particles use the same dot,
+ *  just tinted by that field's own WP3D_COLOR at material level. */
+let asteroidDotTexture = null;
+function getAsteroidDotTexture() {
+  if (asteroidDotTexture) return asteroidDotTexture;
+  const c = document.createElement("canvas");
+  c.width = c.height = 16;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
+  g.addColorStop(0, "#fffa");
+  g.addColorStop(1, "#fff0");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 16, 16);
+  asteroidDotTexture = new THREE.CanvasTexture(c);
+  return asteroidDotTexture;
+}
+
+/**
+ * A real asteroid field is *many* small rocks, not one dot — rendering it
+ * as a single sphere (same as every other waypoint type) was the one
+ * place the map's "one body, one dot" convention actively undersold what
+ * the type means. This scatters a small cloud of point sprites in a
+ * flattened spherical shell around the field's own position, seeded from
+ * its symbol so the scatter is stable across re-renders. Decorative only —
+ * the actual pickable/selectable body underneath (added by the caller,
+ * same as every other type) is untouched, so click-to-select behavior
+ * doesn't change.
+ */
+function makeAsteroidCluster(symbol, size, color) {
+  const rand = seededRandom(symbol + ":cluster");
+  const count = 26;
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = size * (1.1 + rand() * 2.0);
+    const theta = rand() * Math.PI * 2;
+    const phi = Math.acos(2 * rand() - 1);
+    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.35; // flattened, not a true sphere
+    positions[i * 3 + 2] = r * Math.cos(phi);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    map: getAsteroidDotTexture(), color, size: Math.max(0.18, size * 0.4),
+    sizeAttenuation: true, transparent: true, depthWrite: false, alphaTest: 0.05,
+  });
+  return new THREE.Points(geo, mat);
+}
 
 function makeGlowSprite(color, size) {
   const c = document.createElement("canvas");
@@ -2341,6 +2568,7 @@ function renderMap(ships, trails = new Map()) {
   }
   for (const e of relaxEntries) posBySymbol.set(e.symbol, { x: e.x, z: e.z });
 
+  const activeGateSymbols = new Set();
   for (const wp of sceneWaypoints) {
     const { x, z } = posBySymbol.get(wp.symbol);
     const color = themedColor(WP3D_COLOR[wp.type] ?? "--ice");
@@ -2395,10 +2623,31 @@ function renderMap(ships, trails = new Map()) {
       belt.rotation.x = -Math.PI / 2 + 0.35;
       bodiesGroup.add(belt);
     }
+    if (wp.type === "ASTEROID_FIELD") {
+      const cluster = makeAsteroidCluster(wp.symbol, size, color);
+      cluster.position.copy(body.position);
+      bodiesGroup.add(cluster);
+    }
     if (wp.type === "JUMP_GATE" || wp.type === "FUEL_STATION") {
       const glow = makeGlowSprite(color, size * 3.5);
       glow.position.copy(body.position);
       glowGroup.add(glow);
+    }
+    if (wp.type === "JUMP_GATE") {
+      activeGateSymbols.add(wp.symbol);
+      let pulse = gatePulses.get(wp.symbol);
+      if (!pulse) {
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: getGatePulseTexture(), color, transparent: true, depthWrite: false,
+        }));
+        gatePulseGroup.add(sprite);
+        // Own phase per gate (from its symbol) so multiple gates in one
+        // system don't pulse in lockstep — reads as more alive than a
+        // single synchronized heartbeat would.
+        pulse = { sprite, phase: Math.abs(hashString(wp.symbol)) * Math.PI * 2, baseSize: size * 2.2 };
+        gatePulses.set(wp.symbol, pulse);
+      }
+      pulse.sprite.position.copy(body.position);
     }
     const isMarket = (wp.traits ?? []).some((t) => (t.symbol ?? t) === "MARKETPLACE");
     if (isMarket) {
@@ -2428,6 +2677,16 @@ function renderMap(ships, trails = new Map()) {
       ring.rotation.x = -Math.PI / 2;
       ringsGroup.add(ring);
     }
+  }
+
+  // A gate that's left this render (system switch, or no longer counted
+  // "purposeful") gets its pulse sprite disposed rather than left running
+  // forever in a group renderMap() never otherwise touches.
+  for (const [symbol, pulse] of gatePulses) {
+    if (activeGateSymbols.has(symbol)) continue;
+    gatePulseGroup.remove(pulse.sprite);
+    pulse.sprite.material.dispose();
+    gatePulses.delete(symbol);
   }
 
   // Trade lanes: removed for now — two rounds of tuning (occlusion, then
@@ -2843,7 +3102,19 @@ function tickMap3D() {
     starGlowPulse.corona.scale.set(70 * coronaPulse, 70 * coronaPulse, 1);
     starGlowPulse.corona.material.opacity = 0.55 + Math.sin(starGlowPulse.t * 0.7) * 0.08;
   }
-  renderer.render(scene, camera);
+  // Jump-gate "active portal" pulse: a ring sprite expanding outward from
+  // 1x to ~2.6x its base size while fading out, looping continuously. Each
+  // gate's own phase (set once in renderMap()) keeps multiple gates in one
+  // system out of lockstep.
+  const gateCycle = 2.4; // seconds per pulse
+  for (const pulse of gatePulses.values()) {
+    const t = ((performance.now() / 1000) * (Math.PI * 2 / gateCycle) + pulse.phase) % (Math.PI * 2);
+    const frac = t / (Math.PI * 2); // 0 (just spawned) -> 1 (about to loop)
+    const scale = pulse.baseSize * (1 + frac * 1.6);
+    pulse.sprite.scale.set(scale, scale, 1);
+    pulse.sprite.material.opacity = 1 - frac;
+  }
+  if (composer) composer.render(); else renderer.render(scene, camera);
 }
 
 function initMapInteractions() {
