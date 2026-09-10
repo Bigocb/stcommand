@@ -60,7 +60,7 @@
   * { box-sizing:border-box; margin:0; padding:0; }
   html, body { height:100%; }
   body {
-    background:var(--void); color:var(--bone);
+    background:var(--void); color:var(--bone); color-scheme:dark;
     font-family:var(--mono); font-size:12px; line-height:1.45; overflow:hidden;
   }
   .disp { font-family:var(--disp); letter-spacing:0.1em; text-transform:uppercase; }
@@ -1006,6 +1006,14 @@
     }
     .view-mobile select:focus, .view-mobile input[type=text]:focus, .view-mobile input[type=number]:focus {
       outline:none; border-color:var(--accent);
+    }
+    /* Browser autofill (a remembered waypoint symbol, say) paints its own
+       background over ours unless overridden — this is the standard
+       webkit hack: fake it with a huge inset shadow instead of a real
+       background, since -webkit-autofill won't take background directly. */
+    .view-mobile input:-webkit-autofill {
+      -webkit-box-shadow:0 0 0 1000px var(--ink) inset;
+      -webkit-text-fill-color:var(--bone);
     }
     .view-mobile .btn, .view-mobile button:not(.sw) { font-size:12.5px; padding:11px 14px; min-height:42px; }
     .view-mobile .dispatch-row, .view-mobile .warehouse-row, .view-mobile .ops-card { font-size:12.5px; }
