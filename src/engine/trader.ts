@@ -713,6 +713,37 @@ export class TraderAgent {
   }
 
   /**
+   * Both leftover-sweep sell loops below re-check `exceedsLossFloor()`
+   * between lots so a price collapsing mid-sale stops the dump instead of
+   * emptying the whole hold into it — but that only works if there *is* a
+   * second lot to hold back. Confirmed live: an 80u FOOD position (its
+   * "direct" assignment orphaned by a mid-trip restart — see the leftover
+   * sweep's own comment) quoted around 2000c/unit via `liveSellPrice()`
+   * sold in a single `sellCargo()` call sized to the market's whole
+   * advertised volume, and realized 984c/unit — a bulk dump's own
+   * market-impact isn't in the spot quote the pre-sale check used, and
+   * with nothing left to hold back after one lot, the between-lot guard
+   * never got a turn. A 52% loss went through a floor built to catch
+   * anything past 15%.
+   *
+   * Capping the *first* lot to a small probe, regardless of what the
+   * market's advertised volume would otherwise allow in one call, gives
+   * the between-lot check a real first look at the realized price before
+   * the rest of the position is committed. Once that first lot confirms
+   * the price is acceptable, later lots use the full lotSize as before —
+   * this only pinches the one call that had no floor check behind it.
+   */
+  private firstSellLot(lotSize: number, units: number): number {
+    const cap = Math.min(lotSize, units);
+    // A handful of units carries little market-impact risk even dumped in
+    // one call — no reason to split a 3-unit sale into two API calls for
+    // safety it doesn't need. The real incident this protects against
+    // (80u/59u/40u dumps) is well past this threshold.
+    if (cap <= 20) return cap;
+    return Math.max(1, Math.min(cap, Math.ceil(units * 0.25), 20));
+  }
+
+  /**
    * The route this trader should fly next.
    *
    * Order matters, and it is the whole convergence fix:
@@ -1137,8 +1168,10 @@ export class TraderAgent {
       let remaining = item.units;
       let totalReceived = 0;
       let soldAny = 0;
+      let firstLot = true;
       while (remaining > 0) {
-        const lot = Math.min(lotSize, remaining);
+        const lot = firstLot ? this.firstSellLot(lotSize, remaining) : Math.min(lotSize, remaining);
+        firstLot = false;
         this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
         const sold = await this.api.sellCargo(this.symbol, item.symbol, lot);
         this.currentStep = IDLE_STEP;
@@ -1356,8 +1389,10 @@ export class TraderAgent {
       let remaining = item.units;
       let totalReceived = 0;
       let soldAny = 0;
+      let firstLot = true;
       while (remaining > 0) {
-        const lot = Math.min(lotSize, remaining);
+        const lot = firstLot ? this.firstSellLot(lotSize, remaining) : Math.min(lotSize, remaining);
+        firstLot = false;
         this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
         this.assertAt(leg.sellAt, `sell ${item.symbol}`);
         const sold = await this.api.sellCargo(this.symbol, item.symbol, lot);
