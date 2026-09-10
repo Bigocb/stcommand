@@ -2026,12 +2026,21 @@ function seededRandom(seedStr) {
  * Types with no plausible natural surface (stations, gates, gravity wells)
  * return null and stay flat, same as before this pass.
  */
-const bodyTextureCache = new Map();
-function makeBodyTexture(symbol, type, traits) {
-  if (bodyTextureCache.has(symbol)) return bodyTextureCache.get(symbol);
+/**
+ * One cache entry per waypoint holds everything derived from its biome
+ * canvas: the texture makeBodyTexture() hands to the material, and the raw
+ * pixel data makeBodyGeometry() reads as a height field for real vertex
+ * displacement — see that function's comment. Both draw from the exact
+ * same canvas (same variant, same seed), so the bumps line up with the
+ * pattern instead of two independently-random textures fighting each
+ * other.
+ */
+const bodyVisualCache = new Map();
+function ensureBodyVisual(symbol, type, traits) {
+  if (bodyVisualCache.has(symbol)) return bodyVisualCache.get(symbol);
   const variants = BODY_TEXTURE_DRAWERS[type];
   if (!variants) {
-    bodyTextureCache.set(symbol, null);
+    bodyVisualCache.set(symbol, null);
     return null;
   }
   // Prefer the waypoint's own real SpaceTraders traits over a coin flip: a
@@ -2094,8 +2103,66 @@ function makeBodyTexture(symbol, type, traits) {
   // Reused across every renderMap() rebuild — see clearGroup()'s comment for
   // why this must survive the mesh that's currently wearing it.
   tex.__persistent = true;
-  bodyTextureCache.set(symbol, tex);
-  return tex;
+  const entry = { tex, imageData: boosted, size };
+  bodyVisualCache.set(symbol, entry);
+  return entry;
+}
+
+function makeBodyTexture(symbol, type, traits) {
+  return ensureBodyVisual(symbol, type, traits)?.tex ?? null;
+}
+
+// Planets and moons get real relief carved into the mesh, not just a flat
+// color texture — the same biome canvas ensureBodyVisual() already draws
+// (jungle canopy, volcanic cracks, ice fractures, crater fields...) doubles
+// as a height field, so a JUNGLE world reads as lumpy canopy and a rocky
+// moon as genuinely cratered under real lighting, not just tinted. Gas
+// giants (fluid, banded, no surface) and everything else keep a plain
+// sphere — displacement only makes sense for a body with actual terrain.
+const DISPLACED_BODY_TYPES = new Set(["PLANET", "MOON"]);
+const bodyGeometryCache = new Map();
+function makeBodyGeometry(symbol, type, traits, radius) {
+  if (bodyGeometryCache.has(symbol)) return bodyGeometryCache.get(symbol);
+  const displace = DISPLACED_BODY_TYPES.has(type);
+  // Higher tessellation only where it buys real detail — everything else
+  // keeps the original 20x16 a flat-shaded sphere doesn't need more than.
+  const geo = displace
+    ? new THREE.SphereGeometry(radius, 48, 32)
+    : new THREE.SphereGeometry(radius, 20, 16);
+  if (displace) {
+    const visual = ensureBodyVisual(symbol, type, traits);
+    if (visual) {
+      const { imageData, size } = visual;
+      const pos = geo.attributes.position;
+      const uv = geo.attributes.uv;
+      // Up to ~7% of the body's own radius — enough to read as real relief
+      // at this map's usual zoom without turning a planet into a spiky mess.
+      const amplitude = radius * 0.07;
+      for (let i = 0; i < pos.count; i++) {
+        const px = Math.min(size - 1, Math.max(0, Math.floor(uv.getX(i) * size)));
+        const py = Math.min(size - 1, Math.max(0, Math.floor((1 - uv.getY(i)) * size)));
+        const lightness = imageData.data[(py * size + px) * 4] / 255; // grayscale: R=G=B
+        const displacement = (lightness - 0.5) * 2 * amplitude;
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const len = Math.hypot(x, y, z) || 1;
+        const scale = (len + displacement) / len;
+        pos.setXYZ(i, x * scale, y * scale, z * scale);
+      }
+      pos.needsUpdate = true;
+      // Bent normals from the new bumps, not the original sphere's — this
+      // is what makes the relief actually catch light instead of just
+      // silently reshaping the silhouette.
+      geo.computeVertexNormals();
+    }
+  }
+  // Reused across every renderMap() rebuild — recomputing ~1,600 displaced
+  // vertices every ~1s poll for every visible planet/moon for no reason
+  // would be wasteful, and clearGroup() already knows to leave a
+  // `__persistent` resource alone instead of disposing it out from under
+  // the cache that's still holding it (see that function's comment).
+  geo.__persistent = true;
+  bodyGeometryCache.set(symbol, geo);
+  return geo;
 }
 
 // Each type maps to an array of *variant* drawers, not one — which variant
@@ -2718,12 +2785,15 @@ function worldToScene(x, y, s) {
  * disposed texture. The first frame after a fresh page load looked fine
  * (nothing had been disposed yet); every frame after the first poll didn't.
  * Persistent textures are tagged `.__persistent` where created
- * (makeBodyTexture(), getAsteroidDotTexture()) and skipped here.
+ * (makeBodyTexture(), getAsteroidDotTexture()) and skipped here. The same
+ * applies to makeBodyGeometry()'s displaced planet/moon geometry — freeing
+ * that every poll would be the exact same bug, just for the mesh shape
+ * instead of its texture, so geometry checks the same flag before disposal.
  */
 function clearGroup(g) {
   while (g.children.length) {
     const c = g.children.pop();
-    c.geometry?.dispose?.();
+    if (c.geometry && !c.geometry.__persistent) c.geometry.dispose();
     if (c.material?.map && !c.material.map.__persistent) c.material.map.dispose();
     c.material?.dispose?.();
   }
@@ -2842,7 +2912,7 @@ function renderMap(ships, trails = new Map()) {
     const y = computeElevation(wp.symbol, wp.type, wp.x, wp.y);
 
     const body = new THREE.Mesh(
-      new THREE.SphereGeometry(size, 20, 16),
+      makeBodyGeometry(wp.symbol, wp.type, wp.traits, size),
       // A small emissive floor in the body's own color, independent of any
       // light reaching it — the HemisphereLight above already keeps the
       // shadow side well off pure black at normal distances, but this is
