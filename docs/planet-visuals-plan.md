@@ -101,10 +101,16 @@ Roughly in order of value-for-effort:
 - **Real coherent noise instead of random radial blotches.** The current
   drawers scatter `createRadialGradient()` blobs at random positions — reads
   fine at a glance but has no real structure (no coastlines, no continental
-  plates, no storm-system coherence). A small value-noise or simplex-noise
-  function (hand-rolled, ~40 lines, no library needed) driving the same
-  canvas-fill approach would give continents actual jagged coastlines,
-  volcanic worlds real fracture networks, gas-giant bands real turbulence.
+  plates, no storm-system coherence). This is the standard technique real
+  procedural space games use for exactly this (terrain height, gas-giant
+  banding, cloud layers): a **Perlin/simplex noise function**, seeded so the
+  same waypoint always regenerates the same pattern — which we already do,
+  just with `hashString()`/`seededRandom()` picking blob *positions* instead
+  of driving a real noise field. A small value-noise or simplex-noise
+  function (hand-rolled, ~40 lines, no library needed — no reason to pull in
+  a noise package for this) driving the same canvas-fill approach would give
+  continents actual jagged coastlines, volcanic worlds real fracture
+  networks, gas-giant bands real turbulence.
 - **Multi-octave detail.** Layer 2-3 octaves of the same noise at different
   frequencies (coarse landmass shape + medium terrain + fine grain) instead
   of one pass — cheap, standard technique, meaningfully more "real" looking.
