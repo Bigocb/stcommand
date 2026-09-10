@@ -2057,9 +2057,40 @@ function makeBodyTexture(symbol, type, traits) {
   c.width = c.height = size;
   const ctx = c.getContext("2d");
   variant(ctx, size, seededRandom(symbol));
+  // The drawers above were designed against a flat, unlit preview and read
+  // clearly there — but under this map's actual point-light + PBR specular
+  // response, that same ~90-220 lightness range gets compressed hard: the
+  // lit hemisphere pushes toward a blown-out highlight, the unlit side
+  // toward a flat emissive floor, and what's left in between barely
+  // survives. Push contrast out from mid-gray before this ever becomes a
+  // texture, so the surface pattern still reads once real lighting (and
+  // the sphere-UV mip issue worked around above) get their turn at it.
+  const boosted = ctx.getImageData(0, 0, size, size);
+  const px = boosted.data;
+  const contrast = 1.7;
+  for (let i = 0; i < px.length; i += 4) {
+    px[i] = Math.max(0, Math.min(255, (px[i] - 128) * contrast + 128));
+    px[i + 1] = Math.max(0, Math.min(255, (px[i + 1] - 128) * contrast + 128));
+    px[i + 2] = Math.max(0, Math.min(255, (px[i + 2] - 128) * contrast + 128));
+  }
+  ctx.putImageData(boosted, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
+  // Confirmed live (a JUNGLE planet rendering as a flat, patternless blob)
+  // and reproduced in isolation: a body's mip-mapped canvas texture, wrapped
+  // around a SphereGeometry's UVs, samples as a smooth near-uniform blur
+  // with no surface detail at all — even fully unlit, even on a bare test
+  // scene with nothing else in it. A flat PlaneGeometry with the identical
+  // texture renders correctly; only the sphere's wrapped UVs trigger it,
+  // which points at automatic mip selection picking a wildly-too-coarse
+  // level (the U seam's UV derivative jumps hugely at a full 0→1 wrap).
+  // Skipping mipmaps and sampling the base level directly restores the
+  // pattern. The texture is only ever seen at a few fixed close-in zoom
+  // levels on this map, never minified enough for losing mips to look
+  // aliased, so there's no real tradeoff here.
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
   // Reused across every renderMap() rebuild — see clearGroup()'s comment for
   // why this must survive the mesh that's currently wearing it.
   tex.__persistent = true;
