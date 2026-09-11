@@ -121,16 +121,50 @@ function notify(slice) {
   }
 }
 
+/* ── connection status ────────────────────────────────────────
+   Driven entirely by loadState()'s outcome (every.js polls it every 5s —
+   see each version's `every(5000, loadState)`), since /api/state is the one
+   endpoint the server itself falls back to a durable snapshot for rather
+   than 503ing outright (see dashboard.ts's /state route). "stale" means
+   that fallback fired — SpaceTraders (or this tenant's boot) is currently
+   down and the dashboard is showing the last known-good fleet instead of
+   live data. "offline" means even that failed (network error, or a 503
+   with no snapshot to fall back to yet, e.g. a brand-new tenant). */
+export let connectionStatus = { level: "unknown", staleSince: null };
+
+/** Register `cb` to run whenever connectionStatus changes — same shape as
+ *  subscribe(), kept separate since "connection" isn't a server-pushed data
+ *  slice the way the others are; it's derived client-side from loadState(). */
+export function subscribeConnection(cb) {
+  return subscribe("connection", cb);
+}
+
 /* ── loaders ──────────────────────────────────────────────── */
 
 export async function loadState() {
   try {
     const res = await fetch("/api/state");
-    state = await res.json();
+    const data = await res.json();
+    if (!res.ok) {
+      // A hard failure (no snapshot to fall back to) must not clobber the
+      // last good `state` with this response's `{error: ...}` body — the
+      // dashboard should keep showing what it already had, stale label and
+      // all, rather than going blank on one bad poll.
+      connectionStatus = { level: "offline", staleSince: null };
+      notify("connection");
+      return;
+    }
+    state = data;
     systems = state.systems ?? [];
     jumpConnections = state.jumpConnections ?? [];
+    connectionStatus = state.stale ? { level: "stale", staleSince: state.staleSince ?? null } : { level: "live", staleSince: null };
     notify("state");
-  } catch (e) { console.error(e); }
+    notify("connection");
+  } catch (e) {
+    console.error(e);
+    connectionStatus = { level: "offline", staleSince: null };
+    notify("connection");
+  }
 }
 
 export async function loadBridge() {
