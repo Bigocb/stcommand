@@ -110,6 +110,18 @@ export class TenantRegistry {
   }
 
   /**
+   * Any one already-booted tenant's API client, for background work that
+   * genuinely doesn't belong to a single tenant (the galaxy-wide crawler —
+   * see galaxyCrawler.ts). Picking "whichever happens to be booted" is
+   * fine here specifically because the underlying rate limiter is shared
+   * process-wide, not per-tenant — every tenant's client draws from the
+   * same budget regardless of which one's object this call goes through.
+   */
+  anyBootedApi(): SpaceTradersAPI | undefined {
+    return this.workers.values().next().value?.api;
+  }
+
+  /**
    * Boot every known tenant's engine now, instead of waiting for that
    * tenant's first authenticated request. Without this, a process restart
    * (a Render redeploy, a crash, host maintenance) leaves every tenant's

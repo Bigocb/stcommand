@@ -1344,6 +1344,102 @@ export class Store {
     );
   }
 
+  /**
+   * Upserts just a system's own metadata (sector/type/x/y, from GET /systems
+   * or GET /systems/{symbol}) — separate from setSystemTopology() above,
+   * which caches that system's *waypoints*. The galaxy-wide crawler
+   * (galaxyCrawler.ts) discovers a system's coordinates/type long before it
+   * ever gets around to scanning that system's waypoints (a much larger,
+   * separate pass), so this must not require or touch waypoints/jump_gates
+   * — a fresh row here has empty defaults for those, backfilled later by
+   * whichever of the crawler's waypoint pass or a tenant's own
+   * GalaxyAtlas.loadSystem() reaches this system first.
+   */
+  async setGalaxySystemMeta(systemSymbol: string, sectorSymbol: string, systemType: string, x: number, y: number): Promise<void> {
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO galaxy_systems (system_symbol, waypoints, jump_gates, sector_symbol, system_type, x, y)
+         VALUES ($1, '[]'::jsonb, '[]'::jsonb, $2, $3, $4, $5)
+         ON CONFLICT (system_symbol) DO UPDATE SET sector_symbol = excluded.sector_symbol, system_type = excluded.system_type, x = excluded.x, y = excluded.y`,
+        [systemSymbol, sectorSymbol, systemType, x, y],
+      ),
+    );
+  }
+
+  /** Every crawled system's metadata + however much topology is known for
+   *  it — the galaxy map's one read query. Waypoints/jump_gates come back
+   *  as their raw jsonb (possibly `[]` if only the meta pass has reached
+   *  this system so far), left untyped for the same reason
+   *  getSystemTopology() is. */
+  async listGalaxySystems(): Promise<{
+    systemSymbol: string; sectorSymbol: string | null; systemType: string | null;
+    x: number | null; y: number | null; waypoints: unknown[]; jumpGates: unknown[];
+  }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{
+        system_symbol: string; sector_symbol: string | null; system_type: string | null;
+        x: number | null; y: number | null; waypoints: unknown[]; jump_gates: unknown[];
+      }>(`SELECT system_symbol, sector_symbol, system_type, x, y, waypoints, jump_gates FROM galaxy_systems`);
+      return res.rows.map((r) => ({
+        systemSymbol: r.system_symbol, sectorSymbol: r.sector_symbol, systemType: r.system_type,
+        x: r.x, y: r.y, waypoints: r.waypoints, jumpGates: r.jump_gates,
+      }));
+    });
+  }
+
+  /** How many systems the galaxy crawl has recorded meta for so far — cheap
+   *  progress signal, doesn't pull every row's jsonb blobs like listGalaxySystems(). */
+  async countGalaxySystems(): Promise<number> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ count: string }>(`SELECT count(*) FROM galaxy_systems WHERE system_type IS NOT NULL`);
+      return Number(res.rows[0]!.count);
+    });
+  }
+
+  /** Full faction roster — public reference data, upserted wholesale each
+   *  crawl pass (the list is small, a couple dozen entries; no per-row diff
+   *  needed). */
+  async setGalaxyFactions(factions: { symbol: string; name: string; headquarters?: string; isRecruiting?: boolean }[]): Promise<void> {
+    if (factions.length === 0) return;
+    await withPool(this.pool, async (c) => {
+      for (const f of factions) {
+        await c.query(
+          `INSERT INTO galaxy_factions (symbol, name, headquarters, is_recruiting, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT (symbol) DO UPDATE SET name = excluded.name, headquarters = excluded.headquarters, is_recruiting = excluded.is_recruiting, updated_at = now()`,
+          [f.symbol, f.name, f.headquarters ?? null, f.isRecruiting ?? null],
+        );
+      }
+    });
+  }
+
+  async listGalaxyFactions(): Promise<{ symbol: string; name: string; headquarters: string | null; isRecruiting: boolean | null }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ symbol: string; name: string; headquarters: string | null; is_recruiting: boolean | null }>(
+        `SELECT symbol, name, headquarters, is_recruiting FROM galaxy_factions ORDER BY symbol`,
+      );
+      return res.rows.map((r) => ({ symbol: r.symbol, name: r.name, headquarters: r.headquarters, isRecruiting: r.is_recruiting }));
+    });
+  }
+
+  /** Resumable cursor storage for background crawl jobs — see galaxy_crawl_state's own migration comment. */
+  async getCrawlState<T>(key: string): Promise<T | undefined> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ value: T }>(`SELECT value FROM galaxy_crawl_state WHERE key = $1`, [key]);
+      return res.rows[0]?.value;
+    });
+  }
+
+  async setCrawlState(key: string, value: unknown): Promise<void> {
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO galaxy_crawl_state (key, value, updated_at) VALUES ($1, $2, now())
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now()`,
+        [key, JSON.stringify(value)],
+      ),
+    );
+  }
+
   // ── Missions (tenant-scoped) ────────────────────────────────
 
   async recordMission(

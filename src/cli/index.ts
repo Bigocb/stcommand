@@ -10,6 +10,7 @@ import { createDashboardRouter } from "../http/dashboard.js";
 import { createUiVersionRouter, cacheHeaders } from "../http/uiVersions.js";
 import { createAdminRouter } from "../http/admin.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
+import { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = resolve(__dirname, "../../public");
@@ -59,6 +60,18 @@ async function main(): Promise<void> {
   // SpaceTraders API round-trip), and the gate/login routes must be servable
   // immediately, not held up behind it.
   registry.bootAll().catch((err) => log(`eager tenant boot failed: ${err instanceof Error ? err.message : String(err)}`));
+
+  // Galaxy-wide crawl (system coordinates/types, faction roster) — public
+  // data, not owned by any one tenant, so it rides whichever tenant's API
+  // client happens to be booted rather than needing its own. Deliberately
+  // slow (one page every 5s) since it shares the same process-wide rate
+  // limiter every tenant's own ticking already competes for — see
+  // GalaxyCrawler's own doc comment.
+  const galaxyCrawler = new GalaxyCrawler(() => registry.anyBootedApi(), new Store(pool), (msg) => log(msg));
+  const galaxyCrawlInterval = setInterval(() => {
+    galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
+  }, 5_000);
+  galaxyCrawlInterval.unref?.();
 
   const app = express();
   app.use(express.json());

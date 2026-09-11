@@ -3,6 +3,7 @@ import type pg from "pg";
 import { timingSafeEqual } from "node:crypto";
 import { listAllTenantsAdmin, deleteTenant } from "../db/tenants.js";
 import type { TenantRegistry } from "../engine/tenantRegistry.js";
+import { Store } from "../db/store.js";
 
 /**
  * A small operator-only surface, separate from the tenant dashboard: list
@@ -70,6 +71,23 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry): Rout
       res.json({ ok: true, tenantId });
     } catch (err) {
       console.error("[admin] delete tenant error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // Quick progress check for the galaxy-wide crawl (galaxyCrawler.ts) —
+  // public reference data, not tenant-scoped, so this lives here rather
+  // than behind a tenant session.
+  router.get("/galaxy/status", async (_req, res) => {
+    try {
+      const store = new Store(pool);
+      const [systemsCrawled, factions] = await Promise.all([
+        store.countGalaxySystems(),
+        store.listGalaxyFactions(),
+      ]);
+      res.json({ systemsCrawled, factions });
+    } catch (err) {
+      console.error("[admin] galaxy status error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

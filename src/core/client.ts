@@ -458,6 +458,14 @@ export class SpaceTradersAPI {
     return this.client.get<components["schemas"]["System"]>(`/systems/${systemSymbol}`);
   }
 
+  /** Full galaxy system list — public, tenant-agnostic reference data (same
+   *  status as getFactions()). Static system coordinates/type for the whole
+   *  galaxy, paginated; a caller crawling the whole thing should page
+   *  through with a persisted cursor rather than assume it fits one call. */
+  getSystems(limit = 20, page = 1) {
+    return this.client.get<components["schemas"]["System"][]>("/systems", { limit, page });
+  }
+
   getSystemWaypoints(systemSymbol: string, query?: { page?: number; limit?: number }) {
     return this.client.get<components["schemas"]["Waypoint"][]>(`/systems/${systemSymbol}/waypoints`, {
       page: query?.page,
