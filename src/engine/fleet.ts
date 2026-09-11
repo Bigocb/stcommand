@@ -157,6 +157,10 @@ export class FleetManager {
    *  the dashboard's status, so both answer from one place — the agent's own
    *  `isManual()` flag was the second record that let them disagree. */
   private readonly operatorHolds = new Map<string, string>();
+  /** Ships the operator has sold, keyed to the shipyard they're flying to
+   *  before being scrapped there — mirrors operatorHolds, restored the same
+   *  way at boot. See sellShip()/proposeScrapGoals(). */
+  private readonly scrapTargets = new Map<string, string>();
   readonly doctrine: Doctrine;
   private systemSymbol = "";
   private positions: WaypointPos[] = [];
@@ -487,6 +491,19 @@ export class FleetManager {
           await this.holdShip(shipSymbol);
         } catch (err) {
           this.log(`restore hold ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (st.scrapAt) {
+        // Restore the target yard directly rather than re-deriving "nearest"
+        // from wherever the ship now sits — same reasoning as the warehouse
+        // ship's own restore path just above: this must not block boot by
+        // flying the ship synchronously (sellShip() does that), it only has
+        // to put the claim and the scrapTargets entry back so the next tick's
+        // proposeScrapGoals()/runScrapGoal() picks the trip back up.
+        if (this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true })) {
+          this.scrapTargets.set(shipSymbol, st.scrapAt);
+          this.dispatcher.release(shipSymbol);
+          this.log(`restored sale of ${shipSymbol} → ${st.scrapAt}`);
         }
       }
     }
@@ -1343,6 +1360,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
             deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
           surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
@@ -1366,6 +1384,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
             surveyPool: this.surveyPool,
           protectedGoods: () => this.allProtectedGoods(),
           ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
@@ -1393,6 +1412,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
             protectedGoods: () => this.allProtectedGoods(),
           done: () => this.forgetIntent(ship.symbol),
         }).withRegistry(this.registry),
@@ -1425,6 +1445,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
             getCredits: () => this.spendableCredits(),
@@ -1454,6 +1475,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
             ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
           marketTourTargets: () => this.sectorTourTargets(ship.symbol),
           staleMarketTargets: () => this.staleMarketTargets(),
@@ -1558,6 +1580,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
             surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
@@ -1581,6 +1604,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 surveyPool: this.surveyPool,
             protectedGoods: () => this.allProtectedGoods(),
             ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
@@ -1606,6 +1630,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 protectedGoods: () => this.allProtectedGoods(),
             done: () => this.forgetIntent(shipSymbol),
           }).withRegistry(this.registry),
@@ -1625,6 +1650,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
             getCredits: () => this.spendableCredits(),
@@ -1648,6 +1674,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
             marketTourTargets: () => this.sectorTourTargets(shipSymbol),
             staleMarketTargets: () => this.staleMarketTargets(),
@@ -2251,7 +2278,7 @@ export class FleetManager {
     }
     // Drop any persisted hold/mine-pin and manual dispatch override too, or a
     // scrapped ship's ghost assignment would come back on the next restart.
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null });
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null, scrapAt: null });
     await this.setManualDispatch(shipSymbol, undefined);
   }
 
@@ -3206,10 +3233,47 @@ export class FleetManager {
     this.log(`${shipSymbol}: operator hold at ${here}`);
   }
 
+  /**
+   * Sell a ship: fly it to the nearest known shipyard in its current system,
+   * then scrap it there for credits. Mirrors holdShip()'s pattern — persists
+   * the instruction and returns immediately; proposeScrapGoals()/
+   * runScrapGoal() fly the trip and finish the sale through the shared
+   * executor, the same non-blocking path designateWarehouseShip() was fixed
+   * to use (a blocking dispatchShip() call here would freeze the whole
+   * tenant's dashboard for the flight's duration — see that function's own
+   * commit for the live incident that came from getting this wrong).
+   *
+   * Same-system only: nearestShipyard() doesn't search across a jump gate,
+   * and neither does this — a ship with no shipyard in its own system can't
+   * be sold this way yet.
+   */
+  async sellShip(shipSymbol: string): Promise<string> {
+    const agent = this.controlledAgent(shipSymbol);
+    if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
+    const ship = agent.getShip();
+    const yard = this.nearestShipyard(ship.nav.systemSymbol);
+    if (!yard) throw new Error(`no known shipyard in ${ship.nav.systemSymbol}`);
+
+    // Already there and not mid-flight: scrap it now rather than round-
+    // tripping through the intent board for a trip that doesn't exist.
+    if (ship.nav.waypointSymbol === yard && ship.nav.status !== "IN_TRANSIT") {
+      await this.scrapShip(shipSymbol);
+      return yard;
+    }
+
+    await this.updateShipManualState(shipSymbol, { scrapAt: yard });
+    // A ship being sold stops trading, same reasoning as holdShip()'s own
+    // dispatcher.release() call.
+    this.dispatcher.release(shipSymbol);
+    this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
+    this.log(`${shipSymbol}: sold by the operator, flying to ${yard} to be scrapped`);
+    return yard;
+  }
+
   /** Manual hold + mining-field pin, keyed by ship, as one `fleet_flags` JSON
    *  blob — the same "small settings" mechanism `keeperMarkets` already uses.
    *  Read once at boot to replay holds/pins that would otherwise be lost. */
-  private async loadShipManualState(): Promise<Record<string, { holdWaypoint?: string; minePin?: string }>> {
+  private async loadShipManualState(): Promise<Record<string, { holdWaypoint?: string; minePin?: string; scrapAt?: string }>> {
     const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "shipManualState") : undefined;
     if (!raw) return {};
     try {
@@ -3219,7 +3283,7 @@ export class FleetManager {
     }
   }
 
-  private async updateShipManualState(shipSymbol: string, patch: { holdWaypoint?: string | null; minePin?: string | null }): Promise<void> {
+  private async updateShipManualState(shipSymbol: string, patch: { holdWaypoint?: string | null; minePin?: string | null; scrapAt?: string | null }): Promise<void> {
     if (!this.store || !this.tenantId) return;
     const all = await this.loadShipManualState();
     const next = { ...(all[shipSymbol] ?? {}) };
@@ -3230,6 +3294,10 @@ export class FleetManager {
     if ("minePin" in patch) {
       if (patch.minePin) next.minePin = patch.minePin;
       else delete next.minePin;
+    }
+    if ("scrapAt" in patch) {
+      if (patch.scrapAt) { next.scrapAt = patch.scrapAt; this.scrapTargets.set(shipSymbol, patch.scrapAt); }
+      else { delete next.scrapAt; this.scrapTargets.delete(shipSymbol); }
     }
     if (Object.keys(next).length === 0) delete all[shipSymbol];
     else all[shipSymbol] = next;
@@ -4244,6 +4312,7 @@ export class FleetManager {
     // who took a hull off the board outranks every automatic controller.
     // Same precedence ShipRegistry already enforces (operator > rescue).
     this.proposeOperatorHolds();
+    this.proposeScrapGoals();
     await this.maybeAssignKeepers();
     await this.maybeRepairFleet();
     // Resolve this pass's proposals to one intent per ship. Purely local: no
@@ -4414,6 +4483,22 @@ export class FleetManager {
         priority: 0,
         goal: { kind: "hold", waypoint },
         reason: `held at ${waypoint} by the operator`,
+        source: "operator",
+      });
+    }
+  }
+
+  /** Same pattern as proposeOperatorHolds(), for a ship the operator has sold —
+   *  see sellShip(). Proposed fresh each tick from scrapTargets until
+   *  runScrapGoal() actually removes the ship from the fleet. */
+  private proposeScrapGoals(): void {
+    for (const [shipSymbol, yard] of this.scrapTargets) {
+      if (!this.controlledAgent(shipSymbol)) continue;
+      this.intents.propose({
+        ship: shipSymbol,
+        priority: 0,
+        goal: { kind: "scrap", yard },
+        reason: `sold by the operator, flying to ${yard} to be scrapped`,
         source: "operator",
       });
     }

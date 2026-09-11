@@ -35,6 +35,8 @@ export type Goal =
    */
   | { kind: "explore"; system: string; gate: string; remoteGate: string; markets: string[] }
   | { kind: "repair"; yard: string }
+  /** Operator sale: fly to the yard, then scrap the hull for credits. */
+  | { kind: "scrap"; yard: string }
   /**
    * Ferry fuel to a stranded ship: navigate to a market, top off the tank and
    * load fuel, jump if needed, then deliver to the stranded ship.
@@ -97,6 +99,7 @@ export function sameGoal(a: Goal, b: Goal): boolean {
       && a.markets.length === b.markets.length && a.markets.every((m, i) => m === b.markets[i]);
   }
   if (a.kind === "repair" && b.kind === "repair") return a.yard === b.yard;
+  if (a.kind === "scrap" && b.kind === "scrap") return a.yard === b.yard;
   if (a.kind === "tender" && b.kind === "tender") {
     return a.to === b.to && a.fuelUnits === b.fuelUnits && a.market === b.market && a.strandedSymbol === b.strandedSymbol;
   }
@@ -165,6 +168,7 @@ export function standDownReason(intent: ShipIntent | undefined): string | undefi
   if (!intent || !drivenByFleet(intent.goal)) return undefined;
   const target =
     intent.goal.kind === "repair" ? ` → ${intent.goal.yard}`
+    : intent.goal.kind === "scrap" ? ` → ${intent.goal.yard}`
     : intent.goal.kind === "hold" && intent.goal.waypoint ? ` at ${intent.goal.waypoint}`
     : "";
   return `${intent.goal.kind}${target} (${intent.source}): ${intent.reason}`;

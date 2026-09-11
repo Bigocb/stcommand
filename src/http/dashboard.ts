@@ -1054,6 +1054,20 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  router.post("/fleet/sell-ship", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol } = req.body ?? {};
+    if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
+    try {
+      const yard = await w.fleet.sellShip(shipSymbol);
+      res.json({ ok: true, shipSymbol, yard });
+    } catch (err) {
+      console.error("[dashboard] sell-ship error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/fleet/jump", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

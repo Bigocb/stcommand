@@ -38,6 +38,8 @@ interface Route extends DirectLeg {
 export interface TraderOptions {
   /** Repair this ship where it stands; forwarded to the shared executor. */
   repairHere?: (shipSymbol: string) => Promise<void>;
+  /** Scrap this ship where it stands; forwarded to the shared executor. */
+  scrapHere?: (shipSymbol: string) => Promise<void>;
   api: SpaceTradersAPI;
   log?: (msg: string) => void;
   recordLedger?: (entry: {
@@ -348,6 +350,7 @@ export class TraderAgent {
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
+      scrapHere: opts.scrapHere,
       done: this.done,
       onTenderAbandoned: this.onTenderAbandoned,
       galaxy: this.atlas,

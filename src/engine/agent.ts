@@ -18,6 +18,8 @@ const HALT_POLL_MS = 1_000;
 export interface AgentOptions {
   /** Repair this ship where it stands; forwarded to the shared executor. */
   repairHere?: (shipSymbol: string) => Promise<void>;
+  /** Scrap this ship where it stands; forwarded to the shared executor. */
+  scrapHere?: (shipSymbol: string) => Promise<void>;
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
   log?: (msg: string) => void;
@@ -255,6 +257,7 @@ export class ShipAgent {
       recordMarket: opts.recordMarket,
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
+      scrapHere: opts.scrapHere,
       done: this.done,
       onTenderAbandoned: this.onTenderAbandoned,
       galaxy: this.galaxy,

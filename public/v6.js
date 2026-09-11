@@ -4327,12 +4327,15 @@ function openShipDetails(shipSymbol, opts = {}) {
           <button class="buy-install" data-ship="${shipSymbol}" data-comp="${m.symbol}" data-market="${m.waypointSymbol}">Buy+Install</button>
         </div>`).join("")}
     </div>
-    ${atYard && ship.nav.status !== "IN_TRANSIT" ? `<div class="loadout-section"><h4>Scrap</h4>
+    <div class="loadout-section"><h4>Scrap</h4>
       <div class="jump-row">
-        <span class="tgt"><b>Scrap this ship</b> <span class="d" style="color:var(--dim);font-size:9px">removes it permanently, returns a portion of its value${docked ? "" : " — docks it first"}</span></span>
-        <button class="scrap" data-ship="${shipSymbol}">Scrap</button>
+        ${atYard && ship.nav.status !== "IN_TRANSIT"
+          ? `<span class="tgt"><b>Scrap this ship</b> <span class="d" style="color:var(--dim);font-size:9px">removes it permanently, returns a portion of its value${docked ? "" : " — docks it first"}</span></span>
+        <button class="scrap" data-ship="${shipSymbol}">Scrap</button>`
+          : `<span class="tgt"><b>Sell ship</b> <span class="d" style="color:var(--dim);font-size:9px">flies to the nearest known shipyard in this system, then scraps it there — permanent, cannot be undone</span></span>
+        <button class="sell-ship" data-ship="${shipSymbol}">Sell</button>`}
       </div>
-    </div>` : ""}`;
+    </div>`;
 
   modal.innerHTML = html;
   if (containerId === "manifest") {
@@ -4539,6 +4542,18 @@ function openShipDetails(shipSymbol, opts = {}) {
         await loadState();
         backdrop.classList.remove("open");
         alert(`${b.dataset.ship} scrapped for ${fmt(res.totalPrice)} credits.`);
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".sell-ship").forEach((b) => {
+    b.addEventListener("click", async () => {
+      if (!confirm(`Sell ${b.dataset.ship} permanently? It will fly to the nearest shipyard and be scrapped there. This cannot be undone.`)) return;
+      b.disabled = true;
+      try {
+        const res = await api("POST", "/api/fleet/sell-ship", { shipSymbol: b.dataset.ship });
+        await loadState();
+        openShipDetails(b.dataset.ship, { containerId });
+        alert(`${b.dataset.ship} is flying to ${res.yard} to be scrapped.`);
       } catch (err) { alert(err.message); b.disabled = false; }
     });
   });

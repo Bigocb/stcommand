@@ -20,6 +20,8 @@ export interface ShipProxyOptions {
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Repair this ship where it now stands; wired to FleetManager.repairShip(). */
   repairHere?: (shipSymbol: string) => Promise<void>;
+  /** Scrap this ship where it now stands (must be a shipyard); wired to FleetManager.scrapShip(). */
+  scrapHere?: (shipSymbol: string) => Promise<void>;
   /** Records a refuel purchase against the tenant's ledger. Typed exactly as
    *  the agents' own callback so it can be passed straight through. */
   recordLedger?: (entry: {
@@ -92,6 +94,7 @@ export class ShipProxy {
   private readonly onActivity?: ShipProxyOptions["onActivity"];
   private readonly recordMarket?: ShipProxyOptions["recordMarket"];
   private readonly repairHere?: ShipProxyOptions["repairHere"];
+  private readonly scrapHere?: ShipProxyOptions["scrapHere"];
   private readonly recordLedger?: ShipProxyOptions["recordLedger"];
   private readonly galaxy?: GalaxyAtlas;
   private readonly store?: Store;
@@ -130,6 +133,7 @@ export class ShipProxy {
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
     this.repairHere = opts.repairHere;
+    this.scrapHere = opts.scrapHere;
     this.recordLedger = opts.recordLedger;
     this.galaxy = opts.galaxy;
     this.store = opts.store;
@@ -452,6 +456,8 @@ export class ShipProxy {
     switch (intent.goal.kind) {
       case "repair":
         return this.runRepairGoal(intent, currentIntent);
+      case "scrap":
+        return this.runScrapGoal(intent, currentIntent);
       case "hold":
         return intent.goal.waypoint ? this.runHoldGoal(intent, currentIntent) : undefined;
       case "explore":
@@ -495,6 +501,45 @@ export class ShipProxy {
       await this.repairHere?.(this.ship.symbol);
     } catch (err) {
       this.log(`repair at ${yard} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return true;
+  }
+
+  /**
+   * Fly an operator-requested sale: get to the nearest known shipyard, then
+   * scrap the hull there for credits. Mirrors runRepairGoal() exactly —
+   * re-derived from observed position each tick, re-checked for supersession
+   * right before the irreversible step. Unlike repair, success removes the
+   * ship from the fleet entirely (see FleetManager.scrapShip()), so there is
+   * no "still here next tick" case to worry about.
+   */
+  async runScrapGoal(intent: ShipIntent, currentIntent: () => ShipIntent | undefined): Promise<boolean> {
+    if (intent.goal.kind !== "scrap") return false;
+    const yard = intent.goal.yard;
+    await this.refresh();
+    await this.waitCooldown();
+
+    if (this.ship.nav.waypointSymbol !== yard) {
+      this.log(`scrap: heading to ${yard} (${intent.reason})`);
+      await this.navigateTo(yard);
+      return true;
+    }
+
+    await this.ensureDocked();
+    // Re-read the board before an irreversible sale — an operator who changed
+    // their mind mid-transit (released the hold, or the ship got rescued into
+    // repair instead) must not still have it sold out from under them on
+    // arrival. Same reasoning as runRepairGoal()'s own re-check.
+    if (supersedes(intent, currentIntent())) {
+      this.log("scrap: superseded in transit, standing by for the new goal");
+      return true;
+    }
+
+    this.assertAt(yard, "scrap");
+    try {
+      await this.scrapHere?.(this.ship.symbol);
+    } catch (err) {
+      this.log(`scrap at ${yard} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     return true;
   }
