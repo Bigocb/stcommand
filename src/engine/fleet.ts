@@ -1224,6 +1224,14 @@ export class FleetManager {
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
     this.registry.recordMarkets(markets);
     this.registry.noteTopologyChanged();
+    // Mark it done — surveyedSystems was declared and read by autoExplore()'s
+    // "already covered this one" filter but never actually written anywhere,
+    // so that filter always saw every reachable system as unsurveyed and
+    // never learned it had already been somewhere, however many times a
+    // scout revisited it. This is the one place completion should be marked:
+    // every call site that finishes exploring/scouting a system routes
+    // through here (exploreSystem(), jumpShip(), autoExplore() itself).
+    this.surveyedSystems.add(systemSymbol);
     this.log(`surveyed ${systemSymbol}: ${markets.length} markets, ${shipyards.length} shipyards`);
   }
 
@@ -2096,7 +2104,24 @@ export class FleetManager {
     // Same learned-cost feed as TraderAgent.jumpToSystem() — a scout/manual
     // jump through this gate is just as real a data point as a trade one.
     this.galaxy.recordJumpCost(gate, targetSystem, res.transaction.totalPrice);
-    await this.surveySystem(targetSystem);
+    // The jump itself already succeeded (the ship really moved — everything
+    // above this line committed) — a survey failure here (a rate limit, a
+    // dropped connection) must not surface as "the jump failed" to whoever
+    // called this. Confirmed live: this had no guard at all, so a hiccup
+    // fetching the new system's waypoints threw out of jumpShip() itself,
+    // the dashboard's /fleet/jump route reported an error, and the ship's
+    // new system was left completely unloaded (no waypoint positions at
+    // all) despite having actually arrived — the very next manual command
+    // in that system (a "send to waypoint") then failed with "needs
+    // Infinity fuel", since nothing could measure a distance to a waypoint
+    // whose position was never fetched. chartOccupiedSystems() (tick())
+    // already retries this same load every cycle for any system a ship
+    // currently sits in, so this can fail safely and self-heal there.
+    try {
+      await this.surveySystem(targetSystem);
+    } catch (err) {
+      this.log(`survey of ${targetSystem} after jump failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
+    }
     // A ship under an operator hold keeps its *old* hold waypoint otherwise —
     // this call never touches shipManualState/operatorHolds — so a held ship
     // jumped manually immediately tries to fly back to a now-unreachable,
@@ -2125,7 +2150,14 @@ export class FleetManager {
       const ship = await this.api.getShip(shipSymbol);
       const currentSystem = ship.nav.systemSymbol;
       const connected = this.galaxy.connectedSystems(currentSystem);
-      const target = targetSystem ?? connected[0];
+      // Prefer a connected system nobody's actually surveyed yet — otherwise
+      // this always picked connected[0], which for a ship freshly jumped
+      // *into* a system is almost always the way it just came from (its one
+      // known connection back home), sending "Scout connected systems"
+      // straight back to already-charted space instead of anywhere new.
+      // Falls back to connected[0] once nothing reachable is left unsurveyed,
+      // same as autoExplore()'s own definition of "done here".
+      const target = targetSystem ?? connected.find((c) => !this.surveyedSystems.has(c)) ?? connected[0];
       if (!target) throw new Error(`no connected systems known from ${currentSystem}`);
       await this.galaxy.loadSystem(target);
       const gates = this.galaxy.gatesTo(currentSystem, target);

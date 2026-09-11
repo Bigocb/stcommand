@@ -948,15 +948,55 @@ function renderGallery() { /* single-system fleets need no gallery */ }
  * star at the origin, waypoint-scale distances) rather than reusing them.
  */
 let galaxyOverviewData = null;
+/** Route planner state — persists across re-renders while galaxy mode stays
+ *  open (loadGalaxyOverview() only refetches on toggle-on, not on a timer),
+ *  so picking a destination and then panning/zooming doesn't clear it. */
+let routeFrom = "";
+let routeTo = "";
 
 async function loadGalaxyOverview() {
   try {
     galaxyOverviewData = await api("GET", "/api/galaxy/overview");
+    if (!routeFrom) routeFrom = galaxyOverviewData.home || currentSystem;
   } catch (err) {
     galaxyOverviewData = { systems: [], edges: [], home: "" };
     showToastGlobal(err.message, true);
   }
   renderGalaxyOverviewSvg();
+}
+
+/** BFS shortest path (fewest jumps, not distance-weighted — every hop costs
+ *  roughly the same order of antimatter regardless of leg length) over the
+ *  charted jump-gate graph. Returns the ordered system list including both
+ *  ends, or null if the two aren't connected by any known chain of gates —
+ *  a real, useful answer here ("nothing charted links these yet") rather
+ *  than an error, since it's exactly the gap a scout should close next. */
+function bfsRoute(edges, from, to) {
+  if (!from || !to) return null;
+  if (from === to) return [from];
+  const adj = new Map();
+  for (const e of edges) {
+    if (!adj.has(e.a)) adj.set(e.a, []);
+    if (!adj.has(e.b)) adj.set(e.b, []);
+    adj.get(e.a).push(e.b);
+    adj.get(e.b).push(e.a);
+  }
+  const prev = new Map([[from, null]]);
+  const queue = [from];
+  while (queue.length) {
+    const cur = queue.shift();
+    if (cur === to) {
+      const path = [];
+      for (let n = to; n !== null; n = prev.get(n)) path.unshift(n);
+      return path;
+    }
+    for (const next of adj.get(cur) ?? []) {
+      if (prev.has(next)) continue;
+      prev.set(next, cur);
+      queue.push(next);
+    }
+  }
+  return null;
 }
 
 function renderGalaxyOverviewSvg() {
@@ -975,11 +1015,17 @@ function renderGalaxyOverviewSvg() {
   const padX = Math.max(20, (maxX - minX) * 0.1), padY = Math.max(20, (maxY - minY) * 0.1);
   const vbX = minX - padX, vbY = minY - padY, vbW = (maxX - minX) + padX * 2 || 100, vbH = (maxY - minY) + padY * 2 || 100;
 
+  const path = bfsRoute(data.edges, routeFrom, routeTo);
+  const routeEdgeKeys = new Set();
+  if (path) for (let i = 0; i < path.length - 1; i++) routeEdgeKeys.add([path[i], path[i + 1]].sort().join("|"));
+  const routeSystems = new Set(path ?? []);
+
   const edgeLines = data.edges
     .map((e) => {
       const a = known.find((s) => s.symbol === e.a), b = known.find((s) => s.symbol === e.b);
       if (!a || !b) return "";
-      return `<line class="gx-edge" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`;
+      const onRoute = routeEdgeKeys.has([e.a, e.b].sort().join("|"));
+      return `<line class="gx-edge${onRoute ? " on-route" : ""}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`;
     }).join("");
 
   const r = Math.max(1.2, Math.min(vbW, vbH) / 220);
@@ -989,6 +1035,7 @@ function renderGalaxyOverviewSvg() {
       s.hasShipyard ? "has-shipyard" : "",
       s.ships > 0 ? "has-ships" : "",
       s.symbol === data.home ? "home" : "",
+      routeSystems.has(s.symbol) ? "on-route" : "",
     ].filter(Boolean).join(" ");
     return `<g class="${cls}" data-sys="${escapeAttr(s.symbol)}">
       <circle cx="${s.x}" cy="${s.y}" r="${r}" />
@@ -996,9 +1043,31 @@ function renderGalaxyOverviewSvg() {
     </g>`;
   }).join("");
 
+  const options = known.map((s) => `<option value="${escapeAttr(s.symbol)}">`).join("");
+  const routeResult = !routeTo
+    ? ""
+    : path
+      ? `<div class="gx-route-result">${path.length - 1} jump${path.length - 1 === 1 ? "" : "s"}: ${path.map((s) => escapeHtml(s)).join(" → ")}</div>`
+      : `<div class="gx-route-result gx-route-none">No known gate chain from ${escapeHtml(routeFrom)} to ${escapeHtml(routeTo)} yet — scout further to find one.</div>`;
+
   host.innerHTML = `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}">
     <g id="gx-viewport">${edgeLines}${nodes}</g>
-  </svg>${missing ? `<div style="position:absolute;bottom:8px;left:8px;color:var(--dim);font-family:var(--mono);font-size:9px">${missing} charted system${missing === 1 ? "" : "s"} not yet in the galaxy index</div>` : ""}`;
+  </svg>
+  <datalist id="gx-system-options">${options}</datalist>
+  <div class="gx-toolbar">
+    <input list="gx-system-options" id="gx-route-from" placeholder="From" value="${escapeAttr(routeFrom)}" />
+    <span class="gx-arrow">→</span>
+    <input list="gx-system-options" id="gx-route-to" placeholder="Search a system…" value="${escapeAttr(routeTo)}" />
+    <button class="btn ghost" id="gx-route-clear">Clear</button>
+  </div>
+  ${routeResult}
+  ${missing ? `<div style="position:absolute;bottom:8px;left:8px;color:var(--dim);font-family:var(--mono);font-size:9px">${missing} charted system${missing === 1 ? "" : "s"} not yet in the galaxy index</div>` : ""}`;
+
+  const fromInput = host.querySelector("#gx-route-from"), toInput = host.querySelector("#gx-route-to");
+  const commit = () => { routeFrom = fromInput.value.trim().toUpperCase(); routeTo = toInput.value.trim().toUpperCase(); renderGalaxyOverviewSvg(); };
+  fromInput.addEventListener("change", commit);
+  toInput.addEventListener("change", commit);
+  host.querySelector("#gx-route-clear").addEventListener("click", () => { routeTo = ""; renderGalaxyOverviewSvg(); });
 
   const svg = host.querySelector("svg");
   svg.querySelectorAll(".gx-node").forEach((g) => {
