@@ -1896,13 +1896,12 @@ function renderMap(ships, trails = new Map()) {
   // is a rendering-only subset — the shared `waypoints` stays the full
   // list, since other panels (the miner field picker, ship-details lookup)
   // need waypoints this map no longer draws.
-  const activeSymbols = new Set(ships.map((s) => s.nav.waypointSymbol));
-  const sceneWaypoints = waypoints.filter((wp) => {
-    const traits = wp.traits ?? [];
-    if (traits.some((t) => (t.symbol ?? t) === "MARKETPLACE" || (t.symbol ?? t) === "SHIPYARD")) return true;
-    if (wp.type === "JUMP_GATE") return true;
-    return activeSymbols.has(wp.symbol);
-  });
+  // Previously filtered down to markets/shipyards/gates/occupied waypoints
+  // only, as noise-reduction for dense 50-90-waypoint systems -- reverted
+  // per user request: bare asteroids and other unremarkable waypoints are
+  // expected to render (this is what the old flat map's "little circles"
+  // scattered around a system were), not be hidden entirely.
+  const sceneWaypoints = waypoints;
 
   const s = fitSystemScale(sceneWaypoints);
   mapScale = s;
