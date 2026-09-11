@@ -442,7 +442,30 @@ export class FleetManager {
       try {
         const { shipSymbol, waypointSymbol } = JSON.parse(warehouseFlag) as { shipSymbol: string; waypointSymbol: string };
         if (ships.some((s) => s.symbol === shipSymbol)) {
-          await this.designateWarehouseShip(shipSymbol, waypointSymbol);
+          // Restore the binding and hold directly rather than calling
+          // designateWarehouseShip(), which also flies the ship there via a
+          // blocking dispatchShip() call (a manual, non-scheduler-driven
+          // dispatch — it never throws NavigationPending, it just sleeps
+          // through the whole transit; see ShipProxy.navigateTo()'s doc
+          // comment). init() runs inside boot(), which every /api/* request
+          // awaits via TenantRegistry.getOrCreate() — confirmed live: a
+          // warehouse ship restored mid-transit with too little fuel to
+          // cruise the rest of the way dropped into a ~90-minute DRIFT leg,
+          // and the entire tenant (every ship, every dashboard request) sat
+          // frozen for the whole wait because boot never returned. The hold
+          // intent set here (see updateShipManualState/proposeOperatorHolds)
+          // flies the ship there on its own next tick instead, via
+          // runHoldGoal()'s scheduler-driven, non-blocking path — the same
+          // one a restored plain hold already uses below (holdShip() never
+          // navigates synchronously either).
+          if (this.shipRegistry.claim(shipSymbol, "warehouse", "warehouse")) {
+            this.warehouseShip = { shipSymbol, waypointSymbol };
+            await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol });
+            this.dispatcher.release(shipSymbol);
+            this.log(`restored warehouse ship ${shipSymbol} at ${waypointSymbol}`);
+          } else {
+            this.log(`restore warehouse ship ${shipSymbol} skipped: claimed by ${this.shipRegistry.ownerOf(shipSymbol)?.owner}`);
+          }
         } else {
           if (this.tenantId) await this.store?.removeFleetFlag(this.tenantId, "warehouseShip"); // scrapped while we were down
         }
