@@ -1012,14 +1012,22 @@
   .modal .cargo-note, #manifest .cargo-note, #fleet-detail .cargo-note { color:var(--dim); font-size:10px; margin-top:8px; }
   #manifest select, #manifest input[type=text],
   #fleet-detail select, #fleet-detail input[type=text] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
-  /* ── fleet-page ship detail tabs ─────────── */
-  .detail-tabbar { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px; border-bottom:1px solid var(--hairline); padding-bottom:8px; }
+  /* ── fleet-page ship detail: grouped tabs, each a card grid ─────────
+     A handful of tabs (see DETAIL_TAB_GROUPS in tabifyShipDetail()) rather
+     than one per section — the Fleet pane has a full page's width to work
+     with, not a 260px rail, so each tab lays its sections out as cards that
+     wrap across the row instead of a single narrow stacked list. */
+  .detail-tabbar { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; border-bottom:1px solid var(--hairline); padding-bottom:10px; }
   .detail-tab {
-    font-family:var(--disp); font-size:9px; letter-spacing:0.08em; text-transform:uppercase; padding:5px 10px;
+    font-family:var(--disp); font-size:10.5px; letter-spacing:0.1em; text-transform:uppercase; padding:7px 14px;
     background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer;
   }
   .detail-tab:hover { border-color:var(--accent); color:var(--accent); }
   .detail-tab.active { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+  .detail-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; align-items:start; }
+  .detail-grid > .metric-row { grid-column:1/-1; margin-bottom:0; }
+  .detail-card { background:var(--glass); border:1px solid var(--hairline); padding:10px 12px; min-width:0; }
+  .detail-card .loadout-section { margin-bottom:0; }
 
   .stranded-banner {
     flex:0 0 auto; background:var(--red); color:var(--ink); font-family:var(--disp); font-size:11px;

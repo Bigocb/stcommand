@@ -3034,36 +3034,83 @@ function refreshOpenShipDetails() {
 let fleetDetailShip = null;
 let fleetDetailActiveTab = 0;
 
+/** Which of openShipDetails()'s `.loadout-section` blocks (identified by
+ *  their own <h4> text — the single source of truth stays in
+ *  openShipDetails() itself) belong under which Fleet-page tab. Grouped
+ *  rather than one tab per section: the Fleet pane has a full page's width
+ *  to work with, not a 260px rail, so a handful of tabs each laid out as a
+ *  card grid makes better use of it than eleven tabs of one narrow list
+ *  apiece. `includeMetrics` pulls the fuel/cargo stat row in as well —
+ *  it isn't a `.loadout-section` itself, just a sibling above them. */
+const DETAIL_TAB_GROUPS = [
+  { label: "Overview", sections: ["Condition", "Crew", "Manual control", "Role"], includeMetrics: true },
+  { label: "Cargo & Loadout", sections: ["Cargo hold", "Loadout", "Modules", "Mounts", "Components in cargo"] },
+  { label: "Navigation", sections: ["Jump planner"] },
+  { label: "Scout & Upgrade", sections: ["Scout & upgrade", "Scrap"] },
+];
+
 /** Turn a rendered ship-detail container's flat list of `.loadout-section`
- *  blocks into tabs — one tab per section, using each section's own <h4> as
- *  the tab label. Used only by the Fleet page's pane; #manifest keeps its
- *  original scrolling list untouched. Purely structural: it doesn't know or
- *  care what's inside each section, so every current and future section in
- *  openShipDetails() becomes a tab for free. */
+ *  blocks (plus the .metric-row above them) into a small set of tabs per
+ *  DETAIL_TAB_GROUPS, each rendered as a card grid rather than a stacked
+ *  list. Used only by the Fleet page's pane; #manifest keeps its original
+ *  scrolling rail list untouched. Any section not named in
+ *  DETAIL_TAB_GROUPS (a future addition to openShipDetails()) still shows
+ *  up, under a catch-all "More" tab, rather than silently vanishing. */
 function tabifyShipDetail(container) {
   const sections = Array.from(container.children).filter((el) => el.classList.contains("loadout-section"));
   if (!sections.length) return;
-  const activeIdx = Math.min(fleetDetailActiveTab, sections.length - 1);
+  const metricRow = container.querySelector(":scope > .metric-row");
+
+  const used = new Set();
+  const groups = DETAIL_TAB_GROUPS.map((g) => {
+    const members = sections.filter((sec) => {
+      const h4 = sec.querySelector(":scope > h4");
+      return h4 && g.sections.includes(h4.textContent);
+    });
+    members.forEach((m) => used.add(m));
+    return { label: g.label, members, includeMetrics: !!g.includeMetrics };
+  }).filter((g) => g.members.length || (g.includeMetrics && metricRow));
+
+  const leftover = sections.filter((s) => !used.has(s));
+  if (leftover.length) groups.push({ label: "More", members: leftover });
+  if (!groups.length) return;
+
+  const activeIdx = Math.min(fleetDetailActiveTab, groups.length - 1);
   const bar = document.createElement("div");
   bar.className = "detail-tabbar";
-  sections.forEach((sec, i) => {
-    const h4 = sec.querySelector(":scope > h4");
-    const label = h4 ? h4.textContent : `Section ${i + 1}`;
-    if (h4) h4.remove();
-    sec.style.display = i === activeIdx ? "" : "none";
+  const panels = groups.map(() => {
+    const p = document.createElement("div");
+    p.className = "detail-grid";
+    return p;
+  });
+  // Insert the (still-empty) bar + panels where the flat section list used
+  // to start, before moving the actual content into them — appendChild
+  // below relocates each existing node, it doesn't clone it.
+  sections[0].before(bar, ...panels);
+
+  groups.forEach((g, i) => {
+    const panel = panels[i];
+    panel.style.display = i === activeIdx ? "" : "none";
+    if (g.includeMetrics && metricRow) panel.appendChild(metricRow);
+    g.members.forEach((sec) => {
+      const card = document.createElement("div");
+      card.className = "detail-card";
+      card.appendChild(sec);
+      panel.appendChild(card);
+    });
+
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "detail-tab" + (i === activeIdx ? " active" : "");
-    btn.textContent = label;
+    btn.textContent = g.label;
     btn.addEventListener("click", () => {
       fleetDetailActiveTab = i;
       bar.querySelectorAll(".detail-tab").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      sections.forEach((s, j) => { s.style.display = j === i ? "" : "none"; });
+      panels.forEach((p, j) => { p.style.display = j === i ? "" : "none"; });
     });
     bar.appendChild(btn);
   });
-  container.insertBefore(bar, sections[0]);
 }
 
 /** Select a ship in the Fleet page's own detail pane — independent of (and
