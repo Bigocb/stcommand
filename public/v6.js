@@ -1774,6 +1774,14 @@ function themedColor(varName) {
   if (!cssColorCache.has(varName)) cssColorCache.set(varName, cssColor(varName));
   return cssColorCache.get(varName);
 }
+// A darker two-tone variant of a body/ship's own role color, for secondary
+// structural parts (wings, struts, pods) that should read as "part of this
+// same thing" rather than a fixed, unrelated accent color — keeps "role/
+// selection owns color" intact (nothing here is hardcoded to a bucket or
+// waypoint type) while giving flat single-hue shapes some depth.
+function trimColor(color) {
+  return color.clone().multiplyScalar(0.55);
+}
 // The hue picker (header) repaints --accent-hue on click; ship/selection
 // materials below are read once at scene-build time, so a hue change needs
 // this to know the cache is stale. Cheap: only fires on an explicit click.
@@ -2260,6 +2268,33 @@ function makeBodyGeometry(symbol, type, traits, radius) {
   // the cache that's still holding it (see that function's comment).
   geo.__persistent = true;
   bodyGeometryCache.set(symbol, geo);
+  return geo;
+}
+
+// ASTEROID/ASTEROID_FIELD/ENGINEERED_ASTEROID get the same "not quite
+// round" treatment as ASTEROID_BASE's rock, rather than the smooth sphere
+// every other undisplaced type keeps — real asteroids read as lumpy at any
+// size, unlike a planet or gas giant. Deliberately its own cache/function
+// rather than folding into makeBodyGeometry()/DISPLACED_BODY_TYPES: that
+// pipeline's displacement rides the body's own biome canvas as a height
+// field (continents, ice fractures...) which doesn't apply to a bare rock,
+// so this perturbs the mesh geometry directly instead.
+const IRREGULAR_ROCK_TYPES = new Set(["ASTEROID", "ASTEROID_FIELD", "ENGINEERED_ASTEROID"]);
+const rockGeometryCache = new Map();
+function makeRockGeometry(symbol, radius) {
+  if (rockGeometryCache.has(symbol)) return rockGeometryCache.get(symbol);
+  const rand = seededRandom(symbol + ":rock");
+  const geo = new THREE.IcosahedronGeometry(radius, 1);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const len = Math.hypot(x, y, z) || 1;
+    const bump = 1 + (rand() - 0.5) * 0.4;
+    pos.setXYZ(i, (x / len) * len * bump, (y / len) * len * bump, (z / len) * len * bump);
+  }
+  geo.computeVertexNormals();
+  geo.__persistent = true; // same reuse-across-rebuilds reasoning as bodyGeometryCache
+  rockGeometryCache.set(symbol, geo);
   return geo;
 }
 
@@ -3145,7 +3180,9 @@ function renderMap(ships, trails = new Map()) {
       }
     } else {
       body = new THREE.Mesh(
-        makeBodyGeometry(wp.symbol, wp.type, wp.traits, size),
+        IRREGULAR_ROCK_TYPES.has(wp.type)
+          ? makeRockGeometry(wp.symbol, size)
+          : makeBodyGeometry(wp.symbol, wp.type, wp.traits, size),
         // A small emissive floor in the body's own color, independent of any
         // light reaching it — the HemisphereLight above already keeps the
         // shadow side well off pure black at normal distances, but this is
@@ -3336,10 +3373,12 @@ function shipHullBucket(sh) {
 // old single ConeGeometry ended up in after its own body.rotation.x =
 // Math.PI/2 — see that rotation's comment history) so renderShipsInto()'s
 // outer group.rotation.y (transit heading) and .x (transit pitch) apply
-// unchanged. One shared material per ship (role/selection owns color, the
-// hull shape owns "what kind of ship this is" — no separate per-bucket
-// accent colors) keeps the map's existing color contract intact.
-function buildShipHull(bucket, mat) {
+// unchanged. `mat` (the fuselage/primary parts) carries the real role/
+// selection color; `trimMat` is that same color darkened (trimColor()) for
+// secondary parts — wings, fins, pods, engines — so a hull reads as more
+// than a flat single-hue silhouette without introducing any color that
+// isn't derived from the ship's own.
+function buildShipHull(bucket, mat, trimMat) {
   const group = new THREE.Group();
   const meshes = [];
   const add = (mesh) => { group.add(mesh); meshes.push(mesh); return mesh; };
@@ -3351,19 +3390,19 @@ function buildShipHull(bucket, mat) {
       const nose = add(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 8), mat));
       nose.rotation.x = Math.PI / 2;
       nose.position.z = 0.41;
-      const fin = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.22, 0.3), mat));
+      const fin = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.22, 0.3), trimMat));
       fin.position.set(0, 0.13, -0.05);
       fin.rotation.x = -0.5;
-      const wingL = add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.16), mat));
+      const wingL = add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.16), trimMat));
       wingL.position.set(-0.18, -0.02, -0.18);
       wingL.rotation.z = 0.25;
-      const wingR = add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.16), mat));
+      const wingR = add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.16), trimMat));
       wingR.position.set(0.18, -0.02, -0.18);
       wingR.rotation.z = -0.25;
-      const engineL = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), mat));
+      const engineL = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), trimMat));
       engineL.rotation.x = Math.PI / 2;
       engineL.position.set(-0.26, -0.03, -0.28);
-      const engineR = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), mat));
+      const engineR = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), trimMat));
       engineR.rotation.x = Math.PI / 2;
       engineR.position.set(0.26, -0.03, -0.28);
       break;
@@ -3371,17 +3410,17 @@ function buildShipHull(bucket, mat) {
     case "probe": {
       const body = add(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.34, 6), mat));
       body.rotation.x = Math.PI / 2;
-      const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), mat));
+      const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), trimMat));
       dish.position.z = -0.15;
       break;
     }
     case "fighter": {
       const body = add(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.5, 4), mat));
       body.rotation.x = Math.PI / 2;
-      const wingL = add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.18), mat));
+      const wingL = add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.18), trimMat));
       wingL.position.set(-0.24, 0, -0.05);
       wingL.rotation.z = 0.1;
-      const wingR = add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.18), mat));
+      const wingR = add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.18), trimMat));
       wingR.position.set(0.24, 0, -0.05);
       wingR.rotation.z = -0.1;
       break;
@@ -3392,17 +3431,17 @@ function buildShipHull(bucket, mat) {
       const nose = add(new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.18, 8), mat));
       nose.rotation.x = Math.PI / 2;
       nose.position.z = 0.36;
-      const finL = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), mat));
+      const finL = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), trimMat));
       finL.position.set(-0.13, 0.02, -0.2);
-      const finR = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), mat));
+      const finR = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), trimMat));
       finR.position.set(0.13, 0.02, -0.2);
       break;
     }
     case "hauler": {
       add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.55), mat));
-      const podL = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.4), mat));
+      const podL = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.4), trimMat));
       podL.position.set(-0.24, -0.02, -0.02);
-      const podR = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.4), mat));
+      const podR = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.4), trimMat));
       podR.position.set(0.24, -0.02, -0.02);
       break;
     }
@@ -3410,12 +3449,21 @@ function buildShipHull(bucket, mat) {
     default: {
       const body = add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 0.45, 8), mat));
       body.rotation.x = Math.PI / 2;
-      const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), mat));
+      const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), trimMat));
       dish.position.z = -0.2;
       break;
     }
   }
   return { group, meshes };
+}
+
+// Real cargo capacity varies enormously (a probe hauls 0, a carrier several
+// hundred) and the old single cone was one fixed size regardless — a
+// sqrt curve keeps small ships from vanishing to a pinprick and large ones
+// from swallowing the map, clamped to a sane on-screen range.
+function shipHullScale(sh) {
+  const cap = sh.cargo?.capacity ?? 0;
+  return Math.min(1.6, Math.max(0.7, 0.7 + 0.045 * Math.sqrt(cap)));
 }
 
 function renderShipsInto(ships, s) {
@@ -3466,7 +3514,10 @@ function renderShipsInto(ships, s) {
     // every part of this ship's hull: role/selection owns the color, the
     // hull shape (see buildShipHull) owns which kind of ship it reads as.
     const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 });
-    const hull = buildShipHull(shipHullBucket(sh), mat);
+    const trim = trimColor(color);
+    const trimMat = new THREE.MeshStandardMaterial({ color: trim, emissive: trim, emissiveIntensity: 0.4, roughness: 0.45, metalness: 0.25 });
+    const hull = buildShipHull(shipHullBucket(sh), mat, trimMat);
+    hull.group.scale.setScalar(shipHullScale(sh));
     group.add(hull.group);
     if (sel) {
       // A 3D torus ring that stays oriented with the ship instead of a flat
