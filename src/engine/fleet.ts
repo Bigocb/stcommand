@@ -1228,6 +1228,39 @@ export class FleetManager {
     this.registry.noteTopologyChanged();
   }
 
+  /**
+   * Chart + resolve jump gates for every system a ship currently sits in,
+   * regardless of role. Previously the only thing that ever pulled a system
+   * into the live GalaxyAtlas (this.galaxy, in-memory, wiped on restart) was
+   * tour-scout logic (chartSystemFor, via ensureSystemCharted) or a trader
+   * actually routing through it — a ship that's merely parked/held there
+   * (an operator hold, a warehouse ship, a manual jump) never triggered
+   * either. Confirmed live: after a manual jump + restart, DRAGOM-1's own
+   * ship-detail panel showed "No jump gates in X1-MY77" even though
+   * X1-MY77's gate connections were fully intact in the DB topology cache —
+   * nothing in the fresh process had ever called loadSystem()/
+   * scanJumpGates() for that system to pull the cache back into memory.
+   * Cheap to call every tick: both calls are cache-hit no-ops once a system
+   * and its gates are resolved (see GalaxyAtlas.loadSystem/scanJumpGates).
+   */
+  private async chartOccupiedSystems(): Promise<void> {
+    const known = new Set(this.galaxy.listSystems().map((s) => s.symbol));
+    const systems = new Set<string>();
+    for (const s of this.getShipStatuses()) {
+      const sys = this.shipFor(s.symbol)?.nav?.systemSymbol;
+      if (sys && !known.has(sys)) systems.add(sys);
+    }
+    if (systems.size === 0) return;
+    await Promise.allSettled(
+      [...systems].map(async (sys) => {
+        await this.galaxy.loadSystem(sys);
+        await this.galaxy.scanJumpGates(sys);
+      }),
+    );
+    this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
+    this.registry.noteTopologyChanged();
+  }
+
 
   /** Drop a ship's desired state — scrapped, sold, or gone from the fleet. */
   private forgetIntent(shipSymbol: string): void {
@@ -2027,6 +2060,17 @@ export class FleetManager {
     // jump through this gate is just as real a data point as a trade one.
     this.galaxy.recordJumpCost(gate, targetSystem, res.transaction.totalPrice);
     await this.surveySystem(targetSystem);
+    // A ship under an operator hold keeps its *old* hold waypoint otherwise —
+    // this call never touches shipManualState/operatorHolds — so a held ship
+    // jumped manually immediately tries to fly back to a now-unreachable,
+    // cross-system waypoint every tick until something else resets it.
+    // Confirmed live: DRAGOM-1, held at X1-S84-I60, manually jumped to
+    // X1-MY77, then errored every tick with "Destination X1-S84-I60 is
+    // outside the X1-MY77 system" until a restart re-derived the hold from
+    // its live position. Re-pin the hold to where the ship actually landed.
+    if (this.operatorHolds.has(shipSymbol)) {
+      await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol });
+    }
   }
 
   /** Send an idle/explorer ship to scout a connected system. */
@@ -4168,6 +4212,7 @@ export class FleetManager {
       return;
     }
     await this.refreshCredits();
+    await this.chartOccupiedSystems();
     await this.maybeRefreshGateConstruction();
     if (this.contracts) {
       await this.contracts.fulfillCompleted();
