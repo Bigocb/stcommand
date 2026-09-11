@@ -860,41 +860,52 @@
   .modal { background:var(--panel-2); border:1px solid var(--hairline); border-top:2px solid var(--accent);
            width:min(560px,100%); max-height:86vh; overflow-y:auto; padding:16px 18px; position:relative; }
   /* #manifest reuses openShipDetails()'s existing content/handlers, just in a
-     rail instead of a modal — see the function's own comment. Every rule
-     below is shared by both containers rather than duplicated. */
+     rail instead of a modal — see the function's own comment. #fleet-detail
+     is the same content/handlers again, tabbed, in the Fleet page's own pane
+     (see tabifyShipDetail()). Every rule below is shared by all three
+     containers rather than duplicated. */
   .modal h3, #manifest h3 { font-family:var(--disp); font-size:15px; letter-spacing:0.08em; color:var(--bone); margin-bottom:4px; }
-  .modal .sub, #manifest .sub { color:var(--dim); font-size:10px; margin-bottom:12px; }
+  .modal .sub, #manifest .sub, #fleet-detail .sub { color:var(--dim); font-size:10px; margin-bottom:12px; }
   .modal .close { position:absolute; top:12px; right:14px; background:transparent; border:1px solid var(--hairline);
                   color:var(--dim); font-family:var(--disp); font-size:9px; padding:3px 8px; cursor:pointer; }
   #manifest .close { position:static; display:inline-block; margin-bottom:10px; background:transparent; border:1px solid var(--hairline);
                   color:var(--dim); font-family:var(--disp); font-size:9px; padding:3px 8px; cursor:pointer; }
   .modal .good, .modal .jump-row, .modal .loadout-item,
   #manifest .good, #manifest .jump-row, #manifest .loadout-item,
-  #crew-roster .good, #crew-roster .jump-row, #crew-roster .loadout-item,
+  #fleet-detail .good, #fleet-detail .jump-row, #fleet-detail .loadout-item,
   #factions-list .good, #factions-list .jump-row, #factions-list .loadout-item {
     display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--hairline); font-size:10px;
   }
   .modal .good .name, .modal .jump-row .tgt, .modal .loadout-item .n,
   #manifest .good .name, #manifest .jump-row .tgt, #manifest .loadout-item .n,
-  #crew-roster .good .name, #crew-roster .jump-row .tgt, #crew-roster .loadout-item .n,
+  #fleet-detail .good .name, #fleet-detail .jump-row .tgt, #fleet-detail .loadout-item .n,
   #factions-list .good .name, #factions-list .jump-row .tgt, #factions-list .loadout-item .n { flex:1; color:var(--ice); }
   .modal .good .price, #manifest .good .price { color:var(--dim); }
-  .modal .loadout-item .d, #manifest .loadout-item .d, #crew-roster .loadout-item .d, #factions-list .loadout-item .d { color:var(--dim); font-size:9px; }
-  .modal .metric-row, #manifest .metric-row { display:flex; gap:8px; margin-bottom:12px; }
-  .modal .metric-block, #manifest .metric-block { flex:1; background:var(--glass); border:1px solid var(--hairline); padding:7px; text-align:center; }
-  .modal .metric-block .num, #manifest .metric-block .num { display:block; font-size:14px; font-weight:600; color:var(--bone); }
-  .modal .metric-block .lbl, #manifest .metric-block .lbl { display:block; font-size:8px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); }
-  .modal .loadout-section, #manifest .loadout-section { margin-bottom:12px; }
-  .modal .loadout-section h4, #manifest .loadout-section h4 { font-family:var(--disp); font-size:10px; letter-spacing:0.14em; color:var(--ice); margin-bottom:5px; }
-  .modal .loadout-grid, #manifest .loadout-grid, #crew-roster .loadout-grid, #factions-list .loadout-grid { display:flex; flex-direction:column; }
-  .modal button:not(.close), #manifest button:not(.close) {
+  .modal .loadout-item .d, #manifest .loadout-item .d, #fleet-detail .loadout-item .d, #factions-list .loadout-item .d { color:var(--dim); font-size:9px; }
+  .modal .metric-row, #manifest .metric-row, #fleet-detail .metric-row { display:flex; gap:8px; margin-bottom:12px; }
+  .modal .metric-block, #manifest .metric-block, #fleet-detail .metric-block { flex:1; background:var(--glass); border:1px solid var(--hairline); padding:7px; text-align:center; }
+  .modal .metric-block .num, #manifest .metric-block .num, #fleet-detail .metric-block .num { display:block; font-size:14px; font-weight:600; color:var(--bone); }
+  .modal .metric-block .lbl, #manifest .metric-block .lbl, #fleet-detail .metric-block .lbl { display:block; font-size:8px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); }
+  .modal .loadout-section, #manifest .loadout-section, #fleet-detail .loadout-section { margin-bottom:12px; }
+  .modal .loadout-section h4, #manifest .loadout-section h4, #fleet-detail .loadout-section h4 { font-family:var(--disp); font-size:10px; letter-spacing:0.14em; color:var(--ice); margin-bottom:5px; }
+  .modal .loadout-grid, #manifest .loadout-grid, #fleet-detail .loadout-grid, #factions-list .loadout-grid { display:flex; flex-direction:column; }
+  .modal button:not(.close), #manifest button:not(.close), #fleet-detail button:not(.close) {
     font-family:var(--disp); font-size:9px; letter-spacing:0.1em; padding:4px 9px;
     background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer;
   }
-  .modal button:not(.close):hover, #manifest button:not(.close):hover { border-color:var(--accent); color:var(--accent); }
-  .modal input[type=number], #manifest input[type=number] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:3px 5px; width:62px; }
-  .modal .cargo-note, #manifest .cargo-note { color:var(--dim); font-size:10px; margin-top:8px; }
-  #manifest select, #manifest input[type=text] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
+  .modal button:not(.close):hover, #manifest button:not(.close):hover, #fleet-detail button:not(.close):hover { border-color:var(--accent); color:var(--accent); }
+  .modal input[type=number], #manifest input[type=number], #fleet-detail input[type=number] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:3px 5px; width:62px; }
+  .modal .cargo-note, #manifest .cargo-note, #fleet-detail .cargo-note { color:var(--dim); font-size:10px; margin-top:8px; }
+  #manifest select, #manifest input[type=text],
+  #fleet-detail select, #fleet-detail input[type=text] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
+  /* ── fleet-page ship detail tabs ─────────── */
+  .detail-tabbar { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px; border-bottom:1px solid var(--hairline); padding-bottom:8px; }
+  .detail-tab {
+    font-family:var(--disp); font-size:9px; letter-spacing:0.08em; text-transform:uppercase; padding:5px 10px;
+    background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer;
+  }
+  .detail-tab:hover { border-color:var(--accent); color:var(--accent); }
+  .detail-tab.active { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
 
   .stranded-banner {
     flex:0 0 auto; background:var(--red); color:var(--ink); font-family:var(--disp); font-size:11px;

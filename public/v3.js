@@ -1207,7 +1207,7 @@ function renderFleetTable() {
     <thead><tr>${FLEET_COLS.map((c) =>
       `<th class="${c.num ? "num " : ""}${key === c.key ? "sorted" : ""}" data-key="${c.key}">${c.label}${key === c.key ? (dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `
-      <tr class="${r.stranded ? "warn " : ""}${selectedShip === r.symbol ? "sel" : ""}" data-ship="${escapeAttr(r.symbol)}">
+      <tr class="${r.stranded ? "warn " : ""}${fleetDetailShip === r.symbol ? "sel" : ""}" data-ship="${escapeAttr(r.symbol)}">
         <td><span class="sym">${escapeHtml(shortWp(r.symbol))}</span></td>
         <td>${escapeHtml(r.role)}${r.manual ? ' <span style="color:var(--accent)">·M</span>' : ""}</td>
         <td class="num ${r.net > 0 ? "rate-up" : r.net < 0 ? "rate-down" : "rate-zero"}">${r.net ? signed(r.net) : "0"}</td>
@@ -1223,58 +1223,8 @@ function renderFleetTable() {
     fleetSort = { key: k, dir: fleetSort.key === k ? -fleetSort.dir : -1 };
     renderFleetTable();
   }));
-  el.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => {
-    selectedShip = tr.dataset.ship;
-    openShipDetails(selectedShip);
-    setView("bridge");
-  }));
-  renderCrewRoster();
-}
-
-/** Fleet-wide personnel roster — same data as each ship's own Crew section
- *  (openShipDetails' crewSectionHtml), rolled up into one page instead of
- *  clicking through every hull. Purely informational: there's no crew-
- *  management endpoint in the API, so nothing here is actionable. */
-function renderCrewRoster() {
-  const el = $("crew-roster");
-  if (!el) return;
-  const ships = (state?.ships ?? []).filter((s) => s.crew);
-  const countEl = $("crew-count");
-  if (!ships.length) {
-    if (countEl) countEl.textContent = "—";
-    el.innerHTML = '<div class="empty">No crewed hulls in the register.</div>';
-    return;
-  }
-  const totalCurrent = ships.reduce((sum, s) => sum + (s.crew.current ?? 0), 0);
-  const totalWages = ships.reduce((sum, s) => sum + (s.crew.wages ?? 0) * (s.crew.current ?? 0), 0);
-  const avgMorale = Math.round(ships.reduce((sum, s) => sum + (s.crew.morale ?? 0), 0) / ships.length);
-  if (countEl) countEl.textContent = `${totalCurrent} crew`;
-
-  const rows = ships
-    .map((s) => ({ s, role: (fleetStatus.ships ?? []).find((x) => x.symbol === s.symbol)?.role ?? "—" }))
-    .sort((a, b) => (a.s.crew.morale ?? 0) - (b.s.crew.morale ?? 0));
-
-  el.innerHTML = `
-    <div class="fleet-summary" style="margin-bottom:10px">
-      <span class="fs-chip"><b>${totalCurrent}</b><i>total crew</i></span>
-      <span class="fs-chip${avgMorale < 40 ? " warn" : ""}"><b>${avgMorale}</b><i>avg morale</i></span>
-      <span class="fs-chip"><b>${fmt(totalWages)}c</b><i>wages/hr</i></span>
-    </div>
-    <div class="loadout-grid">${rows.map(({ s, role }) => {
-      const c = s.crew;
-      const pct = Math.max(0, Math.min(100, c.morale ?? 0));
-      const low = pct < 40;
-      return `<div class="loadout-item crew-row" data-ship="${escapeAttr(s.symbol)}" style="cursor:pointer">
-        <span class="n">${escapeHtml(shortWp(s.symbol))} <span style="color:var(--dim)">· ${escapeHtml(role)}</span></span>
-        <span class="d">${c.current}/${c.capacity} · <span class="meter${low ? " neg" : ""}"><i style="width:${pct}%"></i></span> ${pct} · ${c.rotation === "STRICT" ? "strict" : "relaxed"}</span>
-      </div>`;
-    }).join("")}</div>`;
-
-  el.querySelectorAll(".crew-row[data-ship]").forEach((row) => row.addEventListener("click", () => {
-    selectedShip = row.dataset.ship;
-    openShipDetails(selectedShip);
-    setView("bridge");
-  }));
+  el.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => openFleetShipDetail(tr.dataset.ship)));
+  refreshFleetShipDetail();
 }
 
 /* ── DOCTRINE ─────────────────────────────── */
@@ -2371,26 +2321,34 @@ function crewSectionHtml(crew) {
   </div>`;
 }
 
-function openShipDetails(shipSymbol) {
+function openShipDetails(shipSymbol, opts = {}) {
+  const { containerId = "manifest" } = opts;
   const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
   if (!ship) return;
-  selectedShip = shipSymbol;
-  // #manifest lives inside the desktop Bridge view's left rail, which stays
-  // hidden on mobile unless one of the mobile-*-active overlay modes is on
-  // (see the Map/Book tab CSS) — without this, every tap from the Bridge
-  // hero strip, Fleet tab, or triage list populated #manifest invisibly.
-  if (isMobile()) {
-    document.body.classList.add("mobile-ship-active");
-    // fieldBookMode persists in localStorage independent of which mobile tab
-    // is open — if the operator had last used Book mode (desktop toggle or
-    // the mobile Book tab), .field-stage.book-mode's CSS sets the rail
-    // (which #manifest lives in) to opacity:0/pointer-events:none, so the
-    // sheet showed through instead of ship details even though .view-bridge
-    // itself was correctly visible. Force back to field mode, same as the
-    // Map tab already does in setMobileView().
-    if (fieldBookMode !== "field") setFieldBookMode("field");
+  if (containerId === "manifest") {
+    selectedShip = shipSymbol;
+    // #manifest lives inside the desktop Bridge view's left rail, which stays
+    // hidden on mobile unless one of the mobile-*-active overlay modes is on
+    // (see the Map/Book tab CSS) — without this, every tap from the Bridge
+    // hero strip, Fleet tab, or triage list populated #manifest invisibly.
+    if (isMobile()) {
+      document.body.classList.add("mobile-ship-active");
+      // fieldBookMode persists in localStorage independent of which mobile tab
+      // is open — if the operator had last used Book mode (desktop toggle or
+      // the mobile Book tab), .field-stage.book-mode's CSS sets the rail
+      // (which #manifest lives in) to opacity:0/pointer-events:none, so the
+      // sheet showed through instead of ship details even though .view-bridge
+      // itself was correctly visible. Force back to field mode, same as the
+      // Map tab already does in setMobileView().
+      if (fieldBookMode !== "field") setFieldBookMode("field");
+    }
   }
-  const modal = $("manifest");
+  // containerId !== "manifest": a second, independent place this exact same
+  // content/handlers get rendered — the Fleet page's own tabbed detail pane
+  // (see openFleetShipDetail()/tabifyShipDetail()) — which has no Triage rail
+  // to overlay-manage and shouldn't touch the Bridge rail's own selection.
+  const modal = $(containerId);
+  if (!modal) return;
   const shipSystem = ship.nav.systemSymbol;
   const hereWp = waypoints.find((w) => w.symbol === ship.nav.waypointSymbol);
   const atYard = (hereWp?.traits ?? []).some((t) => t === "SHIPYARD");
@@ -2431,8 +2389,10 @@ function openShipDetails(shipSymbol) {
       </div>`;
     }).join("") || `<div class="empty">No jump gates in ${shipSystem}.</div>`;
 
-  let html = `<button class="close" id="manifest-back" title="Back to triage">← Triage</button>
-    <h3>${shipSymbol}</h3>
+  let html = `${containerId === "manifest"
+      ? `<button class="close" id="manifest-back" title="Back to triage">← Triage</button>
+    <h3>${shipSymbol}</h3>`
+      : ""}
     <div class="sub">${ship.registration.role} · ${ship.nav.status.replace(/_/g, " ")} · ${shortWp(ship.nav.waypointSymbol)}</div>
     <div class="metric-row">
       <div class="metric-block"><span class="num">${ship.fuel.current}/${ship.fuel.capacity}</span><span class="lbl">fuel</span></div>
@@ -2539,15 +2499,19 @@ function openShipDetails(shipSymbol) {
     </div>` : ""}`;
 
   modal.innerHTML = html;
-  showRailManifest(shipSymbol);
-  modal.querySelector(".close").addEventListener("click", () => { selectedShip = null; showRailTriage(); });
+  if (containerId === "manifest") {
+    showRailManifest(shipSymbol);
+    modal.querySelector(".close")?.addEventListener("click", () => { selectedShip = null; showRailTriage(); });
+  } else {
+    tabifyShipDetail(modal);
+  }
   modal.querySelectorAll(".hold").forEach((b) => {
     b.addEventListener("click", async () => {
       b.disabled = true;
       try {
         await api("POST", "/api/fleet/hold", { shipSymbol: b.dataset.ship });
         await loadBridge();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2557,7 +2521,7 @@ function openShipDetails(shipSymbol) {
       try {
         await api("POST", "/api/fleet/release", { shipSymbol: b.dataset.ship });
         await loadBridge();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2571,7 +2535,7 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/dispatch", { shipSymbol: b.dataset.ship, waypointSymbol: wp });
         showToastGlobal(`${b.dataset.ship} → ${wp}`);
         await loadBridge();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2582,7 +2546,7 @@ function openShipDetails(shipSymbol) {
         const res = await api("POST", "/api/fleet/dock", { shipSymbol: b.dataset.ship });
         showToastGlobal(`${b.dataset.ship} ${res.status === "DOCKED" ? "docked" : "undocked"}`);
         await loadBridge();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2593,7 +2557,7 @@ function openShipDetails(shipSymbol) {
         const res = await api("POST", "/api/fleet/refuel", { shipSymbol: b.dataset.ship });
         showToastGlobal(`${b.dataset.ship} refueled to ${res.fuel}/${res.capacity} (${res.cost}c)`);
         await loadBridge();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2624,7 +2588,7 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/role", { shipSymbol: b.dataset.ship, role, keeperMarket });
         showToastGlobal(`${b.dataset.ship} → ${role}`);
         await loadBridge();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2638,7 +2602,7 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/mine", { shipSymbol: b.dataset.ship, waypointSymbol: wp });
         showToastGlobal(`${b.dataset.ship} pinned to ${shortWp(wp)}`);
         await loadBridge();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2649,7 +2613,7 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/mine", { shipSymbol: b.dataset.ship, clear: true });
         showToastGlobal(`${b.dataset.ship} choosing its own field again`);
         await loadBridge();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2662,7 +2626,7 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/jettison", { shipSymbol, good, units: Number(units) });
         showToastGlobal(`${shipSymbol} jettisoned ${units}u ${good}`);
         await loadBridge();
-        openShipDetails(shipSymbol);
+        openShipDetails(shipSymbol, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2674,7 +2638,7 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/repair", { shipSymbol });
         showToastGlobal(`${shipSymbol} repaired`);
         await loadBridge();
-        openShipDetails(shipSymbol);
+        openShipDetails(shipSymbol, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
@@ -2685,7 +2649,7 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/explore", { shipSymbol: b.dataset.ship });
         await loadState();
         await loadIntel();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { alert(err.message); b.disabled = false; }
     });
   });
@@ -2696,7 +2660,7 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/buy-install", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp, marketWaypoint: b.dataset.market });
         await loadState();
         await loadIntel();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { alert(err.message); b.disabled = false; }
     });
   });
@@ -2706,7 +2670,7 @@ function openShipDetails(shipSymbol) {
       try {
         await api("POST", "/api/fleet/jump", { shipSymbol: b.dataset.ship, waypointSymbol: b.dataset.to });
         await loadState();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { alert(err.message); b.disabled = false; }
     });
   });
@@ -2716,7 +2680,7 @@ function openShipDetails(shipSymbol) {
       try {
         await api("POST", "/api/fleet/install", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp });
         await loadState();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { alert(err.message); b.disabled = false; }
     });
   });
@@ -2726,7 +2690,7 @@ function openShipDetails(shipSymbol) {
       try {
         await api("POST", "/api/fleet/remove-component", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp });
         await loadState();
-        openShipDetails(b.dataset.ship);
+        openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { alert(err.message); b.disabled = false; }
     });
   });
@@ -2780,6 +2744,72 @@ function refreshOpenShipDetails() {
     if (hadFocus) { next.focus(); try { next.setSelectionRange(caret, caret); } catch (_) {} }
   }
   m.scrollTop = scroll;
+}
+
+// Fleet page's own ship-detail pane (replaces the old standalone Personnel
+// pane — see openFleetShipDetail()) tracks its selection independently of
+// selectedShip/#manifest, which belongs to the Bridge view's Triage rail.
+let fleetDetailShip = null;
+let fleetDetailActiveTab = 0;
+
+/** Turn a rendered ship-detail container's flat list of `.loadout-section`
+ *  blocks into tabs — one tab per section, using each section's own <h4> as
+ *  the tab label. Used only by the Fleet page's pane; #manifest keeps its
+ *  original scrolling list untouched. Purely structural: it doesn't know or
+ *  care what's inside each section, so every current and future section in
+ *  openShipDetails() becomes a tab for free. */
+function tabifyShipDetail(container) {
+  const sections = Array.from(container.children).filter((el) => el.classList.contains("loadout-section"));
+  if (!sections.length) return;
+  const activeIdx = Math.min(fleetDetailActiveTab, sections.length - 1);
+  const bar = document.createElement("div");
+  bar.className = "detail-tabbar";
+  sections.forEach((sec, i) => {
+    const h4 = sec.querySelector(":scope > h4");
+    const label = h4 ? h4.textContent : `Section ${i + 1}`;
+    if (h4) h4.remove();
+    sec.style.display = i === activeIdx ? "" : "none";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "detail-tab" + (i === activeIdx ? " active" : "");
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      fleetDetailActiveTab = i;
+      bar.querySelectorAll(".detail-tab").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      sections.forEach((s, j) => { s.style.display = j === i ? "" : "none"; });
+    });
+    bar.appendChild(btn);
+  });
+  container.insertBefore(bar, sections[0]);
+}
+
+/** Select a ship in the Fleet page's own detail pane — independent of (and
+ *  doesn't disturb) whatever's open in the Bridge view's Triage rail. */
+function openFleetShipDetail(shipSymbol) {
+  if (fleetDetailShip !== shipSymbol) fleetDetailActiveTab = 0;
+  fleetDetailShip = shipSymbol;
+  $("fleet-table")?.querySelectorAll("tbody tr").forEach((r) => r.classList.toggle("sel", r.dataset.ship === shipSymbol));
+  refreshFleetShipDetail();
+}
+
+/** Re-render the Fleet page's detail pane when new fleet data lands — same
+ *  reasoning as refreshOpenShipDetails(), just for the second place this
+ *  content now lives. Preserves scroll position; the active tab already
+ *  survives a rebuild via fleetDetailActiveTab (read by tabifyShipDetail()). */
+function refreshFleetShipDetail() {
+  const el = $("fleet-detail");
+  const titleEl = $("fleet-detail-title");
+  if (!el || !titleEl) return;
+  if (!fleetDetailShip) {
+    titleEl.textContent = "Select a ship";
+    el.innerHTML = '<div class="empty">Click a hull above to see its details.</div>';
+    return;
+  }
+  titleEl.textContent = fleetDetailShip;
+  const scroll = el.scrollTop;
+  openShipDetails(fleetDetailShip, { containerId: "fleet-detail" });
+  el.scrollTop = scroll;
 }
 
 function renderShipyardIntel() {
