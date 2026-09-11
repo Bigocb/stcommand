@@ -430,6 +430,7 @@ export class MissionManager {
     (t.blockedUntil ??= {})[tradeSymbol] = Date.now() + 5 * 60_000;
     t.currentMaterial = undefined;
     t.market = undefined;
+    t.basePrice = undefined;
   }
 
   /** Free the hold of anything that isn't `keep` (the mission's own material)
@@ -512,6 +513,7 @@ export class MissionManager {
         }
       }
       t.market = buyers[0]!.waypoint;
+      t.basePrice = buyers[0]!.purchasePrice;
     }
 
     const material = t.currentMaterial;
@@ -570,6 +572,19 @@ export class MissionManager {
         const credits = (await this.getCredits?.()) ?? 0;
         const buyer = (await this.listBuyers?.(material, mission.targetSystem))?.find((b) => b.waypoint === market);
         const price = buyer?.purchasePrice ?? 0;
+        // This market's own repeated buying can inflate its own price far
+        // past what made it worth choosing in the first place — see
+        // MAX_MISSION_BUY_INFLATION's doc comment for the live incident this
+        // guards against. Re-shop instead of paying whatever the price has
+        // drifted to; blockMaterial() clears t.market too, so the very next
+        // tick's source step picks fresh from listBuyers() (which may still
+        // return this same market once its price has recovered).
+        if (t.basePrice !== undefined && price > t.basePrice * (1 + MAX_MISSION_BUY_INFLATION)) {
+          t.retryAt = Date.now() + 15_000;
+          this.blockMaterial(t, material);
+          this.log(`mission ${mission.targetWaypoint}: ${market} price for ${material} rose to ${price}c (was ${t.basePrice}c) — re-shopping instead of buying`);
+          return;
+        }
         const affordable = price > 0 ? Math.floor(credits / price) : toBuy;
         // Respect the market's per-transaction trade volume limit (e.g. FAB_MATS
         // caps at 20u/tx) — buying more than that fails the whole purchase.
@@ -665,8 +680,28 @@ interface TaskState {
   step: "source" | "supply";
   currentMaterial?: string;
   market?: string;
+  /** The purchase price seen when `market` was chosen for `currentMaterial` —
+   *  see MAX_MISSION_BUY_INFLATION's own comment for why this exists. */
+  basePrice?: number;
   retryAt: number;
   /** tradeSymbol -> timestamp before which material-selection should skip it
    *  in favor of a different outstanding material. See blockMaterial(). */
   blockedUntil?: Record<string, number>;
 }
+
+/**
+ * How far a mission buy's live price may drift above `t.basePrice` (the
+ * price seen when its market was chosen) before treating that market as
+ * exhausted and re-shopping. Ordinary trade-route buys already refuse any
+ * price above their dispatcher snapshot (trader.ts's runBuy) because that
+ * snapshot is refreshed every recompute cycle (~60s); a mission's market
+ * pick has no such refresh — the same carrier can return to the same
+ * market for hours, and nothing previously re-checked the price between
+ * visits. Confirmed live: EWOK's carrier bought the same 43u FAB_MATS lot
+ * from the same market five times over two hours as its own repeated
+ * buying pushed the price up each visit (13,237c -> 15,432c -> 21,066c/u),
+ * spending roughly 3.7M credits before the fleet ran out of cash entirely.
+ * 25% tolerates normal single-lot depletion drift while still catching a
+ * market being run dry by repeat visits.
+ */
+const MAX_MISSION_BUY_INFLATION = 0.25;
