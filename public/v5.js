@@ -2990,6 +2990,14 @@ function makeGlowSprite(color, size) {
   return sp;
 }
 
+function shouldLabelWaypoint(wp) {
+  const traits = wp.traits ?? [];
+  const hasMarket = traits.some((t) => (t.symbol ?? t) === "MARKETPLACE");
+  const hasShipyard = traits.some((t) => (t.symbol ?? t) === "SHIPYARD");
+  const isParent = wp.type === "PLANET" || wp.type === "GAS_GIANT";
+  return isParent || wp.type === "JUMP_GATE" || hasMarket || hasShipyard;
+}
+
 function makeLabelSprite(text, color) {
   // The sprite maps its *whole* texture onto whatever quad sp.scale gives
   // it — sizing that quad from the measured text width while the canvas
@@ -3349,9 +3357,11 @@ function renderMap(ships, trails = new Map()) {
       glowGroup.add(marketGlow);
     }
 
-    const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
-    label.position.set(x, y + size + 2.4, z);
-    bodiesGroup.add(label);
+    if (shouldLabelWaypoint(wp)) {
+      const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
+      label.position.set(x, y + size + 2.4, z);
+      bodiesGroup.add(label);
+    }
 
     // A real orbit path — the waypoint's actual distance from the system's
     // origin, not a fabricated one. Deduped by radius so a station sharing
