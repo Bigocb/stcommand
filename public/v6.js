@@ -2794,6 +2794,98 @@ function makeAsteroidCluster(symbol, size, color) {
   return new THREE.Points(geo, mat);
 }
 
+// Orbital stations and asteroid bases used to render as a plain sphere,
+// same as everything else, differentiated only by size/color/height — a
+// station looked identical in silhouette to a moon. Both now build a real
+// multi-part THREE.Group instead of a single sphere Mesh: the waypoint-body
+// loop below is responsible for positioning the returned group and pushing
+// every sub-mesh (not just the group) into `pickables`, since pickAt()
+// raycasts against individual meshes and looks them up by exact reference.
+function makeStationBody(symbol, size, color) {
+  const group = new THREE.Group();
+
+  const hub = new THREE.Mesh(
+    new THREE.SphereGeometry(size * 0.4, 16, 12),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.08, roughness: 0.4, metalness: 0.6 }),
+  );
+  group.add(hub);
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(size * 1.05, size * 0.13, 8, 28),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.05, roughness: 0.5, metalness: 0.7, side: THREE.DoubleSide }),
+  );
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+
+  const strutMat = new THREE.MeshStandardMaterial({ color: themedColor("--dim"), roughness: 0.6, metalness: 0.5 });
+  const struts = [];
+  const strutCount = 4;
+  for (let i = 0; i < strutCount; i++) {
+    const angle = (2 * Math.PI * i) / strutCount;
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.045, size * 0.045, size * 0.75, 6), strutMat);
+    strut.position.set(Math.cos(angle) * size * 0.72, 0, Math.sin(angle) * size * 0.72);
+    strut.rotation.z = Math.PI / 2;
+    strut.rotation.y = -angle;
+    group.add(strut);
+    struts.push(strut);
+  }
+
+  const rand = seededRandom(symbol + ":station-lights");
+  const lights = [];
+  for (let i = 0; i < 3; i++) {
+    const angle = rand() * Math.PI * 2;
+    const light = makeGlowSprite(themedColor("--buff"), size * 0.45);
+    light.position.set(Math.cos(angle) * size * 1.05, 0, Math.sin(angle) * size * 1.05);
+    group.add(light);
+    lights.push(light);
+  }
+
+  return { group, meshes: [hub, ring, ...struts] };
+}
+
+// A single irregular displaced icosahedron (no shared cache the way
+// makeBodyGeometry() has one for planets/moons — cheap enough, and unique
+// per waypoint, to just rebuild each renderMap() pass like the rings/stalks
+// already do) plus one small attached structure standing in for the actual
+// base, oriented outward from a random point on the rock's own surface.
+function makeAsteroidBaseBody(symbol, size, color) {
+  const rand = seededRandom(symbol + ":asteroidbase");
+  const group = new THREE.Group();
+
+  const geo = new THREE.IcosahedronGeometry(size, 1);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const len = Math.hypot(x, y, z) || 1;
+    const bump = 1 + (rand() - 0.5) * 0.45;
+    pos.setXYZ(i, (x / len) * len * bump, (y / len) * len * bump, (z / len) * len * bump);
+  }
+  geo.computeVertexNormals();
+  const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    color: themedColor("--dim"), roughness: 0.9, metalness: 0.05, flatShading: true,
+  }));
+  group.add(rock);
+
+  const theta = rand() * Math.PI * 2;
+  const phi = Math.acos(2 * rand() - 1);
+  const bx = Math.sin(phi) * Math.cos(theta);
+  const by = Math.sin(phi) * Math.sin(theta);
+  const bz = Math.cos(phi);
+  const structure = new THREE.Mesh(
+    new THREE.BoxGeometry(size * 0.5, size * 0.35, size * 0.5),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.15, roughness: 0.5, metalness: 0.5 }),
+  );
+  structure.position.set(bx * size * 0.9, by * size * 0.9, bz * size * 0.9);
+  structure.lookAt(bx * size * 2, by * size * 2, bz * size * 2);
+  group.add(structure);
+
+  const light = makeGlowSprite(themedColor("--buff"), size * 0.6);
+  light.position.set(bx * size * 1.15, by * size * 1.15, bz * size * 1.15);
+  group.add(light);
+
+  return { group, meshes: [rock, structure] };
+}
+
 function makeGlowSprite(color, size) {
   const c = document.createElement("canvas");
   c.width = c.height = 64;
@@ -2906,12 +2998,21 @@ function worldToScene(x, y, s) {
  * that every poll would be the exact same bug, just for the mesh shape
  * instead of its texture, so geometry checks the same flag before disposal.
  */
+function disposeObject3D(c) {
+  if (c.geometry && !c.geometry.__persistent) c.geometry.dispose();
+  if (c.material?.map && !c.material.map.__persistent) c.material.map.dispose();
+  c.material?.dispose?.();
+}
+
 function clearGroup(g) {
   while (g.children.length) {
     const c = g.children.pop();
-    if (c.geometry && !c.geometry.__persistent) c.geometry.dispose();
-    if (c.material?.map && !c.material.map.__persistent) c.material.map.dispose();
-    c.material?.dispose?.();
+    // Station/asteroid-base bodies and ship hulls are THREE.Group instances
+    // holding several meshes each (hub+ring+struts, rock+structure,
+    // fuselage+wings...) — a bare pop()+dispose() here only ever touched the
+    // group itself (no geometry/material of its own), silently leaking every
+    // mesh nested inside it on each rebuild. traverse() reaches all of them.
+    c.traverse(disposeObject3D);
   }
 }
 
@@ -3027,24 +3128,41 @@ function renderMap(ships, trails = new Map()) {
     const size = WP3D_SIZE[wp.type] ?? 1.8;
     const y = computeElevation(wp.symbol, wp.type, wp.x, wp.y);
 
-    const body = new THREE.Mesh(
-      makeBodyGeometry(wp.symbol, wp.type, wp.traits, size),
-      // A small emissive floor in the body's own color, independent of any
-      // light reaching it — the HemisphereLight above already keeps the
-      // shadow side well off pure black at normal distances, but this is
-      // the actual floor for a body far enough out that even that fill
-      // reads as dim: a hint of the body's own hue rather than a void.
-      // `map` (when this type has a texture drawer) rides alongside color:
-      // Three multiplies the two, so the surface detail below tints to
-      // this system's own palette rather than replacing it.
-      new THREE.MeshStandardMaterial({
-        color, emissive: color, emissiveIntensity: 0.05, roughness: 0.55, metalness: 0.15,
-        map: makeBodyTexture(wp.symbol, wp.type, wp.traits),
-      }),
-    );
-    body.position.set(x, y, z);
-    bodiesGroup.add(body);
-    pickables.push({ mesh: body, kind: "waypoint", symbol: wp.symbol });
+    let body;
+    if (wp.type === "ORBITAL_STATION" || wp.type === "ASTEROID_BASE") {
+      const built = wp.type === "ORBITAL_STATION"
+        ? makeStationBody(wp.symbol, size, color)
+        : makeAsteroidBaseBody(wp.symbol, size, color);
+      body = built.group;
+      body.position.set(x, y, z);
+      bodiesGroup.add(body);
+      // pickAt() raycasts against individual meshes, not groups, and looks
+      // the hit up by exact reference — every visible sub-mesh needs its
+      // own pickables entry (all resolving to the same waypoint symbol) or
+      // clicking most of the shape would silently miss.
+      for (const mesh of built.meshes) {
+        pickables.push({ mesh, kind: "waypoint", symbol: wp.symbol });
+      }
+    } else {
+      body = new THREE.Mesh(
+        makeBodyGeometry(wp.symbol, wp.type, wp.traits, size),
+        // A small emissive floor in the body's own color, independent of any
+        // light reaching it — the HemisphereLight above already keeps the
+        // shadow side well off pure black at normal distances, but this is
+        // the actual floor for a body far enough out that even that fill
+        // reads as dim: a hint of the body's own hue rather than a void.
+        // `map` (when this type has a texture drawer) rides alongside color:
+        // Three multiplies the two, so the surface detail below tints to
+        // this system's own palette rather than replacing it.
+        new THREE.MeshStandardMaterial({
+          color, emissive: color, emissiveIntensity: 0.05, roughness: 0.55, metalness: 0.15,
+          map: makeBodyTexture(wp.symbol, wp.type, wp.traits),
+        }),
+      );
+      body.position.set(x, y, z);
+      bodiesGroup.add(body);
+      pickables.push({ mesh: body, kind: "waypoint", symbol: wp.symbol });
+    }
 
     const rim = ATMOSPHERE_RIM[wp.type];
     if (rim) {
@@ -3194,6 +3312,112 @@ function renderMap(ships, trails = new Map()) {
   if (scrubLive) shipAnimHandle = requestAnimationFrame(repositionShips);
 }
 
+// Real SpaceTraders frame symbols (confirmed via grep across the codebase)
+// bucketed into five silhouette families, plus a sixth "command" bucket that
+// overrides all of them for the one flagship per fleet (SpaceTraders' own
+// registration.role, not this app's dispatcher role used for SHIP3D_COLOR).
+// A frame this app hasn't seen yet falls back to "explorer" rather than the
+// single undifferentiated cone every ship used to render as.
+const FRAME_HULL_BUCKET = {
+  FRAME_PROBE: "probe", FRAME_DRONE: "probe",
+  FRAME_FIGHTER: "fighter", FRAME_INTERCEPTOR: "fighter", FRAME_RACER: "fighter",
+  FRAME_FRIGATE: "frigate", FRAME_CRUISER: "frigate", FRAME_DESTROYER: "frigate",
+  FRAME_LIGHT_FREIGHTER: "hauler", FRAME_HEAVY_FREIGHTER: "hauler", FRAME_TRANSPORT: "hauler",
+  FRAME_BULK_FREIGHTER: "hauler", FRAME_CARRIER: "hauler",
+  FRAME_EXPLORER: "explorer", FRAME_SHUTTLE: "explorer", FRAME_MINER: "explorer",
+};
+
+function shipHullBucket(sh) {
+  if (sh.registration?.role === "COMMAND") return "command";
+  return FRAME_HULL_BUCKET[sh.frame?.symbol] ?? "explorer";
+}
+
+// Every hull below is built nose-first along +Z (the same convention the
+// old single ConeGeometry ended up in after its own body.rotation.x =
+// Math.PI/2 — see that rotation's comment history) so renderShipsInto()'s
+// outer group.rotation.y (transit heading) and .x (transit pitch) apply
+// unchanged. One shared material per ship (role/selection owns color, the
+// hull shape owns "what kind of ship this is" — no separate per-bucket
+// accent colors) keeps the map's existing color contract intact.
+function buildShipHull(bucket, mat) {
+  const group = new THREE.Group();
+  const meshes = [];
+  const add = (mesh) => { group.add(mesh); meshes.push(mesh); return mesh; };
+
+  switch (bucket) {
+    case "command": {
+      const fuselage = add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.16, 0.6, 8), mat));
+      fuselage.rotation.x = Math.PI / 2;
+      const nose = add(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 8), mat));
+      nose.rotation.x = Math.PI / 2;
+      nose.position.z = 0.41;
+      const fin = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.22, 0.3), mat));
+      fin.position.set(0, 0.13, -0.05);
+      fin.rotation.x = -0.5;
+      const wingL = add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.16), mat));
+      wingL.position.set(-0.18, -0.02, -0.18);
+      wingL.rotation.z = 0.25;
+      const wingR = add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.16), mat));
+      wingR.position.set(0.18, -0.02, -0.18);
+      wingR.rotation.z = -0.25;
+      const engineL = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), mat));
+      engineL.rotation.x = Math.PI / 2;
+      engineL.position.set(-0.26, -0.03, -0.28);
+      const engineR = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), mat));
+      engineR.rotation.x = Math.PI / 2;
+      engineR.position.set(0.26, -0.03, -0.28);
+      break;
+    }
+    case "probe": {
+      const body = add(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.34, 6), mat));
+      body.rotation.x = Math.PI / 2;
+      const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), mat));
+      dish.position.z = -0.15;
+      break;
+    }
+    case "fighter": {
+      const body = add(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.5, 4), mat));
+      body.rotation.x = Math.PI / 2;
+      const wingL = add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.18), mat));
+      wingL.position.set(-0.24, 0, -0.05);
+      wingL.rotation.z = 0.1;
+      const wingR = add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.18), mat));
+      wingR.position.set(0.24, 0, -0.05);
+      wingR.rotation.z = -0.1;
+      break;
+    }
+    case "frigate": {
+      const body = add(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.55, 8), mat));
+      body.rotation.x = Math.PI / 2;
+      const nose = add(new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.18, 8), mat));
+      nose.rotation.x = Math.PI / 2;
+      nose.position.z = 0.36;
+      const finL = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), mat));
+      finL.position.set(-0.13, 0.02, -0.2);
+      const finR = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), mat));
+      finR.position.set(0.13, 0.02, -0.2);
+      break;
+    }
+    case "hauler": {
+      add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.55), mat));
+      const podL = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.4), mat));
+      podL.position.set(-0.24, -0.02, -0.02);
+      const podR = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.4), mat));
+      podR.position.set(0.24, -0.02, -0.02);
+      break;
+    }
+    case "explorer":
+    default: {
+      const body = add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 0.45, 8), mat));
+      body.rotation.x = Math.PI / 2;
+      const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), mat));
+      dish.position.z = -0.2;
+      break;
+    }
+  }
+  return { group, meshes };
+}
+
 function renderShipsInto(ships, s) {
   clearGroup(shipsGroup);
 
@@ -3235,16 +3459,15 @@ function renderShipsInto(ships, s) {
     const color = sel ? themedColor("--accent") : themedColor(SHIP3D_COLOR[role] ?? "--star");
 
     const group = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.ConeGeometry(0.2, 0.5, 4),
-      // Lit like the waypoint bodies now, but with a strong emissive glow
-      // in the same color rather than plain unlit — a ship still has to
-      // read as a bright, glanceable marker at a glance, not a shaded
-      // model with a dark side that can wash out against space.
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 }),
-    );
-    body.rotation.x = Math.PI / 2;
-    group.add(body);
+    // Lit like the waypoint bodies now, but with a strong emissive glow in
+    // the same color rather than plain unlit — a ship still has to read as
+    // a bright, glanceable marker at a glance, not a shaded model with a
+    // dark side that can wash out against space. One material shared by
+    // every part of this ship's hull: role/selection owns the color, the
+    // hull shape (see buildShipHull) owns which kind of ship it reads as.
+    const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 });
+    const hull = buildShipHull(shipHullBucket(sh), mat);
+    group.add(hull.group);
     if (sel) {
       // A 3D torus ring that stays oriented with the ship instead of a flat
       // disk lying on the ecliptic plane. It scales with the tiny new ship
@@ -3285,7 +3508,13 @@ function renderShipsInto(ships, s) {
     group.position.set(scenePos.x + (off?.dx ?? 0), scenePos.y + (off?.dy ?? 0), scenePos.z + (off?.dz ?? 0));
 
     shipsGroup.add(group);
-    pickables.push({ mesh: body, kind: "ship", symbol: sh.symbol, group });
+    // pickAt() raycasts against individual meshes and looks the hit up by
+    // exact reference — every part of the hull needs its own entry (all
+    // resolving to this same ship) or clicking most of a multi-mesh hull
+    // would silently miss.
+    for (const mesh of hull.meshes) {
+      pickables.push({ mesh, kind: "ship", symbol: sh.symbol, group });
+    }
   }
 }
 
