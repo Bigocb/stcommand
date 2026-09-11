@@ -1818,7 +1818,15 @@ export class FleetManager {
     }
     this.log(`purchasing ${type} at ${yardSymbol} for ${offer.purchasePrice} credits`);
     const res = await this.api.purchaseShip(type, yardSymbol);
-    await this.doctrine.ensureShipTypeRule(type);
+    // Register by frame, not by ship type: atCap() below and the boot-time
+    // registration loop (init()'s `ship.frame?.symbol` call) both check
+    // `shipCap:<frame>` — a ship's live API object never carries its
+    // original purchase type again after buying, only its frame, so frame is
+    // the only key that stays enforceable for the life of the hull. This
+    // used to register `shipCap:${type}` (e.g. shipCap:SHIP_MINING_DRONE)
+    // instead, a key nothing ever reads — an operator's edit to that cap in
+    // the doctrine tab silently did nothing.
+    if (res.ship.frame?.symbol) await this.doctrine.ensureShipTypeRule(res.ship.frame.symbol);
     this.recordLedger?.({
       timestamp: new Date().toISOString(),
       shipSymbol: res.ship.symbol,
@@ -2029,7 +2037,9 @@ export class FleetManager {
       try {
         this.log(`purchasing ${attempt.type} at ${attempt.yardSymbol} for ${attempt.price} credits (${attempt.reason})`);
         const res = await this.api.purchaseShip(attempt.type, attempt.yardSymbol);
-        await this.doctrine.ensureShipTypeRule(attempt.type);
+        // See buyShip()'s matching comment: register by frame (what atCap()
+        // just above actually checked), not by ship type.
+        await this.doctrine.ensureShipTypeRule(attempt.frameSymbol);
         this.recordLedger?.({
           timestamp: new Date().toISOString(),
           shipSymbol: res.ship.symbol,
