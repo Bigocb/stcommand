@@ -2728,6 +2728,64 @@ function makeAsteroidBaseBody(symbol, size, color) {
 
   return { group, meshes: [rock, structure] };
 }
+/**
+ * Procedural hull-plating texture — same idea as the planet/moon biome
+ * canvases (a drawn pattern applied as `material.map` so it multiplies
+ * with the ship's own role color instead of replacing it), but for ships:
+ * an irregular grid of panel seams, per-panel brightness variation like
+ * brushed/weathered plate, and rivets at the panel corners. One shared
+ * canvas for every ship's every hull part (not per-symbol like a body's
+ * texture — plating doesn't need to be unique per ship, just present) so
+ * this only ever draws once per page load, then rides `tex.repeat` to
+ * tile across whatever size box/cylinder/cone face it lands on.
+ */
+let hullPanelTexture = null;
+function makeHullPanelTexture() {
+  if (hullPanelTexture) return hullPanelTexture;
+  const size = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "rgb(150,150,150)";
+  ctx.fillRect(0, 0, size, size);
+
+  // An irregular grid, not an even tile — real plating doesn't repeat on a
+  // neat interval, and an even grid would read as a texture bug (moire)
+  // once it's tiled small over a tiny hull part.
+  const vLines = [0, 21, 37, 70, 91, size];
+  const hLines = [0, 17, 45, 76, 101, size];
+  for (let i = 0; i < vLines.length - 1; i++) {
+    for (let j = 0; j < hLines.length - 1; j++) {
+      const v = 128 + Math.floor(Math.random() * 42);
+      ctx.fillStyle = `rgb(${v},${v},${v})`;
+      ctx.fillRect(vLines[i], hLines[j], vLines[i + 1] - vLines[i], hLines[j + 1] - hLines[j]);
+    }
+  }
+  ctx.strokeStyle = "rgb(68,68,68)";
+  ctx.lineWidth = 1.5;
+  for (const x of vLines) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke(); }
+  for (const y of hLines) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke(); }
+  ctx.fillStyle = "rgb(58,58,58)";
+  for (const x of vLines.slice(1, -1)) {
+    for (const y of hLines.slice(1, -1)) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  // A small hull part (a fin, a pod) would otherwise show only a sliver of
+  // one panel — repeating the pattern a few times over keeps plating
+  // visible at every part's own scale.
+  tex.repeat.set(2, 2);
+  tex.__persistent = true;
+  hullPanelTexture = tex;
+  return tex;
+}
+
 // Real SpaceTraders frame symbols (confirmed via grep across the codebase)
 // bucketed into five silhouette families, plus a sixth "command" bucket that
 // overrides all of them for the one flagship per fleet (SpaceTraders' own
@@ -3479,9 +3537,15 @@ function renderShipsInto(ships, s) {
     // dark side that can wash out against space. One material shared by
     // every part of this ship's hull: role/selection owns the color, the
     // hull shape (see buildShipHull) owns which kind of ship it reads as.
-    const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 });
+    const mat = new THREE.MeshStandardMaterial({
+      color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2,
+      map: makeHullPanelTexture(),
+    });
     const trim = trimColor(color);
-    const trimMat = new THREE.MeshStandardMaterial({ color: trim, emissive: trim, emissiveIntensity: 0.4, roughness: 0.45, metalness: 0.25 });
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: trim, emissive: trim, emissiveIntensity: 0.4, roughness: 0.45, metalness: 0.25,
+      map: makeHullPanelTexture(),
+    });
     const hull = buildShipHull(shipHullBucket(sh), mat, trimMat);
     hull.group.scale.setScalar(shipHullScale(sh));
     group.add(hull.group);
