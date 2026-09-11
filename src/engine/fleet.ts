@@ -3194,10 +3194,22 @@ export class FleetManager {
     if (this.warehouseShip && this.warehouseShip.shipSymbol !== shipSymbol) {
       await this.releaseWarehouseShip();
     }
-    await this.dispatchShip(shipSymbol, waypointSymbol);
+    // Set the designation before the flight below, not after. dispatchShip()
+    // can block for the ship's whole transit (a manual, non-scheduler-driven
+    // dispatch — see ShipProxy.navigateTo()'s doc comment), and
+    // dispatcherTraders()/syncShipClaims() both key off `this.warehouseShip`
+    // to exclude this ship from trade-route assignment. Setting it only after
+    // the await left the ship looking like an ordinary trader for its entire
+    // trip to the warehouse waypoint — confirmed live: DRAGOM-10 kept getting
+    // handed fresh DRUGS assignments (rejected as a protected good, but still
+    // reserving/logging as if it were a real trader) for 15+ minutes while
+    // flying there, because nothing here marked it as the warehouse ship
+    // until it had already arrived.
     this.warehouseShip = { shipSymbol, waypointSymbol };
     if (this.tenantId) await this.store?.setFleetFlag(this.tenantId, "warehouseShip", JSON.stringify(this.warehouseShip));
-    this.log(`${shipSymbol} designated warehouse ship, parked at ${waypointSymbol}`);
+    this.log(`${shipSymbol} designated warehouse ship, heading to ${waypointSymbol}`);
+    await this.dispatchShip(shipSymbol, waypointSymbol);
+    this.log(`${shipSymbol} parked at ${waypointSymbol} as warehouse ship`);
   }
 
   /** Hand the warehouse ship back to normal duty. */
