@@ -1734,6 +1734,1121 @@ const SHIP3D_COLOR = {
   keeper: "--bone", warehouse: "--bone",
 };
 
+const WP3D_ELEVATION = {
+  PLANET: 0,
+  GAS_GIANT: 0,
+  JUMP_GATE: 0,
+  MOON: 2.2,
+  ORBITAL_STATION: 4.5,
+  ASTEROID_BASE: 4.5,
+  FUEL_STATION: 4.0,
+  ASTEROID_FIELD: 2.0,
+  ASTEROID: 1.5,
+  ENGINEERED_ASTEROID: 1.8,
+  NEBULA: 3.0,
+  DEBRIS_FIELD: 2.2,
+  GRAVITY_WELL: 2.5,
+  ARTIFICIAL_GRAVITY_WELL: 2.5,
+};
+const ELEVATION_MICRO_RANGE = 1.2; // ± this much, deterministic per symbol
+const TRANSIT_ARC_FACTOR = 0.12;    // arc height as fraction of scene distance
+function hashString(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h / 2147483647);
+}
+
+/** Elevation for a single waypoint. Cached by symbol because it is called
+ *  from several places (bodies, rings, labels, ships, trails). */
+const elevationCache = new Map();
+function computeElevation(symbol, type, x, y) {
+  const key = symbol;
+  if (elevationCache.has(key)) return elevationCache.get(key);
+  const base = WP3D_ELEVATION[type] ?? 0;
+  const micro = hashString(symbol) * ELEVATION_MICRO_RANGE;
+  // Belt objects (asteroid/nebula) also get a slow radial wave so the belt
+  // reads as a volume rather than a flat ribbon.
+  const r = Math.hypot(x, y);
+  const beltWobble = (type === "ASTEROID_FIELD" || type === "ASTEROID" || type === "NEBULA" || type === "DEBRIS_FIELD")
+    ? Math.sin(r * 0.15 + hashString(symbol) * 2) * 0.8
+    : 0;
+  const z = base + micro + beltWobble;
+  elevationCache.set(key, z);
+  return z;
+}
+
+function clearElevationCache() {
+  elevationCache.clear();
+}
+
+/** Scene position with artificial elevation baked in. */
+function waypointScenePos(wp, s) {
+  const { x, z } = worldToScene(wp.x, wp.y, s);
+  const y = computeElevation(wp.symbol, wp.type, wp.x, wp.y);
+  return { x, y, z };
+}
+
+/** Elevation of a ship mid-transit. It arcs above/below the straight line
+ *  between origin and destination so long hops read as climbs/dives rather
+ *  than flat crawls. The arc peaks at the midpoint and returns to the
+ *  destination's own elevation. */
+function transitArcHeight(baseScenePos, originWP, destWP, s) {
+  const originY = originWP ? computeElevation(originWP.symbol, originWP.type, originWP.x, originWP.y) : 0;
+  const destY = destWP ? computeElevation(destWP.symbol, destWP.type, destWP.x, destWP.y) : 0;
+  // Estimate fraction along the route from the base (flat) position. If
+  // either endpoint is missing, just use the straight interpolation.
+  let frac = 0.5;
+  let routeDist = 0;
+  if (originWP && destWP) {
+    const o = worldToScene(originWP.x, originWP.y, s);
+    const d = worldToScene(destWP.x, destWP.y, s);
+    routeDist = Math.hypot(d.x - o.x, d.z - o.z);
+    const done = Math.hypot(baseScenePos.x - o.x, baseScenePos.z - o.z);
+    frac = routeDist > 0 ? Math.min(1, Math.max(0, done / routeDist)) : 0.5;
+  }
+  const linearY = originY + (destY - originY) * frac;
+  // Arc above the straight line: taller for longer hops, peaking mid-route.
+  const arc = routeDist > 0 ? Math.sin(Math.PI * frac) * routeDist * TRANSIT_ARC_FACTOR : 0;
+  return { y: linearY + arc };
+}
+// A darker two-tone variant of a body/ship's own role color, for secondary
+// structural parts (wings, struts, pods) that should read as "part of this
+// same thing" rather than a fixed, unrelated accent color — keeps "role/
+// selection owns color" intact (nothing here is hardcoded to a bucket or
+// waypoint type) while giving flat single-hue shapes some depth.
+function trimColor(color) {
+  return color.clone().multiplyScalar(0.55);
+}
+function seededRandom(seedStr) {
+  let seed = Math.abs(Math.floor(hashString(seedStr) * 2147483647)) || 1;
+  return function () {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+}
+
+/** 3D simplex noise (Gustavson's public-domain algorithm), permutation
+ *  table shuffled by the same seeded `rand` a body's drawer already
+ *  receives — so a waypoint's noise field is exactly as stable as
+ *  everything else keyed off its symbol. Returns roughly [-1, 1]. Sampled
+ *  in 3D (never the flat 2D canvas directly) so wrapping it around a
+ *  sphere has no seam at U=0/1 and no pinching at the poles — see
+ *  sphereNoise() below. */
+function makeSimplex3(rand) {
+  const p = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
+  }
+  const perm = new Uint8Array(512);
+  const permMod12 = new Uint8Array(512);
+  for (let i = 0; i < 512; i++) {
+    perm[i] = p[i & 255];
+    permMod12[i] = perm[i] % 12;
+  }
+  const grad3 = [
+    [1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0],
+    [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1],
+    [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1],
+  ];
+  const F3 = 1 / 3, G3 = 1 / 6;
+  return function simplex3(xin, yin, zin) {
+    let n0, n1, n2, n3;
+    const s = (xin + yin + zin) * F3;
+    const i = Math.floor(xin + s), j = Math.floor(yin + s), k = Math.floor(zin + s);
+    const t = (i + j + k) * G3;
+    const X0 = i - t, Y0 = j - t, Z0 = k - t;
+    const x0 = xin - X0, y0 = yin - Y0, z0 = zin - Z0;
+    let i1, j1, k1, i2, j2, k2;
+    if (x0 >= y0) {
+      if (y0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+      else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1; }
+      else { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1; }
+    } else {
+      if (y0 < z0) { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1; }
+      else if (x0 < z0) { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1; }
+      else { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+    }
+    const x1 = x0 - i1 + G3, y1 = y0 - j1 + G3, z1 = z0 - k1 + G3;
+    const x2 = x0 - i2 + 2 * G3, y2 = y0 - j2 + 2 * G3, z2 = z0 - k2 + 2 * G3;
+    const x3 = x0 - 1 + 3 * G3, y3 = y0 - 1 + 3 * G3, z3 = z0 - 1 + 3 * G3;
+    const ii = i & 255, jj = j & 255, kk = k & 255;
+    let t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0;
+    if (t0 < 0) n0 = 0;
+    else {
+      const gi0 = permMod12[ii + perm[jj + perm[kk]]];
+      t0 *= t0;
+      n0 = t0 * t0 * (grad3[gi0][0] * x0 + grad3[gi0][1] * y0 + grad3[gi0][2] * z0);
+    }
+    let t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1;
+    if (t1 < 0) n1 = 0;
+    else {
+      const gi1 = permMod12[ii + i1 + perm[jj + j1 + perm[kk + k1]]];
+      t1 *= t1;
+      n1 = t1 * t1 * (grad3[gi1][0] * x1 + grad3[gi1][1] * y1 + grad3[gi1][2] * z1);
+    }
+    let t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2;
+    if (t2 < 0) n2 = 0;
+    else {
+      const gi2 = permMod12[ii + i2 + perm[jj + j2 + perm[kk + k2]]];
+      t2 *= t2;
+      n2 = t2 * t2 * (grad3[gi2][0] * x2 + grad3[gi2][1] * y2 + grad3[gi2][2] * z2);
+    }
+    let t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3;
+    if (t3 < 0) n3 = 0;
+    else {
+      const gi3 = permMod12[ii + 1 + perm[jj + 1 + perm[kk + 1]]];
+      t3 *= t3;
+      n3 = t3 * t3 * (grad3[gi3][0] * x3 + grad3[gi3][1] * y3 + grad3[gi3][2] * z3);
+    }
+    return 32 * (n0 + n1 + n2 + n3);
+  };
+}
+
+/** Sums `octaves` layers of the given noise fn at doubling frequency and
+ *  `persistence`-scaled amplitude (standard fractal Brownian motion),
+ *  normalized back to roughly [-1, 1]. */
+function fbm3(noiseFn, x, y, z, octaves, persistence) {
+  let total = 0, amplitude = 1, maxAmplitude = 0, freq = 1;
+  for (let o = 0; o < octaves; o++) {
+    total += noiseFn(x * freq, y * freq, z * freq) * amplitude;
+    maxAmplitude += amplitude;
+    amplitude *= persistence;
+    freq *= 2;
+  }
+  return total / maxAmplitude;
+}
+
+/** UV→sphere→fbm3 glue: converts a canvas pixel's (u, v) to a point on a
+ *  unit sphere and samples fbm3 there, so the resulting texture has no
+ *  seam where U wraps and no pinch at the poles. */
+function sphereNoise(noiseFn, u, v, octaves, persistence, freq) {
+  const theta = u * Math.PI * 2;
+  const phi = v * Math.PI;
+  const x = Math.sin(phi) * Math.cos(theta) * freq;
+  const y = Math.cos(phi) * freq;
+  const z = Math.sin(phi) * Math.sin(theta) * freq;
+  return fbm3(noiseFn, x, y, z, octaves, persistence);
+}
+
+/** Fills the whole canvas from a per-pixel (u, v) -> [r, g, b, a] callback
+ *  in one ImageData write instead of thousands of individual fillRect
+ *  calls — the noise-driven drawer backgrounds below all use this. */
+function paintNoiseCanvas(ctx, size, colorAt) {
+  const img = ctx.createImageData(size, size);
+  const data = img.data;
+  for (let y = 0; y < size; y++) {
+    const v = y / size;
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const [r, g, b, a] = colorAt(u, v);
+      const idx = (y * size + x) * 4;
+      data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = a;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+/**
+ * Procedural per-body surface texture — grayscale lightness only, drawn
+ * once per waypoint symbol and cached (elevationCache's own pattern) so a
+ * periodic renderMap() doesn't regenerate a canvas, and re-roll its random
+ * placement, on every poll. Applied as `material.map` alongside the
+ * existing flat `color`: Three multiplies the two, so a system still reads
+ * by its established WP3D_COLOR palette — this only adds real surface
+ * detail (continents, bands, craters) on top of it instead of replacing it.
+ * Types with no plausible natural surface (stations, gates, gravity wells)
+ * return null and stay flat, same as before this pass.
+ */
+/**
+ * One cache entry per waypoint holds everything derived from its biome
+ * canvas: the texture makeBodyTexture() hands to the material, and the raw
+ * pixel data makeBodyGeometry() reads as a height field for real vertex
+ * displacement — see that function's comment. Both draw from the exact
+ * same canvas (same variant, same seed), so the bumps line up with the
+ * pattern instead of two independently-random textures fighting each
+ * other.
+ */
+const bodyVisualCache = new Map();
+function ensureBodyVisual(symbol, type, traits) {
+  if (bodyVisualCache.has(symbol)) return bodyVisualCache.get(symbol);
+  const variants = BODY_TEXTURE_DRAWERS[type];
+  if (!variants) {
+    bodyVisualCache.set(symbol, null);
+    return null;
+  }
+  // Prefer the waypoint's own real SpaceTraders traits over a coin flip: a
+  // VOLCANIC-tagged planet should look volcanic, not whichever variant its
+  // symbol happened to hash to. BODY_TEXTURE_TRAITS lists, per type, which
+  // trait symbols point at which variant index — first match wins. Only
+  // waypoints with none of the listed traits (or a type with no mapping at
+  // all) fall back to the old hash, which is still what keeps two otherwise
+  // identical bodies from looking like carbon copies.
+  const traitSymbols = (traits ?? []).map((t) => t?.symbol ?? t);
+  const traitMap = BODY_TEXTURE_TRAITS[type];
+  let variantIndex = traitMap ? traitMap.findIndex((symbols) => symbols.some((s) => traitSymbols.includes(s))) : -1;
+  if (variantIndex < 0) {
+    // Which variant a waypoint gets is picked once, from a hash of its own
+    // symbol — a real SpaceTraders symbol never changes, so this is stable
+    // forever with no need to actually assign-and-persist a "subtype" on
+    // first discovery: the hash IS the persisted assignment, for free.
+    variantIndex = Math.floor(Math.abs(hashString(symbol + ":variant")) * variants.length) % variants.length;
+  }
+  const variant = variants[variantIndex];
+  const size = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  variant(ctx, size, seededRandom(symbol));
+  // The drawers above were designed against a flat, unlit preview and read
+  // clearly there — but under this map's actual point-light + PBR specular
+  // response, that same ~90-220 lightness range gets compressed hard: the
+  // lit hemisphere pushes toward a blown-out highlight, the unlit side
+  // toward a flat emissive floor, and what's left in between barely
+  // survives. Push contrast out from mid-gray before this ever becomes a
+  // texture, so the surface pattern still reads once real lighting (and
+  // the sphere-UV mip issue worked around above) get their turn at it.
+  const boosted = ctx.getImageData(0, 0, size, size);
+  const px = boosted.data;
+  const contrast = 1.7;
+  for (let i = 0; i < px.length; i += 4) {
+    px[i] = Math.max(0, Math.min(255, (px[i] - 128) * contrast + 128));
+    px[i + 1] = Math.max(0, Math.min(255, (px[i + 1] - 128) * contrast + 128));
+    px[i + 2] = Math.max(0, Math.min(255, (px[i + 2] - 128) * contrast + 128));
+  }
+  ctx.putImageData(boosted, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  // Confirmed live (a JUNGLE planet rendering as a flat, patternless blob)
+  // and reproduced in isolation: a body's mip-mapped canvas texture, wrapped
+  // around a SphereGeometry's UVs, samples as a smooth near-uniform blur
+  // with no surface detail at all — even fully unlit, even on a bare test
+  // scene with nothing else in it. A flat PlaneGeometry with the identical
+  // texture renders correctly; only the sphere's wrapped UVs trigger it,
+  // which points at automatic mip selection picking a wildly-too-coarse
+  // level (the U seam's UV derivative jumps hugely at a full 0→1 wrap).
+  // Skipping mipmaps and sampling the base level directly restores the
+  // pattern. The texture is only ever seen at a few fixed close-in zoom
+  // levels on this map, never minified enough for losing mips to look
+  // aliased, so there's no real tradeoff here.
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  // Reused across every renderMap() rebuild — see clearGroup()'s comment for
+  // why this must survive the mesh that's currently wearing it.
+  tex.__persistent = true;
+  const entry = { tex, imageData: boosted, size };
+  bodyVisualCache.set(symbol, entry);
+  return entry;
+}
+
+function makeBodyTexture(symbol, type, traits) {
+  return ensureBodyVisual(symbol, type, traits)?.tex ?? null;
+}
+
+// Planets and moons get real relief carved into the mesh, not just a flat
+// color texture — the same biome canvas ensureBodyVisual() already draws
+// (jungle canopy, volcanic cracks, ice fractures, crater fields...) doubles
+// as a height field, so a JUNGLE world reads as lumpy canopy and a rocky
+// moon as genuinely cratered under real lighting, not just tinted. Gas
+// giants (fluid, banded, no surface) and everything else keep a plain
+// sphere — displacement only makes sense for a body with actual terrain.
+const DISPLACED_BODY_TYPES = new Set(["PLANET", "MOON"]);
+const bodyGeometryCache = new Map();
+function makeBodyGeometry(symbol, type, traits, radius) {
+  if (bodyGeometryCache.has(symbol)) return bodyGeometryCache.get(symbol);
+  const displace = DISPLACED_BODY_TYPES.has(type);
+  // Higher tessellation only where it buys real detail — everything else
+  // keeps the original 20x16 a flat-shaded sphere doesn't need more than.
+  const geo = displace
+    ? new THREE.SphereGeometry(radius, 48, 32)
+    : new THREE.SphereGeometry(radius, 20, 16);
+  if (displace) {
+    const visual = ensureBodyVisual(symbol, type, traits);
+    if (visual) {
+      const { imageData, size } = visual;
+      const pos = geo.attributes.position;
+      const uv = geo.attributes.uv;
+      // Up to ~7% of the body's own radius — enough to read as real relief
+      // at this map's usual zoom without turning a planet into a spiky mess.
+      const amplitude = radius * 0.07;
+      for (let i = 0; i < pos.count; i++) {
+        const px = Math.min(size - 1, Math.max(0, Math.floor(uv.getX(i) * size)));
+        const py = Math.min(size - 1, Math.max(0, Math.floor((1 - uv.getY(i)) * size)));
+        const lightness = imageData.data[(py * size + px) * 4] / 255; // grayscale: R=G=B
+        const displacement = (lightness - 0.5) * 2 * amplitude;
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const len = Math.hypot(x, y, z) || 1;
+        const scale = (len + displacement) / len;
+        pos.setXYZ(i, x * scale, y * scale, z * scale);
+      }
+      pos.needsUpdate = true;
+      // Bent normals from the new bumps, not the original sphere's — this
+      // is what makes the relief actually catch light instead of just
+      // silently reshaping the silhouette.
+      geo.computeVertexNormals();
+    }
+  }
+  // Reused across every renderMap() rebuild — recomputing ~1,600 displaced
+  // vertices every ~1s poll for every visible planet/moon for no reason
+  // would be wasteful, and clearGroup() already knows to leave a
+  // `__persistent` resource alone instead of disposing it out from under
+  // the cache that's still holding it (see that function's comment).
+  geo.__persistent = true;
+  bodyGeometryCache.set(symbol, geo);
+  return geo;
+}
+
+// ASTEROID/ASTEROID_FIELD/ENGINEERED_ASTEROID get the same "not quite
+// round" treatment as ASTEROID_BASE's rock, rather than the smooth sphere
+// every other undisplaced type keeps — real asteroids read as lumpy at any
+// size, unlike a planet or gas giant. Deliberately its own cache/function
+// rather than folding into makeBodyGeometry()/DISPLACED_BODY_TYPES: that
+// pipeline's displacement rides the body's own biome canvas as a height
+// field (continents, ice fractures...) which doesn't apply to a bare rock,
+// so this perturbs the mesh geometry directly instead.
+const IRREGULAR_ROCK_TYPES = new Set(["ASTEROID", "ASTEROID_FIELD", "ENGINEERED_ASTEROID"]);
+const rockGeometryCache = new Map();
+function makeRockGeometry(symbol, radius) {
+  if (rockGeometryCache.has(symbol)) return rockGeometryCache.get(symbol);
+  const rand = seededRandom(symbol + ":rock");
+  const geo = new THREE.IcosahedronGeometry(radius, 1);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const len = Math.hypot(x, y, z) || 1;
+    const bump = 1 + (rand() - 0.5) * 0.4;
+    pos.setXYZ(i, (x / len) * len * bump, (y / len) * len * bump, (z / len) * len * bump);
+  }
+  geo.computeVertexNormals();
+  geo.__persistent = true; // same reuse-across-rebuilds reasoning as bodyGeometryCache
+  rockGeometryCache.set(symbol, geo);
+  return geo;
+}
+// Each type maps to an array of *variant* drawers, not one — which variant
+// a given waypoint gets is picked in makeBodyTexture() from a hash of its
+// own symbol, so two PLANET waypoints in the same system can look
+// genuinely different (continents vs. ice vs. cracked-volcanic) instead of
+// every one being a minor random reshuffle of the same single pattern.
+//
+// This used to say every variant was deliberately grayscale — pattern
+// only, never hue — to protect the map's one color contract (WP3D_COLOR
+// says "this is a planet" vs "this is a gas giant" by hue). Confirmed
+// live: that was the actual reason only the volcanic variant ever read as
+// textured. A pure `rgba(v,v,v,a)` blotch only shifts *lightness*, and
+// this map's real lighting (a strong point light plus PBR specular
+// response) compresses lightness differences hard — volcanic's orange
+// embers survived because a hue shift doesn't get compressed the same
+// way, not because its blotches were bigger or more opaque (the failed
+// first attempt at this fix pushed every variant's alpha and value range
+// toward volcanic's own and it made no visible difference). Every variant
+// below now carries a small hue accent the same way volcanic always did.
+// The accents are subtly off-neutral, not saturated — the base fill (most
+// of the visible disc) stays close to the type's own palette color, so
+// "this is a planet" still reads at a glance; only the feature blotches
+// that are supposed to stand out now actually can.
+const BODY_TEXTURE_DRAWERS = {
+  PLANET: [
+    // Continents: soft overlapping blotches at varying lightness — reads
+    // as terrain from orbit without needing real Perlin noise for a
+    // sphere this small on screen.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // Land above the noise field's median, base tone below it — real
+      // jagged coastlines instead of soft round blobs.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 3, 0.5, 1.8);
+        if (n > 0) {
+          const t = Math.min(1, n * 1.8);
+          const val = Math.round(140 + t * 95);
+          // Warm tan/green landmass hue, not pure gray — see the comment
+          // above BODY_TEXTURE_DRAWERS for why a hue accent (not just
+          // alpha/range) is what actually survives this map's real lighting.
+          return [Math.min(255, val + 12), Math.min(255, val + 4), Math.max(0, val - 22), 255];
+        }
+        const val = Math.round(130 + n * 25);
+        return [val, val, val, 255];
+      });
+    },
+    // Ice: a bright base with soft frost patches for area coverage plus a
+    // network of cracks on top — the patches alone (cracks are thin lines
+    // that cover almost no area) are what make this variant actually read
+    // from a distance instead of just looking like a flat pale ball with
+    // a few hairline scratches.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // A lower-frequency fbm layer for frost-patch area coverage, plus a
+      // ridge-noise pass (1 - abs(noise), the standard trick for linear
+      // crack-like features) for the crack network — a real fracture
+      // pattern instead of hand-drawn random-walk lines.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const frost = sphereNoise(noise, u, v, 3, 0.5, 1.6);
+        const ridge = 1 - Math.abs(sphereNoise(noise, u + 7.3, v + 2.1, 1, 0.5, 2.6));
+        if (ridge > 0.92) return [70, 90, 110, 255];
+        const base = Math.round(160 + frost * 70);
+        // Cold blue-white frost, not pure gray.
+        return [Math.max(0, base - 20), base, Math.min(255, base + 15), 255];
+      });
+    },
+    // Volcanic: a dark base with glowing cracks/blotches — same silhouette
+    // as the continents variant but inverted lightness and hot accents.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // Higher-frequency ridge noise for the fracture network itself,
+      // thresholded and colored with the same warm-ember hue at the ridge
+      // crests. The radial-gradient glow below is a lighting effect on top
+      // of the fractures, not a background pattern — left untouched.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const ridge = 1 - Math.abs(sphereNoise(noise, u, v, 1, 0.5, 3.2));
+        if (ridge > 0.85) {
+          const t = (ridge - 0.85) / 0.15;
+          return [Math.round(200 + t * 55), Math.round(90 + t * 90), Math.round(50 + t * 70), 255];
+        }
+        return [58, 50, 48, 255];
+      });
+      for (let i = 0; i < 10; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.03 + rand() * 0.1);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, "rgba(255,180,120,0.9)");
+        g.addColorStop(0.4, "rgba(200,90,50,0.5)");
+        g.addColorStop(1, "rgba(200,90,50,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
+    // Swamp: a mid-grey base pocked with small dark bog pools plus a
+    // network of thin winding waterways — busier and more irregular than
+    // continents' broad soft blotches, reading as wet, low terrain rather
+    // than dry landmasses.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // Low-threshold blotchy fbm for bog-pool coverage, plus a ridge-noise
+      // pass for the waterway channels — a real drainage-like network
+      // instead of hand-drawn random-walk lines.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const bog = sphereNoise(noise, u, v, 2, 0.55, 1.8);
+        const channel = 1 - Math.abs(sphereNoise(noise, u + 4.1, v + 9.7, 1, 0.5, 2.8));
+        if (channel > 0.93) return [35, 55, 35, 255];
+        if (bog > 0.25) {
+          const val = Math.round(30 + (bog - 0.25) * 40);
+          // Murky bog green, not pure gray.
+          return [Math.max(0, val - 10), val + 12, Math.max(0, val - 15), 255];
+        }
+        return [138, 138, 128, 255];
+      });
+    },
+    // Rocky: a barren, cracked rock face — jagged angular facets at varying
+    // lightness plus a few sharper impact-style dark/light pairs, closer to
+    // the moon's cratered look than continents' soft terrain but denser and
+    // more fractured, since this is a whole planet's worth of exposed stone.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // High-frequency, low-octave noise for jagged facet coverage — the
+      // discrete crater stamps below are genuinely better represented as
+      // shapes than noise, so they stay as-is.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 2, 0.5, 3.5);
+        const val = Math.round(125 + n * 65);
+        // Warm reddish-brown stone, not pure gray.
+        return [Math.min(255, val + 15), Math.max(0, val - 10), Math.max(0, val - 25), 255];
+      });
+      const craters = 4 + Math.floor(rand() * 5);
+      for (let i = 0; i < craters; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.02 + rand() * 0.05);
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(30,22,18,0.7)";
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(230,210,190,0.55)";
+        ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+    // Barren: flat and mostly featureless — deliberately the quietest
+    // variant of the set, but still real enough to read as *something*
+    // rather than vanishing entirely once real lighting gets hold of it.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // A single low-amplitude, low-frequency octave only — deliberately
+      // the quietest variant, matching its "nothing much going on"
+      // character; noise here should barely read, not disappear.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 1, 0.5, 1.2);
+        const val = Math.round(135 + n * 18);
+        // Dusty tan, not pure gray — kept subtler than the busier variants.
+        return [Math.min(255, val + 10), val, Math.max(0, val - 14), 255];
+      });
+    },
+    // Jungle: dense, heavily overlapping blotches at high count — reads as
+    // near-total canopy cover, the busiest and most textured of the
+    // vegetated variants next to continents' sparser landmasses.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // High-frequency, high-octave-count fbm thresholded broadly — canopy
+      // covers most of the surface, the busiest variant of the set.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 3, 0.6, 2.4);
+        const t = Math.max(0, Math.min(1, (n + 0.6) / 1.2));
+        const val = Math.round(80 + t * 130);
+        // Real canopy green, not pure gray.
+        return [Math.max(0, val - 35), Math.min(255, val + 10), Math.max(0, val - 35), 255];
+      });
+    },
+    // Ocean: mostly a flat, smooth base (open water) with just a few small,
+    // crisp light patches (islands/reefs) — the inverse of continents'
+    // land-dominant look, land is the exception here instead of the rule.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // The inverse of continents: a high threshold so only small isolated
+      // bright regions surface as islands against an otherwise flat field.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 2, 0.55, 2.2);
+        if (n > 0.55) {
+          const val = Math.round(160 + (n - 0.55) * 180);
+          // Sandy tan islands against blue water, not pure gray.
+          return [Math.min(255, val + 15), val, Math.max(0, val - 35), 255];
+        }
+        const val = Math.round(150 + n * 20);
+        return [val, val, val, 255];
+      });
+      // A few broad, very soft current/depth bands so it doesn't read as
+      // perfectly flat.
+      for (let i = 0; i < 3; i++) {
+        const y = rand() * size;
+        const h = size * (0.08 + rand() * 0.1);
+        const v = Math.round(60 + rand() * 30);
+        ctx.fillStyle = `rgba(${Math.max(0, v - 20)},${Math.max(0, v - 10)},${Math.min(255, v + 25)},0.4)`;
+        ctx.fillRect(0, y, size, h);
+      }
+    },
+    // Radioactive: a scarred, speckled base with scattered small glowing
+    // hot-spots — similar idea to volcanic's accent glow but colder, finer,
+    // and much more numerous, reading as widespread contamination rather
+    // than a few active vents.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // The scattered-hotspot glow loop below already works and isn't a
+      // "background pattern" problem — untouched. Only the base speckle
+      // fill swaps from per-pixel random dots to very-high-frequency,
+      // low-octave noise.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 1, 0.5, 6);
+        // Sickly green-yellow glow specks and dark scarring, not pure gray.
+        if (n > 0.6) return [20, 24, 16, 255];
+        if (n < -0.6) {
+          const val = Math.round(200 + (-n - 0.6) * 130);
+          return [Math.max(0, val - 40), val, Math.max(0, val - 130), 255];
+        }
+        return [122, 122, 120, 255];
+      });
+      for (let i = 0; i < 8; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.02 + rand() * 0.05);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, "rgba(210,255,90,0.9)");
+        g.addColorStop(1, "rgba(210,255,90,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
+  ],
+  GAS_GIANT: [
+    // Storm bands: horizontal bands of varying lightness plus a couple of
+    // wavy streaks breaking up the hard edges — the classic look.
+    (ctx, size, rand) => {
+      const bands = 6 + Math.floor(rand() * 5);
+      for (let i = 0; i < bands; i++) {
+        const v = Math.round(150 + rand() * 105);
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillRect(0, (i / bands) * size, size, size / bands + 1);
+      }
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = "#fff";
+      for (let i = 0; i < 3; i++) {
+        const yBase = rand() * size;
+        const phase = rand() * 10;
+        ctx.lineWidth = 2 + rand() * 4;
+        ctx.beginPath();
+        ctx.moveTo(0, yBase);
+        for (let x = 0; x <= size; x += 8) ctx.lineTo(x, yBase + Math.sin(x * 0.05 + phase) * 6);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    },
+    // Great storm: fewer, wider bands plus one big swirling oval accent —
+    // reads as a single dominant storm system rather than uniform stripes.
+    (ctx, size, rand) => {
+      const bands = 3 + Math.floor(rand() * 3);
+      for (let i = 0; i < bands; i++) {
+        const v = Math.round(150 + rand() * 105);
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillRect(0, (i / bands) * size, size, size / bands + 1);
+      }
+      const sx = size * (0.3 + rand() * 0.4), sy = size * (0.3 + rand() * 0.4);
+      const sr = size * (0.12 + rand() * 0.08);
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+      g.addColorStop(0, "rgba(255,255,255,0.5)");
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = g;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.scale(1.6, 1);
+      ctx.translate(-sx, -sy);
+      ctx.fillRect(0, 0, size, size);
+      ctx.restore();
+    },
+  ],
+  MOON: [
+    // Cratered: dark base with light/dark crater pairs (rim + highlight)
+    // scattered across the surface.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // Discrete crater stamps stay as-is; only the flat base fill swaps
+      // for a low-octave noise background.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 2, 0.5, 2.5);
+        const val = Math.round(100 + n * 35);
+        return [val, val, val, 255];
+      });
+      const count = 10 + Math.floor(rand() * 10);
+      for (let i = 0; i < count; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.02 + rand() * 0.07);
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(25,22,20,0.8)";
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        // Warm rim highlight, not pure gray — see the comment above
+        // BODY_TEXTURE_DRAWERS for why hue (not just alpha) is what
+        // actually survives this map's real lighting.
+        ctx.fillStyle = "rgba(225,205,180,0.6)";
+        ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+    // Smooth/mottled: fewer, larger soft patches and no crisp craters — a
+    // moon that reads as geologically quieter than its cratered sibling.
+    (ctx, size, rand) => {
+      const noise = makeSimplex3(rand);
+      // A single low-octave fbm blotch field, replacing the radial-gradient
+      // patches — a geologically quiet moon.
+      paintNoiseCanvas(ctx, size, (u, v) => {
+        const n = sphereNoise(noise, u, v, 2, 0.5, 2);
+        const val = Math.round(105 + n * 45);
+        return [Math.min(255, val + 15), val, Math.max(0, val - 18), 255];
+      });
+    },
+  ],
+  ASTEROID: [
+    // Coarse blocky noise — a rough, jagged rock face rather than a
+    // smooth gradient, matching how small/near these bodies read.
+    (ctx, size, rand) => {
+      const cell = 8;
+      for (let y = 0; y < size; y += cell) {
+        for (let x = 0; x < size; x += cell) {
+          const v = Math.round(120 + rand() * 130);
+          ctx.fillStyle = `rgb(${v},${v},${v})`;
+          ctx.fillRect(x, y, cell, cell);
+        }
+      }
+    },
+    // Streaked: elongated jagged facets instead of a uniform grid — reads
+    // as a more angular, fractured chunk of rock.
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#8a8a8a";
+      ctx.fillRect(0, 0, size, size);
+      const facets = 14 + Math.floor(rand() * 10);
+      for (let i = 0; i < facets; i++) {
+        const x = rand() * size, y = rand() * size;
+        const w = size * (0.05 + rand() * 0.2), h = size * (0.03 + rand() * 0.08);
+        const v = Math.round(100 + rand() * 140);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rand() * Math.PI);
+        ctx.fillStyle = `rgba(${v},${v},${v},0.6)`;
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
+    },
+  ],
+  // Soft, large, overlapping wisps — a gas cloud rather than a solid
+  // surface, so blobs are bigger and softer than a planet's continents.
+  // Left as a single variant: a nebula is diffuse by nature, so the same
+  // technique already varies plenty from its own random blob placement.
+  NEBULA: [
+    (ctx, size, rand) => {
+      ctx.fillStyle = "#999";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 6; i++) {
+        const x = rand() * size, y = rand() * size;
+        const r = size * (0.2 + rand() * 0.35);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, "rgba(255,255,255,0.35)");
+        g.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+    },
+  ],
+};
+BODY_TEXTURE_DRAWERS.ASTEROID_FIELD = BODY_TEXTURE_DRAWERS.ASTEROID;
+BODY_TEXTURE_DRAWERS.ENGINEERED_ASTEROID = BODY_TEXTURE_DRAWERS.ASTEROID;
+BODY_TEXTURE_DRAWERS.DEBRIS_FIELD = BODY_TEXTURE_DRAWERS.ASTEROID;
+
+// Real waypoint traits (WaypointTraitSymbol from the SpaceTraders schema)
+// that point at a specific BODY_TEXTURE_DRAWERS variant index for that type.
+// Index in this array === index into that type's drawer array above.
+// A waypoint with none of a type's listed traits falls back to the hash in
+// makeBodyTexture() — most waypoints only carry economy/settlement traits
+// (MARKETPLACE, HIGH_TECH, ...) with nothing environmental to key off.
+const BODY_TEXTURE_TRAITS = {
+  // Every real SpaceTraders planet-biome trait (ROCKY, VOLCANIC, FROZEN,
+  // SWAMP, BARREN, TEMPERATE, JUNGLE, OCEAN, RADIOACTIVE) gets its own
+  // explicit entry here — a planet with none of these (rare; most carry
+  // exactly one) is the only case that reaches the symbol-hash fallback in
+  // makeBodyTexture(). Leaving a trait unmapped is what let a JUNGLE planet
+  // draw as volcanic purely by hash luck; every biome trait needs a home.
+  PLANET: [
+    ["TEMPERATE"], // continents — also the fallback default
+    ["FROZEN", "ICE_CRYSTALS"], // ice
+    ["VOLCANIC", "MAGMA_SEAS", "SUPERVOLCANOES", "ASH_CLOUDS"], // volcanic
+    ["SWAMP"], // swamp
+    ["ROCKY"], // rocky
+    ["BARREN"], // barren
+    ["JUNGLE"], // jungle
+    ["OCEAN"], // ocean
+    ["RADIOACTIVE"], // radioactive
+  ],
+  MOON: [
+    ["DEEP_CRATERS", "SHALLOW_CRATERS", "ROCKY"], // cratered
+    ["TERRAFORMED", "TEMPERATE"], // smooth/mottled
+  ],
+};
+/**
+ * Atmospheric fresnel rim: a slightly larger, additive-blended shell around
+ * a body that's nearly invisible face-on and brightens toward the visible
+ * silhouette edge — the standard cheap "planet glow" trick (no post-
+ * processing pipeline needed, unlike real bloom). Real atmospheres scatter
+ * light most at a grazing angle, which is exactly what `1 - dot(normal,
+ * viewDir)` measures, so this doubles as the fix for airless-looking
+ * terminators: the edge now reads as lit air, not a hard cutoff into black.
+ */
+const ATMOSPHERE_RIM_VERTEX = `
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vViewDir = normalize(-mvPosition.xyz);
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+const ATMOSPHERE_RIM_FRAGMENT = `
+  uniform vec3 rimColor;
+  uniform float rimPower;
+  uniform float rimIntensity;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  void main() {
+    float rim = 1.0 - max(dot(normalize(vNormal), normalize(vViewDir)), 0.0);
+    gl_FragColor = vec4(rimColor, pow(rim, rimPower) * rimIntensity);
+  }
+`;
+function makeAtmosphereRim(size, colorHex, power, intensity) {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      rimColor: { value: new THREE.Color(colorHex) },
+      rimPower: { value: power },
+      rimIntensity: { value: intensity },
+    },
+    vertexShader: ATMOSPHERE_RIM_VERTEX,
+    fragmentShader: ATMOSPHERE_RIM_FRAGMENT,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  return new THREE.Mesh(new THREE.SphereGeometry(size * 1.16, 24, 18), mat);
+}
+// Per-type atmosphere tint/power/intensity — planets and gas giants get a
+// confident glow; moons (mostly airless) get a much fainter one, just
+// enough to soften the terminator without implying a real atmosphere.
+const ATMOSPHERE_RIM = {
+  PLANET: { color: 0x9fd0ff, power: 2.4, intensity: 0.8 },
+  GAS_GIANT: { color: 0xffcf8a, power: 1.9, intensity: 0.9 },
+  MOON: { color: 0xcdd8e8, power: 3.0, intensity: 0.35 },
+};
+/** Shared soft-round point sprite for asteroid-field particles — generated
+ *  once (not per field) since every field's particles use the same dot,
+ *  just tinted by that field's own WP3D_COLOR at material level. */
+let asteroidDotTexture = null;
+function getAsteroidDotTexture() {
+  if (asteroidDotTexture) return asteroidDotTexture;
+  const c = document.createElement("canvas");
+  c.width = c.height = 16;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
+  g.addColorStop(0, "#fffa");
+  g.addColorStop(1, "#fff0");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 16, 16);
+  asteroidDotTexture = new THREE.CanvasTexture(c);
+  // Shared across every field/every rebuild — see clearGroup()'s comment.
+  asteroidDotTexture.__persistent = true;
+  return asteroidDotTexture;
+}
+
+/**
+ * A real asteroid field is *many* small rocks, not one dot — rendering it
+ * as a single sphere (same as every other waypoint type) was the one
+ * place the map's "one body, one dot" convention actively undersold what
+ * the type means. This scatters a small cloud of point sprites in a
+ * flattened spherical shell around the field's own position, seeded from
+ * its symbol so the scatter is stable across re-renders. Decorative only —
+ * the actual pickable/selectable body underneath (added by the caller,
+ * same as every other type) is untouched, so click-to-select behavior
+ * doesn't change.
+ */
+function makeAsteroidCluster(symbol, size, color) {
+  const rand = seededRandom(symbol + ":cluster");
+  const count = 26;
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = size * (1.1 + rand() * 2.0);
+    const theta = rand() * Math.PI * 2;
+    const phi = Math.acos(2 * rand() - 1);
+    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.35; // flattened, not a true sphere
+    positions[i * 3 + 2] = r * Math.cos(phi);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    map: getAsteroidDotTexture(), color, size: Math.max(0.18, size * 0.4),
+    sizeAttenuation: true, transparent: true, depthWrite: false, alphaTest: 0.05,
+  });
+  return new THREE.Points(geo, mat);
+}
+
+// Orbital stations and asteroid bases used to render as a plain sphere,
+// same as everything else, differentiated only by size/color/height — a
+// station looked identical in silhouette to a moon. Both now build a real
+// multi-part THREE.Group instead of a single sphere Mesh: the waypoint-body
+// loop below is responsible for positioning the returned group and pushing
+// every sub-mesh (not just the group) into `pickables`, since pickAt()
+// raycasts against individual meshes and looks them up by exact reference.
+function makeStationBody(symbol, size, color) {
+  const group = new THREE.Group();
+
+  const hub = new THREE.Mesh(
+    new THREE.SphereGeometry(size * 0.4, 16, 12),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.08, roughness: 0.4, metalness: 0.6 }),
+  );
+  group.add(hub);
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(size * 1.05, size * 0.13, 8, 28),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.05, roughness: 0.5, metalness: 0.7, side: THREE.DoubleSide }),
+  );
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+
+  const strutMat = new THREE.MeshStandardMaterial({ color: themedColor("--dim"), roughness: 0.6, metalness: 0.5 });
+  const struts = [];
+  const strutCount = 4;
+  for (let i = 0; i < strutCount; i++) {
+    const angle = (2 * Math.PI * i) / strutCount;
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.045, size * 0.045, size * 0.75, 6), strutMat);
+    strut.position.set(Math.cos(angle) * size * 0.72, 0, Math.sin(angle) * size * 0.72);
+    strut.rotation.z = Math.PI / 2;
+    strut.rotation.y = -angle;
+    group.add(strut);
+    struts.push(strut);
+  }
+
+  const rand = seededRandom(symbol + ":station-lights");
+  const lights = [];
+  for (let i = 0; i < 3; i++) {
+    const angle = rand() * Math.PI * 2;
+    const light = makeGlowSprite(themedColor("--buff"), size * 0.45);
+    light.position.set(Math.cos(angle) * size * 1.05, 0, Math.sin(angle) * size * 1.05);
+    group.add(light);
+    lights.push(light);
+  }
+
+  return { group, meshes: [hub, ring, ...struts] };
+}
+
+// A single irregular displaced icosahedron (no shared cache the way
+// makeBodyGeometry() has one for planets/moons — cheap enough, and unique
+// per waypoint, to just rebuild each renderMap() pass like the rings/stalks
+// already do) plus one small attached structure standing in for the actual
+// base, oriented outward from a random point on the rock's own surface.
+function makeAsteroidBaseBody(symbol, size, color) {
+  const rand = seededRandom(symbol + ":asteroidbase");
+  const group = new THREE.Group();
+
+  const geo = new THREE.IcosahedronGeometry(size, 1);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const len = Math.hypot(x, y, z) || 1;
+    const bump = 1 + (rand() - 0.5) * 0.45;
+    pos.setXYZ(i, (x / len) * len * bump, (y / len) * len * bump, (z / len) * len * bump);
+  }
+  geo.computeVertexNormals();
+  const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    color: themedColor("--dim"), roughness: 0.9, metalness: 0.05, flatShading: true,
+  }));
+  group.add(rock);
+
+  const theta = rand() * Math.PI * 2;
+  const phi = Math.acos(2 * rand() - 1);
+  const bx = Math.sin(phi) * Math.cos(theta);
+  const by = Math.sin(phi) * Math.sin(theta);
+  const bz = Math.cos(phi);
+  const structure = new THREE.Mesh(
+    new THREE.BoxGeometry(size * 0.5, size * 0.35, size * 0.5),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.15, roughness: 0.5, metalness: 0.5 }),
+  );
+  structure.position.set(bx * size * 0.9, by * size * 0.9, bz * size * 0.9);
+  structure.lookAt(bx * size * 2, by * size * 2, bz * size * 2);
+  group.add(structure);
+
+  const light = makeGlowSprite(themedColor("--buff"), size * 0.6);
+  light.position.set(bx * size * 1.15, by * size * 1.15, bz * size * 1.15);
+  group.add(light);
+
+  return { group, meshes: [rock, structure] };
+}
+// Real SpaceTraders frame symbols (confirmed via grep across the codebase)
+// bucketed into five silhouette families, plus a sixth "command" bucket that
+// overrides all of them for the one flagship per fleet (SpaceTraders' own
+// registration.role, not this app's dispatcher role used for SHIP3D_COLOR).
+// A frame this app hasn't seen yet falls back to "explorer" rather than the
+// single undifferentiated cone every ship used to render as.
+const FRAME_HULL_BUCKET = {
+  FRAME_PROBE: "probe", FRAME_DRONE: "probe",
+  FRAME_FIGHTER: "fighter", FRAME_INTERCEPTOR: "fighter", FRAME_RACER: "fighter",
+  FRAME_FRIGATE: "frigate", FRAME_CRUISER: "frigate", FRAME_DESTROYER: "frigate",
+  FRAME_LIGHT_FREIGHTER: "hauler", FRAME_HEAVY_FREIGHTER: "hauler", FRAME_TRANSPORT: "hauler",
+  FRAME_BULK_FREIGHTER: "hauler", FRAME_CARRIER: "hauler",
+  FRAME_EXPLORER: "explorer", FRAME_SHUTTLE: "explorer", FRAME_MINER: "explorer",
+};
+
+function shipHullBucket(sh) {
+  if (sh.registration?.role === "COMMAND") return "command";
+  return FRAME_HULL_BUCKET[sh.frame?.symbol] ?? "explorer";
+}
+
+// Every hull below is built nose-first along +Z (the same convention the
+// old single ConeGeometry ended up in after its own body.rotation.x =
+// Math.PI/2 — see that rotation's comment history) so renderShipsInto()'s
+// outer group.rotation.y (transit heading) and .x (transit pitch) apply
+// unchanged. `mat` (the fuselage/primary parts) carries the real role/
+// selection color; `trimMat` is that same color darkened (trimColor()) for
+// secondary parts — wings, fins, pods, engines — so a hull reads as more
+// than a flat single-hue silhouette without introducing any color that
+// isn't derived from the ship's own.
+function buildShipHull(bucket, mat, trimMat) {
+  const group = new THREE.Group();
+  const meshes = [];
+  const add = (mesh) => { group.add(mesh); meshes.push(mesh); return mesh; };
+
+  switch (bucket) {
+    case "command": {
+      const fuselage = add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.16, 0.6, 8), mat));
+      fuselage.rotation.x = Math.PI / 2;
+      const nose = add(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.22, 8), mat));
+      nose.rotation.x = Math.PI / 2;
+      nose.position.z = 0.41;
+      const fin = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.22, 0.3), trimMat));
+      fin.position.set(0, 0.13, -0.05);
+      fin.rotation.x = -0.5;
+      const wingL = add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.16), trimMat));
+      wingL.position.set(-0.18, -0.02, -0.18);
+      wingL.rotation.z = 0.25;
+      const wingR = add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.03, 0.16), trimMat));
+      wingR.position.set(0.18, -0.02, -0.18);
+      wingR.rotation.z = -0.25;
+      const engineL = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), trimMat));
+      engineL.rotation.x = Math.PI / 2;
+      engineL.position.set(-0.26, -0.03, -0.28);
+      const engineR = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), trimMat));
+      engineR.rotation.x = Math.PI / 2;
+      engineR.position.set(0.26, -0.03, -0.28);
+      break;
+    }
+    case "probe": {
+      const body = add(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.34, 6), mat));
+      body.rotation.x = Math.PI / 2;
+      const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), trimMat));
+      dish.position.z = -0.15;
+      break;
+    }
+    case "fighter": {
+      const body = add(new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.5, 4), mat));
+      body.rotation.x = Math.PI / 2;
+      const wingL = add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.18), trimMat));
+      wingL.position.set(-0.24, 0, -0.05);
+      wingL.rotation.z = 0.1;
+      const wingR = add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.18), trimMat));
+      wingR.position.set(0.24, 0, -0.05);
+      wingR.rotation.z = -0.1;
+      break;
+    }
+    case "frigate": {
+      const body = add(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.55, 8), mat));
+      body.rotation.x = Math.PI / 2;
+      const nose = add(new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.18, 8), mat));
+      nose.rotation.x = Math.PI / 2;
+      nose.position.z = 0.36;
+      const finL = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), trimMat));
+      finL.position.set(-0.13, 0.02, -0.2);
+      const finR = add(new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.2), trimMat));
+      finR.position.set(0.13, 0.02, -0.2);
+      break;
+    }
+    case "hauler": {
+      add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.55), mat));
+      const podL = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.4), trimMat));
+      podL.position.set(-0.24, -0.02, -0.02);
+      const podR = add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.4), trimMat));
+      podR.position.set(0.24, -0.02, -0.02);
+      break;
+    }
+    case "explorer":
+    default: {
+      const body = add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 0.45, 8), mat));
+      body.rotation.x = Math.PI / 2;
+      const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), trimMat));
+      dish.position.z = -0.2;
+      break;
+    }
+  }
+  return { group, meshes };
+}
+
+// Real cargo capacity varies enormously (a probe hauls 0, a carrier several
+// hundred) and the old single cone was one fixed size regardless — a
+// sqrt curve keeps small ships from vanishing to a pinprick and large ones
+// from swallowing the map, clamped to a sane on-screen range.
+function shipHullScale(sh) {
+  const cap = sh.cargo?.capacity ?? 0;
+  // Floor raised from 0.7 to 1.0: at 0.7 a 0-capacity probe rendered too
+  // small to read clearly even though it was correctly proportioned
+  // relative to everything else — the whole curve needed lifting, not the
+  // ratio changed.
+  return Math.min(1.9, Math.max(1.0, 1.0 + 0.04 * Math.sqrt(cap)));
+}
+
 /** A CSS custom property, resolved to whatever color space it's actually
  *  declared in (oklch, hex, whatever the hue picker set) via the browser's
  *  own conversion, so the 3D scene tracks the live theme — including the
@@ -2023,12 +3138,25 @@ function worldToScene(x, y, s) {
   return { x: (x / r) * rPrime, z: (y / r) * rPrime };
 }
 
+function disposeObject3D(c) {
+  if (c.geometry && !c.geometry.__persistent) c.geometry.dispose();
+  if (c.material?.map && !c.material.map.__persistent) c.material.map.dispose();
+  c.material?.dispose?.();
+}
+
 function clearGroup(g) {
   while (g.children.length) {
     const c = g.children.pop();
-    c.geometry?.dispose?.();
-    c.material?.map?.dispose?.();
-    c.material?.dispose?.();
+    // Station/asteroid-base bodies and ship hulls are THREE.Group instances
+    // holding several meshes each — a bare pop()+dispose() here only ever
+    // touched the group itself (no geometry/material of its own), silently
+    // leaking every mesh nested inside it on each rebuild. traverse() reaches
+    // all of them. Also (new, since makeBodyGeometry/makeRockGeometry/
+    // ensureBodyVisual started caching persistent geometry/textures by
+    // symbol): a persistent resource must survive the mesh currently
+    // wearing it, since the cache is still holding the same reference for
+    // next render.
+    c.traverse(disposeObject3D);
   }
 }
 
@@ -2143,14 +3271,57 @@ function renderMap(ships, trails = new Map()) {
     const { x, z } = posBySymbol.get(wp.symbol);
     const color = themedColor(WP3D_COLOR[wp.type] ?? "--ice");
     const size = WP3D_SIZE[wp.type] ?? 1.8;
+    const y = computeElevation(wp.symbol, wp.type, wp.x, wp.y);
 
-    const body = new THREE.Mesh(
-      new THREE.SphereGeometry(size, 20, 16),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 }),
-    );
-    body.position.set(x, 0, z);
-    bodiesGroup.add(body);
-    pickables.push({ mesh: body, kind: "waypoint", symbol: wp.symbol });
+    let body;
+    if (wp.type === "ORBITAL_STATION" || wp.type === "ASTEROID_BASE") {
+      const built = wp.type === "ORBITAL_STATION"
+        ? makeStationBody(wp.symbol, size, color)
+        : makeAsteroidBaseBody(wp.symbol, size, color);
+      body = built.group;
+      body.position.set(x, y, z);
+      bodiesGroup.add(body);
+      // pickAt() raycasts against individual meshes, not groups, and looks
+      // the hit up by exact reference — every visible sub-mesh needs its
+      // own pickables entry (all resolving to the same waypoint symbol) or
+      // clicking most of the shape would silently miss.
+      for (const mesh of built.meshes) {
+        pickables.push({ mesh, kind: "waypoint", symbol: wp.symbol });
+      }
+    } else {
+      body = new THREE.Mesh(
+        IRREGULAR_ROCK_TYPES.has(wp.type)
+          ? makeRockGeometry(wp.symbol, size)
+          : makeBodyGeometry(wp.symbol, wp.type, wp.traits, size),
+        new THREE.MeshStandardMaterial({
+          color, emissive: color, emissiveIntensity: 0.05, roughness: 0.55, metalness: 0.15,
+          map: makeBodyTexture(wp.symbol, wp.type, wp.traits),
+        }),
+      );
+      body.position.set(x, y, z);
+      bodiesGroup.add(body);
+      pickables.push({ mesh: body, kind: "waypoint", symbol: wp.symbol });
+    }
+
+    const rim = ATMOSPHERE_RIM[wp.type];
+    if (rim) {
+      const rimMesh = makeAtmosphereRim(size, rim.color, rim.power, rim.intensity);
+      rimMesh.position.copy(body.position);
+      bodiesGroup.add(rimMesh);
+    }
+
+    // A faint vertical stalk connects elevated orbiters back to the
+    // ecliptic plane, so the operator can see which planet/region they
+    // belong to even when the camera is looking edge-on.
+    if (Math.abs(y) > 0.3) {
+      const stalkLen = Math.max(0.2, Math.abs(y) - size * 0.4);
+      const stalk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.03, 0.03, stalkLen, 8),
+        new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.22 }),
+      );
+      stalk.position.set(x, Math.sign(y) * (stalkLen / 2 + size * 0.35), z);
+      ringsGroup.add(stalk);
+    }
 
     if (wp.type === "GAS_GIANT") {
       const belt = new THREE.Mesh(
@@ -2160,6 +3331,11 @@ function renderMap(ships, trails = new Map()) {
       belt.position.copy(body.position);
       belt.rotation.x = -Math.PI / 2 + 0.35;
       bodiesGroup.add(belt);
+    }
+    if (wp.type === "ASTEROID_FIELD") {
+      const cluster = makeAsteroidCluster(wp.symbol, size, color);
+      cluster.position.copy(body.position);
+      bodiesGroup.add(cluster);
     }
     if (wp.type === "JUMP_GATE" || wp.type === "FUEL_STATION") {
       const glow = makeGlowSprite(color, size * 5);
@@ -2174,12 +3350,13 @@ function renderMap(ships, trails = new Map()) {
     }
 
     const label = makeLabelSprite(shortWp(wp.symbol), "#" + themedColor("--dim").getHexString());
-    label.position.set(x, size + 2.4, z);
+    label.position.set(x, y + size + 2.4, z);
     bodiesGroup.add(label);
 
     // A real orbit path — the waypoint's actual distance from the system's
     // origin, not a fabricated one. Deduped by radius so a station sharing
-    // its planet's exact x/y doesn't draw the same ring twice.
+    // its planet's exact x/y doesn't draw the same ring twice. Kept on the
+    // ecliptic plane (y=0); the body itself floats at its computed elevation.
     const radius = Math.sqrt(Math.hypot(wp.x, wp.y)) * s.scale;
     const key = Math.round(radius * 4);
     if (radius > 0.5 && !seenRadii.has(key)) {
@@ -2210,8 +3387,8 @@ function renderMap(ships, trails = new Map()) {
       if (!a || !b) continue;
       const frac = i / (trail.length - 1);
       const geo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(a.x, 0.08, a.z),
-        new THREE.Vector3(b.x, 0.08, b.z),
+        new THREE.Vector3(a.x, a.y + 0.08, a.z),
+        new THREE.Vector3(b.x, b.y + 0.08, b.z),
       ]);
       const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity: 0.1 + frac * 0.4, depthTest: false });
       const line = new THREE.Line(geo, mat);
@@ -2268,14 +3445,14 @@ function renderShipsInto(ships, s) {
   const dockedOffset = new Map();
   for (const [wpSymbol, symbols] of dockedByWaypoint) {
     const bodyR = WP3D_SIZE[waypoints.find((w) => w.symbol === wpSymbol)?.type] ?? 1.8;
-    // Extra margin beyond the body's true radius: the camera views from an
-    // angle, so a ship offset only just past the sphere's edge can still
-    // land inside its on-screen silhouette from some angles even though
-    // it's not actually touching in 3D.
-    const ringR = bodyR + 2.6 + Math.min(symbols.length, 6) * 0.55;
+    // Tight orbit for small bodies (moons/stations) so ships stay visually
+    // attached to their waypoint inside a planet cluster, not floating in
+    // the parent planet's space. Lifted slightly in y so they read as
+    // orbiting rather than embedded in the surface.
+    const ringR = bodyR * 1.0 + 0.7 + Math.min(symbols.length, 6) * 0.35;
     symbols.forEach((sym, i) => {
       const angle = (2 * Math.PI * i) / symbols.length;
-      dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dz: ringR * Math.sin(angle) });
+      dockedOffset.set(sym, { dx: ringR * Math.cos(angle), dy: bodyR * 0.35, dz: ringR * Math.sin(angle) });
     });
   }
 
@@ -2286,49 +3463,65 @@ function renderShipsInto(ships, s) {
     const color = sel ? themedColor("--accent") : themedColor(SHIP3D_COLOR[role] ?? "--star");
 
     const group = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.ConeGeometry(0.45, 1.1, 4),
-      // Lit like the waypoint bodies now, but with a strong emissive glow
-      // in the same color rather than plain unlit — a ship still has to
-      // read as a bright, glanceable marker at a glance, not a shaded
-      // model with a dark side that can wash out against space.
-      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 }),
-    );
-    body.rotation.x = Math.PI / 2;
-    group.add(body);
+    // Lit like the waypoint bodies now, but with a strong emissive glow in
+    // the same color rather than plain unlit — a ship still has to read as
+    // a bright, glanceable marker at a glance, not a shaded model with a
+    // dark side that can wash out against space. One material shared by
+    // every part of this ship's hull: role/selection owns the color, the
+    // hull shape (see buildShipHull) owns which kind of ship it reads as.
+    const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2 });
+    const trim = trimColor(color);
+    const trimMat = new THREE.MeshStandardMaterial({ color: trim, emissive: trim, emissiveIntensity: 0.4, roughness: 0.45, metalness: 0.25 });
+    const hull = buildShipHull(shipHullBucket(sh), mat, trimMat);
+    hull.group.scale.setScalar(shipHullScale(sh));
+    group.add(hull.group);
     if (sel) {
+      // A 3D torus ring that stays oriented with the ship instead of a flat
+      // disk lying on the ecliptic plane. It scales with the tiny new ship
+      // size so the selection read is tight, not a giant pancake.
       const halo = new THREE.Mesh(
-        new THREE.RingGeometry(1.1, 1.4, 32),
-        new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
+        new THREE.TorusGeometry(0.55, 0.06, 8, 32),
+        new THREE.MeshBasicMaterial({ color: themedColor("--accent"), transparent: true, opacity: 0.75 }),
       );
-      halo.rotation.x = -Math.PI / 2;
+      halo.rotation.x = Math.PI / 2;
       group.add(halo);
     }
 
-    const pos = sh.nav.status === "IN_TRANSIT" ? (shipTransitLerp(sh) ?? { x: sh.nav.route?.origin?.x ?? 0, y: sh.nav.route?.origin?.y ?? 0 }) : findWaypointPos(sh.nav.waypointSymbol, s);
-    const scenePos = worldToScene(pos.x, pos.y, s);
-    const off = dockedOffset.get(sh.symbol);
-    group.position.set(scenePos.x + (off?.dx ?? 0), 0, scenePos.z + (off?.dz ?? 0));
+    let scenePos;
     if (sh.nav.status === "IN_TRANSIT") {
-      // shipHeadingDeg()'s "+90" is calibrated for the flat map's own sy(),
-      // which flips y for SVG screen space — passing it identity functions
-      // here (no such flip exists in 3D) silently mirrored every heading.
-      // Also: origin and destination can sit at different distances from
-      // the system's star, and the map's sqrt-distance compression bends a
-      // straight real-world route's apparent angle once both ends are
-      // projected — so the heading has to come from the two endpoints'
-      // actual *scene* positions, not from raw world coordinates.
       const r = sh.nav.route;
+      const world = shipTransitLerp(sh) ?? { x: r?.origin?.x ?? 0, y: r?.origin?.y ?? 0 };
+      const originWP = waypoints.find((w) => w.symbol === r?.origin?.symbol);
+      const destWP = waypoints.find((w) => w.symbol === r?.destination?.symbol);
+      const base = worldToScene(world.x, world.y, s);
+      const arc = transitArcHeight(base, originWP, destWP, s);
+      scenePos = { x: base.x, y: arc.y, z: base.z };
       if (r?.origin && r?.destination) {
-        const o = worldToScene(r.origin.x, r.origin.y, s);
-        const d = worldToScene(r.destination.x, r.destination.y, s);
-        const dx = d.x - o.x, dz = d.z - o.z;
-        if (dx !== 0 || dz !== 0) group.rotation.y = Math.atan2(dx, dz);
+        const o = scenePosForWaypoint(r.origin.symbol, s) ?? { ...worldToScene(r.origin.x, r.origin.y, s), y: 0 };
+        const d = scenePosForWaypoint(r.destination.symbol, s) ?? { ...worldToScene(r.destination.x, r.destination.y, s), y: 0 };
+        const dx = d.x - o.x, dy = d.y - o.y, dz = d.z - o.z;
+        if (dx !== 0 || dz !== 0) {
+          group.rotation.y = Math.atan2(dx, dz);
+          // A small pitch so the hull tilts toward/away from the destination's elevation.
+          const dist = Math.hypot(dx, dz) || 1;
+          group.rotation.x = Math.PI / 2 + Math.atan2(dy, dist);
+        }
       }
+    } else {
+      const wp = waypoints.find((w) => w.symbol === sh.nav.waypointSymbol);
+      scenePos = wp ? waypointScenePos(wp, s) : { x: 0, y: 0, z: 0 };
     }
+    const off = dockedOffset.get(sh.symbol);
+    group.position.set(scenePos.x + (off?.dx ?? 0), scenePos.y + (off?.dy ?? 0), scenePos.z + (off?.dz ?? 0));
 
     shipsGroup.add(group);
-    pickables.push({ mesh: body, kind: "ship", symbol: sh.symbol, group });
+    // pickAt() raycasts against individual meshes and looks the hit up by
+    // exact reference — every part of the hull needs its own entry (all
+    // resolving to this same ship) or clicking most of a multi-mesh hull
+    // would silently miss.
+    for (const mesh of hull.meshes) {
+      pickables.push({ mesh, kind: "ship", symbol: sh.symbol, group });
+    }
   }
 }
 
@@ -2343,7 +3536,7 @@ function findWaypointPos(symbol, s) {
  *  isn't itself drawn as a body (a plain rock a ship passed through). */
 function scenePosForWaypoint(symbol, s) {
   const wp = waypoints.find((w) => w.symbol === symbol);
-  return wp ? worldToScene(wp.x, wp.y, s) : null;
+  return wp ? waypointScenePos(wp, s) : null;
 }
 
 function disposeTrailGroup(group) {
@@ -2375,27 +3568,30 @@ function repositionShips() {
     }
   }
   if (inTransitSymbols.size === 0) return;
-  const trailColor = themedColor("--star");
+  const trailColor = themedColor("--accent");
   for (const p of pickables) {
     if (p.kind !== "ship") continue;
     const sh = lastRenderedShips.find((x) => x.symbol === p.symbol);
     if (!sh || sh.nav.status !== "IN_TRANSIT") continue;
     const world = shipTransitLerp(sh);
     if (!world) continue;
-    const { x, z } = worldToScene(world.x, world.y, mapScale);
-    p.group.position.set(x, 0, z);
+    const r = sh.nav.route;
+    const base = worldToScene(world.x, world.y, mapScale);
+    const originWP = waypoints.find((w) => w.symbol === r?.origin?.symbol);
+    const destWP = waypoints.find((w) => w.symbol === r?.destination?.symbol);
+    const { y } = transitArcHeight(base, originWP, destWP, mapScale);
+    p.group.position.set(base.x, y, base.z);
 
-    // Subtle motion trail — same idea as the flat map's own: sampled by
-    // scene distance moved, not every frame (at 60fps consecutive points
-    // would sit fractions of a unit apart, indistinguishable from a solid
-    // line and pointless overhead).
+    // Motion trail for in-transit ships. Sampled by scene distance moved,
+    // not every frame, and tinted by the ship's own role color so each
+    // trajectory is glanceable against the dark map.
     const points = liveTrails.get(sh.symbol) ?? [];
     const lastPos = lastTrailSamplePos.get(sh.symbol);
-    if (!lastPos || Math.hypot(x - lastPos.x, z - lastPos.z) >= TRAIL_SAMPLE_MIN_SCENE) {
-      points.push({ x, z });
+    if (!lastPos || Math.hypot(base.x - lastPos.x, base.z - lastPos.z) >= TRAIL_SAMPLE_MIN_SCENE) {
+      points.push({ x: base.x, y, z: base.z });
       if (points.length > TRAIL_MAX_POINTS) points.shift();
       liveTrails.set(sh.symbol, points);
-      lastTrailSamplePos.set(sh.symbol, { x, z });
+      lastTrailSamplePos.set(sh.symbol, { x: base.x, y, z: base.z });
     }
     if (points.length > 1) {
       const old = liveTrailObjects.get(sh.symbol);
@@ -2411,12 +3607,13 @@ function repositionShips() {
         // live-trail opacity range.
         const opacity = 0.25 + (i / (points.length - 1)) * 0.45;
         const geo = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(a.x, 0.06, a.z),
-          new THREE.Vector3(b.x, 0.06, b.z),
+          new THREE.Vector3(a.x, a.y + 0.06, a.z),
+          new THREE.Vector3(b.x, b.y + 0.06, b.z),
         ]);
-        const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity, depthTest: false });
+        const mat = new THREE.LineBasicMaterial({ color: trailColor, transparent: true, opacity, depthTest: false, linewidth: 2 });
         const line = new THREE.Line(geo, mat);
         line.renderOrder = 8;
+        line.material.linewidth = 2;
         trailGroup.add(line);
       }
       liveTrailGroup.add(trailGroup);
