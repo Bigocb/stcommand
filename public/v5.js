@@ -2486,8 +2486,18 @@ function rotateCamera(dx, dy) {
   orbitGoal.phi = Math.max(0.2, Math.min(Math.PI - 0.2, orbitGoal.phi - dy * 0.005));
 }
 
+// Same clamp the wheel/pinch handlers below use — a button click just
+// nudges orbitGoal.radius by a fixed factor instead of a continuous
+// gesture delta. Zooming in means a SMALLER radius (camera closer).
+function zoomMapBy(factor) {
+  const min = systemSpan * 0.35, max = systemSpan * 6;
+  orbitGoal.radius = Math.max(min, Math.min(max, orbitGoal.radius * factor));
+}
+
 function attachMapControls() {
   $("map-fit")?.addEventListener("click", resetMapView);
+  $("map-zoom-in")?.addEventListener("click", () => zoomMapBy(1 / 1.4));
+  $("map-zoom-out")?.addEventListener("click", () => zoomMapBy(1.4));
   // Right-click-drag orbits (desktop's usual "secondary drag" gesture) —
   // genuine depth is one of the few things a 3D map has over the flat one,
   // worth keeping reachable even though plain drag now pans.
