@@ -20,6 +20,7 @@ import {
   state, systems, jumpConnections, bridge, fleetStatus, activity,
   marketSnapshots, marketRoutes, marketSystems, tradeRoutes, intel,
   doctrineRules, doctrineCatalog, doctrineFires, doctrineFireShips,
+  connectionStatus,
   loadState, loadBridge, loadActivity, loadMarkets, loadDoctrine,
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
   dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
@@ -870,6 +871,30 @@ function renderTopbar() {
   updateModeToggle();
   renderSpine();
   renderMobileTopbar();
+}
+
+/** Small always-visible dot+label — live/stale/offline — driven by
+ *  connectionStatus (shared/store.js), itself derived from loadState()'s
+ *  outcome every 5s. "Stale" means the server served the last known-good
+ *  fleet from its own durable snapshot instead of a live SpaceTraders read
+ *  (see dashboard.ts's /state route) — the operator is looking at real but
+ *  possibly-minutes-old data, not nothing. */
+function renderConnectionStatus() {
+  const { level, staleSince } = connectionStatus;
+  const label = level === "live" ? "Live" : level === "stale" ? "Stale" : level === "offline" ? "Offline" : "—";
+  const title = level === "stale" && staleSince
+    ? `Connection status: showing fleet data as of ${new Date(staleSince).toLocaleTimeString()} — SpaceTraders or this tenant's engine is currently unreachable`
+    : level === "offline"
+      ? "Connection status: can't reach the server"
+      : "Connection status: live";
+  for (const id of ["conn-status", "m-conn-status"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.dataset.level = level;
+    el.title = title;
+    const lbl = el.querySelector(".lbl");
+    if (lbl) lbl.textContent = label;
+  }
 }
 
 /** The spine's live counts and engine status.
@@ -3828,14 +3853,30 @@ $("onboard-retry").addEventListener("click", showOnboarding);
 /** First data load once a token is accepted — everything up to here only
  *  wired up event listeners, none of which touch the network. */
 function boot() {
-  loadState().then(() => { loadMarkets(marketSystemFilter); renderMapLiveOrScrub(); });
-  loadBridge();
-  loadActivity();
-  loadDoctrine();
-  loadNarrative();
-  loadProgramme();
-  loadReplay();
-  if (isMobile()) { loadDispatch(); loadWarehouse(); }
+  // Tiered rather than firing all seven-plus loads at once: everything here
+  // used to start in parallel regardless of whether it was on screen yet,
+  // competing for the same handful of browser connections (and, right after
+  // a restart or during a SpaceTraders hiccup, retrying tenant boot on every
+  // single one of them independently — see tenantRegistry.ts's boot-retry
+  // cooldown). Split into tiers by what's actually visible when Bridge
+  // first paints, each waiting for the previous to land instead of racing it.
+  //
+  // Tier 1 — on screen instantly: the ship register (feeds the map + Lanes
+  // via loadMarkets) and triage/earnings.
+  const tier1 = Promise.all([
+    loadState().then(() => { loadMarkets(marketSystemFilter); renderMapLiveOrScrub(); }),
+    loadBridge(),
+  ]);
+  // Tier 2 — also on Bridge, but secondary: the ticker and the Captain's Log.
+  const tier2 = tier1.then(() => Promise.all([loadActivity(), loadNarrative()]));
+  // Tier 3 — nothing here is visible until the operator leaves Bridge (Ops
+  // tab) or opens the scrubber; genuinely fine to trail behind Tier 1/2.
+  tier2.then(() => {
+    loadDoctrine();
+    loadProgramme();
+    loadReplay();
+    if (isMobile()) { loadDispatch(); loadWarehouse(); }
+  });
   initScrubber();
   initInspectorCrumb();
   // Populate Book's sheet once up front regardless of starting mode — it's
@@ -4010,6 +4051,7 @@ subscribe("programme", () => { renderContracts(contracts); renderMissions(missio
 subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); });
 subscribe("narrative", renderNarrative);
 subscribe("chat", renderChatHistory);
+subscribe("connection", renderConnectionStatus);
 
 /** The activity rail's collapsible sections.
  *

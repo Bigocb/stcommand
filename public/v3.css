@@ -145,6 +145,21 @@
   .grow { flex:1; }
   .clock { color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
 
+
+  /* ── connection status ────────────────────────────────────
+     Driven by shared/store.js's connectionStatus (derived from loadState()'s
+     outcome every 5s) — live/stale/offline. Kept as a plain dot+label rather
+     than a modal/toast: this is ambient status, glanced at, not something
+     that should interrupt. */
+  .conn-status { display:flex; align-items:center; gap:5px; font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:var(--dim); }
+  .conn-status .dot { width:7px; height:7px; border-radius:50%; background:var(--dim); flex-shrink:0; }
+  .conn-status[data-level="live"] .dot { background:var(--green); box-shadow:0 0 5px var(--green); }
+  .conn-status[data-level="live"] .lbl { color:var(--green); }
+  .conn-status[data-level="stale"] .dot { background:var(--warn); box-shadow:0 0 5px var(--warn); animation:conn-pulse 1.6s ease-in-out infinite; }
+  .conn-status[data-level="stale"] .lbl { color:var(--warn); }
+  .conn-status[data-level="offline"] .dot { background:var(--red); }
+  .conn-status[data-level="offline"] .lbl { color:var(--red); }
+  @keyframes conn-pulse { 0%, 100% { opacity:1; } 50% { opacity:0.35; } }
   .views-switch { display:flex; border:1px solid var(--hairline); }
   .views-switch button {
     background:transparent; border:none; border-right:1px solid var(--hairline);
@@ -956,6 +971,7 @@
     .m-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; background:var(--panel-2); border:1px solid var(--hairline); }
     .m-credits { font-size:18px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
     .m-rate { font-size:10px; color:var(--dim); }
+    .m-topbar-right { display:flex; align-items:center; gap:8px; }
     .m-alert-badge { font-family:var(--chrome); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--accent); background:var(--accent-soft); border:1px solid var(--rule); padding:6px 10px; }
     .m-body { display:flex; flex-direction:column; gap:8px; padding:0 12px; }
     .m-hero { border:1px solid var(--rule); border-left:3px solid var(--accent); background:var(--panel-2); padding:14px 14px; display:flex; flex-direction:column; gap:8px; }

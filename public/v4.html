@@ -80,6 +80,9 @@
     </div>
     <button class="icon-btn" id="copilot-toggle" aria-expanded="false">Co-pilot</button>
     <button class="icon-btn" id="logout-btn">Logout</button>
+    <div class="conn-status" id="conn-status" title="Connection status">
+      <span class="dot"></span><span class="lbl">—</span>
+    </div>
     <div class="clock" id="clock">—</div>
   </header>
 
@@ -315,7 +318,12 @@
               <div class="m-credits" id="m-credits">—</div>
               <div class="m-rate" id="m-rate">—</div>
             </div>
-            <div class="m-alert-badge" id="m-alert-badge">—</div>
+            <div class="m-topbar-right">
+              <div class="conn-status" id="m-conn-status" title="Connection status">
+                <span class="dot"></span><span class="lbl">—</span>
+              </div>
+              <div class="m-alert-badge" id="m-alert-badge">—</div>
+            </div>
           </div>
           <div class="m-body">
             <div class="m-hero" id="m-hero"><!-- top triage item, rendered by JS --></div>
