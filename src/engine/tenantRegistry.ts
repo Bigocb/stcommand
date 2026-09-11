@@ -216,6 +216,32 @@ export class TenantRegistry {
     }
   }
 
+  /**
+   * Stop one tenant's coordinator loop and drop it from `workers`, if it's
+   * currently booted in this process — a no-op otherwise (nothing to stop
+   * for a tenant this process never booted, or that failed to boot). Used
+   * by the admin tenant-delete flow: a `DELETE FROM tenants` cascades the
+   * database rows fine on its own, but without this the in-memory worker —
+   * fleet loop, scheduler, still-open Client — would keep running against
+   * an agent whose row (and thus `getTenantToken()`/RLS-scoped store calls)
+   * no longer exists, hitting real SpaceTraders calls for an account the
+   * operator just asked to be gone until the process happens to restart.
+   */
+  stopOne(tenantId: string): void {
+    const worker = this.workers.get(tenantId);
+    if (!worker) return;
+    worker.fleet.stop();
+    worker.scheduler.stop();
+    this.workers.delete(tenantId);
+  }
+
+  /** True if this process currently has a booted worker for this tenant —
+   *  purely informational (the admin tenant list's "running" column), never
+   *  triggers a boot the way `get()`'s absence might otherwise imply. */
+  isBooted(tenantId: string): boolean {
+    return this.workers.has(tenantId);
+  }
+
   private async boot(tenantId: string, agentSymbol: string): Promise<TenantWorker> {
     const log = (msg: string) => this.log(tenantId, msg);
     const token = await getTenantToken(this.pool, tenantId);

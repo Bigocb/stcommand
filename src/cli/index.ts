@@ -8,6 +8,7 @@ import { createGateRouter } from "../http/gate.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
 import { createUiVersionRouter, cacheHeaders } from "../http/uiVersions.js";
+import { createAdminRouter } from "../http/admin.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -64,6 +65,13 @@ async function main(): Promise<void> {
 
   app.use("/api/gate", createGateRouter(pool));
 
+  // Its own key-based auth (see admin.ts), not the tenant session-cookie
+  // flow below — mounted first so /api/admin/* never falls through to
+  // resolveTenant, which would demand a tenant session for a request that
+  // isn't scoped to any one tenant at all.
+  app.use("/api/admin", createAdminRouter(pool, registry));
+  if (!process.env.ADMIN_KEY) log("ADMIN_KEY is not set — /admin is disabled (every /api/admin/* request 503s)");
+
   const resolveTenant = createResolveTenant(pool);
   const store = new Store(pool);
   app.use("/api", resolveTenant, async (req, res, next) => {
@@ -95,6 +103,16 @@ async function main(): Promise<void> {
   // chosen once its map/hull work landed; v2/v3/v4 are retired (still on
   // disk, no longer routed or offered by the switcher).
   app.use(createUiVersionRouter(PUBLIC_DIR));
+
+  // Not part of the version-switcher family (createUiVersionRouter) or
+  // listed in it — reachable only by knowing this exact path. The page
+  // itself prompts for the admin key and sends it as a header on every
+  // /api/admin/* call; nothing here needs the key server-side, since
+  // admin.ts's router is what actually checks it.
+  app.get("/admin", (_req, res) => {
+    res.set(cacheHeaders(resolve(PUBLIC_DIR, "admin.html")) ?? {});
+    res.sendFile(resolve(PUBLIC_DIR, "admin.html"));
+  });
 
   app.use(express.static(PUBLIC_DIR, {
     index: "v6.html",

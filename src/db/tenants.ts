@@ -87,6 +87,49 @@ export async function listAllTenants(pool: pg.Pool): Promise<TenantRow[]> {
   });
 }
 
+export interface TenantAdminRow extends TenantRow {
+  createdAt: string;
+  lastSeenAt: string;
+}
+
+/** Every known tenant with the extra fields the admin tenant list shows —
+ *  kept separate from listAllTenants() (used on every process boot, and
+ *  deliberately minimal) rather than widening that one, since nothing
+ *  about eager-boot needs createdAt/lastSeenAt. */
+export async function listAllTenantsAdmin(pool: pg.Pool): Promise<TenantAdminRow[]> {
+  return withPool(pool, async (c) => {
+    const res = await c.query<{ id: string; agent_symbol: string; created_at: Date; last_seen_at: Date }>(
+      `SELECT id, agent_symbol, created_at, last_seen_at FROM tenants ORDER BY last_seen_at DESC`,
+    );
+    return res.rows.map((r) => ({
+      id: r.id,
+      agentSymbol: r.agent_symbol,
+      createdAt: r.created_at.toISOString(),
+      lastSeenAt: r.last_seen_at.toISOString(),
+    }));
+  });
+}
+
+/** Permanently delete a tenant and everything scoped to it — every
+ *  tenant-scoped table (migrations/001_init.sql onward) declares its
+ *  `tenant_id` foreign key `ON DELETE CASCADE`, so this one statement is
+ *  the whole cascade: sessions, fleet/ship state, ledger, missions, held
+ *  routes, doctrine, warehouse targets, crew log, state snapshot — all of
+ *  it. The three galaxy tables (market_snapshots, shipyard_inventory,
+ *  module_catalog) are deliberately NOT tenant-scoped (see 001_init.sql's
+ *  own comment) and are untouched, same as every other tenant's queries
+ *  already treat them as shared. Irreversible — the caller (the admin
+ *  router) is responsible for stopping any in-memory worker first via
+ *  TenantRegistry.stopOne(), since this alone doesn't touch the running
+ *  process. Returns false if the tenant didn't exist (nothing to delete),
+ *  true if a row was actually removed. */
+export async function deleteTenant(pool: pg.Pool, tenantId: string): Promise<boolean> {
+  return withPool(pool, async (c) => {
+    const res = await c.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
+    return (res.rowCount ?? 0) > 0;
+  });
+}
+
 /** Decrypt and return a tenant's stored SpaceTraders token. */
 export async function getTenantToken(pool: pg.Pool, tenantId: string): Promise<string> {
   return withPool(pool, async (c) => {
