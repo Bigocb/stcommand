@@ -3463,7 +3463,11 @@ function buildShipHull(bucket, mat, trimMat) {
 // from swallowing the map, clamped to a sane on-screen range.
 function shipHullScale(sh) {
   const cap = sh.cargo?.capacity ?? 0;
-  return Math.min(1.6, Math.max(0.7, 0.7 + 0.045 * Math.sqrt(cap)));
+  // Floor raised from 0.7 to 1.0: at 0.7 a 0-capacity probe rendered too
+  // small to read clearly even though it was correctly proportioned
+  // relative to everything else — the whole curve needed lifting, not the
+  // ratio changed.
+  return Math.min(1.9, Math.max(1.0, 1.0 + 0.04 * Math.sqrt(cap)));
 }
 
 function renderShipsInto(ships, s) {
