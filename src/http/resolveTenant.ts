@@ -10,6 +10,11 @@ declare global {
     interface Request {
       tenantId?: string;
       agentSymbol?: string;
+      /** Set by the "ensure this tenant is booted" middleware (src/cli/index.ts)
+       *  only when a live boot failed but a durable last-known-good /api/state
+       *  snapshot exists — lets that one read-only route answer from it
+       *  instead of a bare 503. See store.ts's saveStateSnapshot() comment. */
+      staleSnapshot?: { snapshot: unknown; updatedAt: string };
     }
   }
 }

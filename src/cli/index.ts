@@ -3,6 +3,7 @@ import express from "express";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPool } from "../db/pool.js";
+import { Store } from "../db/store.js";
 import { createGateRouter } from "../http/gate.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
@@ -64,12 +65,24 @@ async function main(): Promise<void> {
   app.use("/api/gate", createGateRouter(pool));
 
   const resolveTenant = createResolveTenant(pool);
+  const store = new Store(pool);
   app.use("/api", resolveTenant, async (req, res, next) => {
     try {
       await registry.getOrCreate(req.tenantId!, req.agentSymbol!);
       next();
     } catch (err) {
       log(`failed to boot tenant ${req.tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+      // A live boot failing (a SpaceTraders outage, a bad token) doesn't
+      // have to mean every route 503s: if there's a durable copy of this
+      // tenant's last-successful /api/state, attach it and let the request
+      // through — only that one read-only route actually uses it (see
+      // dashboard.ts), everything else still sees no worker and 503s
+      // exactly as before. A snapshot lookup failing here must never mask
+      // the real boot error, so it's soft-failed too.
+      try {
+        req.staleSnapshot = req.tenantId ? await store.getStateSnapshot(req.tenantId) : undefined;
+      } catch { /* fall through to the 503 below */ }
+      if (req.staleSnapshot) return next();
       res.status(503).json({ error: "engine failed to start; try again shortly" });
     }
   });

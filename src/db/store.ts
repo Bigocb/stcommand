@@ -422,6 +422,30 @@ export class Store {
     await withTenant(this.pool, tenantId, (c) => c.query(`DELETE FROM fleet_state WHERE ship_symbol = $1`, [shipSymbol]));
   }
 
+  // ── State snapshot (last-known-good /api/state, for a failed boot) ─
+
+  /** The exact JSON /api/state last served successfully, plus when. Read
+   *  back only when a tenant's live boot fails and there's nothing else to
+   *  answer with — see tenantRegistry.ts's refreshState() (the writer) and
+   *  dashboard.ts's /state route (the reader). */
+  async getStateSnapshot(tenantId: string): Promise<{ snapshot: unknown; updatedAt: string } | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ snapshot: unknown; updated_at: Date }>(`SELECT snapshot, updated_at FROM state_snapshot`);
+      const row = res.rows[0];
+      return row ? { snapshot: row.snapshot, updatedAt: row.updated_at.toISOString() } : undefined;
+    });
+  }
+
+  async saveStateSnapshot(tenantId: string, snapshot: unknown): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO state_snapshot (tenant_id, snapshot, updated_at) VALUES ($1, $2, now())
+         ON CONFLICT (tenant_id) DO UPDATE SET snapshot = excluded.snapshot, updated_at = excluded.updated_at`,
+        [tenantId, JSON.stringify(snapshot)],
+      ),
+    );
+  }
+
   // ── Ship state (Greenfield Phase 2: persisted lifecycle) ────
 
   async getShipState(tenantId: string, shipSymbol: string): Promise<ShipStateRow | undefined> {

@@ -442,6 +442,17 @@ export class TenantRegistry {
           totals: await store.ledgerTotals(tenantId),
         });
 
+        // A durable copy of what /api/state just answered, read back only
+        // if this tenant's live boot later fails (see store.ts's own
+        // comment) — soft-failed on purpose: a DB hiccup writing the backup
+        // copy must never be reported as if the live refresh itself (the
+        // thing that actually matters) had failed.
+        try {
+          await store.saveStateSnapshot(tenantId, state.get());
+        } catch (err) {
+          log(`state snapshot save failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
         // Replay scrubber: one position sample per ship per refresh cycle.
         // Looked up across every known system (not just home), since a ship
         // mid-jump-route sits in a system `mappedWaypoints` doesn't cover.

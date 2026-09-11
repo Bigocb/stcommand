@@ -69,8 +69,22 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
 
   router.get("/state", (req, res) => {
     const w = worker(req);
-    if (!w) return res.status(503).json({ error: "engine not ready" });
-    res.json(w.state.get());
+    if (!w) {
+      // No live worker — this tenant's boot is currently failing (see
+      // src/cli/index.ts's middleware). Answer from the last durable
+      // snapshot if one exists rather than a bare 503, so the dashboard can
+      // still show "here's your fleet as of a few minutes ago" instead of
+      // going blank the moment SpaceTraders (or a bad token) takes a tenant
+      // down. `stale`/`staleSince` is what the connection-status indicator
+      // (public/*.js) keys off of.
+      if (req.staleSnapshot) {
+        res.json({ ...(req.staleSnapshot.snapshot as object), stale: true, staleSince: req.staleSnapshot.updatedAt });
+        return;
+      }
+      res.status(503).json({ error: "engine not ready" });
+      return;
+    }
+    res.json({ ...w.state.get(), stale: false });
   });
 
   router.get("/systems", (req, res) => {
