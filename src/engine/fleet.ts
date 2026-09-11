@@ -3206,6 +3206,19 @@ export class FleetManager {
     // flying there, because nothing here marked it as the warehouse ship
     // until it had already arrived.
     this.warehouseShip = { shipSymbol, waypointSymbol };
+    // Also give it an operator hold, same as sendShipTo()/holdShip() — the
+    // "warehouse" registry claim only stops the *dispatcher* from handing it
+    // a new assignment. TraderAgent.tick() has its own independent fallback
+    // (findRoute()'s claimRoute branch) that self-claims any unclaimed route
+    // whenever it has no dispatcher assignment at all, and the only thing
+    // that stops tick() from reaching that fallback is a standing "hold"
+    // intent (see standDownReason()/intent.ts). Without this, a warehouse
+    // ship with no assignment would just claim a fresh trade route on its
+    // own the moment it was free to — confirmed live: DRAGOM-10 sat parked
+    // at its warehouse waypoint for a few ticks, then self-claimed an
+    // EQUIPMENT leg and flew off to buy it.
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol });
+    this.dispatcher.release(shipSymbol);
     if (this.tenantId) await this.store?.setFleetFlag(this.tenantId, "warehouseShip", JSON.stringify(this.warehouseShip));
     this.log(`${shipSymbol} designated warehouse ship, heading to ${waypointSymbol}`);
     await this.dispatchShip(shipSymbol, waypointSymbol);
