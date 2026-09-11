@@ -96,6 +96,66 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     });
   });
 
+  /**
+   * Galaxy overview: every system *this tenant's own fleet has charted*
+   * (GalaxyAtlas, in-memory — same source /systems above reads), enriched
+   * with the galaxy-wide coordinates/star type the background crawler
+   * records into the shared, non-tenant-scoped galaxy_systems table
+   * (galaxyCrawler.ts). Deliberately known-space-only, not all ~7,000
+   * crawled systems: a captain's own galaxy view is what they've actually
+   * found, same scope as the per-system 3D map. jumpConnections() returns
+   * waypoint-to-waypoint edges; collapsed to system-level pairs here since
+   * the overview draws one line per connected system, not per gate.
+   */
+  router.get("/galaxy/overview", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      const galaxy = w.fleet.getGalaxy();
+      const known = galaxy.listSystems();
+      const symbols = known.map((s) => s.symbol);
+      const symbolSet = new Set(symbols);
+      // listGalaxySystems() returns the whole shared, galaxy-wide table (all
+      // ~7,000 crawled systems) — filtered here to just what this tenant has
+      // charted, matching the known-space-only scope above.
+      const meta = (await w.store.listGalaxySystems()).filter((m) => symbolSet.has(m.systemSymbol));
+      const metaBySymbol = new Map(meta.map((m) => [m.systemSymbol, m]));
+      const shipSystems = new Map<string, number>();
+      for (const ship of w.state.get().ships) {
+        const sys = ship.nav?.systemSymbol;
+        if (sys) shipSystems.set(sys, (shipSystems.get(sys) ?? 0) + 1);
+      }
+      const systems = known.map((s) => {
+        const m = metaBySymbol.get(s.symbol);
+        return {
+          symbol: s.symbol,
+          x: m?.x ?? null,
+          y: m?.y ?? null,
+          type: m?.systemType ?? null,
+          hasMarket: s.markets.length > 0,
+          hasShipyard: s.shipyards.length > 0,
+          hasJumpGate: s.jumpGates.length > 0,
+          ships: shipSystems.get(s.symbol) ?? 0,
+        };
+      });
+      const edgeSet = new Set<string>();
+      const edges: { a: string; b: string }[] = [];
+      for (const c of galaxy.jumpConnections()) {
+        const a = c.from.slice(0, c.from.lastIndexOf("-"));
+        const b = c.to.slice(0, c.to.lastIndexOf("-"));
+        if (a === b || !symbols.includes(a) || !symbols.includes(b)) continue;
+        const key = [a, b].sort().join("|");
+        if (edgeSet.has(key)) continue;
+        edgeSet.add(key);
+        edges.push({ a, b });
+      }
+      res.json({ systems, edges, home: w.fleet.getSystemSymbol() });
+    } catch (err) {
+      console.error("[dashboard] galaxy overview error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/system/:symbol/waypoints", (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

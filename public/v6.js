@@ -183,6 +183,7 @@ async function logout() {
 /* ── shared state ─────────────────────────── */
 let waypoints = [];
 let currentSystem = "";
+let galaxyMode = false;
 /** Filters both Markets-tab panels at once — sent as /api/markets?system=
  *  so the top-N route cut and the system-picker's own option list are both
  *  computed server-side from the right (unfiltered vs. filtered) dataset. */
@@ -935,6 +936,128 @@ function renderSystemStrip() {
   }));
 }
 function renderGallery() { /* single-system fleets need no gallery */ }
+
+/* ── BRIDGE: galaxy overview ──────────────────
+ * A zoomed-out sibling to the per-system 3D map (see renderMap()) — every
+ * system this tenant's own fleet has actually charted, laid out by real
+ * galaxy-wide coordinates (from the shared crawler table, GET /api/galaxy/
+ * overview), with jump-gate edges between them. Plain SVG rather than
+ * extending the three.js scene: this is a flat, click-to-navigate overview,
+ * not a 3D scene, and reusing the existing pan/zoom/orbit machinery built
+ * for one system's own waypoints would mean fighting its assumptions (a
+ * star at the origin, waypoint-scale distances) rather than reusing them.
+ */
+let galaxyOverviewData = null;
+
+async function loadGalaxyOverview() {
+  try {
+    galaxyOverviewData = await api("GET", "/api/galaxy/overview");
+  } catch (err) {
+    galaxyOverviewData = { systems: [], edges: [], home: "" };
+    showToastGlobal(err.message, true);
+  }
+  renderGalaxyOverviewSvg();
+}
+
+function renderGalaxyOverviewSvg() {
+  const host = $("galaxy-overview");
+  if (!host) return;
+  const data = galaxyOverviewData;
+  if (!data || !data.systems.length) {
+    host.innerHTML = `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);font-family:var(--chrome);font-size:11px;letter-spacing:0.1em">No charted systems yet</div>`;
+    return;
+  }
+  const known = data.systems.filter((s) => s.x !== null && s.y !== null);
+  const missing = data.systems.length - known.length;
+  const xs = known.map((s) => s.x), ys = known.map((s) => s.y);
+  const minX = Math.min(...xs, 0), maxX = Math.max(...xs, 0);
+  const minY = Math.min(...ys, 0), maxY = Math.max(...ys, 0);
+  const padX = Math.max(20, (maxX - minX) * 0.1), padY = Math.max(20, (maxY - minY) * 0.1);
+  const vbX = minX - padX, vbY = minY - padY, vbW = (maxX - minX) + padX * 2 || 100, vbH = (maxY - minY) + padY * 2 || 100;
+
+  const edgeLines = data.edges
+    .map((e) => {
+      const a = known.find((s) => s.symbol === e.a), b = known.find((s) => s.symbol === e.b);
+      if (!a || !b) return "";
+      return `<line class="gx-edge" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`;
+    }).join("");
+
+  const r = Math.max(1.2, Math.min(vbW, vbH) / 220);
+  const nodes = known.map((s) => {
+    const cls = ["gx-node",
+      s.hasMarket ? "has-market" : "",
+      s.hasShipyard ? "has-shipyard" : "",
+      s.ships > 0 ? "has-ships" : "",
+      s.symbol === data.home ? "home" : "",
+    ].filter(Boolean).join(" ");
+    return `<g class="${cls}" data-sys="${escapeAttr(s.symbol)}">
+      <circle cx="${s.x}" cy="${s.y}" r="${r}" />
+      <text class="gx-label" x="${s.x + r * 1.6}" y="${s.y + r * 0.4}">${escapeHtml(s.symbol)}</text>
+    </g>`;
+  }).join("");
+
+  host.innerHTML = `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}">
+    <g id="gx-viewport">${edgeLines}${nodes}</g>
+  </svg>${missing ? `<div style="position:absolute;bottom:8px;left:8px;color:var(--dim);font-family:var(--mono);font-size:9px">${missing} charted system${missing === 1 ? "" : "s"} not yet in the galaxy index</div>` : ""}`;
+
+  const svg = host.querySelector("svg");
+  svg.querySelectorAll(".gx-node").forEach((g) => {
+    g.addEventListener("click", () => {
+      currentSystem = g.dataset.sys;
+      setGalaxyMode(false);
+      renderSystemStrip();
+      resetMapView();
+      renderMapLiveOrScrub();
+    });
+  });
+
+  // Minimal pan/zoom: drag to pan, wheel to zoom, both by adjusting the
+  // viewBox directly — no need for the 3D map's camera math here.
+  let vb = { x: vbX, y: vbY, w: vbW, h: vbH };
+  const applyVb = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+  let dragging = false, lastX = 0, lastY = 0;
+  svg.addEventListener("pointerdown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; svg.setPointerCapture(e.pointerId); });
+  svg.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const scale = vb.w / svg.clientWidth;
+    vb.x -= (e.clientX - lastX) * scale;
+    vb.y -= (e.clientY - lastY) * scale;
+    lastX = e.clientX; lastY = e.clientY;
+    applyVb();
+  });
+  svg.addEventListener("pointerup", () => { dragging = false; });
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
+    const cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
+    vb.w *= factor; vb.h *= factor;
+    vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2;
+    applyVb();
+  }, { passive: false });
+}
+
+function setGalaxyMode(on) {
+  galaxyMode = on;
+  $("galaxy-overview")?.toggleAttribute("hidden", !on);
+  $("map3d")?.style.setProperty("display", on ? "none" : "");
+  $("map-galaxy-toggle")?.classList.toggle("active", on);
+  for (const id of ["system-strip", "map-gallery"]) {
+    $(id)?.style.setProperty("display", on ? "none" : "");
+  }
+  for (const sel of [".map-legend", ".map-zoom-controls"]) {
+    document.querySelector(sel)?.style.setProperty("display", on ? "none" : "");
+  }
+  if (on) {
+    $("map-hud").innerHTML = "Galaxy <b>charted space</b>";
+    loadGalaxyOverview();
+  } else {
+    renderMapLiveOrScrub();
+  }
+}
+
+function initGalaxyToggle() {
+  $("map-galaxy-toggle")?.addEventListener("click", () => setGalaxyMode(!galaxyMode));
+}
 
 /* ── BRIDGE: triage ───────────────────────── */
 /** The left rail's two states: browsing (triage) or a selected hull's
@@ -3057,6 +3180,7 @@ function scheduleRebuild() {
 }
 
 function renderMap(ships, trails = new Map()) {
+  if (galaxyMode) return;
   if (!sceneReady && !mapUnavailable) initMap3D();
   if (mapUnavailable) return;
   const sys = currentSystem || state.agent.headquarters.slice(0, state.agent.headquarters.lastIndexOf("-"));
@@ -5315,6 +5439,7 @@ $("mobile-missions").addEventListener("click", onMissionClick);
 
 initViewSwitch();
 initModeToggle();
+initGalaxyToggle();
 initMapInteractions();
 initCopilot();
 initMobileTabbar();
