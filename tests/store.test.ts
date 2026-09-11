@@ -561,6 +561,40 @@ describe("Store shared galaxy tables (no tenant scoping)", () => {
     assert.equal(mods.find((m) => m.waypointSymbol === wp)?.kind, "mount");
   });
 
+  it("recordShipyardInventory drops a ship type that rotated out of the yard's catalog", async () => {
+    // A real shipyard's offered types change over time on their own — a
+    // type absent from the *latest* fetch is no longer for sale there, not
+    // merely un-refreshed. Confirmed live: an operator saw a "2 min old"
+    // listing for a type that had in fact rotated out, because a sibling
+    // type at the same waypoint was what had actually just been refreshed
+    // — the stale type's own row was never touched again to update or
+    // remove it.
+    const wp = `X1-SY${Date.now()}-PRUNE`;
+    await store.recordShipyardInventory("X1-SY", wp, [
+      { type: "SHIP_MINING_DRONE", name: "Mining Drone", purchasePrice: 78_000, frame: { fuelCapacity: 0 } },
+      { type: "SHIP_LIGHT_HAULER", name: "Light Hauler", purchasePrice: 120_000, frame: { fuelCapacity: 400 } },
+    ]);
+    // The yard's next fetch only reports the hauler — the drone rotated out.
+    await store.recordShipyardInventory("X1-SY", wp, [
+      { type: "SHIP_LIGHT_HAULER", name: "Light Hauler", purchasePrice: 121_000, frame: { fuelCapacity: 400 } },
+    ]);
+    const yards = await store.shipyardInventory();
+    const atYard = yards.filter((y) => y.waypointSymbol === wp);
+    assert.equal(atYard.length, 1, "the rotated-out type's row must be gone, not just unrefreshed");
+    assert.equal(atYard[0]?.shipType, "SHIP_LIGHT_HAULER");
+    assert.equal(atYard[0]?.purchasePrice, 121_000);
+  });
+
+  it("recordShipyardInventory clears every row for a waypoint that now offers nothing", async () => {
+    const wp = `X1-SY${Date.now()}-EMPTY`;
+    await store.recordShipyardInventory("X1-SY", wp, [
+      { type: "SHIP_PROBE", name: "Probe", purchasePrice: 12_000, frame: { fuelCapacity: 0 } },
+    ]);
+    await store.recordShipyardInventory("X1-SY", wp, []);
+    const yards = await store.shipyardInventory();
+    assert.equal(yards.filter((y) => y.waypointSymbol === wp).length, 0);
+  });
+
   it("getSystemTopology returns undefined for a system never cached", async () => {
     const sys = `X1-GT${Date.now()}`;
     assert.equal(await store.getSystemTopology(sys), undefined);

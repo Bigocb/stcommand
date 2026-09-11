@@ -1123,13 +1123,32 @@ export class Store {
     });
   }
 
-  /** Record or update shipyard inventory for a waypoint. */
+  /** Record or update shipyard inventory for a waypoint.
+   *
+   *  A real SpaceTraders shipyard rotates which ship types it offers on its
+   *  own schedule — a type that was for sale yesterday can simply stop
+   *  being offered, with no "removed" event to react to. The upsert loop
+   *  below only ever touches rows for types present in *this* fetch, so
+   *  without this delete a type that dropped off the yard's catalog just
+   *  sat here forever at its last-known price: confirmed live, an operator
+   *  saw a listing read "2 min old" (true — that row's timestamp really
+   *  was fresh) for a type that had, in fact, rotated out, because a
+   *  *different* type at the same waypoint was what had actually just been
+   *  refreshed. Deleting every row for this waypoint not present in the
+   *  current fetch — including all of them, when the yard now offers
+   *  nothing (`ships` empty) — keeps the table an honest mirror of what
+   *  the yard last reported, not an accumulating log of everything it
+   *  ever has. */
   async recordShipyardInventory(
     systemSymbol: string,
     waypointSymbol: string,
     ships: { type: string; name: string; purchasePrice: number; frame?: { fuelCapacity?: number; cargoCapacity?: number; moduleSlots?: number; mountingPoints?: number; symbol?: string } }[],
   ): Promise<void> {
     await withPool(this.pool, async (c) => {
+      await c.query(
+        `DELETE FROM shipyard_inventory WHERE waypoint_symbol = $1 AND ship_type <> ALL($2::text[])`,
+        [waypointSymbol, ships.map((s) => s.type)],
+      );
       for (const s of ships) {
         const frame = s.frame ?? {};
         await c.query(
