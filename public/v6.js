@@ -3579,14 +3579,21 @@ function renderShipsInto(ships, s) {
     // dark side that can wash out against space. One material shared by
     // every part of this ship's hull: role/selection owns the color, the
     // hull shape (see buildShipHull) owns which kind of ship it reads as.
+    // map alone wasn't enough: a flat, UV-independent emissive glow this
+    // strong (built for "read as a bright marker," not a shaded planet)
+    // swamped the diffuse texture's contrast entirely -- confirmed live,
+    // the hull looked completely flat even zoomed in close. Same texture
+    // as emissiveMap makes the seams/rivets dim the glow too, so the
+    // pattern survives being lit this bright.
+    const hullTex = makeHullPanelTexture();
     const mat = new THREE.MeshStandardMaterial({
       color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.2,
-      map: makeHullPanelTexture(),
+      map: hullTex, emissiveMap: hullTex,
     });
     const trim = trimColor(color);
     const trimMat = new THREE.MeshStandardMaterial({
       color: trim, emissive: trim, emissiveIntensity: 0.4, roughness: 0.45, metalness: 0.25,
-      map: makeHullPanelTexture(),
+      map: hullTex, emissiveMap: hullTex,
     });
     const hull = buildShipHull(shipHullBucket(sh), mat, trimMat);
     hull.group.scale.setScalar(shipHullScale(sh));
