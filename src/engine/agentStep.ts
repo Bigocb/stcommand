@@ -74,6 +74,42 @@ export class NavigationPending extends Pending {
 }
 
 /**
+ * How long a `nextTask()`-family `catch` should back off before retrying,
+ * given the error that just happened.
+ *
+ * Every one of these catches used a flat 10s backoff regardless of what
+ * failed — fine for a transient rate-limit blip or a one-off bad route,
+ * but confirmed live as a real problem for insufficient-credits: a fleet
+ * that has genuinely run out of money fails the exact same purchase every
+ * ~10s forever (nothing about retrying sooner can ever fix "the account
+ * has no money"; only the operator adding funds, or some other ship
+ * selling cargo to raise cash, can), and with several ships hitting this
+ * at once it's a tight, perpetual, multi-ship hammering of the shared
+ * rate limiter for no possible gain. A 10-minute backoff on this specific
+ * failure still lets the fleet notice and resume promptly once funds
+ * recover, without spinning in the meantime.
+ */
+const INSUFFICIENT_CREDITS_BACKOFF_MS = 10 * 60_000;
+
+/** SpaceTraders' own wording for this ("Agent does not have sufficient
+ *  credits to purchase N unit(s) of X") — matched loosely on the phrase
+ *  that's stable across every purchase type (cargo, fuel, ship, module)
+ *  rather than the exact sentence, which varies by what was being bought. */
+function isInsufficientCreditsError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /sufficient credits/i.test(msg);
+}
+
+/** Backoff (ms) for a `nextTask()`-family catch to reschedule after, given
+ *  the error it just caught — `Pending` must never reach this (its own
+ *  `resumeAt` is the real reschedule time, not a guessed backoff; every
+ *  catch already checks `err instanceof Pending` first and returns before
+ *  falling through to this). */
+export function catchBackoffMs(err: unknown, defaultMs = 10_000): number {
+  return isInsufficientCreditsError(err) ? INSUFFICIENT_CREDITS_BACKOFF_MS : defaultMs;
+}
+
+/**
  * The cooldown twin of `NavigationPending`, and the generalization
  * `docs/control-plane-data-plane.md` §5 calls for: a step in the data plane
  * never sleeps, it reports when it can next act. Thrown by each agent's

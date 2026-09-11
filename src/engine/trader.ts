@@ -4,7 +4,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
 import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type TraderAssignment } from "./dispatcher.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, Pending } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { standDownReason } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
@@ -2156,7 +2156,7 @@ export class TraderAgent {
             return { actualCalls, next: this.nextTask(err.resumeAt) };
           }
           this.handleTickError(err);
-          return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextTask(Date.now() + catchBackoffMs(err)) };
         } finally {
           this.schedulerDriven = false;
           this.inFlight = null;

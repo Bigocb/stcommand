@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, Pending } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { standDownReason } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
@@ -1636,7 +1636,7 @@ export class ShipAgent {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextTask(err.resumeAt) };
           this.log(`agent error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextTask(Date.now() + catchBackoffMs(err)) };
         } finally {
           this.schedulerDriven = false;
           this.inFlight = null;
@@ -1668,7 +1668,7 @@ export class ShipAgent {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextSurveyTask(err.resumeAt) };
           this.log(`surveyor error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls, next: this.nextSurveyTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextSurveyTask(Date.now() + catchBackoffMs(err)) };
         } finally {
           this.schedulerDriven = false;
           this.inFlight = null;
@@ -1706,7 +1706,7 @@ export class ShipAgent {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextTourTask(err.resumeAt) };
           this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls, next: this.nextTourTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextTourTask(Date.now() + catchBackoffMs(err)) };
         } finally {
           this.schedulerDriven = false;
           this.inFlight = null;
@@ -1739,7 +1739,7 @@ export class ShipAgent {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextKeeperTask(err.resumeAt) };
           this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls, next: this.nextKeeperTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextKeeperTask(Date.now() + catchBackoffMs(err)) };
         } finally {
           this.schedulerDriven = false;
           this.inFlight = null;

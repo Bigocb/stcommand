@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { WaypointPos } from "./agent.js";
 import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, Pending } from "./agentStep.js";
+import { type AgentStep, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { standDownReason } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
@@ -453,7 +453,7 @@ export class ScoutAgent {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextTask(err.resumeAt) };
           this.log(`scout error: ${err instanceof Error ? err.message : String(err)}`);
-          return { actualCalls, next: this.nextTask(Date.now() + 10_000) };
+          return { actualCalls, next: this.nextTask(Date.now() + catchBackoffMs(err)) };
         } finally {
           this.schedulerDriven = false;
           this.inFlight = null;
