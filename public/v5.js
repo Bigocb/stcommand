@@ -2751,25 +2751,28 @@ function makeHullPanelTexture() {
 
   // An irregular grid, not an even tile — real plating doesn't repeat on a
   // neat interval, and an even grid would read as a texture bug (moire)
-  // once it's tiled small over a tiny hull part.
+  // once it's tiled small over a tiny hull part. Contrast pushed hard
+  // (a 100-value swing per panel, near-black seams/rivets) because a
+  // subtler first pass (30-value swing, mid-gray seams) washed out to
+  // looking flat on an actual small on-screen hull — confirmed live.
   const vLines = [0, 21, 37, 70, 91, size];
   const hLines = [0, 17, 45, 76, 101, size];
   for (let i = 0; i < vLines.length - 1; i++) {
     for (let j = 0; j < hLines.length - 1; j++) {
-      const v = 128 + Math.floor(Math.random() * 42);
+      const v = 90 + Math.floor(Math.random() * 100);
       ctx.fillStyle = `rgb(${v},${v},${v})`;
       ctx.fillRect(vLines[i], hLines[j], vLines[i + 1] - vLines[i], hLines[j + 1] - hLines[j]);
     }
   }
-  ctx.strokeStyle = "rgb(68,68,68)";
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "rgb(25,25,25)";
+  ctx.lineWidth = 3.5;
   for (const x of vLines) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke(); }
   for (const y of hLines) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke(); }
-  ctx.fillStyle = "rgb(58,58,58)";
+  ctx.fillStyle = "rgb(15,15,15)";
   for (const x of vLines.slice(1, -1)) {
     for (const y of hLines.slice(1, -1)) {
       ctx.beginPath();
-      ctx.arc(x, y, 1.1, 0, Math.PI * 2);
+      ctx.arc(x, y, 2.2, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -2779,8 +2782,10 @@ function makeHullPanelTexture() {
   tex.wrapT = THREE.RepeatWrapping;
   // A small hull part (a fin, a pod) would otherwise show only a sliver of
   // one panel — repeating the pattern a few times over keeps plating
-  // visible at every part's own scale.
-  tex.repeat.set(2, 2);
+  // visible at every part's own scale. Bumped from 2x2: even with the
+  // contrast fix above, 2x2 still tiled too coarsely to put a visible seam
+  // on the smallest parts (fins, pods) at normal zoom.
+  tex.repeat.set(3, 3);
   tex.__persistent = true;
   hullPanelTexture = tex;
   return tex;
