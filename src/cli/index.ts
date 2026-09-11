@@ -3,6 +3,7 @@ import express from "express";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPool } from "../db/pool.js";
+import { runMigrations } from "../db/migrate.js";
 import { Store } from "../db/store.js";
 import { createGateRouter } from "../http/gate.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
@@ -51,6 +52,16 @@ async function main(): Promise<void> {
   }
 
   const pool = createPool(databaseUrl);
+
+  // Apply any migration that hasn't run yet before anything else touches
+  // the pool — this used to be a separate manual/deploy-pipeline step
+  // (`npm run migrate`), and confirmed live: a deploy can land with a new
+  // migration file that nothing ever actually ran, silently, until
+  // whatever code depends on its tables starts erroring on every call.
+  // Every migration in this repo is itself idempotent, so running this on
+  // every boot (not just once) is safe and cheap once caught up.
+  await runMigrations(pool);
+
   const registry = new TenantRegistry(pool, (tenantId, msg) => log(`[tenant ${tenantId.slice(0, 8)}] ${msg}`));
 
   // Eager-boot every known tenant now, rather than leaving each one idle
