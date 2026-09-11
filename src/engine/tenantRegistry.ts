@@ -53,9 +53,22 @@ const RUN_FOREVER_TICKS = 1_000_000;
  * right after login) share one in-flight boot instead of double-starting
  * the fleet — `starting` is where that's deduped.
  */
+/** How long a failed boot blocks retries for that tenant. Confirmed live:
+ *  without this, every incoming `/api/*` request for a not-yet-booted
+ *  tenant triggered its own fresh boot attempt (a real SpaceTraders round
+ *  trip) — one page load firing its usual 7-14 parallel requests meant 7-14
+ *  simultaneous boot attempts, and during an actual SpaceTraders outage
+ *  that meant hammering the already-broken API nonstop, burning the shared
+ *  per-IP rate-limit budget every other (possibly already-booted) tenant
+ *  needed for its own routine ticking. 15s is short enough that a real
+ *  recovery is picked up quickly, long enough to stop a page load or a
+ *  poll cycle from re-triggering a doomed boot on every single request. */
+const BOOT_RETRY_COOLDOWN_MS = 15_000;
+
 export class TenantRegistry {
   private readonly workers = new Map<string, TenantWorker>();
   private readonly starting = new Map<string, Promise<TenantWorker>>();
+  private readonly lastBootFailure = new Map<string, { at: number; error: Error }>();
   /**
    * One token bucket for every tenant's Client this process ever builds.
    * SpaceTraders enforces its rate limit per IP address, not per agent
@@ -163,13 +176,27 @@ export class TenantRegistry {
       : undefined;
   }
 
-  /** Get a tenant's worker, booting it (once) if this process hasn't seen it yet. */
+  /** Get a tenant's worker, booting it (once) if this process hasn't seen it
+   *  yet — or reusing the failure from a boot attempt within the last
+   *  BOOT_RETRY_COOLDOWN_MS instead of starting a brand-new one. See that
+   *  constant's comment for why the cooldown exists at all. */
   async getOrCreate(tenantId: string, agentSymbol: string): Promise<TenantWorker> {
     const existing = this.workers.get(tenantId);
     if (existing) return existing;
     const inFlight = this.starting.get(tenantId);
     if (inFlight) return inFlight;
-    const promise = this.boot(tenantId, agentSymbol).finally(() => this.starting.delete(tenantId));
+    const recentFailure = this.lastBootFailure.get(tenantId);
+    if (recentFailure && Date.now() - recentFailure.at < BOOT_RETRY_COOLDOWN_MS) throw recentFailure.error;
+    const promise = this.boot(tenantId, agentSymbol)
+      .then((worker) => {
+        this.lastBootFailure.delete(tenantId);
+        return worker;
+      })
+      .catch((err) => {
+        this.lastBootFailure.set(tenantId, { at: Date.now(), error: err instanceof Error ? err : new Error(String(err)) });
+        throw err;
+      })
+      .finally(() => this.starting.delete(tenantId));
     this.starting.set(tenantId, promise);
     const worker = await promise;
     this.workers.set(tenantId, worker);
