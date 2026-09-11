@@ -372,7 +372,7 @@
      viewport-relative: 380px is a third of a tall window and more than
      half a short one, and a hero that crowds out everything else on a
      laptop is not doing its job either. */
-  .card.display { flex:0 0 auto; height:clamp(260px, 46vh, 440px); }
+  .card.display { flex:0 0 auto; height:clamp(340px, 62vh, 640px); }
   .card.display .map-wrap { position:relative; flex:1; min-height:0; border:none; border-radius:0; }
 
   /* align-items:start so each column ends where its own content does,
@@ -677,8 +677,8 @@
     .view:not(.view-bridge).on { grid-template-columns:1fr !important; overflow-y:auto; }
     .view:not(.view-bridge) > * { grid-column:1/-1 !important; }
     .view-bridge .row { grid-template-columns:1fr; }
-    .card.display { flex:0 0 300px; }
-    .map-wrap { min-height:300px; }
+    .card.display { flex:0 0 340px; }
+    .map-wrap { min-height:340px; }
     .bar { gap:12px; }
   }
 

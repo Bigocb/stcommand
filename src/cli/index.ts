@@ -32,7 +32,7 @@ function log(msg: string): void {
  * Wires the mechanics (gate, session resolution, per-tenant engine boot)
  * together with the full dashboard route surface (src/http/dashboard.ts) —
  * ship commands, warehouse controls, doctrine/dispatch/keeper tuning, the
- * chat endpoint — and serves the command-center frontend (public/v2.html,
+ * chat endpoint — and serves the command-center frontend (public/v6.html,
  * a tenant-aware port of straders' own dashboard) as static files. Still
  * ahead: the LLM/Discord settings UI's own routes for reading back what's
  * currently configured. See README.md's status section.
@@ -89,13 +89,15 @@ async function main(): Promise<void> {
 
   app.use("/api", createDashboardRouter(registry, pool));
 
-  // Before express.static so /v3 /v4 /v5 resolve, and so a version that is
+  // Before express.static so /v5 resolves, and so a version that is
   // planned but not yet built answers with something actionable rather than
-  // a bare 404. `/` stays v2 until a successor is chosen deliberately.
+  // a bare 404. `/` now serves v6 (the 3D map) — the deliberate successor
+  // chosen once its map/hull work landed; v2/v3/v4 are retired (still on
+  // disk, no longer routed or offered by the switcher).
   app.use(createUiVersionRouter(PUBLIC_DIR));
 
   app.use(express.static(PUBLIC_DIR, {
-    index: "v2.html",
+    index: "v6.html",
     // See cacheHeaders(): HTML must not be cached or a browser pins itself
     // to superseded modules after a deploy; fonts and shared modules must
     // be, or every version re-downloads them on every load.

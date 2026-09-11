@@ -7,26 +7,28 @@
  * gets itself into, `?ui=v2` returns to the one that works.
  *
  * It brings its own styling rather than inheriting each version's, for two
- * reasons. It must look the same in all four so it stays recognisable while
+ * reasons. It must look the same in both so it stays recognisable while
  * everything around it changes, and it must render before a version's own
  * CSS is trusted to exist — a version mid-build is exactly when you most
  * need to leave it.
+ *
+ * v2/v3/v4 were retired from here once v6's 3D map became the default —
+ * their files are still on disk (nothing there was deleted), just no
+ * longer offered as a destination. v5 stays as the deliberately different
+ * second option.
  */
 
 const VERSIONS = [
-  { id: "v2", path: "/", label: "v2", title: "Current interface" },
-  { id: "v3", path: "/v3", label: "v3", title: "Refined Bridge" },
-  { id: "v4", path: "/v4", label: "v4", title: "Deep Field" },
+  { id: "v6", path: "/", label: "v6", title: "3D Bridge" },
   { id: "v5", path: "/v5", label: "v5", title: "Mission Control" },
-  { id: "v6", path: "/v6", label: "v6", title: "3D Bridge (experimental)" },
 ];
 
 const STORAGE_KEY = "ui-version";
 
 /** Which version this document is, derived from its own path. */
 export function currentVersion() {
-  const m = window.location.pathname.match(/^\/(v[3456])\b/);
-  return m ? m[1] : "v2";
+  const m = window.location.pathname.match(/^\/(v5)\b/);
+  return m ? m[1] : "v6";
 }
 
 /**

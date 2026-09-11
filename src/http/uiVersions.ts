@@ -3,20 +3,23 @@ import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 /**
- * The UI versions this server knows how to serve, newest concept last.
- * `v2` is the default and is served at `/` by the static middleware, so it
- * is not routed here — but it is listed because the switcher needs to
- * offer it as a destination, and because escaping back to it is how an
- * operator recovers from a half-finished newer version.
+ * The UI versions this server actively offers. `v6` (the 3D map) is the
+ * default and is served at `/` by the static middleware, so it is not
+ * routed here.
+ *
+ * v2/v3/v4 were retired once v6 became the default — their files are
+ * still on disk (public/v2.html etc.), so a direct link to
+ * `/v2.html`/`/v3.html`/`/v4.html` still works, but they no longer have a
+ * clean `/vN` route or a switcher entry, and are not listed here.
  */
-export const UI_VERSIONS = ["v2", "v3", "v4", "v5", "v6"] as const;
+export const UI_VERSIONS = ["v5", "v6"] as const;
 export type UiVersion = (typeof UI_VERSIONS)[number];
 
-/** Everything but v2 — the ones that need an explicit route. */
-const ROUTED = UI_VERSIONS.filter((v) => v !== "v2");
+/** Everything but v6 — the ones that need an explicit route. */
+const ROUTED = UI_VERSIONS.filter((v) => v !== "v6");
 
 /**
- * Serves `/v3`, `/v4`, `/v5` from `public/vN.html`.
+ * Serves `/v5` from `public/vN.html`.
  *
  * Mounted before `express.static` so these paths resolve whether or not a
  * trailing `.html` is typed, and so a version that does not exist yet
