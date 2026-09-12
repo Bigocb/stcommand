@@ -14,6 +14,26 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (cartography tenant-exploration layer + labels)
+
+- **Added the tenant-exploration layer to `/cartography`**, the piece
+  explicitly deferred when the page first shipped. A system is marked
+  "explored" once *some* tenant's own fleet has actually visited it and
+  populated its waypoints (`galaxy_systems.waypoints` non-empty) — the
+  crawler alone only ever learns coordinates/type, never waypoint detail,
+  so this is the one bit of real fleet activity visible on the otherwise
+  tenant-agnostic crawl map. Explored systems get a subtle green outline
+  on the map, toggleable via a checkbox, plus their own "Explored" stat
+  tile. New `Store.listGalaxySystemPositions()` field `explored` (a cheap
+  `jsonb_array_length(waypoints) > 0` check, not the waypoint blob itself).
+- **Added system-symbol labels near each dot once zoomed in far enough**
+  that they'd actually be legible — hidden entirely at the whole-galaxy
+  view where thousands of overlapping labels would just be noise, shown
+  past a zoom threshold (also whenever a search zooms in on a match).
+  Same DOM-reuse approach as the dots: each system gets a paired `<text>`
+  element once, and only its position/font-size/visibility are touched on
+  zoom/pan, not a full rebuild.
+
 ## 2026-09-12 (cartography search + zoom)
 
 - **Added system search and zoom controls to `/cartography`'s galaxy map.**

@@ -46,6 +46,13 @@
     padding: 6px 11px; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
   }
   .map-search button:hover { filter: brightness(1.1); }
+  .map-layers { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 10px; color: var(--dim); }
+  .layer-toggle { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+  .layer-toggle input { accent-color: var(--green); cursor: pointer; }
+  .legend { display: flex; align-items: center; gap: 5px; margin-left: auto; }
+  .legend .swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .legend .swatch.explored { background: transparent; border: 1.5px solid var(--green); }
+  .legend .swatch.found { background: var(--amber); }
   #map-canvas-wrap { position: relative; }
   svg#map {
     width: 100%; aspect-ratio: 1 / 1; display: block; background: #090a10;
@@ -53,6 +60,13 @@
   }
   svg#map.dragging { cursor: grabbing; }
   .dot { fill: var(--accent); opacity: 0.85; }
+  .dot.explored { stroke: var(--green); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  svg#map.hide-explored .dot.explored { stroke: none; }
+  .sym-label {
+    fill: var(--dim); pointer-events: none; display: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  svg#map.show-labels .sym-label { display: block; }
+  .sym-label.highlighted { fill: var(--bone) !important; font-weight: 600; }
   .dot:hover { fill: var(--bone); opacity: 1; }
   .dot-highlighted { fill: var(--amber) !important; opacity: 1; }
   .highlight-ring {
@@ -86,7 +100,7 @@
   .progress-bar { flex: 1; height: 8px; border-radius: 99px; background: var(--hairline); overflow: hidden; }
   .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--violet)); width: 0%; transition: width .5s ease; }
   .progress-label { font-size: 11px; color: var(--dim); white-space: nowrap; }
-  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
   .stat { background: var(--ink); border: 1px solid var(--hairline); border-radius: 6px; padding: 8px 10px; }
   .stat .n { font-size: 18px; font-weight: 700; color: var(--bone); }
   .stat .l { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
@@ -120,6 +134,16 @@
           <button id="search-btn">Go</button>
         </div>
       </div>
+      <div class="map-layers">
+        <label class="layer-toggle">
+          <input type="checkbox" id="toggle-explored" checked />
+          Explored systems
+        </label>
+        <div class="legend">
+          <span class="swatch explored"></span> explored
+          <span class="swatch found" style="margin-left:8px"></span> found
+        </div>
+      </div>
       <div id="map-canvas-wrap">
         <svg id="map" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid meet"></svg>
         <div id="tooltip"></div>
@@ -151,6 +175,7 @@
       <div class="stat-grid">
         <div class="stat"><div class="n" id="stat-scanned">—</div><div class="l">Mapped</div></div>
         <div class="stat"><div class="n" id="stat-total">—</div><div class="l">Total known</div></div>
+        <div class="stat"><div class="n" id="stat-explored">—</div><div class="l">Explored</div></div>
         <div class="stat"><div class="n" id="stat-factions">—</div><div class="l">Factions</div></div>
       </div>
     </div>
@@ -189,12 +214,17 @@
   // when zoomed out to the whole galaxy or swallow the screen when zoomed
   // into one system's neighborhood).
   const DOT_SCREEN_FRACTION = 0.006;
+  const LABEL_SCREEN_FRACTION = 0.016;
+  // Labels would be unreadable clutter across the whole galaxy at once —
+  // only turned on once zoomed in past this fraction of the full map.
+  const LABEL_ZOOM_THRESHOLD_FRACTION = 0.08;
   const view = { cx: 0, cy: 0, half: 400 }; // current viewBox center + half-width, in galaxy units
   let fullBounds = null; // { cx, cy, half } that fits every known system
   let lastSystems = [];
   let viewInitialized = false;
-  let dotsBySymbol = new Map();
+  let dotsBySymbol = new Map(); // symbol -> { dot, label }
   let highlightedSymbol = null;
+  let showExplored = true;
 
   function currentDotRadius() {
     return Math.max(view.half * DOT_SCREEN_FRACTION, 1.5);
@@ -204,8 +234,15 @@
     const svg = $("map");
     svg.setAttribute("viewBox", `${view.cx - view.half} ${view.cy - view.half} ${view.half * 2} ${view.half * 2}`);
     const r = currentDotRadius();
-    for (const dot of svg.getElementsByClassName("dot")) {
-      dot.setAttribute("r", dot.classList.contains("dot-highlighted") ? r * 1.8 : r);
+    const fontSize = Math.max(view.half * LABEL_SCREEN_FRACTION, 3);
+    const labelThreshold = fullBounds ? fullBounds.half * LABEL_ZOOM_THRESHOLD_FRACTION : 100;
+    svg.classList.toggle("show-labels", view.half <= labelThreshold);
+    for (const { dot, label } of dotsBySymbol.values()) {
+      const hi = dot.classList.contains("dot-highlighted");
+      const dotR = hi ? r * 1.8 : r;
+      dot.setAttribute("r", dotR);
+      label.setAttribute("x", Number(dot.getAttribute("cx")) + dotR + fontSize * 0.5);
+      label.setAttribute("font-size", fontSize);
     }
     const ring = svg.querySelector(".highlight-ring");
     if (ring) ring.setAttribute("r", r * 1.8);
@@ -220,19 +257,24 @@
     const svg = $("map");
     const oldRing = svg.querySelector(".highlight-ring");
     if (oldRing) oldRing.remove();
-    for (const dot of svg.getElementsByClassName("dot")) dot.classList.remove("dot-highlighted");
+    for (const { dot, label } of dotsBySymbol.values()) {
+      dot.classList.remove("dot-highlighted");
+      label.classList.remove("highlighted");
+    }
     if (!highlightedSymbol) return;
-    const dot = dotsBySymbol.get(highlightedSymbol);
-    if (!dot) return;
+    const entry = dotsBySymbol.get(highlightedSymbol);
+    if (!entry) return;
     const r = currentDotRadius();
-    dot.classList.add("dot-highlighted");
-    dot.setAttribute("r", r * 1.8);
+    entry.dot.classList.add("dot-highlighted");
+    entry.dot.setAttribute("r", r * 1.8);
+    entry.label.classList.add("highlighted");
     const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    ring.setAttribute("cx", dot.getAttribute("cx"));
-    ring.setAttribute("cy", dot.getAttribute("cy"));
+    ring.setAttribute("cx", entry.dot.getAttribute("cx"));
+    ring.setAttribute("cy", entry.dot.getAttribute("cy"));
     ring.setAttribute("r", r * 1.8);
     ring.setAttribute("class", "highlight-ring");
     svg.appendChild(ring);
+    applyViewBox();
   }
 
   function setHighlight(symbol) {
@@ -305,24 +347,39 @@
       viewInitialized = true;
     }
     const r = Math.max(view.half * DOT_SCREEN_FRACTION, 1.5);
+    const fontSize = Math.max(view.half * LABEL_SCREEN_FRACTION, 3);
     dotsBySymbol = new Map();
+    let exploredCount = 0;
     for (const s of withPos) {
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("cx", s.x.toFixed(1));
       circle.setAttribute("cy", s.y.toFixed(1));
       circle.setAttribute("r", r);
-      circle.setAttribute("class", "dot");
+      circle.setAttribute("class", s.explored ? "dot explored" : "dot");
       circle.style.fill = TYPE_COLORS[s.systemType] || "#6c9dff";
       circle.addEventListener("mousemove", (e) => {
         tooltip.style.display = "block";
         tooltip.style.left = e.offsetX + 14 + "px";
         tooltip.style.top = e.offsetY + 10 + "px";
-        tooltip.textContent = s.systemSymbol + (s.systemType ? " · " + s.systemType : "");
+        tooltip.textContent = s.systemSymbol + (s.systemType ? " · " + s.systemType : "") + (s.explored ? " · explored" : "");
       });
       circle.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
       svg.appendChild(circle);
-      dotsBySymbol.set(s.systemSymbol, circle);
+      if (s.explored) exploredCount += 1;
+
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("x", s.x + r + fontSize * 0.5);
+      label.setAttribute("y", s.y);
+      label.setAttribute("font-size", fontSize);
+      label.setAttribute("dominant-baseline", "middle");
+      label.setAttribute("class", "sym-label");
+      label.textContent = s.systemSymbol;
+      svg.appendChild(label);
+
+      dotsBySymbol.set(s.systemSymbol, { dot: circle, label });
     }
+    svg.classList.toggle("hide-explored", !showExplored);
+    $("stat-explored").textContent = exploredCount.toLocaleString();
     applyHighlightToDom();
     applyViewBox();
   }
@@ -332,6 +389,10 @@
     $("zoom-in").addEventListener("click", () => zoomBy(0.7));
     $("zoom-out").addEventListener("click", () => zoomBy(1.4));
     $("zoom-reset").addEventListener("click", resetView);
+    $("toggle-explored").addEventListener("change", (e) => {
+      showExplored = e.target.checked;
+      svg.classList.toggle("hide-explored", !showExplored);
+    });
 
     svg.addEventListener("wheel", (e) => {
       e.preventDefault();

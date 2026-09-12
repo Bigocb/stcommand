@@ -1425,18 +1425,28 @@ export class Store {
   }
 
   /** Just enough per-system data to plot the galaxy map (a scatter of dots),
-   *  skipping listGalaxySystems()'s jsonb waypoint/jump-gate blobs entirely
-   *  — the map doesn't need them, and pulling every row's full topology for
-   *  a page that only draws x/y dots would be wasted bandwidth once the
-   *  crawl covers tens of thousands of systems. */
+   *  skipping listGalaxySystems()'s full jsonb waypoint/jump-gate blobs
+   *  entirely — the map doesn't need them, and pulling every row's full
+   *  topology for a page that only draws x/y dots would be wasted
+   *  bandwidth once the crawl covers tens of thousands of systems.
+   *  `explored` is still cheap to include (a length check, not the blob
+   *  itself): it's true once *some* tenant's own fleet has actually
+   *  visited the system and populated its waypoints — GalaxyCrawler alone
+   *  only ever learns a system's coordinates/type, never its waypoints —
+   *  so this is the one bit of tenant-exploration data visible on the
+   *  otherwise tenant-agnostic crawl map. */
   async listGalaxySystemPositions(): Promise<{
-    systemSymbol: string; sectorSymbol: string | null; systemType: string | null; x: number | null; y: number | null;
+    systemSymbol: string; sectorSymbol: string | null; systemType: string | null; x: number | null; y: number | null; explored: boolean;
   }[]> {
     return withPool(this.pool, async (c) => {
-      const res = await c.query<{ system_symbol: string; sector_symbol: string | null; system_type: string | null; x: number | null; y: number | null }>(
-        `SELECT system_symbol, sector_symbol, system_type, x, y FROM galaxy_systems WHERE system_type IS NOT NULL`,
+      const res = await c.query<{ system_symbol: string; sector_symbol: string | null; system_type: string | null; x: number | null; y: number | null; explored: boolean }>(
+        `SELECT system_symbol, sector_symbol, system_type, x, y, jsonb_array_length(waypoints) > 0 AS explored
+         FROM galaxy_systems WHERE system_type IS NOT NULL`,
       );
-      return res.rows.map((r) => ({ systemSymbol: r.system_symbol, sectorSymbol: r.sector_symbol, systemType: r.system_type, x: r.x, y: r.y }));
+      return res.rows.map((r) => ({
+        systemSymbol: r.system_symbol, sectorSymbol: r.sector_symbol, systemType: r.system_type,
+        x: r.x, y: r.y, explored: r.explored,
+      }));
     });
   }
 
