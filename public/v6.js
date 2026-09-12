@@ -4714,10 +4714,24 @@ function openShipDetails(shipSymbol, opts = {}) {
           ? `<b>Walking toward ${st.tourDestination}</b> <span class="d" style="color:var(--dim);font-size:9px">one jump gate hop per tick — stays put once it arrives</span>`
           : `<b>Touring ${shipSystem}</b> <span class="d" style="color:var(--dim);font-size:9px">send it to a remote system to tour there instead</span>`}</span>
       </div>
-      <div class="jump-row">
-        <input type="text" class="tour-dispatch-system" placeholder="e.g. X1-AB12" style="flex:1;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px" />
-        <button class="tour-dispatch-go" data-ship="${shipSymbol}">Send</button>
-      </div>
+      <div class="jump-row">${(() => {
+        // galaxyOverviewData is the same durable charted-systems list the
+        // Sector tab strip and galaxy map use (FleetManager.getChartedSystems()
+        // unioned with whatever's currently loaded) — a system this tenant
+        // has never actually seen isn't a real dispatch target, so this
+        // list is what's offered rather than a free-text field that could
+        // typo into a system that doesn't exist or was never charted.
+        const options = [...new Set((galaxyOverviewData?.systems ?? []).map((s) => s.symbol))]
+          .filter((sym) => sym !== shipSystem)
+          .sort();
+        if (!options.length) {
+          return `<span class="d" style="color:var(--dim);font-size:9px">no other charted systems yet</span>`;
+        }
+        return `<select class="tour-dispatch-system" style="flex:1;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px">
+            ${options.map((sym) => `<option value="${escapeAttr(sym)}">${escapeHtml(sym)}</option>`).join("")}
+          </select>
+          <button class="tour-dispatch-go" data-ship="${shipSymbol}">Send</button>`;
+      })()}</div>
     </div>` : ""}
     <div class="loadout-section"><h4>Cargo hold</h4>
       ${(ship.cargo.inventory ?? []).length
@@ -5816,6 +5830,13 @@ function boot() {
     loadDoctrine();
     loadProgramme();
     loadReplay();
+    // Previously only fetched on the Galaxy view toggle — but the tour-
+    // dispatch system dropdown in a ship's detail panel needs this same
+    // charted-systems list, and that panel can open long before the
+    // operator ever visits Galaxy view. Trailing Tier 2 like everything
+    // else here keeps it off the critical path while still being ready
+    // by the time a ship detail panel is likely to open.
+    loadGalaxyOverview();
     if (isMobile()) { loadDispatch(); loadWarehouse(); }
   });
   initScrubber();
