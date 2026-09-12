@@ -120,6 +120,43 @@ describe("autoExplore does not block the coordinator", () => {
       "a scout already claimed in exploringShips must not be re-proposed with a new goal",
     );
   });
+
+  it("does not propose a jump to a system whose remote gate is under construction, and remembers not to retry", async () => {
+    // The live bug this covers: DRAGOM-C retried the identical doomed jump to
+    // X1-YB72 every few minutes for 45+ minutes straight. canJump() (used to
+    // pick a target above) only validates the LOCAL gate's construction —
+    // exploreSystem() has always separately checked the remote end and
+    // recorded a skip, but autoExplore() never did, so nothing here had any
+    // memory of the earlier failure.
+    const fleet = new FleetManager({
+      api: {
+        getCallCount: () => 0,
+        getConstruction: async () => ({ isComplete: false, materials: [] }),
+      } as any,
+    });
+    seedGalaxy(fleet);
+    // X1-A's local gate is complete (seeded true); X1-B's remote gate is not
+    // yet known either way, so refreshGateConstruction() actually calls the
+    // stubbed API above instead of short-circuiting on an already-cached true.
+    (fleet as any).galaxy.gateConstruction.delete("X1-B-GATE");
+    (fleet as any).scouts.set("SCOUT-1", scoutAgent(makeShip("SCOUT-1")));
+
+    await (fleet as any).autoExplore();
+    fleet.intents.commit();
+
+    assert.equal(fleet.intents.current("SCOUT-1"), undefined, "no goal proposed — the only reachable target's remote gate is not finished");
+    assert.ok(
+      (fleet as any).gateConstructionSkipUntil.get("X1-B") > Date.now(),
+      "the skip is recorded so a later pass does not retry the same doomed target",
+    );
+
+    // A second pass, even with the throttle cleared, must not retry X1-B
+    // while the skip is still active — this is the part that was missing.
+    (fleet as any).lastExploreTick = 0;
+    await (fleet as any).autoExplore();
+    fleet.intents.commit();
+    assert.equal(fleet.intents.current("SCOUT-1"), undefined, "second pass still does not propose the skipped target");
+  });
 });
 
 describe("repair and explore no longer take turns driving the same hull", () => {

@@ -5626,11 +5626,20 @@ export class FleetManager {
     // can't see from here can't monopolize the same scout pass after pass.
     const taken = new Set<string>();
     const pairs: { scout: ScoutCandidate; target: string }[] = [];
+    const skipNow = Date.now();
     for (const scout of dedicated) {
       const from = scout.a.getShip().nav.systemSymbol;
+      // canJump() only validates the LOCAL gate's construction status (see its
+      // own comment) — it says nothing about the remote end, so without this
+      // filter a target whose remote gate is under construction (recorded in
+      // gateConstructionSkipUntil by exploreSystem()'s own belt-and-braces
+      // check, or below) kept getting reselected here every pass. Confirmed
+      // live: DRAGOM-C retried the identical doomed jump to X1-YB72 every few
+      // minutes for 45+ minutes straight — this loop had no memory of the
+      // earlier failure at all.
       const options = this.galaxy
         .connectedSystems(from)
-        .filter((c) => !this.surveyedSystems.has(c) && !taken.has(c) && this.galaxy.canJump(from, c));
+        .filter((c) => !this.surveyedSystems.has(c) && !taken.has(c) && this.galaxy.canJump(from, c) && (this.gateConstructionSkipUntil.get(c) ?? 0) <= skipNow);
       const target = options[Math.floor(Math.random() * options.length)];
       if (!target) continue; // nothing this scout can reach from here
       taken.add(target);
@@ -5674,6 +5683,18 @@ export class FleetManager {
       await this.galaxy.loadSystem(target);
       const remoteGateWP = this.galaxy.getSystem(target)?.waypoints.find((w) => w.type === "JUMP_GATE");
       if (!remoteGateWP) { this.log(`auto-explore ${target}: no remote jump gate, skipping`); continue; }
+      // Same remote-gate check exploreSystem() already does before proposing a
+      // jump — the local gate being complete says nothing about the far end,
+      // and this path proposes the goal, it does not execute the jump itself
+      // (that happens later in ShipProxy.runExploreGoal()), so there is no
+      // later point to catch a live "under construction" rejection and record
+      // the skip the way exploreSystem()'s own try/catch does. Has to happen
+      // here, before the goal is ever proposed.
+      if (!(await this.galaxy.refreshGateConstruction(target, remoteGateWP.symbol))) {
+        await this.skipGateConstruction(target);
+        this.log(`auto-explore ${target}: remote gate ${remoteGateWP.symbol} is under construction, skipping for a while`);
+        continue;
+      }
       const markets = (this.galaxy.getSystem(target)?.waypoints ?? [])
         .filter((w) => w.symbol !== remoteGateWP.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE"))
         .slice(0, 3)
