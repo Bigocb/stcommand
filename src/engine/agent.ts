@@ -65,6 +65,14 @@ export interface AgentOptions {
   ensureSystemCharted?: (systemSymbol: string) => Promise<void>;
   /** Marketplace waypoints to tour periodically so price snapshots stay fresh. */
   marketTourTargets?: () => Promise<string[]>;
+  /**
+   * Advance one jump-gate hop toward a pinned remote tour destination, if
+   * this ship has one (FleetManager.dispatchTourShip()/advanceTourDispatch()).
+   * Returns true when it performed or is mid-hop on a jump this tick — the
+   * caller should treat that as "did work" and skip its own same-system
+   * target selection until the ship actually arrives.
+   */
+  advanceTourDestination?: () => Promise<boolean>;
   /** Markets whose snapshots are older than the freshness window — tour these first. */
   staleMarketTargets?: () => Promise<string[]>;
   /** Shipyard waypoints to tour periodically so ship stock stays fresh. */
@@ -174,6 +182,7 @@ export class ShipAgent {
   private readonly getCredits?: AgentOptions["getCredits"];
   private readonly ensureSystemCharted?: AgentOptions["ensureSystemCharted"];
   private readonly marketTourTargets?: AgentOptions["marketTourTargets"];
+  private readonly advanceTourDestination?: AgentOptions["advanceTourDestination"];
   private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
   private readonly exploreNext?: AgentOptions["exploreNext"];
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
@@ -251,6 +260,7 @@ export class ShipAgent {
     this.getCredits = opts.getCredits;
     this.ensureSystemCharted = opts.ensureSystemCharted;
     this.marketTourTargets = opts.marketTourTargets;
+    this.advanceTourDestination = opts.advanceTourDestination;
     this.staleMarketTargets = opts.staleMarketTargets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
     this.exploreNext = opts.exploreNext;
@@ -1254,6 +1264,11 @@ export class ShipAgent {
       this.log("tour scout: suspended, holding");
       return false;
     }
+    // A ship mid-dispatch to a pinned remote system takes the next hop
+    // toward it instead of touring wherever it currently sits — otherwise a
+    // ship dispatchTourShip() sent several jumps out would tour every
+    // intermediate system along the way instead of just walking through it.
+    if (this.advanceTourDestination && (await this.advanceTourDestination())) return true;
     await this.refresh();
     // The operator moving a ship somewhere and expecting the tour loop not to
     // yank it off to the next market used to be handled here, off a private

@@ -1170,6 +1170,22 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
+  router.post("/fleet/tour-dispatch", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol, targetSystem } = req.body ?? {};
+    if (typeof shipSymbol !== "string" || typeof targetSystem !== "string") {
+      return res.status(400).json({ error: "shipSymbol and targetSystem required" });
+    }
+    try {
+      await w.fleet.dispatchTourShip(shipSymbol, targetSystem);
+      res.json({ ok: true, shipSymbol, targetSystem });
+    } catch (err) {
+      console.error("[dashboard] tour-dispatch error", err);
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/fleet/explore", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

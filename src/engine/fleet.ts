@@ -222,6 +222,12 @@ export class FleetManager {
   private scouts = new Map<string, ScoutAgent>();
   private siphoners = new Map<string, SiphonerAgent>();
   private tours = new Map<string, ShipAgent>();
+  /** Tour ship → remote system it's being auto-dispatched toward, one jump at
+   *  a time (dispatchTourShip()/advanceTourDispatch()). Persisted in
+   *  shipManualState.tourDestination so a multi-hop trip survives a restart
+   *  mid-flight instead of stranding the ship at whatever system it had
+   *  reached so far. Cleared once the ship actually arrives. */
+  private tourDestinations = new Map<string, string>();
   /** Dedicated explorer role — see agent.ts's exploreScout()/nextExploreTask()
    *  and setShipRole()'s "explorer" case. Unlike autoExplore()'s occasional
    *  borrow of an idle tour ship, a ship in this map does nothing else. */
@@ -563,6 +569,10 @@ export class FleetManager {
         } catch (err) {
           this.log(`restore hold ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
+      }
+      if (st.tourDestination) {
+        this.tourDestinations.set(shipSymbol, st.tourDestination);
+        this.log(`restored tour dispatch ${shipSymbol} -> ${st.tourDestination}`);
       }
       if (st.scrapAt) {
         // Restore the target yard directly rather than re-deriving "nearest"
@@ -1507,6 +1517,7 @@ export class FleetManager {
           ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
           marketTourTargets: () => this.marketTourTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
+          advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           getCredits: () => this.spendableCredits(),
           galaxy: this.galaxy,
@@ -1603,6 +1614,7 @@ export class FleetManager {
           marketTourTargets: () => this.sectorTourTargets(ship.symbol),
           staleMarketTargets: () => this.staleMarketTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
+          advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           getCredits: () => this.spendableCredits(),
           galaxy: this.galaxy,
@@ -1814,6 +1826,7 @@ export class FleetManager {
             marketTourTargets: () => this.sectorTourTargets(shipSymbol),
             staleMarketTargets: () => this.staleMarketTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),
+            advanceTourDestination: () => this.advanceTourDispatch(shipSymbol),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
@@ -2392,6 +2405,108 @@ export class FleetManager {
     if (this.operatorHolds.has(shipSymbol)) {
       await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol });
     }
+  }
+
+  /**
+   * Shortest known path of systems from `fromSystem` to `toSystem`, walking
+   * only jump-gate connections this tenant has actually charted
+   * (galaxy.jumpConnections() — waypoint-level pairs, collapsed here to one
+   * system-level graph). Returns undefined when no such path is known yet;
+   * that's not necessarily "unreachable", just "not discovered far enough
+   * for this tenant" — advanceTourDispatch() leaves the destination pinned
+   * and retries on a later tick as more of the galaxy gets charted.
+   */
+  private findSystemPath(fromSystem: string, toSystem: string): string[] | undefined {
+    if (fromSystem === toSystem) return [fromSystem];
+    const adjacency = new Map<string, Set<string>>();
+    for (const { from, to } of this.galaxy.jumpConnections()) {
+      const a = from.slice(0, from.lastIndexOf("-"));
+      const b = to.slice(0, to.lastIndexOf("-"));
+      if (a === b) continue;
+      (adjacency.get(a) ?? adjacency.set(a, new Set()).get(a)!).add(b);
+      (adjacency.get(b) ?? adjacency.set(b, new Set()).get(b)!).add(a);
+    }
+    const queue = [fromSystem];
+    const prev = new Map<string, string>();
+    const seen = new Set([fromSystem]);
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      if (cur === toSystem) {
+        const path = [cur];
+        let step = cur;
+        while (step !== fromSystem) { step = prev.get(step)!; path.unshift(step); }
+        return path;
+      }
+      for (const next of adjacency.get(cur) ?? []) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        prev.set(next, cur);
+        queue.push(next);
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Dispatch a ship to become a remote tour shuttle: put it (or confirm it
+   * already is) on the "tour" role, then start it walking the known
+   * jump-gate graph toward `targetSystem` one hop per tick via
+   * advanceTourDispatch(). Once it arrives, tourScout()'s own same-system
+   * filter (marketTourTargets()/shipyardTourTargets() already trait-scan
+   * every charted system) means it just keeps touring there on its own —
+   * nothing further to pin beyond "get it there".
+   */
+  async dispatchTourShip(shipSymbol: string, targetSystem: string): Promise<void> {
+    if (this.roleOf(shipSymbol) !== "tour") {
+      await this.setShipRole(shipSymbol, "tour");
+    }
+    const ship = await this.api.getShip(shipSymbol);
+    if (ship.nav.systemSymbol === targetSystem) {
+      await this.updateShipManualState(shipSymbol, { tourDestination: null });
+      this.log(`${shipSymbol}: already in ${targetSystem}, touring in place`);
+      return;
+    }
+    await this.updateShipManualState(shipSymbol, { tourDestination: targetSystem });
+    this.log(`${shipSymbol}: dispatched to tour ${targetSystem}, ${this.findSystemPath(ship.nav.systemSymbol, targetSystem)?.length ?? "?"} known hop(s) away`);
+  }
+
+  /**
+   * Advance one hop toward a ship's pinned tour destination, if it has one.
+   * Called at the top of every tourScout() tick (see agent.ts) ahead of the
+   * normal same-system touring logic, so a ship mid-dispatch keeps walking
+   * gate to gate instead of touring whatever system it currently happens to
+   * be sitting in. Returns true if it performed (or is mid-) a jump this
+   * tick — the caller should treat that as "did work" and skip its own
+   * target selection for the tick.
+   */
+  private async advanceTourDispatch(shipSymbol: string): Promise<boolean> {
+    const dest = this.tourDestinations.get(shipSymbol);
+    if (!dest) return false;
+    const ship = await this.api.getShip(shipSymbol);
+    if (ship.nav.systemSymbol === dest) {
+      await this.updateShipManualState(shipSymbol, { tourDestination: null });
+      this.log(`${shipSymbol}: arrived in ${dest}, touring in place`);
+      return false;
+    }
+    if (ship.nav.status === "IN_TRANSIT") return true; // already mid-hop, nothing to do this tick
+    const path = this.findSystemPath(ship.nav.systemSymbol, dest);
+    if (!path || path.length < 2) {
+      this.log(`${shipSymbol}: no known jump-gate path from ${ship.nav.systemSymbol} to ${dest} yet — will retry as more of the galaxy is charted`);
+      return false;
+    }
+    const nextSystem = path[1]!;
+    await this.galaxy.loadSystem(nextSystem);
+    const remoteGate = this.galaxy.getSystem(nextSystem)?.waypoints.find((w) => w.type === "JUMP_GATE");
+    if (!remoteGate) {
+      this.log(`${shipSymbol}: ${nextSystem} (next hop toward ${dest}) has no known jump gate yet — will retry`);
+      return false;
+    }
+    try {
+      await this.jumpShip(shipSymbol, remoteGate.symbol);
+    } catch (err) {
+      this.log(`${shipSymbol}: tour dispatch hop to ${nextSystem} failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return true;
   }
 
   /**
@@ -3685,7 +3800,7 @@ export class FleetManager {
   /** Manual hold + mining-field pin, keyed by ship, as one `fleet_flags` JSON
    *  blob — the same "small settings" mechanism `keeperMarkets` already uses.
    *  Read once at boot to replay holds/pins that would otherwise be lost. */
-  private async loadShipManualState(): Promise<Record<string, { holdWaypoint?: string; minePin?: string; scrapAt?: string }>> {
+  private async loadShipManualState(): Promise<Record<string, { holdWaypoint?: string; minePin?: string; scrapAt?: string; tourDestination?: string }>> {
     const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "shipManualState") : undefined;
     if (!raw) return {};
     try {
@@ -3695,7 +3810,7 @@ export class FleetManager {
     }
   }
 
-  private async updateShipManualState(shipSymbol: string, patch: { holdWaypoint?: string | null; minePin?: string | null; scrapAt?: string | null }): Promise<void> {
+  private async updateShipManualState(shipSymbol: string, patch: { holdWaypoint?: string | null; minePin?: string | null; scrapAt?: string | null; tourDestination?: string | null }): Promise<void> {
     // Queue this call behind whatever's already pending, so its own
     // read-modify-write of the shared blob never interleaves with another
     // in-flight call's — see manualStateLock's own comment.
@@ -3718,6 +3833,10 @@ export class FleetManager {
       if ("scrapAt" in patch) {
         if (patch.scrapAt) { next.scrapAt = patch.scrapAt; this.scrapTargets.set(shipSymbol, patch.scrapAt); }
         else { delete next.scrapAt; this.scrapTargets.delete(shipSymbol); }
+      }
+      if ("tourDestination" in patch) {
+        if (patch.tourDestination) { next.tourDestination = patch.tourDestination; this.tourDestinations.set(shipSymbol, patch.tourDestination); }
+        else { delete next.tourDestination; this.tourDestinations.delete(shipSymbol); }
       }
       if (Object.keys(next).length === 0) delete all[shipSymbol];
       else all[shipSymbol] = next;
@@ -3968,14 +4087,14 @@ export class FleetManager {
     await this.releaseTo(shipSymbol, "operator");
   }
 
-  getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string }[] {
+  getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string; tourDestination?: string }[] {
     const warehouseSymbol = this.warehouseShip?.shipSymbol;
     const notWarehouse = (s: string) => s !== warehouseSymbol;
     const statuses = [
       ...[...this.miners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: this.isHeld(s), pinnedField: a.pinnedField() })),
       ...[...this.traders.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.surveyors.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: this.isHeld(s), pinnedField: a.pinnedField() })),
-      ...[...this.tours.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: this.isHeld(s) })),
+      ...[...this.tours.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: this.isHeld(s), tourDestination: this.tourDestinations.get(s) })),
       ...[...this.explorers.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "explorer", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.keepers.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.scouts.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: this.isHeld(s) })),

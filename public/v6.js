@@ -4657,6 +4657,17 @@ function openShipDetails(shipSymbol, opts = {}) {
         <input type="text" class="role-keeper-wp" placeholder="keeper market waypoint (skip if already there)" style="width:100%;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px" />
       </div>
     </div>
+    ${st?.role === "tour" ? `<div class="loadout-section"><h4>Tour dispatch</h4>
+      <div class="jump-row">
+        <span class="tgt">${st?.tourDestination
+          ? `<b>Walking toward ${st.tourDestination}</b> <span class="d" style="color:var(--dim);font-size:9px">one jump gate hop per tick — stays put once it arrives</span>`
+          : `<b>Touring ${shipSystem}</b> <span class="d" style="color:var(--dim);font-size:9px">send it to a remote system to tour there instead</span>`}</span>
+      </div>
+      <div class="jump-row">
+        <input type="text" class="tour-dispatch-system" placeholder="e.g. X1-AB12" style="flex:1;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px" />
+        <button class="tour-dispatch-go" data-ship="${shipSymbol}">Send</button>
+      </div>
+    </div>` : ""}
     <div class="loadout-section"><h4>Cargo hold</h4>
       ${(ship.cargo.inventory ?? []).length
         ? `<div class="loadout-grid">${(ship.cargo.inventory ?? []).map((i) =>
@@ -4878,6 +4889,21 @@ function openShipDetails(shipSymbol, opts = {}) {
         await loadState();
         openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".tour-dispatch-go").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const shipSymbol = b.dataset.ship;
+      const input = modal.querySelector(".tour-dispatch-system");
+      const targetSystem = input?.value.trim().toUpperCase();
+      if (!targetSystem) return;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/tour-dispatch", { shipSymbol, targetSystem });
+        showToastGlobal(`${shipSymbol} dispatched to tour ${targetSystem}`);
+        await loadState();
+        openShipDetails(shipSymbol, { containerId });
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
   });
   modal.querySelectorAll(".install").forEach((b) => {
