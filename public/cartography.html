@@ -33,14 +33,44 @@
     margin: 0 0 10px; font-weight: 600;
   }
   .stack { display: flex; flex-direction: column; gap: 14px; }
-  #map-wrap { position: relative; }
-  svg#map { width: 100%; height: auto; display: block; background: #090a10; border-radius: 6px; border: 1px solid var(--hairline); }
+  .map-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .map-toolbar h2 { margin: 0; flex: 0 0 auto; }
+  .map-search { display: flex; gap: 6px; margin-left: auto; }
+  .map-search input {
+    background: var(--ink); border: 1px solid var(--hairline); color: var(--bone);
+    padding: 6px 9px; border-radius: 5px; font: inherit; font-size: 11px; width: 150px;
+  }
+  .map-search input:focus { outline: none; border-color: var(--accent); }
+  .map-search button {
+    background: var(--accent); color: #0c0e14; border: none; border-radius: 5px;
+    padding: 6px 11px; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+  }
+  .map-search button:hover { filter: brightness(1.1); }
+  #map-canvas-wrap { position: relative; }
+  svg#map {
+    width: 100%; aspect-ratio: 1 / 1; display: block; background: #090a10;
+    border-radius: 6px; border: 1px solid var(--hairline); cursor: grab; touch-action: none;
+  }
+  svg#map.dragging { cursor: grabbing; }
   .dot { fill: var(--accent); opacity: 0.85; }
   .dot:hover { fill: var(--bone); opacity: 1; }
   #tooltip {
     position: absolute; pointer-events: none; background: var(--ink); border: 1px solid var(--hairline);
     border-radius: 5px; padding: 6px 9px; font-size: 11px; color: var(--bone); display: none; white-space: nowrap;
     box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  }
+  .zoom-controls {
+    position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .zoom-controls button {
+    width: 24px; height: 24px; line-height: 1; background: rgba(18,21,29,.85); color: var(--dim);
+    border: 1px solid var(--hairline); border-radius: 4px; font: inherit; font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .zoom-controls button:hover { color: var(--bone); border-color: var(--accent); }
+  .search-error {
+    position: absolute; top: 8px; right: 8px; background: rgba(229,105,123,.15); color: var(--red);
+    border: 1px solid rgba(229,105,123,.3); border-radius: 4px; padding: 4px 8px; font-size: 10px;
   }
   .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .progress-bar { flex: 1; height: 8px; border-radius: 99px; background: var(--hairline); overflow: hidden; }
@@ -73,9 +103,23 @@
 <div class="layout">
   <div class="stack">
     <div class="card" id="map-wrap">
-      <h2>Galaxy map</h2>
-      <svg id="map" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid meet"></svg>
-      <div id="tooltip"></div>
+      <div class="map-toolbar">
+        <h2>Galaxy map</h2>
+        <div class="map-search">
+          <input id="search-input" placeholder="System symbol…" autocomplete="off" />
+          <button id="search-btn">Go</button>
+        </div>
+      </div>
+      <div id="map-canvas-wrap">
+        <svg id="map" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid meet"></svg>
+        <div id="tooltip"></div>
+        <div class="zoom-controls">
+          <button id="zoom-in" title="Zoom in">+</button>
+          <button id="zoom-out" title="Zoom out">−</button>
+          <button id="zoom-reset" title="Fit whole galaxy">⤢</button>
+        </div>
+        <div class="search-error" id="search-error" hidden></div>
+      </div>
     </div>
     <div class="card">
       <h2>Factions</h2>
@@ -127,7 +171,71 @@
     UNSTABLE: "#e5697b",
   };
 
+  // Dots are drawn at their raw galaxy x/y (not rescaled to fit a fixed
+  // box) so the SVG viewBox alone controls zoom/pan — a search jump or a
+  // zoom button just changes the viewBox, no re-layout of the dots needed.
+  // Their radius is re-derived from the current zoom level each time the
+  // viewBox changes (a fixed radius in galaxy units would either vanish
+  // when zoomed out to the whole galaxy or swallow the screen when zoomed
+  // into one system's neighborhood).
+  const DOT_SCREEN_FRACTION = 0.006;
+  const view = { cx: 0, cy: 0, half: 400 }; // current viewBox center + half-width, in galaxy units
+  let fullBounds = null; // { cx, cy, half } that fits every known system
+  let lastSystems = [];
+  let viewInitialized = false;
+
+  function applyViewBox() {
+    const svg = $("map");
+    svg.setAttribute("viewBox", `${view.cx - view.half} ${view.cy - view.half} ${view.half * 2} ${view.half * 2}`);
+    const r = Math.max(view.half * DOT_SCREEN_FRACTION, 1.5);
+    for (const dot of svg.getElementsByClassName("dot")) dot.setAttribute("r", r);
+  }
+
+  function clampHalf(h) {
+    const min = 15;
+    const max = fullBounds ? fullBounds.half * 1.5 : 5000;
+    return Math.min(max, Math.max(min, h));
+  }
+
+  function zoomBy(factor) {
+    view.half = clampHalf(view.half * factor);
+    applyViewBox();
+  }
+
+  function resetView() {
+    if (!fullBounds) return;
+    view.cx = fullBounds.cx;
+    view.cy = fullBounds.cy;
+    view.half = fullBounds.half;
+    applyViewBox();
+  }
+
+  function jumpTo(x, y, half) {
+    view.cx = x;
+    view.cy = y;
+    view.half = clampHalf(half);
+    applyViewBox();
+  }
+
+  function searchSystem(query) {
+    const err = $("search-error");
+    const q = query.trim().toUpperCase();
+    if (!q) { err.hidden = true; return; }
+    const exact = lastSystems.find((s) => s.systemSymbol.toUpperCase() === q);
+    const match = exact || lastSystems.find((s) => s.systemSymbol.toUpperCase().includes(q));
+    if (!match || match.x == null || match.y == null) {
+      err.textContent = "System not found";
+      err.hidden = false;
+      return;
+    }
+    err.hidden = true;
+    // "Neighborhood" zoom: tight enough to make the target and its nearby
+    // systems distinguishable, regardless of how zoomed-out the full map is.
+    jumpTo(match.x, match.y, Math.max(50, (fullBounds ? fullBounds.half : 400) * 0.06));
+  }
+
   function renderMap(systems) {
+    lastSystems = systems;
     const svg = $("map");
     const tooltip = $("tooltip");
     svg.innerHTML = "";
@@ -136,16 +244,20 @@
     const xs = withPos.map((s) => s.x), ys = withPos.map((s) => s.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const pad = 20, size = 800;
-    const spanX = Math.max(maxX - minX, 1), spanY = Math.max(maxY - minY, 1);
-    const scale = (size - pad * 2) / Math.max(spanX, spanY);
+    const span = Math.max(maxX - minX, maxY - minY, 100);
+    fullBounds = { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, half: span / 2 * 1.08 };
+    if (!viewInitialized) {
+      view.cx = fullBounds.cx;
+      view.cy = fullBounds.cy;
+      view.half = fullBounds.half;
+      viewInitialized = true;
+    }
+    const r = Math.max(view.half * DOT_SCREEN_FRACTION, 1.5);
     for (const s of withPos) {
-      const cx = pad + (s.x - minX) * scale;
-      const cy = pad + (s.y - minY) * scale;
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("cx", cx.toFixed(1));
-      circle.setAttribute("cy", cy.toFixed(1));
-      circle.setAttribute("r", "2.2");
+      circle.setAttribute("cx", s.x.toFixed(1));
+      circle.setAttribute("cy", s.y.toFixed(1));
+      circle.setAttribute("r", r);
       circle.setAttribute("class", "dot");
       circle.style.fill = TYPE_COLORS[s.systemType] || "#6c9dff";
       circle.addEventListener("mousemove", (e) => {
@@ -157,6 +269,47 @@
       circle.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
       svg.appendChild(circle);
     }
+    applyViewBox();
+  }
+
+  function setupMapControls() {
+    const svg = $("map");
+    $("zoom-in").addEventListener("click", () => zoomBy(0.7));
+    $("zoom-out").addEventListener("click", () => zoomBy(1.4));
+    $("zoom-reset").addEventListener("click", resetView);
+
+    svg.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      zoomBy(e.deltaY > 0 ? 1.15 : 0.87);
+    }, { passive: false });
+
+    let dragging = false, lastX = 0, lastY = 0;
+    svg.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      lastX = e.clientX; lastY = e.clientY;
+      svg.classList.add("dragging");
+      svg.setPointerCapture(e.pointerId);
+    });
+    svg.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const rect = svg.getBoundingClientRect();
+      const unitsPerPx = (view.half * 2) / rect.width;
+      view.cx -= (e.clientX - lastX) * unitsPerPx;
+      view.cy -= (e.clientY - lastY) * unitsPerPx;
+      lastX = e.clientX; lastY = e.clientY;
+      applyViewBox();
+    });
+    const endDrag = (e) => {
+      dragging = false;
+      svg.classList.remove("dragging");
+      if (e && svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+    };
+    svg.addEventListener("pointerup", endDrag);
+    svg.addEventListener("pointerleave", endDrag);
+
+    const runSearch = () => searchSystem($("search-input").value);
+    $("search-btn").addEventListener("click", runSearch);
+    $("search-input").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
   }
 
   function renderFactions(factions) {
@@ -237,6 +390,7 @@
     } catch (err) { console.error(err); }
   }
 
+  setupMapControls();
   refreshSlow();
   refreshFast();
   setInterval(refreshFast, 5000);
