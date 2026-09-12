@@ -14,6 +14,23 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (input-reset fixes)
+
+- **Fixed inputs resetting mid-edit on Markets and in ship detail
+  panels**, on both mobile and desktop (v5/v6). Two separate bugs:
+  the price chart's material dropdown's `change` handler read a stale
+  closed-over variable instead of the event's actual new value, so
+  picking a different material didn't register at all — the next 20s
+  poll just restored the old selection, looking like a revert; and
+  `refreshOpenShipDetails()` only ever preserved one specific field
+  (`.dispatch-wp`) across its full re-render (every 5s while a panel is
+  open), so every other input — keeper-market waypoint, the tour-
+  dispatch system picker — reset mid-edit on that same cycle. Both
+  fixed: the dropdown now reads `e.target.value` and skips unnecessary
+  rebuilds, and the ship-detail preservation now covers every input/
+  select/textarea in the panel generically instead of one hardcoded
+  field.
+
 ## 2026-09-12 (autoExplore retry-loop fix)
 
 - **Fixed `autoExplore()` retrying a doomed jump forever.** Found live:
