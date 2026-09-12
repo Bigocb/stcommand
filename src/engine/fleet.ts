@@ -2019,6 +2019,34 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Grow toward explorerTarget by converting a spare idle hull first,
+   * before maybeBuyShip() ever spends credits on one — an explorer just
+   * needs fuel range to jump around with, not a specific frame or mount,
+   * so a ship already sitting in idleShips is free capacity nobody's using.
+   * Only falls through to a real purchase (maybeBuyShip()'s own
+   * explorerTarget priority) once there's no idle hull left to repurpose.
+   */
+  private async maybeGrowExplorers(): Promise<void> {
+    const target = this.doctrine.value("explorerTarget", 0);
+    if (this.explorers.size >= target) return;
+    // Best-fuel-range idle hull, not just the first one found — a spare
+    // probe (0 fuel, can't move at all) sitting in idleShips would
+    // otherwise get picked and immediately fail to do anything.
+    let best: string | undefined;
+    let bestFuel = 0;
+    for (const [symbol, ship] of this.idleShips) {
+      if (ship.fuel.capacity > bestFuel) { best = symbol; bestFuel = ship.fuel.capacity; }
+    }
+    if (!best) return;
+    try {
+      await this.setShipRole(best, "explorer");
+      this.log(`${best}: converted idle hull to explorer (no purchase needed)`);
+    } catch (err) {
+      this.log(`convert ${best} to explorer failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /** Purchase the highest-scored affordable ship, if any. */
   async maybeBuyShip(): Promise<void> {
     const agent = await this.api.getMyAgent();
@@ -4429,6 +4457,7 @@ export class FleetManager {
       const from = change.from ? `${change.from.goal.kind} (v${change.from.version})` : "nothing";
       this.log(`${change.ship}: ${from} → ${change.to.goal.kind} (v${change.to.version}) — ${change.to.reason}`);
     }
+    await this.maybeGrowExplorers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();
     await this.maybeBuySiphoner();
