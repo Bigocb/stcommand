@@ -19,6 +19,13 @@
   h1 { font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 4px; color: var(--dim); }
   h1 b { color: var(--bone); }
   .sub { color: var(--dim); font-size: 11px; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tab-btn {
+    background: none; border: 1px solid var(--hairline); color: var(--dim); border-radius: 5px;
+    padding: 6px 12px; font: inherit; font-size: 11px; cursor: pointer;
+  }
+  .tab-btn.active { background: var(--panel); color: var(--bone); border-color: var(--accent); }
+  .tab-btn:hover { color: var(--bone); }
   .layout {
     display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
     gap: 14px; max-width: 1400px; margin: 0 auto;
@@ -46,6 +53,11 @@
     padding: 6px 11px; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
   }
   .map-search button:hover { filter: brightness(1.1); }
+  .map-search button#bookmark-btn {
+    background: var(--ink); color: var(--amber); border: 1px solid var(--hairline); padding: 6px 10px;
+  }
+  .map-search button#bookmark-btn:disabled { color: var(--dim); cursor: default; opacity: 0.6; }
+  .map-search button#bookmark-btn:not(:disabled):hover { border-color: var(--amber); filter: none; }
   .map-layers { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 10px; color: var(--dim); }
   .layer-toggle { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
   .layer-toggle input { accent-color: var(--green); cursor: pointer; }
@@ -53,6 +65,7 @@
   .legend .swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .legend .swatch.explored { background: transparent; border: 1.5px solid var(--green); }
   .legend .swatch.found { background: var(--amber); }
+  .legend-line { width: 14px; height: 0; border-top: 1.5px solid var(--accent); display: inline-block; }
   #map-canvas-wrap { position: relative; }
   svg#map {
     width: 100%; aspect-ratio: 1 / 1; display: block; background: #090a10;
@@ -69,6 +82,17 @@
   .sym-label.highlighted { fill: var(--bone) !important; font-weight: 600; }
   .dot:hover { fill: var(--bone); opacity: 1; }
   .dot-highlighted { fill: var(--amber) !important; opacity: 1; }
+  .connection-line {
+    stroke: var(--hairline); stroke-width: 1; vector-effect: non-scaling-stroke;
+    opacity: 0; pointer-events: none; transition: opacity .3s ease;
+  }
+  .connection-line.both-explored { stroke: var(--accent); stroke-width: 1.2; }
+  svg#map.show-connections .connection-line { opacity: 0.7; }
+  .route-line {
+    stroke: var(--violet); stroke-width: 2; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke;
+    opacity: 0.9; pointer-events: none;
+  }
+  .dot.route-hop { stroke: var(--violet) !important; stroke-width: 2 !important; vector-effect: non-scaling-stroke; }
   .highlight-ring {
     fill: none; stroke: var(--amber); stroke-width: 2; vector-effect: non-scaling-stroke;
     pointer-events: none; transform-box: fill-box; transform-origin: center;
@@ -110,11 +134,51 @@
   td.dim { color: var(--dim); }
   .badge { display: inline-block; padding: 1px 6px; border-radius: 99px; font-size: 9px; letter-spacing: 0.03em; background: rgba(127,216,160,.15); color: var(--green); }
   .badge.no { background: rgba(124,130,145,.15); color: var(--dim); }
-  #activity { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column-reverse; gap: 6px; }
+  #activity { max-height: 220px; overflow-y: auto; display: flex; flex-direction: column-reverse; gap: 6px; }
   .activity-line { font-size: 11px; color: var(--dim); border-left: 2px solid var(--hairline); padding: 3px 0 3px 8px; }
   .activity-line .t { color: #545b6c; margin-right: 6px; }
   .activity-line.fresh { border-left-color: var(--accent); color: var(--bone); }
   .empty { color: var(--dim); padding: 16px 0; text-align: center; font-size: 11px; }
+  .subhead {
+    margin: 14px 0 8px; padding-top: 10px; border-top: 1px solid var(--hairline);
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim);
+  }
+  #bookmarks { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
+  .bookmark-line {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 5px 8px; border-radius: 5px; background: var(--ink); cursor: pointer; font-size: 11px;
+  }
+  .bookmark-line:hover { outline: 1px solid var(--accent); }
+  .bookmark-line .bm-remove {
+    background: none; border: none; color: var(--dim); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px;
+  }
+  .bookmark-line .bm-remove:hover { color: var(--red); }
+  #bookmarks-empty { padding: 8px 0; }
+  .planner-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .planner-row input {
+    background: var(--ink); border: 1px solid var(--hairline); color: var(--bone);
+    padding: 8px 10px; border-radius: 5px; font: inherit; font-size: 12px; width: 160px;
+  }
+  .planner-row input:focus { outline: none; border-color: var(--accent); }
+  .planner-row .arrow { color: var(--dim); }
+  .planner-row button {
+    background: var(--accent); color: #0c0e14; border: none; border-radius: 5px;
+    padding: 8px 14px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .planner-row button:hover { filter: brightness(1.1); }
+  #planner-result { margin-top: 16px; }
+  .route-summary { font-size: 12px; color: var(--dim); margin-bottom: 10px; }
+  .route-hops { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 14px; }
+  .route-hops .hop {
+    background: var(--ink); border: 1px solid var(--hairline); border-radius: 5px;
+    padding: 4px 9px; font-size: 12px;
+  }
+  .route-hops .hop-arrow { color: var(--dim); }
+  .show-map-btn {
+    background: var(--violet); color: #0c0e14; border: none; border-radius: 5px;
+    padding: 7px 13px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .show-map-btn:hover { filter: brightness(1.1); }
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 99px; }
   a { color: var(--accent); }
@@ -124,7 +188,12 @@
 <h1>Standing Orders <b>Cartography</b></h1>
 <div class="sub">Live galaxy crawl — public system coordinates and faction data, mapped as it's discovered. No login required.</div>
 
-<div class="layout">
+<div class="tabs">
+  <button class="tab-btn active" data-tab="map">Galaxy Map</button>
+  <button class="tab-btn" data-tab="planner">Route Planner</button>
+</div>
+
+<div class="layout" id="view-map">
   <div class="stack">
     <div class="card" id="map-wrap">
       <div class="map-toolbar">
@@ -132,6 +201,7 @@
         <div class="map-search">
           <input id="search-input" placeholder="System symbol…" autocomplete="off" />
           <button id="search-btn">Go</button>
+          <button id="bookmark-btn" disabled title="Search a system first">☆</button>
         </div>
       </div>
       <div class="map-layers">
@@ -142,6 +212,7 @@
         <div class="legend">
           <span class="swatch explored"></span> explored
           <span class="swatch found" style="margin-left:8px"></span> found
+          <span class="legend-line" style="margin-left:8px" title="Blue when both endpoints are explored"></span> gate
         </div>
       </div>
       <div id="map-canvas-wrap">
@@ -183,6 +254,25 @@
       <h2>Activity</h2>
       <div id="activity"></div>
       <div class="empty" id="activity-empty" hidden>No crawl activity recorded yet.</div>
+      <div class="subhead">Bookmarks</div>
+      <div id="bookmarks"></div>
+      <div class="empty" id="bookmarks-empty">No bookmarks yet — search a system and tap ☆ to save it.</div>
+    </div>
+  </div>
+</div>
+
+<div class="layout" id="view-planner" hidden>
+  <div class="stack">
+    <div class="card">
+      <h2>Route planner</h2>
+      <div class="planner-row">
+        <input id="planner-from" list="system-datalist" placeholder="From system…" autocomplete="off" />
+        <span class="arrow">→</span>
+        <input id="planner-to" list="system-datalist" placeholder="To system…" autocomplete="off" />
+        <button id="planner-go">Find route</button>
+      </div>
+      <datalist id="system-datalist"></datalist>
+      <div id="planner-result"></div>
     </div>
   </div>
 </div>
@@ -213,18 +303,28 @@
   // viewBox changes (a fixed radius in galaxy units would either vanish
   // when zoomed out to the whole galaxy or swallow the screen when zoomed
   // into one system's neighborhood).
+  const SVG_NS = "http://www.w3.org/2000/svg";
   const DOT_SCREEN_FRACTION = 0.006;
   const LABEL_SCREEN_FRACTION = 0.016;
   // Labels would be unreadable clutter across the whole galaxy at once —
   // only turned on once zoomed in past this fraction of the full map.
   const LABEL_ZOOM_THRESHOLD_FRACTION = 0.08;
+  // Connection lines are far fewer than labels (a few dozen known jump
+  // gates vs. thousands of systems), so they can afford to show up a bit
+  // earlier — before individual symbols would be legible, but once the
+  // dots are spaced out enough that lines between them read as structure
+  // rather than a solid mess.
+  const CONNECTION_ZOOM_THRESHOLD_FRACTION = 0.25;
   const view = { cx: 0, cy: 0, half: 400 }; // current viewBox center + half-width, in galaxy units
   let fullBounds = null; // { cx, cy, half } that fits every known system
   let lastSystems = [];
+  let lastConnections = [];
   let viewInitialized = false;
   let dotsBySymbol = new Map(); // symbol -> { dot, label }
   let highlightedSymbol = null;
   let showExplored = true;
+  let routePath = null; // ordered array of system symbols, or null
+  let bookmarks = loadBookmarks();
 
   function currentDotRadius() {
     return Math.max(view.half * DOT_SCREEN_FRACTION, 1.5);
@@ -237,6 +337,8 @@
     const fontSize = Math.max(view.half * LABEL_SCREEN_FRACTION, 3);
     const labelThreshold = fullBounds ? fullBounds.half * LABEL_ZOOM_THRESHOLD_FRACTION : 100;
     svg.classList.toggle("show-labels", view.half <= labelThreshold);
+    const connThreshold = fullBounds ? fullBounds.half * CONNECTION_ZOOM_THRESHOLD_FRACTION : 200;
+    svg.classList.toggle("show-connections", view.half <= connThreshold);
     for (const { dot, label } of dotsBySymbol.values()) {
       const hi = dot.classList.contains("dot-highlighted");
       const dotR = hi ? r * 1.8 : r;
@@ -280,6 +382,150 @@
   function setHighlight(symbol) {
     highlightedSymbol = symbol;
     applyHighlightToDom();
+    updateBookmarkBtn();
+  }
+
+  function focusOnSystem(match) {
+    setHighlight(match.systemSymbol);
+    // Tight "neighborhood" zoom, close enough that the highlighted system
+    // and its near neighbors are individually distinguishable regardless
+    // of how zoomed-out the full map is.
+    jumpTo(match.x, match.y, Math.max(25, (fullBounds ? fullBounds.half : 400) * 0.02));
+  }
+
+  // --- Bookmarks -----------------------------------------------------
+  // This is a public, no-login page — there's no per-viewer account to
+  // hang a bookmark list off, so it lives in the browser's own
+  // localStorage instead. That means it's private to this browser and
+  // won't follow a viewer across devices, which is a real limitation but
+  // the only honest option without adding accounts to a page that was
+  // explicitly asked to stay login-free.
+  const BOOKMARKS_KEY = "stcommand-cartography-bookmarks";
+
+  function loadBookmarks() {
+    try {
+      const raw = localStorage.getItem(BOOKMARKS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  }
+
+  function saveBookmarks() {
+    try { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks)); } catch { /* private browsing, storage full, etc — bookmarks just won't persist */ }
+  }
+
+  function isBookmarked(symbol) {
+    return bookmarks.some((b) => b.symbol === symbol);
+  }
+
+  function toggleBookmark(symbol) {
+    if (isBookmarked(symbol)) {
+      bookmarks = bookmarks.filter((b) => b.symbol !== symbol);
+    } else {
+      bookmarks = [{ symbol, at: Date.now() }, ...bookmarks];
+    }
+    saveBookmarks();
+    renderBookmarks();
+    updateBookmarkBtn();
+  }
+
+  function updateBookmarkBtn() {
+    const btn = $("bookmark-btn");
+    if (!highlightedSymbol) {
+      btn.disabled = true;
+      btn.textContent = "☆";
+      btn.title = "Search a system first";
+      return;
+    }
+    btn.disabled = false;
+    const bm = isBookmarked(highlightedSymbol);
+    btn.textContent = bm ? "★" : "☆";
+    btn.title = bm ? `Remove ${highlightedSymbol} from bookmarks` : `Bookmark ${highlightedSymbol}`;
+  }
+
+  function jumpToBookmark(symbol) {
+    switchTab("map");
+    const match = lastSystems.find((s) => s.systemSymbol === symbol);
+    if (match && match.x != null && match.y != null) focusOnSystem(match);
+  }
+
+  function renderBookmarks() {
+    const el = $("bookmarks");
+    if (bookmarks.length === 0) {
+      el.innerHTML = "";
+      $("bookmarks-empty").hidden = false;
+      return;
+    }
+    $("bookmarks-empty").hidden = true;
+    el.innerHTML = bookmarks.map((b) => `
+      <div class="bookmark-line" data-symbol="${b.symbol}">
+        <span>${b.symbol}</span>
+        <button class="bm-remove" data-symbol="${b.symbol}" title="Remove">×</button>
+      </div>
+    `).join("");
+    for (const line of el.querySelectorAll(".bookmark-line")) {
+      line.addEventListener("click", (e) => {
+        if (e.target.closest(".bm-remove")) return;
+        jumpToBookmark(line.dataset.symbol);
+      });
+    }
+    for (const btn of el.querySelectorAll(".bm-remove")) {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleBookmark(btn.dataset.symbol);
+      });
+    }
+  }
+
+  // --- Jump-gate connection lines --------------------------------------
+  function renderConnections(connections) {
+    lastConnections = connections;
+    const svg = $("map");
+    for (const el of Array.from(svg.getElementsByClassName("connection-line"))) el.remove();
+    const bySymbol = new Map(lastSystems.map((s) => [s.systemSymbol, s]));
+    const frag = document.createDocumentFragment();
+    for (const { from, to } of connections) {
+      const a = bySymbol.get(from), b = bySymbol.get(to);
+      if (!a || !b || a.x == null || a.y == null || b.x == null || b.y == null) continue;
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", a.x);
+      line.setAttribute("y1", a.y);
+      line.setAttribute("x2", b.x);
+      line.setAttribute("y2", b.y);
+      line.setAttribute("class", a.explored && b.explored ? "connection-line both-explored" : "connection-line");
+      frag.appendChild(line);
+    }
+    // Inserted at the very front of the SVG's DOM order so every dot and
+    // label — added later — paints on top of the lines, not the reverse.
+    svg.insertBefore(frag, svg.firstChild);
+  }
+
+  // --- Planned route overlay -------------------------------------------
+  function setRoute(path) {
+    routePath = path;
+    applyRouteToDom();
+  }
+
+  function applyRouteToDom() {
+    const svg = $("map");
+    for (const el of Array.from(svg.getElementsByClassName("route-line"))) el.remove();
+    for (const { dot } of dotsBySymbol.values()) dot.classList.remove("route-hop");
+    if (!routePath) return;
+    for (const sym of routePath) {
+      const entry = dotsBySymbol.get(sym);
+      if (entry) entry.dot.classList.add("route-hop");
+    }
+    for (let i = 0; i < routePath.length - 1; i++) {
+      const a = dotsBySymbol.get(routePath[i]);
+      const b = dotsBySymbol.get(routePath[i + 1]);
+      if (!a || !b) continue;
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", a.dot.getAttribute("cx"));
+      line.setAttribute("y1", a.dot.getAttribute("cy"));
+      line.setAttribute("x2", b.dot.getAttribute("cx"));
+      line.setAttribute("y2", b.dot.getAttribute("cy"));
+      line.setAttribute("class", "route-line");
+      svg.appendChild(line);
+    }
   }
 
   function clampHalf(h) {
@@ -321,11 +567,7 @@
       return;
     }
     err.hidden = true;
-    setHighlight(match.systemSymbol);
-    // Tight "neighborhood" zoom, close enough that the highlighted system
-    // and its near neighbors are individually distinguishable regardless
-    // of how zoomed-out the full map is.
-    jumpTo(match.x, match.y, Math.max(25, (fullBounds ? fullBounds.half : 400) * 0.02));
+    focusOnSystem(match);
   }
 
   function renderMap(systems) {
@@ -381,7 +623,9 @@
     svg.classList.toggle("hide-explored", !showExplored);
     $("stat-explored").textContent = exploredCount.toLocaleString();
     applyHighlightToDom();
+    applyRouteToDom();
     applyViewBox();
+    $("system-datalist").innerHTML = withPos.map((s) => `<option value="${s.systemSymbol}">`).join("");
   }
 
   function setupMapControls() {
@@ -426,6 +670,103 @@
     const runSearch = () => searchSystem($("search-input").value);
     $("search-btn").addEventListener("click", runSearch);
     $("search-input").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+
+    $("bookmark-btn").addEventListener("click", () => {
+      if (highlightedSymbol) toggleBookmark(highlightedSymbol);
+    });
+  }
+
+  function switchTab(name) {
+    for (const btn of document.querySelectorAll(".tab-btn")) btn.classList.toggle("active", btn.dataset.tab === name);
+    $("view-map").hidden = name !== "map";
+    $("view-planner").hidden = name !== "planner";
+  }
+
+  function setupTabs() {
+    for (const btn of document.querySelectorAll(".tab-btn")) {
+      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    }
+  }
+
+  // --- Route planner ----------------------------------------------------
+  function buildConnectionGraph() {
+    const graph = new Map();
+    const link = (a, b) => {
+      if (!graph.has(a)) graph.set(a, new Set());
+      graph.get(a).add(b);
+    };
+    for (const { from, to } of lastConnections) { link(from, to); link(to, from); }
+    return graph;
+  }
+
+  // Plain breadth-first search over known jump-gate connections — this is
+  // hop-count-shortest, not cost-shortest. Real per-jump fuel costs are
+  // only ever learned in a tenant's own in-memory GalaxyAtlas, never
+  // persisted anywhere this public page can read, so hop count is the
+  // most honest thing to show without pretending to a precision this data
+  // doesn't have.
+  function findRoute(fromSymbol, toSymbol) {
+    const graph = buildConnectionGraph();
+    if (!graph.has(fromSymbol) || !graph.has(toSymbol)) return null;
+    if (fromSymbol === toSymbol) return [fromSymbol];
+    const prev = new Map([[fromSymbol, null]]);
+    const queue = [fromSymbol];
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      if (cur === toSymbol) break;
+      for (const next of graph.get(cur) || []) {
+        if (!prev.has(next)) {
+          prev.set(next, cur);
+          queue.push(next);
+        }
+      }
+    }
+    if (!prev.has(toSymbol)) return null;
+    const path = [];
+    for (let cur = toSymbol; cur !== null; cur = prev.get(cur)) path.unshift(cur);
+    return path;
+  }
+
+  function showRouteOnMap(path) {
+    setRoute(path);
+    switchTab("map");
+    const coords = path.map((sym) => lastSystems.find((s) => s.systemSymbol === sym)).filter((s) => s && s.x != null);
+    if (coords.length === 0) return;
+    const xs = coords.map((s) => s.x), ys = coords.map((s) => s.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const half = Math.max(Math.max(maxX - minX, maxY - minY) / 2 * 1.5, 40);
+    jumpTo(cx, cy, half);
+  }
+
+  function runPlanner() {
+    const from = $("planner-from").value.trim().toUpperCase();
+    const to = $("planner-to").value.trim().toUpperCase();
+    const result = $("planner-result");
+    if (!from || !to) {
+      result.innerHTML = '<div class="empty">Enter both a start and destination system.</div>';
+      return;
+    }
+    const path = findRoute(from, to);
+    if (!path) {
+      result.innerHTML = `<div class="empty">No known jump-gate route between ${from} and ${to} yet — this only sees connections some tenant's fleet has actually scanned, not every gate in the galaxy.</div>`;
+      return;
+    }
+    const hops = path.length - 1;
+    result.innerHTML = `
+      <div class="route-summary">${hops} jump${hops === 1 ? "" : "s"}</div>
+      <div class="route-hops">${path.map((s, i) => `<span class="hop">${s}</span>${i < path.length - 1 ? '<span class="hop-arrow">→</span>' : ""}`).join("")}</div>
+      <button class="show-map-btn" id="planner-show-map">Show on map</button>
+    `;
+    $("planner-show-map").addEventListener("click", () => showRouteOnMap(path));
+  }
+
+  function setupPlanner() {
+    $("planner-go").addEventListener("click", runPlanner);
+    for (const id of ["planner-from", "planner-to"]) {
+      $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") runPlanner(); });
+    }
   }
 
   function renderFactions(factions) {
@@ -486,11 +827,13 @@
 
   async function refreshSlow() {
     try {
-      const [{ systems }, { factions }] = await Promise.all([
+      const [{ systems }, { factions }, { connections }] = await Promise.all([
         getJson("/api/cartography/systems"),
         getJson("/api/cartography/factions"),
+        getJson("/api/cartography/connections"),
       ]);
       renderMap(systems);
+      renderConnections(connections);
       renderFactions(factions);
     } catch (err) { console.error(err); }
   }
@@ -507,6 +850,10 @@
   }
 
   setupMapControls();
+  setupTabs();
+  setupPlanner();
+  renderBookmarks();
+  updateBookmarkBtn();
   refreshSlow();
   refreshFast();
   setInterval(refreshFast, 5000);

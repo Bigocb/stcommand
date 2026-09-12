@@ -1450,6 +1450,39 @@ export class Store {
     });
   }
 
+  /** System-to-system jump-gate connections known so far — always
+   *  tenant-exploration data (GalaxyAtlas.scanJumpGates(), never the
+   *  crawler), since jump_gates is only ever populated once some tenant's
+   *  fleet actually visits a system's gate. Each `galaxy_systems` row's
+   *  jump_gates is a JumpGate[] (`{ symbol, connections }`, the raw
+   *  SpaceTraders shape) where `symbol` is that row's own gate waypoint
+   *  and `connections` are the *destination* gates' waypoint symbols, in
+   *  potentially other systems — this collapses that down to a deduped
+   *  set of system-symbol pairs, which is all the map/route-planner need. */
+  async listGalaxyJumpConnections(): Promise<{ from: string; to: string }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ system_symbol: string; jump_gates: { symbol: string; connections: string[] }[] }>(
+        `SELECT system_symbol, jump_gates FROM galaxy_systems WHERE jsonb_array_length(jump_gates) > 0`,
+      );
+      const systemOf = (waypointSymbol: string): string => waypointSymbol.split("-").slice(0, 2).join("-");
+      const seen = new Set<string>();
+      const out: { from: string; to: string }[] = [];
+      for (const row of res.rows) {
+        for (const gate of row.jump_gates) {
+          for (const connection of gate.connections) {
+            const destSystem = systemOf(connection);
+            if (destSystem === row.system_symbol) continue;
+            const key = [row.system_symbol, destSystem].sort().join("|");
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ from: row.system_symbol, to: destSystem });
+          }
+        }
+      }
+      return out;
+    });
+  }
+
   /** How many systems the galaxy crawl has recorded meta for so far — cheap
    *  progress signal, doesn't pull every row's jsonb blobs like listGalaxySystems(). */
   async countGalaxySystems(): Promise<number> {

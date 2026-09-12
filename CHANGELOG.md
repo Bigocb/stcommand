@@ -14,6 +14,33 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (cartography bookmarks, connections, route planner)
+
+- **Added system bookmarks to `/cartography`**, listed under the Activity
+  card. Since this is a public, no-login page there's no account to hang
+  a bookmark list off, so it's stored in the viewer's own browser
+  (`localStorage`) — private to that browser, doesn't follow across
+  devices, but that's the honest tradeoff for staying login-free. A ☆/★
+  button next to the search box bookmarks whatever system is currently
+  highlighted; clicking a bookmark jumps the map straight to it.
+- **Added subtle jump-gate connection lines**, drawn between systems once
+  zoomed in enough to read as structure rather than a solid mess (same
+  zoom-threshold approach as the symbol labels). A connection where both
+  endpoints are marked "explored" draws in blue instead of the default
+  muted gray, to call out routes that are actually usable today (both
+  ends known well enough to know they connect) versus a route only known
+  from one side's scan. New `Store.listGalaxyJumpConnections()` and
+  `GET /api/cartography/connections`, both deriving system-to-system
+  pairs from `galaxy_systems.jump_gates` (again tenant-exploration data,
+  never the crawler's own).
+- **Added a Route Planner tab.** Two system inputs and a breadth-first
+  search over the same jump-gate connection graph — hop-count-shortest,
+  not cost-shortest, since real per-jump fuel costs only ever live in a
+  tenant's own in-memory `GalaxyAtlas` and are never persisted anywhere
+  this public page can read. "Show on map" switches back to the map tab,
+  fits the view to the route's systems, and draws it as a dashed violet
+  line with its hop systems outlined to match.
+
 ## 2026-09-12 (cartography tenant-exploration layer + labels)
 
 - **Added the tenant-exploration layer to `/cartography`**, the piece

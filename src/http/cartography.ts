@@ -23,6 +23,11 @@ export function createCartographyRouter(store: Store, crawler: GalaxyCrawler): R
     res.json({ factions });
   });
 
+  router.get("/connections", async (_req, res) => {
+    const connections = await store.listGalaxyJumpConnections();
+    res.json({ connections });
+  });
+
   router.get("/progress", async (_req, res) => {
     const progress = await crawler.progress();
     res.json(progress);
