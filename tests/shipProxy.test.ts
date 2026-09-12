@@ -738,3 +738,63 @@ describe("ShipProxy.runTenderGoal: gives up on a rescue after repeated failures"
     assert.equal(abandoned, false);
   });
 });
+
+function makeHoldIntent(waypoint: string): ShipIntent {
+  return {
+    ship: "SHIP-1",
+    version: 1,
+    priority: 4,
+    goal: { kind: "hold", waypoint },
+    policy: DEFAULT_POLICY,
+    reason: "operator hold",
+    source: "operator",
+  };
+}
+
+describe("ShipProxy.runHoldGoal: cross-system holds", () => {
+  // A hold's target can be anywhere — sendShipTo() dispatches any ship to
+  // any waypoint, jumping correctly on its own first call — but every tick
+  // after that re-proposes and re-executes the same persisted hold here,
+  // and this path had no jump branch at all. Confirmed live: a tour ship
+  // sat parked erroring on a cross-system hold for 12+ hours because
+  // navigateTo() — same-system only — was the only thing ever tried.
+  it("same-system hold: navigates normally, no jump involved", async () => {
+    const s = ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any);
+    const { api, calls } = fakeFleetApi({ "SHIP-1": s });
+    let jumped: [string, string] | undefined;
+    const proxy = new ShipProxy(s, {
+      api, registry: world(), done: () => {},
+      jumpTo: async (sym, wp) => { jumped = [sym, wp]; },
+    });
+    const intent = makeHoldIntent("X1-A-B2");
+    const result = await proxy.runHoldGoal(intent, () => intent);
+    assert.equal(result, true);
+    assert.deepEqual(calls.navigate, ["X1-A-B2"]);
+    assert.equal(jumped, undefined, "same-system target never goes through jumpTo");
+  });
+
+  it("cross-system hold: jumps via jumpTo() instead of navigating", async () => {
+    const s = ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any);
+    const { api, calls } = fakeFleetApi({ "SHIP-1": s });
+    let jumped: [string, string] | undefined;
+    const proxy = new ShipProxy(s, {
+      api, registry: world(), done: () => {},
+      jumpTo: async (sym, wp) => { jumped = [sym, wp]; },
+    });
+    const intent = makeHoldIntent("X1-B-GATE");
+    const result = await proxy.runHoldGoal(intent, () => intent);
+    assert.equal(result, true);
+    assert.deepEqual(jumped, ["SHIP-1", "X1-B-GATE"]);
+    assert.deepEqual(calls.navigate, [], "never falls through to the same-system primitive");
+  });
+
+  it("cross-system hold with no jumpTo wired: gives up instead of erroring forever", async () => {
+    const s = ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any);
+    const { api, calls } = fakeFleetApi({ "SHIP-1": s });
+    const proxy = new ShipProxy(s, { api, registry: world(), done: () => {} });
+    const intent = makeHoldIntent("X1-B-GATE");
+    const result = await proxy.runHoldGoal(intent, () => intent);
+    assert.equal(result, false, "reports no work rather than repeating a same-system navigate that can only ever fail");
+    assert.deepEqual(calls.navigate, []);
+  });
+});

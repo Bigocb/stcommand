@@ -20,6 +20,9 @@ export interface SiphonerOptions {
   repairHere?: (shipSymbol: string) => Promise<void>;
   /** Scrap this ship where it stands; forwarded to the shared executor. */
   scrapHere?: (shipSymbol: string) => Promise<void>;
+  /** Jump this ship to a waypoint in a different system; forwarded to the
+   *  shared executor's runHoldGoal(), for a hold whose target is cross-system. */
+  jumpTo?: (shipSymbol: string, waypointSymbol: string) => Promise<void>;
   findFuelStop?: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) => Promise<string | undefined>;
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
@@ -127,6 +130,7 @@ export class SiphonerAgent {
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
       scrapHere: opts.scrapHere,
+      jumpTo: opts.jumpTo,
       findFuelStop: opts.findFuelStop,
       done: this.done,
     });

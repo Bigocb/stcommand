@@ -50,6 +50,16 @@ export interface ShipProxyOptions {
   /** Called by runExploreGoal/runTenderGoal when the goal is complete. */
   done?: () => void;
   /**
+   * Jump this ship to a waypoint in a different system; wired to
+   * FleetManager.jumpShip(). runHoldGoal() needs this because a hold
+   * waypoint can be cross-system (sendShipTo() dispatches any ship
+   * anywhere) but navigateTo() below is same-system only. Without it, a
+   * hold whose target system differs from the ship's current one has no
+   * way to ever get there — see runHoldGoal()'s own comment for the
+   * live incident this fixes.
+   */
+  jumpTo?: (shipSymbol: string, waypointSymbol: string) => Promise<void>;
+  /**
    * Called when runTenderGoal gives up on a rescue after repeated failures —
    * see that method's own comment for why this exists. Carries the stranded
    * ship's symbol (not this ship's own) and a human-readable reason, so the
@@ -110,6 +120,7 @@ export class ShipProxy {
   private readonly store?: Store;
   private readonly done?: () => void;
   private readonly onTenderAbandoned?: ShipProxyOptions["onTenderAbandoned"];
+  private readonly jumpTo?: ShipProxyOptions["jumpTo"];
   private step: AgentStep = IDLE_STEP;
 
   /**
@@ -150,6 +161,7 @@ export class ShipProxy {
     this.store = opts.store;
     this.done = opts.done;
     this.onTenderAbandoned = opts.onTenderAbandoned;
+    this.jumpTo = opts.jumpTo;
   }
 
   get symbol(): string {
@@ -609,6 +621,28 @@ export class ShipProxy {
       // placed: the same reason supersedes() exists below.
       if (supersedes(intent, currentIntent())) {
         this.log("hold: superseded in transit, standing by for the new goal");
+        return true;
+      }
+      const targetSystem = target.slice(0, target.lastIndexOf("-"));
+      // navigateTo() below is same-system only (the live navigate API
+      // rejects a cross-system waypoint outright: "Destination X is outside
+      // the Y system"), but a hold's target can be anywhere — sendShipTo()
+      // dispatches any ship to any waypoint, and its own initial dispatch
+      // jumps correctly if needed. The gap was every tick AFTER that one:
+      // the persisted hold gets re-proposed and re-executed here on its own
+      // schedule, and this path had no jump branch at all — so if that
+      // first dispatch didn't land (or failed partway), the hold just
+      // retried the same same-system navigate forever. Confirmed live:
+      // DRAGOM-C, a tour ship, sat parked in X1-S84 erroring on a hold
+      // pointed at X1-MY77-A29Z for over 12 hours, taking a quarter of the
+      // fleet's tour coverage offline the whole time.
+      if (this.ship.nav.systemSymbol !== targetSystem) {
+        if (!this.jumpTo) {
+          this.log(`hold: ${target} is in a different system and no jump capability is wired — giving up on this hold`);
+          return false;
+        }
+        this.log(`hold: ${target} is in ${targetSystem}, jumping there (${intent.reason})`);
+        await this.jumpTo(this.symbol, target);
         return true;
       }
       this.log(`hold: heading to ${target} (${intent.reason})`);

@@ -837,6 +837,7 @@ export class FleetManager {
       recordMarket: (wp) => this.recordMarketSnapshot(wp),
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
+      jumpTo: (sym, wp) => this.jumpShip(sym, wp),
       atlas: this.galaxy,
       shouldRun: () => !this.paused,
       // Prefer what this ship itself last paid; fall back to the fleet-wide
@@ -1486,6 +1487,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1512,6 +1514,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1543,6 +1546,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1578,6 +1582,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1610,6 +1615,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1720,6 +1726,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1746,6 +1753,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1774,6 +1782,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1796,6 +1805,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1822,6 +1832,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1850,6 +1861,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1895,6 +1907,7 @@ export class FleetManager {
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
+        jumpTo: (sym, wp) => this.jumpShip(sym, wp),
         galaxy: this.galaxy,
         store: this.store,
         done: () => this.forgetIntent(ship.symbol),
