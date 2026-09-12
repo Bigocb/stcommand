@@ -152,7 +152,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "exploringEnabled",
     name: "Exploring",
-    description: "Master switch for jump-based exploring. Jumps cost real credits — turning this off stops explorers from starting any new one; a jump already in flight still lands (nothing can recall it), but the ship then just parks at that destination instead of continuing on. On by default, matching today's behavior.",
+    description: "Master switch for jump-based exploring. Jumps cost real credits — turning this off (via the clause toggle, not this value) stops explorers from starting any new one; a jump already in flight still lands (nothing can recall it), but the ship then just parks at that destination instead of continuing on. On by default, matching today's behavior. This value isn't used — same as warehouseTarget's own master switch.",
     value: 1, min: 0, max: 1, step: 1, unit: "",
     enabled: true, enforced: true, category: "fleet", defaultAdopted: false,
   },

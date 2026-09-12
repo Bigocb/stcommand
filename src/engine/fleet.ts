@@ -2519,7 +2519,16 @@ export class FleetManager {
    * exploring is fine to proceed.
    */
   private explorersShouldPark(): string | undefined {
-    if (this.doctrine.value("exploringEnabled", 1) === 0) return "exploring is switched off in doctrine";
+    // isEnabled(), not value()===0: the Book UI's clause toggle flips this
+    // rule's `enabled` flag, not its `value` — the same master-switch pattern
+    // warehouseTarget already uses (see its own isEnabled() call sites).
+    // value()'s whenOff fallback treats a disabled rule as "unconstrained"
+    // (whenOff=1, i.e. exploring allowed), so reading value()===0 here meant
+    // flipping the toggle off never actually parked anything: the rule just
+    // fell through to its own "off" default of allowed. Confirmed live —
+    // the operator switched Exploring off and at least one explorer kept
+    // jumping right through it.
+    if (!this.doctrine.isEnabled("exploringEnabled")) return "exploring is switched off in doctrine";
     const floor = this.doctrine.value("explorerCreditFloor", 0);
     if (floor > 0 && this.credits <= floor) return `credits (${this.credits}c) are at or below the explorer credit floor (${floor}c)`;
     return undefined;
