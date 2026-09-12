@@ -14,6 +14,22 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (autoExplore retry-loop fix)
+
+- **Fixed `autoExplore()` retrying a doomed jump forever.** Found live:
+  `DRAGOM-C` retried the identical jump to `X1-YB72` (remote gate under
+  construction) every few minutes for 45+ minutes straight. Same bug
+  shape as the `exploringEnabled` bypass fixed earlier this session — a
+  protection (`exploreSystem()`'s remote-gate construction check and
+  skip-list) existed on the dedicated-explorer path but was never
+  applied to `autoExplore()`, the parallel path that opportunistically
+  borrows an idle tour/scout ship. `canJump()` only validates the local
+  gate, so nothing stopped the same unreachable target from being
+  reselected pass after pass. `autoExplore()` now filters against
+  `gateConstructionSkipUntil` and checks+records the remote gate's
+  status before ever proposing the jump, mirroring `exploreSystem()`
+  exactly. `tests/fleetNonBlocking.test.ts` covers it directly.
+
 ## 2026-09-12 (jump-cost fix + health check)
 
 - **Fixed the cross-system jump-cost bootstrap gap.** `GalaxyAtlas.recordJumpCost()`

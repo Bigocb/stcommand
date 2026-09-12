@@ -35,6 +35,12 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Parked ideas — raised, not acted on
 
+- [ ] **A log explorer on the admin screen.** Floated 2026-09-12 while
+  debugging DRAGOM-C's stuck retry loop — being able to search/filter
+  live app logs from inside the admin UI instead of going through
+  Render's own log tools would make this kind of live-ops debugging
+  faster. Not scoped: would need to decide on retention/volume handling
+  and whether it reads from Render's API or the app's own log stream.
 - [ ] **Probes deployed from cargo on heavy haulers.** Floated as an
   exploratory idea; probes have effectively zero fuel and can't
   self-navigate, so "camping" a market with a probe today means buying
