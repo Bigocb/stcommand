@@ -1015,79 +1015,29 @@ function bfsRoute(edges, from, to) {
 }
 
 /**
- * A scene-content mode switch (system <-> galaxy) doesn't clear-and-rebuild
- * immediately the way an ordinary same-mode redraw does — it snapshots
- * whatever's currently in the four scene groups, lets the NEW mode's content
- * get added alongside it, and only removes the old content after a short
- * delay. That's what turns hitting Galaxy into "the camera pulls back and
- * you can see the system you were just in, with its neighbors fading into
- * view around it" instead of a hard cut: renderGalaxy3D() re-centers the
- * galaxy layout on `currentSystem` itself (not the charted centroid), so
- * the system you were just looking at sits at the same scene origin its own
- * waypoints are still visible around for that brief window, and the
- * newly-added galaxy markers for its real neighbors appear at their true
- * relative offsets around it — then the camera's existing lerp-toward-
- * orbitGoal easing (tickMap3D()) pulls back to reveal the rest while that
- * old detail is still there to be pulled away *from*.
- */
-let pendingOldSceneContent = null;
-let sceneTransitionTimer = null;
-const TRANSITION_HOLD_MS = 650;
-
-function beginSceneTransition() {
-  clearTimeout(sceneTransitionTimer);
-  // A transition started before the previous one finished settling (rapid
-  // Galaxy-toggle clicks) — flush the still-pending old content immediately
-  // rather than losing track of it (and leaking the meshes).
-  flushPendingSceneContent();
-  pendingOldSceneContent = {
-    bodies: [...bodiesGroup.children],
-    rings: [...ringsGroup.children],
-    glow: [...glowGroup.children],
-    lines: [...linesGroup.children],
-  };
-  pickables.length = 0;
-  sceneTransitionTimer = setTimeout(flushPendingSceneContent, TRANSITION_HOLD_MS);
-}
-
-function flushPendingSceneContent() {
-  if (!pendingOldSceneContent) return;
-  const groups = { bodies: bodiesGroup, rings: ringsGroup, glow: glowGroup, lines: linesGroup };
-  for (const key of Object.keys(groups)) {
-    for (const c of pendingOldSceneContent[key]) {
-      groups[key].remove(c);
-      c.traverse(disposeObject3D);
-    }
-  }
-  pendingOldSceneContent = null;
-  // The star sphere isn't part of any group above (see its own comment) —
-  // hide it once a zoom-out into galaxy mode has actually settled. Zooming
-  // back into a system sets it visible immediately at the start of that
-  // transition instead (renderMap()'s own comment), not here.
-  if (starMesh && mapMode === "galaxy") starMesh.visible = false;
-}
-
-/**
  * Populate the shared 3D scene with the galaxy overview instead of one
  * system's own waypoints — called from renderMap() when galaxyMode is on,
  * same camera/pickables pattern. Charted systems (`known`) are real click
- * targets; the `nearby` halo is small, dim, and non-interactive. Simplified
- * on purpose relative to the per-system view (no market/shipyard color
- * coding) -- this is a schematic for seeing what's charted and planning a
- * route across it, not a detailed inspection view the way one system's own
- * waypoints are.
+ * targets; the `nearby` halo is small, dim, and non-interactive.
+ *
+ * Each known system collapses to one small generated "mini system" glyph
+ * (a core sphere, a tilted decorative ring, and a couple of deterministic
+ * orbiting dots — seeded off the system symbol so the same system always
+ * looks the same) rather than a full render of its actual waypoints. This
+ * used to try to hold the outgoing system's real content on screen and
+ * ease the camera back for a continuous zoom-out feel; that fought the
+ * scene's clear-and-rebuild-every-render-pass structure (the star's own
+ * glow sprites, added once, were getting destroyed on the very first
+ * rebuild and never replaced) and reliably left stale geometry on screen.
+ * A hard cut — clear everything, drop in the collapsed glyphs — is simpler
+ * and the camera's existing lerp-toward-orbitGoal easing (tickMap3D())
+ * still makes the pull-back itself read as continuous motion.
  */
 function renderGalaxy3D() {
   // galaxyMode flips synchronously in setGalaxyMode(), before the overview
   // fetch it kicks off resolves — and renderMap()'s ~1s poll tick reads
   // galaxyMode directly, so it can call this function first, with no data
-  // yet. Racing ahead like that used to flip mapMode to "galaxy" and start
-  // the scene transition with nothing to show; by the time the real fetch
-  // landed moments later, this function saw mapMode already "galaxy" and
-  // treated it as a transition still settling, silently dropping the real
-  // content and leaving the old system's geometry stuck on screen forever.
-  // Waiting here for real data means only loadGalaxyOverview()'s own call
-  // (after the fetch resolves) is ever treated as "entering" the mode.
+  // yet. Wait for the real fetch rather than rendering an empty galaxy.
   if (!galaxyOverviewData) return;
   if (!sceneReady && !mapUnavailable) initMap3D();
   if (mapUnavailable) return;
@@ -1095,21 +1045,8 @@ function renderGalaxy3D() {
 
   const enteringGalaxy = mapMode !== "galaxy";
   if (enteringGalaxy) {
-    beginSceneTransition();
-  } else if (pendingOldSceneContent) {
-    return; // a transition is still settling; don't rebuild mid-transition
-  } else {
-    clearGroup(bodiesGroup);
-    clearGroup(ringsGroup);
-    clearGroup(glowGroup);
-    clearGroup(linesGroup);
-    pickables.length = 0;
-  }
-
-  const data = galaxyOverviewData;
-  const known = (data?.systems ?? []).filter((s) => s.x !== null && s.y !== null);
-  if (enteringGalaxy) {
     mapMode = "galaxy";
+    starGroup.visible = false;
     orbitGoal.target.set(0, 0, 0);
     // Deliberately much farther than a system view's own default (~112-160)
     // — confirmed live that 200 read as barely a pull-back at all, since a
@@ -1119,14 +1056,21 @@ function renderGalaxy3D() {
     orbitGoal.radius = 460;
     orbitGoal.phi = 1.0;
   }
+  clearGroup(bodiesGroup);
+  clearGroup(ringsGroup);
+  clearGroup(glowGroup);
+  clearGroup(linesGroup);
+  pickables.length = 0;
+
+  const data = galaxyOverviewData;
+  const known = (data?.systems ?? []).filter((s) => s.x !== null && s.y !== null);
   if (!known.length) return;
   const nearby = (data.nearby ?? []).filter((s) => s.x !== null && s.y !== null);
 
   // Centered on whatever system was on screen a moment ago (falling back to
-  // fleet home, then just the first charted system), not a centroid of
-  // every charted system — see this section's own comment on why that's
-  // what makes the zoom-out read as continuous rather than a jump to some
-  // other point in space.
+  // fleet home, then just the first charted system), so re-entering galaxy
+  // mode from a given system always lands the camera in the same place
+  // relative to it.
   const anchor = known.find((s) => s.symbol === currentSystem) ?? known.find((s) => s.symbol === data.home) ?? known[0];
   const cx = anchor.x, cy = anchor.y;
   // Linear scale, not fitSystemScale()'s sqrt compression — galaxy-adjacent
@@ -1178,16 +1122,43 @@ function renderGalaxy3D() {
     const p = toScene(s.x, s.y);
     const isHome = s.symbol === data.home;
     const onRoute = routeSystems.has(s.symbol);
-    const color = s.ships > 0 ? "--accent" : "--dim";
-    const radius = isHome ? 3 : 2;
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), new THREE.MeshBasicMaterial({ color: themedColor(color) }));
-    mesh.position.set(p.x, 0, p.z);
-    bodiesGroup.add(mesh);
-    pickables.push({ mesh, kind: "galaxy-system", symbol: s.symbol });
+    const color = s.ships > 0 ? "--accent" : (isHome ? "--ice" : "--dim");
+    const coreRadius = isHome ? 2.4 : 1.8;
+
+    const core = new THREE.Mesh(new THREE.SphereGeometry(coreRadius, 14, 10), new THREE.MeshBasicMaterial({ color: themedColor(color) }));
+    core.position.set(p.x, 0, p.z);
+    bodiesGroup.add(core);
+    pickables.push({ mesh: core, kind: "galaxy-system", symbol: s.symbol });
+
+    // A tilted, always-present ring so every glyph reads as "a whole
+    // system in miniature" rather than a plain dot on a graph.
+    const tilt = hashString(s.symbol + "tilt");
+    const glyphRing = new THREE.Mesh(
+      new THREE.RingGeometry(coreRadius * 1.8, coreRadius * 2.0, 20),
+      new THREE.MeshBasicMaterial({ color: themedColor("--hairline"), side: THREE.DoubleSide, transparent: true, opacity: 0.5 }),
+    );
+    glyphRing.rotation.x = -Math.PI / 2.4 + tilt * 0.35;
+    glyphRing.position.set(p.x, 0, p.z);
+    ringsGroup.add(glyphRing);
+
+    // A couple of deterministic orbiting "planets" — purely decorative,
+    // seeded off the system symbol so a given system always looks the
+    // same rather than reshuffling on every rebuild.
+    const planetCount = 1 + Math.floor(Math.abs(hashString(s.symbol + "n")) * 3);
+    for (let i = 0; i < planetCount; i++) {
+      const angle = hashString(s.symbol + "a" + i) * Math.PI * 2;
+      const orbitR = coreRadius * (2.6 + i * 1.1);
+      const planet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.35, 6, 5),
+        new THREE.MeshBasicMaterial({ color: themedColor("--dim") }),
+      );
+      planet.position.set(p.x + Math.cos(angle) * orbitR, 0, p.z + Math.sin(angle) * orbitR);
+      bodiesGroup.add(planet);
+    }
 
     if (isHome || onRoute) {
       const ring = new THREE.Mesh(
-        new THREE.RingGeometry(radius * 1.6, radius * 2, 24),
+        new THREE.RingGeometry(coreRadius * 3.2, coreRadius * 3.6, 24),
         new THREE.MeshBasicMaterial({ color: themedColor("--ice"), side: THREE.DoubleSide, transparent: true, opacity: 0.7 }),
       );
       ring.rotation.x = -Math.PI / 2;
@@ -1196,7 +1167,7 @@ function renderGalaxy3D() {
     }
 
     const label = makeLabelSprite(s.symbol, isHome ? "#dff2ff" : "#93a7bd");
-    label.position.set(p.x, radius + 2.5, p.z);
+    label.position.set(p.x, coreRadius + 4, p.z);
     bodiesGroup.add(label);
   }
 }
@@ -2144,13 +2115,17 @@ let pendingRebuild = null;
 let mapUnavailable = false;
 let framedSystem = null; // which system the camera was last auto-fit to
 let starGlowPulse = null; // { core, corona, t } — set once in initMap3D(), animated in tickMap3D()
-// The star sphere itself — added straight to `scene` (not a per-render
-// group) since it's a permanent scene fixture, only ever created once by
-// initMap3D(). Galaxy mode has no star of its own (a whole system reduces
-// to one small marker at that scale), so it has to be explicitly hidden —
-// nothing that clears/rebuilds bodiesGroup on a mode switch ever touches
-// it. See flushPendingSceneContent()/renderMap()'s own comments.
-let starMesh = null;
+// The star (sphere + its two glow sprites) lives in its own group, never
+// touched by clearGroup() — bodiesGroup/glowGroup/etc. get wiped and
+// rebuilt on every render pass (system or galaxy), and the star is a
+// permanent fixture created once by initMap3D(), not per-render content.
+// It used to sit directly in `scene` (mesh) and inside glowGroup (its
+// glow sprites) — the glow sprites being in a cleared group meant they
+// were destroyed the very first render pass of the whole session and
+// never came back. Galaxy mode has no star of its own (a whole system
+// reduces to one small marker at that scale), so this group is just
+// toggled visible/hidden on mode switch instead.
+let starGroup = null;
 // Jump-gate "active portal" pulse rings. A persistent group (like
 // liveTrailGroup) rather than something renderMap() rebuilds every poll —
 // a gate's own animation phase would otherwise reset every ~1s and never
@@ -2230,7 +2205,8 @@ function initMap3D() {
   // progressing across renderMap()'s ~1s poll cycle, so it lives outside
   // the groups that cycle gets cleared and rebuilt.
   gatePulseGroup = new THREE.Group();
-  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup, gatePulseGroup);
+  starGroup = new THREE.Group();
+  scene.add(bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup, gatePulseGroup, starGroup);
 
   // Bodies use a lit material now (see WP3D_MATERIAL below) instead of flat
   // MeshBasicMaterial — a shaded, lit sphere reads as a rendered object. The
@@ -2285,8 +2261,7 @@ function initMap3D() {
     new THREE.MeshBasicMaterial({ map: starTex }),
   );
   star.position.set(0, 0, 0);
-  scene.add(star);
-  starMesh = star;
+  starGroup.add(star);
 
   // Layered glow instead of one flat halo: a tight hot-white core glow
   // reads as brightness right at the surface, a much larger, softer,
@@ -2299,7 +2274,7 @@ function initMap3D() {
   starCoreGlow.position.set(0, 0, 0);
   starCorona.position.set(0, 0, 0);
   starCorona.material.opacity = 0.42;
-  glowGroup.add(starCorona, starCoreGlow);
+  starGroup.add(starCorona, starCoreGlow);
   starGlowPulse = { core: starCoreGlow, corona: starCorona, t: 0 };
 
   raycaster = new THREE.Raycaster();
@@ -3450,26 +3425,18 @@ function renderMap(ships, trails = new Map()) {
   mapScale = s;
   systemSpan = 80;
 
-  // Leaving galaxy mode is a scene-content mode switch too (see
-  // renderGalaxy3D()'s own comment on beginSceneTransition()) — hold the
-  // galaxy markers on screen a moment longer so zooming back into a system
-  // reads as continuous rather than a hard cut the other direction.
+  // Leaving galaxy mode is a scene-content mode switch too — see
+  // renderGalaxy3D()'s own comment on why this is a hard cut rather than a
+  // held-content transition.
   if (mapMode !== "system") {
-    beginSceneTransition();
-    // Unlike leaving a system (the star fades out only once the hold ends —
-    // see flushPendingSceneContent()), the target system's own star is new
-    // content being revealed, not old content lingering, so it belongs on
-    // screen from the start of this transition rather than 650ms into it.
-    if (starMesh) starMesh.visible = true;
-  } else if (pendingOldSceneContent) {
-    return; // a transition is still settling; don't rebuild mid-transition
-  } else {
-    clearGroup(bodiesGroup);
-    clearGroup(ringsGroup);
-    clearGroup(glowGroup);
-    clearGroup(linesGroup);
-    pickables.length = 0;
+    mapMode = "system";
+    starGroup.visible = true;
   }
+  clearGroup(bodiesGroup);
+  clearGroup(ringsGroup);
+  clearGroup(glowGroup);
+  clearGroup(linesGroup);
+  pickables.length = 0;
 
   const seenRadii = new Set();
 
@@ -4282,6 +4249,7 @@ function tickMap3D() {
   // would actually act on, and correct regardless of orbit angle.
   bodiesGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
   glowGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
+  starGroup.children.forEach((c) => { if (c.isSprite) c.quaternion.copy(camera.quaternion); });
   // A slow, subtle breathing pulse on the star's glow — the one thing a
   // static sun-shaped sprite can't sell on its own is that it's a light
   // source rather than a painted decal. Small range (±6%/±10%) so it reads
