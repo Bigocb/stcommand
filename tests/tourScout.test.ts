@@ -413,3 +413,95 @@ describe("ShipAgent.tourScout: shipyard inventory on arrival, the market fix's o
     assert.deepEqual(shipyardsRecorded, [], "a plain market must not get a spurious shipyard scan");
   });
 });
+
+describe("ShipAgent.tourScout: marks itself stranded, not just idle", () => {
+  // Confirmed live: two of DRAGOM's four tour ships sat parked for 20+
+  // minutes at a market with no FUEL good for sale, both real in-system fuel
+  // stations far out of range on the ~10% tank they had left. getStrandedShips()
+  // never saw either one — its zero-fuel fallback only catches exactly 0, and
+  // nothing set the self-flagged stranded check this class now provides.
+  it("marks stranded when critically low on fuel with nothing reachable and no fuel gained here", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 25, capacity: 300 }); // well under the 10% floor
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => ["X1-REMOTE-B2"],
+    });
+    agent.withWorld(
+      [{ symbol: "X1-REMOTE-A1", x: 0, y: 0 }, { symbol: "X1-REMOTE-B2", x: 900, y: 0 }].map(
+        (w) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }] }),
+      ) as any,
+      [],
+    );
+    (agent as any).refuelIfNeeded = async () => true; // present, but gains nothing — no FUEL sold here
+    (agent as any).atMarketHere = () => true;
+    (agent as any).ensureDocked = async () => {};
+
+    const worked = await (agent as any).tourScout();
+
+    assert.equal(worked, false);
+    assert.equal(agent.isStranded(), true, "flagged so getStrandedShips() can find it");
+  });
+
+  it("does not mark stranded when fuel is merely low, not critical", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 100, capacity: 300 }); // low, but above the 10% floor
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => ["X1-REMOTE-B2"],
+    });
+    agent.withWorld(
+      [{ symbol: "X1-REMOTE-A1", x: 0, y: 0 }, { symbol: "X1-REMOTE-B2", x: 900, y: 0 }].map(
+        (w) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }] }),
+      ) as any,
+      [],
+    );
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).atMarketHere = () => true;
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.equal(agent.isStranded(), false, "not every 'no reachable target' tick means genuinely marooned");
+  });
+
+  it("clears the stranded flag once a target becomes reachable again", async () => {
+    // Reachability is judged against fuel CAPACITY (a full tank), not
+    // current fuel — refuelIfNeeded() is what's supposed to cover the gap
+    // to current — so a ship stranded this way only recovers once
+    // something is actually within its tank's reach, not from simply
+    // topping off toward a target its capacity could never make anyway.
+    // Modeled here as a market opening up nearby (a tender relocating it,
+    // or a genuinely new stop), same as DRAGOM-C's real fix would need.
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 25, capacity: 300 });
+    let targets = ["X1-REMOTE-FAR"];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => targets,
+    });
+    agent.withWorld(
+      [
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+        { symbol: "X1-REMOTE-FAR", x: 900, y: 0 }, // round trip (1800) exceeds the 300 tank outright
+        { symbol: "X1-REMOTE-NEAR", x: 50, y: 0 }, // round trip (100) well within it
+      ].map((w) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }] })) as any,
+      [],
+    );
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).atMarketHere = () => true;
+    (agent as any).ensureDocked = async () => {};
+    await (agent as any).tourScout();
+    assert.equal(agent.isStranded(), true, "sanity check: stranded first — nothing fits in the tank at all");
+
+    targets = ["X1-REMOTE-NEAR"];
+    (agent as any).navigateTo = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.equal(agent.isStranded(), false, "recovers on its own next successful tick, no external reset needed");
+  });
+});

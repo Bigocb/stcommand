@@ -1374,13 +1374,22 @@ export class ShipAgent {
         const before = this.ship.fuel.current;
         await this.refuelIfNeeded(5);
         if (this.ship.fuel.current > before) {
+          this.clearStranded();
           this.log(`tour scout: refuelled at ${here} (${before} → ${this.ship.fuel.current}); re-evaluating next tick`);
           return true;
         }
       }
+      // Critically low AND nothing reachable AND the market it's standing at
+      // (if any) just failed to sell it more fuel — this ship isn't picking
+      // between targets, it's marooned. getStrandedShips() previously only
+      // ever caught this class of ship at exactly 0 fuel; a market with no
+      // FUEL good leaves it stuck at whatever it had left instead, which
+      // read as "just idle" from the outside forever.
+      if (this.ship.fuel.capacity > 0 && this.ship.fuel.current <= this.ship.fuel.capacity * 0.1) this.markStranded();
       this.log(`tour scout: no reachable target from ${here} (${targets.length} known)`);
       return false;
     }
+    this.clearStranded();
     // Honour the refuel result. This used to be a bare await: refuelIfNeeded()
     // would log "WARN: stranded (0/300 fuel...) and no reachable market",
     // return false, and the navigate went ahead regardless — failing with
@@ -1952,8 +1961,39 @@ export class ShipAgent {
     this.log("resumed");
   }
 
-  /** Clear any stranded flag (miners can't strand for fuel, so this is a no-op). */
-  clearStranded(): void {}
+  /**
+   * True when the ship can't reach any tour target on its remaining fuel and
+   * has too little left to reasonably recover on its own — needs a tender.
+   *
+   * This class also drives miners/surveyors/keepers/explorers, none of which
+   * ever set this (docked-and-mining/keeper roles barely move; explorer
+   * jumps cost credits, not fuel, for the jump itself) — the comment this
+   * replaced ("miners can't strand for fuel") was written with only that in
+   * mind and quietly meant tour ships couldn't be flagged stranded either,
+   * sharing the same class. Confirmed live: two of DRAGOM's four tour ships
+   * sat parked at a market with no FUEL good, both other in-system fuel
+   * stations far out of range on their remaining tank, for 20+ minutes
+   * straight — getStrandedShips() never saw them because nothing here ever
+   * set this flag, and its own zero-fuel fallback check only catches a ship
+   * at exactly 0, not "technically nonzero but genuinely stuck."
+   */
+  private stranded = false;
+
+  isStranded(): boolean {
+    return this.stranded;
+  }
+
+  /** Mark the ship stranded so the fleet's fuel-tender rescue can find it. */
+  markStranded(): void {
+    if (this.stranded) return;
+    this.stranded = true;
+    this.log("marked stranded (insufficient fuel to reach any tour target)");
+  }
+
+  /** Clear the stranded flag once the ship has somewhere to go again. */
+  clearStranded(): void {
+    this.stranded = false;
+  }
 
   /** Release the ship back to autonomous operation. */
   release(): void {

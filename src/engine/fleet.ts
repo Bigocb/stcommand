@@ -4752,9 +4752,21 @@ export class FleetManager {
     ]) {
       const s = ship.getShip();
       if (s.fuel.capacity <= 0) continue;
-      // A trader that flagged itself stranded (navigation failed for lack of
-      // fuel) needs a tender even if it still has a few units left.
-      const flagged = this.traders.get(s.symbol)?.isStranded() ?? false;
+      // A ship that flagged itself stranded (a trader's navigate failed for
+      // lack of fuel, or a tour scout found no reachable target on a
+      // critically low tank — ShipAgent.markStranded(), also covers miners/
+      // surveyors/keepers/explorers who share that class) needs a tender
+      // even if it still has a few units left. Checked by map lookup, not
+      // by calling the method on `ship` directly, since this array mixes
+      // several agent classes and not all of them implement isStranded().
+      const flagged =
+        this.traders.get(s.symbol)?.isStranded() ??
+        this.miners.get(s.symbol)?.isStranded() ??
+        this.tours.get(s.symbol)?.isStranded() ??
+        this.surveyors.get(s.symbol)?.isStranded() ??
+        this.keepers.get(s.symbol)?.isStranded() ??
+        this.explorers.get(s.symbol)?.isStranded() ??
+        false;
       if (flagged) {
         stranded.push({
           symbol: s.symbol,
