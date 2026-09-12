@@ -1029,9 +1029,15 @@ function bfsRoute(edges, from, to) {
  * scene's clear-and-rebuild-every-render-pass structure (the star's own
  * glow sprites, added once, were getting destroyed on the very first
  * rebuild and never replaced) and reliably left stale geometry on screen.
- * A hard cut — clear everything, drop in the collapsed glyphs — is simpler
- * and the camera's existing lerp-toward-orbitGoal easing (tickMap3D())
- * still makes the pull-back itself read as continuous motion.
+ * A hard cut — clear everything, drop in the collapsed glyphs — is
+ * simpler, and the camera cuts with it (orbitCam snapped straight to
+ * orbitGoal, not eased into it) rather than spending a beat easing toward
+ * a view nothing has swapped to yet. An eased pull-back sounds nicer in
+ * the abstract, but here it meant the camera drifted out over the OLD
+ * system's content for however long the overview fetch took, landing on
+ * an orphaned in-between look that belonged to neither view — confirmed
+ * live on video. One clean cut, camera and content together, reads better
+ * than a smooth motion into a state that isn't there yet.
  */
 function renderGalaxy3D() {
   // galaxyMode flips synchronously in setGalaxyMode(), before the overview
@@ -1055,6 +1061,12 @@ function renderGalaxy3D() {
     // zoom adjustment.
     orbitGoal.radius = 460;
     orbitGoal.phi = 1.0;
+    // Snap orbitCam straight to orbitGoal instead of letting tickMap3D()
+    // ease toward it over the next several frames — this cut is meant to
+    // be instant, alongside the content swap below, not a lingering pan.
+    orbitCam.target.copy(orbitGoal.target);
+    orbitCam.radius = orbitGoal.radius;
+    orbitCam.phi = orbitGoal.phi;
   }
   clearGroup(bodiesGroup);
   clearGroup(ringsGroup);
@@ -1232,22 +1244,15 @@ function setGalaxyMode(on) {
   }
   document.querySelector(".map-legend")?.style.setProperty("display", on ? "none" : "");
   if (on) {
-    // Kick the camera pulling back right away, rather than waiting on
-    // GET /api/galaxy/overview to resolve first — renderGalaxy3D() (called
-    // once that data is in) still does its own content-side transition
-    // (holding the old system's detail on screen, adding galaxy markers
-    // around it) and will harmlessly re-set these same goal values again,
-    // but the motion itself shouldn't stall on a network round trip.
-    if (mapMode !== "galaxy") {
-      orbitGoal.target.set(0, 0, 0);
-      // Deliberately much farther than a system view's own default (~112-160)
-    // — confirmed live that 200 read as barely a pull-back at all, since a
-    // system's own waypoints already reach out that far. This needs to be
-    // an unmistakable "the camera is now much farther away," not a modest
-    // zoom adjustment.
-    orbitGoal.radius = 460;
-      orbitGoal.phi = 1.0;
-    }
+    // Deliberately NOT kicking the camera here: this used to move it toward
+    // the galaxy framing right away, before GET /api/galaxy/overview had
+    // resolved — since renderGalaxy3D() (further down) waits for that data
+    // and won't swap the scene content until it lands, the camera spent
+    // however long that fetch took drifting out over the OLD system's
+    // content, an orphaned in-between look that belonged to neither view.
+    // renderGalaxy3D() now snaps both camera and content together the
+    // instant the data is ready, so this is an abrupt cut either way, not
+    // eased motion into a state nothing has swapped to yet.
     loadGalaxyOverview();
   } else {
     $("galaxy-overview").innerHTML = "";
@@ -3672,11 +3677,22 @@ function renderMap(ships, trails = new Map()) {
   // camera every time was undoing any zoom or pan the operator had just
   // made mid-session.
   if (framedSystem !== sys || mapMode !== "system") {
+    // Only a mode switch (leaving galaxy view) gets its camera snapped
+    // instantly, alongside the content swap — a plain system-to-system
+    // switch while already in system mode keeps the normal eased pan.
+    // See renderGalaxy3D()'s own comment on why an eased camera here reads
+    // worse, not better, once the target it's easing toward already exists.
+    const leavingGalaxy = mapMode !== "system";
     framedSystem = sys;
     mapMode = "system";
     orbitGoal.target.set(0, 0, 0);
     orbitGoal.radius = 160;
     orbitGoal.phi = 1.0;
+    if (leavingGalaxy) {
+      orbitCam.target.copy(orbitGoal.target);
+      orbitCam.radius = orbitGoal.radius;
+      orbitCam.phi = orbitGoal.phi;
+    }
     // A live trail's points are in the old system's scene coordinates —
     // meaningless (and, worse, plottable-looking garbage) once worldToScene
     // is scaled for a different system.
