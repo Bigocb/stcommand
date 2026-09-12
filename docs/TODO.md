@@ -66,6 +66,15 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   conversationally on 2026-09-12; not saved anywhere. Worth turning into
   a `docs/architecture-overview.md` if it should survive past one
   session.
+- [ ] **Keep one unit of a great-price good on hand as a souvenir/marker.**
+  Random idea, 2026-09-12: if a tour ship, explorer, or trader anywhere
+  stumbles on an exceptional price for something (antimatter was the
+  example), hold back one unit in the cargo hold instead of selling the
+  full stack. Not scoped at all yet — would need a definition of
+  "exceptional," a decision on whether it's purely cosmetic/informational
+  or feeds something else (a log entry, a per-tenant "best find" record),
+  and whether it's worth the held cargo space on a ship that might need
+  it.
 
 ## Closed / resolved (kept here briefly for context, then delete)
 
