@@ -14,6 +14,17 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (cartography search + zoom)
+
+- **Added system search and zoom controls to `/cartography`'s galaxy map.**
+  Typing a system symbol and hitting Go (or Enter) jumps the map to that
+  system's neighborhood; unobtrusive +/- buttons and a fit-whole-galaxy
+  reset sit in the map's corner, alongside mouse-wheel zoom and click-drag
+  panning. Switched the map's dots from being rescaled to fit a fixed
+  0-800 box to being drawn at their raw galaxy x/y with the SVG `viewBox`
+  doing all the zoom/pan work — panning or zooming no longer re-lays-out
+  any dots, only moves the viewBox and rescales dot radius to match.
+
 ## 2026-09-12 (public cartography page)
 
 - **Added a public, no-login galaxy map at `/cartography`.** Operator
