@@ -22,6 +22,15 @@ export interface ShipProxyOptions {
   repairHere?: (shipSymbol: string) => Promise<void>;
   /** Scrap this ship where it now stands (must be a shipyard); wired to FleetManager.scrapShip(). */
   scrapHere?: (shipSymbol: string) => Promise<void>;
+  /**
+   * Look for an intermediate fuel-selling waypoint reachable on current fuel
+   * from which the final destination is reachable on a full tank, so a leg
+   * that would otherwise crawl the whole distance in DRIFT instead makes two
+   * CRUISE hops. Wired to FleetManager.findFuelStop(). Returns undefined when
+   * no such stop exists (including when there's no fuel-stop data at all),
+   * in which case navigateTo() falls back to its existing DRIFT behavior.
+   */
+  findFuelStop?: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) => Promise<string | undefined>;
   /** Records a refuel purchase against the tenant's ledger. Typed exactly as
    *  the agents' own callback so it can be passed straight through. */
   recordLedger?: (entry: {
@@ -95,6 +104,7 @@ export class ShipProxy {
   private readonly recordMarket?: ShipProxyOptions["recordMarket"];
   private readonly repairHere?: ShipProxyOptions["repairHere"];
   private readonly scrapHere?: ShipProxyOptions["scrapHere"];
+  private readonly findFuelStop?: ShipProxyOptions["findFuelStop"];
   private readonly recordLedger?: ShipProxyOptions["recordLedger"];
   private readonly galaxy?: GalaxyAtlas;
   private readonly store?: Store;
@@ -134,6 +144,7 @@ export class ShipProxy {
     this.recordMarket = opts.recordMarket;
     this.repairHere = opts.repairHere;
     this.scrapHere = opts.scrapHere;
+    this.findFuelStop = opts.findFuelStop;
     this.recordLedger = opts.recordLedger;
     this.galaxy = opts.galaxy;
     this.store = opts.store;
@@ -272,7 +283,31 @@ export class ShipProxy {
     // the waypoint we just confirmed we are standing on.
     if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") return;
 
-    const need = this.registry.fuelFor(this.ship.nav.waypointSymbol, waypoint);
+    // A direct leg that would need more fuel than the tank holds now flies in
+    // DRIFT for its whole length — sometimes hours for what a refuel stop
+    // would cover in two ordinary CRUISE hops. Reroute through a stop when
+    // one exists; this call is naturally re-evaluated on the next tick once
+    // the ship reaches it, since callers re-invoke navigateTo(waypoint) with
+    // the same final target until arrival.
+    let target = waypoint;
+    if (this.findFuelStop && this.ship.fuel.capacity > 0) {
+      const directNeed = this.registry.fuelFor(this.ship.nav.waypointSymbol, waypoint);
+      if (Number.isFinite(directNeed) && directNeed > this.ship.fuel.current) {
+        const stop = await this.findFuelStop(
+          this.ship.nav.systemSymbol,
+          this.ship.nav.waypointSymbol,
+          waypoint,
+          this.ship.fuel.current,
+          this.ship.fuel.capacity,
+        );
+        if (stop) {
+          this.log(`routing via fuel stop ${stop} to reach ${waypoint} on CRUISE instead of drifting`);
+          target = stop;
+        }
+      }
+    }
+
+    const need = this.registry.fuelFor(this.ship.nav.waypointSymbol, target);
     if (this.ship.fuel.capacity > 0) {
       // Pick a mode only from a distance actually measured, but never leave a
       // ship sitting in DRIFT because one could not be. Both halves are
@@ -304,22 +339,23 @@ export class ShipProxy {
       // than the app log, so a ship that vanished for seven hours left no
       // record of why.
       if (this.ship.nav.flightMode === "DRIFT") {
-        this.log(`DRIFT leg to ${waypoint}: needs ${need} at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
+        this.log(`DRIFT leg to ${target}: needs ${need} at cruise, have ${this.ship.fuel.current}/${this.ship.fuel.capacity}`);
       }
     }
 
-    this.step = { kind: "navigating", to: waypoint };
+    const viaStop = target !== waypoint ? ` (fuel stop en route to ${waypoint})` : "";
+    this.step = { kind: "navigating", to: target };
     try {
-      const arrival = await this.api.navigateShip(this.ship.symbol, waypoint);
+      const arrival = await this.api.navigateShip(this.ship.symbol, target);
       this.ship = { ...this.ship, nav: arrival.nav, fuel: arrival.fuel };
-      this.onActivity?.("navigate", `→ ${waypoint} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.ship.symbol);
+      this.onActivity?.("navigate", `→ ${target}${viaStop} (${arrival.fuel.current}/${arrival.fuel.capacity} fuel)`, undefined, this.ship.symbol);
       const wait = new Date(arrival.nav.route.arrival).getTime() - Date.now();
       if (this.schedulerDriven) {
         if (wait > 0) throw new NavigationPending(Date.now() + wait);
         await this.refresh();
       } else {
         if (wait > 0) {
-          this.log(`navigating to ${waypoint}, ETA ${Math.round(wait / 1000)}s`);
+          this.log(`navigating to ${target}${viaStop}, ETA ${Math.round(wait / 1000)}s`);
           await sleep(wait + 1000);
         }
         await this.refresh();

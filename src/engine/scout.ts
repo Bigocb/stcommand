@@ -20,6 +20,7 @@ export interface ScoutOptions {
   repairHere?: (shipSymbol: string) => Promise<void>;
   /** Scrap this ship where it stands; forwarded to the shared executor. */
   scrapHere?: (shipSymbol: string) => Promise<void>;
+  findFuelStop?: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) => Promise<string | undefined>;
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
   log?: (msg: string) => void;
@@ -149,6 +150,7 @@ export class ScoutAgent {
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
       scrapHere: opts.scrapHere,
+      findFuelStop: opts.findFuelStop,
       done: this.done,
       galaxy: this.galaxy,
       store: this.store,
