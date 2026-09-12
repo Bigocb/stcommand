@@ -188,6 +188,19 @@ export class FleetManager {
    * system", independent of whether anything is parked there right now.
    */
   private chartedSystems = new Set<string>();
+  /**
+   * Systems whose remote (destination-side) jump gate was found under
+   * construction, keyed to the epoch-ms timestamp after which it's worth
+   * trying again. exploreSystem() only ever validated the LOCAL gate's
+   * construction status before jumping — never the remote one — so a ship
+   * whose only fresh-looking connection led to a system still building its
+   * own gate retried the exact same doomed jump every scheduling cycle
+   * forever (confirmed live: DRAGOM-A stuck on I60 -> X1-YB72-I62 for over
+   * half an hour). In-memory only; worth re-checking after a restart rather
+   * than persisting a skip that might already be stale.
+   */
+  private readonly gateConstructionSkipUntil = new Map<string, number>();
+  private readonly GATE_SKIP_MS = 3 * 60 * 60 * 1000;
   readonly doctrine: Doctrine;
   private systemSymbol = "";
   private positions: WaypointPos[] = [];
@@ -2355,14 +2368,27 @@ export class FleetManager {
       const ship = await this.api.getShip(shipSymbol);
       const currentSystem = ship.nav.systemSymbol;
       const connected = this.galaxy.connectedSystems(currentSystem);
+      // Home is excluded outright, not just deprioritized: it's by far the
+      // best-known system in the game for this tenant (charted at boot,
+      // seen by every trader/tour ship), but surveyedSystems only tracks
+      // what THIS explorer flow has itself surveyed, so home reads as
+      // permanently "unsurveyed" to that check and a ship whose only known
+      // connection led back home bounced there forever instead of treating
+      // it as already done. A gate whose remote end is still under
+      // construction is excluded the same way, for a while — see
+      // gateConstructionSkipUntil's own comment.
+      const now = Date.now();
+      const candidates = connected.filter(
+        (c) => c !== this.systemSymbol && (this.gateConstructionSkipUntil.get(c) ?? 0) <= now,
+      );
       // Prefer a connected system nobody's actually surveyed yet — otherwise
-      // this always picked connected[0], which for a ship freshly jumped
-      // *into* a system is almost always the way it just came from (its one
-      // known connection back home), sending "Scout connected systems"
-      // straight back to already-charted space instead of anywhere new.
-      // Falls back to connected[0] once nothing reachable is left unsurveyed,
-      // same as autoExplore()'s own definition of "done here".
-      const target = targetSystem ?? connected.find((c) => !this.surveyedSystems.has(c)) ?? connected[0];
+      // this always picked candidates[0], which for a ship freshly jumped
+      // *into* a system is almost always the way it just came from, sending
+      // "Scout connected systems" straight back to already-charted space
+      // instead of anywhere new. Falls back to candidates[0] once nothing
+      // reachable is left unsurveyed, same as autoExplore()'s own
+      // definition of "done here".
+      const target = targetSystem ?? candidates.find((c) => !this.surveyedSystems.has(c)) ?? candidates[0];
       if (!target) throw new Error(`no connected systems known from ${currentSystem}`);
       await this.galaxy.loadSystem(target);
       await this.markSystemCharted(target);
@@ -2391,7 +2417,37 @@ export class FleetManager {
         }
       }
 
-      await this.jumpShip(shipSymbol, remoteGate.symbol);
+      // The local gate being complete says nothing about the remote end —
+      // SpaceTraders requires both sides of the link finished, and this is
+      // the check that was missing: without it a ship whose local gate was
+      // fine kept retrying the same jump to a system still building its own
+      // gate forever. Record the skip before throwing, so the next
+      // scheduled attempt picks a different candidate instead of the exact
+      // same doomed one.
+      if (!(await this.galaxy.refreshGateConstruction(target, remoteGate.symbol))) {
+        this.gateConstructionSkipUntil.set(target, Date.now() + this.GATE_SKIP_MS);
+        try {
+          const constr = await this.api.getConstruction(target, remoteGate.symbol);
+          if (!constr.isComplete) {
+            throw new Error(`remote gate ${remoteGate.symbol} in ${target} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
+          }
+        } catch (err) {
+          if (err instanceof Error && err.message.includes("under construction")) throw err;
+        }
+      }
+
+      try {
+        await this.jumpShip(shipSymbol, remoteGate.symbol);
+      } catch (err) {
+        // Belt-and-braces: the cache above can be stale (never checked yet,
+        // or completed status flipped between check and jump). Whatever the
+        // reason, a live "under construction" rejection is exactly the
+        // signal to skip this target for a while too.
+        if (err instanceof Error && /under construction/i.test(err.message)) {
+          this.gateConstructionSkipUntil.set(target, Date.now() + this.GATE_SKIP_MS);
+        }
+        throw err;
+      }
       await this.surveySystem(target);
       // surveySystem()'s own surveyMarkets() call sweeps every MARKETPLACE
       // waypoint in `target` via a remote getMarket() call — but confirmed
