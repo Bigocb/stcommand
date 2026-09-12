@@ -1078,6 +1078,17 @@ function flushPendingSceneContent() {
  * waypoints are.
  */
 function renderGalaxy3D() {
+  // galaxyMode flips synchronously in setGalaxyMode(), before the overview
+  // fetch it kicks off resolves — and renderMap()'s ~1s poll tick reads
+  // galaxyMode directly, so it can call this function first, with no data
+  // yet. Racing ahead like that used to flip mapMode to "galaxy" and start
+  // the scene transition with nothing to show; by the time the real fetch
+  // landed moments later, this function saw mapMode already "galaxy" and
+  // treated it as a transition still settling, silently dropping the real
+  // content and leaving the old system's geometry stuck on screen forever.
+  // Waiting here for real data means only loadGalaxyOverview()'s own call
+  // (after the fetch resolves) is ever treated as "entering" the mode.
+  if (!galaxyOverviewData) return;
   if (!sceneReady && !mapUnavailable) initMap3D();
   if (mapUnavailable) return;
   $("map-hud").innerHTML = "Galaxy <b>charted space</b>";
