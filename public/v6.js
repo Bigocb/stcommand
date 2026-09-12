@@ -1060,6 +1060,16 @@ function renderGalaxy3D() {
   clearGroup(ringsGroup);
   clearGroup(glowGroup);
   clearGroup(linesGroup);
+  // Ships, their motion trails, and gate-pulse sprites are their own
+  // persistent groups (see their declarations) rebuilt by the per-system
+  // render path, not this one — renderMap() short-circuits into this
+  // function before ever reaching that code while galaxyMode is on, so
+  // without this they just froze at whatever they held the moment the
+  // toggle flipped and sat there forever, showing up as stray ship glyphs
+  // scattered around the collapsed system glyphs.
+  clearGroup(shipsGroup);
+  clearGroup(gatePulseGroup);
+  liveTrailGroup?.clear();
   pickables.length = 0;
 
   const data = galaxyOverviewData;
