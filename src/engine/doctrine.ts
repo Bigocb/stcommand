@@ -143,6 +143,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
+    key: "explorerTarget",
+    name: "Dedicated explorers",
+    description: "Grow the fleet until this many ships are dedicated explorers — unlike an occasional tour-ship borrow, a dedicated explorer does nothing but keep jumping to unvisited connected systems. 0 by default: buys none until raised.",
+    value: 0, min: 0, max: 10, step: 1, unit: "",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "warehouseTarget",
     name: "Warehouse",
     description: "Master switch for warehousing — off by default: until enabled, the dispatcher only ever assigns direct round trips, same as today. Which goods get bought/sold through the warehouse, and how much of each to hold, is set per-good in the Warehouse pane, not here — this value isn't used.",

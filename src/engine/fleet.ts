@@ -47,7 +47,7 @@ export const DEFAULT_KEEPER_MARKETS: string[] = [];
 
 /** Roles assignable via setShipRole() — every real role except the two that aren't a ship-agent type (`warehouse` is a designation on top of whatever role a ship already has; `idle` just means no agent claims it). */
 type ManualRole = Exclude<ShipClaimRole, "warehouse" | "idle">;
-const MANUAL_ROLES: ReadonlySet<ManualRole> = new Set<ManualRole>(["miner", "trader", "surveyor", "tour", "keeper", "scout", "siphoner"]);
+const MANUAL_ROLES: ReadonlySet<ManualRole> = new Set<ManualRole>(["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"]);
 
 /**
  * The control surface every ship agent shares, regardless of role. Used so the
@@ -172,6 +172,10 @@ export class FleetManager {
   private scouts = new Map<string, ScoutAgent>();
   private siphoners = new Map<string, SiphonerAgent>();
   private tours = new Map<string, ShipAgent>();
+  /** Dedicated explorer role — see agent.ts's exploreScout()/nextExploreTask()
+   *  and setShipRole()'s "explorer" case. Unlike autoExplore()'s occasional
+   *  borrow of an idle tour ship, a ship in this map does nothing else. */
+  private explorers = new Map<string, ShipAgent>();
   private keepers = new Map<string, ShipAgent>();
   /** Keeper ship → market it polls. Mutable so the fleet can reassign keepers. */
   private keeperMarkets = new Map<string, string>();
@@ -653,6 +657,7 @@ export class FleetManager {
     for (const a of this.traders.values()) bump(a.getShip().frame?.symbol);
     for (const a of this.surveyors.values()) bump(a.getShip().frame?.symbol);
     for (const a of this.tours.values()) bump(a.getShip().frame?.symbol);
+    for (const a of this.explorers.values()) bump(a.getShip().frame?.symbol);
     for (const a of this.keepers.values()) bump(a.getShip().frame?.symbol);
     for (const a of this.scouts.values()) bump(a.getShip().frame?.symbol);
     for (const a of this.siphoners.values()) bump(a.getShip().frame?.symbol);
@@ -1553,6 +1558,7 @@ export class FleetManager {
     this.surveyors.get(shipSymbol)?.stop();
     this.scouts.get(shipSymbol)?.stop();
     this.tours.get(shipSymbol)?.stop();
+    this.explorers.get(shipSymbol)?.stop();
     this.keepers.get(shipSymbol)?.stop();
     this.siphoners.get(shipSymbol)?.stop();
     this.miners.delete(shipSymbol);
@@ -1560,6 +1566,7 @@ export class FleetManager {
     this.surveyors.delete(shipSymbol);
     this.scouts.delete(shipSymbol);
     this.tours.delete(shipSymbol);
+    this.explorers.delete(shipSymbol);
     this.keepers.delete(shipSymbol);
     this.siphoners.delete(shipSymbol);
     this.keeperMarkets.delete(shipSymbol);
@@ -1688,6 +1695,30 @@ export class FleetManager {
             staleMarketTargets: () => this.staleMarketTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+            getCredits: () => this.spendableCredits(),
+            galaxy: this.galaxy,
+            store: this.store,
+            done: () => this.forgetIntent(shipSymbol),
+          }).withRegistry(this.registry),
+        );
+        return undefined;
+      case "explorer":
+        this.explorers.set(
+          shipSymbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
+            log: (m) => this.log(`${shipSymbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
+                exploreNext: (sym) => this.exploreSystem(sym).catch((err) => {
+                  this.log(`${sym}: explorer found nowhere new: ${err instanceof Error ? err.message : String(err)}`);
+                  return undefined;
+                }),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -2000,17 +2031,27 @@ export class FleetManager {
     // fleet's biggest gap. Scoring (not a hardcoded ladder) lets the fleet graduate
     // to bigger hulls as credits grow instead of buying Light Haulers forever.
     let type: ShipType | undefined;
+    // Set only for a priority buy that must land in a role assignRole()'s own
+    // hull-shape classifier would never pick on its own — a FRAME_SHUTTLE
+    // purchase defaults to "tour" (see assignRole()), so a dedicated
+    // explorer buy has to force the role explicitly after purchase, same as
+    // maybeBuySiphoner()'s own dedicated buy+role pattern, just folded into
+    // this shared priority ladder instead of its own function.
+    let wantRole: ManualRole | undefined;
     if (this.tours.size === 0) {
       type = "SHIP_LIGHT_SHUTTLE";
     } else if (this.miners.size < this.doctrine.value("minerTarget", 0)) {
       type = "SHIP_MINING_DRONE";
+    } else if (this.explorers.size < this.doctrine.value("explorerTarget", 0)) {
+      type = "SHIP_LIGHT_SHUTTLE";
+      wantRole = "explorer";
     }
 
     // Try the priority type first, then fall through the scored candidates in
     // order. Shipyard stock rotates, so a purchase can fail even when the last
     // snapshot said the hull was available — keep trying the next best pick
     // instead of aborting the whole buy pass.
-    const attempts: { type: ShipType; yardSymbol: string; price: number; frameSymbol: string; reason: string }[] = [];
+    const attempts: { type: ShipType; yardSymbol: string; price: number; frameSymbol: string; reason: string; wantRole?: ManualRole }[] = [];
 
     if (type) {
       for (const yard of yards) {
@@ -2018,7 +2059,7 @@ export class FleetManager {
           const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
           const available = shipyard.ships?.find((s) => s.type === type);
           if (available) {
-            attempts.push({ type, yardSymbol: yard.symbol, price: available.purchasePrice, frameSymbol: available.frame.symbol, reason: "priority" });
+            attempts.push({ type, yardSymbol: yard.symbol, price: available.purchasePrice, frameSymbol: available.frame.symbol, reason: "priority", wantRole });
             break;
           }
         } catch (err) {
@@ -2063,7 +2104,14 @@ export class FleetManager {
           detail: `purchased ship ${res.ship.symbol} (${attempt.type}) at ${attempt.yardSymbol} for ${res.transaction.price}c`,
           credits: -res.transaction.price,
         });
-        await this.assignRole(res.ship);
+        if (attempt.wantRole) {
+          // assignRole()'s hull-shape classifier would put a bare
+          // FRAME_SHUTTLE straight into "tour" — force the role this
+          // purchase was actually made for instead.
+          await this.setShipRole(res.ship.symbol, attempt.wantRole);
+        } else {
+          await this.assignRole(res.ship);
+        }
         return;
       } catch (err) {
         // Stock rotated or the yard is unreachable — try the next candidate.
@@ -2292,6 +2340,7 @@ export class FleetManager {
     this.surveyors.get(shipSymbol)?.stop();
     this.scouts.get(shipSymbol)?.stop();
     this.tours.get(shipSymbol)?.stop();
+    this.explorers.get(shipSymbol)?.stop();
     this.keepers.get(shipSymbol)?.stop();
     this.siphoners.get(shipSymbol)?.stop();
     this.miners.delete(shipSymbol);
@@ -2304,6 +2353,7 @@ export class FleetManager {
     this.surveyors.delete(shipSymbol);
     this.scouts.delete(shipSymbol);
     this.tours.delete(shipSymbol);
+    this.explorers.delete(shipSymbol);
     this.keepers.delete(shipSymbol);
     this.siphoners.delete(shipSymbol);
     // Free the market too, or maybeAssignKeepers sees it as still covered and
@@ -2398,6 +2448,7 @@ export class FleetManager {
           case "trader": { const a = this.traders.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
           case "surveyor": { const a = this.surveyors.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextSurveyTask()); break; }
           case "tour": { const a = this.tours.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTourTask()); break; }
+          case "explorer": { const a = this.explorers.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextExploreTask()); break; }
           case "keeper": { const a = this.keepers.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextKeeperTask()); break; }
           case "scout": { const a = this.scouts.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
           case "siphoner": { const a = this.siphoners.get(shipSymbol)!; a.running = true; scheduler.enqueue(a.nextTask()); break; }
@@ -3091,6 +3142,7 @@ export class FleetManager {
     for (const a of this.surveyors.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     for (const a of this.scouts.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     for (const a of this.siphoners.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
+    for (const a of this.explorers.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     const idle = this.idleShips.get(shipSymbol);
     return idle?.nav.waypointSymbol ?? "";
   }
@@ -3102,6 +3154,7 @@ export class FleetManager {
     for (const a of this.surveyors.values()) if (a.symbol === shipSymbol) return a.getShip();
     for (const a of this.scouts.values()) if (a.symbol === shipSymbol) return a.getShip();
     for (const a of this.siphoners.values()) if (a.symbol === shipSymbol) return a.getShip();
+    for (const a of this.explorers.values()) if (a.symbol === shipSymbol) return a.getShip();
     return this.idleShips.get(shipSymbol);
   }
 
@@ -3170,6 +3223,7 @@ export class FleetManager {
       this.traders.get(shipSymbol) ??
       this.surveyors.get(shipSymbol) ??
       this.tours.get(shipSymbol) ??
+      this.explorers.get(shipSymbol) ??
       this.scouts.get(shipSymbol) ??
       this.siphoners.get(shipSymbol)
     );
@@ -3207,6 +3261,7 @@ export class FleetManager {
     if (this.traders.has(shipSymbol)) return "trader";
     if (this.surveyors.has(shipSymbol)) return "surveyor";
     if (this.tours.has(shipSymbol)) return "tour";
+    if (this.explorers.has(shipSymbol)) return "explorer";
     if (this.keepers.has(shipSymbol)) return "keeper";
     if (this.scouts.has(shipSymbol)) return "scout";
     if (this.siphoners.has(shipSymbol)) return "siphoner";
@@ -3595,6 +3650,7 @@ export class FleetManager {
       ...[...this.traders.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.surveyors.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: this.isHeld(s), pinnedField: a.pinnedField() })),
       ...[...this.tours.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: this.isHeld(s) })),
+      ...[...this.explorers.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "explorer", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.keepers.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.scouts.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.siphoners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "siphoner", status: a.getShip().nav.status, paused: this.isHeld(s) })),
@@ -4084,6 +4140,7 @@ export class FleetManager {
     for (const [sym, a] of this.traders) schedule(sym, a, () => a.nextTask());
     for (const [sym, a] of this.surveyors) schedule(sym, a, () => a.nextSurveyTask());
     for (const [sym, a] of this.tours) schedule(sym, a, () => a.nextTourTask());
+    for (const [sym, a] of this.explorers) schedule(sym, a, () => a.nextExploreTask());
     for (const [sym, a] of this.keepers) schedule(sym, a, () => a.nextKeeperTask());
     for (const [sym, a] of this.scouts) schedule(sym, a, () => a.nextTask());
     for (const [sym, a] of this.siphoners) schedule(sym, a, () => a.nextTask());

@@ -68,6 +68,18 @@ export interface AgentOptions {
   staleMarketTargets?: () => Promise<string[]>;
   /** Shipyard waypoints to tour periodically so ship stock stays fresh. */
   shipyardTourTargets?: () => Promise<string[]>;
+  /**
+   * Dedicated explorer role: jump to the best next unvisited connected
+   * system from wherever this ship currently sits, survey it, and return
+   * the system symbol jumped to (or undefined if there's nowhere new
+   * reachable from here right now). Wired straight to
+   * FleetManager.exploreSystem(shipSymbol) — that already does the whole
+   * job (pick target, reach the gate, jump, survey), so exploreScout()
+   * below is a thin wrapper handling only precedence/suspend/stranded and
+   * the scheduler backoff, the same shape tourScout() has around
+   * marketTourTargets.
+   */
+  exploreNext?: (shipSymbol: string) => Promise<string | undefined>;
   /** Called when the ship docks at a shipyard so its inventory can be recorded. */
   recordShipyard?: (waypointSymbol: string) => Promise<void>;
   /** Stationary keeper: the market this ship polls on a timer to keep prices fresh. */
@@ -162,6 +174,7 @@ export class ShipAgent {
   private readonly ensureSystemCharted?: AgentOptions["ensureSystemCharted"];
   private readonly marketTourTargets?: AgentOptions["marketTourTargets"];
   private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
+  private readonly exploreNext?: AgentOptions["exploreNext"];
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly keeperMarket?: () => string | undefined;
@@ -239,6 +252,7 @@ export class ShipAgent {
     this.marketTourTargets = opts.marketTourTargets;
     this.staleMarketTargets = opts.staleMarketTargets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
+    this.exploreNext = opts.exploreNext;
     this.recordShipyard = opts.recordShipyard;
     this.keeperMarket = opts.keeperMarket;
     this.intentFor = opts.intentFor;
@@ -1710,6 +1724,81 @@ export class ShipAgent {
           if (err instanceof Pending) return { actualCalls, next: this.nextTourTask(err.resumeAt) };
           this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextTourTask(Date.now() + catchBackoffMs(err)) };
+        } finally {
+          this.schedulerDriven = false;
+          this.inFlight = null;
+        }
+      },
+    };
+  }
+
+  /**
+   * Explorer: unlike autoExplore()'s occasional borrow of an idle tour ship
+   * (rate-limited to once per 10 minutes, fleet-wide), a ship actually
+   * assigned this role does nothing else — every tick, jump to the best
+   * next unvisited connected system from wherever it now sits and survey
+   * it, walking the charted frontier outward one hop at a time. All the
+   * actual target-picking/jump/survey logic lives in
+   * FleetManager.exploreSystem() (wired in as exploreNext); this is the
+   * same thin per-tick wrapper tourScout() is around marketTourTargets.
+   */
+  async exploreScout(): Promise<boolean> {
+    const flown = await this.proxy.runFleetDrivenGoal(this.intentFor?.(), () => this.intentFor?.());
+    if (flown !== undefined) return flown;
+
+    const standDown = standDownReason(this.intentFor?.());
+    if (standDown) {
+      this.log(`standing down, fleet is driving this ship: ${standDown}`);
+      return false;
+    }
+
+    if (this.suspended) {
+      this.log("explorer: suspended, holding");
+      return false;
+    }
+    await this.refresh();
+    if (this.ship.nav.status === "IN_TRANSIT") return false;
+    if (!this.exploreNext) {
+      this.log("explorer: no explore hook wired");
+      return false;
+    }
+    const target = await this.exploreNext(this.symbol);
+    if (!target) {
+      this.log("explorer: nothing new reachable from here right now");
+      return false;
+    }
+    this.log(`explorer: jumped to ${target}`);
+    return true;
+  }
+
+  nextExploreTask(earliestRunAt = Date.now()): Task {
+    // See nextTask()'s comment: not set here, only by external enqueue sites.
+    return {
+      id: `${this.symbol}-explore`,
+      shipSymbol: this.symbol,
+      // Same tier as tour — this hull produces new charted space the same
+      // way a tour ship produces fresh price intel, and a dedicated
+      // explorer starved under budget pressure means the fleet stops
+      // finding anywhere new just as surely as a starved tour means stale
+      // prices.
+      priority: 3,
+      estimatedCalls: 3,
+      earliestRunAt,
+      run: async (): Promise<TaskResult> => {
+        if (!this.running) return { actualCalls: 0 };
+        if (this.halted()) return { actualCalls: 0, next: this.nextExploreTask(Date.now() + HALT_POLL_MS) };
+        const before = this.api.getCallCount();
+        this.schedulerDriven = true;
+        const p = this.exploreScout();
+        this.inFlight = p;
+        try {
+          const made = await p;
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextExploreTask(Date.now() + (made ? 0 : 30_000)) };
+        } catch (err) {
+          const actualCalls = this.api.getCallCount() - before;
+          if (err instanceof Pending) return { actualCalls, next: this.nextExploreTask(err.resumeAt) };
+          this.log(`explore error: ${err instanceof Error ? err.message : String(err)}`);
+          return { actualCalls, next: this.nextExploreTask(Date.now() + catchBackoffMs(err)) };
         } finally {
           this.schedulerDriven = false;
           this.inFlight = null;

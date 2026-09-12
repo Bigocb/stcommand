@@ -53,7 +53,7 @@ import type { Store } from "../db/store.js";
 // can) but above mission, since a mission shouldn't be able to grab a ship
 // that's actively being routed to get fixed.
 export type Owner = "operator" | "rescue" | "repair" | "mission" | "warehouse" | "keeper" | "auto";
-export type ShipRole = "miner" | "trader" | "surveyor" | "tour" | "keeper" | "scout" | "siphoner" | "warehouse" | "idle";
+export type ShipRole = "miner" | "trader" | "surveyor" | "tour" | "keeper" | "scout" | "siphoner" | "explorer" | "warehouse" | "idle";
 
 export interface Claim {
   shipSymbol: string;

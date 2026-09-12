@@ -819,6 +819,7 @@ const CLAUSE_TEXT = {
   keeperCount: (r) => `Station ${chip(r)} ships as market keepers so prices never go stale.`,
   sensorScanIntervalMin: (r) => `Run a sensor scan every ${chip(r)} once there is nothing left to chart. <em>Off by default — this changes the auto-buyer's spending.</em>`,
   siphonTarget: (r) => `Grow the fleet until ${chip(r)} gas siphoners are active.`,
+  explorerTarget: (r) => `Grow the fleet until ${chip(r)} ships are dedicated explorers. <em>0 by default — buys none until raised.</em>`,
   warehouseTarget: () => `Route trade through the warehouse. <em>Which goods, and how much of each, is set per-good in the Warehouse pane.</em>`,
   warehouseMax: (r) => `Never hold more than ${chip(r)} of any one good in the warehouse.`,
   warehouseMinMargin: (r) => `Only sell out of the warehouse when the live price clears cost basis by ${chip(r)} per unit.`,
@@ -4519,7 +4520,7 @@ function openShipDetails(shipSymbol, opts = {}) {
       </div>
       <div class="jump-row">
         <select class="role-select" aria-label="Role" style="flex:1;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px">
-          ${["trader", "miner", "surveyor", "siphoner", "tour", "scout", "keeper"].map((r) => `<option value="${r}" ${r === st?.role ? "selected" : ""}>${r}</option>`).join("")}
+          ${["trader", "miner", "surveyor", "siphoner", "tour", "explorer", "scout", "keeper"].map((r) => `<option value="${r}" ${r === st?.role ? "selected" : ""}>${r}</option>`).join("")}
         </select>
         <button class="set-role" data-ship="${shipSymbol}">Change</button>
       </div>

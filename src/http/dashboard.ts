@@ -999,7 +999,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
   });
 
-  const MANUAL_ROLES = new Set(["miner", "trader", "surveyor", "tour", "keeper", "scout", "siphoner"]);
+  const MANUAL_ROLES = new Set(["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"]);
 
   router.post("/fleet/role", async (req, res) => {
     const w = worker(req);
