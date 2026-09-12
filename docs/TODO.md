@@ -12,14 +12,24 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   ~10-20 min cycle for over an hour as of 2026-09-12. Not yet
   investigated — need to check CARO's actual live credit balance and
   why the trader/agent keeps re-attempting purchases it can't afford.
-- [ ] **Check whether DRAGOM has ever flown a cross-system trade route.**
-  Confirmed the pipeline is real (tour ship `DRAGOM-D` is actively
-  charting/pricing markets in `X1-RN95`, `trader.ts`'s `viableRoute()`/
-  `discoverPrices()` genuinely consider cross-system candidates via
-  `GalaxyAtlas.canJump()`) — but every trade actually observed live
-  stayed within the home system. Worth checking whether a cross-system
-  route has ever been evaluated and rejected, or never even come up as
-  a candidate.
+- [ ] **Fix the cross-system jump-cost bootstrap gap.** Root-caused
+  2026-09-12: `GalaxyAtlas.recordJumpCost()` is only called from
+  `fleet.ts`'s and `trader.ts`'s own jump paths, never from the shared
+  explore/tour jump path in `shipProxy.ts:711`. So a real jump a tour
+  ship or explorer makes (DRAGOM-D's jump to X1-RN95, confirmed live)
+  never lowers `crossSystemLegCost()`'s learned estimate — every
+  cross-system leg gets priced against the flat, deliberately
+  conservative `CROSS_SYSTEM_JUMP_COST_ESTIMATE = 5,000` placeholder
+  (`dispatcher.ts:39`) forever, which is high enough that nothing has
+  cleared it yet. Closed loop: no cross-system trade route can ever
+  become profitable enough to fly, so no real trade jump cost is ever
+  recorded to correct the estimate. Fix: wire `recordJumpCost()` into
+  `shipProxy.ts`'s explore-jump path too, so every real jump (not just
+  trader/fleet-manager ones) feeds the learned-cost cache.
+- [ ] **Tour more systems to build cross-system pricing data.** Operator
+  request 2026-09-12 — more tour coverage across more systems is needed
+  before cross-system routes have enough data to evaluate at all, on top
+  of the jump-cost bootstrap fix above.
 - [ ] **Render zero-downtime deploys.** `healthCheckPath` is unset on the
   `stcommand` service and there's no health endpoint in the app at all.
   Add a trivial `GET /healthz` route + configure the Render health check
@@ -49,7 +59,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   exploratory idea; probes have effectively zero fuel and can't
   self-navigate, so "camping" a market with a probe today means buying
   one directly at a shipyard on that exact waypoint. Whether a
-  cargo-deployed probe changes that mechanic hasn't been investigated.
+  cargo-deployed probe changes that mechanic hasn't been investigated —
+  re-raised 2026-09-12 as an alternative to buying a probe at every
+  shipyard for wider market coverage; still not investigated.
 - [ ] **Persist the system-by-system architecture breakdown.** Given
   conversationally on 2026-09-12; not saved anywhere. Worth turning into
   a `docs/architecture-overview.md` if it should survive past one

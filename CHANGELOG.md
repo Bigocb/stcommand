@@ -14,6 +14,35 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (multi-tenant market scoping + UI)
+
+- **Scoped market data and dispatch routes to systems a tenant has
+  actually charted.** `market_latest` is a shared table across every
+  tenant on this server reset (deliberate — a market's price is a fact
+  about the server, not the observer). Nothing filtered reads from it,
+  though: DRAGOM's Markets tab was showing prices and "same-system"
+  routes for `X1-QV71`/`X1-CN35`, systems it has never sent a ship near,
+  priced entirely off other tenants' exploration. `computeDispatchRoutes()`
+  and the `/markets`/`/intel` dashboard endpoints now filter to this
+  tenant's own `chartedSystems` record. The home system is charted at
+  boot, so no regression there.
+- **Waypoint labels through the UI now include their system** (e.g.
+  "S84-A1" instead of a bare "A1") — now that cross-system operation is
+  real, a local waypoint code alone is ambiguous (multiple systems can
+  have a waypoint named the same thing). Dropped the now-redundant
+  separate system badge next to it in `v5`/`v6`.
+- **Root-caused why cross-system trade routes never fly**, even once
+  connectivity and cross-system market data both genuinely exist:
+  `GalaxyAtlas.recordJumpCost()` — which lowers the estimated cost of a
+  cross-system leg once a real jump's price is known — is only wired
+  into the trader's and fleet-manager's own jump paths, not the shared
+  explore/tour jump path every tour ship and explorer actually uses.
+  So every cross-system leg gets priced against a flat, deliberately
+  conservative 5,000-credit placeholder forever, which nothing has
+  cleared yet — a closed loop, since no cross-system route can become
+  profitable enough to fly and record a real, lower cost. Not fixed yet;
+  see `docs/TODO.md`.
+
 ## 2026-09-12 (live-ops)
 
 - **Lowered DRAGOM's `marginFloor` doctrine value from 20c to 10c**
