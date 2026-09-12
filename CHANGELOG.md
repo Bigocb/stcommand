@@ -14,6 +14,29 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (public cartography page)
+
+- **Added a public, no-login galaxy map at `/cartography`.** Operator
+  request, inspired by another developer's public SpaceTraders cartography
+  tool. Built around `GalaxyCrawler`'s existing systems+factions crawl (the
+  comprehensive, tenant-agnostic data source) rather than any one tenant's
+  own partial exploration — shows a scatter-plot map of every crawled
+  system colored by star type, a factions table, live crawl-progress stats
+  (systems mapped vs. the galaxy's real total, now tracked via the API's
+  own pagination total instead of just counting rows), and a scrolling
+  activity log of crawl milestones. New `GET /api/cartography/{systems,
+  factions,progress,activity}` endpoints, mounted ahead of `resolveTenant`
+  in `src/cli/index.ts` (same pattern as `/api/gate`/`/api/admin`) since
+  none of this is tenant-scoped. `GalaxyCrawler` now keeps an in-memory
+  ~50-entry activity ring buffer and tracks the galaxy's total system count
+  via a new `Client.getSystemsPage()` (captures the SpaceTraders pagination
+  `meta.total`, which the generic `get()` helper used to discard). Added
+  `Store.listGalaxySystemPositions()`, a lean read (no jsonb waypoint/
+  jump-gate blobs) for the map's scatter plot. Tenant-exploration detail
+  (markets/shipyards) was considered as a secondary data layer but not
+  built in this pass — the crawler's systems+factions data was confirmed as
+  the starting point.
+
 ## 2026-09-12 (auto keeper probes)
 
 - **A tour ship (or any ship) visiting a shipyard with no keeper

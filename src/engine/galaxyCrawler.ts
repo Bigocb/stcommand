@@ -30,12 +30,42 @@ import type { Store } from "../db/store.js";
  * tenant's own GalaxyAtlas.loadSystem()/scanJumpGates() actually visits a
  * system.
  */
+export interface GalaxyCrawlActivity {
+  at: number;
+  message: string;
+}
+
+const ACTIVITY_LOG_LIMIT = 50;
+
 export class GalaxyCrawler {
   private readonly getApi: () => SpaceTradersAPI | undefined;
   private readonly store: Store;
   private readonly log: (msg: string) => void;
   private factionsDone = false;
   private systemsDone = false;
+  private totalSystems: number | undefined;
+  private readonly activity: GalaxyCrawlActivity[] = [];
+
+  /** Last ~50 crawl events, newest first — for a public activity-log panel.
+   *  In-memory only; a restart just starts a fresh log, same as it starts
+   *  fresh console output today. */
+  recentActivity(): GalaxyCrawlActivity[] {
+    return [...this.activity].reverse();
+  }
+
+  /** Best-known progress toward a full galaxy crawl. `total` is undefined
+   *  until the first systems page ever comes back (it rides along on the
+   *  API's own pagination `meta.total`, so it needs at least one live
+   *  call). */
+  async progress(): Promise<{ factionsDone: boolean; systemsDone: boolean; scanned: number; total: number | undefined }> {
+    const scanned = await this.store.countGalaxySystems();
+    return { factionsDone: this.factionsDone, systemsDone: this.systemsDone, scanned, total: this.totalSystems };
+  }
+
+  private recordActivity(message: string): void {
+    this.activity.push({ at: Date.now(), message });
+    if (this.activity.length > ACTIVITY_LOG_LIMIT) this.activity.shift();
+  }
 
   /**
    * Takes a getter rather than a bound API instance: which tenant happens
@@ -80,6 +110,7 @@ export class GalaxyCrawler {
       }
       await this.store.setGalaxyFactions(out);
       this.log(`galaxy crawl: recorded ${out.length} factions`);
+      this.recordActivity(`Recorded ${out.length} factions`);
     } catch (err) {
       this.log(`galaxy crawl: faction pass failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
       return;
@@ -92,13 +123,19 @@ export class GalaxyCrawler {
   private async crawlSystemsPage(api: SpaceTradersAPI): Promise<void> {
     const state = (await this.store.getCrawlState<{ page: number }>("galaxy_systems_crawl")) ?? { page: 1 };
     try {
-      const batch = await api.getSystems(20, state.page);
+      const { data: batch, total } = await api.getSystemsPage(20, state.page);
+      this.totalSystems = total;
       for (const sys of batch) {
         await this.store.setGalaxySystemMeta(sys.symbol, sys.sectorSymbol, sys.type, sys.x, sys.y);
       }
+      if (state.page % 25 === 1) {
+        this.recordActivity(`Scanning page ${state.page} of ~${Math.ceil(total / 20)} (${(state.page - 1) * 20} of ${total} systems so far)`);
+      }
       if (batch.length < 20) {
         this.systemsDone = true;
-        this.log(`galaxy crawl: systems pass complete at page ${state.page} (${await this.store.countGalaxySystems()} systems total)`);
+        const finalCount = await this.store.countGalaxySystems();
+        this.log(`galaxy crawl: systems pass complete at page ${state.page} (${finalCount} systems total)`);
+        this.recordActivity(`Systems crawl complete: ${finalCount} systems mapped`);
         return;
       }
       await this.store.setCrawlState("galaxy_systems_crawl", { page: state.page + 1 });

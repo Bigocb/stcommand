@@ -461,9 +461,17 @@ export class SpaceTradersAPI {
   /** Full galaxy system list — public, tenant-agnostic reference data (same
    *  status as getFactions()). Static system coordinates/type for the whole
    *  galaxy, paginated; a caller crawling the whole thing should page
-   *  through with a persisted cursor rather than assume it fits one call. */
-  getSystems(limit = 20, page = 1) {
-    return this.client.get<components["schemas"]["System"][]>("/systems", { limit, page });
+   *  through with a persisted cursor rather than assume it fits one call.
+   *  Keeps the pagination total instead of discarding it the way get()'s
+   *  generic helper does, so the galaxy crawler can track how much of the
+   *  whole galaxy is left to map. */
+  async getSystemsPage(limit = 20, page = 1): Promise<{ data: components["schemas"]["System"][]; total: number }> {
+    const res = await this.client.request<{ data: components["schemas"]["System"][]; meta: components["schemas"]["Meta"] }>({
+      method: "GET",
+      path: "/systems",
+      query: { limit, page },
+    });
+    return { data: res.data, total: res.meta.total };
   }
 
   getSystemWaypoints(systemSymbol: string, query?: { page?: number; limit?: number }) {

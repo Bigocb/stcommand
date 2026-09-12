@@ -66,6 +66,11 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Closed / resolved (kept here briefly for context, then delete)
 
+- [x] Public galaxy cartography page — shipped 2026-09-12. See
+  `CHANGELOG.md`. `getSystems()` on the SpaceTraders client was removed as
+  dead code once `getSystemsPage()` (which also returns the pagination
+  total) fully replaced its one caller.
+
 - [x] K8s pod-per-tenant and single-deployment exploration — both
   closed. See `docs/k8s-pod-per-tenant-exploration.md`. Conclusion:
   don't migrate; the shared-IP rate limit isn't solved by either shape,

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Standing Orders — Cartography</title>
+<style>
+  :root {
+    --ink: #0c0e14; --panel: #12151d; --hairline: #232838;
+    --bone: #e7e4da; --dim: #7c8291; --accent: #6c9dff;
+    --red: #e5697b; --green: #7fd8a0; --amber: #e5b96c; --violet: #b48cf0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--ink); color: var(--bone);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 18px;
+  }
+  h1 { font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 4px; color: var(--dim); }
+  h1 b { color: var(--bone); }
+  .sub { color: var(--dim); font-size: 11px; margin-bottom: 16px; }
+  .layout {
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+    gap: 14px; max-width: 1400px; margin: 0 auto;
+  }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--hairline); border-radius: 8px;
+    padding: 14px; min-width: 0;
+  }
+  .card h2 {
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim);
+    margin: 0 0 10px; font-weight: 600;
+  }
+  .stack { display: flex; flex-direction: column; gap: 14px; }
+  #map-wrap { position: relative; }
+  svg#map { width: 100%; height: auto; display: block; background: #090a10; border-radius: 6px; border: 1px solid var(--hairline); }
+  .dot { fill: var(--accent); opacity: 0.85; }
+  .dot:hover { fill: var(--bone); opacity: 1; }
+  #tooltip {
+    position: absolute; pointer-events: none; background: var(--ink); border: 1px solid var(--hairline);
+    border-radius: 5px; padding: 6px 9px; font-size: 11px; color: var(--bone); display: none; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  }
+  .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .progress-bar { flex: 1; height: 8px; border-radius: 99px; background: var(--hairline); overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--violet)); width: 0%; transition: width .5s ease; }
+  .progress-label { font-size: 11px; color: var(--dim); white-space: nowrap; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .stat { background: var(--ink); border: 1px solid var(--hairline); border-radius: 6px; padding: 8px 10px; }
+  .stat .n { font-size: 18px; font-weight: 700; color: var(--bone); }
+  .stat .l { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--hairline); font-size: 11px; }
+  th { color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; font-size: 9px; }
+  td.dim { color: var(--dim); }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 99px; font-size: 9px; letter-spacing: 0.03em; background: rgba(127,216,160,.15); color: var(--green); }
+  .badge.no { background: rgba(124,130,145,.15); color: var(--dim); }
+  #activity { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column-reverse; gap: 6px; }
+  .activity-line { font-size: 11px; color: var(--dim); border-left: 2px solid var(--hairline); padding: 3px 0 3px 8px; }
+  .activity-line .t { color: #545b6c; margin-right: 6px; }
+  .activity-line.fresh { border-left-color: var(--accent); color: var(--bone); }
+  .empty { color: var(--dim); padding: 16px 0; text-align: center; font-size: 11px; }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 99px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<h1>Standing Orders <b>Cartography</b></h1>
+<div class="sub">Live galaxy crawl — public system coordinates and faction data, mapped as it's discovered. No login required.</div>
+
+<div class="layout">
+  <div class="stack">
+    <div class="card" id="map-wrap">
+      <h2>Galaxy map</h2>
+      <svg id="map" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="tooltip"></div>
+    </div>
+    <div class="card">
+      <h2>Factions</h2>
+      <table id="factions-table">
+        <thead><tr><th>Symbol</th><th>Name</th><th>HQ</th><th>Recruiting</th></tr></thead>
+        <tbody id="factions-body"></tbody>
+      </table>
+      <div class="empty" id="factions-empty" hidden>No factions recorded yet.</div>
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <h2>Crawl progress</h2>
+      <div class="progress-row">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <div class="progress-label" id="progress-pct">—</div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><div class="n" id="stat-scanned">—</div><div class="l">Mapped</div></div>
+        <div class="stat"><div class="n" id="stat-total">—</div><div class="l">Total known</div></div>
+        <div class="stat"><div class="n" id="stat-factions">—</div><div class="l">Factions</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Activity</h2>
+      <div id="activity"></div>
+      <div class="empty" id="activity-empty" hidden>No crawl activity recorded yet.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  let seenActivity = new Set();
+
+  async function getJson(path) {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(path + " -> " + res.status);
+    return res.json();
+  }
+
+  const TYPE_COLORS = {
+    NEUTRON_STAR: "#b48cf0", RED_STAR: "#e5697b", ORANGE_STAR: "#e5b96c",
+    BLUE_STAR: "#6c9dff", YOUNG_STAR: "#7fd8a0", WHITE_DWARF: "#e7e4da",
+    BLACK_HOLE: "#3a3f52", HYPERGIANT: "#e5b96c", NEBULA: "#b48cf0",
+    UNSTABLE: "#e5697b",
+  };
+
+  function renderMap(systems) {
+    const svg = $("map");
+    const tooltip = $("tooltip");
+    svg.innerHTML = "";
+    const withPos = systems.filter((s) => s.x != null && s.y != null);
+    if (withPos.length === 0) return;
+    const xs = withPos.map((s) => s.x), ys = withPos.map((s) => s.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const pad = 20, size = 800;
+    const spanX = Math.max(maxX - minX, 1), spanY = Math.max(maxY - minY, 1);
+    const scale = (size - pad * 2) / Math.max(spanX, spanY);
+    for (const s of withPos) {
+      const cx = pad + (s.x - minX) * scale;
+      const cy = pad + (s.y - minY) * scale;
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", cx.toFixed(1));
+      circle.setAttribute("cy", cy.toFixed(1));
+      circle.setAttribute("r", "2.2");
+      circle.setAttribute("class", "dot");
+      circle.style.fill = TYPE_COLORS[s.systemType] || "#6c9dff";
+      circle.addEventListener("mousemove", (e) => {
+        tooltip.style.display = "block";
+        tooltip.style.left = e.offsetX + 14 + "px";
+        tooltip.style.top = e.offsetY + 10 + "px";
+        tooltip.textContent = s.systemSymbol + (s.systemType ? " · " + s.systemType : "");
+      });
+      circle.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+      svg.appendChild(circle);
+    }
+  }
+
+  function renderFactions(factions) {
+    const body = $("factions-body");
+    $("stat-factions").textContent = factions.length;
+    if (factions.length === 0) {
+      body.innerHTML = "";
+      $("factions-empty").hidden = false;
+      return;
+    }
+    $("factions-empty").hidden = true;
+    body.innerHTML = factions.map((f) => `
+      <tr>
+        <td>${f.symbol}</td>
+        <td class="dim">${f.name || ""}</td>
+        <td class="dim">${f.headquarters || "—"}</td>
+        <td>${f.isRecruiting ? '<span class="badge">yes</span>' : '<span class="badge no">no</span>'}</td>
+      </tr>
+    `).join("");
+  }
+
+  function renderProgress(p) {
+    const total = p.total;
+    $("stat-scanned").textContent = p.scanned.toLocaleString();
+    $("stat-total").textContent = total ? total.toLocaleString() : "—";
+    if (total) {
+      const pct = Math.min(100, (p.scanned / total) * 100);
+      $("progress-fill").style.width = pct.toFixed(1) + "%";
+      $("progress-pct").textContent = pct.toFixed(1) + "%" + (p.systemsDone ? " · complete" : "");
+    } else {
+      $("progress-fill").style.width = "2%";
+      $("progress-pct").textContent = "starting…";
+    }
+  }
+
+  function timeAgo(at) {
+    const s = Math.max(0, Math.floor((Date.now() - at) / 1000));
+    if (s < 60) return s + "s ago";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    return Math.floor(s / 3600) + "h ago";
+  }
+
+  function renderActivity(activity) {
+    const el = $("activity");
+    if (activity.length === 0) {
+      el.innerHTML = "";
+      $("activity-empty").hidden = false;
+      return;
+    }
+    $("activity-empty").hidden = true;
+    el.innerHTML = activity.map((a) => {
+      const key = a.at + "|" + a.message;
+      const fresh = !seenActivity.has(key);
+      return `<div class="activity-line${fresh ? " fresh" : ""}"><span class="t">${timeAgo(a.at)}</span>${a.message}</div>`;
+    }).join("");
+    seenActivity = new Set(activity.map((a) => a.at + "|" + a.message));
+  }
+
+  async function refreshSlow() {
+    try {
+      const [{ systems }, { factions }] = await Promise.all([
+        getJson("/api/cartography/systems"),
+        getJson("/api/cartography/factions"),
+      ]);
+      renderMap(systems);
+      renderFactions(factions);
+    } catch (err) { console.error(err); }
+  }
+
+  async function refreshFast() {
+    try {
+      const [progress, { activity }] = await Promise.all([
+        getJson("/api/cartography/progress"),
+        getJson("/api/cartography/activity"),
+      ]);
+      renderProgress(progress);
+      renderActivity(activity);
+    } catch (err) { console.error(err); }
+  }
+
+  refreshSlow();
+  refreshFast();
+  setInterval(refreshFast, 5000);
+  setInterval(refreshSlow, 30000);
+})();
+</script>
+</body>
+</html>

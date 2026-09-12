@@ -10,6 +10,7 @@ import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
 import { createUiVersionRouter, cacheHeaders } from "../http/uiVersions.js";
 import { createAdminRouter } from "../http/admin.js";
+import { createCartographyRouter } from "../http/cartography.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 import { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 
@@ -99,6 +100,11 @@ async function main(): Promise<void> {
 
   app.use("/api/gate", createGateRouter(pool));
 
+  // Public galaxy map data — not scoped to any tenant, same reasoning as
+  // GalaxyCrawler itself (see its doc comment), so mounted ahead of
+  // resolveTenant like /api/gate and /api/admin.
+  app.use("/api/cartography", createCartographyRouter(new Store(pool), galaxyCrawler));
+
   // Its own key-based auth (see admin.ts), not the tenant session-cookie
   // flow below — mounted first so /api/admin/* never falls through to
   // resolveTenant, which would demand a tenant session for a request that
@@ -146,6 +152,13 @@ async function main(): Promise<void> {
   app.get("/admin", (_req, res) => {
     res.set(cacheHeaders(resolve(PUBLIC_DIR, "admin.html")) ?? {});
     res.sendFile(resolve(PUBLIC_DIR, "admin.html"));
+  });
+
+  // Public galaxy-crawl viewer — no key, no tenant session, same free-
+  // standing pattern as /admin's dedicated route.
+  app.get("/cartography", (_req, res) => {
+    res.set(cacheHeaders(resolve(PUBLIC_DIR, "cartography.html")) ?? {});
+    res.sendFile(resolve(PUBLIC_DIR, "cartography.html"));
   });
 
   app.use(express.static(PUBLIC_DIR, {
