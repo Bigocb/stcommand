@@ -5039,18 +5039,31 @@ function openShipDetails(shipSymbol, opts = {}) {
 function refreshOpenShipDetails() {
   const m = $("manifest");
   if (!m || m.style.display === "none" || !selectedShip) return;
-  const input = m.querySelector(".dispatch-wp");
-  const typed = input ? input.value : null;
-  const hadFocus = input && document.activeElement === input;
-  const caret = hadFocus ? input.selectionStart : null;
+  // Snapshot every input/select/textarea's value (and focus/caret, for
+  // whichever one is currently focused) before the panel's full re-render
+  // below blows them all away with fresh elements — previously only
+  // .dispatch-wp was preserved this way, so any other field in this panel
+  // (the keeper-market waypoint, the tour-dispatch system picker, ...) got
+  // silently reset mid-edit every time this ran, which is every
+  // loadBridge() poll (5s) while the panel is open. That's the "typing
+  // resets after a few seconds" bug reported live.
+  const fields = [...m.querySelectorAll("input, select, textarea")]
+    .filter((el) => el.className)
+    .map((el) => ({
+      selector: `.${el.className.trim().split(/\s+/).join(".")}`,
+      value: el.value,
+      focused: document.activeElement === el,
+      caret: typeof el.selectionStart === "number" ? el.selectionStart : null,
+    }));
   const scroll = m.scrollTop;
 
   openShipDetails(selectedShip);
 
-  const next = m.querySelector(".dispatch-wp");
-  if (next && typed) {
-    next.value = typed;
-    if (hadFocus) { next.focus(); try { next.setSelectionRange(caret, caret); } catch (_) {} }
+  for (const f of fields) {
+    const next = m.querySelector(f.selector);
+    if (!next || !f.value) continue;
+    next.value = f.value;
+    if (f.focused) { next.focus(); if (f.caret !== null && next.setSelectionRange) { try { next.setSelectionRange(f.caret, f.caret); } catch (_) {} } }
   }
   m.scrollTop = scroll;
 }
@@ -5423,7 +5436,15 @@ document.addEventListener("visibilitychange", () => {
 });
 
 $("price-refresh").addEventListener("click", () => loadPrices(priceGood));
-$("price-good").addEventListener("change", () => loadPrices(priceGood));
+// Read the dropdown's own new value, not the stale closed-over priceGood —
+// this listener previously called loadPrices(priceGood) with whatever
+// priceGood already was, so picking a different material fetched the same
+// good as before and the very next "prices" poll then reset the visible
+// selection back to it (renderPriceGoods() recomputes `chosen` from
+// priceGood, never from what was actually just clicked). The dropdown
+// looked like it "wouldn't let you switch" because nothing ever recorded
+// that a switch had happened.
+$("price-good").addEventListener("change", (e) => { priceGood = e.target.value; loadPrices(priceGood); });
 
 $("routes-system-filter").addEventListener("change", onMarketSystemFilterChange);
 $("snapshots-system-filter").addEventListener("change", onMarketSystemFilterChange);
@@ -5989,9 +6010,21 @@ if (!applyVersionPreference()) mountSwitcher();
 function renderPriceGoods() {
   const sel = $("price-good");
   if (!sel || !priceGoods.length) return;
+  // Every "prices" notification rebuilt this <select> from scratch
+  // unconditionally, even when the good list hadn't changed at all — this
+  // fires on a 20s poll while Markets is open, so a native dropdown
+  // mid-interaction (opened, being scrolled) got yanked shut and reset
+  // every cycle. Guarded the same way renderMarketSystemFilter() already
+  // guards its own dropdown: skip the DOM write entirely when nothing
+  // actually changed, and never touch it while it currently has focus —
+  // an open dropdown is exactly the moment a "nothing changed" rebuild is
+  // most disruptive, since even writing identical innerHTML can force it
+  // closed in some browsers.
+  if (document.activeElement === sel) return;
   const chosen = priceGoods.includes(priceGood) ? priceGood : priceGoods[0];
-  sel.innerHTML = priceGoods.map((g) =>
+  const opts = priceGoods.map((g) =>
     `<option value="${escapeAttr(g)}"${g === chosen ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
+  if (sel.innerHTML !== opts) sel.innerHTML = opts;
   // Only fetch when the selection actually moved. Without the guard this
   // re-enters through the "prices" slice that loadPrices() itself notifies.
   if (chosen !== priceGood) { priceGood = chosen; loadPrices(priceGood); }
