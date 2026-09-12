@@ -2054,10 +2054,14 @@ export class FleetManager {
     if (this.explorers.size >= target) return;
     // Best-fuel-range idle hull, not just the first one found — a spare
     // probe (0 fuel, can't move at all) sitting in idleShips would
-    // otherwise get picked and immediately fail to do anything.
+    // otherwise get picked and immediately fail to do anything. 300 is the
+    // floor below which a hull can't cover a useful jump range as an
+    // explorer.
+    const MIN_EXPLORER_FUEL_CAPACITY = 300;
     let best: string | undefined;
     let bestFuel = 0;
     for (const [symbol, ship] of this.idleShips) {
+      if (ship.fuel.capacity < MIN_EXPLORER_FUEL_CAPACITY) continue;
       if (ship.fuel.capacity > bestFuel) { best = symbol; bestFuel = ship.fuel.capacity; }
     }
     if (!best) return;
