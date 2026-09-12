@@ -3378,8 +3378,84 @@ export class FleetManager {
       const yard = await this.api.getShipyard(systemSymbol, waypointSymbol);
       await this.store?.recordShipyardInventory(systemSymbol, waypointSymbol, yard.ships ?? []);
       this.onActivity?.("shipyard", `snapshot ${waypointSymbol} (${(yard.ships ?? []).length} ships)`, 0);
+      await this.maybeRequestKeeperProbe(waypointSymbol, yard.ships ?? []);
     } catch (err) {
       // ignore: shipyard may not be scannable
+    }
+  }
+
+  /**
+   * Any ship visiting a shipyard (tour ships do this routinely, per
+   * marketTourTargets()'s own trait-scan) is the one moment we can see
+   * whether it stocks probes at all — this only fires from a real, already-
+   * successful getShipyard() call, so it never spends a call chasing one
+   * down. A shipyard with no keeper stationed there only ever gets a price
+   * refresh when some other ship happens to pass through; a probe has no
+   * fuel and can never move under its own power (confirmed live), so buying
+   * one AT this exact waypoint is the only way to plant a permanent keeper
+   * here at all — unlike a keeper converted from an idle miner/shuttle
+   * (maybeAssignKeepers()), which only ever covers the operator's configured
+   * `keeperMarkets` list, not an opportunistically-discovered shipyard.
+   */
+  private async maybeRequestKeeperProbe(waypointSymbol: string, ships: { type: string; purchasePrice: number }[]): Promise<void> {
+    if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
+    if ([...this.keeperMarkets.values()].includes(waypointSymbol)) return; // already covered
+    const probe = ships.find((s) => s.type === "SHIP_PROBE");
+    if (!probe) return; // this yard doesn't stock one right now
+    if (!this.canAfford(probe.purchasePrice)) return;
+
+    // One request at a time fleet-wide (kind is a single fixed string), same
+    // pattern maybeBuyShip()'s "buyShip" already uses — avoids flooding the
+    // operator with simultaneous asks if several uncovered shipyards get
+    // visited in quick succession; the next one gets its own request once
+    // this one clears.
+    const approved = await this.approvals.request("buyKeeperProbe", {
+      shipSymbol: waypointSymbol,
+      detail: `probe at ${waypointSymbol} for ${probe.purchasePrice}c — no keeper stationed there yet`,
+      cost: probe.purchasePrice,
+      timeoutMs: 2 * 60 * 60_000,
+      onTimeout: "approve",
+    });
+    if (approved === undefined) {
+      this.log(`keeper probe purchase at ${waypointSymbol} awaiting operator approval`);
+      return;
+    }
+    if (approved === false) {
+      this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
+      return;
+    }
+    try {
+      this.log(`purchasing SHIP_PROBE at ${waypointSymbol} for ${probe.purchasePrice} credits (no keeper stationed here)`);
+      const res = await this.api.purchaseShip("SHIP_PROBE", waypointSymbol);
+      await this.doctrine.ensureShipTypeRule(res.ship.frame.symbol);
+      this.recordLedger?.({
+        timestamp: new Date().toISOString(),
+        shipSymbol: res.ship.symbol,
+        waypointSymbol,
+        type: "SHIP",
+        tradeSymbol: "SHIP_PROBE",
+        total: res.transaction.price,
+      });
+      await this.discord?.postActivity({
+        timestamp: new Date().toISOString(),
+        shipSymbol: "fleet",
+        kind: "ship",
+        detail: `purchased keeper probe ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c`,
+        credits: -res.transaction.price,
+      });
+      // Force straight into the keeper role pinned to this exact waypoint —
+      // assignRole()'s own classifier would put a bare probe there anyway,
+      // but setShipRole() is what actually persists the market pin and
+      // survives a restart (restorePersistedManualRoles()), same as any
+      // other operator-directed role assignment.
+      await this.setShipRole(res.ship.symbol, "keeper", waypointSymbol);
+      // Durable going forward, not just this one purchase — an operator
+      // looking at the Book's keeper priority list should see this market
+      // listed, same as any keeper the operator configured by hand.
+      const priority = await this.keeperPriorityMarkets();
+      if (!priority.includes(waypointSymbol)) await this.setKeeperPriorityMarkets([...priority, waypointSymbol]);
+    } catch (err) {
+      this.log(`failed to buy keeper probe at ${waypointSymbol}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

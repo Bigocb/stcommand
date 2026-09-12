@@ -1292,6 +1292,90 @@ describe("FleetManager.setShipRole", () => {
   });
 });
 
+describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
+  // A probe has no fuel and can never move (confirmed live) — buying one AT
+  // a shipyard is the only way to plant a keeper there, unlike
+  // maybeAssignKeepers()'s conversion of an idle miner/shuttle, which only
+  // ever covers the operator's configured keeperMarkets list.
+  function makeYardFleet(ships: { type: string; purchasePrice: number }[], opts: { tenantId?: string; store?: Store } = {}) {
+    const calls = { purchase: [] as string[], recordShipyardInventory: [] as string[] };
+    const fleet = new FleetManager({
+      api: {
+        getShipyard: async () => ({ ships }),
+        purchaseShip: async (type: string, waypointSymbol: string) => {
+          calls.purchase.push(waypointSymbol);
+          return {
+            ship: {
+              symbol: "PROBE-1",
+              nav: { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) },
+              cargo: { capacity: 0, units: 0, inventory: [] },
+              fuel: { current: 0, capacity: 0 },
+              frame: { symbol: "FRAME_PROBE" },
+              registration: { role: "SATELLITE" },
+            },
+            transaction: { price: 5000 },
+          };
+        },
+        getShip: async (s: string) => ({
+          symbol: s,
+          nav: { status: "DOCKED", waypointSymbol: "X1-A-YARD", systemSymbol: "X1-A" },
+          cargo: { capacity: 0, units: 0, inventory: [] },
+          fuel: { current: 0, capacity: 0 },
+          frame: { symbol: "FRAME_PROBE" },
+          registration: { role: "SATELLITE" },
+        }),
+      } as any,
+      store: opts.store,
+      tenantId: opts.tenantId,
+    });
+    (fleet as any).store = opts.store; // recordShipyardInventory below is on Store, not the api
+    if (opts.store) {
+      opts.store.recordShipyardInventory = async (...args: unknown[]) => { calls.recordShipyardInventory.push(String(args[1])); };
+    }
+    (fleet as any).credits = 100_000; // well above any test purchase price, for canAfford()
+    return { fleet, calls };
+  }
+
+  it("buys a probe and stations it as keeper when the shipyard has one and nothing covers it", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }], { tenantId, store });
+
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+
+    assert.deepEqual(calls.purchase, ["X1-A-YARD"], "must actually buy the probe at this exact waypoint");
+    assert.equal((fleet as any).keeperMarkets.get("PROBE-1"), "X1-A-YARD", "the new hull must be stationed as keeper here");
+    assert.ok((await fleet.keeperPriorityMarkets()).includes("X1-A-YARD"), "the market joins the durable priority list, same as an operator-configured one");
+    (fleet as any).keepers.get("PROBE-1")?.stop();
+  });
+
+  it("does not buy a second probe once this market already has a keeper", async () => {
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }]);
+    (fleet as any).keeperMarkets.set("EXISTING-KEEPER", "X1-A-YARD");
+
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+
+    assert.deepEqual(calls.purchase, [], "already covered — must not buy another");
+  });
+
+  it("does not attempt a purchase when the shipyard has no probe in stock", async () => {
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_LIGHT_HAULER", purchasePrice: 150_000 }]);
+
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+
+    assert.deepEqual(calls.purchase, [], "nothing to buy — this yard does not stock probes");
+  });
+
+  it("does not attempt a purchase when the doctrine switch is off", async () => {
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }]);
+    await fleet.doctrine.set("autoKeeperProbes", { enabled: false });
+
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+
+    assert.deepEqual(calls.purchase, [], "operator switched this off — must not buy");
+  });
+});
+
 describe("FleetManager.restorePersistedManualRoles (setShipRole surviving a restart)", () => {
   it("re-applies a persisted manual role that disagrees with what assignRole() just derived", async () => {
     const tenantId = await makeTenant();

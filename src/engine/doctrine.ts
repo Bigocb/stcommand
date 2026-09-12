@@ -129,6 +129,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "autoKeeperProbes",
+    name: "Auto-buy shipyard keepers",
+    description: "When a ship visits a shipyard with no keeper stationed there, request to buy a probe on the spot to become one — a probe has no fuel and can never move (confirmed live), so buying it AT that exact waypoint is the only way to plant a keeper there at all. Goes through the same operator approval gate as any other autonomous purchase, one request at a time fleet-wide. On by default.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "sensorScanIntervalMin",
     name: "Sensor scan",
     description: "How often the chart scout runs a sensor scan (systems/waypoints) once nothing is left to chart, and buys a scout to do it even with no charting work left. Off by default — this changes the auto-buyer's spending, so turn it on deliberately.",
