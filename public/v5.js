@@ -1087,6 +1087,7 @@ const FLEET_COLS = [
   { key: "condition", label: "Cond." },
   { key: "crewCurrent", label: "Crew" },
   { key: "goal", label: "Doing" },
+  { key: "at", label: "At" },
 ];
 
 
@@ -1272,7 +1273,8 @@ function renderFleetTable() {
         <td class="gauge"><span class="meter c"><i style="width:${r.cargoCap ? (r.cargo / r.cargoCap) * 100 : 0}%"></i></span>${r.cargoCap ? `${r.cargo}/${r.cargoCap}` : "—"}</td>
         <td class="gauge"><span class="meter${r.condition < 50 ? " neg" : ""}"><i style="width:${r.condition}%"></i></span>${r.condition}%</td>
         <td class="gauge">${r.crewCapacity ? `<span class="meter${r.morale < 40 ? " neg" : ""}"><i style="width:${Math.max(0, Math.min(100, r.morale))}%"></i></span>${r.crewCurrent}/${r.crewCapacity}` : "—"}</td>
-        <td><span class="goal">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}${fmTag(r.flightMode)}</span></td>
+        <td><span class="goal">${escapeHtml(r.goal)}${fmTag(r.flightMode)}</span></td>
+        <td><span class="goal">${r.at ? escapeHtml(shortWp(r.at)) : "—"}</span></td>
       </tr>`).join("")}</tbody>`;
 
   el.querySelectorAll("th[data-key]").forEach((th) => th.addEventListener("click", () => {
