@@ -101,9 +101,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
    * (GalaxyAtlas, in-memory — same source /systems above reads), enriched
    * with the galaxy-wide coordinates/star type the background crawler
    * records into the shared, non-tenant-scoped galaxy_systems table
-   * (galaxyCrawler.ts). Deliberately known-space-only, not all ~7,000
-   * crawled systems: a captain's own galaxy view is what they've actually
-   * found, same scope as the per-system 3D map. jumpConnections() returns
+   * (galaxyCrawler.ts). Charted systems (`systems`) are the main scope,
+   * same as the per-system 3D map's known space; `nearby` adds a dim halo
+   * of crawled-but-unvisited systems close to charted space, so the edge
+   * of what's been explored is visible without pulling in all ~7,000
+   * crawled systems scattered across the galaxy. jumpConnections() returns
    * waypoint-to-waypoint edges; collapsed to system-level pairs here since
    * the overview draws one line per connected system, not per gate.
    */
@@ -116,10 +118,22 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
       const symbols = known.map((s) => s.symbol);
       const symbolSet = new Set(symbols);
       // listGalaxySystems() returns the whole shared, galaxy-wide table (all
-      // ~7,000 crawled systems) — filtered here to just what this tenant has
-      // charted, matching the known-space-only scope above.
-      const meta = (await w.store.listGalaxySystems()).filter((m) => symbolSet.has(m.systemSymbol));
+      // ~7,000 crawled systems).
+      const allMeta = await w.store.listGalaxySystems();
+      const meta = allMeta.filter((m) => symbolSet.has(m.systemSymbol));
       const metaBySymbol = new Map(meta.map((m) => [m.systemSymbol, m]));
+      // A dim halo of crawled-but-unvisited systems near charted space — just
+      // enough to show what's on the frontier without pulling in the other
+      // ~7,000 systems scattered across the galaxy. Charted DRAGOM systems
+      // sit ~200-400 units apart from their own actual jump-gate neighbors
+      // (confirmed against live coordinates), so a few thousand units draws
+      // a generous local neighborhood, not the whole map.
+      const NEARBY_RADIUS = 3000;
+      const chartedPoints = meta.filter((m) => m.x !== null && m.y !== null);
+      const nearby = chartedPoints.length === 0 ? [] : allMeta.filter((m) => {
+        if (symbolSet.has(m.systemSymbol) || m.x === null || m.y === null) return false;
+        return chartedPoints.some((c) => Math.hypot(m.x! - c.x!, m.y! - c.y!) < NEARBY_RADIUS);
+      }).map((m) => ({ symbol: m.systemSymbol, x: m.x, y: m.y, type: m.systemType }));
       const shipSystems = new Map<string, number>();
       for (const ship of w.state.get().ships) {
         const sys = ship.nav?.systemSymbol;
@@ -149,7 +163,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
         edgeSet.add(key);
         edges.push({ a, b });
       }
-      res.json({ systems, edges, home: w.fleet.getSystemSymbol() });
+      res.json({ systems, edges, nearby, home: w.fleet.getSystemSymbol() });
     } catch (err) {
       console.error("[dashboard] galaxy overview error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

@@ -706,6 +706,7 @@
   .galaxy-overview svg { width:100%; height:100%; display:block; cursor:grab; }
   .galaxy-overview svg:active { cursor:grabbing; }
   .galaxy-overview .gx-edge { stroke:var(--hairline); stroke-width:1; opacity:0.5; }
+  .galaxy-overview .gx-nearby { fill:var(--dim); opacity:0.35; pointer-events:none; }
   .galaxy-overview .gx-node { cursor:pointer; }
   .galaxy-overview .gx-node circle { fill:var(--dim); stroke:var(--hairline); stroke-width:1; }
   .galaxy-overview .gx-node.has-market circle { fill:var(--teal); }

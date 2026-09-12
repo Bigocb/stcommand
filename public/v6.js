@@ -1020,6 +1020,15 @@ function renderGalaxyOverviewSvg() {
   if (path) for (let i = 0; i < path.length - 1; i++) routeEdgeKeys.add([path[i], path[i + 1]].sort().join("|"));
   const routeSystems = new Set(path ?? []);
 
+  const r = Math.max(1.2, Math.min(vbW, vbH) / 220);
+
+  // Dim, non-interactive halo of crawled-but-unvisited systems near charted
+  // space (GET /api/galaxy/overview's `nearby`) — just enough to show what's
+  // on the frontier, not a click target: no label, no click handler, drawn
+  // first so charted nodes/edges layer on top of it.
+  const nearbyDots = (data.nearby ?? [])
+    .map((s) => `<circle class="gx-nearby" cx="${s.x}" cy="${s.y}" r="${r * 0.5}" />`).join("");
+
   const edgeLines = data.edges
     .map((e) => {
       const a = known.find((s) => s.symbol === e.a), b = known.find((s) => s.symbol === e.b);
@@ -1027,8 +1036,6 @@ function renderGalaxyOverviewSvg() {
       const onRoute = routeEdgeKeys.has([e.a, e.b].sort().join("|"));
       return `<line class="gx-edge${onRoute ? " on-route" : ""}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`;
     }).join("");
-
-  const r = Math.max(1.2, Math.min(vbW, vbH) / 220);
   const nodes = known.map((s) => {
     const cls = ["gx-node",
       s.hasMarket ? "has-market" : "",
@@ -1051,7 +1058,7 @@ function renderGalaxyOverviewSvg() {
       : `<div class="gx-route-result gx-route-none">No known gate chain from ${escapeHtml(routeFrom)} to ${escapeHtml(routeTo)} yet — scout further to find one.</div>`;
 
   host.innerHTML = `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}">
-    <g id="gx-viewport">${edgeLines}${nodes}</g>
+    <g id="gx-viewport">${nearbyDots}${edgeLines}${nodes}</g>
   </svg>
   <datalist id="gx-system-options">${options}</datalist>
   <div class="gx-toolbar">
