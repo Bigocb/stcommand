@@ -150,6 +150,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
+    key: "exploringEnabled",
+    name: "Exploring",
+    description: "Master switch for jump-based exploring. Jumps cost real credits — turning this off stops explorers from starting any new one; a jump already in flight still lands (nothing can recall it), but the ship then just parks at that destination instead of continuing on. On by default, matching today's behavior.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: false,
+  },
+  {
+    key: "explorerCreditFloor",
+    name: "Explorer credit floor",
+    description: "If the fleet's credits fall to or below this, explorers park the same way as when exploring is switched off — jumps are one of the more expensive routine actions, not worth risking when cash is already tight. 0 disables this floor (only the exploring master switch applies).",
+    value: 0, min: 0, max: 500_000, step: 5_000, unit: "c",
+    enabled: true, enforced: true, category: "risk", defaultAdopted: false,
+  },
+  {
     key: "warehouseTarget",
     name: "Warehouse",
     description: "Master switch for warehousing — off by default: until enabled, the dispatcher only ever assigns direct round trips, same as today. Which goods get bought/sold through the warehouse, and how much of each to hold, is set per-good in the Warehouse pane, not here — this value isn't used.",

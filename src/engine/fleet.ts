@@ -206,6 +206,11 @@ export class FleetManager {
    */
   private readonly gateConstructionSkipUntil = new Map<string, number>();
   private readonly GATE_SKIP_MS = 3 * 60 * 60 * 1000;
+  /** Whether the "explorers parked" alert has already fired for the current
+   *  parked spell — see explorersShouldPark()'s own comment. Reset the next
+   *  time exploreSystem() actually runs a trip, so the next time parking
+   *  triggers it alerts again instead of staying silent forever. */
+  private explorersParkedAlerted = false;
   readonly doctrine: Doctrine;
   private systemSymbol = "";
   private positions: WaypointPos[] = [];
@@ -2389,8 +2394,44 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Whether jump-based exploring should be paused right now — the operator
+   * switched off "Exploring" in doctrine, or credits have fallen to/below
+   * the configured explorer credit floor. Jumps are one of the more
+   * expensive routine actions a ship takes, so this is a way to stop
+   * spending on them without touching explorerTarget or scrapping the
+   * hulls. Returns the reason (for logging/alerting) or undefined when
+   * exploring is fine to proceed.
+   */
+  private explorersShouldPark(): string | undefined {
+    if (this.doctrine.value("exploringEnabled", 1) === 0) return "exploring is switched off in doctrine";
+    const floor = this.doctrine.value("explorerCreditFloor", 0);
+    if (floor > 0 && this.credits <= floor) return `credits (${this.credits}c) are at or below the explorer credit floor (${floor}c)`;
+    return undefined;
+  }
+
   /** Send an idle/explorer ship to scout a connected system. */
-  async exploreSystem(shipSymbol: string, targetSystem?: string): Promise<string> {
+  async exploreSystem(shipSymbol: string, targetSystem?: string): Promise<string | undefined> {
+    // A jump already in flight from a previous call can't be recalled — this
+    // only gates *starting* a new trip. Once tripped, the ship that was mid-
+    // trip lands normally (below) and then, on its next scheduled attempt,
+    // hits this same check and just parks where it is instead of moving on.
+    const parkReason = this.explorersShouldPark();
+    if (parkReason) {
+      if (!this.explorersParkedAlerted) {
+        this.explorersParkedAlerted = true;
+        this.log(`explorers parked: ${parkReason} — re-enable exploring (or raise credits) in doctrine when ready`);
+        this.onActivity?.("explorer", `explorers parked: ${parkReason}`, undefined, shipSymbol);
+        await this.discord?.postActivity({
+          timestamp: new Date().toISOString(),
+          shipSymbol: "fleet",
+          kind: "explorer",
+          detail: `Explorers parked: ${parkReason}. Re-enable exploring (or raise credits) in doctrine when ready.`,
+        });
+      }
+      return undefined;
+    }
+    this.explorersParkedAlerted = false;
     // jumpShip() below reaches the home gate via dispatchShip(), which (for a
     // same-system move) delegates to agent.dispatchTo() — documented there as
     // parking the ship and leaving it manual "until released". Nothing used
