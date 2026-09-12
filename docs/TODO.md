@@ -7,34 +7,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-- [ ] **CARO stuck in a purchase-failure loop.** CARO-1/3/4/5/6 have been
-  repeatedly failing "insufficient credits" (FUEL x3, MEDICINE x15) on a
-  ~10-20 min cycle for over an hour as of 2026-09-12. Not yet
-  investigated — need to check CARO's actual live credit balance and
-  why the trader/agent keeps re-attempting purchases it can't afford.
-- [ ] **Fix the cross-system jump-cost bootstrap gap.** Root-caused
-  2026-09-12: `GalaxyAtlas.recordJumpCost()` is only called from
-  `fleet.ts`'s and `trader.ts`'s own jump paths, never from the shared
-  explore/tour jump path in `shipProxy.ts:711`. So a real jump a tour
-  ship or explorer makes (DRAGOM-D's jump to X1-RN95, confirmed live)
-  never lowers `crossSystemLegCost()`'s learned estimate — every
-  cross-system leg gets priced against the flat, deliberately
-  conservative `CROSS_SYSTEM_JUMP_COST_ESTIMATE = 5,000` placeholder
-  (`dispatcher.ts:39`) forever, which is high enough that nothing has
-  cleared it yet. Closed loop: no cross-system trade route can ever
-  become profitable enough to fly, so no real trade jump cost is ever
-  recorded to correct the estimate. Fix: wire `recordJumpCost()` into
-  `shipProxy.ts`'s explore-jump path too, so every real jump (not just
-  trader/fleet-manager ones) feeds the learned-cost cache.
 - [ ] **Tour more systems to build cross-system pricing data.** Operator
   request 2026-09-12 — more tour coverage across more systems is needed
-  before cross-system routes have enough data to evaluate at all, on top
-  of the jump-cost bootstrap fix above.
-- [ ] **Render zero-downtime deploys.** `healthCheckPath` is unset on the
-  `stcommand` service and there's no health endpoint in the app at all.
-  Add a trivial `GET /healthz` route + configure the Render health check
-  to get zero-downtime rolling restarts on the existing Starter plan —
-  no infra migration needed for this.
+  before cross-system routes have enough data to evaluate. See
+  `CHANGELOG.md` for what "tour more systems" actually takes today:
+  either send an existing tour ship further out via the dashboard's Tour
+  Dispatch panel, or promote/buy another Light Shuttle into the tour role
+  first (a tenant can't send away its last home-system tour ship — that's
+  hard-blocked).
 
 ## Design docs written, no implementation decision made
 
@@ -82,10 +62,24 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   closed. See `docs/k8s-pod-per-tenant-exploration.md`. Conclusion:
   don't migrate; the shared-IP rate limit isn't solved by either shape,
   and the one real Render-restart benefit is achievable on Render itself
-  via a health check (see the open item above).
+  via the health check shipped below.
 - [x] DRAGOM's margin-floor change — confirmed working. Lowered from
   20c to 10c on 2026-09-12; verified via live logs that DRAGOM-1 went
   from flapping/stuck on one route (repeated `margin 19-20c <= floor 20c`
   rejections) to 11 successful route pickups across FUEL/FOOD/MEDICINE
   in the 51 minutes after the change, with zero margin-floor rejections.
   No new failure mode introduced by the looser floor. See `CHANGELOG.md`.
+- [x] CARO's insufficient-credits purchase-failure loop — operator is
+  deleting the CARO tenant outright (2026-09-12), so no further
+  investigation needed.
+- [x] Cross-system jump-cost bootstrap gap — fixed 2026-09-12.
+  `recordJumpCost()` now also fires from `shipProxy.ts`'s shared
+  explore-jump path, so every real jump a tour ship or explorer makes
+  feeds `crossSystemLegCost()`'s learned average, not just trader/fleet-
+  manager jumps. See `CHANGELOG.md`.
+- [x] Render zero-downtime deploys — `GET /healthz` added, mounted
+  ahead of every other route in `src/cli/index.ts`. **One manual step
+  still needed**: no Render API/MCP tool exposes updating an existing
+  service's health-check path, so set it by hand — Render dashboard →
+  stcommand → Settings → Health Check Path → `/healthz`. Without that
+  one field set, the route exists but Render never calls it.

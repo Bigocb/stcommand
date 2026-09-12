@@ -388,7 +388,7 @@ function fakeFleetApi(ships: Record<string, any>) {
     },
     jumpShip: async (_s: string, gate: string) => {
       calls.jump.push(gate);
-      return {};
+      return { transaction: { totalPrice: 1234 } };
     },
     patchShipNav: async (s: string, mode: string) => {
       ships[s] = { ...ships[s], nav: { ...ships[s].nav, flightMode: mode } };
@@ -420,10 +420,15 @@ describe("ShipProxy.runExploreGoal: the executor flies the hull", () => {
     const { api, calls } = fakeFleetApi(ships);
     const systemLoaded: string[] = [];
     const surveyed: string[] = [];
+    const jumpCostsRecorded: [string, string, number][] = [];
     const proxy = new ShipProxy(ships["SHIP-1"], {
       api,
       registry: world(),
-      galaxy: { loadSystem: async (sys: string) => { systemLoaded.push(sys); }, surveyMarkets: async (sys: string) => { surveyed.push(sys); } } as any,
+      galaxy: {
+        loadSystem: async (sys: string) => { systemLoaded.push(sys); },
+        surveyMarkets: async (sys: string) => { surveyed.push(sys); },
+        recordJumpCost: (fromGate: string, toSystem: string, totalPrice: number) => { jumpCostsRecorded.push([fromGate, toSystem, totalPrice]); },
+      } as any,
       done: () => {},
     });
 
@@ -435,6 +440,12 @@ describe("ShipProxy.runExploreGoal: the executor flies the hull", () => {
     assert.deepEqual(calls.jump, ["X1-B-GATE"], "the executor jumps, not the controller");
     assert.deepEqual(systemLoaded, ["X1-B"], "target system loaded so the registry knows the ship moved");
     assert.deepEqual(surveyed, ["X1-B"], "markets surveyed in the same pass — SURVEY has no return of its own between JUMP and it");
+    // The bug this covers: this shared explore path is what every tour ship
+    // and explorer actually jumps through, but it never fed a real jump's
+    // cost back into the learned-cost cache — so crossSystemLegCost() stayed
+    // pinned to its flat placeholder forever, no matter how many real jumps
+    // the fleet made. See GalaxyAtlas.recordJumpCost()'s own comment.
+    assert.deepEqual(jumpCostsRecorded, [["X1-A-GATE", "X1-B", 1234]], "records the real jump cost against the local gate and destination system");
   });
 
   it("MARKET phase: navigates to a market not yet visited", async () => {

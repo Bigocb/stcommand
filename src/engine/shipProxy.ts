@@ -708,7 +708,17 @@ export class ShipProxy {
       await this.refresh();
       await this.waitCooldown();
       this.log(`explore: jumping to ${intent.goal.system} via ${intent.goal.remoteGate}`);
-      await this.api.jumpShip(this.ship.symbol, intent.goal.remoteGate);
+      const jumpRes = await this.api.jumpShip(this.ship.symbol, intent.goal.remoteGate);
+      // The only jump path that never fed the learned-cost cache — trader.ts's
+      // and fleet.ts's own jump calls both record here, but every tour ship
+      // and explorer goes through this shared explore path instead, so a real
+      // jump cost paid here (like DRAGOM-D's actual jump to X1-RN95) never
+      // lowered crossSystemLegCost()'s estimate for that gate pair. Left at
+      // the flat CROSS_SYSTEM_JUMP_COST_ESTIMATE placeholder forever, no
+      // cross-system route could ever clear it to fly and record a real,
+      // lower cost in its place — a closed loop. See GalaxyAtlas.recordJumpCost()'s
+      // own comment.
+      this.galaxy?.recordJumpCost(intent.goal.gate, intent.goal.system, jumpRes.transaction.totalPrice);
       // Reload the ship's position so the registry knows it is now in the
       // target system before the next navigation leg is budgeted
       if (this.galaxy) await this.galaxy.loadSystem(intent.goal.system);

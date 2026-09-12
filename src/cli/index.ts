@@ -87,6 +87,16 @@ async function main(): Promise<void> {
   const app = express();
   app.use(express.json());
 
+  // Render's health check: mounted first, ahead of every other route, so it
+  // answers even if something downstream (a tenant boot, the DB pool) is
+  // unhealthy — a health check that shares fate with the thing it is
+  // supposed to gate defeats the point of having one. Existence alone is
+  // the signal Render needs: with this wired to Render's own health-check
+  // path (see docs/TODO.md's entry on this), a new instance is only cut
+  // over to once it actually answers requests, instead of the old instance
+  // being torn down the moment the new one merely starts.
+  app.get("/healthz", (_req, res) => res.status(200).type("text/plain").send("ok"));
+
   app.use("/api/gate", createGateRouter(pool));
 
   // Its own key-based auth (see admin.ts), not the tenant session-cookie

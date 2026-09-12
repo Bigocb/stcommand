@@ -14,6 +14,37 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (jump-cost fix + health check)
+
+- **Fixed the cross-system jump-cost bootstrap gap.** `GalaxyAtlas.recordJumpCost()`
+  now also fires from `shipProxy.ts`'s shared explore-jump path (the one
+  every tour ship and explorer actually uses), not just trader/fleet-
+  manager jumps. Previously a real jump's cost — like DRAGOM-D's actual
+  jump to X1-RN95 — never lowered `crossSystemLegCost()`'s estimate for
+  that gate pair, so every cross-system leg stayed priced against the
+  flat 5,000-credit placeholder forever, a closed loop that meant no
+  cross-system route could ever become profitable enough to fly and
+  correct the estimate. `tests/shipProxy.test.ts` covers the fix
+  directly (asserts `recordJumpCost` fires with the local gate,
+  destination system, and real transaction price from the JUMP phase).
+- **What "tour more systems" actually takes today**, for reference: a
+  tenant assigns/buys a Light Shuttle into the `tour` role, then either
+  dispatches it to a specific system via the dashboard's Tour Dispatch
+  panel (multi-hop auto-jump toward the target, one gate at a time) or
+  just lets it roam — `marketTourTargets()`/`shipyardTourTargets()`
+  already trait-scan every charted system, not just home. The one hard
+  constraint: a tenant can't dispatch its last home-system tour ship
+  away (`fleet.ts`'s `dispatchTourShip()` refuses) — keepers only cover
+  the home system's big markets, the smaller ones rely on a tour ship
+  passing through.
+- **Added `GET /healthz`**, mounted ahead of every other route in
+  `src/cli/index.ts`, so Render can be pointed at a real health check
+  instead of having none configured at all. Existence alone is the
+  signal — it always returns 200. Needs the Render dashboard's Health
+  Check Path field set to `/healthz` by hand (no API/MCP tool exposes
+  that field on an existing service) before it actually changes deploy
+  behavior — see `docs/TODO.md`.
+
 ## 2026-09-12 (multi-tenant market scoping + UI)
 
 - **Scoped market data and dispatch routes to systems a tenant has
