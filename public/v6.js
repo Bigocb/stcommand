@@ -1060,6 +1060,11 @@ function flushPendingSceneContent() {
     }
   }
   pendingOldSceneContent = null;
+  // The star sphere isn't part of any group above (see its own comment) —
+  // hide it once a zoom-out into galaxy mode has actually settled. Zooming
+  // back into a system sets it visible immediately at the start of that
+  // transition instead (renderMap()'s own comment), not here.
+  if (starMesh && mapMode === "galaxy") starMesh.visible = false;
 }
 
 /**
@@ -1095,7 +1100,12 @@ function renderGalaxy3D() {
   if (enteringGalaxy) {
     mapMode = "galaxy";
     orbitGoal.target.set(0, 0, 0);
-    orbitGoal.radius = 200;
+    // Deliberately much farther than a system view's own default (~112-160)
+    // — confirmed live that 200 read as barely a pull-back at all, since a
+    // system's own waypoints already reach out that far. This needs to be
+    // an unmistakable "the camera is now much farther away," not a modest
+    // zoom adjustment.
+    orbitGoal.radius = 460;
     orbitGoal.phi = 1.0;
   }
   if (!known.length) return;
@@ -1238,7 +1248,12 @@ function setGalaxyMode(on) {
     // but the motion itself shouldn't stall on a network round trip.
     if (mapMode !== "galaxy") {
       orbitGoal.target.set(0, 0, 0);
-      orbitGoal.radius = 200;
+      // Deliberately much farther than a system view's own default (~112-160)
+    // — confirmed live that 200 read as barely a pull-back at all, since a
+    // system's own waypoints already reach out that far. This needs to be
+    // an unmistakable "the camera is now much farther away," not a modest
+    // zoom adjustment.
+    orbitGoal.radius = 460;
       orbitGoal.phi = 1.0;
     }
     loadGalaxyOverview();
@@ -2118,6 +2133,13 @@ let pendingRebuild = null;
 let mapUnavailable = false;
 let framedSystem = null; // which system the camera was last auto-fit to
 let starGlowPulse = null; // { core, corona, t } — set once in initMap3D(), animated in tickMap3D()
+// The star sphere itself — added straight to `scene` (not a per-render
+// group) since it's a permanent scene fixture, only ever created once by
+// initMap3D(). Galaxy mode has no star of its own (a whole system reduces
+// to one small marker at that scale), so it has to be explicitly hidden —
+// nothing that clears/rebuilds bodiesGroup on a mode switch ever touches
+// it. See flushPendingSceneContent()/renderMap()'s own comments.
+let starMesh = null;
 // Jump-gate "active portal" pulse rings. A persistent group (like
 // liveTrailGroup) rather than something renderMap() rebuilds every poll —
 // a gate's own animation phase would otherwise reset every ~1s and never
@@ -2253,6 +2275,7 @@ function initMap3D() {
   );
   star.position.set(0, 0, 0);
   scene.add(star);
+  starMesh = star;
 
   // Layered glow instead of one flat halo: a tight hot-white core glow
   // reads as brightness right at the surface, a much larger, softer,
@@ -3422,6 +3445,11 @@ function renderMap(ships, trails = new Map()) {
   // reads as continuous rather than a hard cut the other direction.
   if (mapMode !== "system") {
     beginSceneTransition();
+    // Unlike leaving a system (the star fades out only once the hold ends —
+    // see flushPendingSceneContent()), the target system's own star is new
+    // content being revealed, not old content lingering, so it belongs on
+    // screen from the start of this transition rather than 650ms into it.
+    if (starMesh) starMesh.visible = true;
   } else if (pendingOldSceneContent) {
     return; // a transition is still settling; don't rebuild mid-transition
   } else {
