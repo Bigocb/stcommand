@@ -14,6 +14,21 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (auto keeper probes)
+
+- **A tour ship (or any ship) visiting a shipyard with no keeper
+  stationed there now requests to buy a probe on the spot to become
+  one.** Operator request. A probe has no fuel and can never move, so
+  buying one at that exact waypoint is the only way to plant a keeper
+  there at all — this closes the gap where keeper coverage previously
+  only ever came from converting an idle miner/shuttle onto a manually
+  curated market list, never from a shipyard discovered opportunistically.
+  Goes through the same operator approval gate as any other autonomous
+  purchase. New doctrine switch `autoKeeperProbes`, on by default —
+  turn off in the Book if unwanted. See `docs/TODO.md` for a test-infra
+  note (one new test case couldn't be verified live in this session due
+  to a transient connection timeout to the remote test database).
+
 ## 2026-09-12 (input-reset fixes)
 
 - **Fixed Book page inputs resetting mid-edit too** — same root cause

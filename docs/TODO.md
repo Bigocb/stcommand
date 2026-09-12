@@ -44,10 +44,12 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 - [ ] **Probes deployed from cargo on heavy haulers.** Floated as an
   exploratory idea; probes have effectively zero fuel and can't
   self-navigate, so "camping" a market with a probe today means buying
-  one directly at a shipyard on that exact waypoint. Whether a
-  cargo-deployed probe changes that mechanic hasn't been investigated —
-  re-raised 2026-09-12 as an alternative to buying a probe at every
-  shipyard for wider market coverage; still not investigated.
+  one directly at a shipyard on that exact waypoint. Narrower now than
+  when raised: 2026-09-12 shipped auto-buying a probe at any shipyard a
+  ship visits, which covers every *shipyard* market automatically — this
+  idea would only still matter for a market that has a marketplace but
+  no shipyard, which a bought-at-a-shipyard probe can never reach either
+  way. Still not investigated.
 - [ ] **Persist the system-by-system architecture breakdown.** Given
   conversationally on 2026-09-12; not saved anywhere. Worth turning into
   a `docs/architecture-overview.md` if it should survive past one
@@ -89,3 +91,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   service's health-check path, so set it by hand — Render dashboard →
   stcommand → Settings → Health Check Path → `/healthz`. Without that
   one field set, the route exists but Render never calls it.
+- [x] Auto-buy a keeper probe at any uncovered shipyard — shipped
+  2026-09-12. See `CHANGELOG.md`. **Test-infra note**: 3 of 4 new
+  `tests/fleet.test.ts` cases verified passing directly; the 4th
+  (`"buys a probe and stations it as keeper..."`) needs a live
+  `makeTenant()` round-trip against the remote test Postgres, which hit
+  a connection timeout (`ETIMEDOUT`) both times it was attempted in this
+  session — a sandbox network-connectivity issue, not a code failure.
+  Worth re-running that one case directly next time the test DB is
+  reachable, just to see it pass rather than infer it from the guard
+  logic and `setShipRole()`'s own separate coverage.
