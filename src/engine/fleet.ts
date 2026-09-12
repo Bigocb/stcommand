@@ -1198,7 +1198,18 @@ export class FleetManager {
     for (const s of (await this.store?.latestMarketSnapshots()) ?? []) {
       if (s.goodSymbol === "FUEL" && s.purchasePrice > 0) fuelAt.set(s.waypointSymbol, s.purchasePrice);
     }
-    const legs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
+    // market_latest is a shared table across every tenant on this server
+    // reset (see migrations/003_greenfield_phase2.sql's own comment) — a
+    // tenant that has never sent a ship near a system has no business
+    // seeing, let alone flying, a route priced entirely off another
+    // tenant's exploration. chartedSystems is the durable "has this tenant
+    // ever seen this system" record (see its own field comment above) —
+    // both ends of a leg have to be in it, not just one, since a route
+    // whose sell side sits in a system this tenant has never charted isn't
+    // something it could ever actually complete.
+    const charted = new Set(this.chartedSystems);
+    const legs = ((await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [])
+      .filter((l) => charted.has(l.buySystem) && charted.has(l.sellSystem));
     // A single purchaseCargo() call is capped at the market's own advertised
     // trade volume — l.volume above, straight from tradeLegs()'s
     // LEAST(b.trade_volume, s.trade_volume) — but that is a per-*transaction*

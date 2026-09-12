@@ -231,8 +231,13 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     if (!w) return res.status(503).json({ error: "engine not ready" });
     try {
       const intel = await w.fleet.getIntel();
+      // market_latest is shared across every tenant (see computeDispatchRoutes()'s
+      // own comment in fleet.ts) — scope down to systems this tenant has
+      // actually charted, or every tenant on the server sees each other's
+      // exploration for free.
+      const charted = new Set(w.fleet.getChartedSystems());
       res.json({
-        snapshots: await w.store.latestMarketSnapshots(),
+        snapshots: (await w.store.latestMarketSnapshots()).filter((s) => charted.has(s.systemSymbol)),
         bestTrades: await w.store.bestTrades(),
         shipyards: intel.shipyards,
         modules: intel.modules,
@@ -319,7 +324,15 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
       // age filter at all, so this panel could show a price hours or days
       // stale that the dispatcher/traders had already stopped considering.
       const maxAgeMin = w.fleet.doctrine.value("snapshotMaxAgeMin", 5_256_000);
-      const allSnapshots = await w.store.freshMarketSnapshots(maxAgeMin);
+      // market_latest is shared across every tenant on this server reset
+      // (see computeDispatchRoutes()'s own comment in fleet.ts) — without
+      // this filter, one tenant's dashboard shows prices and routes for
+      // systems it has never sent a ship near, priced entirely off another
+      // tenant's exploration. Scoped to this tenant's own chartedSystems
+      // record before anything else below (the age filter, the system
+      // dropdown, route computation) ever sees it.
+      const charted = new Set(w.fleet.getChartedSystems());
+      const allSnapshots = (await w.store.freshMarketSnapshots(maxAgeMin)).filter((s) => charted.has(s.systemSymbol));
       // Optional ?system=X1-AB12 filter — the Markets tab's system-filter
       // control. This fleet can span several systems once gates are in
       // play, and both panels get unusable fast without one. `systems` is

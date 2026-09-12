@@ -1,7 +1,6 @@
 import {
   worstConditionPct,
   shipTransitLerp,
-  systemOf,
   shortWp,
   abbrev,
   relTime,
@@ -1778,9 +1777,7 @@ function renderRoutes() {
             <span class="good">${escapeHtml(r.goodSymbol)}</span>
             <span class="per">${signed(r.profitPerTrip)}/trip</span>
           </div>
-          <div class="r2">${escapeHtml(shortWp(r.buyAt))} <b>${r.buyPrice}c</b> → ${escapeHtml(shortWp(r.sellAt))} <b>${r.sellPrice}c</b> · ${r.volume}u${r.crossSystem
-            ? ` <span class="sysbadge">${escapeHtml(systemOf(r.buyAt))} <span class="arr">→</span> ${escapeHtml(systemOf(r.sellAt))}</span>`
-            : ""}</div>
+          <div class="r2">${escapeHtml(shortWp(r.buyAt))} <b>${r.buyPrice}c</b> → ${escapeHtml(shortWp(r.sellAt))} <b>${r.sellPrice}c</b> · ${r.volume}u</div>
           <div class="r3">
             ${r.fuelUnits != null ? `${r.fuelUnits} fuel (${fmt(r.fuelCost)}c) · ` : ""}margin <b>${r.marginPerUnit}c</b> (${r.marginPct}%)
             ${r.crossSystem ? ' · <span style="color:var(--teal)">needs a gate</span>' : ""}
@@ -1806,7 +1803,7 @@ function renderSnapshots() {
     const age = fmtAge(stamp);
     const stale = stamp && (Date.now() - new Date(stamp).getTime()) > 90 * 60_000;
     return `<div class="mkt">
-      <div class="h"><span><b>${escapeHtml(shortWp(wp))}</b> <span class="sys">${escapeHtml(systemOf(wp))}</span></span>
+      <div class="h"><span><b>${escapeHtml(shortWp(wp))}</b></span>
         <span class="age ${stale ? "stale" : ""}">${fmtTime(stamp)} · ${age} old</span></div>
       <div class="goods">${goods.map((g) => `<div class="g">
         <span class="n" title="${escapeAttr(g.goodSymbol)}">${escapeHtml(g.goodSymbol)}</span>

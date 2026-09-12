@@ -66,10 +66,16 @@ export function systemOf(s) {
   return s;
 }
 
+/** Waypoint label including its system (e.g. "S84-A1" for "X1-S84-A1") —
+ *  the sector prefix ("X1-") is dropped since every system shares it and it
+ *  carries no distinguishing information, but the system segment itself is
+ *  kept: now that cross-system trading is real, "A1" alone is ambiguous
+ *  (multiple systems can have a waypoint named A1) and showing only the
+ *  local code silently implied "same system as whatever else is on screen." */
 export function shortWp(s) {
   if (!s) return "—";
   const parts = s.split("-");
-  return parts.slice(-1)[0];
+  return parts.length >= 3 ? parts.slice(1).join("-") : parts.slice(-1)[0];
 }
 
 export function abbrev(s) {
