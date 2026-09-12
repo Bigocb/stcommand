@@ -5572,6 +5572,19 @@ export class FleetManager {
       const gates = this.galaxy.gatesTo(from, target);
       const gate = gates[0];
       if (!gate) { this.log(`auto-explore ${target}: no gate from ${from}, skipping`); continue; }
+      // exploreSystem() loads the target's own waypoints on demand before
+      // looking for its gate; this path went straight to the in-memory
+      // getSystem() and never did. GalaxyAtlas.systems is wiped every
+      // restart and only lazily repopulated, so a target discovered purely
+      // as a connection symbol (its OWN waypoints never fetched — e.g. it
+      // was named in another system's gate connections but nothing has
+      // loaded it since) read as having no waypoints at all, and therefore
+      // no gate, permanently — not because it lacks one, but because
+      // nothing ever checked. Confirmed live: X1-KB87 logged "no remote
+      // jump gate, skipping" on every auto-explore pass for 36+ hours
+      // straight, the exact "there might be more, just not tried yet"
+      // suspicion that prompted this fix.
+      await this.galaxy.loadSystem(target);
       const remoteGateWP = this.galaxy.getSystem(target)?.waypoints.find((w) => w.type === "JUMP_GATE");
       if (!remoteGateWP) { this.log(`auto-explore ${target}: no remote jump gate, skipping`); continue; }
       const markets = (this.galaxy.getSystem(target)?.waypoints ?? [])
