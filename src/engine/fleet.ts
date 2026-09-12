@@ -196,8 +196,13 @@ export class FleetManager {
    * whose only fresh-looking connection led to a system still building its
    * own gate retried the exact same doomed jump every scheduling cycle
    * forever (confirmed live: DRAGOM-A stuck on I60 -> X1-YB72-I62 for over
-   * half an hour). In-memory only; worth re-checking after a restart rather
-   * than persisting a skip that might already be stale.
+   * half an hour). Persisted (fleet flag "gateConstructionSkips") so the
+   * skip survives a restart — confirmed live it needs to: a restart minutes
+   * after the first failure wiped an in-memory-only version of this, and
+   * DRAGOM-9 immediately retried the identical doomed jump and got the
+   * identical rejection. Restarts are routine (deploys, Render spin-downs),
+   * not a rare edge case, so a skip that can't survive one barely skips
+   * anything in practice.
    */
   private readonly gateConstructionSkipUntil = new Map<string, number>();
   private readonly GATE_SKIP_MS = 3 * 60 * 60 * 1000;
@@ -363,6 +368,15 @@ export class FleetManager {
       if (rawCharted) {
         try { for (const s of JSON.parse(rawCharted) as string[]) this.chartedSystems.add(s); }
         catch { /* ignore malformed flag, same as every other JSON flag read in this file */ }
+      }
+      const rawGateSkips = await this.store?.getFleetFlag(this.tenantId, "gateConstructionSkips");
+      if (rawGateSkips) {
+        try {
+          const now = Date.now();
+          for (const [sys, until] of Object.entries(JSON.parse(rawGateSkips) as Record<string, number>)) {
+            if (until > now) this.gateConstructionSkipUntil.set(sys, until);
+          }
+        } catch { /* ignore malformed flag, same as every other JSON flag read in this file */ }
       }
     }
     if (this.tenantId && this.store) await this.shipRegistry.loadAllClaims(this.tenantId, this.store);
@@ -1324,6 +1338,18 @@ export class FleetManager {
    *  from the galaxy map just because nothing is parked there right now. */
   getChartedSystems(): string[] {
     return [...this.chartedSystems];
+  }
+
+  /** Record that `systemSymbol`'s remote gate is under construction and skip
+   *  it until the persisted expiry — see gateConstructionSkipUntil's own
+   *  comment for why this has to survive a restart. */
+  private async skipGateConstruction(systemSymbol: string): Promise<void> {
+    const until = Date.now() + this.GATE_SKIP_MS;
+    this.gateConstructionSkipUntil.set(systemSymbol, until);
+    if (this.tenantId) {
+      const all = Object.fromEntries(this.gateConstructionSkipUntil);
+      await this.store?.setFleetFlag(this.tenantId, "gateConstructionSkips", JSON.stringify(all));
+    }
   }
 
   /**
@@ -2435,7 +2461,7 @@ export class FleetManager {
       // scheduled attempt picks a different candidate instead of the exact
       // same doomed one.
       if (!(await this.galaxy.refreshGateConstruction(target, remoteGate.symbol))) {
-        this.gateConstructionSkipUntil.set(target, Date.now() + this.GATE_SKIP_MS);
+        await this.skipGateConstruction(target);
         try {
           const constr = await this.api.getConstruction(target, remoteGate.symbol);
           if (!constr.isComplete) {
@@ -2454,7 +2480,7 @@ export class FleetManager {
         // reason, a live "under construction" rejection is exactly the
         // signal to skip this target for a while too.
         if (err instanceof Error && /under construction/i.test(err.message)) {
-          this.gateConstructionSkipUntil.set(target, Date.now() + this.GATE_SKIP_MS);
+          await this.skipGateConstruction(target);
         }
         throw err;
       }
