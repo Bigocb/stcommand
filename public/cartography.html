@@ -174,6 +174,7 @@
     padding: 4px 9px; font-size: 12px;
   }
   .route-hops .hop-arrow { color: var(--dim); }
+  .route-note { font-size: 10px; color: var(--dim); margin-bottom: 12px; max-width: 480px; }
   .show-map-btn {
     background: var(--violet); color: #0c0e14; border: none; border-radius: 5px;
     padding: 7px 13px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
@@ -689,24 +690,58 @@
   }
 
   // --- Route planner ----------------------------------------------------
-  function buildConnectionGraph() {
+  // Deliberately NOT based on galaxy_systems.jump_gates (real scanned
+  // connections, used for the map's connection-line layer) — that data is
+  // only ever known for a system some tenant has physically visited, and
+  // a system with no gate at all is a real possibility (JUMP_GATE is one
+  // waypoint type among many, not something every system has). Per
+  // operator request, this planner instead assumes every system has a
+  // gate and estimates connectivity by physical proximity: each system
+  // links to its K nearest neighbors by raw galaxy x/y, so a route always
+  // has a hop-count answer instead of just going empty for the (very
+  // common) case where no one has scanned a path between two systems.
+  // This is explicitly an estimate, not a confirmed route — real gate
+  // connections aren't guaranteed to be nearest-neighbor at all.
+  const PROXIMITY_NEIGHBORS = 6;
+
+  function buildProximityGraph() {
+    const nodes = lastSystems.filter((s) => s.x != null && s.y != null);
     const graph = new Map();
-    const link = (a, b) => {
-      if (!graph.has(a)) graph.set(a, new Set());
-      graph.get(a).add(b);
-    };
-    for (const { from, to } of lastConnections) { link(from, to); link(to, from); }
+    for (const s of nodes) graph.set(s.systemSymbol, new Set());
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      // Track only the K closest neighbors seen so far instead of sorting
+      // the full node list per system — this is the difference between an
+      // O(n log n) and an O(n) inner loop, which matters once the crawl
+      // covers thousands of systems and this graph gets rebuilt on demand.
+      const top = [];
+      for (let j = 0; j < nodes.length; j++) {
+        if (i === j) continue;
+        const b = nodes[j];
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const d = dx * dx + dy * dy;
+        if (top.length < PROXIMITY_NEIGHBORS) {
+          top.push({ symbol: b.systemSymbol, d });
+          top.sort((x, y) => x.d - y.d);
+        } else if (d < top[top.length - 1].d) {
+          top[top.length - 1] = { symbol: b.systemSymbol, d };
+          top.sort((x, y) => x.d - y.d);
+        }
+      }
+      for (const { symbol } of top) {
+        graph.get(a.systemSymbol).add(symbol);
+        graph.get(symbol).add(a.systemSymbol);
+      }
+    }
     return graph;
   }
 
-  // Plain breadth-first search over known jump-gate connections — this is
-  // hop-count-shortest, not cost-shortest. Real per-jump fuel costs are
-  // only ever learned in a tenant's own in-memory GalaxyAtlas, never
-  // persisted anywhere this public page can read, so hop count is the
-  // most honest thing to show without pretending to a precision this data
-  // doesn't have.
+  // Breadth-first search over the proximity graph — hop-count-shortest,
+  // not distance- or cost-shortest. Real per-jump fuel costs only ever
+  // live in a tenant's own in-memory GalaxyAtlas and are never persisted
+  // anywhere this public page can read.
   function findRoute(fromSymbol, toSymbol) {
-    const graph = buildConnectionGraph();
+    const graph = buildProximityGraph();
     if (!graph.has(fromSymbol) || !graph.has(toSymbol)) return null;
     if (fromSymbol === toSymbol) return [fromSymbol];
     const prev = new Map([[fromSymbol, null]]);
@@ -750,13 +785,14 @@
     }
     const path = findRoute(from, to);
     if (!path) {
-      result.innerHTML = `<div class="empty">No known jump-gate route between ${from} and ${to} yet — this only sees connections some tenant's fleet has actually scanned, not every gate in the galaxy.</div>`;
+      result.innerHTML = `<div class="empty">${from} or ${to} isn't in the mapped galaxy yet — the crawl hasn't recorded its position.</div>`;
       return;
     }
     const hops = path.length - 1;
     result.innerHTML = `
-      <div class="route-summary">${hops} jump${hops === 1 ? "" : "s"}</div>
+      <div class="route-summary">${hops} jump${hops === 1 ? "" : "s"} (estimated)</div>
       <div class="route-hops">${path.map((s, i) => `<span class="hop">${s}</span>${i < path.length - 1 ? '<span class="hop-arrow">→</span>' : ""}`).join("")}</div>
+      <div class="route-note">Estimated by physical proximity, assuming every system has a jump gate — not confirmed against any tenant's actual scan data.</div>
       <button class="show-map-btn" id="planner-show-map">Show on map</button>
     `;
     $("planner-show-map").addEventListener("click", () => showRouteOnMap(path));

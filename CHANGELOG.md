@@ -14,6 +14,23 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (route planner: proximity estimate instead of scan-only)
+
+- **Reworked the Route Planner to always produce a route**, instead of
+  coming up empty for the (very common) case where no tenant has ever
+  scanned a gate connecting two systems. Operator request, after
+  confirming a real assumption gap: not every system has a jump gate at
+  all (`JUMP_GATE` is one waypoint type among several — a system may
+  simply have none), so real gate connectivity can never be fully known
+  without scanning every system. Per operator direction, the planner now
+  deliberately assumes every system has a gate and estimates connectivity
+  by physical proximity — each system links to its 6 nearest neighbors by
+  raw galaxy x/y — then runs the same breadth-first shortest-hop search
+  over that graph. Results are labeled "(estimated)" and the panel says
+  plainly that it isn't confirmed against any tenant's scan data. The
+  map's own jump-gate connection-line layer is unaffected — still real
+  scanned data only, unchanged.
+
 ## 2026-09-12 (cartography bookmarks, connections, route planner)
 
 - **Added system bookmarks to `/cartography`**, listed under the Activity
