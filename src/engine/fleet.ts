@@ -2042,6 +2042,20 @@ export class FleetManager {
   }
 
   /**
+   * True once the home system's own jump gate is complete. Every explorer
+   * jump routes out through this gate (exploreSystem() -> jumpShip()), so an
+   * explorer is dead weight — can't reach anywhere — for as long as it's
+   * still under construction. Undefined (never checked yet) reads as not
+   * open, the same safe default GalaxyAtlas.canJump() uses for an unchecked
+   * gate.
+   */
+  private homeGateOpen(): boolean {
+    const gate = this.galaxy.getSystem(this.systemSymbol)?.waypoints.find((w) => w.type === "JUMP_GATE");
+    if (!gate) return false;
+    return this.galaxy.gateComplete(gate.symbol) === true;
+  }
+
+  /**
    * Grow toward explorerTarget by converting a spare hull first, before
    * maybeBuyShip() ever spends credits on one — an explorer just needs fuel
    * range to jump around with, not a specific frame or mount.
@@ -2059,6 +2073,7 @@ export class FleetManager {
   private async maybeGrowExplorers(): Promise<void> {
     const target = this.doctrine.value("explorerTarget", 0);
     if (this.explorers.size >= target) return;
+    if (!this.homeGateOpen()) return;
     // 300 is the floor below which a hull can't cover a useful jump range as
     // an explorer.
     const MIN_EXPLORER_FUEL_CAPACITY = 300;
@@ -2125,7 +2140,10 @@ export class FleetManager {
       type = "SHIP_LIGHT_SHUTTLE";
     } else if (this.miners.size < this.doctrine.value("minerTarget", 0)) {
       type = "SHIP_MINING_DRONE";
-    } else if (this.explorers.size < this.doctrine.value("explorerTarget", 0)) {
+    } else if (this.explorers.size < this.doctrine.value("explorerTarget", 0) && this.homeGateOpen()) {
+      // Every explorer jump routes out through the home gate — buying one
+      // before it's built would just leave a hull sitting idle, so fall
+      // through to the scored fallback below until the gate is open.
       type = "SHIP_LIGHT_SHUTTLE";
       wantRole = "explorer";
     }
