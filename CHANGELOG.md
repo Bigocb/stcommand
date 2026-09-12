@@ -16,6 +16,15 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## 2026-09-12 (input-reset fixes)
 
+- **Fixed Book page inputs resetting mid-edit too** — same root cause
+  as the Markets/ship-detail fix below: `renderBook()` unconditionally
+  rebuilds its whole sheet's innerHTML whenever it re-renders for any
+  reason, wiping the Discord webhook URL field, co-pilot settings
+  fields, and any in-progress numeric policy-value edit. Now skips the
+  render entirely while a value chip's click-to-edit input is open (it
+  isn't part of the template, so nothing could restore it anyway), and
+  snapshots/restores every other input the same way
+  `refreshOpenShipDetails()` already does.
 - **Fixed inputs resetting mid-edit on Markets and in ship detail
   panels**, on both mobile and desktop (v5/v6). Two separate bugs:
   the price chart's material dropdown's `change` handler read a stale
