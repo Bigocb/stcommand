@@ -14,6 +14,18 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (route planner prefers real scan data when it fully covers a route)
+
+- **The Route Planner now tries the real scanned jump-gate graph first**,
+  falling back to the physical-proximity estimate only when no fully
+  scanned path exists between the two systems. So once tenants' fleets
+  scan enough gates to connect two systems for real, the planner
+  automatically starts returning that as a "confirmed" route instead of
+  an "(estimated)" one — no separate wiring needed, since it reads the
+  same `lastConnections` data the map's connection-line layer already
+  refreshes every 30s. Answers an operator question about whether newly
+  scanned connections would be picked up.
+
 ## 2026-09-12 (route planner: proximity estimate instead of scan-only)
 
 - **Reworked the Route Planner to always produce a route**, instead of

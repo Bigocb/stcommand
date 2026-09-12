@@ -690,19 +690,30 @@
   }
 
   // --- Route planner ----------------------------------------------------
-  // Deliberately NOT based on galaxy_systems.jump_gates (real scanned
-  // connections, used for the map's connection-line layer) — that data is
-  // only ever known for a system some tenant has physically visited, and
-  // a system with no gate at all is a real possibility (JUMP_GATE is one
-  // waypoint type among many, not something every system has). Per
-  // operator request, this planner instead assumes every system has a
-  // gate and estimates connectivity by physical proximity: each system
-  // links to its K nearest neighbors by raw galaxy x/y, so a route always
-  // has a hop-count answer instead of just going empty for the (very
-  // common) case where no one has scanned a path between two systems.
-  // This is explicitly an estimate, not a confirmed route — real gate
-  // connections aren't guaranteed to be nearest-neighbor at all.
+  // Two graphs, tried in order:
+  //  1. The real scanned jump-gate connections (same galaxy_systems.jump_gates
+  //     data as the map's connection-line layer). Authoritative whenever it
+  //     covers a full path — it's ground truth, not a guess.
+  //  2. A physical-proximity estimate (each system linked to its K nearest
+  //     neighbors by raw galaxy x/y), assuming every system has a gate.
+  //     Only used when (1) can't connect the two systems at all — which is
+  //     the common case, since most systems have never been scanned, and a
+  //     system may genuinely have no gate (JUMP_GATE is one waypoint type
+  //     among several, not something every system has).
+  // As more tenants scan more gates, (1) naturally covers more pairs on its
+  // own — lastConnections is refreshed from the server every 30s like
+  // everything else on this page, no separate wiring needed.
   const PROXIMITY_NEIGHBORS = 6;
+
+  function buildConfirmedGraph() {
+    const graph = new Map();
+    const link = (a, b) => {
+      if (!graph.has(a)) graph.set(a, new Set());
+      graph.get(a).add(b);
+    };
+    for (const { from, to } of lastConnections) { link(from, to); link(to, from); }
+    return graph;
+  }
 
   function buildProximityGraph() {
     const nodes = lastSystems.filter((s) => s.x != null && s.y != null);
@@ -736,12 +747,11 @@
     return graph;
   }
 
-  // Breadth-first search over the proximity graph — hop-count-shortest,
-  // not distance- or cost-shortest. Real per-jump fuel costs only ever
-  // live in a tenant's own in-memory GalaxyAtlas and are never persisted
-  // anywhere this public page can read.
-  function findRoute(fromSymbol, toSymbol) {
-    const graph = buildProximityGraph();
+  // Plain breadth-first search — hop-count-shortest, not distance- or
+  // cost-shortest. Real per-jump fuel costs only ever live in a tenant's
+  // own in-memory GalaxyAtlas and are never persisted anywhere this
+  // public page can read, on either graph.
+  function bfsPath(graph, fromSymbol, toSymbol) {
     if (!graph.has(fromSymbol) || !graph.has(toSymbol)) return null;
     if (fromSymbol === toSymbol) return [fromSymbol];
     const prev = new Map([[fromSymbol, null]]);
@@ -760,6 +770,14 @@
     const path = [];
     for (let cur = toSymbol; cur !== null; cur = prev.get(cur)) path.unshift(cur);
     return path;
+  }
+
+  function findRoute(fromSymbol, toSymbol) {
+    const confirmed = bfsPath(buildConfirmedGraph(), fromSymbol, toSymbol);
+    if (confirmed) return { path: confirmed, estimated: false };
+    const estimated = bfsPath(buildProximityGraph(), fromSymbol, toSymbol);
+    if (estimated) return { path: estimated, estimated: true };
+    return null;
   }
 
   function showRouteOnMap(path) {
@@ -783,16 +801,20 @@
       result.innerHTML = '<div class="empty">Enter both a start and destination system.</div>';
       return;
     }
-    const path = findRoute(from, to);
-    if (!path) {
+    const found = findRoute(from, to);
+    if (!found) {
       result.innerHTML = `<div class="empty">${from} or ${to} isn't in the mapped galaxy yet — the crawl hasn't recorded its position.</div>`;
       return;
     }
+    const { path, estimated } = found;
     const hops = path.length - 1;
+    const note = estimated
+      ? "Estimated by physical proximity, assuming every system has a jump gate — no tenant has scanned a full gate path between these two yet. Will switch to a confirmed route automatically once one has."
+      : "Confirmed — every leg of this route is a jump-gate connection some tenant's fleet has actually scanned.";
     result.innerHTML = `
-      <div class="route-summary">${hops} jump${hops === 1 ? "" : "s"} (estimated)</div>
+      <div class="route-summary">${hops} jump${hops === 1 ? "" : "s"}${estimated ? " (estimated)" : " (confirmed)"}</div>
       <div class="route-hops">${path.map((s, i) => `<span class="hop">${s}</span>${i < path.length - 1 ? '<span class="hop-arrow">→</span>' : ""}`).join("")}</div>
-      <div class="route-note">Estimated by physical proximity, assuming every system has a jump gate — not confirmed against any tenant's actual scan data.</div>
+      <div class="route-note">${note}</div>
       <button class="show-map-btn" id="planner-show-map">Show on map</button>
     `;
     $("planner-show-map").addEventListener("click", () => showRouteOnMap(path));
