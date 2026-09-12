@@ -358,6 +358,28 @@ export class Doctrine {
     return this.cache.get(key)?.enabled ?? base?.enabled ?? true;
   }
 
+  /**
+   * Like `isEnabled()`, but for a master-switch rule whose catalog default
+   * is "on" — falls back to `fallbackWhenNotAdopted` instead of always
+   * `false` when nobody has ever adopted this policy for this tenant.
+   *
+   * `isEnabled()`'s blanket "not adopted -> false" is right for an opt-in
+   * growth policy (warehouseTarget, whose real default IS off), but wrong
+   * here: "not adopted" is supposed to mean "no effect yet" for every read
+   * in this class (see the header comment), and for a switch a caller reads
+   * as "should this be blocked", `false` reads as "blocked" — the opposite
+   * of no-effect. Confirmed live: exploringEnabled ships `enabled: true`
+   * ("on by default, matching today's behavior") but nobody had ever
+   * adopted it, so `isEnabled()` silently parked every explorer fleet-wide
+   * from the moment explorersShouldPark() switched to it, with no operator
+   * having touched anything.
+   */
+  isEnabledOr(key: string, fallbackWhenNotAdopted: boolean): boolean {
+    const base = POLICY_CATALOG.find((d) => d.key === key);
+    if (!this.isAdopted(key, base)) return fallbackWhenNotAdopted;
+    return this.cache.get(key)?.enabled ?? base?.enabled ?? true;
+  }
+
   /** Register a ship type so the operator can cap it from the doctrine tab. */
   async ensureShipTypeRule(type: string): Promise<void> {
     if (!type) return;

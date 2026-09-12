@@ -1865,6 +1865,7 @@ export class FleetManager {
                 // to nextExploreTask()'s own catch, which already tells them
                 // apart exactly the way nextTourTask()'s does.
                 exploreNext: (sym) => this.exploreSystem(sym),
+            explorersParked: () => this.explorersShouldPark() !== undefined,
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -2557,16 +2558,24 @@ export class FleetManager {
    * exploring is fine to proceed.
    */
   private explorersShouldPark(): string | undefined {
-    // isEnabled(), not value()===0: the Book UI's clause toggle flips this
-    // rule's `enabled` flag, not its `value` — the same master-switch pattern
-    // warehouseTarget already uses (see its own isEnabled() call sites).
-    // value()'s whenOff fallback treats a disabled rule as "unconstrained"
-    // (whenOff=1, i.e. exploring allowed), so reading value()===0 here meant
-    // flipping the toggle off never actually parked anything: the rule just
-    // fell through to its own "off" default of allowed. Confirmed live —
-    // the operator switched Exploring off and at least one explorer kept
-    // jumping right through it.
-    if (!this.doctrine.isEnabled("exploringEnabled")) return "exploring is switched off in doctrine";
+    // isEnabledOr(), not isEnabled() and not value()===0.
+    //
+    // value()===0 was the first attempt: the Book UI's clause toggle flips
+    // this rule's `enabled` flag, not its `value`, and value()'s whenOff
+    // fallback treats a disabled rule as "unconstrained" — so flipping the
+    // toggle off never actually parked anything, it just fell through to
+    // its own default of allowed. Confirmed live — the operator switched
+    // Exploring off and an explorer kept jumping right through it.
+    //
+    // isEnabled() was the second attempt, and had the opposite problem:
+    // it always returns false for a policy nobody has explicitly adopted
+    // from the doctrine library — correct for an opt-in growth policy
+    // (warehouseTarget's real default IS off), but wrong for a switch
+    // documented as "on by default": every tenant who never touched this
+    // policy at all had exploring silently parked fleet-wide from the
+    // moment this shipped, with no operator action. isEnabledOr()'s whole
+    // point is telling those two "off" cases apart — see its own comment.
+    if (!this.doctrine.isEnabledOr("exploringEnabled", true)) return "exploring is switched off in doctrine";
     const floor = this.doctrine.value("explorerCreditFloor", 0);
     if (floor > 0 && this.credits <= floor) return `credits (${this.credits}c) are at or below the explorer credit floor (${floor}c)`;
     return undefined;
@@ -5445,6 +5454,17 @@ export class FleetManager {
   }
 
   private async autoExplore(): Promise<void> {
+    // Same doctrine gate exploreSystem() applies to dedicated explorers —
+    // this is a second, entirely separate autonomous jump path (an
+    // opportunistic borrow of an idle tour/scout ship, proposed straight
+    // onto the intent board rather than routed through exploreSystem()) and
+    // it never checked the switch at all. Confirmed live: DRAGOM-D/14/C kept
+    // jumping via this path for hours after the operator switched Exploring
+    // off — exploreSystem()'s own explorer ships correctly parked (logging
+    // "explorers parked: ..." on every restart), while this path's ships
+    // just kept going, with no distinguishing log line to tell the two
+    // apart from the outside.
+    if (this.explorersShouldPark()) return;
     // Survey connected systems occasionally, sending an idle trader to scout them.
     const knownSystems = this.galaxy.listSystems().map((s) => s.symbol);
     // Reachable *right now*, not just topologically connected: a system whose

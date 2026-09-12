@@ -89,6 +89,11 @@ export interface AgentOptions {
    * marketTourTargets.
    */
   exploreNext?: (shipSymbol: string) => Promise<string | undefined>;
+  /** Whether exploring is currently doctrine-parked — checked only to tell
+   *  apart the two reasons exploreNext() can come back empty (parked vs.
+   *  genuinely nothing new reachable), which otherwise look identical from
+   *  the log alone. See exploreScout()'s own comment. */
+  explorersParked?: () => boolean;
   /** Called when the ship docks at a shipyard so its inventory can be recorded. */
   recordShipyard?: (waypointSymbol: string) => Promise<void>;
   /** Stationary keeper: the market this ship polls on a timer to keep prices fresh. */
@@ -185,6 +190,7 @@ export class ShipAgent {
   private readonly advanceTourDestination?: AgentOptions["advanceTourDestination"];
   private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
   private readonly exploreNext?: AgentOptions["exploreNext"];
+  private readonly explorersParked?: AgentOptions["explorersParked"];
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly keeperMarket?: () => string | undefined;
@@ -264,6 +270,7 @@ export class ShipAgent {
     this.staleMarketTargets = opts.staleMarketTargets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
     this.exploreNext = opts.exploreNext;
+    this.explorersParked = opts.explorersParked;
     this.recordShipyard = opts.recordShipyard;
     this.keeperMarket = opts.keeperMarket;
     this.intentFor = opts.intentFor;
@@ -1781,7 +1788,13 @@ export class ShipAgent {
     }
     const target = await this.exploreNext(this.symbol);
     if (!target) {
-      this.log("explorer: nothing new reachable from here right now");
+      // exploreNext() comes back empty for two very different reasons —
+      // doctrine-parked vs. genuinely nowhere new to go — that used to log
+      // identically, making a parked fleet indistinguishable from a busy
+      // one from the log stream alone (the one distinguishing "explorers
+      // parked: ..." line only ever fires once, via explorersParkedAlerted,
+      // so every tick after that looked exactly like this line always has).
+      this.log(this.explorersParked?.() ? "explorer: parked (exploring switched off in doctrine)" : "explorer: nothing new reachable from here right now");
       return false;
     }
     this.log(`explorer: jumped to ${target}`);
