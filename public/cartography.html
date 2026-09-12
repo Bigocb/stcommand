@@ -54,6 +54,16 @@
   svg#map.dragging { cursor: grabbing; }
   .dot { fill: var(--accent); opacity: 0.85; }
   .dot:hover { fill: var(--bone); opacity: 1; }
+  .dot-highlighted { fill: var(--amber) !important; opacity: 1; }
+  .highlight-ring {
+    fill: none; stroke: var(--amber); stroke-width: 2; vector-effect: non-scaling-stroke;
+    pointer-events: none; transform-box: fill-box; transform-origin: center;
+    animation: pulse-ring 1.6s ease-out infinite;
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(1); opacity: 0.9; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
   #tooltip {
     position: absolute; pointer-events: none; background: var(--ink); border: 1px solid var(--hairline);
     border-radius: 5px; padding: 6px 9px; font-size: 11px; color: var(--bone); display: none; white-space: nowrap;
@@ -183,12 +193,51 @@
   let fullBounds = null; // { cx, cy, half } that fits every known system
   let lastSystems = [];
   let viewInitialized = false;
+  let dotsBySymbol = new Map();
+  let highlightedSymbol = null;
+
+  function currentDotRadius() {
+    return Math.max(view.half * DOT_SCREEN_FRACTION, 1.5);
+  }
 
   function applyViewBox() {
     const svg = $("map");
     svg.setAttribute("viewBox", `${view.cx - view.half} ${view.cy - view.half} ${view.half * 2} ${view.half * 2}`);
-    const r = Math.max(view.half * DOT_SCREEN_FRACTION, 1.5);
-    for (const dot of svg.getElementsByClassName("dot")) dot.setAttribute("r", r);
+    const r = currentDotRadius();
+    for (const dot of svg.getElementsByClassName("dot")) {
+      dot.setAttribute("r", dot.classList.contains("dot-highlighted") ? r * 1.8 : r);
+    }
+    const ring = svg.querySelector(".highlight-ring");
+    if (ring) ring.setAttribute("r", r * 1.8);
+  }
+
+  // Applies highlightedSymbol to whatever dots currently exist in the DOM —
+  // called both right after a fresh renderMap() rebuild (which wipes every
+  // dot, so a prior highlight would otherwise vanish) and immediately when
+  // a search picks a new system, so the highlight shows up without waiting
+  // for the next periodic refresh.
+  function applyHighlightToDom() {
+    const svg = $("map");
+    const oldRing = svg.querySelector(".highlight-ring");
+    if (oldRing) oldRing.remove();
+    for (const dot of svg.getElementsByClassName("dot")) dot.classList.remove("dot-highlighted");
+    if (!highlightedSymbol) return;
+    const dot = dotsBySymbol.get(highlightedSymbol);
+    if (!dot) return;
+    const r = currentDotRadius();
+    dot.classList.add("dot-highlighted");
+    dot.setAttribute("r", r * 1.8);
+    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    ring.setAttribute("cx", dot.getAttribute("cx"));
+    ring.setAttribute("cy", dot.getAttribute("cy"));
+    ring.setAttribute("r", r * 1.8);
+    ring.setAttribute("class", "highlight-ring");
+    svg.appendChild(ring);
+  }
+
+  function setHighlight(symbol) {
+    highlightedSymbol = symbol;
+    applyHighlightToDom();
   }
 
   function clampHalf(h) {
@@ -220,18 +269,21 @@
   function searchSystem(query) {
     const err = $("search-error");
     const q = query.trim().toUpperCase();
-    if (!q) { err.hidden = true; return; }
+    if (!q) { err.hidden = true; setHighlight(null); return; }
     const exact = lastSystems.find((s) => s.systemSymbol.toUpperCase() === q);
     const match = exact || lastSystems.find((s) => s.systemSymbol.toUpperCase().includes(q));
     if (!match || match.x == null || match.y == null) {
       err.textContent = "System not found";
       err.hidden = false;
+      setHighlight(null);
       return;
     }
     err.hidden = true;
-    // "Neighborhood" zoom: tight enough to make the target and its nearby
-    // systems distinguishable, regardless of how zoomed-out the full map is.
-    jumpTo(match.x, match.y, Math.max(50, (fullBounds ? fullBounds.half : 400) * 0.06));
+    setHighlight(match.systemSymbol);
+    // Tight "neighborhood" zoom, close enough that the highlighted system
+    // and its near neighbors are individually distinguishable regardless
+    // of how zoomed-out the full map is.
+    jumpTo(match.x, match.y, Math.max(25, (fullBounds ? fullBounds.half : 400) * 0.02));
   }
 
   function renderMap(systems) {
@@ -253,6 +305,7 @@
       viewInitialized = true;
     }
     const r = Math.max(view.half * DOT_SCREEN_FRACTION, 1.5);
+    dotsBySymbol = new Map();
     for (const s of withPos) {
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("cx", s.x.toFixed(1));
@@ -268,7 +321,9 @@
       });
       circle.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
       svg.appendChild(circle);
+      dotsBySymbol.set(s.systemSymbol, circle);
     }
+    applyHighlightToDom();
     applyViewBox();
   }
 
