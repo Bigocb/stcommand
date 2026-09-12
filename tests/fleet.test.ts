@@ -94,6 +94,7 @@ function stubMarketSystem(fleet: FleetManager, systemSymbol: string, waypointCoo
   registry.recordMarkets(waypoints.map((symbol) => ({ symbol, systemSymbol, tradeGoods: {} })) as never);
   (fleet as any).registry = registry;
   (fleet as any).galaxy = {
+    loadSystem: async () => {},
     getSystem: (sys: string) =>
       sys === systemSymbol
         ? {
@@ -1583,6 +1584,96 @@ describe("FleetManager.makeRescuePlan: full-cargo tender exclusion", () => {
       "rescue",
       "the chosen tender must be claimed through the registry, not just suspended",
     );
+  });
+});
+
+describe("FleetManager.escapeByJump: fleeing a stranding that no tender could ever fix", () => {
+  // Confirmed live: DRAGOM-C/DRAGOM-14 stranded at X1-UF20-Z28F — that
+  // system's own jump gate — where the only other ships to ever visit were
+  // tour ships, never eligible as tender candidates (see makeRescuePlan()'s
+  // candidate pool: miners/traders/idle ships only). No same-system rescue
+  // could ever have worked there. A jump costs credits, not fuel, so it's
+  // always available regardless of tank state when the ship happens to
+  // already be sitting on a gate.
+  it("does nothing for a ship stranded somewhere that isn't a jump gate", async () => {
+    const fleet = makeFleet([]);
+    (fleet as any).galaxy = {
+      loadSystem: async () => {},
+      getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-A1", type: "PLANET" }] }),
+      connectedSystems: () => ["X1-B"],
+    };
+
+    const escaped = await (fleet as any).escapeByJump({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 5 });
+
+    assert.equal(escaped, false, "an ordinary waypoint gives no jump to escape through");
+  });
+
+  it("does nothing when the system has no known connected system to flee to", async () => {
+    const fleet = makeFleet([]);
+    (fleet as any).galaxy = {
+      loadSystem: async () => {},
+      getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-GATE", type: "JUMP_GATE" }] }),
+      connectedSystems: () => [],
+    };
+
+    const escaped = await (fleet as any).escapeByJump({ symbol: "STRANDED", waypointSymbol: "X1-A-GATE", fuel: 5 });
+
+    assert.equal(escaped, false, "nowhere known to jump to means no escape, not a thrown error");
+  });
+
+  it("jumps to home when the stranded ship is sitting right at the gate and home is connected", async () => {
+    const fleet = makeFleet([]);
+    (fleet as any).systemSymbol = "X1-HOME";
+    (fleet as any).galaxy = {
+      loadSystem: async () => {},
+      getSystem: (sys: string) =>
+        sys === "X1-A"
+          ? { symbol: "X1-A", waypoints: [{ symbol: "X1-A-GATE", type: "JUMP_GATE" }] }
+          : { symbol: "X1-HOME", waypoints: [{ symbol: "X1-HOME-GATE", type: "JUMP_GATE" }] },
+      connectedSystems: (sys: string) => (sys === "X1-A" ? ["X1-B", "X1-HOME"] : []),
+    };
+    const jumps: [string, string][] = [];
+    (fleet as any).jumpShip = async (sym: string, wp: string) => { jumps.push([sym, wp]); };
+
+    const escaped = await (fleet as any).escapeByJump({ symbol: "STRANDED", waypointSymbol: "X1-A-GATE", fuel: 5 });
+
+    assert.equal(escaped, true);
+    assert.deepEqual(jumps, [["STRANDED", "X1-HOME-GATE"]], "prefers home over the other connected option");
+  });
+
+  it("falls back to whatever is connected when home isn't reachable from there", async () => {
+    const fleet = makeFleet([]);
+    (fleet as any).systemSymbol = "X1-HOME";
+    (fleet as any).galaxy = {
+      loadSystem: async () => {},
+      getSystem: (sys: string) =>
+        sys === "X1-A"
+          ? { symbol: "X1-A", waypoints: [{ symbol: "X1-A-GATE", type: "JUMP_GATE" }] }
+          : { symbol: "X1-B", waypoints: [{ symbol: "X1-B-GATE", type: "JUMP_GATE" }] },
+      connectedSystems: (sys: string) => (sys === "X1-A" ? ["X1-B"] : []),
+    };
+    const jumps: [string, string][] = [];
+    (fleet as any).jumpShip = async (sym: string, wp: string) => { jumps.push([sym, wp]); };
+
+    const escaped = await (fleet as any).escapeByJump({ symbol: "STRANDED", waypointSymbol: "X1-A-GATE", fuel: 5 });
+
+    assert.equal(escaped, true);
+    assert.deepEqual(jumps, [["STRANDED", "X1-B-GATE"]]);
+  });
+
+  it("falls back to the tender path (returns false) when the jump itself fails", async () => {
+    const fleet = makeFleet([]);
+    (fleet as any).systemSymbol = "X1-HOME";
+    (fleet as any).galaxy = {
+      loadSystem: async () => {},
+      getSystem: () => ({ symbol: "X1-A", waypoints: [{ symbol: "X1-A-GATE", type: "JUMP_GATE" }] }),
+      connectedSystems: () => ["X1-HOME"],
+    };
+    (fleet as any).jumpShip = async () => { throw new Error("remote gate under construction"); };
+
+    const escaped = await (fleet as any).escapeByJump({ symbol: "STRANDED", waypointSymbol: "X1-A-GATE", fuel: 5 });
+
+    assert.equal(escaped, false, "a failed jump must not be swallowed as success — the caller still has a tender to try");
   });
 });
 

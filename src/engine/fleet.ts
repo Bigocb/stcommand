@@ -5255,7 +5255,51 @@ export class FleetManager {
         this.log(`rescue ${s.symbol} failed: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
+      if (await this.escapeByJump(s)) continue;
       await this.tenderRescueStep(s);
+    }
+  }
+
+  /**
+   * A stranded ship that happens to be sitting at its own system's jump
+   * gate doesn't need a fuel tender at all — a jump costs credits, not
+   * fuel, so it's always possible regardless of tank state, and it works
+   * even when nothing in that system could ever tender for it (see this
+   * method's own docstring: tenders are drawn from miners/traders/idle
+   * ships only). Checked first, ahead of makeRescuePlan(), because it's
+   * strictly cheaper and more often possible than arranging an in-system
+   * rescue. Confirmed live: DRAGOM-C/DRAGOM-14 stranded at X1-UF20-Z28F —
+   * that system's own jump gate — where the only other ships ever to visit
+   * were tour ships, which are never tender candidates; no same-system
+   * rescue could ever have worked there no matter what else got fixed.
+   * Returns false (not an error) for the ordinary case of a ship stranded
+   * somewhere that isn't a gate, or with no known connected system to flee
+   * to — the caller falls back to tenderRescueStep() either way.
+   */
+  private async escapeByJump(s: { symbol: string; waypointSymbol: string; fuel: number }): Promise<boolean> {
+    const systemSymbol = s.waypointSymbol.slice(0, s.waypointSymbol.lastIndexOf("-"));
+    await this.galaxy.loadSystem(systemSymbol);
+    const known = this.galaxy.getSystem(systemSymbol);
+    const atGate = known?.waypoints.find((w) => w.symbol === s.waypointSymbol)?.type === "JUMP_GATE";
+    if (!atGate) return false;
+    const connected = this.galaxy.connectedSystems(systemSymbol);
+    if (connected.length === 0) return false;
+    // Prefer home — it's the one system guaranteed to have both a fuel
+    // market and other ships around to help further if something's still
+    // wrong — falling back to whatever else is connected.
+    const target = connected.includes(this.systemSymbol) ? this.systemSymbol : connected[0]!;
+    await this.galaxy.loadSystem(target);
+    const remoteGate = this.galaxy.getSystem(target)?.waypoints.find((w) => w.type === "JUMP_GATE");
+    if (!remoteGate) return false;
+    try {
+      this.log(`rescuing ${s.symbol}: stranded at ${systemSymbol}'s own jump gate — jumping to ${target} instead of waiting on a fuel tender`);
+      await this.jumpShip(s.symbol, remoteGate.symbol);
+      this.onActivity?.("jump", `${s.symbol} escaped a stranding by jumping to ${target}`, undefined, s.symbol);
+      this.rescueFailures.delete(s.symbol);
+      return true;
+    } catch (err) {
+      this.log(`escape jump for ${s.symbol} failed, falling back to a fuel tender: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
   }
 
@@ -5273,6 +5317,13 @@ export class FleetManager {
    */
   private async makeRescuePlan(s: { symbol: string; waypointSymbol: string; fuel: number }): Promise<TenderPlan | undefined> {
     const systemSymbol = s.waypointSymbol.slice(0, s.waypointSymbol.lastIndexOf("-"));
+    // Ensure this system's own waypoint data has actually been (re)loaded
+    // this process lifetime before reading it — GalaxyAtlas.systems is
+    // wiped on every restart and only lazily repopulated, so a system
+    // nothing has explicitly reloaded since the last deploy read back as
+    // having zero markets even when it genuinely has several. Same class
+    // of gap as autoExplore()'s own fix earlier today.
+    await this.galaxy.loadSystem(systemSymbol);
     const known = this.galaxy.getSystem(systemSymbol);
 
     // Market candidates: any waypoint with a MARKETPLACE trait (known even before survey),
