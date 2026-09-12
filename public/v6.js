@@ -1015,26 +1015,84 @@ function bfsRoute(edges, from, to) {
 }
 
 /**
+ * A scene-content mode switch (system <-> galaxy) doesn't clear-and-rebuild
+ * immediately the way an ordinary same-mode redraw does — it snapshots
+ * whatever's currently in the four scene groups, lets the NEW mode's content
+ * get added alongside it, and only removes the old content after a short
+ * delay. That's what turns hitting Galaxy into "the camera pulls back and
+ * you can see the system you were just in, with its neighbors fading into
+ * view around it" instead of a hard cut: renderGalaxy3D() re-centers the
+ * galaxy layout on `currentSystem` itself (not the charted centroid), so
+ * the system you were just looking at sits at the same scene origin its own
+ * waypoints are still visible around for that brief window, and the
+ * newly-added galaxy markers for its real neighbors appear at their true
+ * relative offsets around it — then the camera's existing lerp-toward-
+ * orbitGoal easing (tickMap3D()) pulls back to reveal the rest while that
+ * old detail is still there to be pulled away *from*.
+ */
+let pendingOldSceneContent = null;
+let sceneTransitionTimer = null;
+const TRANSITION_HOLD_MS = 650;
+
+function beginSceneTransition() {
+  clearTimeout(sceneTransitionTimer);
+  // A transition started before the previous one finished settling (rapid
+  // Galaxy-toggle clicks) — flush the still-pending old content immediately
+  // rather than losing track of it (and leaking the meshes).
+  flushPendingSceneContent();
+  pendingOldSceneContent = {
+    bodies: [...bodiesGroup.children],
+    rings: [...ringsGroup.children],
+    glow: [...glowGroup.children],
+    lines: [...linesGroup.children],
+  };
+  pickables.length = 0;
+  sceneTransitionTimer = setTimeout(flushPendingSceneContent, TRANSITION_HOLD_MS);
+}
+
+function flushPendingSceneContent() {
+  if (!pendingOldSceneContent) return;
+  const groups = { bodies: bodiesGroup, rings: ringsGroup, glow: glowGroup, lines: linesGroup };
+  for (const key of Object.keys(groups)) {
+    for (const c of pendingOldSceneContent[key]) {
+      groups[key].remove(c);
+      c.traverse(disposeObject3D);
+    }
+  }
+  pendingOldSceneContent = null;
+}
+
+/**
  * Populate the shared 3D scene with the galaxy overview instead of one
  * system's own waypoints — called from renderMap() when galaxyMode is on,
- * same group-clearing/pickables pattern, same camera. Charted systems
- * (`known`) are real click targets; the `nearby` halo is small, dim, and
- * non-interactive, same distinction the old flat-SVG version drew.
+ * same camera/pickables pattern. Charted systems (`known`) are real click
+ * targets; the `nearby` halo is small, dim, and non-interactive. Simplified
+ * on purpose relative to the per-system view (no market/shipyard color
+ * coding) -- this is a schematic for seeing what's charted and planning a
+ * route across it, not a detailed inspection view the way one system's own
+ * waypoints are.
  */
 function renderGalaxy3D() {
   if (!sceneReady && !mapUnavailable) initMap3D();
   if (mapUnavailable) return;
   $("map-hud").innerHTML = "Galaxy <b>charted space</b>";
 
-  clearGroup(bodiesGroup);
-  clearGroup(ringsGroup);
-  clearGroup(glowGroup);
-  clearGroup(linesGroup);
-  pickables.length = 0;
+  const enteringGalaxy = mapMode !== "galaxy";
+  if (enteringGalaxy) {
+    beginSceneTransition();
+  } else if (pendingOldSceneContent) {
+    return; // a transition is still settling; don't rebuild mid-transition
+  } else {
+    clearGroup(bodiesGroup);
+    clearGroup(ringsGroup);
+    clearGroup(glowGroup);
+    clearGroup(linesGroup);
+    pickables.length = 0;
+  }
 
   const data = galaxyOverviewData;
   const known = (data?.systems ?? []).filter((s) => s.x !== null && s.y !== null);
-  if (mapMode !== "galaxy") {
+  if (enteringGalaxy) {
     mapMode = "galaxy";
     orbitGoal.target.set(0, 0, 0);
     orbitGoal.radius = 200;
@@ -1043,11 +1101,16 @@ function renderGalaxy3D() {
   if (!known.length) return;
   const nearby = (data.nearby ?? []).filter((s) => s.x !== null && s.y !== null);
 
-  // Linear scale, not fitSystemScale()'s sqrt compression — see this
-  // section's own file comment on why galaxy-adjacent distances are
+  // Centered on whatever system was on screen a moment ago (falling back to
+  // fleet home, then just the first charted system), not a centroid of
+  // every charted system — see this section's own comment on why that's
+  // what makes the zoom-out read as continuous rather than a jump to some
+  // other point in space.
+  const anchor = known.find((s) => s.symbol === currentSystem) ?? known.find((s) => s.symbol === data.home) ?? known[0];
+  const cx = anchor.x, cy = anchor.y;
+  // Linear scale, not fitSystemScale()'s sqrt compression — galaxy-adjacent
+  // distances (DRAGOM's own charted neighbors sit ~200-400 units apart) are
   // already close in magnitude to a system's own waypoint spread.
-  const cx = known.reduce((a, s) => a + s.x, 0) / known.length;
-  const cy = known.reduce((a, s) => a + s.y, 0) / known.length;
   let maxR = 20;
   for (const s of known) maxR = Math.max(maxR, Math.hypot(s.x - cx, s.y - cy));
   const scale = 140 / maxR;
@@ -1087,18 +1150,21 @@ function renderGalaxy3D() {
     linesGroup.add(line);
   }
 
+  // Deliberately just two states beyond plain/home/route: whether a ship is
+  // currently there. A schematic for navigating/planning, not a market
+  // survey — that detail already lives in the per-system view.
   for (const s of known) {
     const p = toScene(s.x, s.y);
     const isHome = s.symbol === data.home;
     const onRoute = routeSystems.has(s.symbol);
-    const color = s.ships > 0 ? "--accent" : s.hasMarket ? "--teal" : "--dim";
+    const color = s.ships > 0 ? "--accent" : "--dim";
     const radius = isHome ? 3 : 2;
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), new THREE.MeshBasicMaterial({ color: themedColor(color) }));
     mesh.position.set(p.x, 0, p.z);
     bodiesGroup.add(mesh);
     pickables.push({ mesh, kind: "galaxy-system", symbol: s.symbol });
 
-    if (isHome || onRoute || s.hasShipyard) {
+    if (isHome || onRoute) {
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(radius * 1.6, radius * 2, 24),
         new THREE.MeshBasicMaterial({ color: themedColor("--ice"), side: THREE.DoubleSide, transparent: true, opacity: 0.7 }),
@@ -1163,8 +1229,23 @@ function setGalaxyMode(on) {
     $(id)?.style.setProperty("display", on ? "none" : "");
   }
   document.querySelector(".map-legend")?.style.setProperty("display", on ? "none" : "");
-  if (on) loadGalaxyOverview();
-  else { $("galaxy-overview").innerHTML = ""; renderMapLiveOrScrub(); }
+  if (on) {
+    // Kick the camera pulling back right away, rather than waiting on
+    // GET /api/galaxy/overview to resolve first — renderGalaxy3D() (called
+    // once that data is in) still does its own content-side transition
+    // (holding the old system's detail on screen, adding galaxy markers
+    // around it) and will harmlessly re-set these same goal values again,
+    // but the motion itself shouldn't stall on a network round trip.
+    if (mapMode !== "galaxy") {
+      orbitGoal.target.set(0, 0, 0);
+      orbitGoal.radius = 200;
+      orbitGoal.phi = 1.0;
+    }
+    loadGalaxyOverview();
+  } else {
+    $("galaxy-overview").innerHTML = "";
+    renderMapLiveOrScrub();
+  }
 }
 
 function initGalaxyToggle() {
@@ -3335,11 +3416,21 @@ function renderMap(ships, trails = new Map()) {
   mapScale = s;
   systemSpan = 80;
 
-  clearGroup(bodiesGroup);
-  clearGroup(ringsGroup);
-  clearGroup(glowGroup);
-  clearGroup(linesGroup);
-  pickables.length = 0;
+  // Leaving galaxy mode is a scene-content mode switch too (see
+  // renderGalaxy3D()'s own comment on beginSceneTransition()) — hold the
+  // galaxy markers on screen a moment longer so zooming back into a system
+  // reads as continuous rather than a hard cut the other direction.
+  if (mapMode !== "system") {
+    beginSceneTransition();
+  } else if (pendingOldSceneContent) {
+    return; // a transition is still settling; don't rebuild mid-transition
+  } else {
+    clearGroup(bodiesGroup);
+    clearGroup(ringsGroup);
+    clearGroup(glowGroup);
+    clearGroup(linesGroup);
+    pickables.length = 0;
+  }
 
   const seenRadii = new Set();
 
