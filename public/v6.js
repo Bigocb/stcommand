@@ -938,16 +938,29 @@ function renderSystemStrip() {
 function renderGallery() { /* single-system fleets need no gallery */ }
 
 /* ── BRIDGE: galaxy overview ──────────────────
- * A zoomed-out sibling to the per-system 3D map (see renderMap()) — every
- * system this tenant's own fleet has actually charted, laid out by real
- * galaxy-wide coordinates (from the shared crawler table, GET /api/galaxy/
- * overview), with jump-gate edges between them. Plain SVG rather than
- * extending the three.js scene: this is a flat, click-to-navigate overview,
- * not a 3D scene, and reusing the existing pan/zoom/orbit machinery built
- * for one system's own waypoints would mean fighting its assumptions (a
- * star at the origin, waypoint-scale distances) rather than reusing them.
+ * A zoomed-out mode of the SAME per-system 3D map/scene (see renderMap()),
+ * not a separate view: every system this tenant's own fleet has actually
+ * charted, laid out by real galaxy-wide coordinates (from the shared
+ * crawler table, GET /api/galaxy/overview) as small markers in the same
+ * three.js scene, with jump-gate edges between them. Picking one switches
+ * currentSystem and re-frames the same camera back down onto that system's
+ * own waypoints (renderMap()'s existing framedSystem-driven fit) — since
+ * both live in one scene on one canvas, orbitCam's existing lerp-toward-
+ * orbitGoal easing (tickMap3D()) turns that mode switch into one continuous
+ * zoom for free, no separate transition code needed. Confirmed live that
+ * DRAGOM's own nearby charted systems sit roughly 200-400 units apart —
+ * close enough to a system's own waypoint-scale distances (systemSpan
+ * ~80-160) that this reuses the same camera/zoom-clamp math directly
+ * rather than needing a second scale regime.
  */
 let galaxyOverviewData = null;
+/** Which of the two content modes the shared 3D scene currently holds — set
+ *  by whichever of renderMap()/renderGalaxy3D() last ran, read by both to
+ *  decide whether this call is a fresh mode switch (re-frame the camera) or
+ *  just another periodic redraw of the same mode (leave the operator's own
+ *  zoom/pan alone). Mirrors framedSystem's existing per-system version of
+ *  this same distinction, one level up. */
+let mapMode = "system";
 /** Route planner state — persists across re-renders while galaxy mode stays
  *  open (loadGalaxyOverview() only refetches on toggle-on, not on a timer),
  *  so picking a destination and then panning/zooming doesn't clear it. */
@@ -962,7 +975,8 @@ async function loadGalaxyOverview() {
     galaxyOverviewData = { systems: [], edges: [], home: "" };
     showToastGlobal(err.message, true);
   }
-  renderGalaxyOverviewSvg();
+  renderGalaxyToolbar();
+  renderGalaxy3D();
 }
 
 /** BFS shortest path (fewest jumps, not distance-weighted — every hop costs
@@ -999,57 +1013,117 @@ function bfsRoute(edges, from, to) {
   return null;
 }
 
-function renderGalaxyOverviewSvg() {
-  const host = $("galaxy-overview");
-  if (!host) return;
+/**
+ * Populate the shared 3D scene with the galaxy overview instead of one
+ * system's own waypoints — called from renderMap() when galaxyMode is on,
+ * same group-clearing/pickables pattern, same camera. Charted systems
+ * (`known`) are real click targets; the `nearby` halo is small, dim, and
+ * non-interactive, same distinction the old flat-SVG version drew.
+ */
+function renderGalaxy3D() {
+  if (!sceneReady && !mapUnavailable) initMap3D();
+  if (mapUnavailable) return;
+  $("map-hud").innerHTML = "Galaxy <b>charted space</b>";
+
+  clearGroup(bodiesGroup);
+  clearGroup(ringsGroup);
+  clearGroup(glowGroup);
+  clearGroup(linesGroup);
+  pickables.length = 0;
+
   const data = galaxyOverviewData;
-  if (!data || !data.systems.length) {
-    host.innerHTML = `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);font-family:var(--chrome);font-size:11px;letter-spacing:0.1em">No charted systems yet</div>`;
-    return;
+  const known = (data?.systems ?? []).filter((s) => s.x !== null && s.y !== null);
+  if (mapMode !== "galaxy") {
+    mapMode = "galaxy";
+    orbitGoal.target.set(0, 0, 0);
+    orbitGoal.radius = 200;
+    orbitGoal.phi = 1.0;
   }
-  const known = data.systems.filter((s) => s.x !== null && s.y !== null);
-  const missing = data.systems.length - known.length;
-  const xs = known.map((s) => s.x), ys = known.map((s) => s.y);
-  const minX = Math.min(...xs, 0), maxX = Math.max(...xs, 0);
-  const minY = Math.min(...ys, 0), maxY = Math.max(...ys, 0);
-  const padX = Math.max(20, (maxX - minX) * 0.1), padY = Math.max(20, (maxY - minY) * 0.1);
-  const vbX = minX - padX, vbY = minY - padY, vbW = (maxX - minX) + padX * 2 || 100, vbH = (maxY - minY) + padY * 2 || 100;
+  if (!known.length) return;
+  const nearby = (data.nearby ?? []).filter((s) => s.x !== null && s.y !== null);
+
+  // Linear scale, not fitSystemScale()'s sqrt compression — see this
+  // section's own file comment on why galaxy-adjacent distances are
+  // already close in magnitude to a system's own waypoint spread.
+  const cx = known.reduce((a, s) => a + s.x, 0) / known.length;
+  const cy = known.reduce((a, s) => a + s.y, 0) / known.length;
+  let maxR = 20;
+  for (const s of known) maxR = Math.max(maxR, Math.hypot(s.x - cx, s.y - cy));
+  const scale = 140 / maxR;
+  const toScene = (x, y) => ({ x: (x - cx) * scale, z: (y - cy) * scale });
+  systemSpan = 160;
 
   const path = bfsRoute(data.edges, routeFrom, routeTo);
   const routeEdgeKeys = new Set();
   if (path) for (let i = 0; i < path.length - 1; i++) routeEdgeKeys.add([path[i], path[i + 1]].sort().join("|"));
   const routeSystems = new Set(path ?? []);
 
-  const r = Math.max(1.2, Math.min(vbW, vbH) / 220);
+  for (const s of nearby) {
+    const p = toScene(s.x, s.y);
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.8, 8, 6),
+      new THREE.MeshBasicMaterial({ color: themedColor("--dim"), transparent: true, opacity: 0.4 }),
+    );
+    mesh.position.set(p.x, 0, p.z);
+    bodiesGroup.add(mesh);
+  }
 
-  // Dim, non-interactive halo of crawled-but-unvisited systems near charted
-  // space (GET /api/galaxy/overview's `nearby`) — just enough to show what's
-  // on the frontier, not a click target: no label, no click handler, drawn
-  // first so charted nodes/edges layer on top of it.
-  const nearbyDots = (data.nearby ?? [])
-    .map((s) => `<circle class="gx-nearby" cx="${s.x}" cy="${s.y}" r="${r * 0.5}" />`).join("");
+  for (const e of data.edges) {
+    const a = known.find((s) => s.symbol === e.a), b = known.find((s) => s.symbol === e.b);
+    if (!a || !b) continue;
+    const pa = toScene(a.x, a.y), pb = toScene(b.x, b.y);
+    const onRoute = routeEdgeKeys.has([e.a, e.b].sort().join("|"));
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(pa.x, 0, pa.z),
+      new THREE.Vector3(pb.x, 0, pb.z),
+    ]);
+    const mat = new THREE.LineBasicMaterial({
+      color: themedColor(onRoute ? "--accent" : "--hairline"),
+      transparent: true, opacity: onRoute ? 0.9 : 0.4,
+    });
+    const line = new THREE.Line(geo, mat);
+    if (onRoute) line.renderOrder = 5;
+    linesGroup.add(line);
+  }
 
-  const edgeLines = data.edges
-    .map((e) => {
-      const a = known.find((s) => s.symbol === e.a), b = known.find((s) => s.symbol === e.b);
-      if (!a || !b) return "";
-      const onRoute = routeEdgeKeys.has([e.a, e.b].sort().join("|"));
-      return `<line class="gx-edge${onRoute ? " on-route" : ""}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`;
-    }).join("");
-  const nodes = known.map((s) => {
-    const cls = ["gx-node",
-      s.hasMarket ? "has-market" : "",
-      s.hasShipyard ? "has-shipyard" : "",
-      s.ships > 0 ? "has-ships" : "",
-      s.symbol === data.home ? "home" : "",
-      routeSystems.has(s.symbol) ? "on-route" : "",
-    ].filter(Boolean).join(" ");
-    return `<g class="${cls}" data-sys="${escapeAttr(s.symbol)}">
-      <circle cx="${s.x}" cy="${s.y}" r="${r}" />
-      <text class="gx-label" x="${s.x + r * 1.6}" y="${s.y + r * 0.4}">${escapeHtml(s.symbol)}</text>
-    </g>`;
-  }).join("");
+  for (const s of known) {
+    const p = toScene(s.x, s.y);
+    const isHome = s.symbol === data.home;
+    const onRoute = routeSystems.has(s.symbol);
+    const color = s.ships > 0 ? "--accent" : s.hasMarket ? "--teal" : "--dim";
+    const radius = isHome ? 3 : 2;
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), new THREE.MeshBasicMaterial({ color: themedColor(color) }));
+    mesh.position.set(p.x, 0, p.z);
+    bodiesGroup.add(mesh);
+    pickables.push({ mesh, kind: "galaxy-system", symbol: s.symbol });
 
+    if (isHome || onRoute || s.hasShipyard) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(radius * 1.6, radius * 2, 24),
+        new THREE.MeshBasicMaterial({ color: themedColor("--ice"), side: THREE.DoubleSide, transparent: true, opacity: 0.7 }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(p.x, 0.05, p.z);
+      ringsGroup.add(ring);
+    }
+
+    const label = makeLabelSprite(s.symbol, isHome ? "#dff2ff" : "#93a7bd");
+    label.position.set(p.x, radius + 2.5, p.z);
+    bodiesGroup.add(label);
+  }
+}
+
+/** The route-planner toolbar/result panel floats over the 3D canvas in
+ *  galaxy mode — the only DOM piece left of the old flat-SVG overview,
+ *  since a From/To search box is still plain HTML, not a scene object. */
+function renderGalaxyToolbar() {
+  const host = $("galaxy-overview");
+  if (!host) return;
+  const data = galaxyOverviewData;
+  if (!data) { host.innerHTML = ""; return; }
+  const known = data.systems.filter((s) => s.x !== null && s.y !== null);
+  const missing = data.systems.length - known.length;
+  const path = bfsRoute(data.edges, routeFrom, routeTo);
   const options = known.map((s) => `<option value="${escapeAttr(s.symbol)}">`).join("");
   const routeResult = !routeTo
     ? ""
@@ -1057,10 +1131,7 @@ function renderGalaxyOverviewSvg() {
       ? `<div class="gx-route-result">${path.length - 1} jump${path.length - 1 === 1 ? "" : "s"}: ${path.map((s) => escapeHtml(s)).join(" → ")}</div>`
       : `<div class="gx-route-result gx-route-none">No known gate chain from ${escapeHtml(routeFrom)} to ${escapeHtml(routeTo)} yet — scout further to find one.</div>`;
 
-  host.innerHTML = `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}">
-    <g id="gx-viewport">${nearbyDots}${edgeLines}${nodes}</g>
-  </svg>
-  <datalist id="gx-system-options">${options}</datalist>
+  host.innerHTML = `<datalist id="gx-system-options">${options}</datalist>
   <div class="gx-toolbar">
     <input list="gx-system-options" id="gx-route-from" placeholder="From" value="${escapeAttr(routeFrom)}" />
     <span class="gx-arrow">→</span>
@@ -1068,67 +1139,31 @@ function renderGalaxyOverviewSvg() {
     <button class="btn ghost" id="gx-route-clear">Clear</button>
   </div>
   ${routeResult}
-  ${missing ? `<div style="position:absolute;bottom:8px;left:8px;color:var(--dim);font-family:var(--mono);font-size:9px">${missing} charted system${missing === 1 ? "" : "s"} not yet in the galaxy index</div>` : ""}`;
+  ${missing ? `<div class="gx-missing-note">${missing} charted system${missing === 1 ? "" : "s"} not yet in the galaxy index</div>` : ""}`;
 
   const fromInput = host.querySelector("#gx-route-from"), toInput = host.querySelector("#gx-route-to");
-  const commit = () => { routeFrom = fromInput.value.trim().toUpperCase(); routeTo = toInput.value.trim().toUpperCase(); renderGalaxyOverviewSvg(); };
+  const commit = () => {
+    routeFrom = fromInput.value.trim().toUpperCase();
+    routeTo = toInput.value.trim().toUpperCase();
+    renderGalaxyToolbar();
+    scheduleRebuild();
+  };
   fromInput.addEventListener("change", commit);
   toInput.addEventListener("change", commit);
-  host.querySelector("#gx-route-clear").addEventListener("click", () => { routeTo = ""; renderGalaxyOverviewSvg(); });
-
-  const svg = host.querySelector("svg");
-  svg.querySelectorAll(".gx-node").forEach((g) => {
-    g.addEventListener("click", () => {
-      currentSystem = g.dataset.sys;
-      setGalaxyMode(false);
-      renderSystemStrip();
-      resetMapView();
-      renderMapLiveOrScrub();
-    });
-  });
-
-  // Minimal pan/zoom: drag to pan, wheel to zoom, both by adjusting the
-  // viewBox directly — no need for the 3D map's camera math here.
-  let vb = { x: vbX, y: vbY, w: vbW, h: vbH };
-  const applyVb = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
-  let dragging = false, lastX = 0, lastY = 0;
-  svg.addEventListener("pointerdown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; svg.setPointerCapture(e.pointerId); });
-  svg.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const scale = vb.w / svg.clientWidth;
-    vb.x -= (e.clientX - lastX) * scale;
-    vb.y -= (e.clientY - lastY) * scale;
-    lastX = e.clientX; lastY = e.clientY;
-    applyVb();
-  });
-  svg.addEventListener("pointerup", () => { dragging = false; });
-  svg.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 1.15 : 1 / 1.15;
-    const cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
-    vb.w *= factor; vb.h *= factor;
-    vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2;
-    applyVb();
-  }, { passive: false });
+  host.querySelector("#gx-route-clear").addEventListener("click", () => { routeTo = ""; renderGalaxyToolbar(); scheduleRebuild(); });
 }
 
 function setGalaxyMode(on) {
   galaxyMode = on;
-  $("galaxy-overview")?.toggleAttribute("hidden", !on);
-  $("map3d")?.style.setProperty("display", on ? "none" : "");
   $("map-galaxy-toggle")?.classList.toggle("active", on);
+  // Per-system-only chrome — not meaningful zoomed out to the galaxy. The
+  // map itself (map3d) and its zoom controls stay: same scene, same camera.
   for (const id of ["system-strip", "map-gallery"]) {
     $(id)?.style.setProperty("display", on ? "none" : "");
   }
-  for (const sel of [".map-legend", ".map-zoom-controls"]) {
-    document.querySelector(sel)?.style.setProperty("display", on ? "none" : "");
-  }
-  if (on) {
-    $("map-hud").innerHTML = "Galaxy <b>charted space</b>";
-    loadGalaxyOverview();
-  } else {
-    renderMapLiveOrScrub();
-  }
+  document.querySelector(".map-legend")?.style.setProperty("display", on ? "none" : "");
+  if (on) loadGalaxyOverview();
+  else { $("galaxy-overview").innerHTML = ""; renderMapLiveOrScrub(); }
 }
 
 function initGalaxyToggle() {
@@ -3256,7 +3291,7 @@ function scheduleRebuild() {
 }
 
 function renderMap(ships, trails = new Map()) {
-  if (galaxyMode) return;
+  if (galaxyMode) { renderGalaxy3D(); return; }
   if (!sceneReady && !mapUnavailable) initMap3D();
   if (mapUnavailable) return;
   const sys = currentSystem || state.agent.headquarters.slice(0, state.agent.headquarters.lastIndexOf("-"));
@@ -3528,8 +3563,9 @@ function renderMap(ships, trails = new Map()) {
   // on every periodic state refresh, not just navigation; resetting the
   // camera every time was undoing any zoom or pan the operator had just
   // made mid-session.
-  if (framedSystem !== sys) {
+  if (framedSystem !== sys || mapMode !== "system") {
     framedSystem = sys;
+    mapMode = "system";
     orbitGoal.target.set(0, 0, 0);
     orbitGoal.radius = 160;
     orbitGoal.phi = 1.0;
@@ -3978,7 +4014,7 @@ function clearHullPulse() {
 
 function resetMapView() {
   orbitGoal.target.set(0, 0, 0);
-  orbitGoal.radius = 112;
+  orbitGoal.radius = galaxyMode ? 200 : 112;
   orbitGoal.theta = 0.7;
   orbitGoal.phi = 1.0;
 }
@@ -4035,7 +4071,11 @@ function attachMapControls() {
     if (wasRotating || Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // was a drag, not a click
     const hit = pickAt(e.clientX, e.clientY);
     if (!hit) { if (mapTipFor) hideWaypointTip(); return; }
-    if (hit.kind === "ship") openShipDetails(hit.symbol);
+    if (hit.kind === "galaxy-system") {
+      currentSystem = hit.symbol;
+      setGalaxyMode(false);
+      renderSystemStrip();
+    } else if (hit.kind === "ship") openShipDetails(hit.symbol);
     else {
       if (mapTipFor === hit.symbol) hideWaypointTip();
       else { showWaypointTip(hit.symbol); mapTipFor = hit.symbol; }
