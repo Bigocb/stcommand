@@ -464,6 +464,21 @@ export class TenantRegistry {
         const freshAgent = prefetched?.agent ?? (await api.getMyAgent());
         const ships = prefetched?.ships ?? (await api.listAllShips());
         const liveContracts = await api.getContracts();
+        // GalaxyAtlas.listSystems() only returns what's in its in-memory
+        // Map — wiped on every restart and, between restarts, only
+        // repopulated for systems a ship currently occupies. A system this
+        // tenant charted long ago but nothing sits in right now used to
+        // just be absent from `state.systems` (and, downstream, the
+        // dashboard's per-system Sector tab strip and its own map/waypoint
+        // lookups): the exact same class of bug the galaxy overview
+        // endpoint's own chartedSystems union already fixed, in a second
+        // place that union never reached. loadSystem() is a cache hit
+        // (store.getSystemTopology(), no live API call) for anything
+        // already scanned, and a no-op for anything already in memory, so
+        // backfilling every charted system here on each refresh is cheap.
+        await Promise.all(
+          fleet.getChartedSystems().map((sym) => fleet.getGalaxy().loadSystem(sym).catch(() => undefined)),
+        );
         const systems = fleet.getGalaxy().listSystems().map((s) => ({
           symbol: s.symbol,
           waypoints: s.waypoints.map((w) => ({ symbol: w.symbol, x: w.x, y: w.y, type: w.type, traits: w.traits.map((t) => t.symbol) })),
