@@ -1715,10 +1715,18 @@ export class FleetManager {
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
-                exploreNext: (sym) => this.exploreSystem(sym).catch((err) => {
-                  this.log(`${sym}: explorer found nowhere new: ${err instanceof Error ? err.message : String(err)}`);
-                  return undefined;
-                }),
+                // No catch here: exploreSystem() throws NavigationPending/
+                // CooldownPending as real control-flow signals when it
+                // dispatches through this same agent's own ShipProxy while
+                // schedulerDriven is true (set by nextExploreTask() before
+                // calling exploreScout()), not just on genuine failure.
+                // Swallowing those here logged "explorer found nowhere new:
+                // [object Object]" for a jump that was actually proceeding
+                // normally, string()-ing a non-Error class with no message.
+                // Let everything (Pending and real errors alike) propagate
+                // to nextExploreTask()'s own catch, which already tells them
+                // apart exactly the way nextTourTask()'s does.
+                exploreNext: (sym) => this.exploreSystem(sym),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
