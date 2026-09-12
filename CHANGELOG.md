@@ -14,6 +14,17 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-12 (live-ops)
+
+- **Lowered DRAGOM's `marginFloor` doctrine value from 20c to 10c**
+  (operator change, not a code change). DRAGOM-1's trader had been
+  flapping on its own FUEL route for over an hour — the route's real
+  margin sat right at 19-20c, so it bounced between viable and rejected
+  on every live price tick. Verified via live logs: after the change,
+  DRAGOM-1 went from mostly-stuck to 11 successful route pickups across
+  FUEL/FOOD/MEDICINE in the following 51 minutes, with zero margin-floor
+  rejections and no new failure mode introduced by the looser floor.
+
 ## 2026-09-12
 
 - **Documented four API-governance gaps** found while comparing this

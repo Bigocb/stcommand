@@ -12,11 +12,6 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   ~10-20 min cycle for over an hour as of 2026-09-12. Not yet
   investigated — need to check CARO's actual live credit balance and
   why the trader/agent keeps re-attempting purchases it can't afford.
-- [ ] **Verify DRAGOM's margin-floor change.** Operator manually changed
-  DRAGOM's `marginFloor` (was 20c, hardcoded floor was causing FUEL/
-  JEWELRY routes to flap right at the threshold — see
-  `docs/rate-limiter-saturation-plan.md`-adjacent investigation on
-  2026-09-12). Check whether new routes are clearing now.
 - [ ] **Check whether DRAGOM has ever flown a cross-system trade route.**
   Confirmed the pipeline is real (tour ship `DRAGOM-D` is actively
   charting/pricing markets in `X1-RN95`, `trader.ts`'s `viableRoute()`/
@@ -67,3 +62,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   don't migrate; the shared-IP rate limit isn't solved by either shape,
   and the one real Render-restart benefit is achievable on Render itself
   via a health check (see the open item above).
+- [x] DRAGOM's margin-floor change — confirmed working. Lowered from
+  20c to 10c on 2026-09-12; verified via live logs that DRAGOM-1 went
+  from flapping/stuck on one route (repeated `margin 19-20c <= floor 20c`
+  rejections) to 11 successful route pickups across FUEL/FOOD/MEDICINE
+  in the 51 minutes after the change, with zero margin-floor rejections.
+  No new failure mode introduced by the looser floor. See `CHANGELOG.md`.
