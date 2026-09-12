@@ -2340,6 +2340,16 @@ export class FleetManager {
     } catch (err) {
       this.log(`survey of ${targetSystem} after jump failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
     }
+    // Record this arrival in the durable charted-systems set directly,
+    // rather than counting on chartOccupiedSystems()'s next tick to catch
+    // it — every jump (manual dashboard jump, mission, exploreSystem())
+    // funnels through this one function, so this is the single place that
+    // covers all of them immediately. Waiting for the next tick left a real
+    // gap: if a restart landed before that tick ran, the in-memory arrival
+    // was wiped, and once the ship moved on nothing was left occupying that
+    // system to re-trigger charting it — confirmed live, X1-MY77 vanished
+    // from the galaxy map exactly this way after DRAGOM-A jumped onward.
+    await this.markSystemCharted(targetSystem);
     // A ship under an operator hold keeps its *old* hold waypoint otherwise —
     // this call never touches shipManualState/operatorHolds — so a held ship
     // jumped manually immediately tries to fly back to a now-unreachable,
