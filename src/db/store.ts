@@ -139,6 +139,43 @@ export interface ShipStateRow {
  * real cargo with no memory of the trip it was on. See migration
  * `013_held_route.sql`'s own comment for the incident this closes.
  */
+/** One row of the operator approval gate (pending_approvals table) —
+ *  src/engine/approvals.ts is the only writer/reader of the "open" half of
+ *  this; the dashboard's Approvals panel reads listOpenApprovals() and
+ *  writes decideApproval() directly. */
+export interface PendingApprovalRow {
+  id: string;
+  kind: string;
+  shipSymbol: string | null;
+  detail: string;
+  cost: number | null;
+  status: "pending" | "approved" | "denied" | "expired" | "auto_approved";
+  consumed: boolean;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+}
+
+type PendingApprovalDbRow = {
+  id: string; kind: string; ship_symbol: string | null; detail: string; cost: string | null;
+  status: PendingApprovalRow["status"]; consumed: boolean; created_at: Date; expires_at: Date; decided_at: Date | null;
+};
+
+function toPendingApprovalRow(r: PendingApprovalDbRow): PendingApprovalRow {
+  return {
+    id: r.id,
+    kind: r.kind,
+    shipSymbol: r.ship_symbol,
+    detail: r.detail,
+    cost: r.cost === null ? null : Number(r.cost),
+    status: r.status,
+    consumed: r.consumed,
+    createdAt: r.created_at.toISOString(),
+    expiresAt: r.expires_at.toISOString(),
+    decidedAt: r.decided_at ? r.decided_at.toISOString() : null,
+  };
+}
+
 export interface HeldRouteRow {
   shipSymbol: string;
   goodSymbol: string;
@@ -1705,6 +1742,99 @@ export class Store {
       }
       return [...byRule.entries()].map(([ruleKey, ships]) => ({ ruleKey, ships }));
     });
+  }
+
+  /**
+   * Operator approval gate (docs: ApprovalGate, src/engine/approvals.ts).
+   * `kind` identifies the class of decision (e.g. "buyShip") — by convention
+   * only one row is ever `pending` per (tenant_id, kind) at a time; that's
+   * enforced in ApprovalGate, not here.
+   */
+  async createPendingApproval(
+    tenantId: string,
+    kind: string,
+    shipSymbol: string | undefined,
+    detail: string,
+    cost: number | undefined,
+    expiresAtIso: string,
+  ): Promise<PendingApprovalRow> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<PendingApprovalDbRow>(
+        `INSERT INTO pending_approvals (tenant_id, kind, ship_symbol, detail, cost, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [tenantId, kind, shipSymbol ?? null, detail, cost ?? null, expiresAtIso],
+      );
+      return toPendingApprovalRow(res.rows[0]!);
+    });
+  }
+
+  /** The row ApprovalGate still needs to act on for this kind — either
+   *  awaiting a decision, or decided but not yet polled by the engine.
+   *  Not the same thing as "awaiting an operator decision"; see
+   *  listOpenApprovals() for what the dashboard shows. */
+  async getUnconsumedApproval(tenantId: string, kind: string): Promise<PendingApprovalRow | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<PendingApprovalDbRow>(
+        `SELECT * FROM pending_approvals WHERE tenant_id = $1 AND kind = $2 AND consumed = false
+         ORDER BY created_at DESC LIMIT 1`,
+        [tenantId, kind],
+      );
+      return res.rows[0] ? toPendingApprovalRow(res.rows[0]) : undefined;
+    });
+  }
+
+  /** Most recently *decided* row for this kind — used to hold a denial's
+   *  cooldown window without re-asking the operator every tick. */
+  async getLastDecidedApproval(tenantId: string, kind: string): Promise<PendingApprovalRow | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<PendingApprovalDbRow>(
+        `SELECT * FROM pending_approvals WHERE tenant_id = $1 AND kind = $2 AND status != 'pending'
+         ORDER BY decided_at DESC NULLS LAST LIMIT 1`,
+        [tenantId, kind],
+      );
+      return res.rows[0] ? toPendingApprovalRow(res.rows[0]) : undefined;
+    });
+  }
+
+  /** All open approvals across every kind — what the dashboard's Approvals panel lists. */
+  async listOpenApprovals(tenantId: string): Promise<PendingApprovalRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<PendingApprovalDbRow>(
+        `SELECT * FROM pending_approvals WHERE tenant_id = $1 AND status = 'pending' ORDER BY created_at ASC`,
+        [tenantId],
+      );
+      return res.rows.map(toPendingApprovalRow);
+    });
+  }
+
+  /** Resolve one approval — an explicit operator decision (dashboard) or
+   *  ApprovalGate's own timeout fallback. `consumed` is only ever true for
+   *  the latter: a timeout is decided and acted on by the engine in the
+   *  same breath, so there's nothing left to poll for. An operator decision
+   *  leaves `consumed` false — the engine picks it up (and marks it
+   *  consumed itself, via consumeApproval()) on its own next poll. Scoped
+   *  by tenant AND id so a stale dashboard tab can't resolve a different
+   *  tenant's row. */
+  async decideApproval(
+    tenantId: string,
+    id: string,
+    status: "approved" | "denied" | "expired" | "auto_approved",
+    consumed = false,
+  ): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `UPDATE pending_approvals SET status = $3, consumed = $4, decided_at = now() WHERE tenant_id = $1 AND id = $2 AND status = 'pending'`,
+        [tenantId, id, status, consumed],
+      ),
+    );
+  }
+
+  /** Mark an already-decided approval as acted upon — the engine calls this
+   *  right after reading an operator's decision off getUnconsumedApproval(). */
+  async consumeApproval(tenantId: string, id: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(`UPDATE pending_approvals SET consumed = true WHERE tenant_id = $1 AND id = $2`, [tenantId, id]),
+    );
   }
 
   /** Snapshot one ship's position — periodic sample the replay scrubber plays back. */

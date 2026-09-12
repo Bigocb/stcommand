@@ -976,6 +976,11 @@
     letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; text-align:center;
   }
 
+  .approval-banner {
+    flex:0 0 auto; background:var(--accent); color:var(--ink); font-family:var(--disp); font-size:11px;
+    letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; text-align:center; cursor:pointer;
+  }
+
   /* ── mobile page ─────────────────────────────
      Below the breakpoint, the tab-based desktop layout (six dense panes
      stacked into one column, toolbars sized for a mouse) gives way entirely

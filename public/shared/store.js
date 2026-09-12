@@ -85,6 +85,8 @@ export let pricePoints = [];
 export let contracts = [];
 export let missions = [];
 
+export let approvals = [];
+
 export let leaderboard = [];
 export let factions = [];
 
@@ -346,6 +348,19 @@ export async function loadProgramme() {
     contracts = cres.ok ? (await cres.json()).contracts ?? [] : [];
     missions = mres.ok ? (await mres.json()).missions ?? [] : [];
     notify("programme");
+  } catch (e) { console.error(e); }
+}
+
+/**
+ * Pending operator approvals — polled globally (not gated by which tab is
+ * open, unlike loadProgramme()) since these are exactly the kind of thing
+ * an operator needs to notice without already being on the Ops tab.
+ */
+export async function loadApprovals() {
+  try {
+    const res = await fetch("/api/approvals");
+    approvals = res.ok ? (await res.json()).approvals ?? [] : [];
+    notify("approvals");
   } catch (e) { console.error(e); }
 }
 

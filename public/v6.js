@@ -25,8 +25,10 @@ import {
   dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
   missions, leaderboard, factions, narrative, narrativeMeta, chatHistory,
+  approvals,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
+  loadApprovals,
 } from "/shared/store.js";
 import {
   login, register as registerAgent, logout as endSession,
@@ -926,6 +928,56 @@ function renderStrandedBanner() {
   b.textContent = `${stranded.length} ship${stranded.length > 1 ? "s" : ""} stranded: ${stranded.map((s) => s.symbol).join(", ")}`;
   const main = $("views");
   main.parentElement.insertBefore(b, main);
+}
+
+/** Global "something needs a decision" banner — shown on every view, not
+ *  just Ops, since the whole point of a gated action is that the operator
+ *  might not already be looking at it. Clicking jumps to Ops, where the
+ *  actual Approve/Deny controls live. */
+function renderApprovalsBanner() {
+  document.getElementById("approval-banner")?.remove();
+  if (!approvals.length) return;
+  const b = document.createElement("div");
+  b.id = "approval-banner";
+  b.className = "approval-banner";
+  b.textContent = `${approvals.length} approval${approvals.length > 1 ? "s" : ""} awaiting your decision — click to review`;
+  b.addEventListener("click", () => setView("ops"));
+  const main = $("views");
+  main.parentElement.insertBefore(b, main);
+}
+
+function renderApprovals() {
+  const el = $("approvals");
+  const countEl = $("approval-count");
+  if (!el) return;
+  if (countEl) countEl.textContent = approvals.length ? `${approvals.length} pending` : "none pending";
+  if (!approvals.length) { el.innerHTML = '<div class="empty">Nothing waiting on a decision.</div>'; return; }
+  el.innerHTML = approvals.map((a) => `
+    <div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">${escapeHtml(a.kind)}</span>
+        ${a.shipSymbol ? `<span class="ops-sub">${escapeHtml(a.shipSymbol)}</span>` : ""}
+        <span class="fill"></span>
+        ${a.cost != null ? `<span class="ops-sub">${fmt(a.cost)}c</span>` : ""}
+      </div>
+      <div class="ops-row"><span class="ops-sub">${escapeHtml(a.detail)}</span></div>
+      <div class="ops-head" style="margin-top:6px">
+        <span class="ops-dead">auto-decides ${countdown(a.expiresAt)}</span>
+        <span class="fill"></span>
+        <button class="btn" data-act="approve" data-id="${escapeAttr(a.id)}">Approve</button>
+        <button class="btn" data-act="deny" data-id="${escapeAttr(a.id)}">Deny</button>
+      </div>
+    </div>`).join("");
+  el.querySelectorAll("button[data-act]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const decision = b.dataset.act === "approve" ? "approved" : "denied";
+      b.disabled = true;
+      try {
+        await api("POST", `/api/approvals/${b.dataset.id}/decide`, { decision });
+        await loadApprovals();
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
 }
 
 function renderSystemStrip() {
@@ -5306,6 +5358,7 @@ const every = (ms, fn) => timers.push({ ms, fn, last: 0 });
 every(5000, loadState);
 every(5000, loadBridge);
 every(3000, loadActivity);
+every(20000, loadApprovals);
 every(20000, () => { if (currentView === "markets") loadMarkets(marketSystemFilter); });
 every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); } });
 every(20000, () => { if (currentView === "ops") loadProgramme(); });
@@ -5960,6 +6013,7 @@ subscribe("prices", () => {
   if (pricePoints.length) renderPriceChart(pricePoints, "price-chart");
 });
 subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); });
+subscribe("approvals", () => { renderApprovalsBanner(); renderApprovals(); });
 subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); });
 subscribe("narrative", renderNarrative);
 subscribe("chat", renderChatHistory);

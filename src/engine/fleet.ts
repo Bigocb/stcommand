@@ -9,6 +9,7 @@ import { MissionManager } from "./mission.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent, HeldRouteRow } from "../db/store.js";
+import { ApprovalGate } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { IDLE_STEP, type AgentStep } from "./agentStep.js";
@@ -261,6 +262,7 @@ export class FleetManager {
 
   private readonly store?: Store;
   private readonly tenantId?: string;
+  private readonly approvals: ApprovalGate;
   private readonly discord?: DiscordRelay;
   private readonly galaxy: GalaxyAtlas;
   /**
@@ -318,6 +320,7 @@ export class FleetManager {
     this.minCashReserveDefault = opts.minCashReserve ?? 20_000;
     this.store = opts.store;
     this.tenantId = opts.tenantId;
+    this.approvals = new ApprovalGate(this.store, this.tenantId, this.log);
     this.discord = opts.discord;
     this.scheduler = opts.scheduler;
     // Halt state used to be restored synchronously right here
@@ -2297,6 +2300,27 @@ export class FleetManager {
     for (const attempt of attempts) {
       if (atCap(attempt.frameSymbol)) continue;
       if (!this.canAfford(attempt.price, agent.credits)) continue;
+      // Operator approval gate: real credits spent on the operator's behalf
+      // without them ever seeing the specific purchase. maybeBuyShip() runs
+      // every tick regardless, so this is just a guard clause — no new
+      // suspension mechanism needed, the same tick that requested approval
+      // just tries again next time and picks the decision up once it exists.
+      // Approves itself after 2h with nobody watching, matching the
+      // fully-automatic behavior this fleet had before the gate existed.
+      const approved = await this.approvals.request("buyShip", {
+        detail: `${attempt.type} at ${attempt.yardSymbol} for ${attempt.price}c (${attempt.reason})`,
+        cost: attempt.price,
+        timeoutMs: 2 * 60 * 60_000,
+        onTimeout: "approve",
+      });
+      if (approved === undefined) {
+        this.log(`purchase of ${attempt.type} at ${attempt.yardSymbol} awaiting operator approval`);
+        return;
+      }
+      if (approved === false) {
+        this.log(`purchase of ${attempt.type} at ${attempt.yardSymbol} denied by operator`);
+        return;
+      }
       try {
         this.log(`purchasing ${attempt.type} at ${attempt.yardSymbol} for ${attempt.price} credits (${attempt.reason})`);
         const res = await this.api.purchaseShip(attempt.type, attempt.yardSymbol);

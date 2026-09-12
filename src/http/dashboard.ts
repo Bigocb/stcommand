@@ -87,6 +87,37 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     res.json({ ...w.state.get(), stale: false });
   });
 
+  /**
+   * Operator approval gate: consequential, engine-initiated decisions
+   * (currently just an autonomous ship purchase — FleetManager.maybeBuyShip())
+   * wait here for a human decision instead of executing outright. Listing
+   * only returns rows still awaiting a decision — an already-decided one
+   * disappears the moment the engine polls it up (ApprovalGate.request()),
+   * same as any other propose-and-consume state in this engine.
+   */
+  router.get("/approvals", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ approvals: await w.store.listOpenApprovals(w.tenantId) });
+  });
+
+  router.post("/approvals/:id/decide", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { id } = req.params;
+    const { decision } = req.body ?? {};
+    if (decision !== "approved" && decision !== "denied") {
+      return res.status(400).json({ error: "decision must be \"approved\" or \"denied\"" });
+    }
+    try {
+      await w.store.decideApproval(w.tenantId, id, decision);
+      res.json({ ok: true, id, decision });
+    } catch (err) {
+      console.error("[dashboard] approvals decide error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/systems", (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
