@@ -651,8 +651,32 @@ async function saveKeepers() {
 async function renderBook() {
   const el = $("book-sheet");
   if (!el) return;
+  // A value chip's click-to-edit input (.cval-input, created imperatively by
+  // wireClauseValueEditor(), not part of the template below) would simply
+  // vanish on a full rebuild — the template always renders the button form,
+  // so there is nothing to restore it into. Rather than lose an in-progress
+  // numeric edit to a re-render triggered by something unrelated (toggling a
+  // different rule, an approvals event, ...), skip this pass entirely while
+  // one is open; it is a short, blocking interaction the operator commits or
+  // cancels in a few keystrokes, and the render this defers is not lost —
+  // whatever triggered it already updated the underlying data.
+  if (el.querySelector(".cval-input")) return;
   if (!doctrineRules.length) await loadDoctrine();
   await loadDoctrineFireShips();
+  // Snapshot every persistent settings input's value (and focus/caret, for
+  // whichever one is currently focused) before the full rebuild below blows
+  // them all away with fresh elements — the Discord webhook URL and co-pilot
+  // endpoint/model/key fields live in this same sheet and reset mid-edit
+  // every time this re-ran for any reason. Same pattern as
+  // refreshOpenShipDetails()'s own fix for the ship detail panel.
+  const fields = [...el.querySelectorAll("input, select, textarea")]
+    .filter((f) => f.id || f.className)
+    .map((f) => ({
+      selector: f.id ? `#${f.id}` : `.${f.className.trim().split(/\s+/).join(".")}`,
+      value: f.value,
+      focused: document.activeElement === f,
+      caret: typeof f.selectionStart === "number" ? f.selectionStart : null,
+    }));
 
   const applied = doctrineRules.filter((r) => r.enabled).length;
   const clauses = doctrineRules.map((r) => {
@@ -731,6 +755,13 @@ async function renderBook() {
       </div>
     </div>
     <div class="marg">${margHtml}</div>`;
+
+  for (const f of fields) {
+    const next = el.querySelector(f.selector);
+    if (!next || !f.value) continue;
+    next.value = f.value;
+    if (f.focused) { next.focus(); if (f.caret !== null && next.setSelectionRange) { try { next.setSelectionRange(f.caret, f.caret); } catch (_) {} } }
+  }
 
   el.querySelectorAll(".clause[data-key]").forEach((p) => {
     const key = p.dataset.key;
