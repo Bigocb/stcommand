@@ -203,19 +203,27 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     // DAGGER-15 at 0/300 on X1-RD37-BB4D — itself a marketplace — returned at
     // "no reachable target" every tick and never reached refuelIfNeeded(),
     // because its range was what made every target unreachable.
+    //
+    // The docking-block top-off added for "buy fuel at every opportunity"
+    // (see that test's own describe block below) now reaches this ship
+    // first, in the same tick, before target-selection ever runs — so by
+    // the time this scenario's own dead-end check would fire, the tank is
+    // already full. FAR is still genuinely out of range at full capacity
+    // (900 one-way vs. a 300 tank), so "no reachable target" is the
+    // correct outcome here now; what still matters is that the ship
+    // actually got refueled rather than looping at 0 forever.
     const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
     Object.assign(ship.fuel, { current: 0, capacity: 300 });
     const logs: string[] = [];
     const agent = new ShipAgent(ship, {
       api: { getShip: async () => ship } as any,
       log: (m) => logs.push(m),
-      // Only a far target exists: unreachable on an empty tank, fine on a full one.
       marketTourTargets: async () => ["X1-REMOTE-FAR"],
     });
     agent.withWorld(
       [
         { symbol: "X1-REMOTE-A1", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] },
-        { symbol: "X1-REMOTE-FAR", x: 900, y: 0 }, // beyond capacity, so no target is picked
+        { symbol: "X1-REMOTE-FAR", x: 900, y: 0 }, // beyond capacity outright, refuel or not
       ] as any,
       [],
     );
@@ -227,9 +235,9 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
 
     const worked = await (agent as any).tourScout();
 
-    assert.equal(worked, true, "a successful top-up counts as progress");
-    assert.ok(logs.some((l) => l.includes("refuelled at X1-REMOTE-A1 (0 → 300)")));
-    assert.ok(!logs.some((l) => l.includes("no reachable target")));
+    assert.equal(worked, false, "genuinely nowhere reachable even at full capacity");
+    assert.equal(ship.fuel.current, 300, "refueled by the opportunistic top-off, not left at 0");
+    assert.ok(logs.some((l) => l.includes("no reachable target")));
   });
 
   it("does not spin when the market it is standing on sells no fuel", async () => {
@@ -503,5 +511,56 @@ describe("ShipAgent.tourScout: marks itself stranded, not just idle", () => {
     await (agent as any).tourScout();
 
     assert.equal(agent.isStranded(), false, "recovers on its own next successful tick, no external reset needed");
+  });
+});
+
+describe("ShipAgent.tourScout: tops off fuel at every market, not just when running low", () => {
+  // The insurance against the stranding above: a habit of buying fuel
+  // whenever docked somewhere that sells it, rather than only once fuel is
+  // already low, so a ship never enters a fuel-sparse system already close
+  // to empty.
+  it("tops off on arrival even at a comfortable, non-low fuel level", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 280, capacity: 300 }); // 93% — not "low" by the old 90% bar
+    const refuelCalls: unknown[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => [],
+      shipyardTourTargets: async () => [],
+    });
+    agent.withWorld([{ symbol: "X1-REMOTE-A1", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] }] as any, []);
+    (agent as any).refuelIfNeeded = async (reserve: number, target?: string, belowFraction?: number) => {
+      refuelCalls.push({ reserve, target, belowFraction });
+      return true;
+    };
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.ok(
+      refuelCalls.some((c: any) => c.belowFraction === 0.95),
+      "asks to top off toward a near-full threshold, not just the old 90%-and-low bar",
+    );
+  });
+
+  it("does not spend a request re-topping an essentially full tank", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 300, capacity: 300 });
+    const agent = new ShipAgent(ship, {
+      api: {
+        getShip: async () => ship,
+        refuelShip: async () => { throw new Error("must not be called — already full"); },
+      } as any,
+      log: () => {},
+      marketTourTargets: async () => [],
+      shipyardTourTargets: async () => [],
+    });
+    agent.withWorld([{ symbol: "X1-REMOTE-A1", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] }] as any, []);
+    (agent as any).ensureDocked = async () => {};
+
+    // Deliberately not mocking refuelIfNeeded here: this exercises the real
+    // ShipProxy implementation's own "enough" short-circuit, not a stub.
+    await (agent as any).tourScout();
   });
 });

@@ -731,8 +731,8 @@ export class ShipAgent {
     return this.registry.systemOf(waypointSymbol);
   }
 
-  private async refuelIfNeeded(reserve: number, target?: string): Promise<boolean> {
-    return this.proxy.refuelIfNeeded({ reserve, target });
+  private async refuelIfNeeded(reserve: number, target?: string, belowFraction?: number): Promise<boolean> {
+    return this.proxy.refuelIfNeeded({ reserve, target, belowFraction });
   }
 
   /** Find the best arbitrage route starting from a given (or current) market. */
@@ -1319,6 +1319,20 @@ export class ShipAgent {
       // identical reason prices used to never update — flagged and left open
       // when the market half was fixed (see that commit's own message).
       if (this.recordShipyard && yardTargets.includes(standingAt)) await this.recordShipyard(standingAt);
+      // Top off here whenever the tank isn't already essentially full,
+      // regardless of whether this leg actually needed it — a tour ship
+      // never knows what it'll be asked to reach next (a remote dispatch,
+      // an unusually spread-out system), and every prior refuel call in
+      // this method only topped off *just enough* for the specific leg
+      // already picked. Confirmed live: two tour ships marooned themselves
+      // at a market with no FUEL good, both real fuel stations in that
+      // system out of round-trip range on what they had left — a habit of
+      // buying fuel at every market that does sell it, not only when
+      // already running low, is the cheap insurance against exactly that.
+      // Best-effort: most waypoints with the MARKETPLACE trait don't
+      // actually stock FUEL, and refuelIfNeeded() already logs and
+      // swallows that case rather than throwing.
+      await this.refuelIfNeeded(0, undefined, 0.95);
     }
 
     const targets = [...marketTargets, ...yardTargets];
