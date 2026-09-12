@@ -48,7 +48,19 @@ export class GalaxyAtlas {
   async loadSystem(systemSymbol: string): Promise<KnownSystem> {
     if (this.systems.has(systemSymbol)) return this.systems.get(systemSymbol)!;
     const cached = await this.store?.getSystemTopology(systemSymbol);
-    if (cached) {
+    // An empty cached waypoint list is not "confirmed zero waypoints" — it's
+    // what the galaxy-wide crawler's metadata pass (setGalaxySystemMeta())
+    // writes as a placeholder before its own, separate waypoint-scanning
+    // pass ever reaches this system. A real system always has at least one
+    // waypoint, so `cached` existing with an empty array means only that
+    // row exists, not that this system has actually been scanned. Treating
+    // it as a cache hit anyway short-circuited the real live fetch below —
+    // confirmed live: two fresh tenants both booted with a completely empty
+    // home system (no mining targets, no keeper market, the map falling
+    // back to its synthetic placeholder), even though their home system
+    // genuinely has a marketplace and shipyard. Same reasoning
+    // scanJumpGates() already applies to jump_gates, just missing here.
+    if (cached && cached.waypoints.length > 0) {
       const known: KnownSystem = {
         symbol: systemSymbol,
         waypoints: cached.waypoints as Waypoint[],
