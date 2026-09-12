@@ -2042,32 +2042,53 @@ export class FleetManager {
   }
 
   /**
-   * Grow toward explorerTarget by converting a spare idle hull first,
-   * before maybeBuyShip() ever spends credits on one — an explorer just
-   * needs fuel range to jump around with, not a specific frame or mount,
-   * so a ship already sitting in idleShips is free capacity nobody's using.
-   * Only falls through to a real purchase (maybeBuyShip()'s own
-   * explorerTarget priority) once there's no idle hull left to repurpose.
+   * Grow toward explorerTarget by converting a spare hull first, before
+   * maybeBuyShip() ever spends credits on one — an explorer just needs fuel
+   * range to jump around with, not a specific frame or mount.
+   *
+   * `idleShips` is NOT a usable donor pool here: it holds only unclaimed
+   * satellite probes (0 fuel capacity, can't move at all — see
+   * installRoleAgent()'s "satellite: no keeper market" branch), so a normal
+   * fleet where every hull gets a role immediately never has anything in it.
+   * The real spare capacity is whichever role currently has more ships than
+   * it needs: pull one from there instead. "Needs" is a doctrine target
+   * where one exists (miner/siphoner), or a fixed floor of 1 for trader/tour
+   * — the same floor maybeBuyShip()'s own tour-buy trigger (tours.size===0)
+   * already treats as the minimum useful count for that role.
    */
   private async maybeGrowExplorers(): Promise<void> {
     const target = this.doctrine.value("explorerTarget", 0);
     if (this.explorers.size >= target) return;
-    // Best-fuel-range idle hull, not just the first one found — a spare
-    // probe (0 fuel, can't move at all) sitting in idleShips would
-    // otherwise get picked and immediately fail to do anything. 300 is the
-    // floor below which a hull can't cover a useful jump range as an
-    // explorer.
+    // 300 is the floor below which a hull can't cover a useful jump range as
+    // an explorer.
     const MIN_EXPLORER_FUEL_CAPACITY = 300;
+    const donorPools: { role: ManualRole; map: Map<string, { getShip(): Ship }>; overage: number }[] = [
+      { role: "miner", map: this.miners, overage: this.miners.size - this.doctrine.value("minerTarget", 0) },
+      { role: "siphoner", map: this.siphoners, overage: this.siphoners.size - this.doctrine.value("siphonTarget", 0) },
+      { role: "tour", map: this.tours, overage: this.tours.size - 1 },
+      { role: "trader", map: this.traders, overage: this.traders.size - 1 },
+    ];
+    // Most-overstaffed role first; within it, the highest-fuel hull with no
+    // cargo in the hold, so a trader mid-route never gets its bought cargo
+    // and destination orphaned by the reassignment.
+    donorPools.sort((a, b) => b.overage - a.overage);
+    let bestRole: ManualRole | undefined;
     let best: string | undefined;
-    let bestFuel = 0;
-    for (const [symbol, ship] of this.idleShips) {
-      if (ship.fuel.capacity < MIN_EXPLORER_FUEL_CAPACITY) continue;
-      if (ship.fuel.capacity > bestFuel) { best = symbol; bestFuel = ship.fuel.capacity; }
+    for (const { role, map, overage } of donorPools) {
+      if (overage <= 0) continue;
+      let bestFuel = 0;
+      for (const [symbol, agent] of map) {
+        const ship = agent.getShip();
+        if (ship.fuel.capacity < MIN_EXPLORER_FUEL_CAPACITY) continue;
+        if ((ship.cargo?.units ?? 0) > 0) continue;
+        if (ship.fuel.capacity > bestFuel) { best = symbol; bestFuel = ship.fuel.capacity; }
+      }
+      if (best) { bestRole = role; break; }
     }
-    if (!best) return;
+    if (!best || !bestRole) return;
     try {
       await this.setShipRole(best, "explorer");
-      this.log(`${best}: converted idle hull to explorer (no purchase needed)`);
+      this.log(`${best}: converted spare ${bestRole} to explorer (no purchase needed)`);
     } catch (err) {
       this.log(`convert ${best} to explorer failed: ${err instanceof Error ? err.message : String(err)}`);
     }
