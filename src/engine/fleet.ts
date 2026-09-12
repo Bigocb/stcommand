@@ -161,6 +161,33 @@ export class FleetManager {
    *  before being scrapped there — mirrors operatorHolds, restored the same
    *  way at boot. See sellShip()/proposeScrapGoals(). */
   private readonly scrapTargets = new Map<string, string>();
+  /**
+   * Serializes updateShipManualState()'s read-modify-write against the one
+   * shared `shipManualState` blob (every ship's hold/pin/scrap packed into a
+   * single JSON flag). Without this, two calls racing — a hold cleared for
+   * one ship while another's scrap target is set moments later, say — can
+   * each read the same pre-change blob and write their own edit back over
+   * it, silently reverting the other. Confirmed live: an operator hold
+   * survived being cleared twice in a row (once by a role reassignment,
+   * once by an explicit release) on a busy multi-ship fleet, which only
+   * makes sense as a lost update on this shared blob, not either clear
+   * failing to run.
+   */
+  private manualStateLock: Promise<void> = Promise.resolve();
+  /**
+   * Every system this tenant has ever charted, durable across restarts —
+   * deliberately separate from GalaxyAtlas's own `systems` Map, which is
+   * in-memory only and populated lazily by loadSystem() calls made THIS
+   * process lifetime. A system an explorer jumped to, surveyed, and later
+   * moved on from used to vanish from the galaxy map and system switcher
+   * the moment no ship still occupied it (chartOccupiedSystems() only
+   * reloads systems ships currently sit in) — reported live as a charted
+   * system appearing for a few minutes, then disappearing from both the
+   * galaxy map and the regular map once the explorer jumped elsewhere.
+   * This set is the durable record of "has this tenant ever seen this
+   * system", independent of whether anything is parked there right now.
+   */
+  private chartedSystems = new Set<string>();
   readonly doctrine: Doctrine;
   private systemSymbol = "";
   private positions: WaypointPos[] = [];
@@ -318,6 +345,13 @@ export class FleetManager {
     // this is the earliest point a halted fleet can be guaranteed to actually
     // stay halted now that the store is async.
     if (this.tenantId) this.paused = (await this.store?.getFleetFlag(this.tenantId, "paused")) === "true";
+    if (this.tenantId) {
+      const rawCharted = await this.store?.getFleetFlag(this.tenantId, "chartedSystems");
+      if (rawCharted) {
+        try { for (const s of JSON.parse(rawCharted) as string[]) this.chartedSystems.add(s); }
+        catch { /* ignore malformed flag, same as every other JSON flag read in this file */ }
+      }
+    }
     if (this.tenantId && this.store) await this.shipRegistry.loadAllClaims(this.tenantId, this.store);
     await this.doctrine.reload();
     // Whether to stay paused pending onboarding confirmation is decided by
@@ -337,6 +371,7 @@ export class FleetManager {
     this.credits = agent.credits;
     this.systemSymbol = agent.headquarters.slice(0, agent.headquarters.lastIndexOf("-"));
     await this.galaxy.loadSystem(this.systemSymbol);
+    await this.markSystemCharted(this.systemSymbol);
     await this.galaxy.scanJumpGates(this.systemSymbol);
     const known = this.galaxy.getSystem(this.systemSymbol)!;
     this.rawWaypoints = known.waypoints;
@@ -1254,8 +1289,28 @@ export class FleetManager {
    */
   private async chartSystemFor(shipSymbol: string, systemSymbol: string): Promise<void> {
     await this.galaxy.loadSystem(systemSymbol);
+    await this.markSystemCharted(systemSymbol);
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
     this.registry.noteTopologyChanged();
+  }
+
+  /** Record `systemSymbol` in the durable charted-systems set — see that
+   *  field's own comment. A no-op once a system is already recorded, so
+   *  chartOccupiedSystems()'s every-tick call only ever writes on first
+   *  sight of a genuinely new system, not on every cache-hit reload. */
+  private async markSystemCharted(systemSymbol: string): Promise<void> {
+    if (this.chartedSystems.has(systemSymbol)) return;
+    this.chartedSystems.add(systemSymbol);
+    if (this.tenantId) {
+      await this.store?.setFleetFlag(this.tenantId, "chartedSystems", JSON.stringify([...this.chartedSystems]));
+    }
+  }
+
+  /** Every system this tenant has ever charted — see chartedSystems' own
+   *  comment. Used by GET /api/galaxy/overview so a system doesn't vanish
+   *  from the galaxy map just because nothing is parked there right now. */
+  getChartedSystems(): string[] {
+    return [...this.chartedSystems];
   }
 
   /**
@@ -1285,6 +1340,7 @@ export class FleetManager {
       [...systems].map(async (sys) => {
         await this.galaxy.loadSystem(sys);
         await this.galaxy.scanJumpGates(sys);
+        await this.markSystemCharted(sys);
       }),
     );
     this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
@@ -2309,6 +2365,7 @@ export class FleetManager {
       const target = targetSystem ?? connected.find((c) => !this.surveyedSystems.has(c)) ?? connected[0];
       if (!target) throw new Error(`no connected systems known from ${currentSystem}`);
       await this.galaxy.loadSystem(target);
+      await this.markSystemCharted(target);
       const gates = this.galaxy.gatesTo(currentSystem, target);
       const gate = gates[0];
       if (!gate) throw new Error(`no jump gate to ${target}`);
@@ -3506,25 +3563,36 @@ export class FleetManager {
   }
 
   private async updateShipManualState(shipSymbol: string, patch: { holdWaypoint?: string | null; minePin?: string | null; scrapAt?: string | null }): Promise<void> {
-    if (!this.store || !this.tenantId) return;
-    const all = await this.loadShipManualState();
-    const next = { ...(all[shipSymbol] ?? {}) };
-    if ("holdWaypoint" in patch) {
-      if (patch.holdWaypoint) { next.holdWaypoint = patch.holdWaypoint; this.operatorHolds.set(shipSymbol, patch.holdWaypoint); }
-      else { delete next.holdWaypoint; this.operatorHolds.delete(shipSymbol); }
+    // Queue this call behind whatever's already pending, so its own
+    // read-modify-write of the shared blob never interleaves with another
+    // in-flight call's — see manualStateLock's own comment.
+    const previous = this.manualStateLock;
+    let release!: () => void;
+    this.manualStateLock = new Promise((resolve) => { release = resolve; });
+    await previous;
+    try {
+      if (!this.store || !this.tenantId) return;
+      const all = await this.loadShipManualState();
+      const next = { ...(all[shipSymbol] ?? {}) };
+      if ("holdWaypoint" in patch) {
+        if (patch.holdWaypoint) { next.holdWaypoint = patch.holdWaypoint; this.operatorHolds.set(shipSymbol, patch.holdWaypoint); }
+        else { delete next.holdWaypoint; this.operatorHolds.delete(shipSymbol); }
+      }
+      if ("minePin" in patch) {
+        if (patch.minePin) next.minePin = patch.minePin;
+        else delete next.minePin;
+      }
+      if ("scrapAt" in patch) {
+        if (patch.scrapAt) { next.scrapAt = patch.scrapAt; this.scrapTargets.set(shipSymbol, patch.scrapAt); }
+        else { delete next.scrapAt; this.scrapTargets.delete(shipSymbol); }
+      }
+      if (Object.keys(next).length === 0) delete all[shipSymbol];
+      else all[shipSymbol] = next;
+      if (Object.keys(all).length === 0) await this.store.removeFleetFlag(this.tenantId, "shipManualState");
+      else await this.store.setFleetFlag(this.tenantId, "shipManualState", JSON.stringify(all));
+    } finally {
+      release();
     }
-    if ("minePin" in patch) {
-      if (patch.minePin) next.minePin = patch.minePin;
-      else delete next.minePin;
-    }
-    if ("scrapAt" in patch) {
-      if (patch.scrapAt) { next.scrapAt = patch.scrapAt; this.scrapTargets.set(shipSymbol, patch.scrapAt); }
-      else { delete next.scrapAt; this.scrapTargets.delete(shipSymbol); }
-    }
-    if (Object.keys(next).length === 0) delete all[shipSymbol];
-    else all[shipSymbol] = next;
-    if (Object.keys(all).length === 0) await this.store.removeFleetFlag(this.tenantId, "shipManualState");
-    else await this.store.setFleetFlag(this.tenantId, "shipManualState", JSON.stringify(all));
   }
 
   /**

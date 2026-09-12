@@ -115,7 +115,15 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     try {
       const galaxy = w.fleet.getGalaxy();
       const known = galaxy.listSystems();
-      const symbols = known.map((s) => s.symbol);
+      const knownBySymbol = new Map(known.map((s) => [s.symbol, s]));
+      // The durable record of every system this tenant has ever charted —
+      // NOT the same as `known` above, which is GalaxyAtlas's in-memory
+      // systems Map: that's wiped on every restart and only repopulated for
+      // systems a ship currently occupies, so a system an explorer visited
+      // and later left used to vanish from this list (and the galaxy map)
+      // the moment nothing was still parked there. See FleetManager's
+      // chartedSystems field for the full story.
+      const symbols = [...new Set([...known.map((s) => s.symbol), ...w.fleet.getChartedSystems()])];
       const symbolSet = new Set(symbols);
       // listGalaxySystems() returns the whole shared, galaxy-wide table (all
       // ~7,000 crawled systems).
@@ -139,17 +147,23 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
         const sys = ship.nav?.systemSymbol;
         if (sys) shipSystems.set(sys, (shipSystems.get(sys) ?? 0) + 1);
       }
-      const systems = known.map((s) => {
-        const m = metaBySymbol.get(s.symbol);
+      const systems = symbols.map((symbol) => {
+        const s = knownBySymbol.get(symbol);
+        const m = metaBySymbol.get(symbol);
+        // A charted-but-not-currently-loaded system (nothing parked there
+        // this boot) has no live waypoint data to report market/shipyard/
+        // gate presence from — false/0 here, not a crash. It still shows up
+        // as a glyph on the galaxy map, which is the whole point; that
+        // detail comes back once something charts it again.
         return {
-          symbol: s.symbol,
+          symbol,
           x: m?.x ?? null,
           y: m?.y ?? null,
           type: m?.systemType ?? null,
-          hasMarket: s.markets.length > 0,
-          hasShipyard: s.shipyards.length > 0,
-          hasJumpGate: s.jumpGates.length > 0,
-          ships: shipSystems.get(s.symbol) ?? 0,
+          hasMarket: (s?.markets.length ?? 0) > 0,
+          hasShipyard: (s?.shipyards.length ?? 0) > 0,
+          hasJumpGate: (s?.jumpGates.length ?? 0) > 0,
+          ships: shipSystems.get(symbol) ?? 0,
         };
       });
       const edgeSet = new Set<string>();
