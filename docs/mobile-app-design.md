@@ -256,8 +256,9 @@ at a time, matching the design doc's own "current pass" framing.
 - **More** — a plain scroll of lower-frequency sections, exactly as
   designed ("a simple list-of-sections is enough"): Contracts
   (accept/decline/undecline/abandon/resume, delivery progress bars),
-  Construction missions (read-only progress — starting a *new* mission
-  stays desktop-only for now), Warehouse (stationed ship, total value, top
+  Construction missions (start a new mission by waypoint, Stop/Resume an
+  active one — the same start/pause/resume the desktop Ops tab exposes),
+  Warehouse (stationed ship, total value, top
   goods held — full ledger/targets editing stays desktop-only), and
   Doctrine (on/off toggles only, no threshold editing — mirrors the
   existing "mobile doctrine" pattern already shipped on desktop's own

@@ -14,6 +14,24 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower: start/stop missions and contracts from More)
+
+Follow-up to the Markets/More ship below — operator wanted the same
+start/stop control desktop's Ops tab has for missions and contracts, not
+just the read-only progress More shipped with initially.
+
+- `public/m.html`/`m.js` — a "start a construction mission" row (waypoint
+  input + Start button, `POST /api/missions/start`) above the missions
+  list; each active mission card now has a Stop (`/api/missions/pause`,
+  confirmed — releases the carrier ship) or Resume
+  (`/api/missions/resume`) button instead of read-only progress only.
+- `public/m.js` — contracts' "Stop working" (abandon) action now confirms
+  first, matching desktop's warning (no cancel in the SpaceTraders API —
+  the contract stays accepted and lapses at its deadline, costing
+  reputation).
+- Same `/api/missions/*`/`/api/contracts/*` endpoints desktop already
+  calls — no new server-side surface.
+
 ## 2026-09-13 (Tower: Markets and More tabs — 5-tab IA complete)
 
 Fourth and fifth screens of Tower (`/m`, the separate mobile app — see

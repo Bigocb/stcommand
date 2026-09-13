@@ -292,6 +292,12 @@ body {
  */
 .more-scroll .sec-h { margin-top: 6px; }
 .more-scroll .sec-h:first-child { margin-top: 0; }
+.mission-start-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.mission-start-row input {
+  flex: 1; background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
+  font-size: 12px; padding: 8px 10px; border-radius: 3px;
+}
+.card .acts .btn { flex: 1; }
 .prog-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 10.5px; }
 .prog-row .pr-pct { color: var(--dim); }
 .prog-track { height: 5px; background: rgba(255, 255, 255, 0.06); border-radius: 3px; overflow: hidden; margin: 4px 0 8px; }

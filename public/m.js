@@ -654,9 +654,19 @@ function renderMoreMissions() {
       const done = mat.fulfilled >= mat.required;
       return `<div class="prog-row"><span>${escapeHtml(mat.tradeSymbol)}</span><span class="pr-pct">${done ? "supplied" : `${mat.fulfilled}/${mat.required}`}</span></div><div class="prog-track"><i style="width:${pct}%"></i></div>`;
     }).join("");
+    const allDone = (m.materials ?? []).every((mat) => mat.fulfilled >= mat.required);
     return `<div class="card">
-      <div class="row1"><span class="who">${escapeHtml(m.targetWaypoint)}</span>${m.assignedShip ? `<span class="amt">${escapeHtml(m.assignedShip)}</span>` : ""}</div>
+      <div class="row1">
+        <span class="who">${escapeHtml(m.targetWaypoint)}</span>
+        <span class="amt">${m.paused ? "paused" : allDone ? "complete" : "supplying"}</span>
+      </div>
+      ${m.assignedShip ? `<div class="detail">carrier ${escapeHtml(m.assignedShip)}</div>` : '<div class="detail">no carrier yet</div>'}
       ${matRows}
+      <div class="acts">
+        ${m.paused
+          ? `<button class="btn pri" data-act="resume" data-wp="${escapeHtml(m.targetWaypoint)}">Resume</button>`
+          : `<button class="btn deny" data-act="pause" data-wp="${escapeHtml(m.targetWaypoint)}">Stop</button>`}
+      </div>
     </div>`;
   }).join("");
 }
@@ -693,6 +703,34 @@ function renderMore() {
   renderMoreDoctrine();
 }
 
+$("mission-start-btn").addEventListener("click", async () => {
+  const input = $("mission-wp-input");
+  const wp = input.value.trim();
+  if (!wp) return;
+  const btn = $("mission-start-btn");
+  btn.disabled = true;
+  try {
+    await api("POST", "/api/missions/start", { waypoint: wp });
+    input.value = "";
+    await loadProgramme();
+  } catch (err) { alert(err.message); }
+  btn.disabled = false;
+  renderMoreMissions();
+});
+
+$("more-missions").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const { act, wp } = b.dataset;
+  if (act === "pause" && !confirm(`Stop the construction mission at ${wp}? The carrier ship will be released; you can resume later.`)) return;
+  b.disabled = true;
+  try {
+    await api("POST", `/api/missions/${act}`, { waypoint: wp });
+    await loadProgramme();
+  } catch (err) { alert(err.message); }
+  renderMoreMissions();
+});
+
 $("more-contracts").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
@@ -703,6 +741,7 @@ $("more-contracts").addEventListener("click", async (e) => {
       const path = act === "accept" ? "/api/contracts/accept" : act === "decline" ? "/api/contracts/decline" : "/api/contracts/undecline";
       await api("POST", path, { contractId: id });
     } else if (act === "abandon") {
+      if (!confirm("Stop working this contract? The fleet will stop buying for it and release any ship assigned to it. It cannot be handed back — the contract stays accepted and will lapse at its deadline, which costs reputation.")) { b.disabled = false; return; }
       await api("POST", "/api/contracts/abandon", { contractId: id });
     } else if (act === "resume") {
       await api("POST", "/api/contracts/resume", { contractId: id });
