@@ -63,8 +63,14 @@
     </div>
     <div class="screen" data-screen="map">
       <div class="scope" id="scope">
-        <div class="scope-hd" id="scope-hd"></div>
-        <div class="scope-field" id="scope-field"></div>
+        <div class="scope-hd">
+          <span id="scope-hd-txt"></span>
+          <div class="sys-picker" id="sys-picker"></div>
+        </div>
+        <div class="scope-view" id="scope-view">
+          <div class="scope-field" id="scope-field"></div>
+        </div>
+        <button class="scope-reset" id="scope-reset" aria-label="Reset zoom">⟲</button>
       </div>
       <div class="map-sheet" id="map-sheet" hidden>
         <button class="handle" id="map-sheet-close" aria-label="Close"></button>

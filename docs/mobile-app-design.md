@@ -254,6 +254,40 @@ zoom in on what's worth looking at. A ship still shows even if it's
 parked at an excluded waypoint (mining an asteroid, say) — its position
 just uses the same projection as everything chartable.
 
+**Update, same day — pan/zoom, ship movement, multi-system.** Operator
+feedback after seeing Map live: still cluttered (overlapping labels in a
+dense cluster), and asked for pinch-zoom/pan plus a look at ship
+movement and multi-system handling. All three landed together:
+
+- **Pinch-zoom + pan.** Pointer Events on `#scope-view` (one pointer
+  pans, two pinch-zooms, 1x–4x, a reset button pinned top-right) driving
+  a plain CSS transform on `#scope-field` — the pan/zoom viewport is
+  deliberately a separate element from the field that holds the
+  percentage-positioned blips, so zoom level never has to be threaded
+  through the coordinate math itself.
+- **Label decluttering.** A waypoint's symbol label only renders when the
+  system has 10 or fewer chartable waypoints, the scope is zoomed past
+  1.6x, or that waypoint is the selected one — a dense system now shows
+  clean icons by default and reveals labels as you zoom in, instead of
+  the overlapping-text pile-up a tight cluster produced before.
+- **Ship movement.** Reuses `shared/domain.js`'s `shipTransitLerp()`/
+  `shipHeadingDeg()` — the same functions desktop's map already uses — so
+  an in-transit ship now animates smoothly between origin and
+  destination instead of snapping, and renders as a small rotated
+  triangle pointing along its real heading rather than a static dot.
+- **Multi-system.** `state.systems` (from `GalaxyAtlas.listSystems()`,
+  the same source the desktop galaxy overview already reads) carries
+  every charted system's full waypoint list, so a chip row above the
+  scope lets the operator look at any charted system, not just home —
+  no new server endpoint needed. Switching systems here is purely a
+  *viewing* choice; it doesn't change which system dispatch/fleet
+  actions operate on.
+
+Not built: a zoomed-out galaxy view with jump-gate lines between systems
+(desktop has one). The chip-row picker was the smaller, "if you need
+more later" step; revisit if hopping between systems on Map turns out to
+be frequent enough to want the bigger view.
+
 **Update, same day** — Markets and More are also shipped, completing the
 5-tab IA:
 

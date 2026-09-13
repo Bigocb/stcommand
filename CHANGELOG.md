@@ -14,6 +14,42 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower Map: pinch-zoom/pan, real ship movement, multi-system)
+
+Follow-up to the asteroid-declutter pass below — operator still found it
+cluttered (overlapping labels in dense clusters) and asked for pinch-zoom/
+pan, plus flagged two things Map needed eventually: ship movement like
+desktop's map, and a plan for multiple systems.
+
+- `public/m.html`/`m.css`/`m.js` — **pinch-zoom + pan**: Pointer Events on
+  a new `#scope-view` wrapper (one finger pans, two pinch-zooms, clamped
+  1x-4x) drive a CSS transform on `#scope-field`, kept as a separate
+  element from the field so the pan/zoom viewport never has to be
+  threaded through the percentage-based blip coordinate math. A small
+  reset button (⟲, top-right) snaps back to 1x/centered.
+- `public/m.js` — **label decluttering**: a waypoint's symbol label now
+  only renders when the system has ≤10 chartable waypoints, the scope is
+  zoomed past 1.6x, or it's the selected waypoint — a dense system shows
+  clean icons by default instead of the overlapping-text pile-up a tight
+  cluster produced, and labels reveal themselves as you zoom in.
+- `public/m.js` — **ship movement**: reuses `shared/domain.js`'s
+  `shipTransitLerp()`/`shipHeadingDeg()`, the same functions desktop's
+  own map already uses, so an in-transit ship now animates smoothly
+  between origin and destination and renders as a small triangle rotated
+  to its real heading instead of a static dot.
+- `public/m.html`/`m.css`/`m.js` — **multi-system**: a chip row above the
+  scope lists every charted system (from `state.systems`, the same
+  `GalaxyAtlas.listSystems()` data desktop's galaxy overview already
+  reads — no new server endpoint) and switches which one Map is showing.
+  Purely a viewing choice; doesn't touch which system fleet/dispatch
+  actions operate on. A zoomed-out galaxy view with jump-gate lines
+  (like desktop has) was considered and deliberately deferred — this
+  picker is the smaller step, worth revisiting only if system-hopping on
+  Map turns out to be frequent.
+
+Typechecked (`npx tsc --noEmit`, clean) and syntax-checked; not yet
+verified live against a real phone's touch gestures.
+
 ## 2026-09-13 (Tower Map: drop asteroid clutter, zoom in on real destinations)
 
 Operator feedback: the radar scope was too zoomed out because it plotted

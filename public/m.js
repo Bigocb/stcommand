@@ -15,7 +15,7 @@ import {
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine,
 } from "/shared/store.js";
-import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -380,16 +380,23 @@ $("deck-stack").addEventListener("touchend", (e) => {
 });
 
 /* ── Map: a literal radar scope ─────────────
- * Current system only, this pass — see docs/mobile-app-design.md. Real
- * waypoint x/y (state.waypoints) normalized into the scope's circular
- * field; tapping a waypoint opens a bottom sheet with whatever shipyard/
- * module intel is already known for it (intel.shipyards/intel.modules,
- * the same data desktop's Yards & outfitting panel groups — see
- * jobFor()'s sibling there). Buying a ship works directly from the
- * sheet (no ship-context needed); installing a module does, so that
- * stays read-only here for now.
+ * See docs/mobile-app-design.md. Real waypoint x/y normalized into the
+ * scope's circular field; tapping a waypoint opens a bottom sheet with
+ * whatever shipyard/module intel is already known for it
+ * (intel.shipyards/intel.modules, the same data desktop's Yards &
+ * outfitting panel groups). Buying a ship works directly from the sheet
+ * (no ship-context needed); installing a module does, so that stays
+ * read-only here for now.
+ *
+ * Multi-system: state.systems (from GalaxyAtlas.listSystems(), the same
+ * source the desktop galaxy overview reads) already carries every
+ * charted system's full waypoint list — no new server endpoint needed to
+ * let the operator look at a system other than home. A chip row picks
+ * which one this screen is currently showing; it doesn't change which
+ * system anything else in the app (Fleet, dispatch) operates on.
  */
 let selectedWaypoint = null;
+let scopeSystem = null;
 
 function blipClass(wp) {
   if (wp.type === "JUMP_GATE") return "gate";
@@ -409,11 +416,19 @@ function isChartable(wp) {
   return blipClass(wp) !== "other";
 }
 
+function chartedSystems() {
+  return state?.systems ?? [];
+}
+
+function currentSystemWaypoints() {
+  return chartedSystems().find((s) => s.symbol === scopeSystem)?.waypoints ?? [];
+}
+
 /** Real x/y (arbitrary system-coordinate units) centered and scaled to
  *  fit within ~80% of the scope's radius, one shared span for both axes
  *  so the layout isn't stretched. `extentWaypoints` decides the zoom
  *  level; `project()` can still place any point (e.g. a ship parked at an
- *  unlisted asteroid) using that same transform. */
+ *  unlisted asteroid, or mid-transit) using that same transform. */
 function computeMapProjection(extentWaypoints) {
   if (!extentWaypoints.length) return (w) => ({ x: 50, y: 50 });
   const xs = extentWaypoints.map((w) => w.x), ys = extentWaypoints.map((w) => w.y);
@@ -423,28 +438,120 @@ function computeMapProjection(extentWaypoints) {
   return (w) => ({ x: 50 + ((w.x - cx) / span) * 80, y: 50 - ((w.y - cy) / span) * 80 });
 }
 
+/* ── pan/zoom ──
+ * A plain CSS transform on #scope-field (translate then scale, both in
+ * its own local pixel space) driven by Pointer Events — one pointer
+ * pans, two pinch-zooms. Deliberately not touching the percentage-based
+ * blip positions themselves: those stay in the untransformed coordinate
+ * space project() already produces, so zoom/pan is purely a viewport
+ * operation on top.
+ */
+let scopeXform = { scale: 1, tx: 0, ty: 0 };
+const scopePointers = new Map();
+let panBase = null;
+let pinchBase = null;
+
+function applyScopeXform() {
+  $("scope-field").style.transform = `translate(${scopeXform.tx}px, ${scopeXform.ty}px) scale(${scopeXform.scale})`;
+}
+
+function resetScopeXform() {
+  scopeXform = { scale: 1, tx: 0, ty: 0 };
+  applyScopeXform();
+}
+
+function scopePointerDist() {
+  const pts = [...scopePointers.values()];
+  return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+}
+
+$("scope-view").addEventListener("pointerdown", (e) => {
+  scopePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  $("scope-view").setPointerCapture(e.pointerId);
+  if (scopePointers.size === 1) {
+    panBase = { x: e.clientX, y: e.clientY, tx: scopeXform.tx, ty: scopeXform.ty };
+  } else if (scopePointers.size === 2) {
+    panBase = null;
+    pinchBase = { dist: scopePointerDist(), scale: scopeXform.scale };
+  }
+});
+$("scope-view").addEventListener("pointermove", (e) => {
+  if (!scopePointers.has(e.pointerId)) return;
+  scopePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (scopePointers.size === 1 && panBase) {
+    scopeXform.tx = panBase.tx + (e.clientX - panBase.x);
+    scopeXform.ty = panBase.ty + (e.clientY - panBase.y);
+    applyScopeXform();
+  } else if (scopePointers.size === 2 && pinchBase) {
+    const dist = scopePointerDist();
+    if (dist > 0) {
+      scopeXform.scale = Math.min(4, Math.max(1, pinchBase.scale * (dist / pinchBase.dist)));
+      applyScopeXform();
+    }
+  }
+});
+function scopePointerEnd(e) {
+  scopePointers.delete(e.pointerId);
+  if (scopePointers.size === 1) {
+    const [[, p]] = scopePointers;
+    panBase = { x: p.x, y: p.y, tx: scopeXform.tx, ty: scopeXform.ty };
+    pinchBase = null;
+  } else {
+    panBase = null;
+    pinchBase = null;
+  }
+}
+$("scope-view").addEventListener("pointerup", scopePointerEnd);
+$("scope-view").addEventListener("pointercancel", scopePointerEnd);
+$("scope-reset").addEventListener("click", resetScopeXform);
+
+function renderSysPicker() {
+  const systems = chartedSystems();
+  const el = $("sys-picker");
+  if (systems.length < 2) { el.innerHTML = ""; return; }
+  el.innerHTML = systems.map((s) => `<button class="${s.symbol === scopeSystem ? "on" : ""}" data-sys="${escapeHtml(s.symbol)}">${escapeHtml(s.symbol)}${s.symbol === state?.systemSymbol ? " · home" : ""}</button>`).join("");
+}
+$("sys-picker").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-sys]");
+  if (!b) return;
+  scopeSystem = b.dataset.sys;
+  selectedWaypoint = null;
+  $("map-sheet").hidden = true;
+  resetScopeXform();
+  renderScope();
+});
+
 function renderScope() {
-  const waypoints = state?.waypoints ?? [];
+  if (!scopeSystem) scopeSystem = state?.systemSymbol;
+  const waypoints = currentSystemWaypoints();
   const chartable = waypoints.filter(isChartable);
-  $("scope-hd").textContent = state?.systemSymbol
-    ? `${state.systemSymbol} · ${chartable.length} charted`
-    : "no system charted yet";
+  $("scope-hd-txt").textContent = scopeSystem ? `${scopeSystem} · ${chartable.length} charted` : "no system charted yet";
+  renderSysPicker();
 
   const byWp = new Map(waypoints.map((w) => [w.symbol, w]));
   const project = computeMapProjection(chartable.length ? chartable : waypoints);
-  const shipsHere = (state?.ships ?? []).filter((s) => s.nav?.systemSymbol === state?.systemSymbol);
+  // Labels always shown for a small, sparse system; suppressed by default
+  // in a busy one to stop the overlapping-text pile-up a dense cluster
+  // produces — zooming in (or tapping a blip) reveals them.
+  const showLabels = chartable.length <= 10 || scopeXform.scale >= 1.6;
+  const shipsHere = (state?.ships ?? []).filter((s) => s.nav?.systemSymbol === scopeSystem);
 
   let html = `<div class="ring" style="width:40%;height:40%"></div><div class="ring" style="width:65%;height:65%"></div><div class="ring" style="width:88%;height:88%"></div><div class="sweep"></div>`;
   for (const w of chartable) {
     const p = project(w);
     const sel = selectedWaypoint === w.symbol ? " sel" : "";
-    html += `<button class="blip${sel}" style="top:${p.y}%;left:${p.x}%" data-wp="${escapeHtml(w.symbol)}"><span class="mk ${blipClass(w)}"></span><span class="tg">${escapeHtml(shortWp(w.symbol))}</span></button>`;
+    const label = showLabels || sel ? `<span class="tg">${escapeHtml(shortWp(w.symbol))}</span>` : "";
+    html += `<button class="blip${sel}" style="top:${p.y}%;left:${p.x}%" data-wp="${escapeHtml(w.symbol)}"><span class="mk ${blipClass(w)}"></span>${label}</button>`;
   }
   for (const s of shipsHere) {
-    const wp = byWp.get(s.nav.waypointSymbol);
-    if (!wp) continue;
-    const p = project(wp);
-    html += `<div class="blip" style="top:${p.y}%;left:${p.x}%"><span class="mk ship"></span><span class="tg">${escapeHtml(s.symbol)}</span></div>`;
+    const inTransit = s.nav?.status === "IN_TRANSIT";
+    const worldPos = inTransit ? shipTransitLerp(s) : byWp.get(s.nav.waypointSymbol);
+    if (!worldPos) continue;
+    const p = project(worldPos);
+    const sx = (x) => project({ x, y: 0 }).x, sy = (y) => project({ x: 0, y }).y;
+    const heading = inTransit ? shipHeadingDeg(s, sx, sy) : null;
+    const arrow = heading != null ? ` style="transform:rotate(${heading}deg)"` : "";
+    html += `<div class="blip" style="top:${p.y}%;left:${p.x}%"><span class="mk ship${heading != null ? " transit" : ""}"${arrow}></span><span class="tg">${escapeHtml(s.symbol)}</span></div>`;
   }
   $("scope-field").innerHTML = html;
 
@@ -452,7 +559,7 @@ function renderScope() {
 }
 
 function renderMapSheet(wpSymbol) {
-  const wp = (state?.waypoints ?? []).find((w) => w.symbol === wpSymbol);
+  const wp = currentSystemWaypoints().find((w) => w.symbol === wpSymbol);
   if (!wp) { $("map-sheet").hidden = true; return; }
   $("map-sheet").hidden = false;
   const kind = blipClass(wp);
