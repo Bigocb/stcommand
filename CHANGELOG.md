@@ -14,6 +14,15 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (architecture overview doc)
+
+Added `docs/architecture-overview.md` — a system-by-system breakdown
+(tenancy, `FleetManager`/roles, dispatcher, intent board, scheduler,
+approval gate, galaxy knowledge, persistence, HTTP/dashboard layer,
+frontend versions, doctrine) for anyone picking the codebase up cold.
+Closes the long-parked TODO item asking for this to be saved somewhere
+durable instead of only ever having existed conversationally.
+
 ## 2026-09-13 (Fleet tab: a Job column, so an unassigned trader stands out)
 
 Operator request: at a glance on the Fleet tab, know whether each ship
