@@ -14,6 +14,40 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (root-caused: approved keeper-probe purchase never bought)
+
+Reproduced live: operator approved a `buyKeeperProbe` request (probe at
+`X1-C59-D15X` for 26,261c) on the dashboard; ~12 minutes later, no
+"purchasing SHIP_PROBE" log line had appeared at all — the decision just
+sat in the DB, unread. This is the exact bug flagged in `docs/TODO.md`
+after an earlier occurrence.
+
+Root cause: `maybeRequestKeeperProbe()` — which both requests a new
+approval AND reads back a decided one via `ApprovalGate.request()` — only
+ever runs from `recordShipyardSnapshot()`, itself only reachable when some
+ship physically docks at that exact shipyard again. Unlike `maybeBuyShip()`
+(called unconditionally every tick, so a decision is always picked up
+within one tick), an operator who approves a keeper-probe request while no
+ship happens to be revisiting that waypoint has no path back to the
+engine ever noticing — `ApprovalGate.request()` only detects a decided row
+the next time it's called with that same `kind`, and nothing was calling
+it.
+
+Fix: split the purchase-execution half of `maybeRequestKeeperProbe()` into
+`purchaseKeeperProbe()`, and added `resolvePendingKeeperProbeApproval()` —
+called every tick, unconditionally — which re-issues the same
+`"buyKeeperProbe"` kind through `ApprovalGate.request()` using the
+cost/detail already stored on the pending row (no fresh shipyard scan
+needed) and completes the purchase the moment a decision shows up.
+
+`tests/fleet.test.ts` adds three cases: approves-and-buys with no
+revisit (reproduces the live bug directly), still-pending is a no-op,
+and denies-with-no-revisit. Typechecked clean. Could not run the new
+tests against the remote test Postgres — same intermittent timeout as
+earlier this session, retried once. Verifying live: watching for the
+`X1-C59-D15X` probe purchase to actually go through on DRAGOM's next
+tick after this deploys.
+
 ## 2026-09-13 (mobile Ops tab was missing Approvals entirely)
 
 Operator report: the global "N approvals awaiting your decision" banner

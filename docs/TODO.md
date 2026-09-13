@@ -15,14 +15,17 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   it actually narrows shipyards/modules to that system, and that a ship
   type or module scouted at two waypoints shows grouped under one entry
   with both prices.
-- [ ] **Investigate: an approved auto-keeper-probe purchase request didn't
-  actually buy the probe.** Operator report 2026-09-13 — approved the
-  request via the approval gate, but the ship wasn't actually purchased.
-  Not yet root-caused. Check `maybeRequestKeeperProbe()`'s post-approval
-  path in `fleet.ts` (the `purchaseShip()` call and what happens if it
-  throws/if the yard's stock changed between the request and the
-  approval) and the `ApprovalGate` resolution flow itself for a case
-  where an "approve" outcome doesn't actually trigger the buy.
+- [ ] **Verify the keeper-probe approval fix live.** Root-caused and
+  fixed 2026-09-13 — see `CHANGELOG.md`. Reproduced live: an approved
+  `buyKeeperProbe` request for `X1-C59-D15X` sat undelivered because
+  the only code path that reads a decided approval
+  (`maybeRequestKeeperProbe()`) only runs when a ship happens to
+  redock at that exact shipyard. Added `resolvePendingKeeperProbeApproval()`,
+  called every tick. Typechecked; new `tests/fleet.test.ts` cases not
+  yet run against the remote test Postgres (`ETIMEDOUT`, same sandbox
+  flakiness as earlier this session, retried once). Confirm on next
+  deploy: the `X1-C59-D15X` probe purchase actually completes without
+  any ship revisiting that waypoint.
 - [ ] **Set `PROXY_URL_<AGENTSYMBOL>` for each tenant once dedicated
   proxies are provisioned.** Shipped 2026-09-13 — see `CHANGELOG.md` and
   `.env.example`. Operator is setting up Webshare (free tier, 10 dedicated

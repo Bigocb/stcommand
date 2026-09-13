@@ -1374,6 +1374,64 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
 
     assert.deepEqual(calls.purchase, [], "operator switched this off — must not buy");
   });
+
+  // Live bug, 2026-09-13: an operator approved a buyKeeperProbe request on
+  // the dashboard, but no purchase ever happened. Root cause:
+  // maybeRequestKeeperProbe() only runs from recordShipyardSnapshot(),
+  // itself only reachable when some ship happens to physically dock at
+  // that exact shipyard again — so a decision made while nothing was
+  // revisiting that waypoint just sat in the DB, unread. Fixed with
+  // resolvePendingKeeperProbeApproval(), which is called every tick and
+  // re-polls ApprovalGate for the same "buyKeeperProbe" kind using the
+  // cost/detail the original request already stored, with no shipyard
+  // rescan needed.
+  it("resolvePendingKeeperProbeApproval buys the probe once approved, with no shipyard revisit", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }], { tenantId, store });
+
+    // First tick's worth of a real shipyard scan: creates the pending
+    // approval, buys nothing yet (nobody's decided).
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+    assert.deepEqual(calls.purchase, [], "sanity: still awaiting a decision");
+
+    // The operator approves on the dashboard — the only DB write that
+    // happens; no ship visits X1-A-YARD again afterward.
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbe");
+    assert.ok(row, "sanity: the request was actually persisted");
+    await store.decideApproval(tenantId, row!.id, "approved");
+
+    await (fleet as any).resolvePendingKeeperProbeApproval();
+
+    assert.deepEqual(calls.purchase, ["X1-A-YARD"], "the approved purchase must go through without a fresh shipyard scan");
+    assert.equal((fleet as any).keeperMarkets.get("PROBE-1"), "X1-A-YARD");
+    (fleet as any).keepers.get("PROBE-1")?.stop();
+  });
+
+  it("resolvePendingKeeperProbeApproval does nothing while the approval is still pending", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }], { tenantId, store });
+
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+    await (fleet as any).resolvePendingKeeperProbeApproval();
+
+    assert.deepEqual(calls.purchase, [], "no decision yet — must not buy");
+  });
+
+  it("resolvePendingKeeperProbeApproval respects a denial, with no shipyard revisit", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }], { tenantId, store });
+
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbe");
+    await store.decideApproval(tenantId, row!.id, "denied");
+
+    await (fleet as any).resolvePendingKeeperProbeApproval();
+
+    assert.deepEqual(calls.purchase, [], "denied — must not buy");
+  });
 });
 
 describe("FleetManager.restorePersistedManualRoles (setShipRole surviving a restart)", () => {

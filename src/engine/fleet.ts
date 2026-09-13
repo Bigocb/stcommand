@@ -3437,8 +3437,28 @@ export class FleetManager {
       this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
       return;
     }
+    await this.purchaseKeeperProbe(waypointSymbol, probe.purchasePrice);
+  }
+
+  /**
+   * Second half of maybeRequestKeeperProbe() — actually spending the
+   * credits once ApprovalGate says yes. Split out so
+   * resolvePendingKeeperProbeApproval() can call it too: this same code
+   * used to run only inline inside maybeRequestKeeperProbe(), which is only
+   * ever invoked from recordShipyardSnapshot() — itself only reachable when
+   * some ship happens to physically dock at that exact shipyard again. An
+   * operator who approved on the dashboard while no ship was revisiting
+   * that waypoint had their decision recorded in the DB but nothing ever
+   * came back to read it — approvals.request() only notices a decided row
+   * the next time it's called with that same kind, and nothing was calling
+   * it. Confirmed live 2026-09-13: a buyKeeperProbe request for
+   * X1-C59-D15X sat "approved by operator" in the DB with no matching
+   * "purchasing SHIP_PROBE" log line at all, ~12 minutes after approval,
+   * for exactly this reason.
+   */
+  private async purchaseKeeperProbe(waypointSymbol: string, price: number): Promise<void> {
     try {
-      this.log(`purchasing SHIP_PROBE at ${waypointSymbol} for ${probe.purchasePrice} credits (no keeper stationed here)`);
+      this.log(`purchasing SHIP_PROBE at ${waypointSymbol} for ${price} credits (no keeper stationed here)`);
       const res = await this.api.purchaseShip("SHIP_PROBE", waypointSymbol);
       await this.doctrine.ensureShipTypeRule(res.ship.frame.symbol);
       this.recordLedger?.({
@@ -3470,6 +3490,36 @@ export class FleetManager {
     } catch (err) {
       this.log(`failed to buy keeper probe at ${waypointSymbol}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  /**
+   * Runs every tick (unlike maybeRequestKeeperProbe(), which only runs when
+   * a ship happens to dock at an uncovered shipyard) so an operator's
+   * dashboard decision on a buyKeeperProbe approval is picked up promptly
+   * even if nothing revisits that exact waypoint again soon. Re-issuing the
+   * same "buyKeeperProbe" kind through ApprovalGate.request() is safe and
+   * cheap: it's the same DB-polled row lookup request() already does, using
+   * the cost/detail the original request stored rather than a fresh
+   * shipyard scan.
+   */
+  private async resolvePendingKeeperProbeApproval(): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    const row = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe");
+    if (!row || !row.shipSymbol || row.cost == null) return;
+    const waypointSymbol = row.shipSymbol; // maybeRequestKeeperProbe() stores the yard waypoint here
+    const approved = await this.approvals.request("buyKeeperProbe", {
+      shipSymbol: waypointSymbol,
+      detail: row.detail,
+      cost: row.cost,
+      timeoutMs: 2 * 60 * 60_000,
+      onTimeout: "approve",
+    });
+    if (approved === undefined) return; // still pending, or already resolved this tick
+    if (approved === false) {
+      this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
+      return;
+    }
+    await this.purchaseKeeperProbe(waypointSymbol, row.cost);
   }
 
   /**
@@ -5053,6 +5103,7 @@ export class FleetManager {
     }
     await this.maybeGrowExplorers();
     await this.maybeBuyShip();
+    await this.resolvePendingKeeperProbeApproval();
     await this.maybeBuyScout();
     await this.maybeBuySiphoner();
     await this.maybeInstallScanner();
