@@ -511,18 +511,19 @@ function renderMarketRoutes() {
   if (!marketRoutes.length) { el.innerHTML = '<div class="empty">No profitable routes in fresh snapshots.</div>'; return; }
   const top = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 20);
   el.innerHTML = top.map((r) => {
-    const assigned = dispatchAssignments.find((a) => a.role === "direct" && a.good === r.good);
-    const picker = openRouteGood === r.good
+    const good = r.goodSymbol;
+    const assigned = dispatchAssignments.find((a) => a.role === "direct" && a.good === good);
+    const picker = openRouteGood === good
       ? `<div class="ship-pick">${
           tradersFor().length
-            ? tradersFor().map((s) => `<button data-act="assign-ship" data-good="${escapeHtml(r.good)}" data-ship="${escapeHtml(s.symbol)}"><span>${escapeHtml(s.symbol)}</span><span>${s.symbol === assigned?.shipSymbol ? "assigned" : "assign"}</span></button>`).join("")
+            ? tradersFor().map((s) => `<button data-act="assign-ship" data-good="${escapeHtml(good)}" data-ship="${escapeHtml(s.symbol)}"><span>${escapeHtml(s.symbol)}</span><span>${s.symbol === assigned?.shipSymbol ? "assigned" : "assign"}</span></button>`).join("")
             : '<div class="empty">No trader ships available.</div>'
         }</div>`
       : "";
     return `<div class="route-row">
-      <div class="rr-top"><span class="rr-good">${escapeHtml(r.good)}</span><span class="rr-profit">${signed(r.profitPerTrip)}/trip</span></div>
+      <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${signed(r.profitPerTrip)}/trip</span></div>
       <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>
-      <div class="rr-actions"><button class="btn" data-act="route-toggle" data-good="${escapeHtml(r.good)}">${openRouteGood === r.good ? "Close" : "Assign a ship"}</button></div>
+      <div class="rr-actions"><button class="btn" data-act="route-toggle" data-good="${escapeHtml(good)}">${openRouteGood === good ? "Close" : "Assign a ship"}</button></div>
       ${picker}
     </div>`;
   }).join("");
@@ -586,10 +587,10 @@ $("mkt-routes").addEventListener("click", async (e) => {
   const pick = e.target.closest("button[data-act='assign-ship']");
   if (pick) {
     pick.disabled = true;
-    const route = marketRoutes.find((r) => r.good === pick.dataset.good);
+    const route = marketRoutes.find((r) => r.goodSymbol === pick.dataset.good);
     try {
       await api("POST", "/api/dispatch", {
-        shipSymbol: pick.dataset.ship, good: route?.good,
+        shipSymbol: pick.dataset.ship, good: route?.goodSymbol,
         buyAt: route?.buyAt, sellAt: route?.sellAt,
         buyPrice: route?.buyPrice, sellPrice: route?.sellPrice,
         profitPerTrip: route?.profitPerTrip,
