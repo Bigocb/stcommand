@@ -1,5 +1,9 @@
 import type { paths } from "./schema.js";
 import type { components } from "./schema.js";
+// Only used for the proxied path — see request()'s own comment on why a
+// proxied request goes through undici's own fetch instead of the ambient
+// global one.
+import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
 
 export type { paths, components };
 
@@ -46,6 +50,16 @@ export interface ClientOptions {
    *  priority); Client.withPriority() is the usual way to get a boosted one
    *  sharing the same limiter. */
   priority?: number;
+  /**
+   * Route every request this Client makes through a forward proxy —
+   * `http://user:pass@host:port`. SpaceTraders rate-limits by source IP,
+   * not by agent token (see `sharedLimiter`'s comment above), so a tenant
+   * given its own dedicated proxy IP genuinely gets its own real 2 req/s
+   * ceiling from SpaceTraders instead of sharing this process's one IP
+   * with every other tenant. Omitted, requests go out directly on
+   * whatever IP this process itself has.
+   */
+  proxyUrl?: string;
 }
 
 type RequestOptions = {
@@ -185,6 +199,11 @@ export class Client {
    * succeed must not be sent.
    */
   private fatalAuthError: string | undefined;
+  private readonly proxyUrl: string | undefined;
+  /** Built once per Client, not per request — ProxyAgent holds its own
+   *  connection pool to the proxy, so constructing a fresh one per call
+   *  would throw that pooling away for no benefit. */
+  private readonly dispatcher: Dispatcher | undefined;
 
   /** Why this client's token is permanently unusable, or undefined while it works. */
   deadTokenReason(): string | undefined {
@@ -198,6 +217,8 @@ export class Client {
     this.retryBackoffMs = opts.retryBackoffMs ?? 250;
     this.onRateLimited = opts.onRateLimited;
     this.priority = opts.priority ?? 1;
+    this.proxyUrl = opts.proxyUrl;
+    this.dispatcher = opts.proxyUrl ? new ProxyAgent(opts.proxyUrl) : undefined;
     // SpaceTraders' real per-account limit is 2 req/sec, but that's the
     // server's own ceiling, not headroom to plan around — 2 here regularly
     // triggers live 429s (confirmed in production: near-continuous
@@ -254,6 +275,7 @@ export class Client {
       // it was constructed with — a withToken() clone must draw from the same
       // budget as its parent even when the parent got a private one by default.
       sharedLimiter: this.limiter,
+      proxyUrl: this.proxyUrl,
     };
   }
 
@@ -275,14 +297,29 @@ export class Client {
     for (;;) {
       await this.limiter.acquire(this.priority);
       this.callCount += 1;
-      const res = await fetch(url, {
+      // A proxied Client goes through undici's own fetch, with its own
+      // ProxyAgent as the dispatcher — both from the same undici install.
+      // Node's global fetch is backed by its own internal, differently-
+      // versioned copy of undici, and mixing that with a dispatcher built
+      // from the separately npm-installed undici package is unreliable
+      // (confirmed directly: it throws outright when the two copies'
+      // majors differ, and silently hangs forever even when their minor
+      // versions are close). The unproxied path — every existing tenant,
+      // and every test in this suite that mocks `globalThis.fetch` — is
+      // untouched by any of this. Only the handful of Response members this
+      // function actually reads below need to line up between the two
+      // fetch implementations' distinct Response types.
+      const init = {
         method: req.method,
         headers: {
           ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
           ...(req.body !== undefined ? { "Content-Type": "application/json" } : {}),
         },
         body: req.body !== undefined ? JSON.stringify(req.body) : undefined,
-      });
+      };
+      const res: Pick<Response, "status" | "ok" | "headers" | "text"> = this.dispatcher
+        ? await undiciFetch(url, { ...init, dispatcher: this.dispatcher })
+        : await fetch(url, init);
 
       const retryAfter = res.headers.get("retry-after");
 

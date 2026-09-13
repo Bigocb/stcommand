@@ -82,6 +82,14 @@ export class TenantRegistry {
    * means the whole process — every tenant combined — actually stays under
    * the real per-IP ceiling instead of each tenant believing it has the full
    * budget to itself.
+   *
+   * A tenant given its own dedicated proxy IP is the one exception: set
+   * `PROXY_URL_<AGENTSYMBOL>` (e.g. `PROXY_URL_DRAGOM=http://user:pass@host:port`)
+   * in the environment and that tenant's Client routes through it (see
+   * `Client`'s `proxyUrl` option) and gets its own private RateLimiter
+   * instead of drawing from this shared one — it has its own real ceiling
+   * now, so sharing this one would only throttle it for no reason. See
+   * `buildApi`'s default implementation below.
    */
   // Burst is capped to ceil(rate) so the bucket can't dump a large backlog of
   // requests into a single API-rate window after any idle spell. See the
@@ -93,15 +101,25 @@ export class TenantRegistry {
     private readonly log: (tenantId: string, msg: string) => void = (tenantId, msg) =>
       console.log(`[tenant ${tenantId.slice(0, 8)}] ${msg}`),
     /** Injectable so tests can substitute a fake API instead of hitting the real SpaceTraders API. */
-    private readonly buildApi: (token: string) => SpaceTradersAPI = (token) =>
-      new SpaceTradersAPI(
+    private readonly buildApi: (token: string, agentSymbol: string) => SpaceTradersAPI = (token, agentSymbol) => {
+      // A tenant with its own dedicated proxy IP has its own real 2 req/s
+      // ceiling from SpaceTraders — it must NOT also draw from apiLimiter,
+      // which exists specifically to keep every tenant sharing this
+      // process's one real IP under that IP's ceiling. Drawing from both
+      // would just throttle a tenant that no longer needs to share at all.
+      // See `PROXY_URL_<AGENT>` in this class's own doc comment above
+      // apiLimiter, and Client's `proxyUrl` option.
+      const proxyUrl = process.env[`PROXY_URL_${agentSymbol.toUpperCase()}`];
+      return new SpaceTradersAPI(
         new Client({
           token,
-          sharedLimiter: this.apiLimiter,
+          proxyUrl,
+          ...(proxyUrl ? {} : { sharedLimiter: this.apiLimiter }),
           onRateLimited: (sec, attempt) => this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`),
         }),
         token,
-      ),
+      );
+    },
   ) {}
 
   /** An already-booted worker, if one exists — never triggers a boot. */
@@ -257,7 +275,7 @@ export class TenantRegistry {
   private async boot(tenantId: string, agentSymbol: string): Promise<TenantWorker> {
     const log = (msg: string) => this.log(tenantId, msg);
     const token = await getTenantToken(this.pool, tenantId);
-    const api = this.buildApi(token);
+    const api = this.buildApi(token, agentSymbol);
     // Boosted for the duration of boot only — see Client.setPriority()'s own
     // comment for why this has to mutate the one shared Client in place
     // rather than handing FleetManager/GalaxyAtlas a separately-prioritized

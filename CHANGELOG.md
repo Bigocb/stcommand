@@ -14,6 +14,34 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (per-tenant proxy support)
+
+- **Added optional per-tenant forward-proxy support**, so a tenant can get
+  its own dedicated public IP instead of sharing this process's one IP
+  (and its one SpaceTraders 2 req/s ceiling) with every other tenant.
+  Operator request, after confirming SpaceTraders rate-limits by source
+  IP, not by agent token — running multiple agents "without sharing a
+  rate limit" genuinely requires separate egress IPs, which neither
+  Render nor Vercel provide per-service by default. Set
+  `PROXY_URL_<AGENTSYMBOL>` (e.g. `PROXY_URL_DRAGOM=http://user:pass@host:port`)
+  and that tenant's `Client` routes every request through it and gets its
+  own private rate limiter instead of drawing from the shared one — see
+  `.env.example`.
+  - New `Client` option `proxyUrl`, using `undici`'s own `fetch` +
+    `ProxyAgent` for the proxied path only. Confirmed directly (not just
+    assumed) that mixing a `ProxyAgent` built from the separately
+    npm-installed `undici` package with Node's *global* `fetch` — which is
+    backed by its own internal, differently-versioned copy of undici — is
+    unreliable: it throws outright when the two copies' majors differ,
+    and silently hangs forever even when their minor versions are close.
+    The unproxied path (every tenant without a `PROXY_URL_*`, and every
+    existing test that mocks `globalThis.fetch`) is completely untouched.
+  - `tests/clientProxy.test.ts` covers the real thing end to end: a real
+    CONNECT-tunneling forward proxy in front of a real HTTPS target (the
+    actual mechanism a dedicated datacenter proxy provides for reaching
+    SpaceTraders' HTTPS-only API), confirming a proxied request genuinely
+    tunnels through it and an unproxied one never touches it.
+
 ## 2026-09-12 (route planner prefers real scan data when it fully covers a route)
 
 - **The Route Planner now tries the real scanned jump-gate graph first**,

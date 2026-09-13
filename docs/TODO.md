@@ -7,6 +7,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Set `PROXY_URL_<AGENTSYMBOL>` for each tenant once dedicated
+  proxies are provisioned.** Shipped 2026-09-13 — see `CHANGELOG.md` and
+  `.env.example`. Operator is setting up Webshare (free tier, 10 dedicated
+  datacenter proxies) as of this writing; once real proxy credentials
+  exist, set one `PROXY_URL_*` env var per tenant on Render and confirm
+  live that each tenant's traffic actually tunnels through its own IP
+  (e.g. via Render logs — no more `rate limited, backing off` lines for a
+  proxied tenant even while other tenants are busy).
 - [ ] **Tour more systems to build cross-system pricing data.** Operator
   request 2026-09-12 — more tour coverage across more systems is needed
   before cross-system routes have enough data to evaluate. See
