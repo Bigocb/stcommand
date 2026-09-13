@@ -1077,6 +1077,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     }
     try {
       await w.fleet.setShipRole(shipSymbol, role as Parameters<typeof w.fleet.setShipRole>[1], keeperMarket);
+      // Play-style tracking (docs/TODO.md): an operator role change is
+      // exactly the kind of "overrode automation" intervention worth
+      // logging — the engine's own auto-role-assign calls setShipRole()
+      // directly, never through this route, so nothing here double-counts.
+      await w.store.recordOperatorAction(w.tenantId, "role_change", shipSymbol, `${shipSymbol} → ${role}`, { role, keeperMarket });
       res.json({ ok: true, shipSymbol, role });
     } catch (err) {
       console.error("[dashboard] role error", err);
@@ -1157,6 +1162,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     if (typeof shipType !== "string" || typeof yardSymbol !== "string") return res.status(400).json({ error: "shipType and yardSymbol required" });
     try {
       const ship = await w.fleet.buyShip(shipType as never, yardSymbol);
+      // Play-style tracking: a manual buy through this route is the
+      // operator spending on their own initiative — the engine's own
+      // maybeBuyShip()/maybeBuyScout()/maybeBuySiphoner() call
+      // fleet.buyShip() directly, never through here.
+      await w.store.recordOperatorAction(w.tenantId, "manual_buy", ship.symbol, `bought ${shipType} at ${yardSymbol}`, { shipType, yardSymbol });
       res.json({ ok: true, shipSymbol: ship.symbol });
     } catch (err) {
       console.error("[dashboard] buy error", err);

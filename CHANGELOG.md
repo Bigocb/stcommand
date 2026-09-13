@@ -14,6 +14,49 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Play-style tracking: a profile label + a manual-override log)
+
+Operator wants to compare "baseline automation" against their own manual
+play across tenants — e.g. THEO (overrode automation early: command ship
+→ tour, approved two miners, bought and converted a third to trader) vs
+THEO-1 (just approving whatever the automation asks for). Landed the
+foundation for that as an A/B-style tracking system, not just a one-off
+note.
+
+- `migrations/019_operator_actions.sql` — `tenants.play_profile` (a
+  free-text label, e.g. "baseline"/"manual") and a new `operator_actions`
+  table (tenant-scoped, RLS) logging deliberate operator interventions.
+  Both are deliberately **excluded** from the reset-cleanup tool's
+  tenant-data wipe (`Store.TENANT_GAME_TABLES`) — a role change from a
+  dead universe is still a real data point for comparing play styles
+  across resets, same reasoning as leaving `doctrine`/`chat_messages`
+  alone. See `CLAUDE.md`'s reset section.
+- `src/db/store.ts` — `recordOperatorAction()`/`listOperatorActions()`.
+- `src/db/tenants.ts` — `setTenantPlayProfile()`; `listAllTenantsAdmin()`
+  now also returns `playProfile`.
+- `src/http/dashboard.ts` — `POST /fleet/role` and `POST /fleet/buy` now
+  log a `role_change`/`manual_buy` operator action on success. Logged at
+  the HTTP route specifically, not inside `FleetManager`'s shared
+  `setShipRole()`/`buyShip()` — the engine's own autonomous calls
+  (`maybeBuyShip()`, the new `maybeBuyScout()`/`maybeBuySiphoner()`
+  approval-gated buys, auto-role-assignment) go straight through those
+  methods and must never show up in this log as if the operator had done
+  them.
+- `src/http/admin.ts` — `PATCH /tenants/:id/profile` (set the label),
+  `GET /tenants/:id/actions` (the log), `POST /tenants/:id/checkpoint` (a
+  free-text manual note — if the tenant is currently booted in this
+  process, its live role counts and credits are captured into the note's
+  metadata automatically, so a "here's the current state" checkpoint
+  doesn't need the operator to type role counts out by hand).
+- `public/admin.html`/`admin.js` — a Profile column (inline-editable) per
+  tenant row, and a "Play style" toggle that expands an inline panel:
+  the action log plus a textarea to log a checkpoint.
+
+Typechecked clean. Not yet run against a live tenant — the operator still
+needs to log THEO's own early manual-override history by hand (see
+`docs/TODO.md`), since it predates this feature and can't be
+reconstructed automatically.
+
 ## 2026-09-13 (Three more approval gates: scout, siphoner, scanner buys)
 
 Follow-up to the "set up more approval gates" TODO item. Investigated

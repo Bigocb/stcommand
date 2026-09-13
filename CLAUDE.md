@@ -55,7 +55,10 @@ every tenant:
   `activity`, `state_snapshot`). Deliberately **not** included:
   `doctrine`/`doctrine_fires`/`doctrine_fire_log` (operator-configured
   standing orders — a reset doesn't make a margin-floor setting wrong),
-  `chat_messages` (co-pilot conversation log), `sessions` (login state).
+  `chat_messages` (co-pilot conversation log), `sessions` (login state),
+  `operator_actions` and `tenants.play_profile` (play-style tracking —
+  a role change or manual buy from a dead universe is still a real
+  historical data point for comparing play styles across resets).
 
 ### Recovering from a reset — the admin-page tool
 

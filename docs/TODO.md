@@ -7,6 +7,18 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Set up the A/B tenants once play-style tracking ships.** Operator
+  plan 2026-09-13: THEO-2 (a new tenant, not yet created) will be the
+  "manual intervention" arm going forward, compared against an
+  unmodified-automation baseline tenant. Once created, set THEO-2's
+  profile label to "manual" via the admin page's new Profile column, and
+  a baseline tenant's to "baseline". Separately: THEO's *own* early
+  manual overrides (command ship → tour, approved two miners, bought and
+  converted a third to trader) happened before this feature existed and
+  can't be reconstructed automatically — if still wanted on the record,
+  log it as a checkpoint note via the admin page's "Play style" panel
+  (self-service; no ADMIN_KEY access here, same reasoning as the
+  reset-cleanup tool).
 - [ ] **Verify the reset-cleanup admin tool actually ran clean.**
   Shipped 2026-09-13 in response to a live SpaceTraders universe reset
   — see `CLAUDE.md`'s "SpaceTraders universe resets" section for the

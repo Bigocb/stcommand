@@ -61,13 +61,38 @@ function renderTenants(tenants) {
       <td>${fmtDate(t.createdAt)}</td>
       <td>${fmtDate(t.lastSeenAt)}</td>
       <td><span class="badge ${t.running ? "run" : "stop"}">${t.running ? "running" : "not booted"}</span></td>
-      <td><button class="danger" data-id="${t.id}" data-agent="${escapeHtml(t.agentSymbol)}">Delete</button></td>
+      <td><input class="profile-input" data-id="${t.id}" value="${escapeHtml(t.playProfile ?? "")}" placeholder="e.g. baseline" /></td>
+      <td>
+        <button class="playstyle-toggle" data-id="${t.id}" data-agent="${escapeHtml(t.agentSymbol)}">Play style</button>
+        <button class="danger" data-id="${t.id}" data-agent="${escapeHtml(t.agentSymbol)}">Delete</button>
+      </td>
     `;
     body.appendChild(tr);
+    const expandRow = document.createElement("tr");
+    expandRow.className = "expand-row";
+    expandRow.dataset.id = t.id;
+    expandRow.hidden = true;
+    expandRow.innerHTML = `<td colspan="6"><div class="playstyle-panel" id="playstyle-${t.id}"></div></td>`;
+    body.appendChild(expandRow);
   }
-  body.querySelectorAll("button[data-id]").forEach((btn) => {
+  body.querySelectorAll("button.danger[data-id]").forEach((btn) => {
     btn.addEventListener("click", () => deleteTenant(btn.dataset.id, btn.dataset.agent, btn));
   });
+  body.querySelectorAll(".profile-input").forEach((input) => {
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur(); });
+    input.addEventListener("blur", () => saveProfile(input.dataset.id, input.value.trim() || null, input));
+  });
+  body.querySelectorAll(".playstyle-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => togglePlaystyle(btn.dataset.id, btn.dataset.agent));
+  });
+  // A refresh rebuilds every row from scratch — reopen whatever play-style
+  // panels the operator already had open rather than silently collapsing
+  // them out from under a reader.
+  for (const id of openPlaystylePanels) {
+    const row = body.querySelector(`tr.expand-row[data-id="${id}"]`);
+    const t = tenants.find((x) => x.id === id);
+    if (row && t) { row.hidden = false; loadPlaystyle(id, t.agentSymbol); }
+  }
 
   // A dead token from client.ts's own reactive TOKEN_RESET_MISMATCH check
   // (see admin.ts's GET /tenants) is a confident, first-hand signal a
@@ -125,6 +150,87 @@ async function deleteTenant(id, agentSymbol, btn) {
     showError(err.message);
     btn.disabled = false;
     btn.textContent = "Delete";
+  }
+}
+
+async function saveProfile(id, profile, input) {
+  input.disabled = true;
+  try {
+    await adminFetch(`/api/admin/tenants/${id}/profile`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile }),
+    });
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    input.disabled = false;
+  }
+}
+
+const openPlaystylePanels = new Set();
+
+function togglePlaystyle(id, agentSymbol) {
+  const row = body.querySelector(`tr.expand-row[data-id="${id}"]`);
+  if (!row) return;
+  const opening = row.hidden;
+  row.hidden = !opening;
+  if (opening) {
+    openPlaystylePanels.add(id);
+    loadPlaystyle(id, agentSymbol);
+  } else {
+    openPlaystylePanels.delete(id);
+  }
+}
+
+/** Play-style tracking (docs/TODO.md): the operator's own logged role
+ *  changes/manual buys (src/http/dashboard.ts) plus any manual checkpoint
+ *  notes, newest first — and a form to add one. */
+async function loadPlaystyle(id, agentSymbol) {
+  const panel = $(`playstyle-${id}`);
+  if (!panel) return;
+  panel.innerHTML = `<div class="ps-loading">Loading…</div>`;
+  try {
+    const { actions } = await adminFetch(`/api/admin/tenants/${id}/actions`);
+    panel.innerHTML = `
+      <div class="ps-add">
+        <textarea class="ps-note" placeholder="Log a checkpoint — e.g. &quot;overrode automation: command ship &rarr; tour, approved two miners, bought and converted a third to trader&quot;"></textarea>
+        <button class="ps-add-btn" data-id="${id}">Log checkpoint</button>
+      </div>
+      <div class="ps-log">${
+        actions.length
+          ? actions.map((a) => `
+            <div class="ps-row">
+              <div class="ps-row-top"><b>${escapeHtml(a.kind)}</b><span class="ps-when">${fmtDate(a.createdAt)}</span></div>
+              <div class="ps-detail">${escapeHtml(a.detail)}</div>
+              ${a.meta ? `<div class="ps-meta">${escapeHtml(JSON.stringify(a.meta))}</div>` : ""}
+            </div>`).join("")
+          : '<div class="ps-empty">No logged actions yet — role changes and manual buys show up here automatically; use the box above for a free-text note.</div>'
+      }</div>
+    `;
+    panel.querySelector(".ps-add-btn").addEventListener("click", () => submitCheckpoint(id, agentSymbol));
+  } catch (err) {
+    panel.innerHTML = `<div class="ps-empty">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function submitCheckpoint(id, agentSymbol) {
+  const panel = $(`playstyle-${id}`);
+  const textarea = panel?.querySelector(".ps-note");
+  const detail = textarea?.value.trim();
+  if (!detail) return;
+  const btn = panel.querySelector(".ps-add-btn");
+  btn.disabled = true;
+  try {
+    await adminFetch(`/api/admin/tenants/${id}/checkpoint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ detail }),
+    });
+    await loadPlaystyle(id, agentSymbol);
+  } catch (err) {
+    showError(err.message);
+    btn.disabled = false;
   }
 }
 

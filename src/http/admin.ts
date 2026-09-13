@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type pg from "pg";
 import { timingSafeEqual } from "node:crypto";
-import { listAllTenantsAdmin, deleteTenant } from "../db/tenants.js";
+import { listAllTenantsAdmin, deleteTenant, setTenantPlayProfile } from "../db/tenants.js";
 import type { TenantRegistry } from "../engine/tenantRegistry.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { Store } from "../db/store.js";
@@ -60,6 +60,73 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galax
       });
     } catch (err) {
       console.error("[admin] list tenants error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * Play-style tracking (docs/TODO.md): a free-text label for what this
+   * tenant's fleet is actually being run as — "baseline" vs "manual
+   * override" vs whatever the operator wants — set here and shown per row
+   * in the tenant list above. Purely descriptive; nothing in the engine
+   * reads it.
+   */
+  router.patch("/tenants/:id/profile", async (req, res) => {
+    const { profile } = req.body ?? {};
+    if (profile !== null && typeof profile !== "string") {
+      return res.status(400).json({ error: "profile must be a string or null" });
+    }
+    try {
+      await setTenantPlayProfile(pool, req.params.id, profile);
+      res.json({ ok: true, tenantId: req.params.id, profile });
+    } catch (err) {
+      console.error("[admin] set profile error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // The operator's own logged interventions (role changes, manual buys —
+  // see src/http/dashboard.ts's POST /fleet/role and POST /fleet/buy) plus
+  // any manual checkpoint notes, newest first.
+  router.get("/tenants/:id/actions", async (req, res) => {
+    try {
+      const store = new Store(pool);
+      const actions = await store.listOperatorActions(req.params.id, 200);
+      res.json({ actions });
+    } catch (err) {
+      console.error("[admin] list operator actions error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * A manual checkpoint note — "here's what I just did/changed and why,"
+   * for a moment the operator wants on the record as a play-style data
+   * point (e.g. "overrode automation: command ship → tour, approved two
+   * miners, bought and converted a third to trader"). If this tenant is
+   * currently booted in this process, the fleet's live role counts and
+   * credits are captured into `meta` alongside the operator's own text —
+   * free context for later, without the operator having to type role
+   * counts out themselves.
+   */
+  router.post("/tenants/:id/checkpoint", async (req, res) => {
+    const { detail } = req.body ?? {};
+    if (typeof detail !== "string" || !detail.trim()) {
+      return res.status(400).json({ error: "detail (a string) is required" });
+    }
+    try {
+      const worker = registry.get(req.params.id);
+      let meta: Record<string, unknown> | undefined;
+      if (worker) {
+        const roleCounts: Record<string, number> = {};
+        for (const s of worker.fleet.fleetStatusSummary()) roleCounts[s.role] = (roleCounts[s.role] ?? 0) + 1;
+        meta = { credits: worker.state.get()?.agent?.credits ?? null, roleCounts, shipCount: worker.fleet.fleetStatusSummary().length };
+      }
+      const store = new Store(pool);
+      await store.recordOperatorAction(req.params.id, "checkpoint", undefined, detail.trim(), meta);
+      res.json({ ok: true, tenantId: req.params.id, meta: meta ?? null });
+    } catch (err) {
+      console.error("[admin] checkpoint error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

@@ -143,6 +143,36 @@ export interface ShipStateRow {
  *  src/engine/approvals.ts is the only writer/reader of the "open" half of
  *  this; the dashboard's Approvals panel reads listOpenApprovals() and
  *  writes decideApproval() directly. */
+/** A deliberate operator intervention — a role change or a manual ship
+ *  purchase (see migrations/019_operator_actions.sql), recorded at the HTTP
+ *  route so the engine's own autonomous calls into the same
+ *  setShipRole()/buyShip() methods never show up here as if the operator
+ *  had done it. `meta` is a free-form bag for whatever detail is useful to
+ *  the specific `kind` (e.g. `{ role, keeperMarket }` for a role_change) —
+ *  not a typed column per field, since this is a descriptive log for the
+ *  operator's own later reading, not something the engine queries by field. */
+export interface OperatorActionRow {
+  id: string;
+  kind: string;
+  shipSymbol: string | null;
+  detail: string;
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+interface OperatorActionDbRow {
+  id: string;
+  kind: string;
+  ship_symbol: string | null;
+  detail: string;
+  meta: Record<string, unknown> | null;
+  created_at: Date;
+}
+
+function toOperatorActionRow(r: OperatorActionDbRow): OperatorActionRow {
+  return { id: r.id, kind: r.kind, shipSymbol: r.ship_symbol, detail: r.detail, meta: r.meta, createdAt: r.created_at.toISOString() };
+}
+
 export interface PendingApprovalRow {
   id: string;
   kind: string;
@@ -1951,6 +1981,36 @@ export class Store {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(`UPDATE pending_approvals SET consumed = true WHERE tenant_id = $1 AND id = $2`, [tenantId, id]),
     );
+  }
+
+  /** Log a deliberate operator intervention — see OperatorActionRow's own
+   *  comment on why this is only ever called from an HTTP route, never from
+   *  inside FleetManager's shared setShipRole()/buyShip(). */
+  async recordOperatorAction(
+    tenantId: string,
+    kind: string,
+    shipSymbol: string | undefined,
+    detail: string,
+    meta?: Record<string, unknown>,
+  ): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO operator_actions (tenant_id, kind, ship_symbol, detail, meta) VALUES ($1, $2, $3, $4, $5)`,
+        [tenantId, kind, shipSymbol ?? null, detail, meta ? JSON.stringify(meta) : null],
+      ),
+    );
+  }
+
+  /** Most recent operator interventions for this tenant, newest first —
+   *  what the admin page's play-style panel lists. */
+  async listOperatorActions(tenantId: string, limit = 100): Promise<OperatorActionRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<OperatorActionDbRow>(
+        `SELECT * FROM operator_actions WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [tenantId, limit],
+      );
+      return res.rows.map(toOperatorActionRow);
+    });
   }
 
   /** Snapshot one ship's position — periodic sample the replay scrubber plays back. */

@@ -90,6 +90,7 @@ export async function listAllTenants(pool: pg.Pool): Promise<TenantRow[]> {
 export interface TenantAdminRow extends TenantRow {
   createdAt: string;
   lastSeenAt: string;
+  playProfile: string | null;
 }
 
 /** Every known tenant with the extra fields the admin tenant list shows —
@@ -98,14 +99,15 @@ export interface TenantAdminRow extends TenantRow {
  *  about eager-boot needs createdAt/lastSeenAt. */
 export async function listAllTenantsAdmin(pool: pg.Pool): Promise<TenantAdminRow[]> {
   return withPool(pool, async (c) => {
-    const res = await c.query<{ id: string; agent_symbol: string; created_at: Date; last_seen_at: Date }>(
-      `SELECT id, agent_symbol, created_at, last_seen_at FROM tenants ORDER BY last_seen_at DESC`,
+    const res = await c.query<{ id: string; agent_symbol: string; created_at: Date; last_seen_at: Date; play_profile: string | null }>(
+      `SELECT id, agent_symbol, created_at, last_seen_at, play_profile FROM tenants ORDER BY last_seen_at DESC`,
     );
     return res.rows.map((r) => ({
       id: r.id,
       agentSymbol: r.agent_symbol,
       createdAt: r.created_at.toISOString(),
       lastSeenAt: r.last_seen_at.toISOString(),
+      playProfile: r.play_profile,
     }));
   });
 }
@@ -123,6 +125,15 @@ export async function listAllTenantsAdmin(pool: pg.Pool): Promise<TenantAdminRow
  *  TenantRegistry.stopOne(), since this alone doesn't touch the running
  *  process. Returns false if the tenant didn't exist (nothing to delete),
  *  true if a row was actually removed. */
+/** A free-text label for what this tenant's fleet is actually being run as
+ *  — e.g. "baseline" vs "manual override" — set by the operator on the
+ *  admin page. Purely descriptive; nothing in the engine reads it. Null
+ *  until the operator sets one (no default of "baseline" is written on
+ *  create — an unset profile just renders as "—" in the admin UI). */
+export async function setTenantPlayProfile(pool: pg.Pool, tenantId: string, profile: string | null): Promise<void> {
+  await withPool(pool, (c) => c.query(`UPDATE tenants SET play_profile = $2 WHERE id = $1`, [tenantId, profile]));
+}
+
 export async function deleteTenant(pool: pg.Pool, tenantId: string): Promise<boolean> {
   return withPool(pool, async (c) => {
     const res = await c.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
