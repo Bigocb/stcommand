@@ -14,6 +14,24 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower Map: drop asteroid clutter, zoom in on real destinations)
+
+Operator feedback: the radar scope was too zoomed out because it plotted
+every waypoint in the system, including asteroid fields and other
+decorative bodies that outnumber the actual destinations (markets,
+shipyards, jump gates).
+
+- `public/m.js` — `isChartable(wp)` (market/shipyard trait, or a jump
+  gate) now filters what `renderScope()` draws *and* what
+  `computeMapProjection()` uses to compute the zoom extent — previously
+  every waypoint's x/y fed the min/max span, so a handful of asteroids at
+  the system's edge flattened every real destination into a tight cluster
+  in the middle. A ship still renders even when parked at an excluded
+  waypoint (e.g. mining an asteroid) — it's projected with the same
+  transform as everything chartable, just not drawn as its own blip.
+- The system header's charted count now reflects chartable waypoints
+  (markets/yards/gates), not the raw waypoint total.
+
 ## 2026-09-13 (Tower: start/stop missions and contracts from More)
 
 Follow-up to the Markets/More ship below — operator wanted the same

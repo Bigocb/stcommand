@@ -398,41 +398,52 @@ function blipClass(wp) {
   return "other";
 }
 
+/** Only markets, shipyards, and jump gates are worth a blip — everything
+ *  else (asteroid fields, gas giants, plain moons/planets, debris fields)
+ *  is chart noise that flattens the zoom out to fit them all in.
+ *  Excluding them from the *extent* calculation, not just from what's
+ *  drawn, is what actually lets the scope zoom in — a scattered asteroid
+ *  belt at the edge of the system was stretching every real destination
+ *  into a tight cluster in the middle. */
+function isChartable(wp) {
+  return blipClass(wp) !== "other";
+}
+
 /** Real x/y (arbitrary system-coordinate units) centered and scaled to
  *  fit within ~80% of the scope's radius, one shared span for both axes
- *  so the layout isn't stretched. */
-function computeMapPositions(waypoints) {
-  const pos = new Map();
-  if (!waypoints.length) return pos;
-  const xs = waypoints.map((w) => w.x), ys = waypoints.map((w) => w.y);
+ *  so the layout isn't stretched. `extentWaypoints` decides the zoom
+ *  level; `project()` can still place any point (e.g. a ship parked at an
+ *  unlisted asteroid) using that same transform. */
+function computeMapProjection(extentWaypoints) {
+  if (!extentWaypoints.length) return (w) => ({ x: 50, y: 50 });
+  const xs = extentWaypoints.map((w) => w.x), ys = extentWaypoints.map((w) => w.y);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
   const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
   const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
-  for (const w of waypoints) {
-    pos.set(w.symbol, { x: 50 + ((w.x - cx) / span) * 80, y: 50 - ((w.y - cy) / span) * 80 });
-  }
-  return pos;
+  return (w) => ({ x: 50 + ((w.x - cx) / span) * 80, y: 50 - ((w.y - cy) / span) * 80 });
 }
 
 function renderScope() {
   const waypoints = state?.waypoints ?? [];
+  const chartable = waypoints.filter(isChartable);
   $("scope-hd").textContent = state?.systemSymbol
-    ? `${state.systemSymbol} · ${waypoints.length} charted`
+    ? `${state.systemSymbol} · ${chartable.length} charted`
     : "no system charted yet";
 
-  const pos = computeMapPositions(waypoints);
+  const byWp = new Map(waypoints.map((w) => [w.symbol, w]));
+  const project = computeMapProjection(chartable.length ? chartable : waypoints);
   const shipsHere = (state?.ships ?? []).filter((s) => s.nav?.systemSymbol === state?.systemSymbol);
 
   let html = `<div class="ring" style="width:40%;height:40%"></div><div class="ring" style="width:65%;height:65%"></div><div class="ring" style="width:88%;height:88%"></div><div class="sweep"></div>`;
-  for (const w of waypoints) {
-    const p = pos.get(w.symbol);
-    if (!p) continue;
+  for (const w of chartable) {
+    const p = project(w);
     const sel = selectedWaypoint === w.symbol ? " sel" : "";
     html += `<button class="blip${sel}" style="top:${p.y}%;left:${p.x}%" data-wp="${escapeHtml(w.symbol)}"><span class="mk ${blipClass(w)}"></span><span class="tg">${escapeHtml(shortWp(w.symbol))}</span></button>`;
   }
   for (const s of shipsHere) {
-    const p = pos.get(s.nav.waypointSymbol);
-    if (!p) continue;
+    const wp = byWp.get(s.nav.waypointSymbol);
+    if (!wp) continue;
+    const p = project(wp);
     html += `<div class="blip" style="top:${p.y}%;left:${p.x}%"><span class="mk ship"></span><span class="tg">${escapeHtml(s.symbol)}</span></div>`;
   }
   $("scope-field").innerHTML = html;

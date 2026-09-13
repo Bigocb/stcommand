@@ -243,6 +243,17 @@ needed, unlike installing a module onto one — that stays read-only from
 Map for now). Cross-system navigation isn't in scope yet — one system
 at a time, matching the design doc's own "current pass" framing.
 
+**Update 2026-09-13** — Map only draws markets, shipyards, and jump gates
+now; asteroid fields, gas giants, and every other decorative waypoint
+type are excluded from *both* what's drawn and the zoom calculation
+itself (`isChartable()` in `m.js`). A scattered asteroid belt at a
+system's edge was pulling every real destination into a tight, hard-to-
+tap cluster in the middle — dropping those points from the extent
+calculation, not just from the render, is what actually lets the scope
+zoom in on what's worth looking at. A ship still shows even if it's
+parked at an excluded waypoint (mining an asteroid, say) — its position
+just uses the same projection as everything chartable.
+
 **Update, same day** — Markets and More are also shipped, completing the
 5-tab IA:
 
