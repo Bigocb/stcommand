@@ -8,24 +8,19 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 ## Live ops — needs a decision or action
 
 - [ ] **Set up the A/B tenants once play-style tracking ships.** Operator
-  plan 2026-09-13: THEO-2 (a new tenant, not yet created) will be the
-  "manual intervention" arm going forward, compared against an
-  unmodified-automation baseline tenant. Once created, set THEO-2's
-  profile label to "manual" via the admin page's new Profile column, and
-  a baseline tenant's to "baseline". Separately: THEO's *own* early
-  manual overrides (command ship → tour, approved two miners, bought and
-  converted a third to trader) happened before this feature existed and
-  can't be reconstructed automatically — if still wanted on the record,
-  log it as a checkpoint note via the admin page's "Play style" panel
-  (self-service; no ADMIN_KEY access here, same reasoning as the
-  reset-cleanup tool). **Update, same day**: operator already hit the
-  reason this comparison needs the system-attribute data (shipped
-  2026-09-13 in the checkpoint's auto-captured `meta`) — the same manual
-  strategy that works on THEO doesn't transfer to THEO-2 at all, because
-  the two home systems aren't comparable (market/shipyard/gate counts
-  differ). Worth logging a checkpoint on both tenants once THEO-2 is
-  actually flying, specifically to get that system-attribute snapshot on
-  record for the eventual comparison.
+  plan 2026-09-13: THEO-2 as the "manual intervention" arm, compared
+  against an unmodified-automation baseline tenant. **Profile labels
+  done, same day** — operator has labeled the tenants via the admin
+  page's Profile column. Still open: log a checkpoint on each labeled
+  tenant (via the "Play style" panel) to get the system-attribute
+  snapshot on record — the same manual strategy that works on THEO
+  doesn't transfer to THEO-2 at all, because the two home systems aren't
+  comparable (market/shipyard/gate counts differ), so this is worth
+  doing specifically for that data point, not just the label. THEO's
+  *own* early manual overrides (command ship → tour, approved two
+  miners, bought and converted a third to trader) happened before this
+  feature existed and can't be reconstructed automatically — log it as
+  a checkpoint note too if still wanted on the record.
 - [ ] **Tune the starter doctrine templates once real data exists.**
   Shipped 2026-09-13: `src/engine/systemClassifier.ts` classifies a
   tenant's home system (isolated / market_desert / shipyard_poor / hub /
