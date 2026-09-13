@@ -14,6 +14,36 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (persist learned jump costs)
+
+- **Persisted `GalaxyAtlas`'s learned per-gate-pair jump cost average**,
+  closing the real reason cross-system routes never fired even after the
+  earlier jump-cost bootstrap fix: `jumpCosts` lived only in a plain
+  in-memory `Map`, wiped on every process restart. With deploys happening
+  several times a day, a learned cost never survived long enough to
+  replace `CROSS_SYSTEM_JUMP_COST_ESTIMATE`'s flat 5,000c placeholder —
+  every cross-system leg was priced against the placeholder forever
+  regardless of how many real jumps actually happened. New shared (no
+  tenant_id — a jump's real cost is a fact about the galaxy's gate
+  network, not about who paid for it, so one tenant's real jump now
+  helps every tenant converge faster) table `galaxy_jump_costs`
+  (migration 017), `Store.recordGalaxyJumpCost()`/`getAllGalaxyJumpCosts()`,
+  and `GalaxyAtlas.loadJumpCosts()` (called once at boot, `fleet.ts`'s
+  `init()`) to seed the in-memory average instead of starting cold.
+  `recordJumpCost()` stays synchronous at every call site — the durable
+  write fires in the background and swallows its own errors, so a slow or
+  failed persistence call never blocks a ship's own tick.
+  `tests/galaxy.test.ts` covers the new persistence/seeding behavior
+  directly against a fake store. **Not yet verified against the real
+  database** — this session's sandbox hit the same intermittent
+  `ETIMEDOUT` connecting to the remote test Postgres seen earlier
+  (2026-09-12's auto-keeper-probe entry has the same note); the migration
+  itself is simple, standard SQL and runs automatically on every boot
+  (`cli/index.ts` calls `runMigrations()` before serving), so it should
+  apply cleanly on the next real deploy — worth a quick log check
+  afterward (a `dispatch recompute` line naming a cross-system leg with a
+  learned, non-5000 fuel cost) to see it working live.
+
 ## 2026-09-13 (two live bugs: tour/keeper fuel estimate, stranded-rescue retry loop)
 
 - **Fixed the dashboard's manual "Send to waypoint" reporting "needs

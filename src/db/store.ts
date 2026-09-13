@@ -1483,6 +1483,36 @@ export class Store {
     });
   }
 
+  /** Add one real jumpShip() transaction to the running per-gate-pair
+   *  average — see migrations/017_galaxy_jump_costs.sql's own comment on
+   *  why this exists (GalaxyAtlas's in-memory version never survived a
+   *  restart). Shared across every tenant, same as the table itself. */
+  async recordGalaxyJumpCost(fromGate: string, toSystem: string, price: number): Promise<void> {
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO galaxy_jump_costs (from_gate, to_system, total_price, jump_count, updated_at)
+         VALUES ($1, $2, $3, 1, now())
+         ON CONFLICT (from_gate, to_system) DO UPDATE SET
+           total_price = galaxy_jump_costs.total_price + excluded.total_price,
+           jump_count = galaxy_jump_costs.jump_count + 1,
+           updated_at = now()`,
+        [fromGate, toSystem, Math.round(price)],
+      ),
+    );
+  }
+
+  /** Every learned jump cost recorded so far, for GalaxyAtlas to seed its
+   *  in-memory average from at boot instead of starting cold every time
+   *  this process restarts. */
+  async getAllGalaxyJumpCosts(): Promise<{ fromGate: string; toSystem: string; totalPrice: number; jumpCount: number }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ from_gate: string; to_system: string; total_price: string; jump_count: number }>(
+        `SELECT from_gate, to_system, total_price, jump_count FROM galaxy_jump_costs`,
+      );
+      return res.rows.map((r) => ({ fromGate: r.from_gate, toSystem: r.to_system, totalPrice: Number(r.total_price), jumpCount: r.jump_count }));
+    });
+  }
+
   /** How many systems the galaxy crawl has recorded meta for so far — cheap
    *  progress signal, doesn't pull every row's jsonb blobs like listGalaxySystems(). */
   async countGalaxySystems(): Promise<number> {

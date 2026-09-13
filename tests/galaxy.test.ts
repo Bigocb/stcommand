@@ -26,7 +26,10 @@ function seededStore(): GalaxyStore {
   };
 }
 
-async function makeSeededAtlas(getConstruction: (systemSymbol: string, waypointSymbol: string) => Promise<{ isComplete: boolean; materials: never[] }>) {
+async function makeSeededAtlas(
+  getConstruction: (systemSymbol: string, waypointSymbol: string) => Promise<{ isComplete: boolean; materials: never[] }>,
+  storeOverrides: Partial<GalaxyStore> = {},
+) {
   const calls: { systemSymbol: string; waypointSymbol: string }[] = [];
   const api = {
     getConstruction: async (systemSymbol: string, waypointSymbol: string) => {
@@ -34,7 +37,7 @@ async function makeSeededAtlas(getConstruction: (systemSymbol: string, waypointS
       return getConstruction(systemSymbol, waypointSymbol);
     },
   } as any;
-  const atlas = new GalaxyAtlas(api, seededStore());
+  const atlas = new GalaxyAtlas(api, { ...seededStore(), ...storeOverrides });
   await atlas.loadSystem("X1-A");
   await atlas.loadSystem("X1-B");
   return { atlas, calls };
@@ -148,5 +151,74 @@ describe("GalaxyAtlas: learned jump cost", () => {
 
     assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 5_000);
     assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-C"), 9_000);
+  });
+});
+
+describe("GalaxyAtlas: jump-cost persistence", () => {
+  // Covers the live bug this closes: the learned average lived only in this
+  // Map, wiped on every process restart, so with deploys happening several
+  // times a day a learned cost never survived long enough to replace
+  // CROSS_SYSTEM_JUMP_COST_ESTIMATE's flat placeholder — see
+  // migrations/017_galaxy_jump_costs.sql's own comment.
+  it("recordJumpCost() also persists to the store, fire-and-forget", async () => {
+    const recorded: { fromGate: string; toSystem: string; price: number }[] = [];
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }), {
+      recordGalaxyJumpCost: async (fromGate, toSystem, price) => { recorded.push({ fromGate, toSystem, price }); },
+    });
+
+    atlas.recordJumpCost("X1-A-GATE", "X1-B", 4_800);
+
+    assert.deepEqual(recorded, [{ fromGate: "X1-A-GATE", toSystem: "X1-B", price: 4_800 }]);
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 4_800, "the in-memory value updates regardless of the persistence call's own timing");
+  });
+
+  it("recordJumpCost() does not throw when the store's persistence call rejects", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }), {
+      recordGalaxyJumpCost: async () => { throw new Error("db down"); },
+    });
+
+    assert.doesNotThrow(() => atlas.recordJumpCost("X1-A-GATE", "X1-B", 4_800));
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 4_800, "the in-memory value is still updated even if the durable write fails");
+  });
+
+  it("recordJumpCost() works fine when the store doesn't implement persistence at all", async () => {
+    // The GalaxyStore interface's two new methods are optional specifically
+    // so an older/simpler fake store (like this file's own seededStore(),
+    // used throughout every other test here) doesn't need updating.
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
+    assert.doesNotThrow(() => atlas.recordJumpCost("X1-A-GATE", "X1-B", 4_800));
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 4_800);
+  });
+
+  it("loadJumpCosts() seeds the in-memory average from every jump recorded so far", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }), {
+      getAllGalaxyJumpCosts: async () => [
+        { fromGate: "X1-A-GATE", toSystem: "X1-B", totalPrice: 10_000, jumpCount: 2 },
+        { fromGate: "X1-A-GATE", toSystem: "X1-C", totalPrice: 9_000, jumpCount: 1 },
+      ],
+    });
+
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), undefined, "cold before loadJumpCosts() runs");
+    await atlas.loadJumpCosts();
+
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 5_000, "10,000 / 2 jumps");
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-C"), 9_000);
+  });
+
+  it("loadJumpCosts() merges with, rather than resets, jumps recorded before it runs", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }), {
+      getAllGalaxyJumpCosts: async () => [{ fromGate: "X1-A-GATE", toSystem: "X1-C", totalPrice: 9_000, jumpCount: 1 }],
+    });
+
+    atlas.recordJumpCost("X1-A-GATE", "X1-B", 4_800);
+    await atlas.loadJumpCosts();
+
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-B"), 4_800, "unaffected — the loaded rows don't mention this pair");
+    assert.equal(atlas.learnedJumpCost("X1-A-GATE", "X1-C"), 9_000);
+  });
+
+  it("loadJumpCosts() is a no-op when the store doesn't implement it", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
+    await assert.doesNotReject(() => atlas.loadJumpCosts());
   });
 });

@@ -414,6 +414,12 @@ export class FleetManager {
     await this.galaxy.loadSystem(this.systemSymbol);
     await this.markSystemCharted(this.systemSymbol);
     await this.galaxy.scanJumpGates(this.systemSymbol);
+    // Seed the learned jump-cost average from every tenant's real jumps so
+    // far — without this, a fresh process starts cold every time and
+    // cross-system routes stay priced against the flat placeholder forever
+    // regardless of how many real jumps have actually happened across
+    // restarts. See migrations/017_galaxy_jump_costs.sql's own comment.
+    await this.galaxy.loadJumpCosts();
     const known = this.galaxy.getSystem(this.systemSymbol)!;
     this.rawWaypoints = known.waypoints;
     this.positions = known.waypoints.map((w) => ({ symbol: w.symbol, x: w.x, y: w.y, type: w.type }));

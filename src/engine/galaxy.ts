@@ -20,6 +20,11 @@ export interface KnownSystem {
 export interface GalaxyStore {
   getSystemTopology(systemSymbol: string): Promise<{ waypoints: unknown[]; jumpGates: unknown[] } | undefined>;
   setSystemTopology(systemSymbol: string, waypoints: unknown[], jumpGates: unknown[]): Promise<void>;
+  /** See migrations/017_galaxy_jump_costs.sql's own comment: without this,
+   *  recordJumpCost()'s running average lives only in this process's
+   *  memory and is wiped on every restart. */
+  recordGalaxyJumpCost?(fromGate: string, toSystem: string, price: number): Promise<void>;
+  getAllGalaxyJumpCosts?(): Promise<{ fromGate: string; toSystem: string; totalPrice: number; jumpCount: number }[]>;
 }
 
 /** Multi-system atlas: caches waypoints, jump gates, and foreign markets. */
@@ -260,11 +265,30 @@ export class GalaxyAtlas {
 
   /** Record what a real jump actually cost, for future estimates over the
    *  same gate/destination-system pair. Called right after a live
-   *  jumpShip() call — never invented or estimated. */
+   *  jumpShip() call — never invented or estimated. Stays synchronous (no
+   *  call site needs to await it): the in-memory map updates immediately,
+   *  and the durable write to galaxy_jump_costs (see
+   *  migrations/017_galaxy_jump_costs.sql) fires in the background —
+   *  losing one write to a crash between the jump and the write landing is
+   *  an acceptable trade for not blocking a ship's own tick on it. */
   recordJumpCost(fromGate: string, toSystem: string, totalPrice: number): void {
     const key = this.jumpCostKey(fromGate, toSystem);
     const existing = this.jumpCosts.get(key) ?? { total: 0, count: 0 };
     this.jumpCosts.set(key, { total: existing.total + totalPrice, count: existing.count + 1 });
+    this.store?.recordGalaxyJumpCost?.(fromGate, toSystem, totalPrice)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
+  }
+
+  /** Seed the in-memory running average from every jump any tenant has ever
+   *  actually paid for, so a fresh process doesn't start cold — see
+   *  migrations/017_galaxy_jump_costs.sql's own comment for why this
+   *  matters (a learned cost used to be wiped by every restart). Call once
+   *  at boot; recordJumpCost() keeps both in sync from then on. */
+  async loadJumpCosts(): Promise<void> {
+    const rows = await this.store?.getAllGalaxyJumpCosts?.();
+    if (!rows) return;
+    for (const r of rows) {
+      this.jumpCosts.set(this.jumpCostKey(r.fromGate, r.toSystem), { total: r.totalPrice, count: r.jumpCount });
+    }
   }
 
   /** Average of every real jump paid over this gate/destination-system

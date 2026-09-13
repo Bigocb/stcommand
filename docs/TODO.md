@@ -7,6 +7,12 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Confirm the jump-cost persistence migration applied cleanly on the
+  next real deploy.** Shipped 2026-09-13 — see `CHANGELOG.md`. Couldn't
+  verify against the live/test Postgres from this sandbox (same
+  intermittent `ETIMEDOUT` seen before); check Render logs after the
+  deploy for a cross-system `dispatch recompute` line pricing a leg at
+  something other than the flat 5,000c placeholder.
 - [ ] **Set `PROXY_URL_<AGENTSYMBOL>` for each tenant once dedicated
   proxies are provisioned.** Shipped 2026-09-13 — see `CHANGELOG.md` and
   `.env.example`. Operator is setting up Webshare (free tier, 10 dedicated
