@@ -45,6 +45,18 @@
   .toolbar span { color: var(--dim); font-size: 12px; }
   .empty { color: var(--dim); padding: 20px 0; text-align: center; }
   [hidden] { display: none !important; }
+  .banner {
+    background: rgba(229,105,123,.12); border: 1px solid rgba(229,105,123,.35); color: var(--red);
+    border-radius: 6px; padding: 10px 12px; font-size: 12px; margin-bottom: 12px; line-height: 1.5;
+  }
+  .reset-card { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--hairline); }
+  .reset-card h2 { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); margin: 0 0 6px; }
+  .reset-card p { font-size: 12px; color: var(--dim); margin: 0 0 10px; line-height: 1.5; }
+  .reset-card .row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .reset-card .row label { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; }
+  .reset-card .dead { color: var(--red); font-size: 10px; }
+  .reset-card .actions { margin-top: 10px; display: flex; align-items: center; gap: 10px; }
+  .reset-card .result { font-size: 12px; color: var(--green); }
 </style>
 </head>
 <body>
@@ -57,6 +69,7 @@
   <div class="err" id="err" hidden></div>
 
   <div id="tenants-panel" hidden>
+    <div class="banner" id="reset-banner" hidden></div>
     <div class="toolbar">
       <span id="count">—</span>
       <button id="refresh-btn">Refresh</button>
@@ -68,6 +81,25 @@
       <tbody id="tenants-body"></tbody>
     </table>
     <div class="empty" id="empty" hidden>No tenants.</div>
+
+    <div class="reset-card">
+      <h2>After a server reset</h2>
+      <p>
+        SpaceTraders resets the whole universe weekly and every existing agent
+        token stops working — re-register each tenant with a fresh token
+        first (the normal sign-in flow), then run this. It truncates every
+        shared galaxy table (jump gates, market prices, shipyard stock,
+        system layout — all now describe a universe that no longer exists)
+        and clears the stale game data (old ships, contracts, missions,
+        financial history) for whichever tenants below are checked. Standing
+        orders/doctrine settings and login sessions are left alone.
+      </p>
+      <div id="reset-tenant-list"></div>
+      <div class="actions">
+        <button class="danger" id="reset-cleanup-btn">Clean up checked tenants + shared galaxy data</button>
+        <span class="result" id="reset-result"></span>
+      </div>
+    </div>
   </div>
 </div>
 <script type="module" src="/admin.js"></script>

@@ -109,7 +109,7 @@ async function main(): Promise<void> {
   // flow below — mounted first so /api/admin/* never falls through to
   // resolveTenant, which would demand a tenant session for a request that
   // isn't scoped to any one tenant at all.
-  app.use("/api/admin", createAdminRouter(pool, registry));
+  app.use("/api/admin", createAdminRouter(pool, registry, galaxyCrawler));
   if (!process.env.ADMIN_KEY) log("ADMIN_KEY is not set — /admin is disabled (every /api/admin/* request 503s)");
 
   const resolveTenant = createResolveTenant(pool);

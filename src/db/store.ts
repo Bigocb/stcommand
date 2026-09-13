@@ -2011,4 +2011,58 @@ export class Store {
       c.query(`DELETE FROM ship_position_history WHERE timestamp < $1`, [beforeIso]),
     );
   }
+
+  /**
+   * Every table holding a plain fact about the SpaceTraders galaxy itself —
+   * not any one tenant's own observation of it. Each one's own migration
+   * comment already calls this out ("static for the life of a server
+   * reset" — see 011_galaxy_topology.sql, 001_init.sql's "Shared, ungated"
+   * section) — a weekly SpaceTraders universe reset invalidates all of it
+   * at once: old jump-gate connections, market prices, shipyard stock, and
+   * system layouts no longer describe anything real. See
+   * admin.ts's POST /reset-cleanup, the operator-facing trigger for this.
+   */
+  private static readonly SHARED_GALAXY_TABLES = [
+    "galaxy_systems", "galaxy_factions", "galaxy_crawl_state",
+    "market_snapshots", "market_latest", "shipyard_inventory", "module_catalog",
+    "galaxy_jump_costs", "galaxy_gate_construction",
+  ];
+
+  /** Wipes every shared galaxy-fact table — see SHARED_GALAXY_TABLES's own
+   *  comment for why these (and only these) are safe to discard outright:
+   *  none of them are tenant-owned, all of them are pure cache of a public,
+   *  reset-scoped fact. Table names are an internal constant, never request
+   *  input, so string-interpolating them into the query is safe. */
+  async truncateSharedGalaxyTables(): Promise<void> {
+    await withPool(this.pool, (c) => c.query(`TRUNCATE ${Store.SHARED_GALAXY_TABLES.join(", ")}`));
+  }
+
+  /**
+   * Every tenant-scoped table holding a *fact about the old universe* (a
+   * ship, a route, a contract, a mission, a financial record) rather than
+   * an operator *preference* — `doctrine`/`doctrine_fires`/
+   * `doctrine_fire_log` (standing-order settings), `chat_messages` (the
+   * co-pilot conversation log), and `sessions` (login state) deliberately
+   * stay out of this list: none of them were made wrong by the reset, they
+   * just don't need re-entering. Everything below either names a ship
+   * symbol from the dead universe or is otherwise meaningless without one.
+   */
+  private static readonly TENANT_GAME_TABLES = [
+    "activity", "bucket_ledger", "buckets", "fleet_flags", "fleet_state",
+    "held_route", "ledger", "missions", "pending_approvals", "ship_claims",
+    "ship_log", "ship_manifest", "ship_persona", "ship_position_history",
+    "ship_state", "state_snapshot", "warehouse", "warehouse_ledger", "warehouse_targets",
+  ];
+
+  /** Wipes one tenant's post-reset-stale game data (see
+   *  TENANT_GAME_TABLES's own comment for exactly what's included and
+   *  why). Plain unqualified `DELETE FROM` is safe and correct here the
+   *  same way it is everywhere else in this file: `withTenant()`'s `SET
+   *  LOCAL app.tenant_id` plus each table's RLS policy already scopes it
+   *  to this one tenant. */
+  async wipeTenantGameData(tenantId: string): Promise<void> {
+    await withTenant(this.pool, tenantId, async (c) => {
+      for (const table of Store.TENANT_GAME_TABLES) await c.query(`DELETE FROM ${table}`);
+    });
+  }
 }

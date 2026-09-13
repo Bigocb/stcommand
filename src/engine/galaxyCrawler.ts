@@ -80,6 +80,23 @@ export class GalaxyCrawler {
     this.log = log;
   }
 
+  /**
+   * Starts the crawl over from nothing — call this right after the shared
+   * `galaxy_systems`/`galaxy_factions`/`galaxy_crawl_state` tables have
+   * been truncated (see `Store.truncateSharedGalaxyTables()`, driven by
+   * `admin.ts`'s POST /reset-cleanup), so this process notices immediately
+   * rather than believing `systemsDone`/`factionsDone` are still true
+   * against a table that's now empty. Without this, the crawl would only
+   * actually resume on the next full process restart.
+   */
+  resetCrawlState(): void {
+    this.factionsDone = false;
+    this.systemsDone = false;
+    this.totalSystems = undefined;
+    this.activity.length = 0;
+    this.recordActivity("Reset detected — galaxy crawl restarting from the beginning");
+  }
+
   /** One unit of crawl work per call — cheap to call on a slow interval
    *  (see cli/index.ts) without the caller needing to know which phase
    *  the crawl is in. A no-op once both phases have finished, or while no

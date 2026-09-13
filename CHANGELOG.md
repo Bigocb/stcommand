@@ -14,6 +14,50 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (recover from a live SpaceTraders universe reset)
+
+A real SpaceTraders weekly universe reset hit mid-session — every ship
+across every tenant (DRAGOM, EWOK, CARO) started failing with `agent
+token is from a previous server reset`, and the public cartography
+page kept showing the now-defunct pre-reset galaxy. Operator
+re-registered a fresh agent (THEO) and asked for a repeatable way to
+clean up after this, since it'll happen again (SpaceTraders resets
+weekly).
+
+- `src/db/store.ts` — `truncateSharedGalaxyTables()` (every galaxy-wide
+  table each already documents as "static for the life of a server
+  reset": `galaxy_systems`, `galaxy_factions`, `galaxy_crawl_state`,
+  `market_snapshots`, `market_latest`, `shipyard_inventory`,
+  `module_catalog`, `galaxy_jump_costs`, `galaxy_gate_construction`)
+  and `wipeTenantGameData(tenantId)` (per-tenant tables naming
+  something from the dead universe — ships, contracts, missions,
+  warehouse, financial history — deliberately excluding operator
+  config like `doctrine` and login `sessions`, neither of which the
+  reset makes wrong).
+- `src/engine/galaxyCrawler.ts` — `resetCrawlState()`, so the
+  background galaxy-wide crawl restarts from page 1 immediately in the
+  current process rather than only on the next full restart.
+- `src/http/admin.ts` — `POST /reset-cleanup` (wipes every tenant not
+  named in `keepTenantIds`, always truncates the shared tables, resets
+  the crawler); `GET /tenants` now also surfaces each tenant's
+  `deadTokenReason` (client.ts's existing reactive `TOKEN_RESET_
+  MISMATCH` detection was already there — just never surfaced past the
+  app logs before this).
+- `public/admin.html`/`admin.js` — a "After a server reset" panel: a
+  banner when any tenant shows a dead token, a per-tenant checklist
+  (defaulting to whichever tenants are currently dead-tokened), and the
+  cleanup button.
+- `CLAUDE.md` (new) — durable documentation of the whole scenario, the
+  recovery procedure, and an open idea (not built) for detecting a
+  reset proactively via SpaceTraders' own public status endpoint
+  instead of waiting for a tenant's own call to fail first.
+
+Typechecked clean. `tests/admin.test.ts` updated for the new
+`createAdminRouter()` parameter (a `GalaxyCrawler` instance) but
+couldn't be run against the remote test Postgres — same intermittent
+timeout as earlier this session, retried once. Verifying live: about
+to run the real cleanup now (DRAGOM/EWOK/CARO, keeping THEO).
+
 ## 2026-09-13 (Tower: Map — a literal radar scope)
 
 Third Tower screen: the current system rendered as a real radar scope

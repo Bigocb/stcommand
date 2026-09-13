@@ -7,6 +7,8 @@ import pg from "pg";
 import { createPool } from "../src/db/pool.js";
 import { findOrCreateTenant } from "../src/db/tenants.js";
 import { TenantRegistry } from "../src/engine/tenantRegistry.js";
+import { GalaxyCrawler } from "../src/engine/galaxyCrawler.js";
+import { Store } from "../src/db/store.js";
 import { createAdminRouter } from "../src/http/admin.js";
 
 /**
@@ -30,7 +32,8 @@ before(async () => {
 
   const app = express();
   app.use(express.json());
-  app.use("/api/admin", createAdminRouter(pool, registry));
+  const galaxyCrawler = new GalaxyCrawler(() => undefined, new Store(pool), () => {});
+  app.use("/api/admin", createAdminRouter(pool, registry, galaxyCrawler));
 
   await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   const { port } = server.address() as AddressInfo;

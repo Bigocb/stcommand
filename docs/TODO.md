@@ -7,6 +7,27 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Verify the reset-cleanup admin tool actually ran clean.**
+  Shipped 2026-09-13 in response to a live SpaceTraders universe reset
+  — see `CLAUDE.md`'s "SpaceTraders universe resets" section for the
+  full story and `CHANGELOG.md` for the shipped entry. Typechecked;
+  `tests/admin.test.ts` couldn't run against the remote test Postgres
+  (`ETIMEDOUT`, same sandbox flakiness, retried once). After using the
+  admin page's "After a server reset" button: confirm the cartography
+  page starts showing fresh (empty, then slowly repopulating) data
+  instead of the old universe's systems; confirm the cleared tenants'
+  dashboards come up empty/fresh rather than showing ghosted
+  old-universe ships or routes; confirm `docs/TODO.md`'s next galaxy-
+  crawl-progress check (`GET /api/admin/galaxy/status`) shows the count
+  climbing from 0 again.
+- [ ] **Proactive reset detection.** Idea from the same incident, not
+  built — see `CLAUDE.md`'s "Open idea, not yet built" section. Right
+  now a reset is only noticed reactively (a tenant's own live call
+  fails with the dead-token message). Poll the public, unauthenticated
+  `GET https://api.spacetraders.io/v2/` on a slow interval, compare its
+  `resetDate` against the last one seen, and surface a banner the
+  moment it changes — catches it before any tenant's own error wall
+  starts, and works even with zero tenants currently booted.
 - [ ] **Verify Tower (`/m`) live — Home + Fleet + Map.** Home and Fleet
   confirmed working by the operator 2026-09-13 (the one blank-deck
   report traced to an expected cache-skew window right after a deploy,

@@ -3,6 +3,7 @@ import type pg from "pg";
 import { timingSafeEqual } from "node:crypto";
 import { listAllTenantsAdmin, deleteTenant } from "../db/tenants.js";
 import type { TenantRegistry } from "../engine/tenantRegistry.js";
+import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { Store } from "../db/store.js";
 
 /**
@@ -20,7 +21,7 @@ import { Store } from "../db/store.js";
  * the environment at all, every route here 503s rather than silently
  * having no password — an unconfigured secret must fail closed, not open.
  */
-export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry): Router {
+export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galaxyCrawler: GalaxyCrawler): Router {
   const router = Router();
 
   router.use((req, res, next) => {
@@ -46,7 +47,16 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry): Rout
     try {
       const tenants = await listAllTenantsAdmin(pool);
       res.json({
-        tenants: tenants.map((t) => ({ ...t, running: registry.isBooted(t.id) })),
+        tenants: tenants.map((t) => ({
+          ...t,
+          running: registry.isBooted(t.id),
+          // The existing per-request reactive check (client.ts's
+          // TOKEN_RESET_MISMATCH handling) already knows the instant any
+          // live call fails with "reset_date does not match" — surfacing
+          // it here turns that into a visible admin-page signal instead of
+          // something only noticed by reading the app logs after the fact.
+          deadTokenReason: registry.get(t.id)?.api.deadTokenReason(),
+        })),
       });
     } catch (err) {
       console.error("[admin] list tenants error", err);
@@ -71,6 +81,55 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry): Rout
       res.json({ ok: true, tenantId });
     } catch (err) {
       console.error("[admin] delete tenant error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * The operator-facing trigger for cleaning up after a SpaceTraders
+   * universe reset (weekly, per the game's own status endpoint —
+   * `serverResets.frequency`/`next`). A reset invalidates every existing
+   * agent token account-wide; every tenant still on an old token starts
+   * failing every live call with "reset_date does not match" (surfaced
+   * per-tenant on GET /tenants above). Re-registering under a fresh token
+   * (the existing sign-in flow) gets a tenant flying again, but every
+   * *shared* galaxy table (jump gates, market prices, shipyard stock,
+   * system layout — see Store.truncateSharedGalaxyTables()'s own comment)
+   * and every *stale* tenant table (old ships, contracts, missions,
+   * financial history — see Store.wipeTenantGameData()'s own comment)
+   * still describes a universe that no longer exists until this runs.
+   *
+   * `keepTenantIds` lets an already-re-registered tenant (a fresh
+   * agent/token, already flying in the new universe) opt out of having
+   * its own brand-new data wiped right back out — everyone else named in
+   * the tenant list gets cleared. The shared galaxy tables are always
+   * truncated regardless: they have no "already fresh" state to protect,
+   * since nothing in this app has scanned the new universe yet either way.
+   */
+  router.post("/reset-cleanup", async (req, res) => {
+    const keepTenantIds: string[] = Array.isArray(req.body?.keepTenantIds)
+      ? req.body.keepTenantIds.filter((x: unknown) => typeof x === "string")
+      : [];
+    try {
+      const store = new Store(pool);
+      const tenants = await listAllTenantsAdmin(pool);
+      const wiped: string[] = [];
+      for (const t of tenants) {
+        if (keepTenantIds.includes(t.id)) continue;
+        // Same reasoning as tenant deletion: stop the in-memory worker
+        // first, so it isn't still running against ships/state that are
+        // about to disappear underneath it until this process next
+        // restarts. It reboots fresh (from whatever token that tenant
+        // next signs in with) the next time its session hits the API.
+        registry.stopOne(t.id);
+        await store.wipeTenantGameData(t.id);
+        wiped.push(t.id);
+      }
+      await store.truncateSharedGalaxyTables();
+      galaxyCrawler.resetCrawlState();
+      res.json({ ok: true, tenantsWiped: wiped, tenantsKept: keepTenantIds });
+    } catch (err) {
+      console.error("[admin] reset cleanup error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

@@ -17,6 +17,11 @@ const keyInput = $("key-input");
 const body = $("tenants-body");
 const countEl = $("count");
 const emptyEl = $("empty");
+const resetBanner = $("reset-banner");
+const resetTenantList = $("reset-tenant-list");
+const resetResult = $("reset-result");
+
+let lastTenants = [];
 
 function showError(msg) {
   errEl.textContent = msg;
@@ -45,13 +50,14 @@ function fmtDate(iso) {
 }
 
 function renderTenants(tenants) {
+  lastTenants = tenants;
   body.innerHTML = "";
   emptyEl.hidden = tenants.length > 0;
   countEl.textContent = `${tenants.length} tenant${tenants.length === 1 ? "" : "s"}`;
   for (const t of tenants) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(t.agentSymbol)}</td>
+      <td>${escapeHtml(t.agentSymbol)}${t.deadTokenReason ? '<br><span class="dead">reset-invalidated token</span>' : ""}</td>
       <td>${fmtDate(t.createdAt)}</td>
       <td>${fmtDate(t.lastSeenAt)}</td>
       <td><span class="badge ${t.running ? "run" : "stop"}">${t.running ? "running" : "not booted"}</span></td>
@@ -62,6 +68,35 @@ function renderTenants(tenants) {
   body.querySelectorAll("button[data-id]").forEach((btn) => {
     btn.addEventListener("click", () => deleteTenant(btn.dataset.id, btn.dataset.agent, btn));
   });
+
+  // A dead token from client.ts's own reactive TOKEN_RESET_MISMATCH check
+  // (see admin.ts's GET /tenants) is a confident, first-hand signal a
+  // SpaceTraders universe reset just happened — surfacing it here turns
+  // that into something the operator actually notices, instead of only
+  // ever showing up buried in the app's own logs.
+  const affected = tenants.filter((t) => t.deadTokenReason);
+  resetBanner.hidden = affected.length === 0;
+  if (affected.length) {
+    resetBanner.textContent =
+      `Possible server reset: ${affected.map((t) => t.agentSymbol).join(", ")} ` +
+      `${affected.length === 1 ? "is" : "are"} failing with a reset-invalidated token. ` +
+      `Re-register with a fresh token, then use "After a server reset" below.`;
+  }
+
+  renderResetTenantList(tenants);
+}
+
+/** One checkbox per tenant, defaulting to checked for anything with a dead
+ *  token (the ones a reset actually broke) and unchecked for anything
+ *  still running clean (already re-registered, or never affected). */
+function renderResetTenantList(tenants) {
+  resetTenantList.innerHTML = tenants.map((t) => `
+    <div class="row">
+      <label>
+        <input type="checkbox" class="reset-check" data-id="${t.id}" ${t.deadTokenReason ? "checked" : ""} />
+        ${escapeHtml(t.agentSymbol)}${t.deadTokenReason ? ' <span class="dead">dead token</span>' : ""}
+      </label>
+    </div>`).join("");
 }
 
 async function loadTenants() {
@@ -93,6 +128,33 @@ async function deleteTenant(id, agentSymbol, btn) {
   }
 }
 
+async function runResetCleanup() {
+  const checked = new Set([...resetTenantList.querySelectorAll(".reset-check:checked")].map((c) => c.dataset.id));
+  const wipeAgents = lastTenants.filter((t) => checked.has(t.id)).map((t) => t.agentSymbol);
+  const keepTenantIds = lastTenants.filter((t) => !checked.has(t.id)).map((t) => t.id);
+  if (!wipeAgents.length) {
+    if (!confirm("No tenant is checked — this will only truncate the shared galaxy tables (jump gates, market prices, shipyards, system layout). Continue?")) return;
+  } else if (!confirm(`Clear ${wipeAgents.join(", ")}'s fleet/contract/mission/financial data, and truncate every shared galaxy table? This cannot be undone.`)) {
+    return;
+  }
+  const btn = $("reset-cleanup-btn");
+  btn.disabled = true;
+  resetResult.textContent = "";
+  try {
+    const res = await adminFetch("/api/admin/reset-cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keepTenantIds }),
+    });
+    resetResult.textContent = `Done — cleared ${res.tenantsWiped.length} tenant(s), shared galaxy tables truncated.`;
+    await loadTenants();
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -103,5 +165,6 @@ $("unlock-btn").addEventListener("click", () => {
 });
 keyInput.addEventListener("keydown", (e) => { if (e.key === "Enter") $("unlock-btn").click(); });
 $("refresh-btn").addEventListener("click", loadTenants);
+$("reset-cleanup-btn").addEventListener("click", runResetCleanup);
 
 if (adminKey()) loadTenants();
