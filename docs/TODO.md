@@ -7,29 +7,17 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-- [ ] **The "/" → "/m" auto-redirect didn't fire for the operator once**
-  (2026-09-13, right after Home shipped) — they had to type `/m`
-  manually. Not yet root-caused. `mobileRedirect.js`'s UA regex and load
-  order were re-checked and look correct; most likely an already-open
-  tab/home-screen icon from before the deploy (stale in-memory page, or
-  a cached pre-redirect copy of `/`), or Safari's "Request Desktop
-  Website" per-site toggle being on for this domain — either would
-  explain a one-time miss without a code bug. Re-test with a clean
-  force-quit-and-reopen before digging further; escalate only if it
-  still doesn't redirect after that.
-- [ ] **Verify Tower (`/m`) live — Home + Fleet.** Home shipped
-  2026-09-13, Fleet (ship-card deck + traffic-manager sheet) shipped
-  same day — see `CHANGELOG.md` and `docs/mobile-app-design.md`'s
-  status section. Typechecked/syntax-checked only; not run against a
-  local server (needs production `DATABASE_URL`). After next deploy:
-  the redirect/manifest/Home checks from the first round, plus for
-  Fleet — swipe and Prev/Next both advance the deck; Hold/Release,
-  Repair, Send to waypoint, Assign route, and Sell/Scrap each actually
-  do something on desktop too (same `/api/fleet/*`/`/api/dispatch`
-  endpoints — should just work, but hasn't been seen live yet); a
-  stranded ship's card shows the red border and an unassigned trader's
-  shows amber. Next build pass after this verifies clean: Map (the
-  radar-scope concept + draggable waypoint sheet).
+- [ ] **Verify Tower (`/m`) live — Home + Fleet + Map.** Home and Fleet
+  confirmed working by the operator 2026-09-13 (the one blank-deck
+  report traced to an expected cache-skew window right after a deploy,
+  not a code bug — see `CHANGELOG.md`'s Fleet entry). Map (radar scope)
+  shipped same day, not yet seen live. Still worth a pass on: Fleet's
+  individual actions (Hold/Release, Repair, Send to waypoint, Assign
+  route, Sell/Scrap) actually reflecting on desktop too (same
+  `/api/fleet/*`/`/api/dispatch` endpoints — should just work); Map's
+  blips positioned sensibly for a real system, tapping one opens the
+  sheet, and Buy from the sheet actually purchases. Next build pass
+  after this verifies clean: Markets (Routes/Yards segments).
 - [ ] **Tour more systems to build cross-system pricing data.** Operator
   request 2026-09-12 — more tour coverage across more systems is needed
   before cross-system routes have enough data to evaluate. **In

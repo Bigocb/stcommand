@@ -14,6 +14,31 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower: Map — a literal radar scope)
+
+Third Tower screen: the current system rendered as a real radar scope
+rather than a generic map-tile view, per the approved design — ties
+the visual identity directly to the "Radar" concept name.
+
+- `public/m.html`/`m.css`/`m.js` — range rings, a sweep wedge, and
+  shaped blips per waypoint type (triangle = jump gate, square =
+  shipyard, diamond = market, dot = anything else, plus a small white
+  dot per ship currently in-system), positioned from real waypoint x/y
+  (`state.waypoints`) normalized into the scope's circular field.
+  Tapping a waypoint opens a bottom sheet showing whatever shipyard/
+  module intel is already known for it (`intel.shipyards`/
+  `intel.modules`, populated via `loadMarkets()`), with a direct **Buy**
+  for a ship — no ship-context needed, unlike installing a module onto
+  a specific hull, which stays read-only from this screen for now.
+- Current system only this pass — cross-system navigation isn't built
+  yet.
+- No new server-side surface: `/api/fleet/buy` is the same endpoint
+  desktop's Yards & outfitting panel already calls.
+
+Typechecked clean (no server-side changes), `m.js` syntax-checked,
+`m.html` div-tag-balance sanity-checked. Not run against a local
+server — verifying live post-deploy.
+
 ## 2026-09-13 (Tower: Fleet — the ship-card deck)
 
 Second Tower screen after Home: a swipeable ship-card deck replacing

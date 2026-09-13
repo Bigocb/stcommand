@@ -61,7 +61,17 @@
         <div class="grid5" id="sheet-actions"></div>
       </div>
     </div>
-    <div class="screen" data-screen="map"><div class="soon">Map — coming soon</div></div>
+    <div class="screen" data-screen="map">
+      <div class="scope" id="scope">
+        <div class="scope-hd" id="scope-hd"></div>
+        <div class="scope-field" id="scope-field"></div>
+      </div>
+      <div class="map-sheet" id="map-sheet" hidden>
+        <button class="handle" id="map-sheet-close" aria-label="Close"></button>
+        <div class="loc" id="map-loc"></div>
+        <div id="map-yards"></div>
+      </div>
+    </div>
     <div class="screen" data-screen="markets"><div class="soon">Markets — coming soon</div></div>
     <div class="screen" data-screen="more"><div class="soon">More — coming soon</div></div>
   </main>

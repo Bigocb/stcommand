@@ -10,8 +10,8 @@
 import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
-  state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes,
-  subscribe, loadState, loadBridge, loadApprovals, loadDispatch,
+  state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, intel,
+  subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct } from "/shared/domain.js";
 
@@ -55,15 +55,16 @@ $("auth-form").addEventListener("submit", async (e) => {
 });
 
 /* ── tabs ──────────────────────────────────
- * Map/Markets/More exist as real tab targets so the shell reads as
+ * Markets/More exist as real tab targets so the shell reads as
  * complete, but only render an inert placeholder until their own pass —
  * see docs/mobile-app-design.md's "What this pass does not do". Fleet
- * (the ship-card deck) is built below.
+ * (the ship-card deck) and Map (the radar scope) are built below.
  */
 function setTab(name) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.dataset.screen === name));
   document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   if (name === "fleet") renderDeck();
+  if (name === "map") { loadMarkets(); renderScope(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -171,7 +172,7 @@ function fleetTabActive() {
   return document.querySelector('.screen[data-screen="fleet"]')?.classList.contains("on") ?? false;
 }
 
-subscribe("state", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); });
+subscribe("state", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); if (mapTabActive()) renderScope(); });
 subscribe("bridge", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); });
 subscribe("dispatch", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); });
 subscribe("approvals", () => { renderTiles(); renderTriage(); });
@@ -374,6 +375,112 @@ $("deck-stack").addEventListener("touchend", (e) => {
   deckStep(dx < 0 ? 1 : -1);
 });
 
+/* ── Map: a literal radar scope ─────────────
+ * Current system only, this pass — see docs/mobile-app-design.md. Real
+ * waypoint x/y (state.waypoints) normalized into the scope's circular
+ * field; tapping a waypoint opens a bottom sheet with whatever shipyard/
+ * module intel is already known for it (intel.shipyards/intel.modules,
+ * the same data desktop's Yards & outfitting panel groups — see
+ * jobFor()'s sibling there). Buying a ship works directly from the
+ * sheet (no ship-context needed); installing a module does, so that
+ * stays read-only here for now.
+ */
+let selectedWaypoint = null;
+
+function blipClass(wp) {
+  if (wp.type === "JUMP_GATE") return "gate";
+  if ((wp.traits ?? []).includes("SHIPYARD")) return "yard";
+  if ((wp.traits ?? []).includes("MARKETPLACE")) return "mkt";
+  return "other";
+}
+
+/** Real x/y (arbitrary system-coordinate units) centered and scaled to
+ *  fit within ~80% of the scope's radius, one shared span for both axes
+ *  so the layout isn't stretched. */
+function computeMapPositions(waypoints) {
+  const pos = new Map();
+  if (!waypoints.length) return pos;
+  const xs = waypoints.map((w) => w.x), ys = waypoints.map((w) => w.y);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
+  for (const w of waypoints) {
+    pos.set(w.symbol, { x: 50 + ((w.x - cx) / span) * 80, y: 50 - ((w.y - cy) / span) * 80 });
+  }
+  return pos;
+}
+
+function renderScope() {
+  const waypoints = state?.waypoints ?? [];
+  $("scope-hd").textContent = state?.systemSymbol
+    ? `${state.systemSymbol} · ${waypoints.length} charted`
+    : "no system charted yet";
+
+  const pos = computeMapPositions(waypoints);
+  const shipsHere = (state?.ships ?? []).filter((s) => s.nav?.systemSymbol === state?.systemSymbol);
+
+  let html = `<div class="ring" style="width:40%;height:40%"></div><div class="ring" style="width:65%;height:65%"></div><div class="ring" style="width:88%;height:88%"></div><div class="sweep"></div>`;
+  for (const w of waypoints) {
+    const p = pos.get(w.symbol);
+    if (!p) continue;
+    const sel = selectedWaypoint === w.symbol ? " sel" : "";
+    html += `<button class="blip${sel}" style="top:${p.y}%;left:${p.x}%" data-wp="${escapeHtml(w.symbol)}"><span class="mk ${blipClass(w)}"></span><span class="tg">${escapeHtml(shortWp(w.symbol))}</span></button>`;
+  }
+  for (const s of shipsHere) {
+    const p = pos.get(s.nav.waypointSymbol);
+    if (!p) continue;
+    html += `<div class="blip" style="top:${p.y}%;left:${p.x}%"><span class="mk ship"></span><span class="tg">${escapeHtml(s.symbol)}</span></div>`;
+  }
+  $("scope-field").innerHTML = html;
+
+  if (selectedWaypoint) renderMapSheet(selectedWaypoint);
+}
+
+function renderMapSheet(wpSymbol) {
+  const wp = (state?.waypoints ?? []).find((w) => w.symbol === wpSymbol);
+  if (!wp) { $("map-sheet").hidden = true; return; }
+  $("map-sheet").hidden = false;
+  const kind = blipClass(wp);
+  const label = kind === "gate" ? "JUMP GATE" : kind === "yard" ? "SHIPYARD" : kind === "mkt" ? "MARKET" : wp.type;
+  $("map-loc").innerHTML = `${escapeHtml(wpSymbol)}<small>${escapeHtml(label)}</small>`;
+
+  const yards = intel.shipyards.filter((y) => y.waypointSymbol === wpSymbol);
+  const mods = intel.modules.filter((m) => m.waypointSymbol === wpSymbol);
+  if (!yards.length && !mods.length) {
+    $("map-yards").innerHTML = '<div class="empty">No shipyard/module intel for this waypoint yet.</div>';
+    return;
+  }
+  $("map-yards").innerHTML = [
+    ...yards.map((y) => `<div class="yline"><span class="yn">${escapeHtml(y.shipTypeName)}</span><span class="yp">${fmt(y.purchasePrice)}c</span><button class="btn pri" data-buy-ship="${escapeHtml(y.shipType)}" data-yard="${escapeHtml(y.waypointSymbol)}">Buy</button></div>`),
+    ...mods.map((m) => `<div class="yline"><span class="yn">${escapeHtml(m.symbol)}</span><span class="yp">${fmt(m.purchasePrice)}c</span></div>`),
+  ].join("");
+}
+
+$("scope-field").addEventListener("click", (e) => {
+  const b = e.target.closest("button.blip[data-wp]");
+  if (!b) return;
+  selectedWaypoint = b.dataset.wp;
+  renderScope();
+});
+$("map-sheet-close").addEventListener("click", () => {
+  selectedWaypoint = null;
+  $("map-sheet").hidden = true;
+});
+$("map-yards").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-buy-ship]");
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await api("POST", "/api/fleet/buy", { shipType: b.dataset.buyShip, yardSymbol: b.dataset.yard });
+    await loadState();
+  } catch (err) { alert(err.message); b.disabled = false; }
+});
+
+function mapTabActive() {
+  return document.querySelector('.screen[data-screen="map"]')?.classList.contains("on") ?? false;
+}
+subscribe("markets", () => { if (mapTabActive()) renderScope(); });
+
 /* ── boot ──────────────────────────────────
  * Same 15s polling cadence as v6.js's tradeops/ops tabs — Home always
  * needs bridge/approvals/dispatch fresh since it's the one screen that's
@@ -384,11 +491,13 @@ function boot() {
   loadBridge();
   loadApprovals();
   loadDispatch();
+  loadMarkets();
   renderStatusbar();
 }
 setInterval(() => {
   if (!authed || document.hidden) return;
   loadState(); loadBridge(); loadApprovals(); loadDispatch();
+  if (mapTabActive()) loadMarkets();
 }, 15_000);
 
 (async function boot0() {

@@ -193,6 +193,61 @@ body {
 }
 .route-pick button b { color: var(--green); font-weight: 600; }
 
+/* ── Map: a literal radar scope ──────────────
+ * Ties the visual identity to the "Radar" concept name directly rather
+ * than being a generic map-tile view — range rings, a sweep wedge, and
+ * shaped blips per waypoint type, with a bottom sheet for whatever's
+ * selected. Current system only, this pass (see docs/mobile-app-
+ * design.md) — cross-system navigation is a later concern.
+ */
+.scope {
+  flex: 1; position: relative; overflow: hidden;
+  background: radial-gradient(circle at 50% 46%, #0d1310 0%, #070a08 70%);
+}
+.scope-hd {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 5; padding: 10px 16px;
+  font-family: var(--chrome); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--dim); background: linear-gradient(to bottom, rgba(10, 9, 8, 0.7), transparent);
+}
+.scope-field { position: absolute; inset: 0; }
+.ring {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  border: 1px solid rgba(147, 166, 180, 0.14); border-radius: 50%;
+}
+.sweep {
+  position: absolute; top: 50%; left: 50%; width: 55%; height: 55%; transform-origin: 0% 0%;
+  background: conic-gradient(from 210deg, rgba(255, 176, 32, 0.14), transparent 55deg);
+  pointer-events: none;
+}
+.blip {
+  position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column;
+  align-items: center; gap: 3px; background: none; border: none; padding: 6px;
+}
+.blip .mk { width: 10px; height: 10px; }
+.blip .mk.gate { background: var(--ice); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.blip .mk.yard { background: var(--amber); border-radius: 1px; }
+.blip .mk.mkt { background: var(--green); transform: rotate(45deg); }
+.blip .mk.other { background: var(--dim); border-radius: 50%; }
+.blip .mk.ship { width: 8px; height: 8px; border-radius: 50%; background: var(--bone); box-shadow: 0 0 0 4px rgba(243, 239, 230, 0.14); }
+.blip .tg { font-family: var(--mono); font-size: 7.5px; color: var(--dim); white-space: nowrap; }
+.blip.sel .tg { color: var(--amber); }
+
+.map-sheet {
+  flex: 0 0 auto; background: var(--raised); border-top: 1px solid var(--hair-hi);
+  border-radius: 16px 16px 0 0; padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+}
+.map-sheet[hidden] { display: none; }
+.map-sheet .loc { font-family: var(--chrome); font-weight: 700; font-size: 13px; letter-spacing: 0.03em; margin: 4px 0 8px; }
+.map-sheet .loc small {
+  font-family: var(--chrome); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--amber); margin-left: 8px;
+}
+.yline { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--hair); }
+.yline:first-of-type { border-top: none; }
+.yline .yn { font-family: var(--mono); font-size: 10.5px; }
+.yline .yp { font-family: var(--mono); font-size: 10px; color: var(--dim); flex: 1; text-align: right; }
+.yline .btn { padding: 6px 12px; }
+
 /* ── tab bar ── */
 .tabbar {
   flex: 0 0 auto; display: flex; border-top: 1px solid var(--hair); background: var(--panel);

@@ -232,7 +232,18 @@ reuses the same `TraderAssignment` vocabulary as desktop's Job column
 `/api/fleet/*`/`/api/dispatch` endpoints desktop already calls — no new
 server-side surface.
 
-Map, Markets, and More still render inert "coming soon" placeholders —
-their tab targets exist in the shell so it reads as complete, but no
-screen behind them has been built yet. Next pass: Map (the radar-scope
-concept + a draggable waypoint sheet).
+**Update, same day** — Map is also shipped: a literal radar scope (range
+rings, a sweep wedge, shaped blips per waypoint type — a triangle for a
+jump gate, a square for a shipyard, a diamond for a market, a dot for
+anything else, plus a small white dot per ship) for the current system,
+computed from real waypoint x/y (`state.waypoints`), with a bottom
+sheet on tap showing whatever shipyard/module intel is already known
+for that waypoint and a direct **Buy** for a ship (no ship-context
+needed, unlike installing a module onto one — that stays read-only from
+Map for now). Cross-system navigation isn't in scope yet — one system
+at a time, matching the design doc's own "current pass" framing.
+
+Markets and More still render inert "coming soon" placeholders — their
+tab targets exist in the shell so it reads as complete, but no screen
+behind them has been built yet. Next pass: Markets (Routes/Yards
+segments).
