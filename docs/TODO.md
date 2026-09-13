@@ -81,6 +81,16 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   tenant count grows enough to matter.
 
 ## Parked ideas — raised, not acted on
+- [ ] **Push notifications for Tower (`/m`).** Operator request 2026-09-13,
+  explicitly future work, not now. Would need: a service worker
+  (Tower currently has none — `manifest-tower.webmanifest` alone doesn't
+  register one) to receive `push` events and show a notification even
+  when the PWA isn't open; a Web Push subscription per installed device,
+  stored per-tenant (a device can re-install/re-subscribe, so this is a
+  new table, not a single column); VAPID keys generated and held as env
+  vars; and a server-side sender triggered off the same conditions that
+  already populate Home's triage feed (a new approval, a ship going
+  stranded) rather than a new notification concept. Not scoped further.
 - [ ] **A log explorer on the admin screen.** Floated 2026-09-12 while
   debugging DRAGOM-C's stuck retry loop — being able to search/filter
   live app logs from inside the admin UI instead of going through
