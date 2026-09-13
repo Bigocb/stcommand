@@ -14,6 +14,28 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Admin page: visual pass + "New agent" + Cartography link)
+
+Operator called "View as" a likely primary entry point going forward, so
+the admin page got a design pass to match — plus two more one-click
+paths that were missing.
+
+- `public/admin.html` — full visual pass: a command-bar header ("Fleet
+  Command"), Chakra Petch/IBM Plex Mono type (matching Tower's own
+  identity choice, distinct from desktop's), a subtle radial-gradient
+  background, glowing status-badge dots, refined table/button/panel
+  styling. No functional/JS changes needed — every element ID stayed the
+  same, so `admin.js` only needed two small markup tweaks (the `.dot`
+  span the new badge CSS expects, and an `.agent-cell` class).
+- `public/admin.html` — two new header links, both opening in a new tab:
+  **+ New agent** (`/`, the normal sign-in/register page — the operator
+  can add a tenant without leaving the admin page or hunting for the
+  URL) and **Cartography** (`/cartography`, the public galaxy map).
+
+No server-side changes. Visual-only + two static links; nothing to
+typecheck differently, but worth a live look given how much of this is
+CSS.
+
 ## 2026-09-13 ("View as": multi-tenant switching without logging out/in)
 
 Operator has multiple tenants (THEO, THEO-1, soon THEO-2 for A/B play-

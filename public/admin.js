@@ -57,10 +57,10 @@ function renderTenants(tenants) {
   for (const t of tenants) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${escapeHtml(t.agentSymbol)}${t.deadTokenReason ? '<br><span class="dead">reset-invalidated token</span>' : ""}</td>
+      <td class="agent-cell">${escapeHtml(t.agentSymbol)}${t.deadTokenReason ? '<br><span class="dead">reset-invalidated token</span>' : ""}</td>
       <td>${fmtDate(t.createdAt)}</td>
       <td>${fmtDate(t.lastSeenAt)}</td>
-      <td><span class="badge ${t.running ? "run" : "stop"}">${t.running ? "running" : "not booted"}</span></td>
+      <td><span class="badge ${t.running ? "run" : "stop"}"><span class="dot"></span>${t.running ? "running" : "not booted"}</span></td>
       <td><input class="profile-input" data-id="${t.id}" value="${escapeHtml(t.playProfile ?? "")}" placeholder="e.g. baseline" /></td>
       <td>
         <button class="view-as" data-id="${t.id}" data-agent="${escapeHtml(t.agentSymbol)}">View as</button>
