@@ -63,6 +63,7 @@ function renderTenants(tenants) {
       <td><span class="badge ${t.running ? "run" : "stop"}">${t.running ? "running" : "not booted"}</span></td>
       <td><input class="profile-input" data-id="${t.id}" value="${escapeHtml(t.playProfile ?? "")}" placeholder="e.g. baseline" /></td>
       <td>
+        <button class="view-as" data-id="${t.id}" data-agent="${escapeHtml(t.agentSymbol)}">View as</button>
         <button class="playstyle-toggle" data-id="${t.id}" data-agent="${escapeHtml(t.agentSymbol)}">Play style</button>
         <button class="danger" data-id="${t.id}" data-agent="${escapeHtml(t.agentSymbol)}">Delete</button>
       </td>
@@ -84,6 +85,9 @@ function renderTenants(tenants) {
   });
   body.querySelectorAll(".playstyle-toggle").forEach((btn) => {
     btn.addEventListener("click", () => togglePlaystyle(btn.dataset.id, btn.dataset.agent));
+  });
+  body.querySelectorAll(".view-as").forEach((btn) => {
+    btn.addEventListener("click", () => viewAsTenant(btn.dataset.id, btn.dataset.agent, btn));
   });
   // A refresh rebuilds every row from scratch — reopen whatever play-style
   // panels the operator already had open rather than silently collapsing
@@ -150,6 +154,24 @@ async function deleteTenant(id, agentSymbol, btn) {
     showError(err.message);
     btn.disabled = false;
     btn.textContent = "Delete";
+  }
+}
+
+/**
+ * Multi-tenant management, without the log-out/log-in dance: mints a real
+ * session for this tenant (server-side — see POST /tenants/:id/impersonate)
+ * and drops the operator straight into their dashboard. No token re-entry,
+ * since the admin key that got them onto this page already IS the
+ * authorization for this.
+ */
+async function viewAsTenant(id, agentSymbol, btn) {
+  btn.disabled = true;
+  try {
+    await adminFetch(`/api/admin/tenants/${id}/impersonate`, { method: "POST" });
+    window.location.href = "/";
+  } catch (err) {
+    showError(err.message);
+    btn.disabled = false;
   }
 }
 

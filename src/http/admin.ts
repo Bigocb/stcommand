@@ -1,10 +1,13 @@
 import { Router } from "express";
 import type pg from "pg";
 import { timingSafeEqual } from "node:crypto";
-import { listAllTenantsAdmin, deleteTenant, setTenantPlayProfile } from "../db/tenants.js";
+import { listAllTenantsAdmin, deleteTenant, setTenantPlayProfile, createSession } from "../db/tenants.js";
 import type { TenantRegistry } from "../engine/tenantRegistry.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { Store } from "../db/store.js";
+import { signSessionCookie } from "../auth/crypto.js";
+import { SESSION_COOKIE_NAME } from "./session.js";
+import { cookieOpts } from "./gate.js";
 
 /**
  * A small operator-only surface, separate from the tenant dashboard: list
@@ -127,6 +130,37 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galax
       res.json({ ok: true, tenantId: req.params.id, meta: meta ?? null });
     } catch (err) {
       console.error("[admin] checkpoint error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * "View as": drop the operator straight into a tenant's own dashboard/
+   * Tower session without logging out of whichever tenant's browser tab
+   * they're already in and re-entering that tenant's SpaceTraders token —
+   * the whole reason multi-tenant management kept meaning a log-out/log-in
+   * dance. Mints a session exactly the way gate.ts's own /login does
+   * (createSession() + the same signed cookie, same cookieOpts) but
+   * without verifying any token — the ADMIN_KEY this route already sits
+   * behind IS the authorization; this is deliberately admin-issuing-a-
+   * session-for-someone-else, not a new kind of login. Only reachable by
+   * whoever holds ADMIN_KEY (today: the one operator running this whole
+   * server), same trust boundary reset-cleanup and tenant-delete already
+   * sit behind.
+   */
+  router.post("/tenants/:id/impersonate", async (req, res) => {
+    try {
+      const tenants = await listAllTenantsAdmin(pool);
+      const tenant = tenants.find((t) => t.id === req.params.id);
+      if (!tenant) {
+        res.status(404).json({ error: "tenant not found" });
+        return;
+      }
+      const sessionId = await createSession(pool, tenant.id);
+      res.cookie(SESSION_COOKIE_NAME, signSessionCookie(sessionId), cookieOpts);
+      res.json({ ok: true, agentSymbol: tenant.agentSymbol });
+    } catch (err) {
+      console.error("[admin] impersonate error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

@@ -6,7 +6,11 @@ import { signSessionCookie, verifySessionCookie } from "../auth/crypto.js";
 import { parseCookies } from "./cookies.js";
 import { SESSION_COOKIE_NAME, SESSION_COOKIE_MAX_AGE_MS } from "./session.js";
 
-const cookieOpts = {
+// Exported so src/http/admin.ts's "View as" tenant switch can set the exact
+// same cookie shape a real login would — the point of that feature is that
+// the resulting session is completely indistinguishable from one the
+// tenant logged into themselves.
+export const cookieOpts = {
   httpOnly: true,
   sameSite: "lax" as const,
   secure: process.env.NODE_ENV === "production",

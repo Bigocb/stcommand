@@ -14,6 +14,31 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 ("View as": multi-tenant switching without logging out/in)
+
+Operator has multiple tenants (THEO, THEO-1, soon THEO-2 for A/B play-
+style comparison) and had to log out and back in with a different
+SpaceTraders token every time they wanted to check a different one.
+
+- `src/http/gate.ts` — exported `cookieOpts` (was module-private) so
+  admin.ts can set the exact same session cookie shape a real login
+  would.
+- `src/http/admin.ts` — `POST /tenants/:id/impersonate` mints a session
+  for the given tenant via the same `createSession()` gate.ts's own
+  `/login` uses, and sets the signed cookie — no SpaceTraders token
+  involved at all. The `ADMIN_KEY` this route already sits behind (same
+  as tenant delete and reset-cleanup) IS the authorization; this is
+  deliberately admin-issuing-a-session-for-someone-else, not a new login
+  path, and only reachable by whoever holds that key.
+- `public/admin.html`/`admin.js` — a "View as" button per tenant row;
+  clicking it calls the endpoint, then navigates to `/` already logged
+  in as that tenant.
+
+Typechecked clean. `tests/admin.test.ts` couldn't run against the remote
+test Postgres (`ETIMEDOUT`, same sandbox flakiness as earlier this
+session, retried twice) — worth a real run, and a live click-through,
+next time either is reachable.
+
 ## 2026-09-13 (Play-style tracking: a profile label + a manual-override log)
 
 Operator wants to compare "baseline automation" against their own manual
