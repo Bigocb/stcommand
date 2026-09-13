@@ -26,6 +26,17 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   differ). Worth logging a checkpoint on both tenants once THEO-2 is
   actually flying, specifically to get that system-attribute snapshot on
   record for the eventual comparison.
+- [ ] **Tune the starter doctrine templates once real data exists.**
+  Shipped 2026-09-13: `src/engine/systemClassifier.ts` classifies a
+  tenant's home system (isolated / market_desert / shipyard_poor / hub /
+  standard) from the same attributes the checkpoint captures, and the
+  admin page's Play style panel shows the matching starter doctrine
+  template with an "Apply template" button. The archetypes and every
+  template value are a first-pass guess, not a tuned result — genuinely
+  worth revisiting once THEO-2 (or any classified system) has enough
+  runtime to show whether the suggested deltas actually help. Nothing
+  applies itself; it's a suggestion the operator clicks to apply, same
+  weight as any other doctrine edit.
 - [ ] **Verify the reset-cleanup admin tool actually ran clean.**
   Shipped 2026-09-13 in response to a live SpaceTraders universe reset
   — see `CLAUDE.md`'s "SpaceTraders universe resets" section for the

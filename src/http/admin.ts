@@ -8,6 +8,27 @@ import { Store } from "../db/store.js";
 import { signSessionCookie } from "../auth/crypto.js";
 import { SESSION_COOKIE_NAME } from "./session.js";
 import { cookieOpts } from "./gate.js";
+import type { TenantWorker } from "../engine/tenantRegistry.js";
+import { classifySystem, ARCHETYPE_LABELS, DOCTRINE_TEMPLATES, type SystemAttributes } from "../engine/systemClassifier.js";
+
+/** The home-system attributes both the checkpoint tool and the template
+ *  endpoints below read — one place computing it from GalaxyAtlas so the
+ *  two never drift into disagreeing about what a given system looks like. */
+function homeSystemAttributes(worker: TenantWorker): { symbol: string; attrs: SystemAttributes; waypointCount: number } {
+  const symbol = worker.fleet.getSystemSymbol();
+  const known = worker.fleet.getGalaxy().getSystem(symbol);
+  const waypoints = known?.waypoints ?? [];
+  return {
+    symbol,
+    waypointCount: waypoints.length,
+    attrs: {
+      marketCount: waypoints.filter((w) => w.traits?.some((t) => t.symbol === "MARKETPLACE")).length,
+      shipyardCount: waypoints.filter((w) => w.traits?.some((t) => t.symbol === "SHIPYARD")).length,
+      jumpGateCount: waypoints.filter((w) => w.type === "JUMP_GATE").length,
+      connectedSystemCount: worker.fleet.getGalaxy().connectedSystems(symbol).length,
+    },
+  };
+}
 
 /**
  * A small operator-only surface, separate from the tenant dashboard: list
@@ -131,16 +152,13 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galax
       if (worker) {
         const roleCounts: Record<string, number> = {};
         for (const s of worker.fleet.fleetStatusSummary()) roleCounts[s.role] = (roleCounts[s.role] ?? 0) + 1;
-        const homeSystem = worker.fleet.getSystemSymbol();
-        const known = worker.fleet.getGalaxy().getSystem(homeSystem);
-        const waypoints = known?.waypoints ?? [];
+        const { symbol, attrs, waypointCount } = homeSystemAttributes(worker);
         const system = {
-          symbol: homeSystem,
-          waypointCount: waypoints.length,
-          marketCount: waypoints.filter((w) => w.traits?.some((t) => t.symbol === "MARKETPLACE")).length,
-          shipyardCount: waypoints.filter((w) => w.traits?.some((t) => t.symbol === "SHIPYARD")).length,
-          jumpGateCount: waypoints.filter((w) => w.type === "JUMP_GATE").length,
-          connectedSystems: worker.fleet.getGalaxy().connectedSystems(homeSystem),
+          symbol,
+          waypointCount,
+          ...attrs,
+          connectedSystems: worker.fleet.getGalaxy().connectedSystems(symbol),
+          archetype: classifySystem(attrs),
         };
         meta = { credits: worker.state.get()?.agent?.credits ?? null, roleCounts, shipCount: worker.fleet.fleetStatusSummary().length, system };
       }
@@ -149,6 +167,56 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galax
       res.json({ ok: true, tenantId: req.params.id, meta: meta ?? null });
     } catch (err) {
       console.error("[admin] checkpoint error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * Classify this tenant's home system and return the starter doctrine
+   * template that goes with it — a read-only preview, never applies
+   * anything itself (see POST .../apply-template below for that). Requires
+   * the tenant booted in this process, same as the checkpoint's system
+   * snapshot — a not-currently-running tenant has no galaxy data to read.
+   */
+  router.get("/tenants/:id/system-template", async (req, res) => {
+    const worker = registry.get(req.params.id);
+    if (!worker) return res.status(503).json({ error: "tenant not booted in this process" });
+    const { symbol, attrs, waypointCount } = homeSystemAttributes(worker);
+    const archetype = classifySystem(attrs);
+    res.json({
+      system: { symbol, waypointCount, ...attrs },
+      archetype,
+      label: ARCHETYPE_LABELS[archetype],
+      template: DOCTRINE_TEMPLATES[archetype],
+    });
+  });
+
+  /**
+   * Apply the starter template for this tenant's *current* home system —
+   * re-classified fresh here rather than trusting an archetype the client
+   * sent, so this can never apply a template for a system the tenant isn't
+   * actually in anymore. Each entry goes through setAdopted() before
+   * set() so a not-yet-adopted rule (e.g. exploringEnabled, off the
+   * catalog's own opt-in default) actually takes effect, not just sits in
+   * the cache unread — see Doctrine.value()'s isAdopted() gate. This is a
+   * suggestion the operator asked to apply, same weight as any other
+   * doctrine edit from the dashboard's own Doctrine tab; nothing here runs
+   * on its own.
+   */
+  router.post("/tenants/:id/apply-template", async (req, res) => {
+    const worker = registry.get(req.params.id);
+    if (!worker) return res.status(503).json({ error: "tenant not booted in this process" });
+    try {
+      const { attrs } = homeSystemAttributes(worker);
+      const archetype = classifySystem(attrs);
+      const template = DOCTRINE_TEMPLATES[archetype];
+      for (const entry of template) {
+        await worker.fleet.doctrine.setAdopted(entry.key, true);
+        await worker.fleet.doctrine.set(entry.key, { value: entry.value, enabled: entry.enabled });
+      }
+      res.json({ ok: true, archetype, label: ARCHETYPE_LABELS[archetype], applied: template });
+    } catch (err) {
+      console.error("[admin] apply-template error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

@@ -213,8 +213,15 @@ async function loadPlaystyle(id, agentSymbol) {
   if (!panel) return;
   panel.innerHTML = `<div class="ps-loading">Loading…</div>`;
   try {
-    const { actions } = await adminFetch(`/api/admin/tenants/${id}/actions`);
+    const [{ actions }, templateData] = await Promise.all([
+      adminFetch(`/api/admin/tenants/${id}/actions`),
+      // Best-effort: a tenant not currently booted in this process has no
+      // live galaxy data to classify — that's fine, the template section
+      // just doesn't show rather than failing the whole panel.
+      adminFetch(`/api/admin/tenants/${id}/system-template`).catch(() => null),
+    ]);
     panel.innerHTML = `
+      ${templateData ? renderTemplateSection(id, templateData) : ""}
       <div class="ps-add">
         <textarea class="ps-note" placeholder="Log a checkpoint — e.g. &quot;overrode automation: command ship &rarr; tour, approved two miners, bought and converted a third to trader&quot;"></textarea>
         <button class="ps-add-btn" data-id="${id}">Log checkpoint</button>
@@ -231,8 +238,39 @@ async function loadPlaystyle(id, agentSymbol) {
       }</div>
     `;
     panel.querySelector(".ps-add-btn").addEventListener("click", () => submitCheckpoint(id, agentSymbol));
+    panel.querySelector(".ps-apply-template")?.addEventListener("click", () => applyTemplate(id, agentSymbol));
   } catch (err) {
     panel.innerHTML = `<div class="ps-empty">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+/** System classification + starter doctrine template — a suggestion, not
+ *  applied until the operator clicks Apply. See systemClassifier.ts. */
+function renderTemplateSection(id, data) {
+  const { system, label, template } = data;
+  const rows = template.length
+    ? template.map((t) => `<div class="ps-tmpl-row"><span>${escapeHtml(t.key)}</span><span>${t.value !== undefined ? t.value : ""}${t.enabled !== undefined ? (t.enabled ? "on" : "off") : ""}</span></div>`).join("")
+    : '<div class="ps-empty">No template deltas for this archetype — the catalog defaults already fit.</div>';
+  return `
+    <div class="ps-template">
+      <div class="ps-tmpl-hd">${escapeHtml(system.symbol)} · ${system.marketCount} markets · ${system.shipyardCount} yards · ${system.jumpGateCount} gates · <b>${escapeHtml(label)}</b></div>
+      ${rows}
+      ${template.length ? `<button class="ps-apply-template" data-id="${id}">Apply template</button>` : ""}
+    </div>
+  `;
+}
+
+async function applyTemplate(id, agentSymbol) {
+  const panel = $(`playstyle-${id}`);
+  const btn = panel?.querySelector(".ps-apply-template");
+  if (!confirm(`Apply the starter doctrine template for ${agentSymbol}'s current system? This changes live doctrine settings (miner/explorer targets, etc.) — reviewable and editable afterward from the tenant's own Doctrine tab, same as any other doctrine edit.`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = "Applying…"; }
+  try {
+    await adminFetch(`/api/admin/tenants/${id}/apply-template`, { method: "POST" });
+    await loadPlaystyle(id, agentSymbol);
+  } catch (err) {
+    showError(err.message);
+    if (btn) { btn.disabled = false; btn.textContent = "Apply template"; }
   }
 }
 

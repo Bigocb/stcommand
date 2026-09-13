@@ -14,6 +14,43 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (System classifier + starter doctrine templates)
+
+Operator idea, following straight from the checkpoint's new system-
+attribute capture: classify a system by those attributes and suggest the
+right doctrine template for that type, rather than every tenant running
+identical settings regardless of what its home system actually looks
+like.
+
+- `src/engine/systemClassifier.ts` (new) — `classifySystem()`, a plain
+  rule-based classifier (deliberately not learned — this matches the
+  doctrine system's own explicit-rules philosophy) over market/shipyard/
+  jump-gate/connectivity counts, sorting a system into `isolated`,
+  `market_desert`, `shipyard_poor`, `hub`, or `standard`. `DOCTRINE_TEMPLATES`
+  pairs each archetype with a small set of starter doctrine deltas (e.g.
+  `isolated` zeroes `explorerTarget` — there's no gate to jump through;
+  `hub` turns on `warehouseTarget` and raises `keeperCount` — enough
+  markets and liquidity to be worth it). Explicitly a first-pass
+  starting point, not a tuned result — every value is normal editable
+  doctrine afterward.
+- `src/http/admin.ts` — the checkpoint's captured system snapshot now
+  includes its `archetype`. Two new endpoints: `GET
+  /tenants/:id/system-template` (read-only preview: classify the
+  tenant's *current* home system, return the matching template) and
+  `POST /tenants/:id/apply-template` (re-classifies fresh server-side
+  rather than trusting a client-sent archetype, then applies each
+  delta via `Doctrine.setAdopted()` + `.set()` — the same public API
+  the dashboard's own Doctrine tab uses). Nothing runs on its own; this
+  only ever executes on an explicit operator click.
+- `public/admin.html`/`admin.js` — the Play style panel now shows the
+  detected archetype and template preview (when the tenant is booted in
+  this process) with an "Apply template" button, confirmed before it
+  fires since it changes live doctrine settings.
+
+Typechecked clean. `tests/admin.test.ts` couldn't run against the
+remote test Postgres (`ETIMEDOUT`, same sandbox flakiness as earlier
+this session, retried twice).
+
 ## 2026-09-13 (Checkpoints now capture home-system attributes too)
 
 Operator observation: the same manual strategy that's working great on
