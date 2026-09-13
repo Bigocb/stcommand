@@ -14,6 +14,40 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (mobile Ops tab was missing Approvals entirely)
+
+Operator report: the global "N approvals awaiting your decision" banner
+showed on mobile and tapping it landed on the Ops tab, but nothing was
+there to approve.
+
+Root cause: mobile runs its own independent screen markup/state machine
+(`#mobile-view`'s `.m-screen[data-mscreen=...]`, driven by
+`setMobileView()`) rather than reusing the desktop `.view` sections
+`setView()` drives — confirmed by reading both mobile's ops screen and
+`renderApprovalsBanner()`'s comment claiming "clicking jumps to Ops,
+where the actual Approve/Deny controls live," which was only true on
+desktop. Two compounding bugs:
+1. The banner's click handler only called `setView("ops")`, which has no
+   effect on mobile's separate screen state at all.
+2. Even ignoring that, mobile's Ops screen (`public/v6.html`) had no
+   Approvals pane in its markup to begin with — `renderApprovals()` only
+   ever wrote to the desktop `#approvals`/`#approval-count` elements,
+   same shape as the `renderContracts()` bug this fixes: dashboard.ts
+   already returns fresh approvals, they just had nowhere to render on a
+   phone.
+
+Fixed: added a mobile Approvals pane (`#mobile-approvals`/
+`#mobile-approval-count`) as the first pane in mobile's Ops screen,
+mirroring `renderContracts()`'s existing dual-render pattern;
+`renderApprovals()` now writes to both desktop and mobile elements and
+wires the Approve/Deny buttons on both; the banner's click handler now
+also calls `setMobileView("ops")` when `isMobile()`.
+
+Syntax-checked with `node --check`; no automated test coverage for
+mobile DOM rendering in this codebase, so this needs a manual check on
+a phone (or narrow viewport) next: confirm the banner navigates to Ops
+and the approval actually renders with working Approve/Deny buttons.
+
 ## 2026-09-13 (Yards & outfitting: system filter + per-item pricing)
 
 Operator request: shipyard/module intel should carry the same

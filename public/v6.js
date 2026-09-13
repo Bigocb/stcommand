@@ -971,18 +971,20 @@ function renderApprovalsBanner() {
   b.id = "approval-banner";
   b.className = "approval-banner";
   b.textContent = `${approvals.length} approval${approvals.length > 1 ? "s" : ""} awaiting your decision — click to review`;
-  b.addEventListener("click", () => setView("ops"));
+  // setView() alone only drives the desktop layout's view switcher; mobile
+  // runs its own independent screen state (see setMobileView()'s own
+  // comment), so on a phone this banner navigated nowhere — the operator
+  // landed on Ops but the mobile Ops screen just didn't have the Approvals
+  // pane rendered onto it yet either. Drive both.
+  b.addEventListener("click", () => { setView("ops"); if (isMobile()) setMobileView("ops"); });
   const main = $("views");
   main.parentElement.insertBefore(b, main);
 }
 
 function renderApprovals() {
-  const el = $("approvals");
-  const countEl = $("approval-count");
-  if (!el) return;
-  if (countEl) countEl.textContent = approvals.length ? `${approvals.length} pending` : "none pending";
-  if (!approvals.length) { el.innerHTML = '<div class="empty">Nothing waiting on a decision.</div>'; return; }
-  el.innerHTML = approvals.map((a) => `
+  const html = !approvals.length
+    ? '<div class="empty">Nothing waiting on a decision.</div>'
+    : approvals.map((a) => `
     <div class="ops-card">
       <div class="ops-head">
         <span class="ops-title">${escapeHtml(a.kind)}</span>
@@ -998,16 +1000,30 @@ function renderApprovals() {
         <button class="btn" data-act="deny" data-id="${escapeAttr(a.id)}">Deny</button>
       </div>
     </div>`).join("");
-  el.querySelectorAll("button[data-act]").forEach((b) => {
-    b.addEventListener("click", async () => {
-      const decision = b.dataset.act === "approve" ? "approved" : "denied";
-      b.disabled = true;
-      try {
-        await api("POST", `/api/approvals/${b.dataset.id}/decide`, { decision });
-        await loadApprovals();
-      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+  // Same dual-render as renderContracts(): mobile has its own Ops screen
+  // with its own #mobile-approvals element, not just a CSS-hidden copy of
+  // the desktop pane. Previously only "approvals" was written, so on a
+  // phone the count badge/banner correctly saw pending approvals but the
+  // Ops tab itself never actually rendered any of them.
+  for (const id of ["approval-count", "mobile-approval-count"]) {
+    const el = $(id);
+    if (el) el.textContent = approvals.length ? `${approvals.length} pending` : "none pending";
+  }
+  for (const id of ["approvals", "mobile-approvals"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.innerHTML = html;
+    el.querySelectorAll("button[data-act]").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const decision = b.dataset.act === "approve" ? "approved" : "denied";
+        b.disabled = true;
+        try {
+          await api("POST", `/api/approvals/${b.dataset.id}/decide`, { decision });
+          await loadApprovals();
+        } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+      });
     });
-  });
+  }
 }
 
 function renderSystemStrip() {
