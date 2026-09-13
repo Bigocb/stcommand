@@ -1967,6 +1967,26 @@ export class FleetManager {
     const seller = ((await this.store?.moduleCatalog("MOUNT_SENSOR_ARRAY_I")) ?? []).find((m) => m.symbol === "MOUNT_SENSOR_ARRAY_I");
     if (!seller) return;
     if (this.credits < this.minCashReserve() + seller.purchasePrice) return;
+    // Operator approval gate — same pattern as maybeBuyShip()'s: this
+    // function reruns every tick regardless, so a pending/denied request is
+    // just a guard clause, not a new suspension mechanism. Approves itself
+    // after 2h with nobody watching, matching this purchase's own prior
+    // fully-automatic behavior.
+    const approved = await this.approvals.request("installScanner", {
+      shipSymbol: scout[0],
+      detail: `MOUNT_SENSOR_ARRAY_I on ${scout[0]} from ${seller.waypointSymbol} for ${seller.purchasePrice}c`,
+      cost: seller.purchasePrice,
+      timeoutMs: 2 * 60 * 60_000,
+      onTimeout: "approve",
+    });
+    if (approved === undefined) {
+      this.log(`scanner install on ${scout[0]} awaiting operator approval`);
+      return;
+    }
+    if (approved === false) {
+      this.log(`scanner install on ${scout[0]} denied by operator`);
+      return;
+    }
     this.log(`installing MOUNT_SENSOR_ARRAY_I on ${scout[0]} from ${seller.waypointSymbol}`);
     await this.buyAndInstallComponent(scout[0], "MOUNT_SENSOR_ARRAY_I", seller.waypointSymbol);
   }
@@ -2120,6 +2140,21 @@ export class FleetManager {
         // so it must not slip past the drone cap the operator set.
         if (this.doctrine.value(`shipCap:${available.frame.symbol}`, Infinity) <= this.droneCount()) return;
         if (!this.canAfford(available.purchasePrice, agent.credits)) return;
+        // Operator approval gate — same pattern as maybeBuyShip()'s.
+        const approved = await this.approvals.request("buyScout", {
+          detail: `SHIP_SURVEYOR scout at ${yard.symbol} for ${available.purchasePrice}c`,
+          cost: available.purchasePrice,
+          timeoutMs: 2 * 60 * 60_000,
+          onTimeout: "approve",
+        });
+        if (approved === undefined) {
+          this.log(`scout purchase at ${yard.symbol} awaiting operator approval`);
+          return;
+        }
+        if (approved === false) {
+          this.log(`scout purchase at ${yard.symbol} denied by operator`);
+          return;
+        }
         this.log(`purchasing SHIP_SURVEYOR scout at ${yard.symbol} for ${available.purchasePrice} credits`);
         const res = await this.api.purchaseShip("SHIP_SURVEYOR", yard.symbol);
         this.recordLedger?.({
@@ -2170,6 +2205,21 @@ export class FleetManager {
         await this.doctrine.ensureShipTypeRule("SHIP_SIPHON_DRONE");
         if (this.doctrine.value(`shipCap:SHIP_SIPHON_DRONE`, Infinity) <= this.siphoners.size) return;
         if (!this.canAfford(available.purchasePrice, agent.credits)) return;
+        // Operator approval gate — same pattern as maybeBuyShip()'s.
+        const approved = await this.approvals.request("buySiphoner", {
+          detail: `SHIP_SIPHON_DRONE at ${yard.symbol} for ${available.purchasePrice}c`,
+          cost: available.purchasePrice,
+          timeoutMs: 2 * 60 * 60_000,
+          onTimeout: "approve",
+        });
+        if (approved === undefined) {
+          this.log(`siphon drone purchase at ${yard.symbol} awaiting operator approval`);
+          return;
+        }
+        if (approved === false) {
+          this.log(`siphon drone purchase at ${yard.symbol} denied by operator`);
+          return;
+        }
         this.log(`purchasing SHIP_SIPHON_DRONE at ${yard.symbol} for ${available.purchasePrice} credits`);
         const res = await this.api.purchaseShip("SHIP_SIPHON_DRONE", yard.symbol);
         this.recordLedger?.({

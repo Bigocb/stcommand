@@ -14,6 +14,34 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Three more approval gates: scout, siphoner, scanner buys)
+
+Follow-up to the "set up more approval gates" TODO item. Investigated
+which of the currently-automatic engine spends actually warrant a human
+in the loop, and gated the ones that do.
+
+- `src/engine/fleet.ts` — `maybeBuyScout()`, `maybeBuySiphoner()`, and
+  `maybeInstallScanner()` now request operator approval (`buyScout`,
+  `buySiphoner`, `installScanner`) before spending, via the same
+  `ApprovalGate` pattern `maybeBuyShip()` already uses: a pending/denied
+  request is just a guard clause (the function reruns every tick
+  regardless), and an unanswered request auto-approves after 2h,
+  matching each purchase's own prior fully-automatic behavior.
+- **Deliberately left alone**: ship repairs (`maybeRepairFleet()`) — too
+  cheap/frequent, and gating one risks losing the ship to a failure
+  while waiting on a decision, the opposite of what a gate is for.
+- **Investigated, found already covered**: ship sell/scrap. `sellShip()`
+  only ever runs from an explicit operator "Sell" click
+  (`POST /api/fleet/sell-ship`, desktop and Tower both); the `scrapHere`
+  callback every `ShipAgent` role carries is plumbed but never actually
+  invoked autonomously anywhere in the engine (confirmed by searching
+  every call site) — so there was no automatic scrap decision to gate in
+  the first place.
+
+Typechecked clean. `tests/fleet.test.ts` couldn't run against the remote
+test Postgres (`ETIMEDOUT`, same sandbox flakiness as earlier this
+session, retried once) — worth a real run next time it's reachable.
+
 ## 2026-09-13 (Tower: fix — sheets couldn't scroll, so long content was just cut off)
 
 Operator report with a screenshot: "Full details" opened and showed the

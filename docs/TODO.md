@@ -51,17 +51,27 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   ships alone. Worth eventually automating (a doctrine rule that
   temporarily reassigns an idle trader to explore when a system's route
   list runs dry?) rather than a standing manual habit — not scoped.
-- [ ] **Set up more approval gates.** Operator request 2026-09-13. Right
-  now `ApprovalGate` (`src/engine/approvals.ts`) only gates two
-  decisions: `buyShip` (`maybeBuyShip()`) and `buyKeeperProbe`
-  (`maybeRequestKeeperProbe()`/`resolvePendingKeeperProbeApproval()`).
-  Other consequential, engine-initiated spends run fully automatic today
-  — e.g. `maybeBuyScout()`, `maybeBuySiphoner()`, `maybeInstallScanner()`,
-  ship repairs (`maybeRepairFleet()`), and ship sales/scrapping. Not
-  scoped: which of these actually warrant a human in the loop (repair is
-  probably too frequent/low-stakes to gate; a scrap/sell is probably not)
-  and whether they share `buyShip`'s two-hour auto-approve-on-timeout
-  policy or something stricter.
+- [ ] **Verify the three new approval gates fire live.** Shipped
+  2026-09-13: `buyScout` (`maybeBuyScout()`), `buySiphoner`
+  (`maybeBuySiphoner()`), and `installScanner` (`maybeInstallScanner()`)
+  now go through `ApprovalGate` the same way `buyShip` already did —
+  same 2h auto-approve-on-timeout policy, same "pending request is a
+  guard clause, not a new suspension mechanism" shape. Typechecked
+  clean; `tests/fleet.test.ts` couldn't run against the remote test
+  Postgres (`ETIMEDOUT`, same sandbox flakiness, retried once). Worth
+  watching the admin/dashboard approvals list for the first live
+  `buyScout`/`buySiphoner`/`installScanner` request to confirm it
+  actually shows up and decides correctly, same as the reset-cleanup
+  tool's own "shipped, not yet seen fire live" pattern.
+  **Investigated and deliberately NOT gated**: ship repairs
+  (`maybeRepairFleet()`) — cheap, frequent, and delaying one risks
+  losing the ship to a critical failure, the opposite of what a gate is
+  for. Ship sell/scrap turned out to already be fully operator-gated —
+  `sellShip()` only ever runs from an explicit dashboard/Tower "Sell"
+  click (`POST /api/fleet/sell-ship`); the `scrapHere` callback wired
+  into every `ShipAgent` role is plumbed but never actually invoked
+  autonomously anywhere in the engine today (confirmed by search) — so
+  there was no automatic scrap decision to gate.
 
 ## Design docs written, no implementation decision made
 
