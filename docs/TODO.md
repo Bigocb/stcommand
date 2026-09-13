@@ -30,6 +30,16 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Design docs written, no implementation decision made
 
+- [ ] `docs/mobile-app-design.md` — a genuinely separate mobile app
+  (own route, own manifest, app-shell pattern for a native feel),
+  replacing v6's reflowed mobile mode. IA is resolved: Home (Cockpit
+  tiles + Mission Control triage feed) · Fleet (swipeable ship-card
+  deck + a simplified traffic-manager action sheet) · Map (full-screen
+  map + draggable bottom sheet) · Markets (Routes/Yards segments) ·
+  More (contracts/missions/warehouse/doctrine). A few details still
+  open (route naming, exact Home tile layout, manifest specifics) —
+  see the doc's own "Open questions" section. **No implementation
+  started yet.**
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task
   priority into `RateLimiter.acquire()`. Not urgent; latent until the
   shared limiter is actually contended.
@@ -46,19 +56,6 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   tenant count grows enough to matter.
 
 ## Parked ideas — raised, not acted on
-
-- [ ] **Consider a separate, purpose-built mobile UI.** Raised 2026-09-13
-  — operator uses the dashboard on iPhone via Safari's "Add to Home
-  Screen" (a PWA shortcut, not a native/sideloaded app). v6's current
-  mobile mode (`#mobile-view`'s own `.m-screen` tabs) is a condensed
-  reflow of the desktop layout rather than a mobile-first design, and
-  has already caused at least one real bug (the Ops tab's Approvals
-  pane was simply missing from mobile markup — see `CHANGELOG.md`,
-  "mobile Ops tab was missing Approvals entirely"). Not scoped: would
-  need a decision on how much of the desktop's density (Fleet table,
-  Markets panels, Doctrine sliders) actually belongs on a phone versus
-  a narrower "what needs me right now" surface, and whether it's a
-  redesign of the existing mobile mode or a genuinely separate build.
 - [ ] **A log explorer on the admin screen.** Floated 2026-09-12 while
   debugging DRAGOM-C's stuck retry loop — being able to search/filter
   live app logs from inside the admin UI instead of going through
