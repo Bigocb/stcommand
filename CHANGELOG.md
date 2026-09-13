@@ -48,6 +48,36 @@ earlier this session, retried once. Verifying live: watching for the
 `X1-C59-D15X` probe purchase to actually go through on DRAGOM's next
 tick after this deploys.
 
+## 2026-09-13 (keeper-probe fix, take two: don't consume an approval SpaceTraders will reject)
+
+The keeper-probe fix above shipped, and its very first live approval
+(the same `X1-C59-D15X` request) immediately surfaced a second, real
+bug: it correctly noticed the operator's approval this time, but the
+purchase itself failed — `"Failed to purchase ship. Your agent must
+have at least one ship available at the purchase location
+(X1-C59-D15X)."` SpaceTraders requires one of the agent's own ships to
+be physically docked at a shipyard to buy there. The old code got this
+for free (it only ever ran mid-scan, while a ship was already
+standing there); `resolvePendingKeeperProbeApproval()` deliberately
+doesn't have that guarantee, and by the time the operator approved
+(12+ minutes later), the triggering ship had moved on. Consuming the
+approval and then failing the purchase is worse than the original bug
+— now the decision is gone too, silently.
+
+Fixed: `resolvePendingKeeperProbeApproval()` now checks
+`fleetStatusSummary()` for a ship currently at the target waypoint
+before letting `ApprovalGate.request()` consume an approve-bound
+decision (explicitly approved, auto-approved, or a pending row past
+its timeout with `onTimeout: "approve"`). A denial still processes
+immediately regardless — no purchase needed, so no reason to wait.
+`tests/fleet.test.ts` covers both: waits when no ship is present, then
+buys once one shows up.
+
+Typechecked clean. Could not run the new/updated tests against the
+remote test Postgres — same intermittent timeout as earlier this
+session, retried once. Watching live for the next `buyKeeperProbe`
+approval to confirm the full round-trip (wait for ship → buy) works.
+
 ## 2026-09-13 (mobile Ops tab was missing Approvals entirely)
 
 Operator report: the global "N approvals awaiting your decision" banner

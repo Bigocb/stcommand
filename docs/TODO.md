@@ -15,17 +15,22 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   it actually narrows shipyards/modules to that system, and that a ship
   type or module scouted at two waypoints shows grouped under one entry
   with both prices.
-- [ ] **Verify the keeper-probe approval fix live.** Root-caused and
-  fixed 2026-09-13 — see `CHANGELOG.md`. Reproduced live: an approved
-  `buyKeeperProbe` request for `X1-C59-D15X` sat undelivered because
-  the only code path that reads a decided approval
-  (`maybeRequestKeeperProbe()`) only runs when a ship happens to
-  redock at that exact shipyard. Added `resolvePendingKeeperProbeApproval()`,
-  called every tick. Typechecked; new `tests/fleet.test.ts` cases not
-  yet run against the remote test Postgres (`ETIMEDOUT`, same sandbox
-  flakiness as earlier this session, retried once). Confirm on next
-  deploy: the `X1-C59-D15X` probe purchase actually completes without
-  any ship revisiting that waypoint.
+- [ ] **Verify the keeper-probe approval fix live (round 2).** Round 1
+  shipped 2026-09-13, then its very first live approval immediately
+  surfaced a second bug: the purchase itself failed with "must have at
+  least one ship available at the purchase location" (SpaceTraders
+  requires an owned ship docked at a shipyard to buy there — the old
+  code always ran mid-scan with one already present;
+  `resolvePendingKeeperProbeApproval()` doesn't have that guarantee by
+  default). Fixed by gating the approve-path on `fleetStatusSummary()`
+  showing a ship currently at the waypoint; a denial still processes
+  immediately regardless. See `CHANGELOG.md` for both entries.
+  Typechecked; new/updated `tests/fleet.test.ts` cases not yet run
+  against the remote test Postgres (`ETIMEDOUT`, same sandbox
+  flakiness, retried once each round). Confirm on next deploy: the
+  next `buyKeeperProbe` approval actually completes a purchase once a
+  ship is present, and does NOT throw the "must have at least one
+  ship" error again.
 - [ ] **Set `PROXY_URL_<AGENTSYMBOL>` for each tenant once dedicated
   proxies are provisioned.** Shipped 2026-09-13 — see `CHANGELOG.md` and
   `.env.example`. Operator is setting up Webshare (free tier, 10 dedicated

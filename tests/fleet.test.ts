@@ -1385,7 +1385,17 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
   // re-polls ApprovalGate for the same "buyKeeperProbe" kind using the
   // cost/detail the original request already stored, with no shipyard
   // rescan needed.
-  it("resolvePendingKeeperProbeApproval buys the probe once approved, with no shipyard revisit", async () => {
+  function markShipAt(fleet: any, symbol: string, waypointSymbol: string): void {
+    fleet.idleShips.set(symbol, {
+      symbol,
+      nav: { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) },
+      fuel: { current: 0, capacity: 0 },
+      cargo: { units: 0, capacity: 0, inventory: [] },
+      cooldown: { remainingSeconds: 0 },
+    });
+  }
+
+  it("resolvePendingKeeperProbeApproval buys the probe once approved, with no fresh shipyard scan", async () => {
     const tenantId = await makeTenant();
     const store = new Store(pool);
     const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }], { tenantId, store });
@@ -1396,15 +1406,49 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
     assert.deepEqual(calls.purchase, [], "sanity: still awaiting a decision");
 
     // The operator approves on the dashboard — the only DB write that
-    // happens; no ship visits X1-A-YARD again afterward.
+    // happens; no *new* scan of X1-A-YARD happens afterward, but some
+    // fleet ship is still known to be sitting there (SpaceTraders requires
+    // this to actually buy).
     const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbe");
     assert.ok(row, "sanity: the request was actually persisted");
     await store.decideApproval(tenantId, row!.id, "approved");
+    markShipAt(fleet, "IDLE-1", "X1-A-YARD");
 
     await (fleet as any).resolvePendingKeeperProbeApproval();
 
     assert.deepEqual(calls.purchase, ["X1-A-YARD"], "the approved purchase must go through without a fresh shipyard scan");
     assert.equal((fleet as any).keeperMarkets.get("PROBE-1"), "X1-A-YARD");
+    (fleet as any).keepers.get("PROBE-1")?.stop();
+  });
+
+  // Live bug found immediately after shipping the fix above, 2026-09-13:
+  // the very first real approval it resolved threw "must have at least
+  // one ship available at the purchase location" — SpaceTraders requires
+  // one of the agent's own ships to be docked at a shipyard to buy there,
+  // a guarantee the old code got for free (it only ran mid-scan, with a
+  // ship already there) that resolvePendingKeeperProbeApproval() does not.
+  // Consuming the approval and then failing the purchase is worse than
+  // the original bug — the decision is now gone too. Must wait for a ship
+  // to actually be there before consuming an approve-bound decision.
+  it("waits for a ship to be present before consuming an approved decision, rather than failing the purchase", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }], { tenantId, store });
+
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbe");
+    await store.decideApproval(tenantId, row!.id, "approved");
+
+    // No ship is currently at the yard — the triggering ship already moved on.
+    await (fleet as any).resolvePendingKeeperProbeApproval();
+    assert.deepEqual(calls.purchase, [], "must not attempt a purchase that SpaceTraders will reject");
+    const stillUnconsumed = await store.getUnconsumedApproval(tenantId, "buyKeeperProbe");
+    assert.ok(stillUnconsumed, "the decision must not be thrown away just because no ship is there yet");
+
+    // A ship arrives (or is simply still known to be there next tick).
+    markShipAt(fleet, "IDLE-1", "X1-A-YARD");
+    await (fleet as any).resolvePendingKeeperProbeApproval();
+    assert.deepEqual(calls.purchase, ["X1-A-YARD"], "now that a ship is present, the purchase must go through");
     (fleet as any).keepers.get("PROBE-1")?.stop();
   });
 

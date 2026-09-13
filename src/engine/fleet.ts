@@ -3507,6 +3507,25 @@ export class FleetManager {
     const row = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe");
     if (!row || !row.shipSymbol || row.cost == null) return;
     const waypointSymbol = row.shipSymbol; // maybeRequestKeeperProbe() stores the yard waypoint here
+    // Purchasing a ship at a SpaceTraders shipyard requires one of the
+    // agent's own ships to already be docked there — a guarantee
+    // maybeRequestKeeperProbe() got for free by only ever running while a
+    // ship was physically at the yard mid-scan. This method deliberately
+    // doesn't have that guarantee (that's the whole point — it resolves a
+    // decision even when nothing is revisiting), so once the outcome is
+    // going to be a purchase attempt, wait for a ship to be there again
+    // before letting ApprovalGate.request() consume the row: consuming it
+    // and then having the purchase itself fail (confirmed live — "must
+    // have at least one ship available at the purchase location") is
+    // worse than the original bug, since the approval is now silently
+    // gone too. Only gates the approve path — a denial needs no ship
+    // present and must not be stuck waiting for one, and a still-pending,
+    // not-yet-expired row can't consume anything either way.
+    const willApprove =
+      row.status === "approved" ||
+      row.status === "auto_approved" ||
+      (row.status === "pending" && new Date(row.expiresAt).getTime() <= Date.now()); // onTimeout: "approve"
+    if (willApprove && !this.fleetStatusSummary().some((s) => s.waypoint === waypointSymbol)) return;
     const approved = await this.approvals.request("buyKeeperProbe", {
       shipSymbol: waypointSymbol,
       detail: row.detail,
