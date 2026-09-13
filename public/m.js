@@ -15,7 +15,7 @@ import {
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine,
 } from "/shared/store.js";
-import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -193,6 +193,10 @@ let fleetIndex = 0;
 let sheetShip = null;
 let sendFormOpen = false;
 let routePickerOpen = false;
+let roleFormOpen = false;
+let roleFormRole = null;
+
+const SHIP_ROLES = ["trader", "miner", "surveyor", "siphoner", "tour", "explorer", "scout", "keeper"];
 
 function jobLabel(assignment) {
   if (!assignment) return null;
@@ -283,13 +287,28 @@ function renderSheet(row) {
         : '<div class="empty">No profitable routes right now.</div>'
     }</div>`;
   }
+  if (roleFormOpen) {
+    const ship = (state?.ships ?? []).find((s) => s.symbol === row.symbol);
+    const currentRole = roleFormRole ?? (SHIP_ROLES.includes(row.role) ? row.role : SHIP_ROLES[0]);
+    const mismatch = ship ? roleMismatchReason(currentRole, ship) : null;
+    extra += `<div class="role-form">
+      <div class="sheet-inline-form">
+        <select class="role-select" aria-label="New role">
+          ${SHIP_ROLES.map((r) => `<option value="${r}" ${r === currentRole ? "selected" : ""}>${r}</option>`).join("")}
+        </select>
+        <button class="btn pri" data-act="role-set">Set</button>
+      </div>
+      ${mismatch ? `<div class="role-warn">⚠ ${escapeHtml(mismatch)} — the ship won't be able to do this role's job</div>` : ""}
+      ${currentRole === "keeper" ? `<input class="role-keeper-wp" placeholder="keeper market waypoint (skip if already there)" />` : ""}
+    </div>`;
+  }
   $("sheet-actions").innerHTML = `
     <button class="btn" data-act="send-toggle">Send to waypoint</button>
     ${holdBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
-    <button class="btn ghost full" disabled>Full details — coming soon</button>
+    <button class="btn ghost full" data-act="role-toggle">${roleFormOpen ? "Close" : `Change role (${escapeHtml(row.role)})`}</button>
     ${extra}
   `;
 }
@@ -300,8 +319,28 @@ $("sheet-actions").addEventListener("click", async (e) => {
   const act = b.dataset.act;
   const ship = sheetShip;
 
-  if (act === "send-toggle") { sendFormOpen = !sendFormOpen; routePickerOpen = false; return renderDeck(); }
-  if (act === "route-toggle") { routePickerOpen = !routePickerOpen; sendFormOpen = false; return renderDeck(); }
+  if (act === "send-toggle") { sendFormOpen = !sendFormOpen; routePickerOpen = false; roleFormOpen = false; return renderDeck(); }
+  if (act === "route-toggle") { routePickerOpen = !routePickerOpen; sendFormOpen = false; roleFormOpen = false; return renderDeck(); }
+  if (act === "role-toggle") {
+    roleFormOpen = !roleFormOpen;
+    roleFormRole = null;
+    sendFormOpen = false;
+    routePickerOpen = false;
+    return renderDeck();
+  }
+  if (act === "role-set") {
+    const role = $("sheet-actions").querySelector(".role-select")?.value;
+    if (!role) return;
+    const keeperMarket = $("sheet-actions").querySelector(".role-keeper-wp")?.value.trim() || undefined;
+    b.disabled = true;
+    try {
+      await api("POST", "/api/fleet/role", { shipSymbol: ship, role, keeperMarket });
+      roleFormOpen = false;
+      roleFormRole = null;
+      await loadBridge();
+    } catch (err) { alert(err.message); }
+    return renderDeck();
+  }
 
   if (act === "send-go") {
     const wp = $("send-wp-input")?.value.trim();
@@ -350,6 +389,12 @@ $("sheet-actions").addEventListener("click", async (e) => {
   }
 });
 
+$("sheet-actions").addEventListener("change", (e) => {
+  if (!e.target.classList.contains("role-select")) return;
+  roleFormRole = e.target.value;
+  renderDeck();
+});
+
 $("sheet-handle").addEventListener("click", () => {
   const collapsed = $("sheet-actions").hidden;
   $("sheet-actions").hidden = !collapsed;
@@ -362,6 +407,8 @@ function deckStep(delta) {
   fleetIndex = (fleetIndex + delta + rows.length) % rows.length;
   sendFormOpen = false;
   routePickerOpen = false;
+  roleFormOpen = false;
+  roleFormRole = null;
   renderDeck();
 }
 $("deck-prev").addEventListener("click", () => deckStep(-1));

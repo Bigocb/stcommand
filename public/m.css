@@ -193,6 +193,18 @@ body {
 }
 .route-pick button b { color: var(--green); font-weight: 600; }
 
+.role-form { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; margin-top: -2px; }
+.role-form .sheet-inline-form { margin-top: 0; }
+.role-select {
+  flex: 1; background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
+  font-size: 12px; padding: 8px 10px; border-radius: 3px;
+}
+.role-warn { font-family: var(--mono); font-size: 9.5px; color: var(--amber); line-height: 1.4; }
+.role-keeper-wp {
+  background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
+  font-size: 11px; padding: 8px 10px; border-radius: 3px;
+}
+
 /* ── Map: a literal radar scope ──────────────
  * Ties the visual identity to the "Radar" concept name directly rather
  * than being a generic map-tile view — range rings, a sweep wedge, and

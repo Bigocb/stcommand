@@ -14,6 +14,20 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower Fleet: assign/switch ship role)
+
+Operator feedback: the Fleet sheet's "Full details — coming soon"
+placeholder was standing in for role assignment, which they needed now,
+not later.
+
+- `public/m.html`/`m.css`/`m.js` — "Change role" on the ship detail sheet
+  expands a role picker (same 8 roles desktop offers), a live mismatch
+  warning (`roleMismatchReason()` from `shared/domain.js` — e.g. "no
+  mining laser mounted" for `miner`), and a keeper-market waypoint field
+  when switching to `keeper`, matching desktop's own role-change UI.
+  Calls the same `POST /api/fleet/role` endpoint. Full manifest/mount
+  detail remains the one still-placeholder link.
+
 ## 2026-09-13 (Tower Map: pinch-zoom/pan, real ship movement, multi-system)
 
 Follow-up to the asteroid-declutter pass below — operator still found it
