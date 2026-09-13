@@ -222,3 +222,77 @@ describe("GalaxyAtlas: jump-cost persistence", () => {
     await assert.doesNotReject(() => atlas.loadJumpCosts());
   });
 });
+
+describe("GalaxyAtlas: gate-construction persistence", () => {
+  // Covers the live bug this closes: the cache backing canJump() lived only
+  // in this Map, wiped on every restart, so RouteDispatcher.recompute()
+  // silently dropped every cross-system "direct" route until some ship
+  // happened to freshly re-confirm that exact gate pair again this process
+  // lifetime — confirmed live: DRAGOM-1 stuck on a 286c/trip same-system
+  // fallback while a 44,976c/trip cross-system route sat unassignable, on a
+  // gate pair its own explorers had already jumped through successfully
+  // before the last restart. See migrations/018_galaxy_gate_construction.sql.
+  it("refreshGateConstruction() also persists a confirmed-complete result to the store, fire-and-forget", async () => {
+    const recorded: { gateSymbol: string; isComplete: boolean }[] = [];
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }), {
+      recordGalaxyGateConstruction: async (gateSymbol, isComplete) => { recorded.push({ gateSymbol, isComplete }); },
+    });
+
+    await atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
+
+    assert.deepEqual(recorded, [{ gateSymbol: "X1-A-GATE", isComplete: true }]);
+    assert.equal(atlas.gateComplete("X1-A-GATE"), true);
+  });
+
+  it("refreshGateConstruction() also persists a confirmed-incomplete result", async () => {
+    const recorded: { gateSymbol: string; isComplete: boolean }[] = [];
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: false, materials: [] }), {
+      recordGalaxyGateConstruction: async (gateSymbol, isComplete) => { recorded.push({ gateSymbol, isComplete }); },
+    });
+
+    await atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
+
+    assert.deepEqual(recorded, [{ gateSymbol: "X1-A-GATE", isComplete: false }]);
+  });
+
+  it("refreshGateConstruction() does not throw when the store's persistence call rejects", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }), {
+      recordGalaxyGateConstruction: async () => { throw new Error("db down"); },
+    });
+
+    await assert.doesNotReject(() => atlas.refreshGateConstruction("X1-A", "X1-A-GATE"));
+    assert.equal(atlas.gateComplete("X1-A-GATE"), true, "the in-memory value is still updated even if the durable write fails");
+  });
+
+  it("loadGateConstruction() seeds the in-memory cache from every check recorded so far", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }), {
+      getAllGalaxyGateConstruction: async () => [
+        { gateSymbol: "X1-A-GATE", isComplete: true },
+        { gateSymbol: "X1-B-GATE", isComplete: false },
+      ],
+    });
+
+    assert.equal(atlas.gateComplete("X1-A-GATE"), undefined, "cold before loadGateConstruction() runs");
+    await atlas.loadGateConstruction();
+
+    assert.equal(atlas.gateComplete("X1-A-GATE"), true);
+    assert.equal(atlas.gateComplete("X1-B-GATE"), false);
+    assert.equal(atlas.canJump("X1-A", "X1-B"), true, "loaded rows are exactly what canJump() reads");
+  });
+
+  it("loadGateConstruction() never downgrades a gate this process already confirmed complete", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }), {
+      getAllGalaxyGateConstruction: async () => [{ gateSymbol: "X1-A-GATE", isComplete: false }],
+    });
+
+    await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"); // confirms true, live, this process
+    await atlas.loadGateConstruction(); // a stale "false" row must not win
+
+    assert.equal(atlas.gateComplete("X1-A-GATE"), true, "one-way — never reverts to incomplete");
+  });
+
+  it("loadGateConstruction() is a no-op when the store doesn't implement it", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
+    await assert.doesNotReject(() => atlas.loadGateConstruction());
+  });
+});

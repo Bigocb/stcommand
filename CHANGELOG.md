@@ -14,6 +14,30 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (persist gate-construction cache too)
+
+- **Persisted `GalaxyAtlas`'s gate-construction cache**, the other half of
+  the cross-system-routes-never-fire bug — the jump-cost persistence
+  shipped earlier today only fixed the pricing side. `canJump()` (which
+  `RouteDispatcher.recompute()` requires to be `true` before it will ever
+  assign a cross-system `direct` route — see `dispatcher.ts:497`) reads
+  from `gateConstruction`, a plain in-memory `Map`, also wiped on every
+  restart. Confirmed live immediately after the jump-cost fix went out:
+  the dispatch log showed real, correctly-computed cross-system candidates
+  (`ELECTRONICS@X1-YB82-BD9F=44976`, `ANTIMATTER@X1-RN95-F13B=15480`) but
+  DRAGOM-1 stayed assigned a same-system `FUEL` leg worth only `286`/trip
+  — the gate-confirmation cache had reset on the last deploy, and nothing
+  had freshly re-checked that exact pair yet this process lifetime, even
+  though the fleet's own explorers had already jumped through it
+  successfully before. Same shape as the jump-cost fix: new shared table
+  `galaxy_gate_construction` (migration 018, no tenant_id — a gate's
+  construction status is a fact about the galaxy), `Store.recordGalaxyGateConstruction()`/
+  `getAllGalaxyGateConstruction()`, `GalaxyAtlas.loadGateConstruction()`
+  (called at boot alongside `loadJumpCosts()`) — careful not to let a
+  stale loaded "incomplete" downgrade a gate this process already
+  confirmed complete live, matching `canJump()`'s existing one-way
+  semantics. `tests/galaxy.test.ts` covers it directly.
+
 ## 2026-09-13 (persist learned jump costs)
 
 - **Persisted `GalaxyAtlas`'s learned per-gate-pair jump cost average**,

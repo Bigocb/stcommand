@@ -7,12 +7,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-- [ ] **Confirm the jump-cost persistence migration applied cleanly on the
-  next real deploy.** Shipped 2026-09-13 — see `CHANGELOG.md`. Couldn't
-  verify against the live/test Postgres from this sandbox (same
-  intermittent `ETIMEDOUT` seen before); check Render logs after the
-  deploy for a cross-system `dispatch recompute` line pricing a leg at
-  something other than the flat 5,000c placeholder.
+- [ ] **Investigate: an approved auto-keeper-probe purchase request didn't
+  actually buy the probe.** Operator report 2026-09-13 — approved the
+  request via the approval gate, but the ship wasn't actually purchased.
+  Not yet root-caused. Check `maybeRequestKeeperProbe()`'s post-approval
+  path in `fleet.ts` (the `purchaseShip()` call and what happens if it
+  throws/if the yard's stock changed between the request and the
+  approval) and the `ApprovalGate` resolution flow itself for a case
+  where an "approve" outcome doesn't actually trigger the buy.
 - [ ] **Set `PROXY_URL_<AGENTSYMBOL>` for each tenant once dedicated
   proxies are provisioned.** Shipped 2026-09-13 — see `CHANGELOG.md` and
   `.env.example`. Operator is setting up Webshare (free tier, 10 dedicated

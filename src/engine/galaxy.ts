@@ -25,6 +25,11 @@ export interface GalaxyStore {
    *  memory and is wiped on every restart. */
   recordGalaxyJumpCost?(fromGate: string, toSystem: string, price: number): Promise<void>;
   getAllGalaxyJumpCosts?(): Promise<{ fromGate: string; toSystem: string; totalPrice: number; jumpCount: number }[]>;
+  /** See migrations/018_galaxy_gate_construction.sql's own comment: without
+   *  this, the gate-construction cache backing canJump() lives only in this
+   *  process's memory and is wiped on every restart. */
+  recordGalaxyGateConstruction?(gateSymbol: string, isComplete: boolean): Promise<void>;
+  getAllGalaxyGateConstruction?(): Promise<{ gateSymbol: string; isComplete: boolean }[]>;
 }
 
 /** Multi-system atlas: caches waypoints, jump gates, and foreign markets. */
@@ -222,12 +227,33 @@ export class GalaxyAtlas {
     try {
       const complete = (await this.api.getConstruction(systemSymbol, gateSymbol)).isComplete;
       this.gateConstruction.set(gateSymbol, complete);
+      this.store?.recordGalaxyGateConstruction?.(gateSymbol, complete)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
       return complete;
     } catch {
       // No construction record: the gate is already built (pre-existing
       // gates were never under construction in the first place).
       this.gateConstruction.set(gateSymbol, true);
+      this.store?.recordGalaxyGateConstruction?.(gateSymbol, true)?.catch(() => { /* best-effort — see above */ });
       return true;
+    }
+  }
+
+  /** Seed the in-memory gate-construction cache from every check any tenant
+   *  has ever actually made, so a fresh process doesn't start cold — see
+   *  migrations/018_galaxy_gate_construction.sql's own comment for why this
+   *  matters (a confirmed-open gate used to be forgotten by every restart,
+   *  which silently made canJump() reject cross-system routes that were
+   *  genuinely flyable). Call once at boot; refreshGateConstruction() keeps
+   *  both in sync from then on. */
+  async loadGateConstruction(): Promise<void> {
+    const rows = await this.store?.getAllGalaxyGateConstruction?.();
+    if (!rows) return;
+    for (const r of rows) {
+      // One-way, same as refreshGateConstruction() itself: never let a
+      // stale "incomplete" loaded from the store downgrade a "complete"
+      // this process already confirmed live since starting up.
+      if (this.gateConstruction.get(r.gateSymbol) === true) continue;
+      this.gateConstruction.set(r.gateSymbol, r.isComplete);
     }
   }
 

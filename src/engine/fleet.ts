@@ -420,6 +420,13 @@ export class FleetManager {
     // regardless of how many real jumps have actually happened across
     // restarts. See migrations/017_galaxy_jump_costs.sql's own comment.
     await this.galaxy.loadJumpCosts();
+    // Same reasoning, for canJump()'s gate-construction cache: without this,
+    // RouteDispatcher.recompute() silently drops every cross-system "direct"
+    // route until some ship happens to freshly re-confirm that exact gate
+    // pair again this process lifetime — confirmed live, DRAGOM-1 stuck on
+    // a 286c/trip same-system fallback while a 44,976c/trip cross-system
+    // route sat unassignable. See migrations/018_galaxy_gate_construction.sql.
+    await this.galaxy.loadGateConstruction();
     const known = this.galaxy.getSystem(this.systemSymbol)!;
     this.rawWaypoints = known.waypoints;
     this.positions = known.waypoints.map((w) => ({ symbol: w.symbol, x: w.x, y: w.y, type: w.type }));

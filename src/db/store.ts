@@ -1513,6 +1513,33 @@ export class Store {
     });
   }
 
+  /** Record one gate's checked construction status — see
+   *  migrations/018_galaxy_gate_construction.sql's own comment on why this
+   *  exists (GalaxyAtlas's in-memory version never survived a restart).
+   *  Shared across every tenant, same as the table itself. */
+  async recordGalaxyGateConstruction(gateSymbol: string, isComplete: boolean): Promise<void> {
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO galaxy_gate_construction (gate_symbol, is_complete, updated_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (gate_symbol) DO UPDATE SET is_complete = excluded.is_complete, updated_at = now()`,
+        [gateSymbol, isComplete],
+      ),
+    );
+  }
+
+  /** Every gate's checked construction status, for GalaxyAtlas to seed its
+   *  in-memory cache from at boot instead of starting cold every time this
+   *  process restarts. */
+  async getAllGalaxyGateConstruction(): Promise<{ gateSymbol: string; isComplete: boolean }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ gate_symbol: string; is_complete: boolean }>(
+        `SELECT gate_symbol, is_complete FROM galaxy_gate_construction`,
+      );
+      return res.rows.map((r) => ({ gateSymbol: r.gate_symbol, isComplete: r.is_complete }));
+    });
+  }
+
   /** How many systems the galaxy crawl has recorded meta for so far — cheap
    *  progress signal, doesn't pull every row's jsonb blobs like listGalaxySystems(). */
   async countGalaxySystems(): Promise<number> {
