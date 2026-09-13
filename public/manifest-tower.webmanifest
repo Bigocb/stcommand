@@ -1,0 +1,13 @@
+{
+  "name": "Tower",
+  "short_name": "Tower",
+  "start_url": "/m",
+  "scope": "/m",
+  "display": "standalone",
+  "background_color": "#0a0908",
+  "theme_color": "#0a0908",
+  "icons": [
+    { "src": "/icons/tower-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/tower-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

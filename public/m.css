@@ -1,0 +1,150 @@
+/* Tower — the from-scratch mobile app's app-shell CSS. Single dark theme
+ * only, deliberately: a night-ops field console has no real light-mode
+ * use case (see docs/mobile-app-design.md's "Visual identity" section).
+ *
+ * The whole point of this file, per the app-shell requirements that
+ * started this rebuild: the *document* never scrolls or bounces. .app is
+ * a fixed, full-height shell; only .home-scroll (and future per-screen
+ * equivalents) is overflow:auto, with overscroll-behavior:contain so even
+ * that doesn't rubber-band past its own edges.
+ */
+
+:root {
+  --ground: #0a0908;
+  --panel: #15130f;
+  --raised: #201d16;
+  --raised-2: #2a251b;
+  --hair: rgba(255, 199, 120, 0.14);
+  --hair-hi: rgba(255, 199, 120, 0.26);
+  --amber: #ffb020;
+  --amber-dim: rgba(255, 176, 32, 0.16);
+  --amber-glow: rgba(255, 176, 32, 0.35);
+  --ice: #93a6b4;
+  --green: #58d68d;
+  --red: #ff6152;
+  --bone: #f3efe6;
+  --dim: #93897a;
+  --chrome: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--ground); color: var(--bone); font-family: var(--mono);
+  overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
+}
+
+.app, .auth-gate {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
+  height: 100dvh; width: 100vw;
+  padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
+}
+.app[hidden], .auth-gate[hidden] { display: none; }
+
+/* ── status/top bars ── */
+.statusbar {
+  flex: 0 0 auto; height: 24px; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; font-size: 9.5px; color: var(--dim); letter-spacing: 0.03em;
+}
+.topbar {
+  flex: 0 0 auto; padding: 2px 16px 10px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--hair);
+}
+.topbar .brand { font-family: var(--chrome); font-weight: 700; font-size: 14px; letter-spacing: 0.16em; }
+.topbar .who { font-family: var(--mono); font-size: 9.5px; color: var(--dim); }
+
+/* ── screens ── */
+.body { flex: 1 1 auto; position: relative; overflow: hidden; }
+.screen { position: absolute; inset: 0; display: none; flex-direction: column; }
+.screen.on { display: flex; }
+.soon {
+  margin: auto; font-family: var(--chrome); font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--dim);
+}
+
+.home-scroll {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 16px;
+}
+
+/* ── cockpit tiles ── */
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tile {
+  background: var(--panel); border: 1px solid var(--hair); border-radius: 4px; padding: 12px 13px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.tile .k { font-family: var(--chrome); font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); }
+.tile .v { font-family: var(--mono); font-weight: 600; font-size: 18px; font-variant-numeric: tabular-nums; }
+.tile .v.amber { color: var(--amber); }
+.tile .v.green { color: var(--green); }
+.tile .v.red { color: var(--red); }
+.tile .sub { font-family: var(--mono); font-size: 9.5px; color: var(--dim); }
+
+/* ── triage feed ── */
+.sec-h {
+  font-family: var(--chrome); font-weight: 600; font-size: 10px; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--dim); display: flex; align-items: center; justify-content: space-between;
+}
+.sec-h .n {
+  color: var(--amber); background: var(--amber-dim); padding: 1px 7px; border-radius: 9px;
+  font-family: var(--mono); font-size: 9.5px;
+}
+
+.card {
+  background: var(--panel); border: 1px solid var(--hair); border-left: 2px solid var(--stripe, var(--hair));
+  border-radius: 3px; padding: 11px 12px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px;
+}
+.card.crit { --stripe: var(--red); }
+.card.warn { --stripe: var(--amber); }
+.card.info { --stripe: var(--ice); }
+.card .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.card .who { font-family: var(--chrome); font-weight: 600; font-size: 12.5px; }
+.card .amt { font-family: var(--mono); font-size: 11.5px; font-weight: 600; }
+.card .amt.red { color: var(--red); }
+.card .amt.amber { color: var(--amber); }
+.card .detail { font-family: var(--mono); font-size: 10.5px; color: var(--dim); line-height: 1.5; }
+.card .exp { font-family: var(--mono); font-size: 9px; color: var(--dim); }
+.card .acts { display: flex; gap: 8px; margin-top: 2px; }
+
+.btn {
+  font-family: var(--chrome); font-weight: 600; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 8px 12px; border-radius: 3px; border: 1px solid var(--hair-hi); background: var(--raised); color: var(--bone);
+}
+.btn:active { background: var(--raised-2); }
+.btn.pri { background: var(--amber); border-color: var(--amber); color: #1a1200; }
+.btn.ghost { background: transparent; }
+.btn.deny { border-color: rgba(255, 97, 82, 0.4); color: var(--red); background: transparent; }
+.btn[disabled] { opacity: 0.5; }
+
+.empty { font-family: var(--mono); font-size: 10.5px; color: var(--dim); padding: 24px 0; text-align: center; }
+
+/* ── tab bar ── */
+.tabbar {
+  flex: 0 0 auto; display: flex; border-top: 1px solid var(--hair); background: var(--panel);
+  padding: 8px 4px calc(10px + env(safe-area-inset-bottom));
+}
+.tabbar button {
+  flex: 1; background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-family: var(--chrome); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim);
+  padding: 4px 0;
+}
+.tabbar button .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--dim); }
+.tabbar button.on { color: var(--amber); }
+.tabbar button.on .dot { background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }
+
+/* ── auth gate ── */
+.auth-gate { align-items: center; justify-content: center; background: var(--ground); z-index: 10; }
+.auth-card {
+  width: min(320px, 86vw); display: flex; flex-direction: column; gap: 12px;
+  background: var(--panel); border: 1px solid var(--hair); border-top: 2px solid var(--amber);
+  border-radius: 4px; padding: 22px 20px;
+}
+.auth-card .brand { font-family: var(--chrome); font-weight: 700; font-size: 19px; letter-spacing: 0.2em; }
+.auth-card .sub { font-family: var(--mono); font-size: 10.5px; color: var(--dim); line-height: 1.5; margin: 0; }
+.auth-card input {
+  background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
+  font-size: 13px; padding: 10px 11px; border-radius: 3px;
+}
+.auth-card .err { color: var(--red); font-size: 10px; min-height: 12px; }

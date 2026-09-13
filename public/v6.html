@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<!-- Must load before anything else in <head>: a plain classic script (not
+     type="module", which defers past first paint) so a phone never
+     flashes this desktop layout before being sent to Tower ("/m"). See
+     shared/mobileRedirect.js's own comment for why. -->
+<script src="/shared/mobileRedirect.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Standing Orders — Command (v6)</title>
 <link rel="manifest" href="/manifest.webmanifest" />

@@ -82,5 +82,10 @@ export function cacheHeaders(path: string): Record<string, string> | undefined {
   // filename, so a deploy replaces v3.js in place and the gap where new
   // HTML can pair with old code has to stay small.
   if (/\/v[2-9]\.(css|js)$/.test(path)) return { "Cache-Control": "public, max-age=300" };
+  // Tower (the /m mobile app) isn't part of the v2-v9 version lineage
+  // above — same reasoning applies (m.css/m.js get overwritten in place on
+  // deploy with no content hash), so it gets its own explicit match rather
+  // than folding "m" into that regex's character class.
+  if (/\/m\.(css|js)$/.test(path)) return { "Cache-Control": "public, max-age=300" };
   return undefined;
 }

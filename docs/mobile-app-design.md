@@ -195,10 +195,34 @@ label) needs a real icon asset produced from this identity before it
 can be finalized — the mockup establishes the palette/type/device
 language but doesn't include an icon design.
 
-## Not yet started
+## Status: Home shipped, Fleet/Map/Markets/More pending
 
-No implementation work has begun. IA and visual identity are both
-resolved; next step is to resolve the remaining open questions above
-(route naming, tile layout, redirect behavior, manifest icon asset)
-and then build Home first — it's the most fully resolved surface on
-both fronts.
+**2026-09-13** — `/m` (route confirmed) is live: the app shell, the
+auto-redirect from `/`, and the Home screen (Cockpit tiles + Mission
+Control triage feed) are built and wired to real data through the same
+`public/shared/*.js` store every desktop version uses. All open
+questions from the sections above are resolved:
+
+- Route: `/m`.
+- Redirect: a User-Agent check (`/Mobi|Android|iPhone|iPod/i`), not the
+  viewport-width heuristic `isMobile()` already uses elsewhere — a
+  one-time device check, not a resize-reactive one. Runs as a plain
+  classic (non-module) script, `public/shared/mobileRedirect.js`, loaded
+  as the very first thing in `v6.html`'s `<head>` — before any
+  stylesheet or body content — since a `type="module"` script is
+  deferred past first paint and would flash the desktop layout first.
+  Own `localStorage` key (`"ui-surface"`) and `?ui=desktop`/`?ui=m`
+  escape hatches, mirroring `switcher.js`'s proven shape without
+  touching its own version-specific logic.
+- Home tile layout: the 2×2 grid from the approved mockup, unchanged.
+- Manifest/icons: `public/manifest-tower.webmanifest` (`scope: "/m"`,
+  its own name/icons/theme-color) plus a placeholder icon set generated
+  programmatically (Python/Pillow — a simple radar-ring-and-blip mark in
+  the Tower palette, not final brand artwork) at
+  `public/icons/tower-*.png`.
+
+Fleet, Map, Markets, and More still render inert "coming soon"
+placeholders — their tab targets exist in the shell so it reads as
+complete, but no screen behind them has been built yet. Next pass:
+Fleet (the ship-card deck + traffic-manager action sheet), reusing the
+`jobFor()` pattern from the desktop Fleet tab's Job column.

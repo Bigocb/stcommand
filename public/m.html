@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>Tower</title>
+<link rel="manifest" href="/manifest-tower.webmanifest" />
+<link rel="apple-touch-icon" href="/icons/tower-apple-touch-icon.png" />
+<link rel="icon" href="/icons/tower-favicon-32.png" sizes="32x32" />
+<!-- iOS ignores the manifest above for "Add to Home Screen" — these are
+     what actually make it install as a standalone app instead of just
+     bookmarking the URL. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<meta name="apple-mobile-web-app-title" content="Tower" />
+<meta name="theme-color" content="#0a0908" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="/m.css" />
+</head>
+<body>
+
+<div class="auth-gate" id="auth-gate" hidden>
+  <form class="auth-card" id="auth-form">
+    <div class="brand">TOWER</div>
+    <p class="sub">Sign in with your SpaceTraders agent token — the same one you use on desktop.</p>
+    <input id="auth-token" type="password" placeholder="Agent token" autocomplete="current-password" />
+    <button class="btn pri" type="submit">Sign in</button>
+    <div class="err" id="auth-err"></div>
+  </form>
+</div>
+
+<div class="app" id="app-root" hidden>
+  <div class="statusbar"><span id="sb-who">Tower</span><span id="sb-time"></span></div>
+  <div class="topbar">
+    <span class="brand">TOWER</span>
+    <span class="who" id="tb-note">—</span>
+  </div>
+
+  <main class="body">
+    <div class="screen on" data-screen="home">
+      <div class="home-scroll">
+        <div class="tiles" id="home-tiles"></div>
+        <div class="sec-h">Needs a decision <span class="n" id="triage-count">0</span></div>
+        <div id="triage-list"></div>
+      </div>
+    </div>
+    <div class="screen" data-screen="fleet"><div class="soon">Fleet — coming soon</div></div>
+    <div class="screen" data-screen="map"><div class="soon">Map — coming soon</div></div>
+    <div class="screen" data-screen="markets"><div class="soon">Markets — coming soon</div></div>
+    <div class="screen" data-screen="more"><div class="soon">More — coming soon</div></div>
+  </main>
+
+  <nav class="tabbar" id="tabbar">
+    <button class="on" data-tab="home"><span class="dot"></span>Home</button>
+    <button data-tab="fleet"><span class="dot"></span>Fleet</button>
+    <button data-tab="map"><span class="dot"></span>Map</button>
+    <button data-tab="markets"><span class="dot"></span>Markets</button>
+    <button data-tab="more"><span class="dot"></span>More</button>
+  </nav>
+</div>
+
+<script type="module" src="/m.js"></script>
+</body>
+</html>

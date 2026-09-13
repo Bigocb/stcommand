@@ -161,6 +161,18 @@ async function main(): Promise<void> {
     res.sendFile(resolve(PUBLIC_DIR, "cartography.html"));
   });
 
+  // Tower: the mobile app, docs/mobile-app-design.md. A genuinely separate
+  // build from the desktop UI versions above (own shell, own manifest, own
+  // visual identity) rather than another entry in that family, so it gets
+  // its own free-standing route the same way /admin and /cartography do —
+  // reachable at /m whether a mobile visitor was redirected there
+  // (shared/mobileRedirect.js, wired into v6.html's <head>) or it was
+  // opened directly.
+  app.get("/m", (_req, res) => {
+    res.set(cacheHeaders(resolve(PUBLIC_DIR, "m.html")) ?? {});
+    res.sendFile(resolve(PUBLIC_DIR, "m.html"));
+  });
+
   app.use(express.static(PUBLIC_DIR, {
     index: "v6.html",
     // See cacheHeaders(): HTML must not be cached or a browser pins itself

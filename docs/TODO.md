@@ -7,6 +7,19 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Verify Tower (`/m`) live.** Home shipped 2026-09-13 — see
+  `CHANGELOG.md` and `docs/mobile-app-design.md`'s status section.
+  Typechecked/syntax-checked only; not run against a local server
+  (needs production `DATABASE_URL`). After next deploy: visit `/` on
+  an actual iPhone and confirm it redirects to `/m` with no visible
+  flash of the desktop layout; confirm "Add to Home Screen" from `/m`
+  shows the Tower name/icon (not "Standing Orders") and launches in
+  standalone mode; confirm Home's tiles/triage feed match what desktop
+  shows for the same tenant, and that approving/denying from Tower
+  actually clears the item on desktop's Ops tab too (same
+  `/api/approvals` endpoint — should just work, but hasn't been seen
+  live yet). Next build pass after this verifies clean: Fleet (the
+  ship-card deck + traffic-manager sheet).
 - [ ] **Tour more systems to build cross-system pricing data.** Operator
   request 2026-09-12 — more tour coverage across more systems is needed
   before cross-system routes have enough data to evaluate. **In
@@ -30,16 +43,6 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Design docs written, no implementation decision made
 
-- [ ] `docs/mobile-app-design.md` — a genuinely separate mobile app
-  (own route, own manifest, app-shell pattern for a native feel),
-  replacing v6's reflowed mobile mode. IA is resolved: Home (Cockpit
-  tiles + Mission Control triage feed) · Fleet (swipeable ship-card
-  deck + a simplified traffic-manager action sheet) · Map (full-screen
-  map + draggable bottom sheet) · Markets (Routes/Yards segments) ·
-  More (contracts/missions/warehouse/doctrine). A few details still
-  open (route naming, exact Home tile layout, manifest specifics) —
-  see the doc's own "Open questions" section. **No implementation
-  started yet.**
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task
   priority into `RateLimiter.acquire()`. Not urgent; latent until the
   shared limiter is actually contended.

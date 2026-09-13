@@ -14,6 +14,45 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower: a genuinely separate mobile app, Home only)
+
+First implementation pass on the mobile app design (`docs/
+mobile-app-design.md`, approved earlier today): a real `/m` route, not
+another entry in the v2-v6 desktop version lineage — own manifest, own
+app-shell CSS, own visual identity ("Tower": near-black ground,
+phosphor-amber accent, Chakra Petch + IBM Plex Mono).
+
+- `public/m.html`/`m.css`/`m.js` — the app shell (fixed, `100dvh`,
+  `overscroll-behavior:contain`, `env(safe-area-inset-*)`, `viewport-
+  fit=cover` + `user-scalable=no`) and the Home screen: Cockpit tiles
+  (credits, rate, fleet health, best route) plus a Mission Control
+  triage feed (pending approvals, stranded ships, unassigned traders),
+  wired to the same `public/shared/*.js` store every desktop version
+  already uses — no new data layer. Fleet/Map/Markets/More exist as
+  tab targets with a "coming soon" placeholder; not built this pass.
+- `public/shared/mobileRedirect.js` — sends a mobile User-Agent from
+  `/` to `/m` automatically (own `localStorage` key, `?ui=desktop`/
+  `?ui=m` escape hatches). Deliberately a plain classic script, not an
+  ES module — a `type="module"` script is deferred past first paint,
+  which would flash the desktop layout before redirecting; loaded as
+  the very first thing in `v6.html`'s `<head>`, before any stylesheet.
+- `public/manifest-tower.webmanifest` + `public/icons/tower-*.png` —
+  Tower's own PWA identity (`scope: "/m"`, own name/icons/theme-color),
+  distinct from the existing desktop manifest. Icons are a placeholder
+  mark (radar rings + a blip, in the Tower palette) generated
+  programmatically via Python/Pillow — real brand artwork can replace
+  them later without touching anything else.
+- `src/cli/index.ts` — new `/m` route, same free-standing pattern as
+  `/admin`/`/cartography` (unauthenticated HTML; the page does its own
+  client-side session auth). `src/http/uiVersions.ts`'s `cacheHeaders()`
+  extended to give `m.css`/`m.js` the same 5-minute cache policy v2-v6
+  already get.
+
+Typechecked clean, `m.js`/`mobileRedirect.js` syntax-checked, manifest
+JSON validated. Not run against a local server (would require the
+production `DATABASE_URL`) — verifying live post-deploy instead, per
+this session's established pattern.
+
 ## 2026-09-13 (architecture overview doc)
 
 Added `docs/architecture-overview.md` — a system-by-system breakdown
