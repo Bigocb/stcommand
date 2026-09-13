@@ -14,6 +14,39 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Yards & outfitting: system filter + per-item pricing)
+
+Operator request: shipyard/module intel should carry the same
+`?system=` filter the Routes and Prices & snapshots panels already have
+in the Markets view, and should compare prices for the same item across
+locations rather than an arbitrary flat list.
+
+Previously `GET /api/markets` ignored `?system=` for `shipyards`/`modules`
+entirely (only `snapshots`/`routes` respected it), and the client rendered
+the first 12 raw scan rows in whatever order the store returned them — so
+the panel could show the same ship type or module twice at different
+waypoints while a cheaper listing for it never made the cut, with no way
+to scope it to one system.
+
+- `src/http/dashboard.ts`'s `/markets` route now filters `shipyards`/
+  `modules` by `systemFilter` the same way `snapshots` already does.
+- `public/v6.html`/`v6.js`: added a `yards-system-filter` select next to
+  the other two Markets-tab system filters, wired into the same
+  `marketSystemFilter`/`loadMarkets()` plumbing.
+- `renderShipyardIntel()` now groups shipyard rows by ship type and
+  module rows by symbol, sorts each group by price, and shows the
+  cheapest location plus up to 3 other locations for that same item —
+  real per-item price comparison instead of a flat cut.
+
+Typechecked clean; `public/v6.js` syntax-checked with `node --check`.
+Not verified against `tests/dashboard.test.ts` — hit the same
+intermittent `ETIMEDOUT`/timeout connecting to the remote test Postgres
+seen earlier this session (retried once per the established policy, no
+luck either time). Worth a manual pass in the live dashboard next
+deploy: pick a system in the new Yards & outfitting filter and confirm
+only that system's shipyards/modules show, and that a ship type or
+module scouted at two locations shows both under one grouped entry.
+
 ## 2026-09-13 (persist gate-construction cache too)
 
 - **Persisted `GalaxyAtlas`'s gate-construction cache**, the other half of

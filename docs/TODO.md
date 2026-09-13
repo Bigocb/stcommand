@@ -7,6 +7,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Verify the new Yards & outfitting system filter live.** Shipped
+  2026-09-13 — see `CHANGELOG.md`. Typechecked/syntax-checked only;
+  `tests/dashboard.test.ts` couldn't run against the remote test Postgres
+  (`ETIMEDOUT`, same sandbox flakiness as earlier this session). After
+  next deploy: pick a system in the Yards & outfitting filter and confirm
+  it actually narrows shipyards/modules to that system, and that a ship
+  type or module scouted at two waypoints shows grouped under one entry
+  with both prices.
 - [ ] **Investigate: an approved auto-keeper-probe purchase request didn't
   actually buy the probe.** Operator report 2026-09-13 — approved the
   request via the approval gate, but the ship wasn't actually purchased.

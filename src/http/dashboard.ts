@@ -393,8 +393,14 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
         .slice(0, 5);
       const routes = [...top, ...missingSameSystem].sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
+      // Same ?system= filter as routes/snapshots above — the Yards &
+      // outfitting panel shares this endpoint and previously always showed
+      // every known system's shipyards/modules regardless of which system
+      // was selected, unlike its two sibling panels in the same view.
       const intel = await w.fleet.getIntel();
-      res.json({ routes, snapshots, shipyards: intel.shipyards, modules: intel.modules, systems });
+      const shipyards = systemFilter ? intel.shipyards.filter((y) => y.systemSymbol === systemFilter) : intel.shipyards;
+      const modules = systemFilter ? intel.modules.filter((m) => m.systemSymbol === systemFilter) : intel.modules;
+      res.json({ routes, snapshots, shipyards, modules, systems });
     } catch (err) {
       console.error("[dashboard] /markets error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

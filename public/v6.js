@@ -439,7 +439,7 @@ function initMobileTabbar() {
 function renderMarketSystemFilter() {
   const opts = `<option value="">All systems</option>` +
     marketSystems.map((s) => `<option value="${escapeAttr(s)}"${s === marketSystemFilter ? " selected" : ""}>${escapeHtml(s)}</option>`).join("");
-  for (const id of ["routes-system-filter", "snapshots-system-filter"]) {
+  for (const id of ["routes-system-filter", "snapshots-system-filter", "yards-system-filter"]) {
     const el = $(id);
     if (el && el.innerHTML !== opts) el.innerHTML = opts;
   }
@@ -5222,25 +5222,53 @@ function renderShipyardIntel() {
     html = "";
     if (yards.length) {
       html += `<div class="sub" style="margin-bottom:4px">Shipyards</div>`;
-      for (const y of yards.slice(0, 12)) {
-        const age = fmtAge(y.timestamp);
-        const stale = y.timestamp && (Date.now() - new Date(y.timestamp).getTime()) > 90 * 60_000;
+      // Grouped by ship type rather than a flat, arbitrarily-cut list of
+      // raw waypoint rows — the same item is frequently sold at several
+      // scouted yards at different prices, and a flat list either buried
+      // that comparison or, worse, showed the same type twice while a
+      // cheaper location for it never made the top-12 cut. Cheapest
+      // location per type leads; up to 3 others are listed alongside it.
+      const byType = new Map();
+      for (const y of yards) {
+        if (!byType.has(y.shipType)) byType.set(y.shipType, []);
+        byType.get(y.shipType).push(y);
+      }
+      const groups = [...byType.values()]
+        .map((rows) => rows.slice().sort((a, b) => a.purchasePrice - b.purchasePrice))
+        .sort((a, b) => a[0].purchasePrice - b[0].purchasePrice)
+        .slice(0, 12);
+      for (const rows of groups) {
+        const best = rows[0];
+        const age = fmtAge(best.timestamp);
+        const stale = best.timestamp && (Date.now() - new Date(best.timestamp).getTime()) > 90 * 60_000;
+        const others = rows.slice(1, 4);
         html += `<div class="row" style="align-items:center">
           <span class="icon">⛵</span>
-          <span class="route"><b>${shortWp(y.waypointSymbol)}</b> · ${y.shipTypeName}<br><span class="note">${y.systemSymbol} · fuel ${y.fuelCapacity} · ${y.purchasePrice}c · <span class="${stale ? "stale" : ""}">${age} old</span></span></span>
-          <span class="marg">${fmt(y.purchasePrice)}c</span>
-          <button class="buy-ship" data-type="${y.shipType}" data-yard="${y.waypointSymbol}" title="Buy ${y.shipTypeName}">Buy</button>
+          <span class="route"><b>${shortWp(best.waypointSymbol)}</b> · ${best.shipTypeName}<br><span class="note">${best.systemSymbol} · fuel ${best.fuelCapacity} · ${fmt(best.purchasePrice)}c · <span class="${stale ? "stale" : ""}">${age} old</span></span>${others.length ? `<br><span class="note">also: ${others.map((o) => `${shortWp(o.waypointSymbol)} ${fmt(o.purchasePrice)}c`).join(" · ")}</span>` : ""}</span>
+          <span class="marg">${fmt(best.purchasePrice)}c</span>
+          <button class="buy-ship" data-type="${best.shipType}" data-yard="${best.waypointSymbol}" title="Buy ${best.shipTypeName}">Buy</button>
         </div>`;
       }
     }
     if (mods.length) {
       html += `<div class="sub" style="margin:8px 0 4px">Modules & mounts</div>`;
-      for (const m of mods.slice(0, 12)) {
+      const bySymbol = new Map();
+      for (const m of mods) {
+        if (!bySymbol.has(m.symbol)) bySymbol.set(m.symbol, []);
+        bySymbol.get(m.symbol).push(m);
+      }
+      const modGroups = [...bySymbol.values()]
+        .map((rows) => rows.slice().sort((a, b) => a.purchasePrice - b.purchasePrice))
+        .sort((a, b) => a[0].purchasePrice - b[0].purchasePrice)
+        .slice(0, 12);
+      for (const rows of modGroups) {
+        const best = rows[0];
+        const others = rows.slice(1, 4);
         html += `<div class="row" style="align-items:center">
-          <span class="icon">${m.kind === "module" ? "▣" : "◈"}</span>
-          <span class="route"><b>${m.symbol}</b><br><span class="note">${shortWp(m.waypointSymbol)} · ${m.purchasePrice}c</span></span>
-          <span class="marg">${fmt(m.purchasePrice)}c</span>
-          <button class="buy-mod" data-comp="${m.symbol}" data-market="${m.waypointSymbol}">Buy</button>
+          <span class="icon">${best.kind === "module" ? "▣" : "◈"}</span>
+          <span class="route"><b>${best.symbol}</b><br><span class="note">${shortWp(best.waypointSymbol)} · ${fmt(best.purchasePrice)}c</span>${others.length ? `<br><span class="note">also: ${others.map((o) => `${shortWp(o.waypointSymbol)} ${fmt(o.purchasePrice)}c`).join(" · ")}</span>` : ""}</span>
+          <span class="marg">${fmt(best.purchasePrice)}c</span>
+          <button class="buy-mod" data-comp="${best.symbol}" data-market="${best.waypointSymbol}">Buy</button>
         </div>`;
       }
     }
@@ -5479,6 +5507,7 @@ $("price-good").addEventListener("change", (e) => { priceGood = e.target.value; 
 
 $("routes-system-filter").addEventListener("change", onMarketSystemFilterChange);
 $("snapshots-system-filter").addEventListener("change", onMarketSystemFilterChange);
+$("yards-system-filter").addEventListener("change", onMarketSystemFilterChange);
 
 // Dispatch controls: assign a good to a trader, or clear to auto. Shared
 // between the desktop toolbar and the mobile page's copy of the same form.
