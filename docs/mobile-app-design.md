@@ -136,9 +136,17 @@ Bottom tab bar: **Home · Fleet · Map · Markets · More**
   (frame/reactor/engine), modules and mounts (with Remove), and
   components sitting in cargo (with Install) — the same fields desktop's
   sheet shows, condensed into one scrollable block instead of desktop's
-  row of sub-tabs. Nothing left placeholder on the Fleet sheet. **Decided 2026-09-13: deck only, no
-  parallel compact-list view** — worth revisiting if deck browsing
-  proves too slow for scanning many ships' status at once in practice.
+  row of sub-tabs. Nothing left placeholder on the Fleet sheet.
+  **Update 2026-09-13**: the parked "deck only" question above is
+  resolved — deck browsing did prove too slow for scanning a real fleet
+  ("who's assigned to what, all in one place, without scrolling through
+  cards one by one"). A Deck/List segmented control now sits above the
+  deck; List is every ship as one compact row (symbol, role, job/route,
+  fuel%, hull%, a colored stripe for stranded/unassigned), tap to open
+  the same traffic-manager sheet the deck uses. Both views share one
+  sheet and one `fleetIndex`, so switching views mid-flow doesn't lose
+  the selected ship. Scales to a real fleet size by scrolling, not
+  paging — ~25 rows is trivial for a phone browser.
 - **Map** — Radar: full-screen system map with a draggable bottom
   sheet. Tapping a charted waypoint surfaces what's there (market
   goods, shipyard stock if any) inline in the sheet — the spatial

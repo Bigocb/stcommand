@@ -46,13 +46,21 @@
       </div>
     </div>
     <div class="screen" data-screen="fleet">
-      <div class="deck">
+      <div class="seg fleet-seg" id="fleet-seg">
+        <button class="on" data-view="deck">Deck</button>
+        <button data-view="list">List</button>
+      </div>
+      <div class="deck" id="fleet-deck-view">
         <div class="deck-note" id="deck-note"></div>
         <div class="stack" id="deck-stack"></div>
         <div class="deck-nav">
           <button class="btn ghost" id="deck-prev">‹ Prev</button>
           <button class="btn ghost" id="deck-next">Next ›</button>
         </div>
+      </div>
+      <div class="roster" id="fleet-roster-view" hidden>
+        <div class="roster-hd" id="roster-hd"></div>
+        <div class="roster-scroll" id="roster-scroll"></div>
       </div>
       <div class="sheet" id="fleet-sheet" hidden>
         <button class="handle" id="sheet-handle" aria-label="Collapse"></button>

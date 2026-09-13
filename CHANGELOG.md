@@ -14,6 +14,32 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower Fleet: a List view — see every ship's job in one place)
+
+Operator feedback: seeing who's assigned to what route required
+swiping through the deck one card at a time — no way to scan the whole
+fleet at once. Also asked what happens at ~25 ships.
+
+- `public/m.html`/`m.css`/`m.js` — a Deck/List segmented control above
+  the Fleet screen. List renders every ship as one compact row (symbol,
+  role, job/route — reusing the same `jobLabel()` vocabulary the deck
+  cards already use — fuel%, hull%, a colored left-stripe for stranded/
+  unassigned), tap a row to open the same traffic-manager sheet the deck
+  uses. Both views share one `fleetIndex` and one sheet, so switching
+  views mid-flow (e.g. open a card in Deck, flip to List to check
+  someone else, flip back) doesn't lose the selected ship or reset any
+  open form. `renderFleetView()` is now the one call site every mutation
+  handler refreshes through — it always keeps the deck's internal state
+  correct and additionally re-renders List when that's the active view.
+- Answering "what happens at 25 ships": Deck was the one part of Tower
+  that didn't scale (a 25-card swipe queue) — List fixes exactly that by
+  scrolling instead of paging. Home's tiles/triage feed, Map's blips,
+  and Markets/More are all already fleet-size-agnostic (aggregated
+  counts, one small dot per ship, or unrelated to ship count), so
+  nothing else needed a change.
+
+Typechecked clean; syntax-checked.
+
 ## 2026-09-13 (Fix: "New agent" landed on the already-logged-in tenant)
 
 Operator report: clicking "+ New agent" opened `/` in a new tab, but

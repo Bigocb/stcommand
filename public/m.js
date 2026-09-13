@@ -65,7 +65,7 @@ $("auth-form").addEventListener("submit", async (e) => {
 function setTab(name) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.dataset.screen === name));
   document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
-  if (name === "fleet") renderDeck();
+  if (name === "fleet") renderFleetView();
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); renderMarkets(); }
   if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); renderMore(); }
@@ -176,9 +176,9 @@ function fleetTabActive() {
   return document.querySelector('.screen[data-screen="fleet"]')?.classList.contains("on") ?? false;
 }
 
-subscribe("state", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); if (mapTabActive()) renderScope(); });
-subscribe("bridge", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); });
-subscribe("dispatch", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); });
+subscribe("state", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); if (mapTabActive()) renderScope(); });
+subscribe("bridge", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
+subscribe("dispatch", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
 subscribe("approvals", () => { renderTiles(); renderTriage(); });
 
 /* ── Fleet: ship-card deck ──────────────────
@@ -266,6 +266,63 @@ function renderDeck() {
 
   renderSheet(rows[fleetIndex]);
 }
+
+/* ── Fleet: roster (list) view ───────────────
+ * "Who's assigned to what, all in one place" without swiping the deck
+ * card by card — every ship as one compact row, tap to open the same
+ * sheet the deck uses. Scales to a large fleet by scrolling, not paging.
+ */
+let fleetView = "deck";
+
+function renderFleetView() {
+  // Always keeps fleetIndex in bounds and the sheet in sync, even while
+  // the roster is the visible view — the deck stack itself just stays
+  // hidden underneath, which costs nothing worth avoiding.
+  renderDeck();
+  if (fleetView === "list") renderRoster();
+}
+
+function renderRoster() {
+  const rows = fleetRows();
+  $("roster-hd").textContent = `${rows.length} hull${rows.length === 1 ? "" : "s"}`;
+  if (!rows.length) { $("roster-scroll").innerHTML = '<div class="empty">No ships in the register.</div>'; return; }
+  $("roster-scroll").innerHTML = rows.map((r, i) => {
+    const cls = r.stranded ? " crit" : r.job === "unassigned" ? " warn" : "";
+    const jobTxt = r.job == null ? r.role : r.job;
+    const jobCls = r.job === "unassigned" ? " unassigned" : "";
+    const fuelPct = r.fuelCap ? Math.round((r.fuel / r.fuelCap) * 100) : 0;
+    return `<button class="roster-row${cls}" data-idx="${i}">
+      <span class="rr-id"><span class="sym">${escapeHtml(r.symbol)}</span><span class="role">${escapeHtml(r.role)}</span></span>
+      <span class="rr-job${jobCls}">${r.stranded ? "STRANDED · " : ""}${escapeHtml(jobTxt)}</span>
+      <span class="rr-stats">
+        <span class="${fuelPct < 25 ? "lo" : ""}">F${fuelPct}</span>
+        <span class="${r.condition < 50 ? "lo" : ""}">H${r.condition}</span>
+      </span>
+    </button>`;
+  }).join("");
+}
+
+$("fleet-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-view]");
+  if (!b) return;
+  fleetView = b.dataset.view;
+  $("fleet-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  $("fleet-deck-view").hidden = fleetView !== "deck";
+  $("fleet-roster-view").hidden = fleetView !== "list";
+  renderFleetView();
+});
+
+$("roster-scroll").addEventListener("click", (e) => {
+  const b = e.target.closest("button.roster-row[data-idx]");
+  if (!b) return;
+  fleetIndex = Number(b.dataset.idx);
+  sendFormOpen = false;
+  routePickerOpen = false;
+  roleFormOpen = false;
+  roleFormRole = null;
+  detailsOpen = false;
+  renderSheet(fleetRows()[fleetIndex]);
+});
 
 function renderSheet(row) {
   sheetShip = row.symbol;
@@ -359,22 +416,22 @@ $("sheet-actions").addEventListener("click", async (e) => {
   const act = b.dataset.act;
   const ship = sheetShip;
 
-  if (act === "send-toggle") { sendFormOpen = !sendFormOpen; routePickerOpen = false; roleFormOpen = false; detailsOpen = false; return renderDeck(); }
-  if (act === "route-toggle") { routePickerOpen = !routePickerOpen; sendFormOpen = false; roleFormOpen = false; detailsOpen = false; return renderDeck(); }
+  if (act === "send-toggle") { sendFormOpen = !sendFormOpen; routePickerOpen = false; roleFormOpen = false; detailsOpen = false; return renderFleetView(); }
+  if (act === "route-toggle") { routePickerOpen = !routePickerOpen; sendFormOpen = false; roleFormOpen = false; detailsOpen = false; return renderFleetView(); }
   if (act === "role-toggle") {
     roleFormOpen = !roleFormOpen;
     roleFormRole = null;
     sendFormOpen = false;
     routePickerOpen = false;
     detailsOpen = false;
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "details-toggle") {
     detailsOpen = !detailsOpen;
     sendFormOpen = false;
     routePickerOpen = false;
     roleFormOpen = false;
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "jettison") {
     const { good, units } = b.dataset;
@@ -382,19 +439,19 @@ $("sheet-actions").addEventListener("click", async (e) => {
     b.disabled = true;
     try { await api("POST", "/api/fleet/jettison", { shipSymbol: ship, good, units: Number(units) }); await loadState(); }
     catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "remove-comp") {
     b.disabled = true;
     try { await api("POST", "/api/fleet/remove-component", { shipSymbol: ship, componentSymbol: b.dataset.comp }); await loadState(); }
     catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "install-comp") {
     b.disabled = true;
     try { await api("POST", "/api/fleet/install", { shipSymbol: ship, componentSymbol: b.dataset.comp }); await loadState(); }
     catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "role-set") {
     const role = $("sheet-actions").querySelector(".role-select")?.value;
@@ -407,7 +464,7 @@ $("sheet-actions").addEventListener("click", async (e) => {
       roleFormRole = null;
       await loadBridge();
     } catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
 
   if (act === "send-go") {
@@ -419,7 +476,7 @@ $("sheet-actions").addEventListener("click", async (e) => {
       sendFormOpen = false;
       await loadBridge();
     } catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "route-pick") {
     const route = dispatchRoutes.find((r) => r.good === b.dataset.good);
@@ -434,33 +491,33 @@ $("sheet-actions").addEventListener("click", async (e) => {
       routePickerOpen = false;
       await loadDispatch();
     } catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "hold" || act === "release") {
     b.disabled = true;
     try { await api("POST", `/api/fleet/${act}`, { shipSymbol: ship }); await loadBridge(); }
     catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "repair") {
     b.disabled = true;
     try { await api("POST", "/api/fleet/repair", { shipSymbol: ship }); await loadBridge(); }
     catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
   if (act === "sell") {
     if (!confirm(`Sell ${ship} permanently? It will fly to the nearest shipyard and be scrapped there. This cannot be undone.`)) return;
     b.disabled = true;
     try { await api("POST", "/api/fleet/sell-ship", { shipSymbol: ship }); await loadState(); }
     catch (err) { alert(err.message); }
-    return renderDeck();
+    return renderFleetView();
   }
 });
 
 $("sheet-actions").addEventListener("change", (e) => {
   if (!e.target.classList.contains("role-select")) return;
   roleFormRole = e.target.value;
-  renderDeck();
+  renderFleetView();
 });
 
 $("sheet-handle").addEventListener("click", () => {
@@ -478,7 +535,7 @@ function deckStep(delta) {
   roleFormOpen = false;
   roleFormRole = null;
   detailsOpen = false;
-  renderDeck();
+  renderFleetView();
 }
 $("deck-prev").addEventListener("click", () => deckStep(-1));
 $("deck-next").addEventListener("click", () => deckStep(1));
