@@ -14,6 +14,35 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower: Fleet — the ship-card deck)
+
+Second Tower screen after Home: a swipeable ship-card deck replacing
+the desktop Fleet tab's sortable table for this mobile app, per the
+approved design (`docs/mobile-app-design.md`).
+
+- `public/m.html`/`m.css`/`m.js` — a stack of hull cards (front + a
+  peek of the next 1-2 behind it), navigable by swipe or Prev/Next
+  buttons. Each card shows role, job (reusing the desktop Fleet tab's
+  `jobFor()`/Job-column vocabulary — route/contract/mission/warehouse
+  buy-sell/unassigned), fuel/cargo/hull-condition gauges, and current
+  position — stranded ships get a red border, unassigned traders amber.
+- A traffic-manager action sheet underneath the deck, always targeting
+  the front card's ship: **Send to waypoint** (inline text input),
+  **Hold/Release** (toggles based on current state), **Assign route**
+  (a short picker over the top 4 computed routes by profit), **Repair**,
+  **Sell/Scrap** (with the same confirm-dialog wording desktop uses),
+  and a disabled **Full details — coming soon** placeholder for
+  anything rarer (full manifest, mount specifics) — deliberately not
+  porting desktop's dense multi-tab ship-detail sheet, per the design
+  doc's own call for a simpler mobile control surface.
+- No new server-side surface: every action calls the same
+  `/api/fleet/*`/`/api/dispatch` endpoints the desktop dashboard
+  already uses.
+
+Typechecked clean (no server-side changes this pass), `m.js`
+syntax-checked, `m.html` div-tag-balance sanity-checked. Not run
+against a local server — verifying live post-deploy.
+
 ## 2026-09-13 (Tower: a genuinely separate mobile app, Home only)
 
 First implementation pass on the mobile app design (`docs/

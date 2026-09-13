@@ -7,19 +7,29 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-- [ ] **Verify Tower (`/m`) live.** Home shipped 2026-09-13 — see
-  `CHANGELOG.md` and `docs/mobile-app-design.md`'s status section.
-  Typechecked/syntax-checked only; not run against a local server
-  (needs production `DATABASE_URL`). After next deploy: visit `/` on
-  an actual iPhone and confirm it redirects to `/m` with no visible
-  flash of the desktop layout; confirm "Add to Home Screen" from `/m`
-  shows the Tower name/icon (not "Standing Orders") and launches in
-  standalone mode; confirm Home's tiles/triage feed match what desktop
-  shows for the same tenant, and that approving/denying from Tower
-  actually clears the item on desktop's Ops tab too (same
-  `/api/approvals` endpoint — should just work, but hasn't been seen
-  live yet). Next build pass after this verifies clean: Fleet (the
-  ship-card deck + traffic-manager sheet).
+- [ ] **The "/" → "/m" auto-redirect didn't fire for the operator once**
+  (2026-09-13, right after Home shipped) — they had to type `/m`
+  manually. Not yet root-caused. `mobileRedirect.js`'s UA regex and load
+  order were re-checked and look correct; most likely an already-open
+  tab/home-screen icon from before the deploy (stale in-memory page, or
+  a cached pre-redirect copy of `/`), or Safari's "Request Desktop
+  Website" per-site toggle being on for this domain — either would
+  explain a one-time miss without a code bug. Re-test with a clean
+  force-quit-and-reopen before digging further; escalate only if it
+  still doesn't redirect after that.
+- [ ] **Verify Tower (`/m`) live — Home + Fleet.** Home shipped
+  2026-09-13, Fleet (ship-card deck + traffic-manager sheet) shipped
+  same day — see `CHANGELOG.md` and `docs/mobile-app-design.md`'s
+  status section. Typechecked/syntax-checked only; not run against a
+  local server (needs production `DATABASE_URL`). After next deploy:
+  the redirect/manifest/Home checks from the first round, plus for
+  Fleet — swipe and Prev/Next both advance the deck; Hold/Release,
+  Repair, Send to waypoint, Assign route, and Sell/Scrap each actually
+  do something on desktop too (same `/api/fleet/*`/`/api/dispatch`
+  endpoints — should just work, but hasn't been seen live yet); a
+  stranded ship's card shows the red border and an unassigned trader's
+  shows amber. Next build pass after this verifies clean: Map (the
+  radar-scope concept + draggable waypoint sheet).
 - [ ] **Tour more systems to build cross-system pricing data.** Operator
   request 2026-09-12 — more tour coverage across more systems is needed
   before cross-system routes have enough data to evaluate. **In

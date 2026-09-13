@@ -10,10 +10,10 @@
 import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
-  state, bridge, fleetStatus, approvals, dispatchAssignments,
+  state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch,
 } from "/shared/store.js";
-import { fmt, signed, escapeHtml, countdown } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -55,13 +55,15 @@ $("auth-form").addEventListener("submit", async (e) => {
 });
 
 /* ── tabs ──────────────────────────────────
- * Fleet/Map/Markets/More exist as real tab targets so the shell reads as
+ * Map/Markets/More exist as real tab targets so the shell reads as
  * complete, but only render an inert placeholder until their own pass —
- * see docs/mobile-app-design.md's "What this pass does not do".
+ * see docs/mobile-app-design.md's "What this pass does not do". Fleet
+ * (the ship-card deck) is built below.
  */
 function setTab(name) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.dataset.screen === name));
   document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
+  if (name === "fleet") renderDeck();
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -165,10 +167,212 @@ $("triage-list").addEventListener("click", async (e) => {
   }
 });
 
-subscribe("state", () => { renderTiles(); renderTriage(); });
-subscribe("bridge", () => { renderTiles(); renderTriage(); });
-subscribe("dispatch", () => { renderTiles(); renderTriage(); });
+function fleetTabActive() {
+  return document.querySelector('.screen[data-screen="fleet"]')?.classList.contains("on") ?? false;
+}
+
+subscribe("state", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); });
+subscribe("bridge", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); });
+subscribe("dispatch", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderDeck(); });
 subscribe("approvals", () => { renderTiles(); renderTriage(); });
+
+/* ── Fleet: ship-card deck ──────────────────
+ * A swipeable deck (tap Prev/Next or swipe) rather than a table — the
+ * approved concept for this screen (docs/mobile-app-design.md). Each
+ * card's job label reuses the same TraderAssignment vocabulary as the
+ * desktop Fleet tab's Job column (jobFor() in v6.js): route/contract/
+ * mission/warehouse buy-sell, or "unassigned" for a trader with no
+ * assignment at all — the ships worth looking at first.
+ */
+let fleetIndex = 0;
+let sheetShip = null;
+let sendFormOpen = false;
+let routePickerOpen = false;
+
+function jobLabel(assignment) {
+  if (!assignment) return null;
+  const good = assignment.good;
+  if (assignment.role === "direct") return `route: ${good}`;
+  if (assignment.role === "contractBuy") return `contract: ${good}`;
+  if (assignment.role === "haul") return `mission: ${good}`;
+  if (assignment.role === "buy") return assignment.missionBuy ? `mission: ${good}` : `warehouse buy: ${good}`;
+  if (assignment.role === "sell") return `warehouse sell: ${good}`;
+  return good;
+}
+
+function fleetRows() {
+  const ships = state?.ships ?? [];
+  const statusBy = new Map((fleetStatus.ships ?? []).map((s) => [s.symbol, s]));
+  const strandedBy = new Set((fleetStatus.stranded ?? []).map((s) => s.symbol));
+  return ships.map((s) => {
+    const st = statusBy.get(s.symbol);
+    const assignment = dispatchAssignments.find((a) => a.shipSymbol === s.symbol);
+    return {
+      symbol: s.symbol,
+      role: st?.role ?? "—",
+      manual: !!st?.paused,
+      job: st?.role === "trader" ? (jobLabel(assignment) ?? "unassigned") : null,
+      fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
+      cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
+      condition: worstConditionPct(s) ?? 100,
+      waypoint: s.nav?.waypointSymbol ?? "",
+      nav: s.nav?.status ?? "",
+      stranded: strandedBy.has(s.symbol),
+    };
+  });
+}
+
+function hullCard(row, extraClass) {
+  const cls = row.stranded ? " crit" : row.job === "unassigned" ? " warn" : "";
+  return `
+    <div class="hull ${extraClass}${extraClass === "front" ? cls : ""}">
+      <div class="hd"><span class="sym">${escapeHtml(row.symbol)}</span><span class="role">${escapeHtml(row.role)}</span></div>
+      ${row.job ? `<div class="job">${row.job === "unassigned" ? "unassigned" : "→ " + escapeHtml(row.job)}</div>` : ""}
+      <div class="gauges">
+        <div class="gauge-row"><span class="g-k">Fuel</span><div class="g-track"><div class="g-fill${row.fuelCap && row.fuel / row.fuelCap < 0.25 ? " red" : ""}" style="width:${row.fuelCap ? (row.fuel / row.fuelCap) * 100 : 0}%"></div></div><span class="g-v">${row.fuel}/${row.fuelCap}</span></div>
+        <div class="gauge-row"><span class="g-k">Hold</span><div class="g-track"><div class="g-fill amber" style="width:${row.cargoCap ? (row.cargo / row.cargoCap) * 100 : 0}%"></div></div><span class="g-v">${row.cargoCap ? `${row.cargo}/${row.cargoCap}` : "—"}</span></div>
+        <div class="gauge-row"><span class="g-k">Hull</span><div class="g-track"><div class="g-fill${row.condition < 50 ? " red" : ""}" style="width:${row.condition}%"></div></div><span class="g-v">${row.condition}%</span></div>
+      </div>
+      <div class="at">${row.stranded ? "STRANDED · " : ""}${escapeHtml(shortWp(row.waypoint))} · ${escapeHtml((row.nav || "idle").replace(/_/g, " ").toLowerCase())}</div>
+    </div>`;
+}
+
+function renderDeck() {
+  const rows = fleetRows();
+  if (!rows.length) {
+    $("deck-stack").innerHTML = '<div class="empty">No ships in the register.</div>';
+    $("deck-note").textContent = "";
+    $("fleet-sheet").hidden = true;
+    return;
+  }
+  if (fleetIndex >= rows.length) fleetIndex = 0;
+  $("deck-note").textContent = `hull ${fleetIndex + 1} of ${rows.length}`;
+
+  let html = "";
+  if (rows.length > 2) html += hullCard(rows[(fleetIndex + 2) % rows.length], "back2");
+  if (rows.length > 1) html += hullCard(rows[(fleetIndex + 1) % rows.length], "back1");
+  html += hullCard(rows[fleetIndex], "front");
+  $("deck-stack").innerHTML = html;
+
+  renderSheet(rows[fleetIndex]);
+}
+
+function renderSheet(row) {
+  sheetShip = row.symbol;
+  $("fleet-sheet").hidden = false;
+  $("sheet-who").textContent = row.symbol;
+  $("sheet-sub").textContent = `${row.role} · ${(row.nav || "idle").replace(/_/g, " ").toLowerCase()} · ${shortWp(row.waypoint)}`;
+
+  const holdBtn = row.manual
+    ? `<button class="btn" data-act="release">Release</button>`
+    : `<button class="btn" data-act="hold">Hold</button>`;
+  let extra = "";
+  if (sendFormOpen) {
+    extra += `<div class="sheet-inline-form"><input id="send-wp-input" placeholder="Waypoint, e.g. X1-A-B2" /><button class="btn pri" data-act="send-go">Go</button></div>`;
+  }
+  if (routePickerOpen) {
+    const top = [...dispatchRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 4);
+    extra += `<div class="route-pick">${
+      top.length
+        ? top.map((r) => `<button data-act="route-pick" data-good="${escapeHtml(r.good)}"><span>${escapeHtml(r.good)}</span><b>${signed(r.profitPerTrip)}/trip</b></button>`).join("")
+        : '<div class="empty">No profitable routes right now.</div>'
+    }</div>`;
+  }
+  $("sheet-actions").innerHTML = `
+    <button class="btn" data-act="send-toggle">Send to waypoint</button>
+    ${holdBtn}
+    <button class="btn" data-act="route-toggle">Assign route</button>
+    <button class="btn" data-act="repair">Repair</button>
+    <button class="btn deny" data-act="sell">Sell / Scrap</button>
+    <button class="btn ghost full" disabled>Full details — coming soon</button>
+    ${extra}
+  `;
+}
+
+$("sheet-actions").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b || b.disabled) return;
+  const act = b.dataset.act;
+  const ship = sheetShip;
+
+  if (act === "send-toggle") { sendFormOpen = !sendFormOpen; routePickerOpen = false; return renderDeck(); }
+  if (act === "route-toggle") { routePickerOpen = !routePickerOpen; sendFormOpen = false; return renderDeck(); }
+
+  if (act === "send-go") {
+    const wp = $("send-wp-input")?.value.trim();
+    if (!wp) return;
+    b.disabled = true;
+    try {
+      await api("POST", "/api/fleet/dispatch", { shipSymbol: ship, waypointSymbol: wp });
+      sendFormOpen = false;
+      await loadBridge();
+    } catch (err) { alert(err.message); }
+    return renderDeck();
+  }
+  if (act === "route-pick") {
+    const route = dispatchRoutes.find((r) => r.good === b.dataset.good);
+    b.disabled = true;
+    try {
+      await api("POST", "/api/dispatch", {
+        shipSymbol: ship, good: b.dataset.good,
+        buyAt: route?.buyAt, sellAt: route?.sellAt,
+        buyPrice: route?.buyPrice, sellPrice: route?.sellPrice,
+        profitPerTrip: route?.profitPerTrip,
+      });
+      routePickerOpen = false;
+      await loadDispatch();
+    } catch (err) { alert(err.message); }
+    return renderDeck();
+  }
+  if (act === "hold" || act === "release") {
+    b.disabled = true;
+    try { await api("POST", `/api/fleet/${act}`, { shipSymbol: ship }); await loadBridge(); }
+    catch (err) { alert(err.message); }
+    return renderDeck();
+  }
+  if (act === "repair") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/repair", { shipSymbol: ship }); await loadBridge(); }
+    catch (err) { alert(err.message); }
+    return renderDeck();
+  }
+  if (act === "sell") {
+    if (!confirm(`Sell ${ship} permanently? It will fly to the nearest shipyard and be scrapped there. This cannot be undone.`)) return;
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/sell-ship", { shipSymbol: ship }); await loadState(); }
+    catch (err) { alert(err.message); }
+    return renderDeck();
+  }
+});
+
+$("sheet-handle").addEventListener("click", () => {
+  const collapsed = $("sheet-actions").hidden;
+  $("sheet-actions").hidden = !collapsed;
+  $("sheet-sub").hidden = !collapsed;
+});
+
+function deckStep(delta) {
+  const rows = fleetRows();
+  if (!rows.length) return;
+  fleetIndex = (fleetIndex + delta + rows.length) % rows.length;
+  sendFormOpen = false;
+  routePickerOpen = false;
+  renderDeck();
+}
+$("deck-prev").addEventListener("click", () => deckStep(-1));
+$("deck-next").addEventListener("click", () => deckStep(1));
+
+// Swipe, in addition to the Prev/Next buttons — a deck should feel
+// swipeable, but a tap target is the accessible/discoverable fallback.
+let deckTouchStartX = null;
+$("deck-stack").addEventListener("touchstart", (e) => { deckTouchStartX = e.touches[0].clientX; }, { passive: true });
+$("deck-stack").addEventListener("touchend", (e) => {
+  if (deckTouchStartX == null) return;
+  const dx = e.changedTouches[0].clientX - deckTouchStartX;
+  deckTouchStartX = null;
+  if (Math.abs(dx) < 40) return;
+  deckStep(dx < 0 ? 1 : -1);
+});
 
 /* ── boot ──────────────────────────────────
  * Same 15s polling cadence as v6.js's tradeops/ops tabs — Home always

@@ -45,7 +45,22 @@
         <div id="triage-list"></div>
       </div>
     </div>
-    <div class="screen" data-screen="fleet"><div class="soon">Fleet — coming soon</div></div>
+    <div class="screen" data-screen="fleet">
+      <div class="deck">
+        <div class="deck-note" id="deck-note"></div>
+        <div class="stack" id="deck-stack"></div>
+        <div class="deck-nav">
+          <button class="btn ghost" id="deck-prev">‹ Prev</button>
+          <button class="btn ghost" id="deck-next">Next ›</button>
+        </div>
+      </div>
+      <div class="sheet" id="fleet-sheet" hidden>
+        <button class="handle" id="sheet-handle" aria-label="Collapse"></button>
+        <div class="who" id="sheet-who"></div>
+        <div class="sub" id="sheet-sub"></div>
+        <div class="grid5" id="sheet-actions"></div>
+      </div>
+    </div>
     <div class="screen" data-screen="map"><div class="soon">Map — coming soon</div></div>
     <div class="screen" data-screen="markets"><div class="soon">Markets — coming soon</div></div>
     <div class="screen" data-screen="more"><div class="soon">More — coming soon</div></div>

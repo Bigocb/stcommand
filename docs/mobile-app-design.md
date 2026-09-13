@@ -221,8 +221,18 @@ questions from the sections above are resolved:
   the Tower palette, not final brand artwork) at
   `public/icons/tower-*.png`.
 
-Fleet, Map, Markets, and More still render inert "coming soon"
-placeholders — their tab targets exist in the shell so it reads as
-complete, but no screen behind them has been built yet. Next pass:
-Fleet (the ship-card deck + traffic-manager action sheet), reusing the
-`jobFor()` pattern from the desktop Fleet tab's Job column.
+**Update, same day** — Fleet is also shipped: a swipeable ship-card deck
+(tap Prev/Next or swipe; a peek of the next 1-2 hulls behind the front
+card) with a traffic-manager action sheet underneath — Send to
+waypoint, Hold/Release, Assign route (a short picker over the top
+computed routes), Repair, Sell/Scrap, and a disabled "Full details —
+coming soon" placeholder for anything rarer. Each card's job label
+reuses the same `TraderAssignment` vocabulary as desktop's Job column
+(route/contract/mission/warehouse buy-sell/unassigned). All the same
+`/api/fleet/*`/`/api/dispatch` endpoints desktop already calls — no new
+server-side surface.
+
+Map, Markets, and More still render inert "coming soon" placeholders —
+their tab targets exist in the shell so it reads as complete, but no
+screen behind them has been built yet. Next pass: Map (the radar-scope
+concept + a draggable waypoint sheet).
