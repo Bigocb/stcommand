@@ -14,6 +14,34 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Fix: Deck/List toggle didn't actually switch — a CSS gap)
+
+Operator sent a screen recording: tapping "List" correctly highlighted
+the button, but the deck stayed on screen underneath it. Root cause:
+`.deck` and `.roster` each set `display: flex` directly in their own
+class rule; an *author* stylesheet rule always beats the browser's
+built-in `[hidden] { display: none }` default regardless of
+specificity, so `element.hidden = true` on either container did
+nothing visually — no error, no console warning, just silently inert.
+Tower already had the right fix pattern in three other places
+(`.sheet[hidden]`, `.map-sheet[hidden]`, `.app[hidden]`/
+`.auth-gate[hidden]`) — the two new containers from the List-view
+commit just didn't get it, and neither, it turned out, did an existing
+one.
+
+- `public/m.css` — added `.deck[hidden]`, `.roster[hidden]`, and
+  `.grid5[hidden]` (the sheet's own action-button grid, whose "collapse"
+  handle tap had the exact same latent bug — never reported because
+  nobody had gone looking for it, but confirmed the same root cause on
+  inspection). All three now explicitly `display: none`, overriding
+  their own class's `display` property the way `[hidden]` is supposed
+  to.
+
+Audited every other `element.hidden = ...` call site in `m.js` against
+its CSS — everything else either already had a matching `[hidden]` rule
+or had no competing `display` property to override in the first place,
+so this closes the whole class of bug, not just the one reported.
+
 ## 2026-09-13 (Tower Fleet: a List view — see every ship's job in one place)
 
 Operator feedback: seeing who's assigned to what route required
