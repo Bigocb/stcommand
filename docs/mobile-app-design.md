@@ -155,15 +155,50 @@ Bottom tab bar: **Home · Fleet · Map · Markets · More**
   scroll strip vs. a single row of 3–4).
 - Route path/naming (`/m` was used as a placeholder throughout this
   doc — not finalized).
-- Manifest details: app name, icon design, theme color — distinct from
-  whatever desktop's manifest (if any) currently declares.
 - Whether mobile auto-detection redirects every time or only once,
   mirroring `applyVersionPreference()`'s remember-the-choice behavior
   for desktop versions.
 
+## Visual identity — approved 2026-09-13
+
+Deliberately distinct from the desktop dashboard's look (a starship-
+bridge HUD identity) rather than reusing it — this app is a field
+terminal, not a shrunk console. Named **Tower**, leaning into the
+"Radar"/"Cockpit"/"traffic manager" language the concepts were already
+using. Mocked up across all four screens (Home, Fleet, Map, Markets) as
+a high-fidelity phone-frame gallery; operator confirmed it's working.
+
+- **Palette**: warm near-black ground (`#0a0908`) with a phosphor-amber
+  accent (`#ffb020`, CRT-scope register) as the only rotating/active
+  hue; a muted cool ice-blue (`#93a6b4`) for secondary structure; green
+  (`#58d68d`)/red (`#ff6152`) held strictly semantic — profit and
+  critical-only, never decorative.
+- **Type**: Chakra Petch for labels/chrome/headings (condensed,
+  technical, uppercase-friendly — distinct from desktop's RBchrome and
+  from generic Inter/Space Grotesk defaults), IBM Plex Mono for every
+  number (tabular figures throughout).
+- **Signature device**: the Map screen renders as a literal radar
+  scope (range rings, a sweep wedge, shaped blips per waypoint type)
+  with a draggable bottom sheet for the selected waypoint — ties the
+  visual identity directly to the "Radar" concept name rather than
+  being a generic map tile view.
+- Single dark theme only, deliberately — a night-ops field console has
+  no real light-mode use case, matching this project's own "commit to
+  one visual world" allowance for a design with a definite, singular
+  setting.
+- Full mockup (not committed to the repo — a design reference, not
+  app code): https://claude.ai/code/artifact/d0f61c93-6d09-4be4-bc9d-2ea3bc9e9333
+
+Still open from the visual pass: exact manifest metadata (theme-color
+meta tag, apple-touch-icon asset, app short-name for the home-screen
+label) needs a real icon asset produced from this identity before it
+can be finalized — the mockup establishes the palette/type/device
+language but doesn't include an icon design.
+
 ## Not yet started
 
-No implementation work has begun. Next step, when ready: wireframe or
-directly build Home first (it's the surface with the most design
-already resolved), or resolve the open questions above first if any of
-them would reshape Home's layout.
+No implementation work has begun. IA and visual identity are both
+resolved; next step is to resolve the remaining open questions above
+(route naming, tile layout, redirect behavior, manifest icon asset)
+and then build Home first — it's the most fully resolved surface on
+both fronts.
