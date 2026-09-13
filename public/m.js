@@ -1023,6 +1023,14 @@ setInterval(() => {
 }, 15_000);
 
 (async function boot0() {
+  // "?login=1" (the admin page's "+ New agent" link, forwarded here by
+  // mobileRedirect.js if it sent a mobile UA to /m) forces the sign-in
+  // form even with a live session cookie already in this browser — see
+  // v6.js's own boot0 for the full reasoning.
+  if (new URLSearchParams(window.location.search).get("login") === "1") {
+    window.history.replaceState({}, "", window.location.pathname);
+    return showAuthGate();
+  }
   const session = await probeSession();
   if (!session.authenticated) return showAuthGate();
   hideAuthGate();

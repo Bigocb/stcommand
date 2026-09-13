@@ -103,6 +103,19 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   tenant count grows enough to matter.
 
 ## Parked ideas — raised, not acted on
+- [ ] **One tenant session per browser, not per tab.** Surfaced
+  2026-09-13 while building "View as" and "+ New agent" on the admin
+  page: session auth is a single cookie for the whole browser, so
+  switching tenants in one tab (via either of those, or a normal
+  re-login) silently flips every other open tab to the new tenant on its
+  next request — there's no real per-tab isolation today. Fine for a
+  single operator using one tenant at a time, increasingly awkward now
+  that flipping between THEO/THEO-1/THEO-2 is an expected workflow (see
+  the play-style A/B tracking work). A real fix would need per-tab
+  credentials (e.g. the session id carried in the URL/localStorage and
+  sent as a header instead of an httpOnly cookie) rather than the
+  current cookie-only model — a real architecture change, not scoped.
+
 - [ ] **Push notifications for Tower (`/m`).** Operator request 2026-09-13,
   explicitly future work, not now. Would need: a service worker
   (Tower currently has none — `manifest-tower.webmanifest` alone doesn't

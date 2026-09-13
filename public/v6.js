@@ -6075,6 +6075,18 @@ updateFieldBookToggleVisibility();
 // Which of the three screens does this load render? Sign-in gate,
 // onboarding, or the dashboard — decided from observed state, every time.
 async function boot0() {
+  // `?login=1` (the admin page's "+ New agent" link) forces the sign-in
+  // form even when this browser already carries a live session cookie for
+  // some other tenant — session auth is one cookie per browser, shared
+  // across every tab, so opening "/" normally just lands back on whichever
+  // tenant is already logged in. Signing in here overwrites that cookie
+  // with the new tenant's, same as any other login; this only skips the
+  // "already authenticated, go straight to the dashboard" shortcut so the
+  // form actually shows.
+  if (new URLSearchParams(window.location.search).get("login") === "1") {
+    window.history.replaceState({}, "", window.location.pathname);
+    return showAuthGate();
+  }
   // One gate call decides the screen. It answers "is this cookie live" like
   // the old /api/state probe did, and also "does this tenant still owe us
   // onboarding" — which /api/state cannot answer, and which a page load has

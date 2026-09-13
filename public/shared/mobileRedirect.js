@@ -52,16 +52,19 @@
   var url = new URL(window.location.href);
   var asked = url.searchParams.get("ui");
 
+  // Any other query params (e.g. "?login=1" from the admin page's "+ New
+  // agent" link) ride along to /m untouched — a redirect shouldn't silently
+  // drop something the destination page also knows how to honor.
   if (asked === "desktop" || asked === "m") {
     remember(asked);
-    if (asked === "m") { window.location.replace("/m"); return; }
-    // Already staying on desktop — drop the parameter so a refresh is clean.
     url.searchParams.delete("ui");
+    if (asked === "m") { window.location.replace("/m" + url.search); return; }
+    // Already staying on desktop — drop the parameter so a refresh is clean.
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
     return;
   }
 
   var choice = remembered();
   if (choice === "desktop") return;
-  if (choice === "m" || isMobileDevice()) window.location.replace("/m");
+  if (choice === "m" || isMobileDevice()) window.location.replace("/m" + url.search);
 })();

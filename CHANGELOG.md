@@ -14,6 +14,35 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Fix: "New agent" landed on the already-logged-in tenant)
+
+Operator report: clicking "+ New agent" opened `/` in a new tab, but
+since session auth is one cookie per browser (shared across every tab),
+a tab that already has a live session for some tenant skips straight to
+that tenant's dashboard — the sign-in form the button was supposed to
+reach never showed.
+
+- `public/v6.js`/`m.js` — `boot0()` now checks for `?login=1` first and,
+  if present, force-shows the sign-in form regardless of any existing
+  session cookie (then strips the param from the URL bar). Pasting a
+  token there works exactly like any other login — it's only the
+  "already authenticated, skip to the dashboard" shortcut that's
+  bypassed.
+- `public/admin.html` — the "+ New agent" link now points to
+  `/?login=1`.
+- `public/shared/mobileRedirect.js` — forwards the rest of the query
+  string (not just its own `?ui=`) when it sends a mobile UA to `/m`, so
+  `?login=1` survives that redirect too instead of being silently
+  dropped.
+
+**Worth knowing, not a bug**: logging in as a new agent from this link
+overwrites the browser's one shared session cookie, same as any normal
+login — if another tab in the same browser already has a tenant's
+dashboard open, that tab will flip to the new agent on its next request
+too. `docs/TODO.md`'s multi-tenant note covers the real fix (separate
+per-tab credentials); "View as"/"+ New agent" both work within that
+same-cookie constraint for now.
+
 ## 2026-09-13 (Admin page: visual pass + "New agent" + Cartography link)
 
 Operator called "View as" a likely primary entry point going forward, so
