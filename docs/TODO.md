@@ -67,6 +67,18 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Parked ideas — raised, not acted on
 
+- [ ] **Consider a separate, purpose-built mobile UI.** Raised 2026-09-13
+  — operator uses the dashboard on iPhone via Safari's "Add to Home
+  Screen" (a PWA shortcut, not a native/sideloaded app). v6's current
+  mobile mode (`#mobile-view`'s own `.m-screen` tabs) is a condensed
+  reflow of the desktop layout rather than a mobile-first design, and
+  has already caused at least one real bug (the Ops tab's Approvals
+  pane was simply missing from mobile markup — see `CHANGELOG.md`,
+  "mobile Ops tab was missing Approvals entirely"). Not scoped: would
+  need a decision on how much of the desktop's density (Fleet table,
+  Markets panels, Doctrine sliders) actually belongs on a phone versus
+  a narrower "what needs me right now" surface, and whether it's a
+  redesign of the existing mobile mode or a genuinely separate build.
 - [ ] **A log explorer on the admin screen.** Floated 2026-09-12 while
   debugging DRAGOM-C's stuck retry loop — being able to search/filter
   live app logs from inside the admin UI instead of going through
