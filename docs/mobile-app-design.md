@@ -127,12 +127,16 @@ Bottom tab bar: **Home · Fleet · Map · Markets · More**
   desktop's dense multi-tab ship-detail sheet (Cargo & Loadout /
   Loadout / Mounts / Components-in-cargo). Rarer detail (full
   manifest, mount specifics) lives behind one "Full details" link
-  instead of its own row of tabs. **Update 2026-09-13**: role
-  assign/switch is built (was a "coming soon" placeholder) — "Change
-  role" expands the same role list and mismatch warning desktop's ship
-  detail sheet has (`roleMismatchReason()` in `shared/domain.js`), plus a
-  keeper-market waypoint field when switching to keeper. Full manifest/
-  mount detail is still the one remaining "coming soon" placeholder. **Decided 2026-09-13: deck only, no
+  instead of its own row of tabs. **Update 2026-09-13**: both former
+  "coming soon" placeholders on this sheet are now built. Role
+  assign/switch — "Change role" expands the same role list and mismatch
+  warning desktop's ship detail sheet has (`roleMismatchReason()` in
+  `shared/domain.js`), plus a keeper-market waypoint field when switching
+  to keeper. "Full details" expands cargo hold (with Jettison), loadout
+  (frame/reactor/engine), modules and mounts (with Remove), and
+  components sitting in cargo (with Install) — the same fields desktop's
+  sheet shows, condensed into one scrollable block instead of desktop's
+  row of sub-tabs. Nothing left placeholder on the Fleet sheet. **Decided 2026-09-13: deck only, no
   parallel compact-list view** — worth revisiting if deck browsing
   proves too slow for scanning many ships' status at once in practice.
 - **Map** — Radar: full-screen system map with a draggable bottom

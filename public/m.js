@@ -195,6 +195,7 @@ let sendFormOpen = false;
 let routePickerOpen = false;
 let roleFormOpen = false;
 let roleFormRole = null;
+let detailsOpen = false;
 
 const SHIP_ROLES = ["trader", "miner", "surveyor", "siphoner", "tour", "explorer", "scout", "keeper"];
 
@@ -302,6 +303,9 @@ function renderSheet(row) {
       ${currentRole === "keeper" ? `<input class="role-keeper-wp" placeholder="keeper market waypoint (skip if already there)" />` : ""}
     </div>`;
   }
+  if (detailsOpen) {
+    extra += renderShipDetails(row.symbol);
+  }
   $("sheet-actions").innerHTML = `
     <button class="btn" data-act="send-toggle">Send to waypoint</button>
     ${holdBtn}
@@ -309,8 +313,44 @@ function renderSheet(row) {
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
     <button class="btn ghost full" data-act="role-toggle">${roleFormOpen ? "Close" : `Change role (${escapeHtml(row.role)})`}</button>
+    <button class="btn ghost full" data-act="details-toggle">${detailsOpen ? "Close full details" : "Full details"}</button>
     ${extra}
   `;
+}
+
+/** Cargo hold, loadout, modules, mounts, and install-from-cargo — the
+ *  same fields desktop's ship-detail sheet shows, condensed into one
+ *  scrollable block rather than desktop's row of sub-tabs (see
+ *  docs/mobile-app-design.md: rarer detail lives behind one link here). */
+function renderShipDetails(shipSymbol) {
+  const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
+  if (!ship) return "";
+  const part = (p) => p ? `<div class="detail-row"><span>${escapeHtml(p.name ?? p.symbol)}</span><span class="d">${escapeHtml(p.symbol)}</span></div>` : "";
+  const cargo = ship.cargo?.inventory ?? [];
+  const modules = ship.modules ?? [];
+  const mounts = ship.mounts ?? [];
+  const cargoComps = cargo.filter((i) => i.symbol.startsWith("MODULE_") || i.symbol.startsWith("MOUNT_"));
+
+  return `<div class="ship-details">
+    <div class="dtl-h">Cargo hold</div>
+    ${cargo.length
+      ? cargo.map((i) => `<div class="detail-row"><span>${i.units}u ${escapeHtml(i.symbol)}</span><button class="btn deny" data-act="jettison" data-good="${escapeHtml(i.symbol)}" data-units="${i.units}">Jettison</button></div>`).join("")
+      : '<div class="empty">Hold is empty.</div>'}
+    <div class="dtl-h">Loadout</div>
+    ${part(ship.frame)}${part(ship.reactor)}${part(ship.engine)}
+    <div class="dtl-h">Modules</div>
+    ${modules.length
+      ? modules.map((m) => `<div class="detail-row"><span>${escapeHtml(m.name)}</span><button class="btn deny" data-act="remove-comp" data-comp="${escapeHtml(m.symbol)}">Remove</button></div>`).join("")
+      : '<div class="empty">No modules.</div>'}
+    <div class="dtl-h">Mounts</div>
+    ${mounts.length
+      ? mounts.map((m) => `<div class="detail-row"><span>${escapeHtml(m.name)}</span><button class="btn deny" data-act="remove-comp" data-comp="${escapeHtml(m.symbol)}">Remove</button></div>`).join("")
+      : '<div class="empty">No mounts.</div>'}
+    <div class="dtl-h">Components in cargo</div>
+    ${cargoComps.length
+      ? cargoComps.map((i) => `<div class="detail-row"><span>${escapeHtml(i.symbol)}</span><button class="btn" data-act="install-comp" data-comp="${escapeHtml(i.symbol)}">Install</button></div>`).join("")
+      : '<div class="empty">No modules/mounts in cargo.</div>'}
+  </div>`;
 }
 
 $("sheet-actions").addEventListener("click", async (e) => {
@@ -319,13 +359,41 @@ $("sheet-actions").addEventListener("click", async (e) => {
   const act = b.dataset.act;
   const ship = sheetShip;
 
-  if (act === "send-toggle") { sendFormOpen = !sendFormOpen; routePickerOpen = false; roleFormOpen = false; return renderDeck(); }
-  if (act === "route-toggle") { routePickerOpen = !routePickerOpen; sendFormOpen = false; roleFormOpen = false; return renderDeck(); }
+  if (act === "send-toggle") { sendFormOpen = !sendFormOpen; routePickerOpen = false; roleFormOpen = false; detailsOpen = false; return renderDeck(); }
+  if (act === "route-toggle") { routePickerOpen = !routePickerOpen; sendFormOpen = false; roleFormOpen = false; detailsOpen = false; return renderDeck(); }
   if (act === "role-toggle") {
     roleFormOpen = !roleFormOpen;
     roleFormRole = null;
     sendFormOpen = false;
     routePickerOpen = false;
+    detailsOpen = false;
+    return renderDeck();
+  }
+  if (act === "details-toggle") {
+    detailsOpen = !detailsOpen;
+    sendFormOpen = false;
+    routePickerOpen = false;
+    roleFormOpen = false;
+    return renderDeck();
+  }
+  if (act === "jettison") {
+    const { good, units } = b.dataset;
+    if (!confirm(`Jettison ${units}u ${good} from ${ship}? This cannot be undone.`)) return;
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/jettison", { shipSymbol: ship, good, units: Number(units) }); await loadState(); }
+    catch (err) { alert(err.message); }
+    return renderDeck();
+  }
+  if (act === "remove-comp") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/remove-component", { shipSymbol: ship, componentSymbol: b.dataset.comp }); await loadState(); }
+    catch (err) { alert(err.message); }
+    return renderDeck();
+  }
+  if (act === "install-comp") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/install", { shipSymbol: ship, componentSymbol: b.dataset.comp }); await loadState(); }
+    catch (err) { alert(err.message); }
     return renderDeck();
   }
   if (act === "role-set") {
@@ -409,6 +477,7 @@ function deckStep(delta) {
   routePickerOpen = false;
   roleFormOpen = false;
   roleFormRole = null;
+  detailsOpen = false;
   renderDeck();
 }
 $("deck-prev").addEventListener("click", () => deckStep(-1));

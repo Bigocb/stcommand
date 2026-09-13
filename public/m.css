@@ -205,6 +205,23 @@ body {
   font-size: 11px; padding: 8px 10px; border-radius: 3px;
 }
 
+.ship-details {
+  grid-column: 1 / -1; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 2px; margin-top: 2px;
+}
+.dtl-h {
+  font-family: var(--chrome); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--dim); margin: 10px 0 2px;
+}
+.dtl-h:first-child { margin-top: 0; }
+.detail-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0;
+  border-top: 1px solid var(--hair); font-family: var(--mono); font-size: 10.5px;
+}
+.detail-row:first-of-type { border-top: none; }
+.detail-row .d { color: var(--dim); font-size: 9.5px; }
+.detail-row .btn { padding: 5px 10px; font-size: 9px; flex: 0 0 auto; }
+
 /* ── Map: a literal radar scope ──────────────
  * Ties the visual identity to the "Radar" concept name directly rather
  * than being a generic map-tile view — range rings, a sweep wedge, and

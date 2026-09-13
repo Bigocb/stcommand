@@ -14,6 +14,21 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower Fleet: full ship details — cargo, loadout, modules, mounts)
+
+Second half of the Fleet sheet's "coming soon" placeholder — role
+assignment (below) covered one of the two, this covers the other:
+"Full details" now expands rather than sitting disabled.
+
+- `public/m.html`/`m.css`/`m.js` — `renderShipDetails()` renders cargo
+  hold (with Jettison), loadout (frame/reactor/engine names), modules and
+  mounts (with Remove), and components sitting in cargo ready to install
+  (with Install) — the same fields desktop's ship-detail sheet shows,
+  condensed into one scrollable block instead of desktop's row of
+  sub-tabs. Calls the same `/api/fleet/jettison`,
+  `/api/fleet/remove-component`, and `/api/fleet/install` endpoints
+  desktop already uses. Nothing left placeholder on the Fleet sheet.
+
 ## 2026-09-13 (Tower Fleet: assign/switch ship role)
 
 Operator feedback: the Fleet sheet's "Full details — coming soon"
