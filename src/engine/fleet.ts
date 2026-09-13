@@ -3729,6 +3729,8 @@ export class FleetManager {
     for (const a of this.scouts.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     for (const a of this.siphoners.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     for (const a of this.explorers.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
+    for (const a of this.tours.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
+    for (const a of this.keepers.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     const idle = this.idleShips.get(shipSymbol);
     return idle?.nav.waypointSymbol ?? "";
   }
@@ -3741,6 +3743,8 @@ export class FleetManager {
     for (const a of this.scouts.values()) if (a.symbol === shipSymbol) return a.getShip();
     for (const a of this.siphoners.values()) if (a.symbol === shipSymbol) return a.getShip();
     for (const a of this.explorers.values()) if (a.symbol === shipSymbol) return a.getShip();
+    for (const a of this.tours.values()) if (a.symbol === shipSymbol) return a.getShip();
+    for (const a of this.keepers.values()) if (a.symbol === shipSymbol) return a.getShip();
     return this.idleShips.get(shipSymbol);
   }
 
@@ -5371,13 +5375,27 @@ export class FleetManager {
     if (!atGate) return false;
     const connected = this.galaxy.connectedSystems(systemSymbol);
     if (connected.length === 0) return false;
+    // Same gate-construction skip-list every other jump-planning path uses
+    // (exploreSystem(), autoExplore()) — without it, a rescue whose only
+    // connected system has a gate still under construction retried the
+    // identical doomed jump every scheduler cycle (~5-6s) forever. Confirmed
+    // live: DRAGOM-14 stranded at X1-S84's gate, retrying a jump to
+    // X1-YB72-I62 nonstop with "Destination jump gate ... is under
+    // construction" on every single attempt.
+    const skipNow = Date.now();
+    const viable = connected.filter((c) => (this.gateConstructionSkipUntil.get(c) ?? 0) <= skipNow);
+    if (viable.length === 0) return false;
     // Prefer home — it's the one system guaranteed to have both a fuel
     // market and other ships around to help further if something's still
-    // wrong — falling back to whatever else is connected.
-    const target = connected.includes(this.systemSymbol) ? this.systemSymbol : connected[0]!;
+    // wrong — falling back to whatever else is connected and viable.
+    const target = viable.includes(this.systemSymbol) ? this.systemSymbol : viable[0]!;
     await this.galaxy.loadSystem(target);
     const remoteGate = this.galaxy.getSystem(target)?.waypoints.find((w) => w.type === "JUMP_GATE");
     if (!remoteGate) return false;
+    if (!(await this.galaxy.refreshGateConstruction(target, remoteGate.symbol))) {
+      await this.skipGateConstruction(target);
+      return false;
+    }
     try {
       this.log(`rescuing ${s.symbol}: stranded at ${systemSymbol}'s own jump gate — jumping to ${target} instead of waiting on a fuel tender`);
       await this.jumpShip(s.symbol, remoteGate.symbol);
@@ -5385,6 +5403,11 @@ export class FleetManager {
       this.rescueFailures.delete(s.symbol);
       return true;
     } catch (err) {
+      // Belt-and-braces, same as exploreSystem(): the cache above can be
+      // stale (never checked yet, or flipped between check and jump).
+      if (err instanceof Error && /under construction/i.test(err.message)) {
+        await this.skipGateConstruction(target);
+      }
       this.log(`escape jump for ${s.symbol} failed, falling back to a fuel tender: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }

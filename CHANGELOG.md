@@ -14,6 +14,33 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (two live bugs: tour/keeper fuel estimate, stranded-rescue retry loop)
+
+- **Fixed the dashboard's manual "Send to waypoint" reporting "needs
+  Infinity fuel" for a perfectly healthy ship.** Found live: DRAGOM-14,
+  300/300 fuel, a `tour` ship. `FleetManager.shipWaypoint()`/`cachedShip()`
+  enumerated miners/traders/surveyors/scouts/siphoners/explorers but never
+  `this.tours` or `this.keepers` — any ship in either role fell through to
+  `idleShips` (empty, since the ship was actively working) and resolved to
+  an unknown `""` position, which `estimatedFuelTo()` can only answer as
+  `Infinity`. This blocked manual dispatch for every tour/keeper ship,
+  which is exactly the tool an operator reaches for when trying to
+  manually rescue one that's stuck. `tests/fleetNonBlocking.test.ts`
+  covers both helpers directly for tour and keeper ships.
+- **Fixed `escapeByJump()` (the stranded-ship rescue path) retrying an
+  identical doomed jump forever.** Same bug shape as the `autoExplore()`
+  fix from 2026-09-12 — a protection that existed on `exploreSystem()`
+  (check the remote gate's construction status, record a skip, never
+  retry the same doomed target) was never applied to this sibling
+  jump-planning path. Found live: DRAGOM-14, stranded at X1-S84's own
+  jump gate, retried a jump to X1-YB72-I62 every scheduler cycle
+  (~5-6s) nonstop, each attempt failing with "Destination jump gate ...
+  is under construction." `escapeByJump()` now filters candidate systems
+  against the same `gateConstructionSkipUntil` skip-list and checks the
+  remote gate before attempting, falling through to the fuel-tender
+  rescue path (and remembering not to retry) instead of hammering the
+  same doomed jump. `tests/fleetNonBlocking.test.ts` covers it directly.
+
 ## 2026-09-13 (per-tenant proxy support)
 
 - **Added optional per-tenant forward-proxy support**, so a tenant can get

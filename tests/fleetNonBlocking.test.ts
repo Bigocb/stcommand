@@ -159,6 +159,64 @@ describe("autoExplore does not block the coordinator", () => {
   });
 });
 
+describe("escapeByJump does not retry a doomed rescue jump", () => {
+  it("does not jump to a system whose remote gate is under construction, and remembers not to retry", async () => {
+    // The live bug this covers: DRAGOM-14, stranded at X1-S84's own jump
+    // gate, retried the identical doomed jump to X1-YB72 every scheduler
+    // cycle (~5-6s) forever — "Destination jump gate ... is under
+    // construction" on every single attempt. exploreSystem()/autoExplore()
+    // both already check the remote gate and record a skip; escapeByJump()
+    // (the stranded-ship rescue path) never did.
+    let jumpCalled = false;
+    const fleet = new FleetManager({
+      api: {
+        getCallCount: () => 0,
+        getConstruction: async () => ({ isComplete: false, materials: [] }),
+        jumpShip: async () => { jumpCalled = true; throw new Error("must not be called"); },
+      } as any,
+    });
+    seedGalaxy(fleet);
+    (fleet as any).galaxy.gateConstruction.delete("X1-B-GATE");
+
+    const stranded = { symbol: "SHIP-1", waypointSymbol: "X1-A-GATE", fuel: 0 };
+    const escaped = await (fleet as any).escapeByJump(stranded);
+
+    assert.equal(escaped, false, "no viable connected system — the only one has a gate still under construction");
+    assert.equal(jumpCalled, false, "must not even attempt the doomed jump");
+    assert.ok(
+      (fleet as any).gateConstructionSkipUntil.get("X1-B") > Date.now(),
+      "the skip is recorded so a later rescue pass does not retry the same doomed target",
+    );
+
+    // A second pass must not retry X1-B while the skip is still active.
+    const escapedAgain = await (fleet as any).escapeByJump(stranded);
+    assert.equal(escapedAgain, false);
+    assert.equal(jumpCalled, false, "second pass still does not attempt the skipped target");
+  });
+});
+
+describe("shipWaypoint/cachedShip know about tour and keeper ships", () => {
+  it("estimatedFuelTo() finds a tour ship's real position instead of defaulting to Infinity", () => {
+    // Live bug: the dashboard's manual "Send to waypoint" pre-check reported
+    // "DRAGOM-14 needs Infinity fuel" for a perfectly healthy 300/300-fuel
+    // tour ship. shipWaypoint()/cachedShip() enumerated miners/traders/
+    // surveyors/scouts/siphoners/explorers but never tours or keepers, so
+    // any ship in either role fell through to idleShips (empty, since the
+    // ship is actively touring) and resolved to an unknown "" position —
+    // registry.distance("", target) has no way to answer that but Infinity.
+    const fleet = new FleetManager({ api: { getCallCount: () => 0 } as any });
+    const tourShip = makeShip("TOUR-1", { nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" } as any });
+    (fleet as any).tours.set("TOUR-1", scoutAgent(tourShip));
+    const keeperShip = makeShip("KEEPER-1", { nav: { status: "DOCKED", waypointSymbol: "X1-A-B2", systemSymbol: "X1-A" } as any });
+    (fleet as any).keepers.set("KEEPER-1", scoutAgent(keeperShip));
+
+    assert.equal((fleet as any).shipWaypoint("TOUR-1"), "X1-A-A1");
+    assert.equal((fleet as any).shipWaypoint("KEEPER-1"), "X1-A-B2");
+    assert.equal((fleet as any).cachedShip("TOUR-1"), tourShip);
+    assert.equal((fleet as any).cachedShip("KEEPER-1"), keeperShip);
+  });
+});
+
 describe("repair and explore no longer take turns driving the same hull", () => {
   it("a critical repair outranks an exploration already assigned", async () => {
     // The live failure: the repair diverter claimed the ship, the tour agent
