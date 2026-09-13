@@ -243,7 +243,27 @@ needed, unlike installing a module onto one — that stays read-only from
 Map for now). Cross-system navigation isn't in scope yet — one system
 at a time, matching the design doc's own "current pass" framing.
 
-Markets and More still render inert "coming soon" placeholders — their
-tab targets exist in the shell so it reads as complete, but no screen
-behind them has been built yet. Next pass: Markets (Routes/Yards
-segments).
+**Update, same day** — Markets and More are also shipped, completing the
+5-tab IA:
+
+- **Markets** — a segmented control (Routes/Yards), same data desktop's
+  Markets panel already computes. Routes lists the top profitable routes
+  by profit/trip; tapping "Assign a ship" opens an inline picker of trader
+  ships instead of a separate sheet (the list needs only that one action).
+  Yards groups shipyard/module intel by item, cheapest location leading,
+  with a direct Buy button — the same grouping desktop's Yards & outfitting
+  panel uses.
+- **More** — a plain scroll of lower-frequency sections, exactly as
+  designed ("a simple list-of-sections is enough"): Contracts
+  (accept/decline/undecline/abandon/resume, delivery progress bars),
+  Construction missions (read-only progress — starting a *new* mission
+  stays desktop-only for now), Warehouse (stationed ship, total value, top
+  goods held — full ledger/targets editing stays desktop-only), and
+  Doctrine (on/off toggles only, no threshold editing — mirrors the
+  existing "mobile doctrine" pattern already shipped on desktop's own
+  mobile view).
+
+All five tabs (Home, Fleet, Map, Markets, More) are now built and wired to
+real data. Nothing left pending from this design doc except the "Open
+questions" section's already-resolved items and whatever surfaces from
+live use.

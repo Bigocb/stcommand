@@ -14,6 +14,44 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower: Markets and More tabs — 5-tab IA complete)
+
+Fourth and fifth screens of Tower (`/m`, the separate mobile app — see
+`docs/mobile-app-design.md`), following Home/Fleet/Map: Markets and More,
+completing the originally-designed 5-tab IA (Home · Fleet · Map ·
+Markets · More).
+
+- `public/m.html`/`m.css`/`m.js` — **Markets**: a Routes/Yards segmented
+  control. Routes lists the top profitable routes by profit/trip (same
+  computation `/api/markets` already returns); tapping "Assign a ship"
+  expands an inline picker of trader ships rather than a separate sheet,
+  calling the same `/api/dispatch` endpoint the Fleet deck's route-pick
+  already uses. Yards groups shipyard/module intel by item (cheapest
+  location leading, up to 2 alternates noted) with a direct Buy button —
+  the same grouping desktop's Yards & outfitting panel uses, reading
+  `intel.shipyards`/`intel.modules` from the shared store.
+- `public/m.html`/`m.css`/`m.js` — **More**: a plain scroll of lower-
+  frequency sections, per the design doc's own "a simple list-of-sections
+  is enough" framing rather than a sub-tab bar. Contracts (accept/
+  decline/undecline/abandon/resume with delivery progress bars, same
+  `/api/contracts/*` endpoints desktop uses), Construction missions
+  (read-only progress — starting a *new* mission stays desktop-only),
+  Warehouse (stationed ship, total value, top goods held — full ledger/
+  targets editing stays desktop-only), and Doctrine (on/off toggles only,
+  no threshold sliders — mirrors the existing "mobile doctrine" pattern
+  already shipped on desktop's own `#mobile-view`, same `/api/doctrine`
+  endpoint).
+- No new server-side surface — both screens read/write the same
+  `/api/markets`, `/api/dispatch`, `/api/fleet/buy`, `/api/contracts/*`,
+  `/api/missions`, `/api/warehouse`, and `/api/doctrine` endpoints every
+  other UI version already calls, through the same `public/shared/
+  store.js` loaders.
+
+Typechecked (`npx tsc --noEmit`, clean — no `.ts` files touched) and
+syntax-checked (`node --check public/m.js`); not yet verified live against
+a real phone — see `docs/TODO.md`'s Tower verification item, now covering
+all 5 tabs.
+
 ## 2026-09-13 (recover from a live SpaceTraders universe reset)
 
 A real SpaceTraders weekly universe reset hit mid-session — every ship

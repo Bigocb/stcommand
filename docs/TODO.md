@@ -28,17 +28,20 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   `resetDate` against the last one seen, and surface a banner the
   moment it changes — catches it before any tenant's own error wall
   starts, and works even with zero tenants currently booted.
-- [ ] **Verify Tower (`/m`) live — Home + Fleet + Map.** Home and Fleet
-  confirmed working by the operator 2026-09-13 (the one blank-deck
-  report traced to an expected cache-skew window right after a deploy,
-  not a code bug — see `CHANGELOG.md`'s Fleet entry). Map (radar scope)
-  shipped same day, not yet seen live. Still worth a pass on: Fleet's
-  individual actions (Hold/Release, Repair, Send to waypoint, Assign
-  route, Sell/Scrap) actually reflecting on desktop too (same
-  `/api/fleet/*`/`/api/dispatch` endpoints — should just work); Map's
-  blips positioned sensibly for a real system, tapping one opens the
-  sheet, and Buy from the sheet actually purchases. Next build pass
-  after this verifies clean: Markets (Routes/Yards segments).
+- [ ] **Verify Tower (`/m`) live — all 5 tabs.** Home and Fleet confirmed
+  working by the operator 2026-09-13 (the one blank-deck report traced to
+  an expected cache-skew window right after a deploy, not a code bug —
+  see `CHANGELOG.md`'s Fleet entry). Map, Markets, and More shipped same
+  day, not yet seen live. Still worth a pass on: Fleet's individual
+  actions (Hold/Release, Repair, Send to waypoint, Assign route,
+  Sell/Scrap) actually reflecting on desktop too (same `/api/fleet/*`/
+  `/api/dispatch` endpoints — should just work); Map's blips positioned
+  sensibly for a real system, tapping one opens the sheet, and Buy from
+  the sheet actually purchases; Markets' route-assign picker and Yards Buy
+  button; More's contract accept/decline and doctrine toggles actually
+  landing (same endpoints desktop already uses). All 5 tabs (Home, Fleet,
+  Map, Markets, More) are now built — this is purely a live-verification
+  pass, no more screens pending.
 - [ ] **Tour more systems to build cross-system pricing data.** Operator
   request 2026-09-12 — more tour coverage across more systems is needed
   before cross-system routes have enough data to evaluate. **In

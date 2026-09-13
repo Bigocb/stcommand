@@ -72,8 +72,28 @@
         <div id="map-yards"></div>
       </div>
     </div>
-    <div class="screen" data-screen="markets"><div class="soon">Markets — coming soon</div></div>
-    <div class="screen" data-screen="more"><div class="soon">More — coming soon</div></div>
+    <div class="screen" data-screen="markets">
+      <div class="mkt-scroll">
+        <div class="seg" id="mkt-seg">
+          <button class="on" data-seg="routes">Routes</button>
+          <button data-seg="yards">Yards</button>
+        </div>
+        <div id="mkt-routes"></div>
+        <div id="mkt-yards" hidden></div>
+      </div>
+    </div>
+    <div class="screen" data-screen="more">
+      <div class="more-scroll">
+        <div class="sec-h">Contracts <span class="n" id="more-contract-count">0</span></div>
+        <div id="more-contracts"></div>
+        <div class="sec-h">Construction</div>
+        <div id="more-missions"></div>
+        <div class="sec-h">Warehouse</div>
+        <div id="more-warehouse"></div>
+        <div class="sec-h">Doctrine <span class="n" id="more-doctrine-count">0</span></div>
+        <div id="more-doctrine"></div>
+      </div>
+    </div>
   </main>
 
   <nav class="tabbar" id="tabbar">

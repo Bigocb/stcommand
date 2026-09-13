@@ -11,7 +11,9 @@ import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, intel,
+  marketRoutes, contracts, missions, warehouseState, doctrineRules,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
+  loadProgramme, loadWarehouse, loadDoctrine, setDoctrine,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct } from "/shared/domain.js";
 
@@ -65,6 +67,8 @@ function setTab(name) {
   document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   if (name === "fleet") renderDeck();
   if (name === "map") { loadMarkets(); renderScope(); }
+  if (name === "markets") { loadMarkets(); renderMarkets(); }
+  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -479,7 +483,250 @@ $("map-yards").addEventListener("click", async (e) => {
 function mapTabActive() {
   return document.querySelector('.screen[data-screen="map"]')?.classList.contains("on") ?? false;
 }
-subscribe("markets", () => { if (mapTabActive()) renderScope(); });
+function marketsTabActive() {
+  return document.querySelector('.screen[data-screen="markets"]')?.classList.contains("on") ?? false;
+}
+function moreTabActive() {
+  return document.querySelector('.screen[data-screen="more"]')?.classList.contains("on") ?? false;
+}
+subscribe("markets", () => { if (mapTabActive()) renderScope(); if (marketsTabActive()) renderMarkets(); });
+
+/* ── Markets: Routes / Yards segments ────────
+ * Both segments are "where do I put money to make more" decisions, which
+ * is why they share a tab rather than living separately (see
+ * docs/mobile-app-design.md). Routes reuses the same profit-per-trip
+ * computation the desktop Markets panel already shows; tapping a route
+ * opens an inline ship picker rather than a separate sheet — assigning is
+ * the only action this list needs.
+ */
+let mktSeg = "routes";
+let openRouteGood = null;
+
+function tradersFor() {
+  return (fleetStatus.ships ?? []).filter((s) => s.role === "trader");
+}
+
+function renderMarketRoutes() {
+  const el = $("mkt-routes");
+  if (!marketRoutes.length) { el.innerHTML = '<div class="empty">No profitable routes in fresh snapshots.</div>'; return; }
+  const top = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 20);
+  el.innerHTML = top.map((r) => {
+    const assigned = dispatchAssignments.find((a) => a.role === "direct" && a.good === r.good);
+    const picker = openRouteGood === r.good
+      ? `<div class="ship-pick">${
+          tradersFor().length
+            ? tradersFor().map((s) => `<button data-act="assign-ship" data-good="${escapeHtml(r.good)}" data-ship="${escapeHtml(s.symbol)}"><span>${escapeHtml(s.symbol)}</span><span>${s.symbol === assigned?.shipSymbol ? "assigned" : "assign"}</span></button>`).join("")
+            : '<div class="empty">No trader ships available.</div>'
+        }</div>`
+      : "";
+    return `<div class="route-row">
+      <div class="rr-top"><span class="rr-good">${escapeHtml(r.good)}</span><span class="rr-profit">${signed(r.profitPerTrip)}/trip</span></div>
+      <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>
+      <div class="rr-actions"><button class="btn" data-act="route-toggle" data-good="${escapeHtml(r.good)}">${openRouteGood === r.good ? "Close" : "Assign a ship"}</button></div>
+      ${picker}
+    </div>`;
+  }).join("");
+}
+
+function renderMarketYards() {
+  const el = $("mkt-yards");
+  const yards = intel.shipyards ?? [], mods = intel.modules ?? [];
+  if (!yards.length && !mods.length) { el.innerHTML = '<div class="empty">No shipyard/module intel yet — scout systems to expand.</div>'; return; }
+  let html = "";
+  if (yards.length) {
+    const byType = new Map();
+    for (const y of yards) { if (!byType.has(y.shipType)) byType.set(y.shipType, []); byType.get(y.shipType).push(y); }
+    const groups = [...byType.values()].map((rows) => rows.slice().sort((a, b) => a.purchasePrice - b.purchasePrice)).sort((a, b) => a[0].purchasePrice - b[0].purchasePrice);
+    html += `<div class="sec-h">Shipyards</div>`;
+    for (const rows of groups) {
+      const best = rows[0];
+      const others = rows.slice(1, 3);
+      html += `<div class="yline">
+        <span class="yn">${escapeHtml(best.shipTypeName)}<br><span class="rr-legs">${escapeHtml(shortWp(best.waypointSymbol))}${others.length ? ` · also ${others.map((o) => shortWp(o.waypointSymbol)).join(", ")}` : ""}</span></span>
+        <span class="yp">${fmt(best.purchasePrice)}c</span>
+        <button class="btn pri" data-buy-ship="${escapeHtml(best.shipType)}" data-yard="${escapeHtml(best.waypointSymbol)}">Buy</button>
+      </div>`;
+    }
+  }
+  if (mods.length) {
+    const bySym = new Map();
+    for (const m of mods) { if (!bySym.has(m.symbol)) bySym.set(m.symbol, []); bySym.get(m.symbol).push(m); }
+    const groups = [...bySym.values()].map((rows) => rows.slice().sort((a, b) => a.purchasePrice - b.purchasePrice)).sort((a, b) => a[0].purchasePrice - b[0].purchasePrice);
+    html += `<div class="sec-h" style="margin-top:10px">Modules & mounts</div>`;
+    for (const rows of groups) {
+      const best = rows[0];
+      const others = rows.slice(1, 3);
+      html += `<div class="yline">
+        <span class="yn">${escapeHtml(best.symbol)}<br><span class="rr-legs">${escapeHtml(shortWp(best.waypointSymbol))}${others.length ? ` · also ${others.map((o) => shortWp(o.waypointSymbol)).join(", ")}` : ""}</span></span>
+        <span class="yp">${fmt(best.purchasePrice)}c</span>
+      </div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+function renderMarkets() {
+  $("mkt-routes").hidden = mktSeg !== "routes";
+  $("mkt-yards").hidden = mktSeg !== "yards";
+  renderMarketRoutes();
+  renderMarketYards();
+}
+
+$("mkt-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-seg]");
+  if (!b) return;
+  mktSeg = b.dataset.seg;
+  $("mkt-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  renderMarkets();
+});
+
+$("mkt-routes").addEventListener("click", async (e) => {
+  const toggle = e.target.closest("button[data-act='route-toggle']");
+  if (toggle) { openRouteGood = openRouteGood === toggle.dataset.good ? null : toggle.dataset.good; return renderMarketRoutes(); }
+  const pick = e.target.closest("button[data-act='assign-ship']");
+  if (pick) {
+    pick.disabled = true;
+    const route = marketRoutes.find((r) => r.good === pick.dataset.good);
+    try {
+      await api("POST", "/api/dispatch", {
+        shipSymbol: pick.dataset.ship, good: route?.good,
+        buyAt: route?.buyAt, sellAt: route?.sellAt,
+        buyPrice: route?.buyPrice, sellPrice: route?.sellPrice,
+        profitPerTrip: route?.profitPerTrip,
+      });
+      openRouteGood = null;
+      await loadDispatch();
+    } catch (err) { alert(err.message); }
+    renderMarketRoutes();
+  }
+});
+
+$("mkt-yards").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-buy-ship]");
+  if (!b) return;
+  b.disabled = true;
+  try { await api("POST", "/api/fleet/buy", { shipType: b.dataset.buyShip, yardSymbol: b.dataset.yard }); await loadState(); }
+  catch (err) { alert(err.message); b.disabled = false; }
+});
+
+/* ── More: list-of-sections ──────────────────
+ * Contracts, construction missions, warehouse, doctrine — lower-frequency
+ * checks, deliberately a plain scroll of sections rather than their own
+ * tabs (docs/mobile-app-design.md). Starting a brand-new construction
+ * mission and full warehouse/doctrine editing stay desktop-only for now —
+ * this covers the day-to-day accept/decline/toggle actions.
+ */
+function renderMoreContracts() {
+  $("more-contract-count").textContent = contracts.length;
+  const el = $("more-contracts");
+  if (!contracts.length) { el.innerHTML = '<div class="empty">No contracts available.</div>'; return; }
+  el.innerHTML = contracts.map((c) => {
+    const total = c.onAccepted + c.onFulfilled;
+    const done = (c.deliver ?? []).every((d) => d.unitsFulfilled >= d.unitsRequired);
+    const delivRows = (c.deliver ?? []).map((d) => {
+      const pct = d.unitsRequired ? Math.round((d.unitsFulfilled / d.unitsRequired) * 100) : 0;
+      return `<div class="prog-row"><span>${escapeHtml(d.tradeSymbol)} → ${escapeHtml(shortWp(d.destinationSymbol))}</span><span class="pr-pct">${d.unitsFulfilled}/${d.unitsRequired}</span></div><div class="prog-track"><i style="width:${pct}%"></i></div>`;
+    }).join("");
+    return `<div class="card ${c.accepted && !done ? "info" : ""}">
+      <div class="row1"><span class="who">${escapeHtml(c.type)} · ${escapeHtml(c.factionSymbol)}</span><span class="amt">${fmt(total)}c</span></div>
+      ${delivRows || '<div class="detail">No deliveries listed</div>'}
+      <div class="detail">${c.accepted ? `deadline ${countdown(c.deadline)}` : `accept by ${countdown(c.deadlineToAccept ?? c.deadline)}`}${c.abandoned ? " · not being worked" : ""}${c.declined ? " · declined" : ""}</div>
+      <div class="acts">
+        ${c.accepted
+          ? (c.abandoned
+              ? `<button class="btn pri" data-act="resume" data-id="${escapeHtml(c.id)}">Resume work</button>`
+              : `<button class="btn deny" data-act="abandon" data-id="${escapeHtml(c.id)}">Stop working</button>`)
+          : c.declined
+            ? `<button class="btn" data-act="undecline" data-id="${escapeHtml(c.id)}">Allow</button><button class="btn pri" data-act="accept" data-id="${escapeHtml(c.id)}">Accept</button>`
+            : `<button class="btn deny" data-act="decline" data-id="${escapeHtml(c.id)}">Decline</button><button class="btn pri" data-act="accept" data-id="${escapeHtml(c.id)}">Accept</button>`}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderMoreMissions() {
+  const el = $("more-missions");
+  const active = missions.filter((m) => m.status === "active");
+  if (!active.length) { el.innerHTML = '<div class="empty">No construction missions.</div>'; return; }
+  el.innerHTML = active.map((m) => {
+    const matRows = (m.materials ?? []).map((mat) => {
+      const pct = mat.required ? Math.round((mat.fulfilled / mat.required) * 100) : 0;
+      const done = mat.fulfilled >= mat.required;
+      return `<div class="prog-row"><span>${escapeHtml(mat.tradeSymbol)}</span><span class="pr-pct">${done ? "supplied" : `${mat.fulfilled}/${mat.required}`}</span></div><div class="prog-track"><i style="width:${pct}%"></i></div>`;
+    }).join("");
+    return `<div class="card">
+      <div class="row1"><span class="who">${escapeHtml(m.targetWaypoint)}</span>${m.assignedShip ? `<span class="amt">${escapeHtml(m.assignedShip)}</span>` : ""}</div>
+      ${matRows}
+    </div>`;
+  }).join("");
+}
+
+function renderMoreWarehouse() {
+  const el = $("more-warehouse");
+  if (!warehouseState.ship) { el.innerHTML = '<div class="empty">No warehouse ship stationed.</div>'; return; }
+  const goods = warehouseState.goods ?? [];
+  el.innerHTML = `
+    <div class="card">
+      <div class="row1"><span class="who">${escapeHtml(warehouseState.ship)}</span><span class="amt">${fmt(warehouseState.totalValue)}c</span></div>
+      ${goods.length
+        ? goods.slice(0, 8).map((g) => `<div class="prog-row"><span>${escapeHtml(g.goodSymbol)}</span><span class="pr-pct">${fmt(g.units)} units</span></div>`).join("")
+        : '<div class="detail">No goods held.</div>'}
+    </div>`;
+}
+
+function renderMoreDoctrine() {
+  $("more-doctrine-count").textContent = `${doctrineRules.filter((r) => r.enabled).length} / ${doctrineRules.length} on`;
+  const el = $("more-doctrine");
+  if (!doctrineRules.length) { el.innerHTML = '<div class="empty">Doctrine unavailable — the fleet is still starting.</div>'; return; }
+  el.innerHTML = doctrineRules.map((r) => `
+    <div class="doc-row" data-key="${escapeHtml(r.key)}">
+      <span class="dn">${escapeHtml(r.name)}</span>
+      <span class="tag ${r.enforced ? "live" : ""}">${r.enforced ? "applied" : "not wired"}</span>
+      <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeHtml(r.name)}"><i></i></button>
+    </div>`).join("");
+}
+
+function renderMore() {
+  renderMoreContracts();
+  renderMoreMissions();
+  renderMoreWarehouse();
+  renderMoreDoctrine();
+}
+
+$("more-contracts").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const { act, id } = b.dataset;
+  b.disabled = true;
+  try {
+    if (act === "accept" || act === "decline" || act === "undecline") {
+      const path = act === "accept" ? "/api/contracts/accept" : act === "decline" ? "/api/contracts/decline" : "/api/contracts/undecline";
+      await api("POST", path, { contractId: id });
+    } else if (act === "abandon") {
+      await api("POST", "/api/contracts/abandon", { contractId: id });
+    } else if (act === "resume") {
+      await api("POST", "/api/contracts/resume", { contractId: id });
+    }
+    await loadProgramme();
+  } catch (err) { alert(err.message); }
+  renderMoreContracts();
+});
+
+$("more-doctrine").addEventListener("click", async (e) => {
+  const sw = e.target.closest("button.sw");
+  if (!sw) return;
+  const key = sw.closest(".doc-row").dataset.key;
+  const enabled = sw.getAttribute("aria-pressed") !== "true";
+  sw.disabled = true;
+  try {
+    const res = await api("POST", "/api/doctrine", { key, enabled });
+    setDoctrine(res.rules, undefined);
+  } catch (err) { alert(err.message); loadDoctrine(); }
+  renderMoreDoctrine();
+});
+subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); } });
+subscribe("warehouse", () => { if (moreTabActive()) renderMoreWarehouse(); });
+subscribe("doctrine", () => { if (moreTabActive()) renderMoreDoctrine(); });
 
 /* ── boot ──────────────────────────────────
  * Same 15s polling cadence as v6.js's tradeops/ops tabs — Home always
@@ -497,7 +744,8 @@ function boot() {
 setInterval(() => {
   if (!authed || document.hidden) return;
   loadState(); loadBridge(); loadApprovals(); loadDispatch();
-  if (mapTabActive()) loadMarkets();
+  if (mapTabActive() || marketsTabActive()) loadMarkets();
+  if (moreTabActive()) { loadProgramme(); loadWarehouse(); }
 }, 15_000);
 
 (async function boot0() {
