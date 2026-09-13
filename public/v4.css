@@ -523,6 +523,7 @@
   .dispatch-row .ship { font-weight:600; color:var(--bone); min-width:100px; }
   .dispatch-row .good { color:var(--teal); font-weight:600; min-width:120px; }
   .dispatch-row .route-txt { color:var(--ice); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dispatch-row .route-txt b.unassigned { color:var(--accent); }
   .dispatch-row .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; }
   .dispatch-row .tag.manual { color:var(--accent); border-color:rgba(233,196,106,0.4); }
   /* A ship's flight mode, shown only when it isn't the default CRUISE — see
@@ -832,6 +833,7 @@
   tbody tr:hover td { background:var(--glass); }
   td .sym { color:var(--bone); font-weight:600; }
   td .goal { color:var(--dim); font-size:9px; }
+  td .goal.unassigned { color:var(--accent); font-weight:600; }
   .rate-up { color:var(--green); } .rate-down { color:var(--red); } .rate-zero { color:var(--dim); }
   .gauge { white-space:nowrap; }
   /* Segmented gauges. A continuous bar reads as an analogue quantity; a

@@ -371,10 +371,13 @@ function setView(name) {
 }
 
 function loadViewData(name) {
-  // Fleet needs no fetch of its own — fleetRows() reads state/bridge/
-  // fleetStatus, already kept current by the 5s polling loop — just render
-  // what's already there on entry.
-  if (name === "fleet") renderFleetTable();
+  // Fleet itself needs no fetch of its own — fleetRows() reads state/
+  // bridge/fleetStatus, already kept current by the 5s polling loop — but
+  // its Job column reads dispatchAssignments, which was previously only
+  // ever fetched while on the Trade Ops tab, so the Fleet tab's job info
+  // could be stale or entirely empty until an operator happened to visit
+  // Trade Ops first.
+  if (name === "fleet") { loadDispatch(); renderFleetTable(); }
   if (name === "markets") { loadMarkets(marketSystemFilter); loadGoods(); }
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
   if (name === "ops") loadProgramme();
@@ -1461,6 +1464,7 @@ function renderTriage() {
 const FLEET_COLS = [
   { key: "symbol", label: "Hull" },
   { key: "role", label: "Doctrine" },
+  { key: "job", label: "Job" },
   { key: "net", label: "c/hr", num: true },
   { key: "fuel", label: "Fuel" },
   { key: "cargo", label: "Hold" },
@@ -1488,6 +1492,26 @@ function fmTag(flightMode) {
   return "";
 }
 
+/**
+ * What a trader is actually working on, in the same vocabulary the
+ * operator thinks in (route/contract/mission), not the dispatcher's
+ * internal role names — see TraderAssignment in dispatcher.ts for what
+ * each role means. Only traders carry a dispatch assignment at all; every
+ * other role's job is already legible from the Doctrine/Doing columns.
+ */
+function jobFor(shipSymbol, role) {
+  if (role !== "trader") return "—";
+  const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
+  if (!a) return "unassigned";
+  const good = escapeHtml(a.good);
+  if (a.role === "direct") return `route: ${good}`;
+  if (a.role === "contractBuy") return `contract: ${good}`;
+  if (a.role === "haul") return `mission: ${good}`;
+  if (a.role === "buy") return a.missionBuy ? `mission: ${good}` : `warehouse buy: ${good}`;
+  if (a.role === "sell") return `warehouse sell: ${good}`;
+  return good;
+}
+
 function fleetRows() {
   const ships = state?.ships ?? [];
   const earnBy = new Map((bridge.earnings ?? []).map((e) => [e.shipSymbol, e.net]));
@@ -1497,6 +1521,7 @@ function fleetRows() {
     return {
       symbol: s.symbol,
       role: st?.role ?? "—",
+      job: jobFor(s.symbol, st?.role),
       manual: !!st?.paused,
       stranded: strandedBy.has(s.symbol),
       net: earnBy.get(s.symbol) ?? 0,
@@ -1531,7 +1556,7 @@ function renderMobileFleet() {
     <div class="dispatch-row mobile-fleet-row" data-ship="${escapeAttr(r.symbol)}">
       <span class="ship">${escapeHtml(r.symbol)}</span>
       <span class="good" style="min-width:0">${escapeHtml(r.role)}</span>
-      <span class="route-txt">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}${fmTag(r.flightMode)}</span>
+      <span class="route-txt">${r.job !== "—" ? `<b class="${r.job === "unassigned" ? "unassigned" : ""}">${r.job}</b> · ` : ""}${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}${fmTag(r.flightMode)}</span>
       <span class="prof">${signed(r.net)}/hr</span>
       <span class="chev">›</span>
     </div>`).join("");
@@ -1654,6 +1679,7 @@ function renderFleetTable() {
       <tr class="${r.stranded ? "warn " : ""}${fleetDetailShip === r.symbol ? "sel" : ""}" data-ship="${escapeAttr(r.symbol)}">
         <td><span class="sym">${escapeHtml(shortWp(r.symbol))}</span></td>
         <td>${escapeHtml(r.role)}${r.manual ? ' <span style="color:var(--accent)">·M</span>' : ""}</td>
+        <td><span class="goal${r.job === "unassigned" ? " unassigned" : ""}">${r.job}</span></td>
         <td class="num ${r.net > 0 ? "rate-up" : r.net < 0 ? "rate-down" : "rate-zero"}">${r.net ? signed(r.net) : "0"}</td>
         <td class="gauge"><span class="meter"><i style="width:${r.fuelCap ? (r.fuel / r.fuelCap) * 100 : 0}%"></i></span>${r.fuel}</td>
         <td class="gauge"><span class="meter c"><i style="width:${r.cargoCap ? (r.cargo / r.cargoCap) * 100 : 0}%"></i></span>${r.cargoCap ? `${r.cargo}/${r.cargoCap}` : "—"}</td>
@@ -5462,6 +5488,7 @@ every(3000, loadActivity);
 every(20000, loadApprovals);
 every(20000, () => { if (currentView === "markets") loadMarkets(marketSystemFilter); });
 every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); } });
+every(20000, () => { if (currentView === "fleet") loadDispatch(); });
 every(20000, () => { if (currentView === "ops") loadProgramme(); });
 every(30000, () => { if (currentView === "bridge") loadNarrative(); });
 every(15000, () => { if (isMobile()) loadMobilePanels(); });
@@ -6133,7 +6160,7 @@ function renderChatHistory() {
   for (const m of chatHistory) addChatMsg(m.role, m.content);
 }
 
-subscribe("dispatch", renderDispatch);
+subscribe("dispatch", () => { renderDispatch(); renderFleetTable(); renderMobileFleet(); renderMobileFleetStrip(); });
 subscribe("warehouse", renderWarehouse);
 subscribe("keepers", renderKeepers);
 subscribe("replay", renderScrubTrack);

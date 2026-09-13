@@ -14,6 +14,35 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Fleet tab: a Job column, so an unassigned trader stands out)
+
+Operator request: at a glance on the Fleet tab, know whether each ship
+is on a route, a mission, or a contract — so an idle trader that could
+be reassigned isn't buried in a column of nav status text.
+
+The data already existed (`RouteDispatcher.list()`, already used by
+Trade Ops' Dispatch panel) but the Fleet tab never fetched or rendered
+it — its "Doing" column only ever showed live nav status (docked/in
+orbit/transit), not what the ship is actually working toward.
+
+- New "Job" column (`public/v6.js`'s `jobFor()`) translates a trader's
+  `TraderAssignment` into operator vocabulary: `route: GOOD`,
+  `contract: GOOD`, `mission: GOOD`, `warehouse buy/sell: GOOD`, or
+  `unassigned` (highlighted in accent color) when a trader has no
+  assignment at all — the ships worth looking at first. Every other
+  role shows "—": their Doctrine/Doing columns already say what
+  they're doing.
+- `dispatchAssignments` (`/api/dispatch`) was previously only fetched
+  while on the Trade Ops tab; now also fetched on entering the Fleet
+  tab and every 20s while it's open, and the Fleet table (desktop and
+  both mobile fleet views) re-renders whenever dispatch data changes.
+
+Syntax-checked with `node --check`; no server-side changes, so
+`npx tsc --noEmit` is the only relevant check (clean). No automated UI
+test coverage in this codebase for table rendering — worth a manual
+glance next deploy to confirm the Job column populates correctly and
+"unassigned" traders are visually distinct.
+
 ## 2026-09-13 (root-caused: approved keeper-probe purchase never bought)
 
 Reproduced live: operator approved a `buyKeeperProbe` request (probe at
