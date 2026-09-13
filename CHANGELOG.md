@@ -14,6 +14,26 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower Fleet List: sheet only opens on tap, with a close button)
+
+Operator feedback (with a screenshot) right after the List view shipped:
+switching to List immediately popped the action sheet open for whichever
+ship happened to be selected, with no way to dismiss it — defeating the
+point of a scan view.
+
+- `public/m.html`/`m.css`/`m.js` — a new ✕ close button in the sheet
+  header (own `.sheet-head` flex row alongside the ship name), shown
+  only in List view. A new `sheetOpen` flag: List starts with the sheet
+  closed and only opens it when a roster row is tapped; Deck ignores the
+  flag entirely and keeps its existing always-shown-for-the-front-card
+  behavior, since closing it there wouldn't mean anything (the next
+  card just replaces it).
+
+Typechecked N/A (no `.ts` touched); syntax-checked; audited against the
+`[hidden]`-vs-`display` bug from the previous commit — `.sheet-close`
+deliberately has no explicit `display` property, so the browser's
+built-in `[hidden]` default just works without needing an override.
+
 ## 2026-09-13 (Fix: Deck/List toggle didn't actually switch — a CSS gap)
 
 Operator sent a screen recording: tapping "List" correctly highlighted

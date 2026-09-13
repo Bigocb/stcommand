@@ -264,7 +264,12 @@ function renderDeck() {
   html += hullCard(rows[fleetIndex], "front");
   $("deck-stack").innerHTML = html;
 
-  renderSheet(rows[fleetIndex]);
+  // The deck always pairs a front card with its sheet; the roster (list)
+  // view doesn't — it starts closed and only opens on a tap, since
+  // showing one ship's action sheet the instant you switch to a screen
+  // meant for scanning every ship at once defeats the point of that view.
+  if (fleetView === "deck" || sheetOpen) renderSheet(rows[fleetIndex]);
+  else $("fleet-sheet").hidden = true;
 }
 
 /* ── Fleet: roster (list) view ───────────────
@@ -273,6 +278,7 @@ function renderDeck() {
  * sheet the deck uses. Scales to a large fleet by scrolling, not paging.
  */
 let fleetView = "deck";
+let sheetOpen = false;
 
 function renderFleetView() {
   // Always keeps fleetIndex in bounds and the sheet in sync, even while
@@ -306,6 +312,7 @@ $("fleet-seg").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-view]");
   if (!b) return;
   fleetView = b.dataset.view;
+  sheetOpen = false;
   $("fleet-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
   $("fleet-deck-view").hidden = fleetView !== "deck";
   $("fleet-roster-view").hidden = fleetView !== "list";
@@ -316,6 +323,7 @@ $("roster-scroll").addEventListener("click", (e) => {
   const b = e.target.closest("button.roster-row[data-idx]");
   if (!b) return;
   fleetIndex = Number(b.dataset.idx);
+  sheetOpen = true;
   sendFormOpen = false;
   routePickerOpen = false;
   roleFormOpen = false;
@@ -324,9 +332,18 @@ $("roster-scroll").addEventListener("click", (e) => {
   renderSheet(fleetRows()[fleetIndex]);
 });
 
+$("sheet-close").addEventListener("click", () => {
+  sheetOpen = false;
+  $("fleet-sheet").hidden = true;
+});
+
 function renderSheet(row) {
   sheetShip = row.symbol;
   $("fleet-sheet").hidden = false;
+  // Deck's sheet is a fixed pairing with the front card — no point closing
+  // it there, since the next card just replaces it. List's sheet is a
+  // transient popover over a scan view, so it gets the explicit close.
+  $("sheet-close").hidden = fleetView !== "list";
   $("sheet-who").textContent = row.symbol;
   $("sheet-sub").textContent = `${row.role} · ${(row.nav || "idle").replace(/_/g, " ").toLowerCase()} · ${shortWp(row.waypoint)}`;
 

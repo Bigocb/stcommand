@@ -210,8 +210,13 @@ body {
   width: 36px; height: 4px; border-radius: 3px; background: var(--hair-hi); border: none;
   margin: 4px auto 10px; display: block; padding: 0;
 }
+.sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .sheet .who { font-family: var(--chrome); font-weight: 700; font-size: 13px; letter-spacing: 0.04em; }
 .sheet .sub { font-family: var(--mono); font-size: 9.5px; color: var(--dim); margin: 2px 0 10px; }
+.sheet-close {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; background: transparent;
+  border: 1px solid var(--hair-hi); color: var(--dim); font-size: 12px; line-height: 1; padding: 0;
+}
 .grid5 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .grid5[hidden] { display: none; }
 .grid5 .btn { text-align: center; padding: 11px 4px; }

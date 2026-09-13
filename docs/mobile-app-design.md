@@ -146,7 +146,13 @@ Bottom tab bar: **Home · Fleet · Map · Markets · More**
   the same traffic-manager sheet the deck uses. Both views share one
   sheet and one `fleetIndex`, so switching views mid-flow doesn't lose
   the selected ship. Scales to a real fleet size by scrolling, not
-  paging — ~25 rows is trivial for a phone browser.
+  paging — ~25 rows is trivial for a phone browser. **Update, same
+  day**: the sheet only opens when a row is actually tapped now (it used
+  to show automatically for whichever ship happened to be `fleetIndex`,
+  which defeated the point of a scan view) and gets its own explicit
+  close button, separate from Deck's sheet — Deck's is a fixed pairing
+  with its front card and has no reason to close, List's is a transient
+  popover over the scan view.
 - **Map** — Radar: full-screen system map with a draggable bottom
   sheet. Tapping a charted waypoint surfaces what's there (market
   goods, shipyard stock if any) inline in the sheet — the spatial
