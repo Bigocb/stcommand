@@ -164,9 +164,16 @@ body {
 
 /* ── traffic-manager sheet ── */
 .sheet {
-  flex: 0 0 auto; background: var(--raised); border-top: 1px solid var(--hair-hi);
+  flex: 0 1 auto; background: var(--raised); border-top: 1px solid var(--hair-hi);
   border-radius: 16px 16px 0 0; padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
   box-shadow: 0 -20px 40px -20px rgba(0, 0, 0, 0.6);
+  /* .body clips anything past its own bounds (overflow:hidden, so the deck
+   * above never bounces past its edge) — without its own scroll, expanding
+   * this sheet past the remaining space just clipped the overflow into
+   * nothing, with no way to reach it. max-height + its own scroll is what
+   * actually makes "Full details" (or a long route/ship-pick list) reachable
+   * instead of silently cut off. */
+  max-height: 62vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
 }
 .sheet[hidden] { display: none; }
 .sheet .handle {
@@ -206,8 +213,7 @@ body {
 }
 
 .ship-details {
-  grid-column: 1 / -1; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain;
-  display: flex; flex-direction: column; gap: 2px; margin-top: 2px;
+  grid-column: 1 / -1; display: flex; flex-direction: column; gap: 2px; margin-top: 2px;
 }
 .dtl-h {
   font-family: var(--chrome); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
@@ -284,8 +290,9 @@ body {
 .blip.sel .tg { color: var(--amber); }
 
 .map-sheet {
-  flex: 0 0 auto; background: var(--raised); border-top: 1px solid var(--hair-hi);
+  flex: 0 1 auto; background: var(--raised); border-top: 1px solid var(--hair-hi);
   border-radius: 16px 16px 0 0; padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+  max-height: 62vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
 }
 .map-sheet[hidden] { display: none; }
 .map-sheet .loc { font-family: var(--chrome); font-weight: 700; font-size: 13px; letter-spacing: 0.03em; margin: 4px 0 8px; }

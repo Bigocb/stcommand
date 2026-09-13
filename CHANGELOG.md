@@ -14,6 +14,29 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Tower: fix — sheets couldn't scroll, so long content was just cut off)
+
+Operator report with a screenshot: "Full details" opened and showed the
+"Cargo hold" heading, then nothing below it — no scrollbar, no way to
+reach the rest. Root cause: `.body` clips anything past its own bounds
+(`overflow: hidden`, so the deck above never bounces past its edge), and
+neither `.sheet` (Fleet's traffic-manager sheet) nor `.map-sheet` had a
+max-height or their own scroll — expanding one past the remaining space
+just clipped the overflow into nothing, with no way to reach it. Ship
+details' own inner `max-height: 46vh; overflow-y: auto` (from the earlier
+commit below) never got a chance to run, since its parent was already
+clipped shut.
+
+- `public/m.css` — `.sheet` and `.map-sheet` now get `max-height: 62vh;
+  overflow-y: auto; overscroll-behavior: contain` (and `flex: 0 1 auto`
+  so they can actually shrink to fit) — the sheet itself scrolls as one
+  unit now, so "Full details," a long ship-pick/route-pick list, or a
+  waypoint with many shipyard listings are all reachable by scrolling
+  instead of silently cut off.
+- Removed `.ship-details`' own now-redundant inner scroll — nesting two
+  independently-scrolling regions was more confusing than useful once the
+  outer sheet scrolls correctly.
+
 ## 2026-09-13 (Tower Fleet: full ship details — cargo, loadout, modules, mounts)
 
 Second half of the Fleet sheet's "coming soon" placeholder — role
