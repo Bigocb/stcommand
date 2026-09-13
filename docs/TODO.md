@@ -18,7 +18,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   can't be reconstructed automatically — if still wanted on the record,
   log it as a checkpoint note via the admin page's "Play style" panel
   (self-service; no ADMIN_KEY access here, same reasoning as the
-  reset-cleanup tool).
+  reset-cleanup tool). **Update, same day**: operator already hit the
+  reason this comparison needs the system-attribute data (shipped
+  2026-09-13 in the checkpoint's auto-captured `meta`) — the same manual
+  strategy that works on THEO doesn't transfer to THEO-2 at all, because
+  the two home systems aren't comparable (market/shipyard/gate counts
+  differ). Worth logging a checkpoint on both tenants once THEO-2 is
+  actually flying, specifically to get that system-attribute snapshot on
+  record for the eventual comparison.
 - [ ] **Verify the reset-cleanup admin tool actually ran clean.**
   Shipped 2026-09-13 in response to a live SpaceTraders universe reset
   — see `CLAUDE.md`'s "SpaceTraders universe resets" section for the

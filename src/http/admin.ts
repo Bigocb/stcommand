@@ -107,10 +107,18 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galax
    * for a moment the operator wants on the record as a play-style data
    * point (e.g. "overrode automation: command ship → tour, approved two
    * miners, bought and converted a third to trader"). If this tenant is
-   * currently booted in this process, the fleet's live role counts and
-   * credits are captured into `meta` alongside the operator's own text —
-   * free context for later, without the operator having to type role
-   * counts out themselves.
+   * currently booted in this process, the fleet's live role counts,
+   * credits, and the home system's own topology (market/shipyard/gate
+   * counts, connected systems) are captured into `meta` alongside the
+   * operator's own text.
+   *
+   * The system attributes matter because a strategy is not evaluated in a
+   * vacuum: two tenants started in systems with a different number of
+   * markets/shipyards/gate connections aren't a fair strategy-vs-strategy
+   * comparison without knowing that — see docs/TODO.md's play-style
+   * tracking notes. Free for the operator, since this data is already
+   * sitting in GalaxyAtlas (the same source the cartography page and
+   * desktop galaxy overview read); no need to type it out by hand.
    */
   router.post("/tenants/:id/checkpoint", async (req, res) => {
     const { detail } = req.body ?? {};
@@ -123,7 +131,18 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galax
       if (worker) {
         const roleCounts: Record<string, number> = {};
         for (const s of worker.fleet.fleetStatusSummary()) roleCounts[s.role] = (roleCounts[s.role] ?? 0) + 1;
-        meta = { credits: worker.state.get()?.agent?.credits ?? null, roleCounts, shipCount: worker.fleet.fleetStatusSummary().length };
+        const homeSystem = worker.fleet.getSystemSymbol();
+        const known = worker.fleet.getGalaxy().getSystem(homeSystem);
+        const waypoints = known?.waypoints ?? [];
+        const system = {
+          symbol: homeSystem,
+          waypointCount: waypoints.length,
+          marketCount: waypoints.filter((w) => w.traits?.some((t) => t.symbol === "MARKETPLACE")).length,
+          shipyardCount: waypoints.filter((w) => w.traits?.some((t) => t.symbol === "SHIPYARD")).length,
+          jumpGateCount: waypoints.filter((w) => w.type === "JUMP_GATE").length,
+          connectedSystems: worker.fleet.getGalaxy().connectedSystems(homeSystem),
+        };
+        meta = { credits: worker.state.get()?.agent?.credits ?? null, roleCounts, shipCount: worker.fleet.fleetStatusSummary().length, system };
       }
       const store = new Store(pool);
       await store.recordOperatorAction(req.params.id, "checkpoint", undefined, detail.trim(), meta);

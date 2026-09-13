@@ -14,6 +14,23 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Checkpoints now capture home-system attributes too)
+
+Operator observation: the same manual strategy that's working great on
+THEO doesn't transfer to THEO-2 at all — the systems aren't comparable,
+so a fair play-style comparison needs to control for the system's own
+attributes (market count, etc.), not just tenant performance.
+
+- `src/http/admin.ts` — `POST /tenants/:id/checkpoint`'s auto-captured
+  `meta` now also includes the tenant's home system: waypoint count,
+  market count, shipyard count, jump-gate count, and connected systems
+  (all read from `GalaxyAtlas`, the same source the cartography page and
+  desktop galaxy overview already use — free for the operator, no need
+  to type any of it by hand). Sits alongside the existing credits/role-
+  count capture on every checkpoint note.
+
+Typechecked clean.
+
 ## 2026-09-13 (Tower Fleet List: sheet only opens on tap, with a close button)
 
 Operator feedback (with a screenshot) right after the List view shipped:
