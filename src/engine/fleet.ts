@@ -4065,25 +4065,27 @@ export class FleetManager {
   }
 
   /**
-   * Sell a ship: fly it to the nearest known shipyard in its current system,
-   * then scrap it there for credits. Mirrors holdShip()'s pattern — persists
-   * the instruction and returns immediately; proposeScrapGoals()/
-   * runScrapGoal() fly the trip and finish the sale through the shared
-   * executor, the same non-blocking path designateWarehouseShip() was fixed
-   * to use (a blocking dispatchShip() call here would freeze the whole
-   * tenant's dashboard for the flight's duration — see that function's own
-   * commit for the live incident that came from getting this wrong).
+   * Sell a ship: fly it to the nearest known shipyard, then scrap it there
+   * for credits. Mirrors holdShip()'s pattern — persists the instruction and
+   * returns immediately; proposeScrapGoals()/runScrapGoal() fly the trip and
+   * finish the sale through the shared executor, the same non-blocking path
+   * designateWarehouseShip() was fixed to use (a blocking dispatchShip() call
+   * here would freeze the whole tenant's dashboard for the flight's duration
+   * — see that function's own commit for the live incident that came from
+   * getting this wrong).
    *
-   * Same-system only: nearestShipyard() doesn't search across a jump gate,
-   * and neither does this — a ship with no shipyard in its own system can't
-   * be sold this way yet.
+   * nearestShipyardForSale() looks one gate-hop past the ship's own system
+   * when nothing scrappable is known locally, and runScrapGoal() handles the
+   * jump — confirmed live: a miner with no shipyard in its own system
+   * (the common case for one stationed in an asteroid field) could not be
+   * sold at all before this.
    */
   async sellShip(shipSymbol: string): Promise<string> {
     const agent = this.controlledAgent(shipSymbol);
     if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
     const ship = agent.getShip();
-    const yard = this.nearestShipyard(ship.nav.systemSymbol);
-    if (!yard) throw new Error(`no known shipyard in ${ship.nav.systemSymbol}`);
+    const yard = this.nearestShipyardForSale(ship.nav.systemSymbol);
+    if (!yard) throw new Error(`no known shipyard in ${ship.nav.systemSymbol} or one gate-hop away`);
 
     // Already there and not mid-flight: scrap it now rather than round-
     // tripping through the intent board for a trip that doesn't exist.
@@ -5302,10 +5304,40 @@ export class FleetManager {
   /** Nearest known shipyard in `systemSymbol` — first found, not distance-
    *  ranked (mirrors installComponent()'s own yard lookup); cross-system
    *  shipyard search isn't attempted, same simplification rescue's tender
-   *  planning makes for markets. */
+   *  planning makes for markets. Used by repair, where a same-system-only
+   *  answer is the deliberately conservative choice for a ship that may be
+   *  critically damaged — see nearestShipyardForSale() for the sell/scrap
+   *  path, which can afford to look further. */
   private nearestShipyard(systemSymbol: string): string | undefined {
     const known = this.galaxy.getSystem(systemSymbol);
     return known?.waypoints.find((w) => w.traits.some((t) => t.symbol === "SHIPYARD"))?.symbol;
+  }
+
+  /**
+   * Nearest known shipyard reachable from `systemSymbol` for a sale — same
+   * system first, then one gate-hop away over a completed, known connection.
+   * Confirmed live: a miner stationed in an asteroid-only system (no
+   * shipyard of its own, the common case) could not be sold at all, since
+   * sellShip() used to call the same-system-only nearestShipyard() above and
+   * simply threw "no known shipyard in <system>" — this is the fix.
+   *
+   * Deliberately not shared with repair's own nearestShipyard() call: a
+   * critically damaged ship being routed further afield on top of its
+   * existing damage is a real risk repair should not silently take on, so
+   * that path stays same-system-only. runScrapGoal()'s own jump handling is
+   * what makes it safe to return a cross-system answer here — repair's
+   * executor (runRepairGoal()) has no equivalent and would fail outright on
+   * a cross-system yard.
+   */
+  private nearestShipyardForSale(systemSymbol: string): string | undefined {
+    const local = this.nearestShipyard(systemSymbol);
+    if (local) return local;
+    for (const candidate of this.galaxy.connectedSystems(systemSymbol)) {
+      if (!this.galaxy.canJump(systemSymbol, candidate)) continue;
+      const remote = this.nearestShipyard(candidate);
+      if (remote) return remote;
+    }
+    return undefined;
   }
 
   /**

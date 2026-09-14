@@ -11,6 +11,18 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Fix: selling/scrapping a ship stationed in a system with no shipyard of
+  its own (the common case for a miner parked in an asteroid field) threw
+  "no known shipyard in &lt;system&gt;" and did nothing. `sellShip()` now
+  calls a new `nearestShipyardForSale()`, which looks one gate-hop past
+  the ship's own system when nothing scrappable is known locally, and
+  `runScrapGoal()` (`src/engine/shipProxy.ts`) jumps there first via the
+  same `jumpTo` primitive `runHoldGoal()` already uses for a cross-system
+  target. Deliberately not shared with repair's own yard lookup — a
+  critically damaged ship should not be routed further afield on top of
+  its existing damage, and `runRepairGoal()` has no jump handling of its
+  own — so repair stays same-system-only. Reported live: scrapping a
+  miner did nothing, even after the keeper fix below.
 - Fix: `FleetManager.controlledAgent()` was missing `keepers` from the role
   maps it checks, so Hold, Sell/Scrap, Send-to-waypoint, role-change, and
   designate-warehouse-ship all threw "not under fleet control" for any

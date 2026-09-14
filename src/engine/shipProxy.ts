@@ -560,12 +560,30 @@ export class ShipProxy {
    * right before the irreversible step. Unlike repair, success removes the
    * ship from the fleet entirely (see FleetManager.scrapShip()), so there is
    * no "still here next tick" case to worry about.
+   *
+   * `yard` can be in a different system than the ship — sellShip() searches
+   * one gate-hop out when nothing scrappable is known locally (a miner
+   * stationed in an asteroid-only system, say). navigateTo() below is
+   * same-system only, so a cross-system yard needs the jump handled first —
+   * same `jumpTo` primitive runHoldGoal() already uses for the identical
+   * "target is in another system" case.
    */
   async runScrapGoal(intent: ShipIntent, currentIntent: () => ShipIntent | undefined): Promise<boolean> {
     if (intent.goal.kind !== "scrap") return false;
     const yard = intent.goal.yard;
     await this.refresh();
     await this.waitCooldown();
+
+    const yardSystem = this.registry.systemOf(yard);
+    if (this.ship.nav.systemSymbol !== yardSystem) {
+      if (!this.jumpTo) {
+        this.log(`scrap: ${yard} is in a different system and no jump capability is wired — giving up on this sale`);
+        return false;
+      }
+      this.log(`scrap: ${yard} is in ${yardSystem}, jumping there (${intent.reason})`);
+      await this.jumpTo(this.symbol, yard);
+      return true;
+    }
 
     if (this.ship.nav.waypointSymbol !== yard) {
       this.log(`scrap: heading to ${yard} (${intent.reason})`);
