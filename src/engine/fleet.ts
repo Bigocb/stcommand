@@ -3938,6 +3938,17 @@ export class FleetManager {
    * same control surface (dispatchTo/release/suspend/resume), so per-ship
    * commands work for surveyors and tour scouts too — not just the three roles
    * the dashboard used to reach.
+   *
+   * Confirmed live: a keeper ship's Hold/Sell/Send-to-waypoint all failed
+   * with "not under fleet control", because `keepers` was missing from this
+   * list — shipFor()/stepFor()/noteShipState() each already special-cased
+   * `this.keepers.get(shipSymbol)` as a fallback (their own comments flagged
+   * the gap this method itself had), but every *mutating* entry point
+   * (holdShip, sellShip, dispatchShip, designateWarehouseShip, releaseShip)
+   * calls this method directly and had no such fallback, so a keeper simply
+   * couldn't be held, sold, or manually redirected at all. `keepers` is the
+   * same `ShipAgent` class as every other role map, so it belongs here
+   * directly rather than needing its own fallback at each call site.
    */
   private controlledAgent(shipSymbol: string): ControlledAgent | undefined {
     return (
@@ -3947,7 +3958,8 @@ export class FleetManager {
       this.tours.get(shipSymbol) ??
       this.explorers.get(shipSymbol) ??
       this.scouts.get(shipSymbol) ??
-      this.siphoners.get(shipSymbol)
+      this.siphoners.get(shipSymbol) ??
+      this.keepers.get(shipSymbol)
     );
   }
 
@@ -4613,9 +4625,9 @@ export class FleetManager {
     );
   }
 
-  /** A ship's full current object, whichever role map (or idleShips) actually holds it — controlledAgent() alone misses keepers, same gap noted on that method. */
+  /** A ship's full current object, whichever role map (or idleShips) actually holds it. */
   private shipFor(shipSymbol: string): Ship | undefined {
-    const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
+    const agent = this.controlledAgent(shipSymbol);
     return agent ? agent.getShip() : this.idleShips.get(shipSymbol);
   }
 
@@ -4630,14 +4642,14 @@ export class FleetManager {
    * re-decides on the stale reading and does the work again.
    */
   private noteShipState(shipSymbol: string, ship: Ship): void {
-    const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
+    const agent = this.controlledAgent(shipSymbol);
     if (agent) agent.adoptShip?.(ship);
     else if (this.idleShips.has(shipSymbol)) this.idleShips.set(shipSymbol, ship);
   }
 
   /** What the ship's agent is doing right now (see agentStep.ts) — idle for an idle ship (no agent driving it) or a fake test agent that doesn't implement getStep(). */
   private stepFor(shipSymbol: string): AgentStep {
-    const agent = this.controlledAgent(shipSymbol) ?? this.keepers.get(shipSymbol);
+    const agent = this.controlledAgent(shipSymbol);
     return agent?.getStep?.() ?? IDLE_STEP;
   }
 

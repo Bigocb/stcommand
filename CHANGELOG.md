@@ -11,6 +11,16 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Fix: `FleetManager.controlledAgent()` was missing `keepers` from the role
+  maps it checks, so Hold, Sell/Scrap, Send-to-waypoint, role-change, and
+  designate-warehouse-ship all threw "not under fleet control" for any
+  ship currently in the keeper role — on both the desktop dashboard and
+  Tower — even though `shipFor()`/`stepFor()`/`noteShipState()` already
+  worked around the same gap for reads. `keepers` is the same `ShipAgent`
+  class as every other role map, so it now belongs in `controlledAgent()`
+  directly; the three read-path fallbacks that special-cased it are
+  simplified now that they're redundant. Reported live: scrapping THEO-3
+  from Tower did nothing.
 - Fix: holding or releasing a ship (Fleet tab, either the triage-row
   buttons or the ship-detail modal) now also refreshes the Dispatch/Trade
   Ops assignment list, not just Bridge. `holdShip()`/`releaseShip()`
