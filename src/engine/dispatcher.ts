@@ -177,12 +177,43 @@ export interface ContractBuyTarget {
  * This is deliberately the coordinator for warehousing later: once we hold
  * inventory, the dispatcher is where we decide "who hauls what, from where".
  */
+/**
+ * How long a just-sold (good, sellAt) pair is deprioritized before it can
+ * win "best route for this good" again. Not a hard block — a route on
+ * cooldown still gets picked if it's the only one available for its good,
+ * rather than leaving a trader idle — just sorted behind every route that
+ * isn't. Long enough that a market has genuinely had a chance to move
+ * (SpaceTraders prices recover over real time, not instantly), short
+ * enough that a route that's actually still the best one available isn't
+ * needlessly starved.
+ */
+const SALE_COOLDOWN_MS = 10 * 60_000;
+
 export class RouteDispatcher {
   private assignments = new Map<string, TraderAssignment>();
   private manual = new Map<string, TraderAssignment>();
   /** The ranked route list from the last recompute, used to serve live claims. */
   private routes: DispatchRoute[] = [];
   private lastComputed = 0;
+  /** (good, sellAt) → when a trader last actually sold there. Confirmed
+   *  live: THEO-1 sold 40u ELECTRONICS at X1-XB94-D43 for 35,900c; the very
+   *  next idle trader (THEO-A) was hedged the identical "best" route 8
+   *  minutes later and got 20,800c for the same 40 units — the sale that
+   *  just happened isn't reflected in profitPerTrip fast enough to stop the
+   *  next trader walking into the price it just crashed. See recordSale(). */
+  private readonly recentSales = new Map<string, number>();
+
+  /** Called by a trader right after a real sell transaction completes, so
+   *  the next recompute can deprioritize re-offering the same leg before
+   *  the price has had a chance to recover — see SALE_COOLDOWN_MS. */
+  recordSale(good: string, sellAt: string): void {
+    this.recentSales.set(`${good}@${sellAt}`, Date.now());
+  }
+
+  private onSaleCooldown(good: string, sellAt: string): boolean {
+    const at = this.recentSales.get(`${good}@${sellAt}`);
+    return at !== undefined && Date.now() - at < SALE_COOLDOWN_MS;
+  }
 
   /** Routes a single trader should fly, honoring a manual override if set. */
   assignmentFor(shipSymbol: string): TraderAssignment | undefined {
@@ -413,6 +444,19 @@ export class RouteDispatcher {
     // window-function scan over the snapshot table each time.
     if (now - this.lastComputed < 60_000) return;
     this.lastComputed = now;
+    // Stable resort: routes on cooldown sink behind every route that isn't,
+    // preserving relative profit order within each tier — so a cooling-down
+    // route still wins if it's literally the only one for its good (no
+    // trader sits idle over it), but loses to any real alternative, cooled
+    // or not, that ranks lower on paper but hasn't just been sold into.
+    // Reassigning the parameter itself (not just this.routes) matters: the
+    // per-good selection loops below read `routes` directly, not
+    // `this.routes` — this.routes only backs claim()'s own direct reads.
+    routes = [...routes].sort((a, b) => {
+      const aCooling = this.onSaleCooldown(a.good, a.sellAt) ? 1 : 0;
+      const bCooling = this.onSaleCooldown(b.good, b.sellAt) ? 1 : 0;
+      return aCooling - bCooling;
+    });
     this.routes = routes;
 
     const sorted = [...traders].sort((a, b) => b.capacity - a.capacity);

@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { GalaxyAtlas, type GalaxyStore } from "../src/engine/galaxy.js";
+import { APIError } from "../src/core/client.js";
 
 /**
  * Covers the gate-construction cache added to GalaxyAtlas so route-scoring
@@ -72,13 +73,30 @@ describe("GalaxyAtlas: gate-construction cache", () => {
     assert.equal(atlas.canJump("X1-A", "X1-B"), false);
   });
 
-  it("a failed getConstruction() fetch is treated as 'already built' (no construction record for a pre-existing gate)", async () => {
-    const { atlas } = await makeSeededAtlas(async () => { throw new Error("404: no construction record"); });
+  it("a 404 from getConstruction() is treated as 'already built' (no construction record for a pre-existing gate)", async () => {
+    const { atlas } = await makeSeededAtlas(async () => { throw new APIError("no construction record", 404, undefined, undefined); });
 
     const result = await atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
 
     assert.equal(result, true);
     assert.equal(atlas.canJump("X1-A", "X1-B"), true);
+  });
+
+  it("a non-404 error from getConstruction() leaves the gate unresolved, not falsely 'complete'", async () => {
+    // Confirmed live: this used to be treated identically to a 404 (any
+    // error meant "complete"), which could permanently poison the one-way
+    // cache on a transient failure — a gate that was genuinely still under
+    // construction then read as jumpable forever, with jumpShip() rejecting
+    // the jump every time. Only a real 404 (no construction record at all)
+    // is evidence the gate is pre-built; anything else is just noise, and
+    // must leave the next refreshAllGateConstruction() sweep free to retry.
+    const { atlas } = await makeSeededAtlas(async () => { throw new APIError("rate limited", 429, undefined, undefined); });
+
+    const result = await atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
+
+    assert.equal(result, false);
+    assert.equal(atlas.gateComplete("X1-A-GATE"), undefined, "left unresolved, not cached false or true");
+    assert.equal(atlas.canJump("X1-A", "X1-B"), false, "unresolved reads as not-jumpable, the safe default");
   });
 
   it("never re-fetches a gate once confirmed complete", async () => {

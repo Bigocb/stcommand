@@ -82,6 +82,11 @@ export interface TraderOptions {
   claimRoute?: (accept: (route: DirectLeg) => boolean) => TraderAssignment | undefined;
   /** Give up this trader's claim so a fleetmate can take the good. */
   releaseRoute?: () => void;
+  /** Tell the dispatcher a sale just landed at this (good, sellAt) pair, so
+   *  it can deprioritize re-offering the identical leg to another idle
+   *  trader before the price it just moved has had a chance to recover —
+   *  see RouteDispatcher.recordSale()'s own comment. */
+  recordSale?: (good: string, sellAt: string) => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
   /** Apply the cash floor to a balance — `fleet.spendableCredits(live)`.
@@ -200,6 +205,7 @@ export class TraderAgent {
   private readonly assignedRoute?: () => TraderAssignment | undefined;
   private readonly claimRoute?: TraderOptions["claimRoute"];
   private readonly releaseRoute?: () => void;
+  private readonly recordSale?: TraderOptions["recordSale"];
   private readonly getCredits?: () => number;
   private readonly applyCashFloor?: (credits: number) => number;
   private readonly maxLossPct: number;
@@ -309,6 +315,7 @@ export class TraderAgent {
     this.assignedRoute = opts.assignedRoute;
     this.claimRoute = opts.claimRoute;
     this.releaseRoute = opts.releaseRoute;
+    this.recordSale = opts.recordSale;
     this.getCredits = opts.getCredits;
     this.applyCashFloor = opts.applyCashFloor;
     this.maxLossPct = opts.maxLossPct ?? 15;
@@ -1459,6 +1466,7 @@ export class TraderAgent {
           total: sold.transaction.totalPrice,
         });
         this.onActivity?.("sell", `${lot}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt}`, sold.transaction.totalPrice, this.symbol);
+        this.recordSale?.(item.symbol, leg.sellAt);
         remaining -= lot;
         soldAny += lot;
         totalReceived += sold.transaction.totalPrice;
@@ -1753,6 +1761,7 @@ export class TraderAgent {
     });
     this.log(`sold ${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`);
     this.onActivity?.("sell", `${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`, sold.transaction.totalPrice, this.symbol);
+    this.recordSale?.(assigned.good, sellAt);
     return true;
   }
 

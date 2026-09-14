@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- `RouteDispatcher` now deprioritizes a `(good, sellAt)` leg for
+  `SALE_COOLDOWN_MS` (10 min) right after a trader actually sells there —
+  new `recordSale()`, called from both of `TraderAgent`'s sell sites
+  (the direct-route leg and the warehouse `sell` role). Confirmed live:
+  the existing "two traders may share a good only when selling into
+  different markets" protection only reserves a leg while the ship
+  flying it is *busy* — the moment it finishes and goes idle, the
+  reservation releases, and since ranking is pure last-known profit, the
+  very next idle trader was handed the identical "best" route before the
+  price its predecessor's own sale had just crashed got any chance to
+  recover: THEO-1 sold 40u ELECTRONICS at X1-XB94-D43 for 35,900c;
+  THEO-A sold the same 40u at the same waypoint 8 minutes later for
+  20,800c. The cooldown is a deprioritization, not a hard block — a
+  cooling leg still gets picked if it's the only route for its good, so
+  a trader is never left idle over it, but loses to any real alternative
+  first.
 - Fix: a fleet-driven goal (repair/scrap/hold/explore/tender) whose ship
   ran out of fuel mid-route retried the identical doomed navigate call
   forever — every ~13s, no back-off, no recovery. Reported live: THEO-4

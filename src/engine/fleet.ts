@@ -885,6 +885,7 @@ export class FleetManager {
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
       releaseRoute: () => this.dispatcher.release(shipSymbol),
+      recordSale: (good, sellAt) => this.dispatcher.recordSale(good, sellAt),
       // Already floor-adjusted — see spendableCredits()'s own comment. This
       // one is the fleet's cached balance, which is right for ranking routes
       // and wrong for committing to a purchase.
