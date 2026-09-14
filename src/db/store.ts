@@ -1487,6 +1487,48 @@ export class Store {
     });
   }
 
+  /** One system's detail for the cartography page's click-a-dot side
+   *  panel. Uses `waypoints` (tenant-scanned, trait-complete) when it's
+   *  non-empty; falls back to `crawledWaypoints` (public-crawler,
+   *  trait-less) only when no tenant has ever scanned this system — the
+   *  two are never merged or treated as interchangeable, same rule as
+   *  everywhere else this pair of columns is read (see
+   *  mergeSystemWaypoints()'s own comment). Returns null for a system
+   *  symbol the crawl has never recorded at all. */
+  async getGalaxySystemDetail(systemSymbol: string): Promise<{
+    systemSymbol: string; sectorSymbol: string | null; systemType: string | null;
+    x: number | null; y: number | null;
+    source: "scanned" | "crawled" | "unknown";
+    waypointCount: number; typeCounts: Record<string, number>;
+    gates: { symbol: string; connections: string[] }[];
+  } | null> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{
+        system_symbol: string; sector_symbol: string | null; system_type: string | null;
+        x: number | null; y: number | null;
+        waypoints: { symbol: string; type: string }[]; jump_gates: { symbol: string; connections: string[] }[];
+        crawled_waypoints: { symbol: string; type: string }[] | null;
+      }>(
+        `SELECT system_symbol, sector_symbol, system_type, x, y, waypoints, jump_gates, crawled_waypoints
+         FROM galaxy_systems WHERE system_symbol = $1`,
+        [systemSymbol],
+      );
+      const row = res.rows[0];
+      if (!row) return null;
+      const scanned = row.waypoints ?? [];
+      const crawled = row.crawled_waypoints ?? [];
+      const source: "scanned" | "crawled" | "unknown" = scanned.length > 0 ? "scanned" : crawled.length > 0 ? "crawled" : "unknown";
+      const effective = source === "scanned" ? scanned : crawled;
+      const typeCounts: Record<string, number> = {};
+      for (const wp of effective) typeCounts[wp.type] = (typeCounts[wp.type] ?? 0) + 1;
+      return {
+        systemSymbol: row.system_symbol, sectorSymbol: row.sector_symbol, systemType: row.system_type,
+        x: row.x, y: row.y, source, waypointCount: effective.length, typeCounts,
+        gates: row.jump_gates ?? [],
+      };
+    });
+  }
+
   /** Just enough per-system data to plot the galaxy map (a scatter of dots),
    *  skipping listGalaxySystems()'s full jsonb waypoint/jump-gate blobs
    *  entirely — the map doesn't need them, and pulling every row's full

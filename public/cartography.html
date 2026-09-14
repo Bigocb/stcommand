@@ -183,6 +183,40 @@
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 99px; }
   a { color: var(--accent); }
+
+  #system-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 320px; max-width: 88vw;
+    background: var(--panel); border-left: 1px solid var(--hairline); box-shadow: -8px 0 24px rgba(0,0,0,.35);
+    padding: 16px; overflow-y: auto; z-index: 20;
+    transform: translateX(0); transition: transform .2s ease;
+  }
+  #system-panel[hidden] { display: block; transform: translateX(100%); pointer-events: none; }
+  .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .panel-head h2 { margin: 0; font-size: 15px; letter-spacing: 0.02em; color: var(--bone); text-transform: none; }
+  .panel-close {
+    background: none; border: 1px solid var(--hairline); color: var(--dim); border-radius: 5px;
+    width: 24px; height: 24px; line-height: 1; font: inherit; font-size: 13px; cursor: pointer; flex: 0 0 auto;
+  }
+  .panel-close:hover { color: var(--bone); border-color: var(--accent); }
+  .panel-sub { color: var(--dim); font-size: 11px; margin-bottom: 12px; }
+  .panel-badge { display: inline-block; padding: 2px 7px; border-radius: 99px; font-size: 9px; letter-spacing: 0.03em; text-transform: uppercase; margin-bottom: 12px; }
+  .panel-badge.scanned { background: rgba(127,216,160,.15); color: var(--green); }
+  .panel-badge.crawled { background: rgba(229,185,108,.15); color: var(--amber); }
+  .panel-badge.unknown { background: rgba(124,130,145,.15); color: var(--dim); }
+  .panel-stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 14px; }
+  .panel-subhead { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin: 14px 0 8px; padding-top: 10px; border-top: 1px solid var(--hairline); }
+  .panel-subhead:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+  .type-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 3px 0; }
+  .type-row .t { color: var(--bone); }
+  .type-row .n { color: var(--dim); }
+  .gate-line { padding: 5px 0; }
+  .gate-line .gate-symbol { font-size: 12px; color: var(--bone); margin-bottom: 3px; }
+  .conn-chip {
+    display: inline-block; background: var(--ink); border: 1px solid var(--hairline); border-radius: 99px;
+    padding: 3px 9px; font-size: 11px; margin: 2px 4px 2px 0; cursor: pointer;
+  }
+  .conn-chip:hover { border-color: var(--accent); color: var(--bone); }
+  .panel-loading, .panel-empty { color: var(--dim); font-size: 11px; padding: 8px 0; }
 </style>
 </head>
 <body>
@@ -261,6 +295,15 @@
     </div>
   </div>
 </div>
+
+<aside id="system-panel" hidden>
+  <div class="panel-head">
+    <h2 id="panel-symbol">—</h2>
+    <button class="panel-close" id="panel-close" title="Close">✕</button>
+  </div>
+  <div class="panel-sub" id="panel-sub"></div>
+  <div id="panel-body"></div>
+</aside>
 
 <div class="layout" id="view-planner" hidden>
   <div class="stack">
@@ -392,6 +435,85 @@
     // and its near neighbors are individually distinguishable regardless
     // of how zoomed-out the full map is.
     jumpTo(match.x, match.y, Math.max(25, (fullBounds ? fullBounds.half : 400) * 0.02));
+  }
+
+  // --- System detail side panel ------------------------------------------
+  // One fetch per click against GET /api/cartography/systems/:symbol — kept
+  // separate from the bulk /systems list (which only ever has enough for
+  // the scatter of dots) since most viewers never click a dot at all.
+  const TYPE_LABELS = {
+    JUMP_GATE: "Jump gate", PLANET: "Planet", MOON: "Moon", ASTEROID: "Asteroid",
+    ASTEROID_FIELD: "Asteroid field", ASTEROID_BASE: "Asteroid base", ORBITAL_STATION: "Orbital station",
+    GAS_GIANT: "Gas giant", FUEL_STATION: "Fuel station", NEBULA: "Nebula", DEBRIS_FIELD: "Debris field",
+    GRAVITY_WELL: "Gravity well", ARTIFICIAL_GRAVITY_WELL: "Artificial gravity well", ENGINEERED_ASTEROID: "Engineered asteroid",
+  };
+
+  function closeSystemPanel() {
+    $("system-panel").hidden = true;
+  }
+
+  async function openSystemPanel(symbol) {
+    const panel = $("system-panel");
+    panel.hidden = false;
+    $("panel-symbol").textContent = symbol;
+    $("panel-sub").textContent = "";
+    $("panel-body").innerHTML = '<div class="panel-loading">Loading…</div>';
+    try {
+      const detail = await getJson("/api/cartography/systems/" + encodeURIComponent(symbol));
+      renderSystemPanel(detail);
+    } catch (err) {
+      $("panel-body").innerHTML = '<div class="panel-empty">No data recorded for this system yet.</div>';
+    }
+  }
+
+  function renderSystemPanel(d) {
+    $("panel-symbol").textContent = d.systemSymbol;
+    $("panel-sub").textContent = [d.sectorSymbol, d.systemType].filter(Boolean).join(" · ") || "—";
+
+    const badgeLabel = { scanned: "Explored", crawled: "Crawled only", unknown: "Coordinates only" }[d.source] || d.source;
+    let html = `<span class="panel-badge ${d.source}">${badgeLabel}</span>`;
+
+    html += `
+      <div class="panel-stat-grid">
+        <div class="stat"><div class="n">${d.waypointCount.toLocaleString()}</div><div class="l">Waypoints</div></div>
+        <div class="stat"><div class="n">${d.gates.length.toLocaleString()}</div><div class="l">Jump gates</div></div>
+      </div>
+    `;
+
+    const typeEntries = Object.entries(d.typeCounts || {}).sort((a, b) => b[1] - a[1]);
+    if (typeEntries.length > 0) {
+      html += '<div class="panel-subhead">Waypoint types</div>';
+      html += typeEntries.map(([type, n]) => `
+        <div class="type-row"><span class="t">${TYPE_LABELS[type] || type}</span><span class="n">${n}</span></div>
+      `).join("");
+    } else if (d.source === "unknown") {
+      html += '<div class="panel-empty">No waypoint data yet — the crawl has only recorded this system\'s position so far.</div>';
+    }
+
+    if (d.gates.length > 0) {
+      html += '<div class="panel-subhead">Jump gate connections</div>';
+      html += d.gates.map((g) => {
+        const conns = (g.connections || []).map((c) => {
+          const destSystem = c.split("-").slice(0, 2).join("-");
+          return `<span class="conn-chip" data-symbol="${destSystem}">${destSystem}</span>`;
+        }).join("");
+        return `
+          <div class="gate-line">
+            <div class="gate-symbol">${g.symbol}</div>
+            ${conns || '<div class="panel-empty">Not yet charted by anyone.</div>'}
+          </div>
+        `;
+      }).join("");
+    }
+
+    $("panel-body").innerHTML = html;
+    for (const chip of $("panel-body").querySelectorAll(".conn-chip")) {
+      chip.addEventListener("click", () => {
+        const match = lastSystems.find((s) => s.systemSymbol === chip.dataset.symbol);
+        if (match && match.x != null && match.y != null) focusOnSystem(match);
+        openSystemPanel(chip.dataset.symbol);
+      });
+    }
   }
 
   // --- Bookmarks -----------------------------------------------------
@@ -607,6 +729,7 @@
         tooltip.textContent = s.systemSymbol + (s.systemType ? " · " + s.systemType : "") + (s.explored ? " · explored" : "");
       });
       circle.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+      circle.addEventListener("click", () => openSystemPanel(s.systemSymbol));
       svg.appendChild(circle);
       if (s.explored) exploredCount += 1;
 
@@ -668,6 +791,10 @@
     svg.addEventListener("pointerup", endDrag);
     svg.addEventListener("pointerleave", endDrag);
 
+    svg.addEventListener("click", (e) => {
+      if (e.target === svg) closeSystemPanel();
+    });
+
     const runSearch = () => searchSystem($("search-input").value);
     $("search-btn").addEventListener("click", runSearch);
     $("search-input").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
@@ -675,6 +802,8 @@
     $("bookmark-btn").addEventListener("click", () => {
       if (highlightedSymbol) toggleBookmark(highlightedSymbol);
     });
+
+    $("panel-close").addEventListener("click", closeSystemPanel);
   }
 
   function switchTab(name) {

@@ -18,6 +18,19 @@ export function createCartographyRouter(store: Store, crawler: GalaxyCrawler): R
     res.json({ systems });
   });
 
+  // Per-system detail for the map's click-a-dot side panel — deliberately
+  // a separate call from the bulk /systems list above, since most viewers
+  // never click a dot and the full waypoint-type breakdown/gate list isn't
+  // needed for the scatter of dots itself.
+  router.get("/systems/:symbol", async (req, res) => {
+    const detail = await store.getGalaxySystemDetail(req.params.symbol.toUpperCase());
+    if (!detail) {
+      res.status(404).json({ error: "system not recorded" });
+      return;
+    }
+    res.json(detail);
+  });
+
   router.get("/factions", async (_req, res) => {
     const factions = await store.listGalaxyFactions();
     res.json({ factions });
