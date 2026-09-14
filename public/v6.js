@@ -1454,6 +1454,12 @@ function renderTriage() {
           await api("POST", path, body);
           showToastGlobal(`${body.shipSymbol}: ${kind} sent`);
           await loadBridge();
+          // hold/release immediately frees or reclaims the ship's dispatcher
+          // assignment server-side (see RouteDispatcher.release()'s own
+          // comment) — without this, Dispatch/Trade Ops kept showing the
+          // ship's stale pre-hold route for up to 20s (the view's own poll
+          // interval), which looked like two ships sharing one route.
+          await loadDispatch();
         } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
       });
     });
@@ -4866,6 +4872,10 @@ function openShipDetails(shipSymbol, opts = {}) {
       try {
         await api("POST", "/api/fleet/hold", { shipSymbol: b.dataset.ship });
         await loadBridge();
+        // See the triage-row hold/release handler's own comment: without
+        // this, Dispatch/Trade Ops kept showing this ship's stale pre-hold
+        // route for up to 20s, which looked like two ships sharing one route.
+        await loadDispatch();
         openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });
@@ -4876,6 +4886,7 @@ function openShipDetails(shipSymbol, opts = {}) {
       try {
         await api("POST", "/api/fleet/release", { shipSymbol: b.dataset.ship });
         await loadBridge();
+        await loadDispatch();
         openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
     });

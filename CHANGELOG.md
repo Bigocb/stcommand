@@ -11,6 +11,16 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Fix: holding or releasing a ship (Fleet tab, either the triage-row
+  buttons or the ship-detail modal) now also refreshes the Dispatch/Trade
+  Ops assignment list, not just Bridge. `holdShip()`/`releaseShip()`
+  free or reclaim that ship's dispatcher assignment immediately
+  server-side, but the Dispatch list only re-polls every 20s — in that
+  window a just-held ship's stale pre-hold route stayed on screen
+  alongside whichever other trader the dispatcher handed the now-freed
+  route to, looking like two ships sharing one route. They were never
+  both actually running it; it was a display lag, not a duplicate
+  assignment.
 - Galaxy crawler Phase B + C: `GalaxyCrawler` no longer needs any tenant's
   authenticated `SpaceTraders` client to make progress — every endpoint it
   calls (`/systems`, `/factions`, `.../jump-gate`) is public, so it now
