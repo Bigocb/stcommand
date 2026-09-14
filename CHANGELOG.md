@@ -11,6 +11,18 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- `sellShip()` now re-fetches the ship live instead of trusting its agent's
+  cached snapshot before picking a scrap yard — that cache only refreshes
+  on the agent's own tick cadence, so a ship whose agent hadn't ticked
+  recently could have its *previous* system searched for a yard instead
+  of its real current one, reporting "no known shipyard" even when the
+  true current system has one. The error message on a genuine miss is
+  also far more specific now (distinguishes "this system was never
+  scanned" from "it was scanned, but nothing there has a SHIPYARD trait")
+  — reported live: an operator scrapping a miner from Tower saw it fail
+  even in a system they could confirm had shipyards, and the prior plain
+  "no known shipyard in <system>" message gave no way to tell which of
+  these it actually was.
 - Fix: selling/scrapping a ship stationed in a system with no shipyard of
   its own (the common case for a miner parked in an asteroid field) threw
   "no known shipyard in &lt;system&gt;" and did nothing. `sellShip()` now

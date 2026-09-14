@@ -4083,9 +4083,22 @@ export class FleetManager {
   async sellShip(shipSymbol: string): Promise<string> {
     const agent = this.controlledAgent(shipSymbol);
     if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
-    const ship = agent.getShip();
+    // A live re-fetch, not the agent's cached snapshot: that cache only
+    // refreshes on the agent's own tick cadence, so a ship the operator just
+    // watched arrive somewhere (or one whose agent hasn't ticked in a while)
+    // could still read its *previous* system here, silently searching the
+    // wrong system for a yard and reporting "no known shipyard" even when
+    // the ship's real, current system has one.
+    const ship = await this.api.getShip(shipSymbol);
+    this.noteShipState(shipSymbol, ship);
     const yard = this.nearestShipyardForSale(ship.nav.systemSymbol);
-    if (!yard) throw new Error(`no known shipyard in ${ship.nav.systemSymbol} or one gate-hop away`);
+    if (!yard) {
+      const known = this.galaxy.getSystem(ship.nav.systemSymbol);
+      const detail = !known
+        ? "that system's waypoints have never been scanned by this fleet"
+        : `${known.waypoints.length} waypoint(s) known there, none carry a SHIPYARD trait`;
+      throw new Error(`no known shipyard in ${ship.nav.systemSymbol} or one gate-hop away (${detail})`);
+    }
 
     // Already there and not mid-flight: scrap it now rather than round-
     // tripping through the intent board for a trip that doesn't exist.
