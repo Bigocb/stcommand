@@ -11,6 +11,15 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Tower's More tab gains an Activity section — sells, buys, repairs,
+  scraps, jumps, mission/contract events, warehouse moves, and the
+  like, reusing the same `activity` store slice and `/api/activity`
+  endpoint desktop's own activity feed already reads (no new backend).
+  Mining extraction, surveying, siphoning, and market/shipyard scan
+  snapshots are filtered out client-side (`ACTIVITY_HIDDEN_KINDS` in
+  m.js) — those fire on essentially every tick and would drown out
+  everything else in a feed meant to answer "what's going on," not
+  replay the tick log. Desktop's own activity feed is untouched.
 - Fix (correction to the same-day StrandedError fix below): watched
   THEO-9 live after deploying StrandedError and it kept looping anyway
   — turned out it was sitting at 0 fuel *right on top of* a market that

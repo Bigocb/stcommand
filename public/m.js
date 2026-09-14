@@ -11,11 +11,11 @@ import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, intel,
-  marketRoutes, contracts, missions, warehouseState, doctrineRules,
+  marketRoutes, contracts, missions, warehouseState, doctrineRules, activity,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
-  loadProgramme, loadWarehouse, loadDoctrine, setDoctrine,
+  loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity,
 } from "/shared/store.js";
-import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -68,7 +68,7 @@ function setTab(name) {
   if (name === "fleet") renderFleetView();
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); renderMarkets(); }
-  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); renderMore(); }
+  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadActivity(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -1005,11 +1005,31 @@ function renderMoreDoctrine() {
     </div>`).join("");
 }
 
+// Mining/scanning fires constantly and drowns out everything else in a
+// raw activity feed — the operator asked for "what's going on with the
+// fleet," not a tick-by-tick extraction log. Filtered client-side only;
+// the underlying /api/activity feed (and desktop's own view of it) is
+// untouched.
+const ACTIVITY_HIDDEN_KINDS = new Set(["extract", "survey", "siphon", "scan", "market", "shipyard", "flightmode", "navigate"]);
+
+function renderMoreActivity() {
+  const el = $("more-activity");
+  if (!el) return;
+  const rows = activity.filter((a) => !ACTIVITY_HIDDEN_KINDS.has(a.kind)).slice(0, 30);
+  if (!rows.length) { el.innerHTML = '<div class="empty">No activity yet.</div>'; return; }
+  el.innerHTML = rows.map((a) => `
+    <div class="act-row">
+      <div class="when">${fmtTime(a.timestamp)}</div>
+      <div class="txt">${escapeHtml(a.detail)}${a.credits == null ? "" : ` <span class="amt ${a.credits < 0 ? "neg" : "pos"}">${signed(a.credits)}</span>`}</div>
+    </div>`).join("");
+}
+
 function renderMore() {
   renderMoreContracts();
   renderMoreMissions();
   renderMoreWarehouse();
   renderMoreDoctrine();
+  renderMoreActivity();
 }
 
 $("mission-start-btn").addEventListener("click", async () => {
@@ -1075,6 +1095,7 @@ $("more-doctrine").addEventListener("click", async (e) => {
 subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); } });
 subscribe("warehouse", () => { if (moreTabActive()) renderMoreWarehouse(); });
 subscribe("doctrine", () => { if (moreTabActive()) renderMoreDoctrine(); });
+subscribe("activity", () => { if (moreTabActive()) renderMoreActivity(); });
 
 /* ── boot ──────────────────────────────────
  * Same 15s polling cadence as v6.js's tradeops/ops tabs — Home always
@@ -1093,7 +1114,7 @@ setInterval(() => {
   if (!authed || document.hidden) return;
   loadState(); loadBridge(); loadApprovals(); loadDispatch();
   if (mapTabActive() || marketsTabActive()) loadMarkets();
-  if (moreTabActive()) { loadProgramme(); loadWarehouse(); }
+  if (moreTabActive()) { loadProgramme(); loadWarehouse(); loadActivity(); }
 }, 15_000);
 
 (async function boot0() {

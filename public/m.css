@@ -264,6 +264,21 @@ body {
 .detail-row .d { color: var(--dim); font-size: 9.5px; }
 .detail-row .btn { padding: 5px 10px; font-size: 9px; flex: 0 0 auto; }
 
+/* ── More: Activity stream — trades, missions, repairs and the like, with
+ * mining extraction and market/shipyard scan noise filtered out client-
+ * side (see m.js's ACTIVITY_HIDDEN_KINDS) so it reads as "what happened"
+ * rather than a raw tick log. */
+.act-row {
+  padding: 7px 0; border-top: 1px solid var(--hair); font-family: var(--mono);
+}
+.act-row:first-of-type { border-top: none; }
+.act-row .when { color: var(--dim); font-size: 9px; letter-spacing: 0.06em; }
+.act-row .txt { font-size: 10.5px; color: var(--ice); line-height: 1.5; margin-top: 2px; }
+.act-row .txt b { color: var(--bone); font-weight: 600; }
+.act-row .amt { font-weight: 600; }
+.act-row .amt.pos { color: var(--green); }
+.act-row .amt.neg { color: var(--red); }
+
 /* ── Map: a literal radar scope ──────────────
  * Ties the visual identity to the "Radar" concept name directly rather
  * than being a generic map-tile view — range rings, a sweep wedge, and
