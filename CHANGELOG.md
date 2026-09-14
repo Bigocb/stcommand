@@ -11,6 +11,17 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Fix (correction to the same-day StrandedError fix below): watched
+  THEO-9 live after deploying StrandedError and it kept looping anyway
+  — turned out it was sitting at 0 fuel *right on top of* a market that
+  sells fuel (X1-XB94-E44), so `navigateTo()`'s "not at a market" check
+  correctly did not treat it as stranded, but `runRepairGoal()`/
+  `runScrapGoal()` never called `refuelIfNeeded()` before navigating in
+  the first place — unlike `runHoldGoal()`, which already did. The ship
+  just kept computing a route through a *different*, equally-unreachable
+  fuel stop instead of buying fuel where it already stood. Both now call
+  `refuelIfNeeded({ reserve, target })` before `navigateTo()`, same as
+  `runHoldGoal()` already does.
 - `RouteDispatcher` now deprioritizes a `(good, sellAt)` leg for
   `SALE_COOLDOWN_MS` (10 min) right after a trader actually sells there —
   new `recordSale()`, called from both of `TraderAgent`'s sell sites

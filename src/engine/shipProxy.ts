@@ -576,6 +576,13 @@ export class ShipProxy {
 
     if (this.ship.nav.waypointSymbol !== yard) {
       this.log(`repair: heading to ${yard} (${intent.reason})`);
+      // Same reasoning as runHoldGoal()'s own refuelIfNeeded() call, and the
+      // gap this shared executor's other goals (repair/scrap) were each
+      // missing: refuelIfNeeded() already knows how to top off right where
+      // the ship stands if it's at a market — including one whose current 0
+      // fuel would otherwise make navigateTo() throw StrandedError even
+      // though refueling in place was the obvious, available answer.
+      await this.refuelIfNeeded({ reserve: intent.policy.fuelReserve, target: yard });
       await this.navigateTo(yard);
       return true;
     }
@@ -638,6 +645,14 @@ export class ShipProxy {
 
     if (this.ship.nav.waypointSymbol !== yard) {
       this.log(`scrap: heading to ${yard} (${intent.reason})`);
+      // See runRepairGoal()'s matching call for why this has to happen
+      // first: confirmed live, THEO-9 sat at 0 fuel *right on top of* a
+      // market that sells fuel (X1-XB94-E44) and, with nothing here ever
+      // refueling it, kept computing a route through a *different* fuel
+      // stop (unreachable at 0 fuel either way) and retrying the identical
+      // doomed navigate for hours instead of just buying fuel where it
+      // already stood.
+      await this.refuelIfNeeded({ reserve: intent.policy.fuelReserve, target: yard });
       await this.navigateTo(yard);
       return true;
     }
