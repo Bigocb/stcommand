@@ -11,6 +11,51 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Fix: a fleet-driven goal (repair/scrap/hold/explore/tender) whose ship
+  ran out of fuel mid-route retried the identical doomed navigate call
+  forever — every ~13s, no back-off, no recovery. Reported live: THEO-4
+  and THEO-9 (mid-scrap) retried "requires 1 more fuel for navigation"
+  for hours, contributing to multi-hour stretches overnight where the
+  earnings tracker showed zero sales fleet-wide. Root cause:
+  `navigateTo()`'s "route via a fuel stop" logic could pick a stop
+  computed from the ship's own 0 current fuel — which is, by definition,
+  exactly as unreachable as the original destination — and just let the
+  live API call fail every time. `navigateTo()` now throws a new
+  `StrandedError` immediately when the ship has 0 fuel and isn't at a
+  market, before ever attempting that doomed call;
+  `ShipProxy.runFleetDrivenGoal()` catches it centrally (covering all
+  five fleet-driven goals in one place) and backs off cleanly instead of
+  logging a fresh "agent error" every cycle. `getStrandedShips()` still
+  derives stranded status independently from live ship state, so this
+  doesn't change whether a fuel-tender rescue gets attempted — only stops
+  wasting API calls and log volume on a call already known to fail. *Why
+  no rescue tender ever reached these two ships in the first place is a
+  separate, still-open question — not fixed here.*
+- Fix: a scout/tour ship's opportunistic jump (`autoExplore()`) could
+  retry an identical doomed jump forever once committed — confirmed
+  live, THEO-C retried a jump through X1-XB94-I55 every ~11s for hours,
+  always failing "Jump gate X1-XB94-I55 is under construction" even
+  though `canJump()`'s own pre-check is supposed to filter out exactly
+  this. Root cause, two parts: (1) `GalaxyAtlas.refreshGateConstruction()`
+  treated *any* error from the construction-status check — not just a
+  404 (genuinely no construction record, i.e. pre-built) — as "gate is
+  complete," permanently poisoning the one-way cache on what could've
+  been a transient failure; now only a real 404 is treated that way, any
+  other error leaves the gate unresolved for the next sweep to retry.
+  (2) Once a ship's committed intent already had a bad gate baked in
+  (from before the cache was poisoned), nothing ever re-validated it —
+  `runExploreGoal()`'s JUMP phase just retried the same `jumpShip()` call
+  forever. It now catches a jump rejection, calls the new
+  `GalaxyAtlas.recordGateNotComplete()` (the one deliberate exception to
+  the cache's one-way design — a live rejection is stronger evidence
+  than any cached guess) to correct the cache immediately, and abandons
+  the goal so the fleet re-decides next pass. Also fixed a related bug
+  found while tracing this: `exploringShips` only ever gained entries —
+  nothing removed a ship from it once its trip ended (success *or*
+  failure), so any ship that had ever auto-explored once was
+  permanently benched from being picked again for the rest of the
+  process's life. `autoExplore()` now reconciles it against each ship's
+  actual current intent on every pass.
 - `sellShip()` now re-fetches the ship live instead of trusting its agent's
   cached snapshot before picking a scrap yard — that cache only refreshes
   on the agent's own tick cadence, so a ship whose agent hadn't ticked

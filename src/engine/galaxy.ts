@@ -1,4 +1,5 @@
 import type { SpaceTradersAPI } from "../core/client.js";
+import { APIError } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 
@@ -229,13 +230,48 @@ export class GalaxyAtlas {
       this.gateConstruction.set(gateSymbol, complete);
       this.store?.recordGalaxyGateConstruction?.(gateSymbol, complete)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
       return complete;
-    } catch {
-      // No construction record: the gate is already built (pre-existing
-      // gates were never under construction in the first place).
-      this.gateConstruction.set(gateSymbol, true);
-      this.store?.recordGalaxyGateConstruction?.(gateSymbol, true)?.catch(() => { /* best-effort — see above */ });
-      return true;
+    } catch (err) {
+      // A 404 here specifically means "no construction record" — the gate
+      // is already built (pre-existing gates were never under construction
+      // in the first place). Any *other* error (a rate limit, a 5xx, a
+      // dropped connection) is not evidence of anything about the gate, and
+      // must not be cached as "complete": this cache is one-way by design
+      // (never reverts true → false), so caching a transient error as
+      // "complete" would permanently lie about a gate that's genuinely
+      // still under construction — every future canJump() for it would
+      // wrongly read true, and every ship sent through it would fail the
+      // live API's real check forever, with no self-healing possible.
+      // Confirmed live: X1-XB94-I55 read as complete/jumpable from this
+      // cache while the live API kept rejecting the jump as still under
+      // construction. Leaving the status unset here means the next
+      // refreshAllGateConstruction() sweep just retries it.
+      if (err instanceof APIError && err.status === 404) {
+        this.gateConstruction.set(gateSymbol, true);
+        this.store?.recordGalaxyGateConstruction?.(gateSymbol, true)?.catch(() => { /* best-effort — see above */ });
+        return true;
+      }
+      return false;
     }
+  }
+
+  /**
+   * Override a gate's cached construction status to "not complete" on
+   * direct, live evidence — a real jumpShip() call just came back rejected
+   * as "under construction". This is the one deliberate exception to the
+   * cache's one-way (never true → false) design: that invariant protects
+   * against a routine background refreshGateConstruction() sweep flip-
+   * flopping the cache on a stale read, but a live rejection is stronger
+   * evidence than any cached guess, complete=true included, and the cache
+   * needs *some* way to recover once it's wrong — otherwise a gate mis-
+   * cached as complete (see refreshGateConstruction()'s own comment on how
+   * that can happen) stays wrongly "jumpable" forever, with every ship ever
+   * sent through it failing the same live rejection on repeat. Confirmed
+   * live: X1-XB94-I55 read as complete/jumpable from this cache while the
+   * live API kept rejecting the jump.
+   */
+  recordGateNotComplete(gateSymbol: string): void {
+    this.gateConstruction.set(gateSymbol, false);
+    this.store?.recordGalaxyGateConstruction?.(gateSymbol, false)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
   }
 
   /** Seed the in-memory gate-construction cache from every check any tenant

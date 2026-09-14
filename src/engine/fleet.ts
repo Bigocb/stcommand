@@ -5841,6 +5841,16 @@ export class FleetManager {
     // just kept going, with no distinguishing log line to tell the two
     // apart from the outside.
     if (this.explorersShouldPark()) return;
+    // exploringShips only ever gained entries — nothing removed one once its
+    // trip finished (success or failure alike), so any ship that had ever
+    // auto-explored once was permanently benched from doing it again for the
+    // rest of the process's life. runExploreGoal() always calls forgetIntent()
+    // when a trip ends (DONE phase, or now a failed jump — see its own
+    // comment), which clears the ship's committed intent; reconciling against
+    // that here is what actually frees the ship back up.
+    for (const sym of this.exploringShips) {
+      if (this.intents.current(sym)?.goal.kind !== "explore") this.exploringShips.delete(sym);
+    }
     // Survey connected systems occasionally, sending an idle trader to scout them.
     const knownSystems = this.galaxy.listSystems().map((s) => s.symbol);
     // Reachable *right now*, not just topologically connected: a system whose

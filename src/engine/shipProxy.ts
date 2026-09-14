@@ -11,6 +11,25 @@ export type Ship = components["schemas"]["Ship"];
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Thrown by navigateTo() when the ship has 0 fuel and is not standing at a
+ * market — the live API requires at least 1 fuel unit to move at all, even
+ * in DRIFT, regardless of distance, so this is not a call worth making: it
+ * is guaranteed to fail. Distinguishing it from a plain navigate rejection
+ * lets a fleet-driven-goal executor (repair/scrap/hold/explore's GATE leg)
+ * give up gracefully instead of retrying the identical doomed call on every
+ * scheduler tick forever. Confirmed live: a ship mid-scrap with 0 fuel and
+ * findFuelStop() itself unreachable (a stop findFuelStop() picked from that
+ * same 0 current fuel is, by definition, exactly as unreachable) retried
+ * "requires 1 more fuel for navigation" every ~13s for hours.
+ */
+export class StrandedError extends Error {
+  constructor(shipSymbol: string) {
+    super(`${shipSymbol} has 0 fuel and is not at a market — cannot navigate`);
+    this.name = "StrandedError";
+  }
+}
+
 export interface ShipProxyOptions {
   api: SpaceTradersAPI;
   registry: Registry;
@@ -295,6 +314,19 @@ export class ShipProxy {
     // the waypoint we just confirmed we are standing on.
     if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") return;
 
+    // 0 fuel and not at a market: not even DRIFT can move this ship one
+    // step, at any distance — the live API requires at least 1 fuel unit
+    // regardless of mode. findFuelStop() below would only ever suggest a
+    // stop computed from this exact same 0 current fuel, which is by
+    // definition just as unreachable, so there's no route to compute here.
+    // Throwing StrandedError instead of attempting navigate anyway lets the
+    // caller give up gracefully rather than retrying an identical doomed
+    // API call every tick — confirmed live, a ship mid-scrap did exactly
+    // that, "requires 1 more fuel for navigation", every ~13s for hours.
+    if (this.ship.fuel.capacity > 0 && this.ship.fuel.current <= 0 && !this.registry.isMarket(this.ship.nav.waypointSymbol)) {
+      throw new StrandedError(this.ship.symbol);
+    }
+
     // A direct leg that would need more fuel than the tank holds now flies in
     // DRIFT for its whole length — sometimes hours for what a refuel stop
     // would cover in two ordinary CRUISE hops. Reroute through a stop when
@@ -501,19 +533,38 @@ export class ShipProxy {
    */
   async runFleetDrivenGoal(intent: ShipIntent | undefined, currentIntent: () => ShipIntent | undefined): Promise<boolean | undefined> {
     if (!intent) return undefined;
-    switch (intent.goal.kind) {
-      case "repair":
-        return this.runRepairGoal(intent, currentIntent);
-      case "scrap":
-        return this.runScrapGoal(intent, currentIntent);
-      case "hold":
-        return intent.goal.waypoint ? this.runHoldGoal(intent, currentIntent) : undefined;
-      case "explore":
-        return this.runExploreGoal(intent, currentIntent);
-      case "tender":
-        return this.runTenderGoal(intent, currentIntent);
-      default:
-        return undefined;
+    try {
+      switch (intent.goal.kind) {
+        case "repair":
+          return await this.runRepairGoal(intent, currentIntent);
+        case "scrap":
+          return await this.runScrapGoal(intent, currentIntent);
+        case "hold":
+          return intent.goal.waypoint ? await this.runHoldGoal(intent, currentIntent) : undefined;
+        case "explore":
+          return await this.runExploreGoal(intent, currentIntent);
+        case "tender":
+          return await this.runTenderGoal(intent, currentIntent);
+        default:
+          return undefined;
+      }
+    } catch (err) {
+      // A fleet-driven goal (repair/scrap/hold/explore's GATE leg/tender)
+      // routes every movement through navigateTo(), which throws
+      // StrandedError instead of attempting a navigate call it already
+      // knows will fail (0 fuel, not at a market). Without this catch, that
+      // exception just propagated to the generic scheduler error logger and
+      // the identical doomed goal got retried next tick regardless — this
+      // is what kept a ship mid-scrap retrying "requires 1 more fuel" every
+      // ~13s for hours. getStrandedShips() derives its own answer straight
+      // from live ship state (see its own comment), independent of this
+      // goal ever running again, so there's nothing more useful to do this
+      // tick than report it and back off like any other no-op.
+      if (err instanceof StrandedError) {
+        this.log(`${intent.goal.kind}: ${err.message} — waiting for a fuel rescue`);
+        return false;
+      }
+      throw err;
     }
   }
 
@@ -726,7 +777,26 @@ export class ShipProxy {
       await this.refresh();
       await this.waitCooldown();
       this.log(`explore: jumping to ${intent.goal.system} via ${intent.goal.remoteGate}`);
-      const jumpRes = await this.api.jumpShip(this.ship.symbol, intent.goal.remoteGate);
+      let jumpRes;
+      try {
+        jumpRes = await this.api.jumpShip(this.ship.symbol, intent.goal.remoteGate);
+      } catch (err) {
+        // The departure gate turned out not to be usable after all —
+        // most likely its cached construction status was stale (see
+        // GalaxyAtlas.refreshGateConstruction()'s own comment on how that
+        // cache could get poisoned). Retrying the identical jump every
+        // tick forever achieves nothing: confirmed live, THEO-C retried
+        // this exact doomed jump every ~11s for hours. Correct the cache
+        // with this live, authoritative rejection and abandon the goal so
+        // the fleet re-decides next pass instead of hammering the same
+        // gate — canJump() will exclude it going forward.
+        this.galaxy?.recordGateNotComplete(intent.goal.gate);
+        this.explorePhase.delete(key);
+        this.exploreMarketIndex.delete(key);
+        this.log(`explore: jump to ${intent.goal.system} via ${intent.goal.remoteGate} failed, abandoning: ${err instanceof Error ? err.message : String(err)}`);
+        this.done?.();
+        return false;
+      }
       // The only jump path that never fed the learned-cost cache — trader.ts's
       // and fleet.ts's own jump calls both record here, but every tour ship
       // and explorer goes through this shared explore path instead, so a real

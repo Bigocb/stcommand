@@ -7,6 +7,20 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Why doesn't the fuel-tender rescue ever reach a ship stranded
+  mid-fleet-driven-goal?** Found 2026-09-14 investigating why THEO's
+  overnight credit balance was flat: THEO-4 and THEO-9 (both mid-scrap,
+  0 fuel, not at a market) sat stranded for hours. `getStrandedShips()`
+  derives stranded status independently from live ship state (not
+  intent-gated), so it should have flagged both — the `fleet-rescue`
+  scheduler task ran every cycle the whole time — but no "ferrying Nu
+  FUEL..." log line ever appeared for either ship. `StrandedError`
+  (shipped same day, see CHANGELOG) stops the wasted retry loop these
+  two ships were stuck in, but doesn't explain why `makeRescuePlan()`
+  never produced a plan for them in the first place — that needs tracing
+  into `rescueFailures`/`makeRescuePlan()` directly, ideally with live
+  DB/dashboard access rather than log archaeology alone.
+
 - [ ] **Wire crawled_waypoints into an actual map view.** Shipped
   2026-09-13: `GalaxyCrawler.crawlSystemsPage()` persists each system's
   public waypoint layout (`Store.mergeSystemWaypoints()`, migrations/020)
