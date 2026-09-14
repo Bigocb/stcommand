@@ -396,6 +396,10 @@ function renderSheet(row) {
  *  same fields desktop's ship-detail sheet shows, condensed into one
  *  scrollable block rather than desktop's row of sub-tabs (see
  *  docs/mobile-app-design.md: rarer detail lives behind one link here). */
+function roleLabel(role) {
+  return String(role).split("_").map((w) => w[0] + w.slice(1).toLowerCase()).join(" ");
+}
+
 function renderShipDetails(shipSymbol) {
   const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
   if (!ship) return "";
@@ -405,8 +409,12 @@ function renderShipDetails(shipSymbol) {
   const mounts = ship.mounts ?? [];
   const cargoComps = cargo.filter((i) => i.symbol.startsWith("MODULE_") || i.symbol.startsWith("MOUNT_"));
 
+  const role = ship.registration?.role;
+  const capacity = ship.cargo?.capacity ?? 0;
+
   return `<div class="ship-details">
-    <div class="dtl-h">Cargo hold</div>
+    ${role ? `<div class="detail-row"><span>Type</span><span class="d">${escapeHtml(roleLabel(role))}</span></div>` : ""}
+    <div class="dtl-h">Cargo hold ${ship.cargo?.units ?? 0}/${capacity}</div>
     ${cargo.length
       ? cargo.map((i) => `<div class="detail-row"><span>${i.units}u ${escapeHtml(i.symbol)}</span><button class="btn deny" data-act="jettison" data-good="${escapeHtml(i.symbol)}" data-units="${i.units}">Jettison</button></div>`).join("")
       : '<div class="empty">Hold is empty.</div>'}

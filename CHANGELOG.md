@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Fix a paused construction mission silently un-pausing itself across a
+  restart. `MissionManager.persist()` wrote the DB row's `paused` column
+  from a flag passed in at each call site, defaulting to `false` when
+  omitted — but `tick()`'s periodic `reconcile()` (which keeps a paused
+  mission's material counts fresh even while paused, on its own slow
+  cadence) called `persist(mission)` without ever passing that flag, so
+  every reconcile of a paused mission quietly wrote the DB row back to
+  unpaused while it stayed correctly paused in memory. The next restart
+  read that stale row and resumed the mission on its own — no operator
+  action, no log line admitting it. Confirmed live: tenant `bfc926dc`'s
+  `X1-XB94-I55` mission (paused 2026-09-14 03:32, released THEO-B) came
+  back resumed and buying FAB_MATS again at 11:49, the first restart
+  whose only intervening `persist()` call was `reconcile()`'s. Fixed by
+  having `persist()` always derive `paused` from the live `this.paused`
+  Set instead of trusting a per-call flag, so every persist reflects
+  the true in-memory state.
 - Tower's More tab gains an Activity section — sells, buys, repairs,
   scraps, jumps, mission/contract events, warehouse moves, and the
   like, reusing the same `activity` store slice and `/api/activity`

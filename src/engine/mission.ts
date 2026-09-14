@@ -323,7 +323,7 @@ export class MissionManager {
       mission.assignedShip = undefined;
     }
     this.tasks.delete(waypointSymbol);
-    await this.persist({ ...mission, paused: true });
+    await this.persist(mission);
   }
 
   /** Resume a paused mission. */
@@ -332,7 +332,7 @@ export class MissionManager {
     const mission = this.active.get(waypointSymbol);
     if (mission) {
       this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
-      await this.persist({ ...mission, paused: false });
+      await this.persist(mission);
       this.log(`mission ${waypointSymbol}: resumed`);
     }
   }
@@ -662,7 +662,18 @@ export class MissionManager {
     await this.persist(mission);
   }
 
-  private async persist(m: Mission & { paused?: boolean }): Promise<void> {
+  // Always derives `paused` from the live this.paused Set rather than
+  // trusting a flag on the call site: reconcile() persists a paused
+  // mission's refreshed material counts on its slow cadence without ever
+  // passing paused explicitly, and the store layer defaults a missing
+  // flag to false — so that path was silently writing the mission back
+  // to the DB as unpaused while it stayed correctly paused in memory.
+  // The next restart then read that stale unpaused row and resumed the
+  // mission on its own. Confirmed live: bfc926dc's X1-XB94-I55 mission
+  // (paused 2026-09-14T03:32) came back resumed, un-paused, at 11:49 —
+  // the first restart after that pause whose only persist() call in
+  // between was reconcile()'s.
+  private async persist(m: Mission): Promise<void> {
     if (!this.tenantId) return;
     await this.store?.recordMission(this.tenantId, {
       kind: m.kind,
@@ -671,7 +682,7 @@ export class MissionManager {
       status: m.status,
       assignedShip: m.assignedShip,
       materials: m.materials,
-      paused: m.paused,
+      paused: this.paused.has(m.targetWaypoint),
     });
   }
 }
