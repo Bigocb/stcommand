@@ -83,10 +83,10 @@ export interface TraderOptions {
   /** Give up this trader's claim so a fleetmate can take the good. */
   releaseRoute?: () => void;
   /** Tell the dispatcher a sale just landed at this (good, sellAt) pair, so
-   *  it can deprioritize re-offering the identical leg to another idle
-   *  trader before the price it just moved has had a chance to recover —
-   *  see RouteDispatcher.recordSale()'s own comment. */
-  recordSale?: (good: string, sellAt: string) => void;
+   *  it can weigh how much the fleet has already sold into this exact
+   *  market recently before offering it (or a competing market) to another
+   *  idle trader — see RouteDispatcher.recordSale()'s own comment. */
+  recordSale?: (good: string, sellAt: string, units: number) => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
   /** Apply the cash floor to a balance — `fleet.spendableCredits(live)`.
@@ -1466,7 +1466,7 @@ export class TraderAgent {
           total: sold.transaction.totalPrice,
         });
         this.onActivity?.("sell", `${lot}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt}`, sold.transaction.totalPrice, this.symbol);
-        this.recordSale?.(item.symbol, leg.sellAt);
+        this.recordSale?.(item.symbol, leg.sellAt, lot);
         remaining -= lot;
         soldAny += lot;
         totalReceived += sold.transaction.totalPrice;
@@ -1761,7 +1761,7 @@ export class TraderAgent {
     });
     this.log(`sold ${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`);
     this.onActivity?.("sell", `${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`, sold.transaction.totalPrice, this.symbol);
-    this.recordSale?.(assigned.good, sellAt);
+    this.recordSale?.(assigned.good, sellAt, withdrawn.units);
     return true;
   }
 

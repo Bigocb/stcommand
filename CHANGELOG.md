@@ -11,6 +11,31 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Replace the flat 10-minute sale cooldown with graduated, volume-based
+  route scoring. Confirmed live: THEO's fleet ran up 3.6M credits in
+  ~30 minutes system-wide, then every route in the system went to zero
+  profit at once — a per-route cooldown only reacts *after* a specific
+  route is sold into, so a burst spread thin across many routes never
+  individually triggers it, even though the fleet's own volume is what
+  crashed the whole market. `RouteDispatcher.recordSale(good, sellAt,
+  units)` now tracks recent sold volume per market (30-minute rolling
+  window) and `scoreRoute()` discounts a route's ranking — not its real,
+  displayed profitPerTrip — proportionally to how much of a full trip's
+  worth of volume the fleet has already dumped there recently. Selling
+  roughly one trip's worth halves a route's score, two trips' worth
+  thirds it, and so on, so the dispatcher naturally spreads trades
+  across markets *before* a price actually collapses, and a market's
+  fatigue fades smoothly as the window ages sales out rather than
+  snapping back all at once at a fixed cooldown expiry. A heavily-sold
+  route still wins if it's the only one for its good. Also closes a gap
+  the first pass of this change introduced: the existing "second
+  trader, different market" fallback pushed its own work item at the
+  route's raw, undiscounted profit, which could out-rank the
+  now-deprioritized primary pick in the final cross-good sort and
+  silently undo the whole adjustment for a single-trader case — both
+  direct-route ranking figures are now decayed consistently. Four new
+  tests in `tests/dispatcher.test.ts` cover the decay, its recovery
+  over time, and the single-route-survives-fatigue case.
 - Fix two idle traders getting assigned the identical route while one was
   already flying it. Confirmed live: THEO-B was mid-haul on CLOTHING
   X1-XB94-K87 -> X1-XB94-A1 (bought, in flight, not yet sold) when the very

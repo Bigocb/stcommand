@@ -334,3 +334,55 @@ describe("RouteDispatcher: idle traders and sell-market spreading", () => {
     assert.deepEqual(assigned.map((a) => a.sellAt).sort(), ["X1-A-M1", "X1-A-M2"]);
   });
 });
+
+describe("RouteDispatcher: recordSale() decays a market's ranking, not just a flat cooldown", () => {
+  const route = (good: string, sellAt: string, profit: number, volume = 40, buyAt = "X1-A-BUY") => ({
+    good, buyAt, buySystem: "X1-A", buyPrice: 100,
+    sellAt, sellSystem: "X1-A", sellPrice: 100 + profit,
+    volume, lotSize: volume, distance: 10, fuelUnits: 10, fuelCost: 0,
+    profitPerTrip: profit, ageMinutes: 1,
+  });
+
+  it("prefers a fresher, lower-profit market over one it just dumped a full trip's worth of volume into", (t) => {
+    // Confirmed live: THEO's fleet ran up 3.6M credits in ~30 minutes
+    // system-wide and every route went to zero profit at once — a flat
+    // per-route cooldown only reacts once a specific route is sold into,
+    // it doesn't discourage the fleet from converging on a market before
+    // that. Here M1 (900/trip) has already absorbed a full 40u trip; M2
+    // (700/trip, nominally worse) hasn't been touched, so the decayed
+    // score should flip the ranking even though the raw numbers wouldn't.
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    d.recordSale("IRON", "X1-A-M1", 40);
+    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700)], [{ shipSymbol: "T1", capacity: 40 }]);
+    const [only] = d.list();
+    assert.equal(only!.sellAt, "X1-A-M2", "the untouched market wins despite the lower on-paper profit");
+  });
+
+  it("a route with no recent sales into it ranks by its own real profitPerTrip, unaffected", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700)], [{ shipSymbol: "T1", capacity: 40 }]);
+    const [only] = d.list();
+    assert.equal(only!.sellAt, "X1-A-M1");
+    assert.equal(only!.profitPerTrip, 900, "the assignment's displayed profit is the real figure, never discounted");
+  });
+
+  it("a market's fatigue fades once the recent-sales window ages the volume out", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    d.recordSale("IRON", "X1-A-M1", 40);
+    t.mock.timers.tick(30 * 60_000 + 1); // past the volume-tracking window
+    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700)], [{ shipSymbol: "T1", capacity: 40 }]);
+    const [only] = d.list();
+    assert.equal(only!.sellAt, "X1-A-M1", "old sales no longer count against the market once they've aged out");
+  });
+
+  it("a heavily-sold route still wins if it's the only one for its good", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    d.recordSale("IRON", "X1-A-M1", 400); // ten trips' worth
+    d.recompute([route("IRON", "X1-A-M1", 900)], [{ shipSymbol: "T1", capacity: 40 }]);
+    assert.equal(d.list().length, 1, "no trader sits idle just because the only route is fatigued");
+  });
+});

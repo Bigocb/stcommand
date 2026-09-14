@@ -186,8 +186,17 @@ export interface ContractBuyTarget {
  * (SpaceTraders prices recover over real time, not instantly), short
  * enough that a route that's actually still the best one available isn't
  * needlessly starved.
+ *
+ * Superseded by the volume-decay scoring below (see recordSale()'s own
+ * comment): a flat cooldown only reacts *after* a route has already been
+ * sold into once, which stopped one immediate re-sale but did nothing
+ * about a whole fleet converging on the same handful of markets over a
+ * burst of trading — confirmed live, THEO's fleet ran up 3.6M credits in
+ * ~30 minutes system-wide and every route in the system went to zero at
+ * once, well before any single route's 10-minute cooldown would have
+ * fired. Kept only as the window length for the decay below.
  */
-const SALE_COOLDOWN_MS = 10 * 60_000;
+const VOLUME_WINDOW_MS = 30 * 60_000;
 
 export class RouteDispatcher {
   private assignments = new Map<string, TraderAssignment>();
@@ -195,24 +204,59 @@ export class RouteDispatcher {
   /** The ranked route list from the last recompute, used to serve live claims. */
   private routes: DispatchRoute[] = [];
   private lastComputed = 0;
-  /** (good, sellAt) → when a trader last actually sold there. Confirmed
-   *  live: THEO-1 sold 40u ELECTRONICS at X1-XB94-D43 for 35,900c; the very
-   *  next idle trader (THEO-A) was hedged the identical "best" route 8
-   *  minutes later and got 20,800c for the same 40 units — the sale that
-   *  just happened isn't reflected in profitPerTrip fast enough to stop the
-   *  next trader walking into the price it just crashed. See recordSale(). */
-  private readonly recentSales = new Map<string, number>();
+  /** (good, sellAt) → recent real sales into that market, each as the units
+   *  moved and when. Confirmed live twice: THEO-1 sold 40u ELECTRONICS at
+   *  X1-XB94-D43 for 35,900c; the very next idle trader (THEO-A) was handed
+   *  the identical "best" route 8 minutes later and got 20,800c for the
+   *  same 40 units. Then, after a flat per-route cooldown closed that
+   *  specific hole, the fleet ran up 3.6M credits system-wide in ~30
+   *  minutes and every route in the system went to zero profit at once —
+   *  a cooldown only reacts after a route is sold into once; it does
+   *  nothing about a burst spread across many routes that individually
+   *  never triggered it. See recordSale() and scoreRoute(). */
+  private readonly recentSales = new Map<string, { units: number; at: number }[]>();
 
   /** Called by a trader right after a real sell transaction completes, so
-   *  the next recompute can deprioritize re-offering the same leg before
-   *  the price has had a chance to recover — see SALE_COOLDOWN_MS. */
-  recordSale(good: string, sellAt: string): void {
-    this.recentSales.set(`${good}@${sellAt}`, Date.now());
+   *  the next recompute can weigh how much the fleet has already sold into
+   *  this exact market recently — see scoreRoute(). */
+  recordSale(good: string, sellAt: string, units: number): void {
+    const key = `${good}@${sellAt}`;
+    const list = this.recentSales.get(key) ?? [];
+    list.push({ units, at: Date.now() });
+    this.recentSales.set(key, list);
   }
 
-  private onSaleCooldown(good: string, sellAt: string): boolean {
-    const at = this.recentSales.get(`${good}@${sellAt}`);
-    return at !== undefined && Date.now() - at < SALE_COOLDOWN_MS;
+  /** Units sold into this (good, sellAt) market within the recent window.
+   *  Prunes anything older as a side effect, so a market's fatigue fades
+   *  away on its own as the window ages sales out, rather than snapping
+   *  back all at once the way a flat cooldown's expiry did. */
+  private recentVolume(good: string, sellAt: string): number {
+    const key = `${good}@${sellAt}`;
+    const list = this.recentSales.get(key);
+    if (!list) return 0;
+    const cutoff = Date.now() - VOLUME_WINDOW_MS;
+    const fresh = list.filter((s) => s.at >= cutoff);
+    if (fresh.length !== list.length) {
+      if (fresh.length) this.recentSales.set(key, fresh);
+      else this.recentSales.delete(key);
+    }
+    return fresh.reduce((sum, s) => sum + s.units, 0);
+  }
+
+  /** A route's ranking score: its real profitPerTrip, discounted by how
+   *  much volume the fleet has already dumped into this exact market
+   *  recently, relative to the route's own trip size. Selling roughly one
+   *  trip's worth of extra volume into a market halves its score, two
+   *  trips' worth thirds it, and so on — a graduated version of the old
+   *  binary cooldown that lets the dispatcher spread trades across markets
+   *  *before* a price actually craters, not just react once it has.
+   *  `route.profitPerTrip` itself is left untouched — this only changes
+   *  ranking order, not the number shown on the dashboard or handed to
+   *  toAssignment(). */
+  private scoreRoute(route: DispatchRoute): number {
+    const sold = this.recentVolume(route.good, route.sellAt);
+    if (sold <= 0) return route.profitPerTrip;
+    return route.profitPerTrip / (1 + sold / Math.max(route.volume, 1));
   }
 
   /** Routes a single trader should fly, honoring a manual override if set. */
@@ -444,19 +488,17 @@ export class RouteDispatcher {
     // window-function scan over the snapshot table each time.
     if (now - this.lastComputed < 60_000) return;
     this.lastComputed = now;
-    // Stable resort: routes on cooldown sink behind every route that isn't,
-    // preserving relative profit order within each tier — so a cooling-down
-    // route still wins if it's literally the only one for its good (no
-    // trader sits idle over it), but loses to any real alternative, cooled
-    // or not, that ranks lower on paper but hasn't just been sold into.
-    // Reassigning the parameter itself (not just this.routes) matters: the
-    // per-good selection loops below read `routes` directly, not
-    // `this.routes` — this.routes only backs claim()'s own direct reads.
-    routes = [...routes].sort((a, b) => {
-      const aCooling = this.onSaleCooldown(a.good, a.sellAt) ? 1 : 0;
-      const bCooling = this.onSaleCooldown(b.good, b.sellAt) ? 1 : 0;
-      return aCooling - bCooling;
-    });
+    // Resort by decayed score rather than raw profitPerTrip: a route the
+    // fleet has been leaning on recently sinks behind a fresher alternative
+    // for the same good, even if its on-paper profit is still nominally
+    // higher (last-known price, not yet refreshed) — see scoreRoute()'s own
+    // comment. A heavily-sold route still wins if it's literally the only
+    // one for its good (no trader sits idle over it), since nothing else
+    // scores higher. Reassigning the parameter itself (not just
+    // this.routes) matters: the per-good selection loops below read
+    // `routes` directly, not `this.routes` — this.routes only backs
+    // claim()'s own direct reads.
+    routes = [...routes].sort((a, b) => this.scoreRoute(b) - this.scoreRoute(a));
     this.routes = routes;
 
     const sorted = [...traders].sort((a, b) => b.capacity - a.capacity);
@@ -559,7 +601,15 @@ export class RouteDispatcher {
         // "different market" loop below still gets a chance at this good —
         // it doesn't depend on a work item existing here.
         if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) continue;
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
+        // Decayed score for ranking against every other work item this
+        // cycle (buy/sell/haul/contractBuy/other goods), not route's raw
+        // profitPerTrip — otherwise a fatigued market's "second trader,
+        // different market" fallback below can still out-rank this pick at
+        // its own undiscounted number and win the trader anyway, quietly
+        // undoing the whole point of resorting `routes` above. toAssignment()
+        // below still builds the displayed TraderAssignment from the route's
+        // real profitPerTrip — only this ranking figure is adjusted.
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance > target.target) {
@@ -602,7 +652,8 @@ export class RouteDispatcher {
       if (taken?.has(route.sellAt)) continue; // that market is already being sold into
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
+      // Decayed score here too — see the primary-loop push's own comment.
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
