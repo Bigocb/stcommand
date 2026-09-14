@@ -11,6 +11,18 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Cartography: click-a-system side panel.** Clicking a dot on the
+  public `/cartography` galaxy map now opens a slide-in panel with that
+  system's sector/type, waypoint count and type breakdown, and any known
+  jump-gate connections (each clickable to re-center the map on the
+  destination system). New `GET /api/cartography/systems/:symbol`
+  (`Store.getGalaxySystemDetail()`) reads tenant-scanned `waypoints` when
+  available, falling back to the background crawler's `crawledWaypoints`
+  only when a system hasn't been visited by any tenant yet — the two are
+  never merged. This was scoped in `docs/TODO.md` on 2026-09-14 and
+  shipped the same day (`b72fec4`); logging it here since it went
+  straight into a commit without a changelog entry at the time. Map dots
+  themselves stay system-granularity — no per-waypoint markers yet.
 - Fix a paused construction mission silently un-pausing itself across a
   restart. `MissionManager.persist()` wrote the DB row's `paused` column
   from a flag passed in at each call site, defaulting to `false` when

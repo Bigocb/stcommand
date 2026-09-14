@@ -43,52 +43,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   **Still not done**: nothing renders any of this yet. The public
   cartography page (`GET /api/cartography/systems`) only ever draws one
   dot per *system* (`listGalaxySystemPositions()`), never per-waypoint
-  detail or jump-gate connections learned by the Phase C sweep specifically
-  (though scanned tenant gates already show as connection lines); Tower's
-  Map and desktop's galaxy view both read a tenant's own `GalaxyAtlas
-  .listSystems()` (in-memory, tenant-scan-only), not this shared DB column
-  at all. See "Cartography: click-a-system side panel" below for the
-  concrete next step this unblocks.
-
-- [ ] **Cartography: click-a-system side panel.** Spec'd 2026-09-14, not
-  built. `public/cartography.html`'s galaxy map (an inline SVG, one
-  `<circle>` per system, `dotsBySymbol` map) currently only wires
-  `mousemove`/`mouseleave` on each dot for a hover tooltip — no click
-  handler exists. Plan:
-  - New endpoint `GET /api/cartography/systems/:symbol` in
-    `src/http/cartography.ts`, backed by a new `Store` method that reads
-    one `galaxy_systems` row and shapes a response using `waypoints` when
-    non-empty (tenant-scanned, trait-complete) and falling back to
-    `crawledWaypoints` only when `waypoints` is empty (never merge the
-    two — see `mergeSystemWaypoints()`'s own comment on why they're
-    separate columns). Response: system symbol/sector/type/coords,
-    waypoint count, counts by type (asteroid/gas giant/moon/etc, whatever
-    `crawledWaypoints`/`waypoints` entries carry), any known jump gate(s)
-    and their resolved `connections` (from `jump_gates`), and an
-    `explored`/`crawledOnly`/`unknown` status flag so the panel can be
-    honest about which tier of data it's showing.
-  - Frontend: a `<circle>` `click` listener (added alongside the existing
-    `mousemove` one in `renderMap()`) calls a new `openSystemPanel(symbol)`
-    that fetches the new endpoint and fills a new `<aside id="system-panel">`
-    slid in from the right (CSS-only slide/hide, same `hidden`-attribute
-    pattern already used elsewhere in this codebase — remember to give it
-    an explicit `#system-panel[hidden]{display:none}` override per the
-    `[hidden]`-vs-`display` bug class already hit once this session, since
-    the panel needs a non-`none` `display` when shown). Panel shows: header
-    (symbol + type + sector), a small stat row (waypoint count, gate
-    count, explored/crawled-only badge), a waypoint-type breakdown, and —
-    if any gate connections are known — a short "connects to" list, each
-    entry clickable to re-center the map on that system (reuses
-    `focusOnSystem()`). A close (✕) button and clicking the backdrop/map
-    background both close it; opening a new system while one is open just
-    re-fills it in place rather than closing/reopening.
-  - Given this is a public, no-login page, no new auth surface is needed;
-    the new endpoint is exactly as public as the existing ones in the same
-    router.
-  - Not scoped in this pass: editing/annotating a system from the panel,
-    or surfacing per-waypoint (not just per-system) detail — the "click a
-    dot" affordance here is system-granularity only, matching what the map
-    already renders one dot per.
+  detail directly on the map itself — clicking a dot now opens a side
+  panel with per-system waypoint/gate detail (shipped 2026-09-14, see
+  CHANGELOG), but the map's dots themselves stay system-granularity.
+  Jump-gate connections learned by the Phase C sweep specifically (as
+  opposed to scanned tenant gates, which already show as connection
+  lines) still aren't drawn. Tower's Map and desktop's galaxy view both
+  read a tenant's own `GalaxyAtlas.listSystems()` (in-memory,
+  tenant-scan-only), not this shared DB column at all.
 
 - [ ] **Set up the A/B tenants once play-style tracking ships.** Operator
   plan 2026-09-13: THEO-2 as the "manual intervention" arm, compared
