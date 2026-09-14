@@ -144,6 +144,14 @@ export class GalaxyCrawler {
       this.totalSystems = total;
       for (const sys of batch) {
         await this.store.setGalaxySystemMeta(sys.symbol, sys.sectorSymbol, sys.type, sys.x, sys.y);
+        // Free data: GET /systems already embeds every system's waypoints
+        // (symbol/type/x/y/orbitals — no traits, those need charting) in
+        // the same response this page fetch already paid for. Persisting
+        // it here means the cartography/Tower map shows a system's real
+        // waypoint layout — including which dots are jump gates — the
+        // moment the crawler passes over it, with no separate per-system
+        // waypoint pass required.
+        if (sys.waypoints?.length) await this.store.mergeSystemWaypoints(sys.symbol, sys.waypoints);
       }
       if (state.page % 25 === 1) {
         this.recordActivity(`Scanning page ${state.page} of ~${Math.ceil(total / 20)} (${(state.page - 1) * 20} of ${total} systems so far)`);

@@ -1,0 +1,18 @@
+-- A separate column for the galaxy-wide crawler's own waypoint data (GET
+-- /systems already embeds each system's waypoints for free — see
+-- galaxyCrawler.ts's own comment on this), deliberately NOT sharing
+-- galaxy_systems.waypoints with GalaxyAtlas.loadSystem()'s tenant-scan
+-- cache.
+--
+-- loadSystem() treats any cached `waypoints` row with length > 0 as a
+-- fully-scanned system and casts it straight to the live API's Waypoint
+-- type (traits/chart/faction included) with no live fetch. The crawler's
+-- own data is the public-only SystemWaypoint shape — symbol/type/x/y/
+-- orbitals, no traits at all (SpaceTraders only reveals those once a
+-- waypoint is actually charted) — so writing it into that same column
+-- would hand a tenant's very first visit to that system a set of
+-- waypoints missing .traits entirely, and every trait check downstream
+-- (shipyard/marketplace detection, mount checks, ...) would throw the
+-- moment that tenant's own boot reached it. Nullable: null means the
+-- crawler hasn't reached this system yet.
+ALTER TABLE galaxy_systems ADD COLUMN IF NOT EXISTS crawled_waypoints jsonb;

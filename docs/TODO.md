@@ -7,6 +7,26 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Wire crawled_waypoints into an actual map view.** Shipped
+  2026-09-13: `GalaxyCrawler.crawlSystemsPage()` now persists each
+  system's public waypoint layout (`Store.mergeSystemWaypoints()`,
+  migrations/020) into its own `crawled_waypoints` column — free data
+  from a `GET /systems` call the crawler already makes, previously
+  discarded. **Not done yet**: nothing actually renders it. The public
+  cartography page (`GET /api/cartography/systems`) only ever draws one
+  dot per *system* (`listGalaxySystemPositions()`), never per-waypoint
+  detail; Tower's Map and desktop's galaxy view both read a tenant's own
+  `GalaxyAtlas.listSystems()` (in-memory, tenant-scan-only), not this
+  shared DB column at all. So the data is being captured correctly but
+  has no visible payoff yet — building an actual per-system waypoint view
+  fed by `crawledWaypoints` (falling back to it only where a tenant's
+  real `waypoints` is empty — never treat the two as interchangeable,
+  see `mergeSystemWaypoints()`'s own comment) is a distinct follow-up,
+  not scoped here. Phases B (decouple the crawler from any tenant's
+  authenticated client) and C (opportunistic jump-gate connection
+  discovery via the same public, chart-gated endpoint) from the same
+  design pass are also not built yet.
+
 - [ ] **Set up the A/B tenants once play-style tracking ships.** Operator
   plan 2026-09-13: THEO-2 as the "manual intervention" arm, compared
   against an unmodified-automation baseline tenant. **Profile labels

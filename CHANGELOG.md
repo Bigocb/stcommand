@@ -14,6 +14,44 @@ be useful context; not a complete project history — see `git log` for that.
 - Nothing pending yet — add entries here as work lands, then move them
   under a dated heading below on the next meaningful checkpoint.
 
+## 2026-09-13 (Galaxy crawler: stop discarding free per-system waypoint data)
+
+Verified live against the real SpaceTraders API (no token): `GET
+/systems` — which `GalaxyCrawler` already calls once per page for
+system-level metadata — embeds every system's full waypoint list
+(symbol/type/x/y/orbitals) in the same response. The crawler was
+discarding that array entirely and only persisting sector/type/x/y.
+
+- `migrations/020_galaxy_crawled_waypoints.sql` — new `crawled_waypoints`
+  column on `galaxy_systems`, deliberately **separate** from the existing
+  `waypoints` column. `GalaxyAtlas.loadSystem()` (the per-tenant boot
+  path) treats any non-empty `waypoints` row as a fully-scanned system
+  and casts it straight to the live API's `Waypoint` type (`.traits`
+  included) with zero live fetch — writing this public, trait-less data
+  there would have handed a tenant's very first visit to that system
+  waypoints missing `.traits` entirely, and every trait check downstream
+  (shipyard/marketplace detection, mount checks) would throw. Caught
+  before shipping, not after.
+- `src/db/store.ts` — `mergeSystemWaypoints()` (writes only
+  `crawled_waypoints`, leaves `waypoints`/`jump_gates` untouched);
+  `listGalaxySystems()` now also returns `crawledWaypoints`.
+- `src/engine/galaxyCrawler.ts` — `crawlSystemsPage()` now persists
+  `sys.waypoints` via the new method alongside the existing meta write.
+
+**Honest scope note**: this only captures the data — nothing renders it
+yet. The public cartography page draws one dot per *system*, never
+per-waypoint; Tower/desktop's galaxy views read a tenant's own in-memory
+`GalaxyAtlas`, not this shared column. Wiring an actual view is a
+separate follow-up (`docs/TODO.md`). The larger design (decoupling the
+crawler from any tenant's authenticated client, and opportunistic
+jump-gate connection discovery via the same public, chart-gated
+`.../jump-gate` endpoint) is also not built yet — this is Phase A of
+three only.
+
+Typechecked clean. Full test suite couldn't run against the remote test
+Postgres (`ETIMEDOUT`, same sandbox flakiness as earlier this session,
+retried twice).
+
 ## 2026-09-13 (System classifier + starter doctrine templates)
 
 Operator idea, following straight from the checkpoint's new system-

@@ -1399,6 +1399,34 @@ export class Store {
     });
   }
 
+  /**
+   * Upserts a system's waypoint layout from the galaxy-wide crawler's own
+   * `GET /systems` page fetch (galaxyCrawler.ts) — that response already
+   * embeds every system's waypoints (symbol/type/x/y/orbitals, no `traits`;
+   * SpaceTraders only reveals those once a waypoint is actually charted),
+   * so this is free data riding along on a call the crawler already makes,
+   * not a new one.
+   *
+   * Deliberately its own `crawled_waypoints` column (migrations/
+   * 020_galaxy_crawled_waypoints.sql), NOT the `waypoints` column
+   * setSystemTopology() writes: GalaxyAtlas.loadSystem() trusts any
+   * non-empty `waypoints` row as a fully-scanned system and casts it
+   * straight to the live API's Waypoint type (traits included) with no
+   * live fetch — writing this trait-less public data there would hand a
+   * tenant's very first visit to that system waypoints missing `.traits`
+   * entirely, and every trait check downstream would throw.
+   */
+  async mergeSystemWaypoints(systemSymbol: string, waypoints: unknown[]): Promise<void> {
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO galaxy_systems (system_symbol, waypoints, jump_gates, crawled_waypoints)
+         VALUES ($1, '[]'::jsonb, '[]'::jsonb, $2)
+         ON CONFLICT (system_symbol) DO UPDATE SET crawled_waypoints = excluded.crawled_waypoints`,
+        [systemSymbol, JSON.stringify(waypoints)],
+      ),
+    );
+  }
+
   /** Upserts a system's cached topology — called once after a live scan (waypoints only, jumpGates=[]) and again once jump gates are actually resolved. */
   async setSystemTopology(systemSymbol: string, waypoints: unknown[], jumpGates: unknown[]): Promise<void> {
     await withPool(this.pool, (c) =>
@@ -1434,22 +1462,27 @@ export class Store {
   }
 
   /** Every crawled system's metadata + however much topology is known for
-   *  it — the galaxy map's one read query. Waypoints/jump_gates come back
+   *  it — the galaxy map's one read query. `waypoints`/`jumpGates` come back
    *  as their raw jsonb (possibly `[]` if only the meta pass has reached
    *  this system so far), left untyped for the same reason
-   *  getSystemTopology() is. */
+   *  getSystemTopology() is. `crawledWaypoints` is the separate, trait-less
+   *  public data mergeSystemWaypoints() writes (positions/types only) — a
+   *  consumer that wants a system's shape even where no tenant has ever
+   *  charted it should fall back to this when `waypoints` is empty, never
+   *  treat the two as interchangeable (see mergeSystemWaypoints()'s own
+   *  comment on why they're separate columns at all). */
   async listGalaxySystems(): Promise<{
     systemSymbol: string; sectorSymbol: string | null; systemType: string | null;
-    x: number | null; y: number | null; waypoints: unknown[]; jumpGates: unknown[];
+    x: number | null; y: number | null; waypoints: unknown[]; jumpGates: unknown[]; crawledWaypoints: unknown[];
   }[]> {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{
         system_symbol: string; sector_symbol: string | null; system_type: string | null;
-        x: number | null; y: number | null; waypoints: unknown[]; jump_gates: unknown[];
-      }>(`SELECT system_symbol, sector_symbol, system_type, x, y, waypoints, jump_gates FROM galaxy_systems`);
+        x: number | null; y: number | null; waypoints: unknown[]; jump_gates: unknown[]; crawled_waypoints: unknown[] | null;
+      }>(`SELECT system_symbol, sector_symbol, system_type, x, y, waypoints, jump_gates, crawled_waypoints FROM galaxy_systems`);
       return res.rows.map((r) => ({
         systemSymbol: r.system_symbol, sectorSymbol: r.sector_symbol, systemType: r.system_type,
-        x: r.x, y: r.y, waypoints: r.waypoints, jumpGates: r.jump_gates,
+        x: r.x, y: r.y, waypoints: r.waypoints, jumpGates: r.jump_gates, crawledWaypoints: r.crawled_waypoints ?? [],
       }));
     });
   }
