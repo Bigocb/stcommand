@@ -480,6 +480,18 @@ export class RouteDispatcher {
     }
 
     // Carry forward every busy trader's current assignment, whatever its role.
+    //
+    // Also record each busy direct trader's (good, sellAt) so the *new* work
+    // built below can avoid handing the identical leg to a second, idle
+    // trader — confirmed live: THEO-B was mid-haul on CLOTHING X1-XB94-K87 ->
+    // X1-XB94-A1 (bought, in flight) when the very next recompute handed
+    // THEO-A the *same* CLOTHING/A1 route fresh. usedKeys alone doesn't catch
+    // this: it reserves the qualified `good@sellAt` key here, but the new
+    // "best route for this good" work item below is keyed on the bare good
+    // (no market qualifier — see its own comment), so the two keys never
+    // collide and nothing stopped a second trader from being freshly
+    // assigned the exact route the first was already flying.
+    const sellMarketsInUse = new Map<string, Set<string>>();
     for (const t of sorted) {
       if (!t.busy || this.manual.has(t.shipSymbol)) continue;
       const current = this.assignments.get(t.shipSymbol);
@@ -502,6 +514,9 @@ export class RouteDispatcher {
       const key = current.role === "direct" && current.sellAt ? `${current.good}@${current.sellAt}` : keyFor(current);
       usedKeys.add(key);
       next.set(t.shipSymbol, current);
+      if (current.role === "direct" && current.sellAt) {
+        (sellMarketsInUse.get(current.good) ?? sellMarketsInUse.set(current.good, new Set()).get(current.good)!).add(current.sellAt);
+      }
     }
 
     // Build this cycle's work list: one item per good with no warehouse
@@ -539,6 +554,11 @@ export class RouteDispatcher {
         // full minute on a route no trader could actually take, while the
         // dashboard shows it as "assigned" and profitable.
         if (route.buySystem !== route.sellSystem && !canJump(route.buySystem, route.sellSystem)) continue;
+        // A busy trader already flying this exact good into this exact
+        // market: don't hand a second trader the same leg. The secondary
+        // "different market" loop below still gets a chance at this good —
+        // it doesn't depend on a work item existing here.
+        if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) continue;
         work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
@@ -577,6 +597,7 @@ export class RouteDispatcher {
       if (route.buySystem !== route.sellSystem && !canJump(route.buySystem, route.sellSystem)) continue;
       const key = `${route.good}@${route.sellAt}`;
       if (emittedKeys.has(key)) continue;
+      if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) continue; // a busy trader already owns this market
       const taken = sellTaken.get(route.good);
       if (taken?.has(route.sellAt)) continue; // that market is already being sold into
       emittedKeys.add(key);

@@ -11,6 +11,23 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- Fix two idle traders getting assigned the identical route while one was
+  already flying it. Confirmed live: THEO-B was mid-haul on CLOTHING
+  X1-XB94-K87 -> X1-XB94-A1 (bought, in flight, not yet sold) when the very
+  next `dispatch recompute` handed THEO-A the identical CLOTHING/A1 leg
+  fresh — the same-route collision the 10-minute sale cooldown (below,
+  2026-09-14 earlier) does not cover, since no sale had happened yet to
+  start that cooldown. Root cause: `RouteDispatcher`'s busy-carry-forward
+  reserves a busy direct trader's leg under the qualified `good@sellAt`
+  key, but the new "best route for this good" work item generated each
+  cycle was keyed on the bare good with no market qualifier — the two keys
+  never collided, so nothing stopped a second, idle trader from being
+  freshly assigned the exact leg the first was already flying. Fixed by
+  tracking busy direct traders' claimed (good, sellAt) pairs and checking
+  them at both places new route work gets generated; a second trader can
+  still take the same good into a genuinely different market, which is
+  the feature this collision was hiding inside of. Two new regression
+  tests in `tests/dispatcher.test.ts` (verified to fail without the fix).
 - **Cartography: click-a-system side panel.** Clicking a dot on the
   public `/cartography` galaxy map now opens a slide-in panel with that
   system's sector/type, waypoint count and type breakdown, and any known

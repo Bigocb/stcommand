@@ -295,4 +295,42 @@ describe("RouteDispatcher: idle traders and sell-market spreading", () => {
     const [only] = d.list();
     assert.equal(only!.good, "GOLD", "the single trader takes the most valuable work");
   });
+
+  it("doesn't hand a busy trader's exact leg to a second, idle trader", (t) => {
+    // Confirmed live: THEO-B was mid-haul on CLOTHING X1-XB94-K87 ->
+    // X1-XB94-A1 (bought, in flight, not yet sold) when the very next
+    // recompute handed THEO-A the identical CLOTHING/A1 route fresh. The
+    // busy-carry-forward reservation keys on the qualified `good@sellAt`,
+    // but the new best-route work item for that good was keyed on the bare
+    // good with no market qualifier, so the two never collided.
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    // Cycle 1: T1 idle, gets the only CLOTHING route.
+    d.recompute([route("CLOTHING", "X1-A-M1", 900)], [{ shipSymbol: "T1", capacity: 40 }]);
+    assert.equal(d.list().length, 1);
+    t.mock.timers.tick(60_001); // past recompute()'s own 60s throttle
+    // Cycle 2: T1 now busy (mid-haul on that same route), T2 shows up idle.
+    // The only known route is still the identical CLOTHING/M1 leg.
+    d.recompute(
+      [route("CLOTHING", "X1-A-M1", 900)],
+      [{ shipSymbol: "T1", capacity: 40, busy: true }, { shipSymbol: "T2", capacity: 40 }],
+    );
+    const assigned = d.list();
+    assert.equal(assigned.length, 1, "T2 must not get the leg T1 is already flying");
+    assert.equal(assigned[0]!.shipSymbol, "T1");
+  });
+
+  it("still lets a second trader take the same good into a genuinely different market while the first is busy", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    d.recompute([route("CLOTHING", "X1-A-M1", 900)], [{ shipSymbol: "T1", capacity: 40 }]);
+    t.mock.timers.tick(60_001);
+    d.recompute(
+      [route("CLOTHING", "X1-A-M1", 900), route("CLOTHING", "X1-A-M2", 700, "X1-A-BUY2")],
+      [{ shipSymbol: "T1", capacity: 40, busy: true }, { shipSymbol: "T2", capacity: 40 }],
+    );
+    const assigned = d.list();
+    assert.equal(assigned.length, 2);
+    assert.deepEqual(assigned.map((a) => a.sellAt).sort(), ["X1-A-M1", "X1-A-M2"]);
+  });
 });
