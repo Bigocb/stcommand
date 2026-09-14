@@ -1513,10 +1513,47 @@ export class Store {
     });
   }
 
-  /** System-to-system jump-gate connections known so far — always
-   *  tenant-exploration data (GalaxyAtlas.scanJumpGates(), never the
-   *  crawler), since jump_gates is only ever populated once some tenant's
-   *  fleet actually visits a system's gate. Each `galaxy_systems` row's
+  /** Every crawled system that has at least one known (from the public
+   *  /systems waypoints list) jump gate — the raw material for
+   *  GalaxyCrawler's opportunistic gate-connection sweep (buildGateQueue()),
+   *  which needs each system's still-unresolved gate symbols (in
+   *  crawledWaypoints, filtered against jumpGates' already-resolved ones)
+   *  without pulling every system's full topology the way listGalaxySystems()
+   *  does. */
+  async listSystemsForGateCrawl(): Promise<{ systemSymbol: string; crawledWaypoints: unknown[]; jumpGates: unknown[] }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ system_symbol: string; crawled_waypoints: unknown[] | null; jump_gates: unknown[] }>(
+        `SELECT system_symbol, crawled_waypoints, jump_gates FROM galaxy_systems WHERE crawled_waypoints IS NOT NULL`,
+      );
+      return res.rows.map((r) => ({ systemSymbol: r.system_symbol, crawledWaypoints: r.crawled_waypoints ?? [], jumpGates: r.jump_gates ?? [] }));
+    });
+  }
+
+  /** Record one gate's connections as learned by the crawler's opportunistic
+   *  sweep (someone else charted it — GalaxyCrawler.crawlOneGate()) — a
+   *  read-modify-write on just this row's `jump_gates` array, replacing any
+   *  existing entry for this gate symbol. Deliberately touches only
+   *  `jump_gates`, never `waypoints`/`crawled_waypoints`: this is additive
+   *  topology data, not a waypoint scan, so it must not trip
+   *  GalaxyAtlas.loadSystem()'s "non-empty waypoints means fully scanned"
+   *  cache-hit trust boundary (see mergeSystemWaypoints()'s own comment). */
+  async mergeGateConnections(systemSymbol: string, gateSymbol: string, connections: string[]): Promise<void> {
+    await withPool(this.pool, async (c) => {
+      const res = await c.query<{ jump_gates: { symbol: string; connections: string[] }[] }>(
+        `SELECT jump_gates FROM galaxy_systems WHERE system_symbol = $1`,
+        [systemSymbol],
+      );
+      const existing = res.rows[0]?.jump_gates ?? [];
+      const filtered = existing.filter((g) => g.symbol !== gateSymbol);
+      filtered.push({ symbol: gateSymbol, connections });
+      await c.query(`UPDATE galaxy_systems SET jump_gates = $2 WHERE system_symbol = $1`, [systemSymbol, JSON.stringify(filtered)]);
+    });
+  }
+
+  /** System-to-system jump-gate connections known so far — either from
+   *  tenant exploration (GalaxyAtlas.scanJumpGates()) or from the crawler's
+   *  own opportunistic sweep (mergeGateConnections(), above) once someone
+   *  else has charted a gate. Each `galaxy_systems` row's
    *  jump_gates is a JumpGate[] (`{ symbol, connections }`, the raw
    *  SpaceTraders shape) where `symbol` is that row's own gate waypoint
    *  and `connections` are the *destination* gates' waypoint symbols, in

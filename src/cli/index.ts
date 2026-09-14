@@ -73,13 +73,14 @@ async function main(): Promise<void> {
   // immediately, not held up behind it.
   registry.bootAll().catch((err) => log(`eager tenant boot failed: ${err instanceof Error ? err.message : String(err)}`));
 
-  // Galaxy-wide crawl (system coordinates/types, faction roster) — public
-  // data, not owned by any one tenant, so it rides whichever tenant's API
-  // client happens to be booted rather than needing its own. Deliberately
-  // slow (one page every 5s) since it shares the same process-wide rate
-  // limiter every tenant's own ticking already competes for — see
-  // GalaxyCrawler's own doc comment.
-  const galaxyCrawler = new GalaxyCrawler(() => registry.anyBootedApi(), new Store(pool), (msg) => log(msg));
+  // Galaxy-wide crawl (system coordinates/types, faction roster, and an
+  // opportunistic jump-gate connection sweep) — public data, not owned by
+  // any one tenant, and no longer even routed through a tenant's own API
+  // client: every endpoint it calls is public (see GalaxyCrawler's own doc
+  // comment), so it runs on plain fetch() independent of tenant boot state
+  // and doesn't compete with any tenant's rate limiter. Deliberately slow
+  // (one call per tick) rather than racing to finish.
+  const galaxyCrawler = new GalaxyCrawler(new Store(pool), (msg) => log(msg));
   const galaxyCrawlInterval = setInterval(() => {
     galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
   }, 5_000);

@@ -32,7 +32,7 @@ before(async () => {
 
   const app = express();
   app.use(express.json());
-  const galaxyCrawler = new GalaxyCrawler(() => undefined, new Store(pool), () => {});
+  const galaxyCrawler = new GalaxyCrawler(new Store(pool), () => {});
   app.use("/api/admin", createAdminRouter(pool, registry, galaxyCrawler));
 
   await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });

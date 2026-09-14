@@ -11,8 +11,23 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
-- Nothing pending yet — add entries here as work lands, then move them
-  under a dated heading below on the next meaningful checkpoint.
+- Galaxy crawler Phase B + C: `GalaxyCrawler` no longer needs any tenant's
+  authenticated `SpaceTraders` client to make progress — every endpoint it
+  calls (`/systems`, `/factions`, `.../jump-gate`) is public, so it now
+  runs on plain tokenless `fetch()` and no longer competes with any
+  tenant's rate limiter (`TenantRegistry.anyBootedApi()`, which existed
+  only for this, was removed). Once the systems/factions crawl finishes,
+  it now also runs an ongoing opportunistic sweep of every known-but-
+  unresolved jump gate, checking the public (no-token, chart-gated)
+  `.../jump-gate` endpoint on the chance some other player has charted it
+  since — most checks still fail (still uncharted by anyone), but hits are
+  free connection data merged into `galaxy_systems.jump_gates` via a new
+  `Store.mergeGateConnections()` (read-modify-write scoped to just that
+  column, leaving `waypoints`/`crawled_waypoints` untouched). A drained
+  queue rebuilds and re-sweeps every 24h. New `Store.listSystemsForGateCrawl()`
+  feeds the queue build. See `docs/TODO.md`'s cartography items for what's
+  still not wired up on the rendering side, including a spec'd (not yet
+  built) click-a-system side panel for the public cartography page.
 
 ## 2026-09-13 (Galaxy crawler: stop discarding free per-system waypoint data)
 

@@ -8,24 +8,73 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 ## Live ops — needs a decision or action
 
 - [ ] **Wire crawled_waypoints into an actual map view.** Shipped
-  2026-09-13: `GalaxyCrawler.crawlSystemsPage()` now persists each
-  system's public waypoint layout (`Store.mergeSystemWaypoints()`,
-  migrations/020) into its own `crawled_waypoints` column — free data
-  from a `GET /systems` call the crawler already makes, previously
-  discarded. **Not done yet**: nothing actually renders it. The public
+  2026-09-13: `GalaxyCrawler.crawlSystemsPage()` persists each system's
+  public waypoint layout (`Store.mergeSystemWaypoints()`, migrations/020)
+  into its own `crawled_waypoints` column — free data from a `GET
+  /systems` call the crawler already makes, previously discarded. Shipped
+  2026-09-14: Phase B (the crawler now runs on plain tokenless `fetch()`
+  against the public API, no longer routed through any tenant's
+  `SpaceTraders` client or sharing its rate limiter — `TenantRegistry
+  .anyBootedApi()`, which existed solely for this, was removed) and Phase
+  C (an ongoing opportunistic jump-gate sweep — once the systems crawl is
+  done, `GalaxyCrawler` cycles through every known-but-unresolved gate
+  from `crawled_waypoints`, calling the public, chart-gated `.../jump-gate`
+  endpoint on the chance someone else has charted it since; hits are
+  merged into `jump_gates` via the new `Store.mergeGateConnections()`,
+  read-modify-write on just that column so it never touches
+  `waypoints`/`crawled_waypoints`; a drained queue rebuilds and re-sweeps
+  every 24h since "still uncharted" is a matter of *when*, not *if*, for
+  a gate someone eventually visits). `GalaxyCrawler`'s constructor is now
+  `(store, log)` — no longer takes a tenant-API getter.
+  **Still not done**: nothing renders any of this yet. The public
   cartography page (`GET /api/cartography/systems`) only ever draws one
   dot per *system* (`listGalaxySystemPositions()`), never per-waypoint
-  detail; Tower's Map and desktop's galaxy view both read a tenant's own
-  `GalaxyAtlas.listSystems()` (in-memory, tenant-scan-only), not this
-  shared DB column at all. So the data is being captured correctly but
-  has no visible payoff yet — building an actual per-system waypoint view
-  fed by `crawledWaypoints` (falling back to it only where a tenant's
-  real `waypoints` is empty — never treat the two as interchangeable,
-  see `mergeSystemWaypoints()`'s own comment) is a distinct follow-up,
-  not scoped here. Phases B (decouple the crawler from any tenant's
-  authenticated client) and C (opportunistic jump-gate connection
-  discovery via the same public, chart-gated endpoint) from the same
-  design pass are also not built yet.
+  detail or jump-gate connections learned by the Phase C sweep specifically
+  (though scanned tenant gates already show as connection lines); Tower's
+  Map and desktop's galaxy view both read a tenant's own `GalaxyAtlas
+  .listSystems()` (in-memory, tenant-scan-only), not this shared DB column
+  at all. See "Cartography: click-a-system side panel" below for the
+  concrete next step this unblocks.
+
+- [ ] **Cartography: click-a-system side panel.** Spec'd 2026-09-14, not
+  built. `public/cartography.html`'s galaxy map (an inline SVG, one
+  `<circle>` per system, `dotsBySymbol` map) currently only wires
+  `mousemove`/`mouseleave` on each dot for a hover tooltip — no click
+  handler exists. Plan:
+  - New endpoint `GET /api/cartography/systems/:symbol` in
+    `src/http/cartography.ts`, backed by a new `Store` method that reads
+    one `galaxy_systems` row and shapes a response using `waypoints` when
+    non-empty (tenant-scanned, trait-complete) and falling back to
+    `crawledWaypoints` only when `waypoints` is empty (never merge the
+    two — see `mergeSystemWaypoints()`'s own comment on why they're
+    separate columns). Response: system symbol/sector/type/coords,
+    waypoint count, counts by type (asteroid/gas giant/moon/etc, whatever
+    `crawledWaypoints`/`waypoints` entries carry), any known jump gate(s)
+    and their resolved `connections` (from `jump_gates`), and an
+    `explored`/`crawledOnly`/`unknown` status flag so the panel can be
+    honest about which tier of data it's showing.
+  - Frontend: a `<circle>` `click` listener (added alongside the existing
+    `mousemove` one in `renderMap()`) calls a new `openSystemPanel(symbol)`
+    that fetches the new endpoint and fills a new `<aside id="system-panel">`
+    slid in from the right (CSS-only slide/hide, same `hidden`-attribute
+    pattern already used elsewhere in this codebase — remember to give it
+    an explicit `#system-panel[hidden]{display:none}` override per the
+    `[hidden]`-vs-`display` bug class already hit once this session, since
+    the panel needs a non-`none` `display` when shown). Panel shows: header
+    (symbol + type + sector), a small stat row (waypoint count, gate
+    count, explored/crawled-only badge), a waypoint-type breakdown, and —
+    if any gate connections are known — a short "connects to" list, each
+    entry clickable to re-center the map on that system (reuses
+    `focusOnSystem()`). A close (✕) button and clicking the backdrop/map
+    background both close it; opening a new system while one is open just
+    re-fills it in place rather than closing/reopening.
+  - Given this is a public, no-login page, no new auth surface is needed;
+    the new endpoint is exactly as public as the existing ones in the same
+    router.
+  - Not scoped in this pass: editing/annotating a system from the panel,
+    or surfacing per-waypoint (not just per-system) detail — the "click a
+    dot" affordance here is system-granularity only, matching what the map
+    already renders one dot per.
 
 - [ ] **Set up the A/B tenants once play-style tracking ships.** Operator
   plan 2026-09-13: THEO-2 as the "manual intervention" arm, compared
