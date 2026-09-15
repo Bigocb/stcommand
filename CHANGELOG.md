@@ -11,6 +11,20 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix `/cartography`'s click-a-system panel never opening.** Confirmed
+  live: clicking a dot did nothing, no matter which one. Root cause was
+  in the drag-to-pan handler added alongside the panel itself
+  (`setupMapControls()`'s `pointerdown` listener): it called
+  `svg.setPointerCapture()` unconditionally, even when the press landed
+  on a dot. Once the SVG has pointer capture, the browser routes the
+  resulting synthetic `click` event to the capturing element instead of
+  the dot underneath the pointer, so the dot's own click listener
+  (`openSystemPanel`) never ran — reproduced with a real simulated
+  click (fails) versus a directly-dispatched click event on the same
+  node (works, since it bypasses native pointer-capture routing).
+  Fixed by skipping the drag-start (and the capture) when the press
+  target is a `circle.dot` — a press starting on a dot is a click, not
+  a pan. Drag-to-pan on empty map background still works, verified.
 - Replace the flat 10-minute sale cooldown with graduated, volume-based
   route scoring. Confirmed live: THEO's fleet ran up 3.6M credits in
   ~30 minutes system-wide, then every route in the system went to zero

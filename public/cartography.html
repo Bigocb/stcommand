@@ -769,6 +769,16 @@
 
     let dragging = false, lastX = 0, lastY = 0;
     svg.addEventListener("pointerdown", (e) => {
+      // Capturing the pointer unconditionally here — even when the press
+      // lands on a dot — hijacked the click: once the SVG has pointer
+      // capture, the browser routes the resulting synthetic click event to
+      // the capturing element instead of the dot underneath it, so the
+      // dot's own click listener (openSystemPanel) never fired. Confirmed
+      // live: a dot never opened its side panel no matter where you
+      // clicked. A press starting on a dot is a click, not a pan — skip
+      // starting a drag there and let the dot handle its own click
+      // natively.
+      if (e.target.closest("circle.dot")) return;
       dragging = true;
       lastX = e.clientX; lastY = e.clientY;
       svg.classList.add("dragging");
