@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     }
   });
 
-  app.use("/api", createDashboardRouter(registry, pool));
+  app.use("/api", createDashboardRouter(registry, pool, galaxyCrawler));
 
   // Before express.static so /v5 resolves, and so a version that is
   // planned but not yet built answers with something actionable rather than

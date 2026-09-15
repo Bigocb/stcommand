@@ -50,11 +50,31 @@ interface CrawlFaction {
   isRecruiting?: boolean;
 }
 
+/** Public agent-directory entry — GET /agents, one row per registered
+ *  agent server-wide. Used to answer "who else operates in this system,"
+ *  not per-tenant fleet data. */
+export interface PublicAgent {
+  symbol: string;
+  headquarters: string;
+  credits: number;
+  startingFaction: string;
+  shipCount: number;
+}
+
 const ACTIVITY_LOG_LIMIT = 50;
 /** How long a fully-drained gate queue waits before re-checking every still-
  *  unresolved gate — a gate uncharted today is a matter of *when* someone
  *  else charts it, not whether, so this is a slow re-sweep, not a one-shot. */
 const GATE_SWEEP_INTERVAL_MS = 24 * 60 * 60_000;
+/** How often to re-crawl the full agent directory. Unlike factions/systems
+ *  (static for the life of a server reset), credits and ship counts move —
+ *  confirmed live, this is exactly the data a live "who's competing with me
+ *  here" panel needs to stay useful, so it can't be a one-shot the way the
+ *  other two passes are. An hour is a compromise: agents aren't so many
+ *  server-wide (low hundreds on a fresh reset) that a full re-crawl is
+ *  expensive, but frequent enough that stats don't go stale for a whole
+ *  operating session. */
+const AGENTS_REFRESH_INTERVAL_MS = 60 * 60_000;
 
 export class GalaxyCrawler {
   private readonly store: Store;
@@ -71,6 +91,14 @@ export class GalaxyCrawler {
   private gateQueueBuilt = false;
   private lastGateSweepAt = 0;
   private gatesResolvedThisSweep = 0;
+
+  /** Completed agent directory, keyed by system symbol (derived from each
+   *  agent's headquarters waypoint). Swapped in atomically once a full pass
+   *  finishes — see crawlAgents() — so a reader never sees a half-built
+   *  crawl. */
+  private agentsBySystem = new Map<string, PublicAgent[]>();
+  private agentsCrawlDone = false;
+  private lastAgentsCrawlAt = 0;
 
   /** Last ~50 crawl events, newest first — for a public activity-log panel.
    *  In-memory only; a restart just starts a fresh log, same as it starts
@@ -92,6 +120,12 @@ export class GalaxyCrawler {
       factionsDone: this.factionsDone, systemsDone: this.systemsDone, scanned, total: this.totalSystems,
       gateQueueRemaining: this.gateQueue.length, gatesResolvedThisSweep: this.gatesResolvedThisSweep,
     };
+  }
+
+  /** Agents headquartered in the given system, freshest known snapshot.
+   *  Empty until the first agents pass completes (see AGENTS_REFRESH_INTERVAL_MS). */
+  agentsInSystem(systemSymbol: string): PublicAgent[] {
+    return this.agentsBySystem.get(systemSymbol.toUpperCase()) ?? [];
   }
 
   private recordActivity(message: string): void {
@@ -121,6 +155,9 @@ export class GalaxyCrawler {
     this.gateQueueBuilt = false;
     this.lastGateSweepAt = 0;
     this.gatesResolvedThisSweep = 0;
+    this.agentsBySystem = new Map();
+    this.agentsCrawlDone = false;
+    this.lastAgentsCrawlAt = 0;
     this.activity.length = 0;
     this.recordActivity("Reset detected — galaxy crawl restarting from the beginning");
   }
@@ -136,6 +173,10 @@ export class GalaxyCrawler {
     }
     if (!this.systemsDone) {
       await this.crawlSystemsPage();
+      return;
+    }
+    if (!this.agentsCrawlDone || Date.now() - this.lastAgentsCrawlAt >= AGENTS_REFRESH_INTERVAL_MS) {
+      await this.crawlAgents();
       return;
     }
     await this.crawlOneGate();
@@ -173,6 +214,38 @@ export class GalaxyCrawler {
       return;
     }
     this.factionsDone = true;
+  }
+
+  /** Full agent directory, one shot — same scale as factions (low hundreds
+   *  on a fresh reset), so no resumable cursor needed. Re-run periodically
+   *  (see AGENTS_REFRESH_INTERVAL_MS) rather than only once, since unlike
+   *  factions/systems, credits and ship counts genuinely change over time. */
+  private async crawlAgents(): Promise<void> {
+    let out: PublicAgent[];
+    try {
+      const acc: PublicAgent[] = [];
+      let page = 1;
+      for (;;) {
+        const res = await this.fetchPublic<{ data: PublicAgent[] }>("/agents", { limit: 20, page });
+        acc.push(...res.data);
+        if (res.data.length < 20) break;
+        page += 1;
+      }
+      out = acc;
+    } catch (err) {
+      this.log(`galaxy crawl: agent directory pass failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    const bySystem = new Map<string, PublicAgent[]>();
+    for (const a of out) {
+      const system = a.headquarters.split("-").slice(0, 2).join("-");
+      (bySystem.get(system) ?? bySystem.set(system, []).get(system)!).push(a);
+    }
+    this.agentsBySystem = bySystem;
+    this.agentsCrawlDone = true;
+    this.lastAgentsCrawlAt = Date.now();
+    this.log(`galaxy crawl: recorded ${out.length} agents across ${bySystem.size} systems`);
+    this.recordActivity(`Recorded ${out.length} agents across ${bySystem.size} systems`);
   }
 
   /** One page of the galaxy-wide systems list, resuming from wherever the

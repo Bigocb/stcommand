@@ -11,6 +11,24 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Show other agents sharing a system, both on the public map and in the
+  game UI.** Prompted by a live incident: a competing fleet (HYDRA, 32
+  ships) sharing THEO's home system turned out to explain both a mystery
+  gate contributor and a market staying crushed longer than THEO's own
+  volume alone would predict — the operator asked for this to be visible
+  going forward instead of hand-checked. `GalaxyCrawler` gains a periodic
+  (hourly) pass over the public `GET /agents` directory, grouped by
+  headquarters system and kept in memory alongside its existing
+  factions/systems crawl — same "no tenant client, no rate-limit cost"
+  design as those two, since credits/ship counts genuinely change over
+  time unlike static faction/system data. `/cartography`'s click-a-system
+  panel now lists agents headquartered there (symbol, ship count,
+  credits), sorted by fleet size. The v6 dashboard's Galaxy tab gains a
+  matching "Agents in system" pane, scoped to the signed-in tenant's own
+  home system (`GET /api/agents-in-system`), next to the existing
+  Leaderboard/Factions panes. Verified end-to-end with real data through
+  both surfaces (mock server + Playwright): correct sort order, "· you"
+  marking on the v6 pane, counts and credits formatted correctly.
 - **Fix `/cartography`'s click-a-system panel never opening.** Confirmed
   live: clicking a dot did nothing, no matter which one. Root cause was
   in the drag-to-pan handler added alongside the panel itself

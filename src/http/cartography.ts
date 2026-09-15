@@ -23,12 +23,13 @@ export function createCartographyRouter(store: Store, crawler: GalaxyCrawler): R
   // never click a dot and the full waypoint-type breakdown/gate list isn't
   // needed for the scatter of dots itself.
   router.get("/systems/:symbol", async (req, res) => {
-    const detail = await store.getGalaxySystemDetail(req.params.symbol.toUpperCase());
+    const symbol = req.params.symbol.toUpperCase();
+    const detail = await store.getGalaxySystemDetail(symbol);
     if (!detail) {
       res.status(404).json({ error: "system not recorded" });
       return;
     }
-    res.json(detail);
+    res.json({ ...detail, agents: crawler.agentsInSystem(symbol) });
   });
 
   router.get("/factions", async (_req, res) => {

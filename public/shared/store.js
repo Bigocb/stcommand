@@ -89,6 +89,11 @@ export let approvals = [];
 
 export let leaderboard = [];
 export let factions = [];
+/** Other agents headquartered in this tenant's own home system, sorted by
+ *  ship count — see loadGalaxy(). Empty until the background galaxy crawl's
+ *  first agent-directory pass completes; that's a real "not fetched yet"
+ *  state, not an error, so it renders as such rather than a spinner. */
+export let systemAgents = [];
 
 export let narrative = "";
 /** Who wrote it — "llm" or "template" — plus the model and any error the
@@ -366,12 +371,14 @@ export async function loadApprovals() {
 
 export async function loadGalaxy() {
   try {
-    const [board, facs] = await Promise.all([
+    const [board, facs, sysAgents] = await Promise.all([
       fetch("/api/leaderboard").then((r) => r.json()),
       fetch("/api/factions").then((r) => r.json()),
+      fetch("/api/agents-in-system").then((r) => r.json()),
     ]);
     leaderboard = board.agents ?? [];
     factions = facs.factions ?? [];
+    systemAgents = (sysAgents.agents ?? []).slice().sort((a, b) => b.shipCount - a.shipCount);
     notify("galaxy");
   } catch (e) { console.error(e); }
 }

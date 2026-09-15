@@ -23,7 +23,7 @@ import {
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
   dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
-  missions, leaderboard, factions, narrative, narrativeMeta, chatHistory,
+  missions, leaderboard, factions, systemAgents, narrative, narrativeMeta, chatHistory,
   approvals,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
@@ -5712,6 +5712,25 @@ function renderFactions(factions) {
     </div>`).join("")}</div>`;
 }
 
+/** Other agents headquartered in this tenant's own home system — not this
+ *  fleet's data, so it reads real signal a fleet-only dashboard can't show:
+ *  confirmed useful live, a competitor many times this fleet's size sharing
+ *  the same home waypoint explained both a mystery gate contributor and a
+ *  market staying crushed longer than this fleet's own volume would predict. */
+function renderSystemAgents(agents) {
+  const el = $("system-agents");
+  const countEl = $("system-agents-count");
+  if (!el) return;
+  const mySymbol = state?.agent?.symbol;
+  if (countEl) countEl.textContent = agents.length ? `${agents.length} agents` : "—";
+  if (!agents.length) { el.innerHTML = '<div class="empty">No agent data yet — the background galaxy crawl hasn\'t completed its first pass.</div>'; return; }
+  el.innerHTML = `<div class="loadout-grid">${agents.map((a) => `
+    <div class="loadout-item" style="justify-content:space-between">
+      <span class="n">${escapeHtml(a.symbol)}${a.symbol === mySymbol ? ' <span style="color:var(--accent)">· you</span>' : ""}</span>
+      <span class="d">${a.shipCount}${a.shipCount === 1 ? " ship" : " ships"} · ${fmt(a.credits)}c</span>
+    </div>`).join("")}</div>`;
+}
+
 
 
 function renderContracts(list) {
@@ -6193,7 +6212,7 @@ subscribe("prices", () => {
 });
 subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); });
 subscribe("approvals", () => { renderApprovalsBanner(); renderApprovals(); });
-subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); });
+subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); renderSystemAgents(systemAgents); });
 subscribe("narrative", renderNarrative);
 subscribe("chat", renderChatHistory);
 subscribe("connection", renderConnectionStatus);

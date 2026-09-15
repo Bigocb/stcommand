@@ -10,6 +10,7 @@ import { signSessionCookie } from "../src/auth/crypto.js";
 import { TenantRegistry } from "../src/engine/tenantRegistry.js";
 import { createResolveTenant } from "../src/http/resolveTenant.js";
 import { createDashboardRouter } from "../src/http/dashboard.js";
+import { GalaxyCrawler } from "../src/engine/galaxyCrawler.js";
 import { Store } from "../src/db/store.js";
 import { SESSION_COOKIE_NAME } from "../src/http/session.js";
 import type { SpaceTradersAPI } from "../src/core/client.js";
@@ -83,7 +84,7 @@ before(async () => {
     await registry.getOrCreate(req.tenantId!, req.agentSymbol!);
     next();
   });
-  app.use("/api", createDashboardRouter(registry, pool));
+  app.use("/api", createDashboardRouter(registry, pool, new GalaxyCrawler(new Store(pool))));
 
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => resolve());

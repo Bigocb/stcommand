@@ -6,6 +6,7 @@ import { setTenantDiscordWebhook, getTenantDiscordWebhook, getTenantDiscordEnabl
 import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
 import { makeTTLCache } from "./cache.js";
 import type { SpaceTradersAPI } from "../core/client.js";
+import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -25,7 +26,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
  * `worker.store.X(...)` unchanged for the three shared-galaxy-table methods
  * that never did.
  */
-export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): Router {
+export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, galaxyCrawler: GalaxyCrawler): Router {
   const router = Router();
 
   function worker(req: { tenantId?: string }): TenantWorker | undefined {
@@ -65,6 +66,20 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool): 
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // Who else operates in this tenant's own home system — read off the same
+  // background GalaxyCrawler.agentsInSystem() the public cartography panel
+  // uses, keyed by this tenant's own headquarters rather than a symbol the
+  // caller supplies. Confirmed useful live: a competing fleet many times
+  // this one's size sharing the same home waypoint turned out to explain
+  // both a mystery gate contributor and a market staying crushed longer
+  // than this fleet's own volume alone would predict.
+  router.get("/agents-in-system", (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const system = w.fleet.getSystemSymbol();
+    res.json({ system, agents: galaxyCrawler.agentsInSystem(system) });
   });
 
   router.get("/state", (req, res) => {

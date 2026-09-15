@@ -333,6 +333,13 @@
     return res.json();
   }
 
+  // Agent symbols come from the public /agents directory — player-chosen
+  // text, unlike the rest of this panel's data (our own crawled galaxy
+  // facts) — so this is the one place here that needs escaping.
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
   const TYPE_COLORS = {
     NEUTRON_STAR: "#b48cf0", RED_STAR: "#e5697b", ORANGE_STAR: "#e5b96c",
     BLUE_STAR: "#6c9dff", YOUNG_STAR: "#7fd8a0", WHITE_DWARF: "#e7e4da",
@@ -504,6 +511,14 @@
           </div>
         `;
       }).join("");
+    }
+
+    const agents = (d.agents || []).slice().sort((a, b) => b.shipCount - a.shipCount);
+    if (agents.length > 0) {
+      html += `<div class="panel-subhead">Agents headquartered here <span style="color:var(--dim);text-transform:none;letter-spacing:0">(${agents.length})</span></div>`;
+      html += agents.map((a) => `
+        <div class="type-row"><span class="t">${escapeHtml(a.symbol)}</span><span class="n">${a.shipCount}${a.shipCount === 1 ? " ship" : " ships"} · ${a.credits.toLocaleString()}c</span></div>
+      `).join("");
     }
 
     $("panel-body").innerHTML = html;
