@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Traders top off at a fuel market before departing, not just when low.**
+  Live incident: THEO-B (600-unit tank) departed a fuel-selling market at
+  392/600 (65%) — above the old `<50%` refuel trigger, so `navigateTo()`
+  skipped it entirely — then needed 453 fuel for the very next leg at
+  CRUISE and had to fall back to DRIFT, several times slower, for a trip a
+  topped-off tank would have flown normally. Tour ships already got this
+  exact fix (`ShipAgent.tourScout()`'s "top off at every market, not just
+  when running low"); traders never did. `TraderAgent.navigateTo()` now
+  tops off whenever docked at a real FUEL-selling market and not already
+  ~95% full — a same-system round trip's fuel math doesn't know what leg
+  comes next, and checking a market that already sells fuel costs nothing
+  extra. The other refuel path — burning FUEL out of the cargo hold when
+  there's no market here — is a real tradeoff (hold space, not a free
+  top-off) and stays gated to genuinely low, unchanged. Four new tests in
+  `tests/trader.test.ts`.
+
 - **RouteDispatcher: check the sell leg's fuel distance too, not just the
   buy leg.** Live incident: THEO-11 (80-unit tank) was assigned
   `ADVANCED_CIRCUITRY X1-XB94-D43 -> X1-XB94-A4`, rejected a cycle later
@@ -19,9 +35,9 @@ be useful context; not a complete project history — see `git log` for that.
   twice more over the next 15 minutes — never completing a trip — while 14
   other same-system routes it could actually fly sat unused in the same
   ranked work list. `RouteDispatcher.recompute()`'s `reachable()` check
-  (added for the DRAGOM-3 case, see `docs/…` same describe block) already
-  verified the ship could reach *buyAt* from its current position, but
-  never checked that the *whole round trip* (buyAt→sellAt) fit the tank —
+  (added for a prior DRAGOM-3 fuel-distance case) already verified the ship
+  could reach *buyAt* from its current position, but never checked that the
+  *whole round trip* (buyAt→sellAt) fit the tank —
   a same-system route could pass the first check and still be physically
   unreachable for a small hull. It now also checks `distance(buyAt,
   sellAt) <= fuelCapacity` for a same-system `direct` item (the one role

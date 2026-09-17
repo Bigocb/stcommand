@@ -527,17 +527,29 @@ export class TraderAgent {
       await this.jumpToSystem(targetSystem, waypoint);
       return;
     }
-    // Refuel if we're low. Prefer a market, but burn FUEL from the cargo hold
-    // when there's no market here — a trader hauling fuel must never be stranded
-    // at a non-market waypoint (e.g. an asteroid) while carrying its own fuel.
-    // Never refuel while in transit — refuelAt() calls navigateTo() again, and a
-    // ship that is IN_TRANSIT to a fuel market would recurse forever.
-    if (this.ship.nav.status !== "IN_TRANSIT" && this.ship.fuel.current < this.ship.fuel.capacity * 0.5) {
+    // Top off at a real market whenever we're not already essentially full —
+    // never refuel while in transit — refuelAt() calls navigateTo() again, and
+    // a ship that is IN_TRANSIT to a fuel market would recurse forever.
+    //
+    // Confirmed live: THEO-B departed at 392/600 (65%) — above the old <50%
+    // trigger, so this skipped entirely — then needed 453 fuel at CRUISE for
+    // the very next leg and had to fall back to DRIFT, several times slower,
+    // for a leg a full tank would have flown in one normal hop. Same
+    // reasoning tour ships already got (see ShipAgent.tourScout()'s own
+    // top-off-at-every-market fix): a trader never knows what leg comes
+    // next, and topping off at a market that already sells fuel costs
+    // nothing extra to check for.
+    //
+    // Burning FUEL from the cargo hold is a real tradeoff (it's hold space
+    // and reserve, not free) rather than a no-downside top-off, so that
+    // fallback — for a trader hauling fuel stranded at a non-market waypoint
+    // like an asteroid — stays gated to genuinely low, not "not full".
+    if (this.ship.nav.status !== "IN_TRANSIT") {
       const here = this.ship.nav.waypointSymbol;
       const isFuelMarket = this.priceTable.get(here)?.has("FUEL");
       if (isFuelMarket) {
-        await this.refuelAt(here);
-      } else {
+        if (this.ship.fuel.current < this.ship.fuel.capacity * 0.95) await this.refuelAt(here);
+      } else if (this.ship.fuel.current < this.ship.fuel.capacity * 0.5) {
         await this.refuelFromCargo();
       }
     }

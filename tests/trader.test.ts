@@ -794,3 +794,69 @@ describe("TraderAgent.canReachMarket: same-system fuel capacity", () => {
     assert.equal(reachable, true, "a same-system market within tank capacity is reachable");
   });
 });
+
+describe("TraderAgent.navigateTo: tops off at a fuel market before departing, not just when low", () => {
+  // Confirmed live: THEO-B (600-unit tank) departed at 392/600 (65% — above
+  // the old <50% refuel trigger, so it was skipped) sitting right at a
+  // market that sells FUEL, then needed 453 fuel at CRUISE for the very
+  // next leg and had to fall back to DRIFT, several times slower, for a
+  // leg a topped-off tank would have flown normally. Same reasoning tour
+  // ships already got (ShipAgent.tourScout()'s own top-off-at-every-market
+  // fix) — a trader never knows what leg comes next, and topping off at a
+  // market that already sells fuel costs nothing extra to check for.
+  function makeTraderAt(waypoint: string, current: number, capacity: number, hasFuelMarket: boolean) {
+    const ship = makeShip();
+    ship.nav = { status: "DOCKED", waypointSymbol: waypoint, systemSymbol: "X1-A" } as any;
+    ship.fuel = { current, capacity } as any;
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+    });
+    if (hasFuelMarket) (trader as any).priceTable.set(waypoint, new Map([["FUEL", { buy: 72, sell: 72, volume: 100 }]]));
+    (trader as any).proxy.navigateTo = async () => {};
+    return trader;
+  }
+
+  it("tops off at 65% fuel, sitting at a market that sells FUEL, departing for elsewhere", async () => {
+    const trader = makeTraderAt("X1-A-A1", 392, 600, true);
+    let refueled = false;
+    (trader as any).refuelAt = async () => { refueled = true; };
+
+    await (trader as any).navigateTo("X1-A-A2");
+
+    assert.equal(refueled, true, "65% is not 'low' by the old threshold, but it is not full either — top off while it's free to");
+  });
+
+  it("does not bother refueling when already essentially full", async () => {
+    const trader = makeTraderAt("X1-A-A1", 590, 600, true);
+    let refueled = false;
+    (trader as any).refuelAt = async () => { refueled = true; };
+
+    await (trader as any).navigateTo("X1-A-A2");
+
+    assert.equal(refueled, false, "no reason to spend a call topping off a tank that is already ~98% full");
+  });
+
+  it("does not call the real market refuel when there is no FUEL for sale here", async () => {
+    const trader = makeTraderAt("X1-A-A1", 392, 600, false);
+    let refueled = false;
+    (trader as any).refuelAt = async () => { refueled = true; };
+    (trader as any).refuelFromCargo = async () => false;
+
+    await (trader as any).navigateTo("X1-A-A2");
+
+    assert.equal(refueled, false, "refuelAt() needs an actual market — nothing here sells FUEL");
+  });
+
+  it("still only burns cargo-hold FUEL when genuinely low, not merely 'not full' — that fuel is a real tradeoff, not a free top-off", async () => {
+    const trader = makeTraderAt("X1-A-A1", 392, 600, false); // 65%, no market here
+    let burnedFromCargo = false;
+    (trader as any).refuelFromCargo = async () => { burnedFromCargo = true; return true; };
+
+    await (trader as any).navigateTo("X1-A-A2");
+    assert.equal(burnedFromCargo, false, "65% is not low enough to justify spending carried cargo fuel");
+
+    (trader as any).ship.fuel.current = 100; // now genuinely low (<50%)
+    await (trader as any).navigateTo("X1-A-A2");
+    assert.equal(burnedFromCargo, true, "but a genuinely low tank with no market here still falls back to cargo fuel");
+  });
+});
