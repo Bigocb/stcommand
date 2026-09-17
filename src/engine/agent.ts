@@ -1400,7 +1400,16 @@ export class ShipAgent {
       // FUEL good leaves it stuck at whatever it had left instead, which
       // read as "just idle" from the outside forever.
       if (this.ship.fuel.capacity > 0 && this.ship.fuel.current <= this.ship.fuel.capacity * 0.1) this.markStranded();
-      this.log(`tour scout: no reachable target from ${here} (${targets.length} known)`);
+      // "N known" alone can't distinguish a genuine out-of-range system from
+      // this system's own markets never having made it into the target list
+      // at all (e.g. this GalaxyAtlas process hasn't loaded this system yet,
+      // or the registry's atMarketHere() check disagrees with the trait-scan
+      // that built `targets`) — both read identically from the outside as a
+      // tour ship that "just sits there." Breaking the count down by stage
+      // turns the next occurrence into a two-second log read instead of a
+      // live-data investigation.
+      const inSystem = targets.filter((t) => t !== here && t.slice(0, t.lastIndexOf("-")) === this.ship.nav.systemSymbol);
+      this.log(`tour scout: no reachable target from ${here} (${targets.length} known, ${inSystem.length} in ${this.ship.nav.systemSymbol}, atMarketHere=${this.atMarketHere()})`);
       return false;
     }
     this.clearStranded();

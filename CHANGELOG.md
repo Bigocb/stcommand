@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Diagnostics: break down "no reachable target" by stage.** Live incident:
+  THEO-A, dispatched to a remote system, arrived and got stuck reporting
+  `tour scout: no reachable target from X1-B48-B13A (197 known)` on repeat
+  instead of touring. Checked X1-B48's real coordinates against
+  `fuelNeededRoundTrip()`'s own formula by hand: at least one of its markets
+  (X1-B48-F14F, 220 units from the gate) should be well within a 300-fuel
+  ship's round trip, which means the live process most likely never got that
+  system's markets into the target list in the first place — a data-loading
+  gap, not a genuine out-of-range system — but the single aggregate count in
+  the old log line couldn't distinguish the two from the outside. It now also
+  logs how many of the known targets are in the ship's current system and
+  whether `atMarketHere()` (the same registry check that gates refueling)
+  agrees the ship is standing on a market, so the next occurrence is a log
+  read instead of a live-data investigation. Root cause of THEO-A's specific
+  stall is still open.
+
 - **Tour dispatch now routes around a specific gate under construction,
   instead of only ever considering the shortest hop count.** Follow-up to
   the fix below: `findSystemPath()`'s BFS picked the fewest-systems route
