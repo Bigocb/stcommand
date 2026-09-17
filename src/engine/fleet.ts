@@ -3670,6 +3670,12 @@ export class FleetManager {
     // mirror of the same thing, so a restart doesn't resurrect a hold this
     // ship no longer has.
     await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null });
+    // holdShip()/sendShipTo() both log when a hold is placed; release had no
+    // matching log line, so there was no way to confirm from the logs alone
+    // whether a "Release" click ever actually reached the server — confirmed
+    // live: an operator was certain they'd released a stale hold "a long time
+    // ago", but 30 days of retained logs showed no trace either way.
+    this.log(`${shipSymbol}: released to ${owner}`);
   }
 
   /**

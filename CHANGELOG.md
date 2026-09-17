@@ -11,6 +11,20 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Log when a ship is released, not just when it's held.** Prompted by a
+  live incident: an operator was certain they'd released THEO-10's stale
+  operator hold "a long time ago", but the hold kept coming back, re-anchored
+  wherever the tour ship happened to be sitting at the next restart (three
+  different waypoints across three separate days in the logs). `holdShip()`
+  and `sendShipTo()` have always logged when a hold is placed; `releaseTo()`
+  — the one path every release goes through (`releaseShip()`, warehouse
+  handback, mission/rescue handback) — never logged anything, so there was
+  no way to tell from the logs whether a "Release" click had ever actually
+  reached the server. It now logs `<ship>: released to <owner>` on every
+  call. Root cause of the original stuck hold is still open — 30 days of
+  retained logs show no `/fleet/release` call for this ship — but the next
+  time this happens there will be a log line to check.
+
 - **Show other agents sharing a system, both on the public map and in the
   game UI.** Prompted by a live incident: a competing fleet (HYDRA, 32
   ships) sharing THEO's home system turned out to explain both a mystery
