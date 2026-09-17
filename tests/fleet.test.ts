@@ -1121,6 +1121,29 @@ describe("FleetManager.releaseTo (unified handback path)", () => {
 
     assert.equal(fleet.shipRegistry.ownerOf("SHIP-1")?.owner, "operator", "a mission handback must not be able to release someone else's (operator's) claim");
   });
+
+  it("clears the committed intent, not just its own proposal, so a role nothing else proposes for doesn't keep standing down on it", async () => {
+    // Confirmed live: THEO-10 (a tour ship) was released via the dashboard —
+    // operatorHolds and the persisted shipManualState were both correctly
+    // cleared — but IntentBoard.commit() only ever resolves proposals from
+    // the *current* pass; a ship nothing proposes anything for keeps
+    // whatever was last committed indefinitely (that's IntentBoard's own
+    // documented, intentional behavior, tested above in intent.test.ts).
+    // Every other fleet-driven goal calls forgetIntent() itself when it
+    // finishes; "hold" has no natural finish, so release must do it.
+    // Without this, tourScout() kept standing down against the orphaned
+    // hold intent forever, even though the dashboard correctly showed the
+    // ship as not held.
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent]);
+    fleet.intents.propose({ ship: "SHIP-1", priority: 0, goal: { kind: "hold", waypoint: "X1-A-A1" }, reason: "held by the operator", source: "operator" });
+    fleet.intents.commit();
+    assert.equal(fleet.intents.current("SHIP-1")?.goal.kind, "hold", "sanity check: the hold is committed");
+
+    await (fleet as any).releaseTo("SHIP-1", "operator");
+
+    assert.equal(fleet.intents.current("SHIP-1"), undefined, "release must drop the committed intent, not just stop proposing it");
+  });
 });
 
 describe("FleetManager warehouse API surface", () => {

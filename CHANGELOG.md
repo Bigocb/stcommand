@@ -11,19 +11,27 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
-- **Log when a ship is released, not just when it's held.** Prompted by a
-  live incident: an operator was certain they'd released THEO-10's stale
-  operator hold "a long time ago", but the hold kept coming back, re-anchored
-  wherever the tour ship happened to be sitting at the next restart (three
-  different waypoints across three separate days in the logs). `holdShip()`
-  and `sendShipTo()` have always logged when a hold is placed; `releaseTo()`
-  — the one path every release goes through (`releaseShip()`, warehouse
-  handback, mission/rescue handback) — never logged anything, so there was
-  no way to tell from the logs whether a "Release" click had ever actually
-  reached the server. It now logs `<ship>: released to <owner>` on every
-  call. Root cause of the original stuck hold is still open — 30 days of
-  retained logs show no `/fleet/release` call for this ship — but the next
-  time this happens there will be a log line to check.
+- **Fix a released ship standing down forever against its own stale hold.**
+  Confirmed live: THEO-10 (a tour ship) was released from the dashboard —
+  the "Hold" button correctly reappeared, `operatorHolds` and the persisted
+  `shipManualState` were both correctly cleared — but the fleet-status log
+  kept reporting `want:hold <waypoint>` for it indefinitely, and the ship
+  just sat at the gate instead of touring. `IntentBoard.commit()` only ever
+  resolves *this tick's* proposals (confirmed intentional — see
+  `intent.test.ts`'s "leaves the standing intent in place"); a ship nothing
+  proposes anything for keeps whatever was last committed forever, it's
+  never implicitly retracted. Every other fleet-driven goal (repair, tender,
+  explore, scrap) already calls `forgetIntent()` itself when it finishes;
+  `hold` has no natural finish, so `releaseTo()` — the one path every
+  release goes through — had to do it instead, and didn't. A tour ship is
+  the case that surfaced this: nothing else ever proposes anything for it,
+  so once its one active proposal (the operator hold) stopped, the stale
+  committed intent from before the release just sat there, and `tourScout()`
+  kept standing down against it via `standDownReason()`. `releaseTo()` now
+  calls `forgetIntent()` too. Also gives `releaseTo()` a log line
+  (`<ship>: released to <owner>`) — it never had one, unlike `holdShip()`/
+  `sendShipTo()`, which made this harder to confirm from the logs alone.
+  New regression test in `tests/fleet.test.ts`.
 
 - **Show other agents sharing a system, both on the public map and in the
   game UI.** Prompted by a live incident: a competing fleet (HYDRA, 32

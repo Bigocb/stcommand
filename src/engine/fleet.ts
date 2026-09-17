@@ -3670,11 +3670,26 @@ export class FleetManager {
     // mirror of the same thing, so a restart doesn't resurrect a hold this
     // ship no longer has.
     await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null });
+    // proposeOperatorHolds()'s own comment claims "releasing it is simply the
+    // proposal stopping" — true of operatorHolds/shipManualState, but
+    // IntentBoard.commit() only ever resolves *this tick's* proposals; a ship
+    // nothing proposes for keeps whatever was last committed forever, it is
+    // never implicitly retracted. Every other fleet-driven goal (repair,
+    // tender, explore, scrap) already calls forgetIntent() itself when it
+    // finishes; "hold" has no natural finish, so release is the one place
+    // that must clear it explicitly. Without this, a role the arbiter
+    // otherwise never proposes anything for — a tour ship is the case that
+    // surfaced it — keeps executing/standing down on the stale hold intent
+    // indefinitely after a real, successful release. Confirmed live:
+    // THEO-10's dashboard correctly showed "Hold" (not held) after an
+    // operator release, yet the fleet-status log kept reporting
+    // `want:hold <waypoint>` for it and the ship just sat at the gate,
+    // because tourScout() was still standing down against the orphaned
+    // intent-board entry.
+    this.forgetIntent(shipSymbol);
     // holdShip()/sendShipTo() both log when a hold is placed; release had no
     // matching log line, so there was no way to confirm from the logs alone
-    // whether a "Release" click ever actually reached the server — confirmed
-    // live: an operator was certain they'd released a stale hold "a long time
-    // ago", but 30 days of retained logs showed no trace either way.
+    // whether a "Release" click actually reached the server.
     this.log(`${shipSymbol}: released to ${owner}`);
   }
 
