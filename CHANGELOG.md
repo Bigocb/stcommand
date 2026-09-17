@@ -11,6 +11,25 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix a tour ship retrying a doomed jump forever instead of touring while it
+  waits.** Confirmed live: THEO-10, dispatched to tour a remote system,
+  spent over an hour "sitting at the gate" — every tick it tried to jump to
+  X1-MJ67-I55, got rejected ("Destination jump gate ... is under
+  construction"), logged "will retry next tick", and unconditionally
+  reported back to `tourScout()` that it had done work, which skipped the
+  ship's normal same-system touring target selection every single time. The
+  explore path already has the right pattern for this
+  (`ShipProxy`'s JUMP phase calls `GalaxyAtlas.recordGateNotComplete()` on a
+  live rejection so `canJump()`/`gateComplete()` stop lying), but
+  `advanceTourDispatch()` never used it — it just retried the identical
+  jump blind, every tick, forever. It now checks `gateComplete()` before
+  attempting (skipping the attempt once the cache already knows the gate is
+  incomplete) and calls `recordGateNotComplete()` on a live rejection,
+  falling through to normal touring of the ship's current system in both
+  cases instead of reporting "did work". `FleetManager.tick()`'s existing
+  periodic `refreshGateConstruction()` sweep is what notices the gate
+  actually finishing and lets the tour resume on its own.
+
 - **Fix a released ship standing down forever against its own stale hold.**
   Confirmed live: THEO-10 (a tour ship) was released from the dashboard —
   the "Hold" button correctly reappeared, `operatorHolds` and the persisted

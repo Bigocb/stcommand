@@ -2628,10 +2628,32 @@ export class FleetManager {
       this.log(`${shipSymbol}: ${nextSystem} (next hop toward ${dest}) has no known jump gate yet — will retry`);
       return false;
     }
+    // A gate the cache already knows is still under construction (a live
+    // rejection recorded it below, on some earlier tick) can't be jumped
+    // through no matter how many times this is retried. Confirmed live:
+    // THEO-10 retried an identical doomed jump to X1-MJ67-I55 every tick for
+    // over an hour, unconditionally reporting "did work" each time (see the
+    // `return true` below), which starved it of the normal same-system
+    // touring target selection the whole time — it just sat at the home
+    // gate instead of covering X1-XB94 while waiting. Skip the attempt (and
+    // fall through to normal touring for this tick) until the gate's status
+    // changes; FleetManager.tick()'s periodic refreshGateConstruction()
+    // sweep is what notices a genuinely-finished gate and flips this back.
+    if (this.galaxy.gateComplete(remoteGate.symbol) === false) {
+      this.log(`${shipSymbol}: ${remoteGate.symbol} is still under construction — touring ${ship.nav.systemSymbol} while waiting`);
+      return false;
+    }
     try {
       await this.jumpShip(shipSymbol, remoteGate.symbol);
     } catch (err) {
-      this.log(`${shipSymbol}: tour dispatch hop to ${nextSystem} failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
+      // Same reasoning as the explore path's own jump-failure handler
+      // (ShipProxy.runFleetDrivenGoal, JUMP phase): a live rejection is
+      // stronger evidence than any cached guess, and correcting the cache
+      // here is what lets the gateComplete() check above actually catch
+      // this next tick instead of retrying the identical doomed jump forever.
+      this.galaxy.recordGateNotComplete(remoteGate.symbol);
+      this.log(`${shipSymbol}: tour dispatch hop to ${nextSystem} failed, touring ${ship.nav.systemSymbol} while waiting: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
     return true;
   }
