@@ -11,6 +11,25 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **RouteDispatcher: check the sell leg's fuel distance too, not just the
+  buy leg.** Live incident: THEO-11 (80-unit tank) was assigned
+  `ADVANCED_CIRCUITRY X1-XB94-D43 -> X1-XB94-A4`, rejected a cycle later
+  inside `TraderAgent.findRoute()` (`buyAt->sellAt distance 91 exceeds fuel
+  capacity 80`), then handed a different unreachable/unprofitable route
+  twice more over the next 15 minutes — never completing a trip — while 14
+  other same-system routes it could actually fly sat unused in the same
+  ranked work list. `RouteDispatcher.recompute()`'s `reachable()` check
+  (added for the DRAGOM-3 case, see `docs/…` same describe block) already
+  verified the ship could reach *buyAt* from its current position, but
+  never checked that the *whole round trip* (buyAt→sellAt) fit the tank —
+  a same-system route could pass the first check and still be physically
+  unreachable for a small hull. It now also checks `distance(buyAt,
+  sellAt) <= fuelCapacity` for a same-system `direct` item (the one role
+  that needs the full round trip, unlike buy/sell/haul); a cross-system
+  sell leg is untouched, since that's a jump, not a fuel-distance flight,
+  and `canJump()` already covers whether it's possible at all. Three new
+  tests in `tests/dispatcher.test.ts`.
+
 - **Fix a tour ship never seeing a system's own markets when it was cached
   before they were charted.** Live incident: THEO-A, dispatched to X1-B48,
   arrived and sat reporting `no reachable target` forever instead of

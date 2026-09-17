@@ -188,6 +188,71 @@ describe("RouteDispatcher: same-system routes still need a fuel-distance check",
   });
 });
 
+describe("RouteDispatcher: the sell leg needs the same fuel-distance check as the buy leg", () => {
+  // Confirmed live: THEO-11 (80-unit tank) sat right next to the buy
+  // waypoint — the old reachable() check above only looks at the leg from
+  // the ship's current position to buyAt, so it passed — but
+  // buyAt->sellAt was 91 units, further than THEO-11 could ever fly on a
+  // full tank. It was assigned the identical unreachable route on three
+  // separate recomputes, rejected a cycle later each time inside
+  // TraderAgent's own findRoute(), while 14 other same-system routes it
+  // could actually fly sat unused in the same work list.
+  const farApartLeg = {
+    good: "ADVANCED_CIRCUITRY", buyAt: "X1-S84-D43", buySystem: "X1-S84", buyPrice: 50,
+    sellAt: "X1-S84-A4", sellSystem: "X1-S84", sellPrice: 100,
+    volume: 10, lotSize: 10, distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
+  };
+  const dist = (a: string, b: string): number => {
+    if (a === "X1-S84-H56" && b === "X1-S84-D43") return 5; // ship to buyAt: easily in range
+    if (a === "X1-S84-D43" && b === "X1-S84-A4") return 91; // buyAt to sellAt: not
+    return 0;
+  };
+
+  it("does not assign a direct route whose sell leg exceeds the ship's fuel capacity, even when the buy leg is in range", () => {
+    const d = new RouteDispatcher();
+    d.recompute(
+      [farApartLeg],
+      [{ shipSymbol: "THEO-11", capacity: 15, system: "X1-S84", waypoint: "X1-S84-H56", fuelCapacity: 80 }],
+      [], [], [], [],
+      () => false,
+      dist,
+    );
+
+    assert.equal(d.assignmentFor("THEO-11"), undefined, "a 91-unit sell leg against an 80-unit tank must not be offered");
+  });
+
+  it("still assigns it to a ship whose tank covers the whole round trip", () => {
+    const d = new RouteDispatcher();
+    d.recompute(
+      [farApartLeg],
+      [{ shipSymbol: "THEO-B", capacity: 15, system: "X1-S84", waypoint: "X1-S84-H56", fuelCapacity: 600 }],
+      [], [], [], [],
+      () => false,
+      dist,
+    );
+
+    assert.equal(d.assignmentFor("THEO-B")?.good, "ADVANCED_CIRCUITRY");
+  });
+
+  it("does not apply the sell-leg check across a jump — that leg is a gate transit, not a fuel-distance flight", () => {
+    const crossLeg = {
+      good: "MEDICINE", buyAt: "X1-B48-BX4A", buySystem: "X1-B48", buyPrice: 2682,
+      sellAt: "X1-XB94-J58", sellSystem: "X1-XB94", sellPrice: 5094,
+      volume: 60, lotSize: 60, distance: 0, fuelUnits: 0, fuelCost: 0, profitPerTrip: 139651, ageMinutes: 112,
+    };
+    const d = new RouteDispatcher();
+    d.recompute(
+      [crossLeg],
+      [{ shipSymbol: "THEO-1", capacity: 40, system: "X1-B48", waypoint: "X1-B48-BX4A", fuelCapacity: 400 }],
+      [], [], [], [],
+      () => true, // gate confirmed open
+      (a, b) => (a === b ? 0 : 999999), // would fail any real same-system distance check — must not be consulted for a cross-system leg
+    );
+
+    assert.equal(d.assignmentFor("THEO-1")?.good, "MEDICINE");
+  });
+});
+
 describe("RouteDispatcher: cross-system direct routes", () => {
   it("without a canJump predicate, never assigns a cross-system route as 'direct' — the safe default when reachability is unknown", () => {
     const d = new RouteDispatcher();

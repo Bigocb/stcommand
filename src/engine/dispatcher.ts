@@ -581,7 +581,10 @@ export class RouteDispatcher {
     // assignment cycle discovering that. buyAt lets the loop below check
     // the same fuel-distance constraint before handing the work out, not
     // after.
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string }[] = [];
+    // `sellAt`, only set for a `direct` item: the one case that needs the
+    // *whole* round trip to fit a fuel tank, not just the leg to buyAt — see
+    // reachable()'s own comment below for the live case this closes.
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -609,7 +612,7 @@ export class RouteDispatcher {
         // undoing the whole point of resorting `routes` above. toAssignment()
         // below still builds the displayed TraderAssignment from the route's
         // real profitPerTrip — only this ranking figure is adjusted.
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt });
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance > target.target) {
@@ -653,7 +656,7 @@ export class RouteDispatcher {
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
       // Decayed score here too — see the primary-loop push's own comment.
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt });
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
@@ -736,11 +739,27 @@ export class RouteDispatcher {
       // alone doesn't mean the ship can actually reach the buy waypoint
       // *from where it's standing* — see the distanceBetween param's own
       // comment for the live DRAGOM-3 case this closes.
-      const reachable = (w: { buySystem?: string; buyAt?: string }): boolean => {
+      const reachable = (w: { buySystem?: string; buyAt?: string; sellAt?: string }): boolean => {
         if (w.buySystem === undefined || t.system === undefined) return true;
         if (w.buySystem !== t.system) return canJump(t.system, w.buySystem);
         if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return true;
-        return distanceBetween(t.waypoint, w.buyAt) <= t.fuelCapacity;
+        if (distanceBetween(t.waypoint, w.buyAt) > t.fuelCapacity) return false;
+        // A `direct` item (sellAt set) needs the *whole round trip* to fit the
+        // tank, not just the leg to buyAt — a same-system route whose sell
+        // market sits further out than the trader's own fuel capacity still
+        // passed the check above and only failed later, inside the trader's
+        // own findRoute(), after an assignment cycle was already burned on it.
+        // Confirmed live: THEO-11 (80-unit tank) was hand ADVANCED_CIRCUITRY
+        // X1-XB94-D43 -> X1-XB94-A4 (91 units apart) three separate times
+        // across recomputes despite 14 other same-system routes it could
+        // actually fly sitting right there in the same work list, because
+        // nothing here ever checked the sell leg. Cross-system sellAt is
+        // untouched — that leg is a jump, not a fuel-distance flight, and
+        // canJump() above already covers whether it is possible at all.
+        if (w.sellAt === undefined) return true;
+        const sellSystem = w.sellAt.slice(0, w.sellAt.lastIndexOf("-"));
+        if (sellSystem !== w.buySystem) return true;
+        return distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity;
       };
       const item = work.find((w) => !usedKeys.has(w.key) && reachable(w));
       if (!item) continue;
