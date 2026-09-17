@@ -66,6 +66,17 @@ export interface AgentOptions {
    * and every distance it computes is Infinity until this runs.
    */
   ensureSystemCharted?: (systemSymbol: string) => Promise<void>;
+  /**
+   * Force a live re-fetch of a system's waypoint traits, bypassing the
+   * galaxy atlas's normal "trust any non-empty cache forever" rule — see
+   * GalaxyAtlas.refreshWaypointTraits()'s own comment for why a cached
+   * system can carry markets with no MARKETPLACE trait recorded (scanned
+   * before they were charted) and never self-correct on its own. Called
+   * only when a tour scout finds zero in-system targets despite knowing
+   * this system exists — a strong, specific signal the cache is wrong,
+   * not a routine refresh.
+   */
+  refreshSystemMarkets?: (systemSymbol: string) => Promise<void>;
   /** Marketplace waypoints to tour periodically so price snapshots stay fresh. */
   marketTourTargets?: () => Promise<string[]>;
   /**
@@ -189,6 +200,7 @@ export class ShipAgent {
   private readonly protectedGoods?: () => Set<string>;
   private readonly getCredits?: AgentOptions["getCredits"];
   private readonly ensureSystemCharted?: AgentOptions["ensureSystemCharted"];
+  private readonly refreshSystemMarkets?: AgentOptions["refreshSystemMarkets"];
   private readonly marketTourTargets?: AgentOptions["marketTourTargets"];
   private readonly advanceTourDestination?: AgentOptions["advanceTourDestination"];
   private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
@@ -199,6 +211,11 @@ export class ShipAgent {
   private readonly keeperMarket?: () => string | undefined;
   private readonly intentFor?: AgentOptions["intentFor"];
   private readonly done?: () => void;
+  /** Systems refreshSystemMarkets() has already been tried for this tour, so
+   *  a genuinely out-of-range system (the common case) doesn't get a live
+   *  waypoint re-fetch every single tick forever — see its one call site's
+   *  own comment. */
+  private readonly triedMarketRefresh = new Set<string>();
   private readonly onTenderAbandoned?: (strandedSymbol: string, reason: string) => void;
   private readonly galaxy?: AgentOptions["galaxy"];
   private readonly store?: AgentOptions["store"];
@@ -268,6 +285,7 @@ export class ShipAgent {
     this.protectedGoods = opts.protectedGoods;
     this.getCredits = opts.getCredits;
     this.ensureSystemCharted = opts.ensureSystemCharted;
+    this.refreshSystemMarkets = opts.refreshSystemMarkets;
     this.marketTourTargets = opts.marketTourTargets;
     this.advanceTourDestination = opts.advanceTourDestination;
     this.staleMarketTargets = opts.staleMarketTargets;
@@ -1409,6 +1427,24 @@ export class ShipAgent {
       // turns the next occurrence into a two-second log read instead of a
       // live-data investigation.
       const inSystem = targets.filter((t) => t !== here && t.slice(0, t.lastIndexOf("-")) === this.ship.nav.systemSymbol);
+      // Zero in-system targets despite the galaxy atlas already knowing this
+      // system exists (it must, or `targets` couldn't contain anything at
+      // all) means either this system genuinely has no markets, or it was
+      // cached before its markets were charted — see
+      // GalaxyAtlas.refreshWaypointTraits()'s own comment. A live re-fetch
+      // resolves the ambiguity directly instead of guessing; tried once per
+      // system per agent lifetime so a genuinely marketless system doesn't
+      // pay for a live call every tick forever.
+      if (inSystem.length === 0 && this.refreshSystemMarkets && !this.triedMarketRefresh.has(this.ship.nav.systemSymbol)) {
+        this.triedMarketRefresh.add(this.ship.nav.systemSymbol);
+        try {
+          await this.refreshSystemMarkets(this.ship.nav.systemSymbol);
+          this.log(`tour scout: re-fetched ${this.ship.nav.systemSymbol}'s waypoints to check for newly-charted markets; re-evaluating next tick`);
+          return true;
+        } catch (err) {
+          this.log(`tour scout: waypoint re-fetch for ${this.ship.nav.systemSymbol} failed, will report as before: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       this.log(`tour scout: no reachable target from ${here} (${targets.length} known, ${inSystem.length} in ${this.ship.nav.systemSymbol}, atMarketHere=${this.atMarketHere()})`);
       return false;
     }

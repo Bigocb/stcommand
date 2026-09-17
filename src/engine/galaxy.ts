@@ -102,6 +102,47 @@ export class GalaxyAtlas {
     return this.systems.get(symbol);
   }
 
+  /**
+   * Force a live re-fetch of a system's waypoint list, overwriting whatever
+   * is cached (in memory and persisted) — the one deliberate exception to
+   * loadSystem()'s "trust any non-empty cache forever" rule.
+   *
+   * That rule exists to avoid re-scanning a system every boot, but it has a
+   * real gap: SpaceTraders only reveals a waypoint's `traits` once someone
+   * (any agent, not necessarily this tenant) has actually charted it. A
+   * system scanned before its markets were charted gets cached with those
+   * waypoints present but trait-less — permanently, since nothing ever
+   * re-fetches a non-empty cache. Confirmed live: X1-B48 was scanned weeks
+   * before this tenant's own tour dispatch feature existed, cached as
+   * "scanned" with all 30 waypoints, but its two FUEL_STATIONs and two
+   * PLANETs apparently weren't charted yet at that moment — the live API
+   * shows all four carrying MARKETPLACE today, but this tenant's cache
+   * never learned that, so marketTourTargets()'s trait-scan found nothing
+   * there and a tour ship dispatched into the system sat reporting "no
+   * reachable target" against its own five markets. Callers should reach
+   * for this only when they have concrete evidence the cache is wrong
+   * (a target list that come up empty for a system with markets a fresh
+   * scan would find) — not as a routine refresh, which would reintroduce
+   * the boot-time rate-limit pressure loadSystem()'s cache exists to avoid.
+   */
+  async refreshWaypointTraits(systemSymbol: string): Promise<KnownSystem> {
+    const waypoints = await this.api.getAllSystemWaypoints(systemSymbol);
+    const existing = this.systems.get(systemSymbol);
+    const known: KnownSystem = {
+      symbol: systemSymbol,
+      waypoints,
+      jumpGates: existing?.jumpGates ?? [],
+      markets: existing?.markets ?? [],
+      shipyards: existing?.shipyards ?? [],
+    };
+    this.systems.set(systemSymbol, known);
+    for (const w of waypoints) {
+      if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
+    }
+    await this.store?.setSystemTopology(systemSymbol, waypoints, known.jumpGates);
+    return known;
+  }
+
   listSystems(): KnownSystem[] {
     return [...this.systems.values()];
   }

@@ -1365,6 +1365,15 @@ export class FleetManager {
     this.registry.noteTopologyChanged();
   }
 
+  /** Wired as tour agents' refreshSystemMarkets — see
+   *  GalaxyAtlas.refreshWaypointTraits()'s own comment for what this
+   *  corrects and why loadSystem()'s normal cache can't self-heal it. */
+  private async refreshSystemMarkets(systemSymbol: string): Promise<void> {
+    await this.galaxy.refreshWaypointTraits(systemSymbol);
+    this.positions = this.galaxy.allPositions().map((p) => ({ symbol: p.symbol, x: p.x, y: p.y, type: p.type }));
+    this.registry.noteTopologyChanged();
+  }
+
   /** Record `systemSymbol` in the durable charted-systems set — see that
    *  field's own comment. A no-op once a system is already recorded, so
    *  chartOccupiedSystems()'s every-tick call only ever writes on first
@@ -1645,6 +1654,7 @@ export class FleetManager {
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
             ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
+          refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
           marketTourTargets: () => this.sectorTourTargets(ship.symbol),
           staleMarketTargets: () => this.staleMarketTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
@@ -1862,6 +1872,7 @@ export class FleetManager {
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 ensureSystemCharted: (sys) => this.chartSystemFor(shipSymbol, sys),
+            refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
             marketTourTargets: () => this.sectorTourTargets(shipSymbol),
             staleMarketTargets: () => this.staleMarketTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),

@@ -314,3 +314,52 @@ describe("GalaxyAtlas: gate-construction persistence", () => {
     await assert.doesNotReject(() => atlas.loadGateConstruction());
   });
 });
+
+describe("GalaxyAtlas: refreshWaypointTraits", () => {
+  // Confirmed live: X1-B48 was cached (loadSystem()'s cache-hit path) before
+  // its markets were charted by anyone, so its waypoints came back with no
+  // MARKETPLACE trait — permanently, since a non-empty cache is trusted
+  // forever. A tour ship dispatched there reported "no reachable target"
+  // against a system that, per the live API, genuinely has five markets.
+  it("overwrites a stale trait-less cache with a live re-fetch", async () => {
+    const cachedWaypoints = [{ symbol: "X1-B48-F14F", type: "FUEL_STATION", traits: [] }];
+    const liveWaypoints = [{ symbol: "X1-B48-F14F", type: "FUEL_STATION", traits: [{ symbol: "MARKETPLACE" }] }];
+    const store: GalaxyStore = {
+      getSystemTopology: async () => ({ waypoints: cachedWaypoints, jumpGates: [] }),
+      setSystemTopology: async () => {},
+    };
+    const api = { getAllSystemWaypoints: async () => liveWaypoints } as any;
+    const atlas = new GalaxyAtlas(api, store);
+
+    const beforeRefresh = await atlas.loadSystem("X1-B48");
+    assert.equal((beforeRefresh.waypoints[0] as any).traits.length, 0, "sanity check: the cache-hit path is trait-less, as scanned");
+
+    const after = await atlas.refreshWaypointTraits("X1-B48");
+    assert.equal((after.waypoints[0] as any).traits[0]?.symbol, "MARKETPLACE");
+    assert.equal(atlas.getSystem("X1-B48")?.waypoints[0]?.symbol, "X1-B48-F14F", "the in-memory cache reflects the refresh too, not just the return value");
+  });
+
+  it("preserves already-resolved jump gates instead of resetting them", async () => {
+    const store: GalaxyStore = {
+      getSystemTopology: async () => undefined,
+      setSystemTopology: async () => {},
+    };
+    const waypointCalls: string[] = [];
+    const api = {
+      getAllSystemWaypoints: async (sys: string) => {
+        waypointCalls.push(sys);
+        return sys === "X1-A" ? [{ symbol: "X1-A-GATE", type: "JUMP_GATE", traits: [] }] : [];
+      },
+      getJumpGate: async () => ({ symbol: "X1-A-GATE", connections: ["X1-B-GATE"] }),
+    } as any;
+    const atlas = new GalaxyAtlas(api, store);
+    await atlas.loadSystem("X1-A");
+    await atlas.scanJumpGates("X1-A");
+    assert.equal(atlas.canJump("X1-A", "X1-B"), false, "sanity check: construction status is unknown, not confirmed complete");
+
+    await atlas.refreshWaypointTraits("X1-A");
+
+    assert.equal(waypointCalls.filter((s) => s === "X1-A").length, 2, "X1-A's waypoint list is genuinely re-fetched, not served from cache");
+    assert.deepEqual(atlas.gatesTo("X1-A", "X1-B"), ["X1-A-GATE"], "the earlier scanJumpGates() result survives a waypoint-only refresh");
+  });
+});

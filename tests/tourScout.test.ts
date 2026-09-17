@@ -72,7 +72,7 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
     assert.equal(worked, false);
     assert.deepEqual(navigated, []);
     assert.ok(
-      logs.some((l) => l.includes("no reachable target from X1-REMOTE-A1 (2 known)")),
+      logs.some((l) => l.includes("no reachable target from X1-REMOTE-A1 (2 known, 2 in X1-REMOTE")),
       "reproduces the observed live symptom: known targets, none of them usable",
     );
   });
@@ -360,6 +360,79 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
 
     assert.equal(charts, 0, "positions already known — no reason to spend the API call");
     assert.deepEqual(navigated, ["X1-REMOTE-B2"]);
+  });
+});
+
+describe("ShipAgent.tourScout: refreshing a system cached before its markets were charted", () => {
+  // Confirmed live: X1-B48 was cached with all its waypoints, but scanned
+  // before any of its markets had been charted (SpaceTraders only reveals
+  // traits once a waypoint is actually charted), so none of them carried
+  // MARKETPLACE. A tour ship dispatched there reported "no reachable
+  // target" against a system whose live topology genuinely has five
+  // markets. Distinct from the "no position cache" scenario above: the
+  // ship's own position IS known here (so ensureSystemCharted never
+  // fires) and the system genuinely has targets known elsewhere in the
+  // galaxy — only this system's own markets are missing.
+  it("calls refreshSystemMarkets once, then finds the market the refresh reveals", async () => {
+    const ship = makeShip("X1-B48-B13A", "X1-B48");
+    const logs: string[] = [];
+    let refreshCalls = 0;
+    let revealed = false;
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => (revealed ? ["X1-OTHER-Z9", "X1-B48-F14F"] : ["X1-OTHER-Z9"]),
+      refreshSystemMarkets: async (sys) => {
+        refreshCalls += 1;
+        assert.equal(sys, "X1-B48");
+        revealed = true;
+        agent.withWorld(
+          [
+            { symbol: "X1-B48-B13A", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] },
+            { symbol: "X1-B48-F14F", x: 20, y: 0, traits: [{ symbol: "MARKETPLACE" }] },
+          ] as any,
+          [],
+        );
+      },
+    });
+    agent.withWorld([{ symbol: "X1-B48-B13A", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] }] as any, []);
+    const navigated: string[] = [];
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+    (agent as any).ensureDocked = async () => {};
+
+    const firstTick = await (agent as any).tourScout();
+    assert.equal(refreshCalls, 1);
+    assert.equal(firstTick, true, "reports work done so the caller retries rather than backing off");
+    assert.deepEqual(navigated, [], "no target chosen yet — the refresh itself is this tick's work");
+
+    const secondTick = await (agent as any).tourScout();
+    assert.deepEqual(navigated, ["X1-B48-F14F"], "the market the refresh revealed is now a real target");
+    assert.equal(secondTick, true);
+    assert.equal(refreshCalls, 1, "not called again once it already found something");
+  });
+
+  it("tries the refresh only once per system when it turns up nothing", async () => {
+    const ship = makeShip("X1-B48-B13A", "X1-B48");
+    const logs: string[] = [];
+    let refreshCalls = 0;
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => ["X1-OTHER-Z9"], // never reveals anything local
+      refreshSystemMarkets: async () => { refreshCalls += 1; },
+    });
+    agent.withWorld([{ symbol: "X1-B48-B13A", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] }] as any, []);
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async () => {};
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+    await (agent as any).tourScout();
+    await (agent as any).tourScout();
+
+    assert.equal(refreshCalls, 1, "a genuinely marketless system must not pay for a live call every tick forever");
+    assert.ok(logs.some((l) => l.includes("no reachable target from X1-B48-B13A")));
   });
 });
 
