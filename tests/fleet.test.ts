@@ -186,6 +186,56 @@ describe("FleetManager warehouse ship", () => {
   });
 });
 
+describe("FleetManager.findSystemPath: routes around gates known to be under construction", () => {
+  // Confirmed live: X1-XB94 has a genuine direct gate to X1-MJ67, but
+  // X1-MJ67-I55 is still under construction. findSystemPath() used to pick
+  // that 2-hop path every time regardless (shortest by hop count), so
+  // advanceTourDispatch() retried the same doomed jump forever instead of
+  // routing through a longer but actually-jumpable connection.
+  function fakeGalaxy(connections: { from: string; to: string }[], incomplete: Set<string>) {
+    return {
+      jumpConnections: () => connections,
+      gateComplete: (gate: string) => (incomplete.has(gate) ? false : undefined),
+    };
+  }
+
+  it("prefers the direct connection when nothing is known to be blocked", () => {
+    const fleet = makeFleet([]);
+    (fleet as any).galaxy = fakeGalaxy(
+      [
+        { from: "X1-A-GATE", to: "X1-B-GATE" },
+        { from: "X1-A-GATE", to: "X1-C-GATE" },
+        { from: "X1-C-GATE", to: "X1-B-GATE" },
+      ],
+      new Set(),
+    );
+    assert.deepEqual((fleet as any).findSystemPath("X1-A", "X1-B"), ["X1-A", "X1-B"]);
+  });
+
+  it("routes around a specific blocked gate via a different gate into the same system", () => {
+    // X1-B has two jump gates (a system can have more than one) — GATE1 is
+    // the direct link from X1-A and is under construction; GATE2 reaches
+    // the same system via X1-C and is fine. A gate being incomplete blocks
+    // jumps through *that gate*, not every way into its system.
+    const fleet = makeFleet([]);
+    (fleet as any).galaxy = fakeGalaxy(
+      [
+        { from: "X1-A-GATE", to: "X1-B-GATE1" },
+        { from: "X1-A-GATE", to: "X1-C-GATE" },
+        { from: "X1-C-GATE", to: "X1-B-GATE2" },
+      ],
+      new Set(["X1-B-GATE1"]),
+    );
+    assert.deepEqual((fleet as any).findSystemPath("X1-A", "X1-B"), ["X1-A", "X1-C", "X1-B"]);
+  });
+
+  it("returns undefined rather than a blocked path when no alternate route is known", () => {
+    const fleet = makeFleet([]);
+    (fleet as any).galaxy = fakeGalaxy([{ from: "X1-A-GATE", to: "X1-B-GATE" }], new Set(["X1-B-GATE"]));
+    assert.equal((fleet as any).findSystemPath("X1-A", "X1-B"), undefined);
+  });
+});
+
 describe("FleetManager.jettisonCargo", () => {
   function makeAgentWithCargo(symbol: string, inventory: { symbol: string; units: number }[]) {
     const units = inventory.reduce((sum, i) => sum + i.units, 0);

@@ -2521,18 +2521,32 @@ export class FleetManager {
   }
 
   /**
-   * Shortest known path of systems from `fromSystem` to `toSystem`, walking
-   * only jump-gate connections this tenant has actually charted
+   * Shortest *usable* known path of systems from `fromSystem` to `toSystem`,
+   * walking only jump-gate connections this tenant has actually charted
    * (galaxy.jumpConnections() — waypoint-level pairs, collapsed here to one
    * system-level graph). Returns undefined when no such path is known yet;
    * that's not necessarily "unreachable", just "not discovered far enough
    * for this tenant" — advanceTourDispatch() leaves the destination pinned
    * and retries on a later tick as more of the galaxy gets charted.
+   *
+   * A connection through a gate the construction cache already knows is
+   * incomplete is excluded from the graph entirely, not just skipped as a
+   * first choice — confirmed live: X1-XB94 has a genuine direct gate to
+   * X1-MJ67, but X1-MJ67-I55 is still under construction, and this used to
+   * return that 2-hop path anyway (shortest by hop count) every time it was
+   * asked, so advanceTourDispatch() retried the same doomed jump forever.
+   * Excluding known-incomplete gates here means BFS naturally routes around
+   * them and returns a longer but actually-jumpable path when one exists,
+   * the same way an operator would route around a gate they knew was
+   * blocked. A gate with unknown status (never checked) is still included —
+   * this must not require every gate on a route to have already been
+   * verified before a first attempt is even possible.
    */
   private findSystemPath(fromSystem: string, toSystem: string): string[] | undefined {
     if (fromSystem === toSystem) return [fromSystem];
     const adjacency = new Map<string, Set<string>>();
     for (const { from, to } of this.galaxy.jumpConnections()) {
+      if (this.galaxy.gateComplete(from) === false || this.galaxy.gateComplete(to) === false) continue;
       const a = from.slice(0, from.lastIndexOf("-"));
       const b = to.slice(0, to.lastIndexOf("-"));
       if (a === b) continue;

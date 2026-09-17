@@ -11,6 +11,25 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tour dispatch now routes around a specific gate under construction,
+  instead of only ever considering the shortest hop count.** Follow-up to
+  the fix below: `findSystemPath()`'s BFS picked the fewest-systems route
+  regardless of whether any gate along it was known to be blocked — for
+  THEO-10's case, X1-XB94's genuine direct gate to X1-MJ67, which returned
+  that path forever even once `advanceTourDispatch()` had recorded
+  X1-MJ67-I55 as incomplete, since nothing about the pathfinding itself
+  cared. It now excludes any connection through a gate the construction
+  cache already knows is incomplete before running BFS, so a longer but
+  actually-jumpable route (through a different gate into the same
+  destination system, where one exists) wins instead. A gate with unknown
+  status is still included — this doesn't require every gate on a route to
+  already be verified before a first attempt. When a destination's only
+  known gate is the blocked one, this correctly falls back to "no known
+  path yet" rather than fabricating a route that can't exist — reaching
+  X1-MJ67 specifically still has to wait on that gate's own construction,
+  same as before, since it has only the one gate. Three new tests in
+  `tests/fleet.test.ts`.
+
 - **Fix a tour ship retrying a doomed jump forever instead of touring while it
   waits.** Confirmed live: THEO-10, dispatched to tour a remote system,
   spent over an hour "sitting at the gate" — every tick it tried to jump to
