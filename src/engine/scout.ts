@@ -437,7 +437,20 @@ export class ScoutAgent {
     // Same rule tourScout() already follows: a false here means "not enough
     // fuel and nowhere reachable to get more", and flying the leg anyway just
     // trades that log line for a rejected navigate every 10 s.
-    if (!(await this.refuelIfNeeded(5, target))) {
+    //
+    // Skipped entirely when the ship is already standing on `target` — no
+    // travel is about to happen, so there is nothing to budget fuel for.
+    // fuelNeededRoundTrip() prices a full "get there, then get back out to a
+    // market" trip; for a target 0 distance away that's still whatever it
+    // costs to reach the *nearest* market from here, which can be large.
+    // Confirmed live: THEO-A arrived at X1-MV41-B11A (an uncharted asteroid,
+    // no market of its own) with 92/300 fuel, picked B11A as its own next
+    // chart target (nearest uncharted, distance 0), and then held there for
+    // over 6 hours straight — "not enough fuel for X1-MV41-B11A and no
+    // reachable market" — because the budget still included the ~100+ fuel
+    // return trip to the system's one distant fuel station, a cost that has
+    // nothing to do with charting a waypoint the ship is already sitting on.
+    if (this.ship.nav.waypointSymbol !== target && !(await this.refuelIfNeeded(5, target))) {
       this.log(`holding at ${this.ship.nav.waypointSymbol}: not enough fuel for ${target} and no reachable market`);
       return false;
     }

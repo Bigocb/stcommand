@@ -235,6 +235,11 @@ describe("ScoutAgent honours refuelIfNeeded()'s refusal", () => {
       { symbol: "X1-A-A1", x: 0, y: 0 },
       { symbol: "X1-A-B9", x: 10, y: 0 },
     ] as any, []);
+    // Otherwise pickChartTarget() picks the ship's own (uncharted, distance
+    // 0) waypoint over B9 — and a scout standing on its own target skips the
+    // refuel gate entirely, since no travel is about to happen. This test is
+    // about a genuine leg, so the ship's own waypoint must already be done.
+    agent.withCharted(["X1-A-A1"]);
 
     let navigated = false;
     (agent as any).refuelIfNeeded = async () => false; // cannot fuel, nowhere reachable

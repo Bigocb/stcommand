@@ -11,6 +11,28 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a scout standing exactly on its own next chart target held for
+  fuel it didn't need, for over 6 hours straight.** Live incident: THEO-A
+  jumped into X1-MV41 (the earlier fix below working as intended), toured a
+  few waypoints, then arrived at X1-MV41-B11A — an uncharted asteroid with
+  no market of its own — with 92/300 fuel, and got stuck holding there
+  forever: `holding at X1-MV41-B11A: not enough fuel for X1-MV41-B11A and
+  no reachable market`. `pickChartTarget()` correctly picks the nearest
+  uncharted waypoint, which can be the ship's own current position (distance
+  0) once everything else nearby is charted — but `tick()` still ran the
+  full `refuelIfNeeded()` round-trip budget before attempting to chart it,
+  which prices in a return trip to the *nearest market*, regardless of
+  whether the ship is actually about to travel anywhere. From B11A that
+  return trip was 100+ fuel to the system's one distant fuel station — a
+  cost with nothing to do with charting a waypoint already underneath the
+  ship. `tick()` now skips the refuel gate entirely when the ship is already
+  standing on `target`, since `navigateTo()` no-ops in that case anyway and
+  no fuel is at risk. Two new tests in `tests/scoutSelfTarget.test.ts`; also
+  fixed a latent gap in an existing `cooldownPending.test.ts` fixture that
+  had the same self-target ambiguity (its "must not fly with no fuel" test
+  happened to still pass before only because the refuel gate never checked
+  which target it was for).
+
 - **Fix: a tour ship dispatched across multiple jump-gate hops got stuck
   mid-route, mis-reading its own in-flight transit as a failed jump.** Live
   incident: THEO-14 was bought and dispatched to tour X1-B48 (2 known hops
