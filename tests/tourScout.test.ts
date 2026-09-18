@@ -493,6 +493,56 @@ describe("ShipAgent.tourScout: shipyard inventory on arrival, the market fix's o
 
     assert.deepEqual(shipyardsRecorded, [], "a plain market must not get a spurious shipyard scan");
   });
+
+  // Live requirement: a tour ship that finds a shipyard and raises (or finds
+  // already open) a buyKeeperProbe request must stay put — docked, right
+  // there — until the operator decides or the timeout policy does, since
+  // FleetManager.resolvePendingKeeperProbeApproval() needs a ship genuinely
+  // present at the moment it actually buys.
+  it("holds at a shipyard instead of touring on while a keeper probe approval is still open", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    const navigated: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => ["X1-REMOTE-B2"],
+      shipyardTourTargets: async () => ["X1-REMOTE-A1"],
+      recordMarket: async () => {},
+      recordShipyard: async () => {},
+      hasPendingKeeperApproval: async (wp) => wp === "X1-REMOTE-A1",
+    });
+    agent.withWorld(remotePositions.map((w: any) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }, { symbol: "SHIPYARD" }] })) as any, []);
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+    (agent as any).ensureDocked = async () => {};
+
+    const result = await (agent as any).tourScout();
+
+    assert.equal(result, true, "reports work done (holding), not idle");
+    assert.deepEqual(navigated, [], "must not tour on while the approval this ship raised is still open");
+  });
+
+  it("tours on normally once no keeper probe approval is open for this waypoint", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    const navigated: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => ["X1-REMOTE-B2"],
+      shipyardTourTargets: async () => ["X1-REMOTE-A1"],
+      recordMarket: async () => {},
+      recordShipyard: async () => {},
+      hasPendingKeeperApproval: async () => false,
+    });
+    agent.withWorld(remotePositions.map((w: any) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }, { symbol: "SHIPYARD" }] })) as any, []);
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.deepEqual(navigated, ["X1-REMOTE-B2"], "free to tour on once nothing is holding it here");
+  });
 });
 
 describe("ShipAgent.tourScout: marks itself stranded, not just idle", () => {

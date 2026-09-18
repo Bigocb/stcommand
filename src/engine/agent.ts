@@ -110,6 +110,11 @@ export interface AgentOptions {
   explorersParked?: () => boolean;
   /** Called when the ship docks at a shipyard so its inventory can be recorded. */
   recordShipyard?: (waypointSymbol: string) => Promise<void>;
+  /** True while a buyKeeperProbe request this ship's own recordShipyard()
+   *  call just raised (or an earlier visit did) is still open for this
+   *  exact waypoint — see tourScout()'s own comment on why it holds here
+   *  rather than touring on. */
+  hasPendingKeeperApproval?: (waypointSymbol: string) => Promise<boolean>;
   /** Stationary keeper: the market this ship polls on a timer to keep prices fresh. */
   keeperMarket?: () => string | undefined;
   /**
@@ -210,6 +215,7 @@ export class ShipAgent {
   private readonly explorersParked?: AgentOptions["explorersParked"];
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
+  private readonly hasPendingKeeperApproval?: AgentOptions["hasPendingKeeperApproval"];
   private readonly keeperMarket?: () => string | undefined;
   private readonly intentFor?: AgentOptions["intentFor"];
   private readonly done?: () => void;
@@ -295,6 +301,7 @@ export class ShipAgent {
     this.exploreNext = opts.exploreNext;
     this.explorersParked = opts.explorersParked;
     this.recordShipyard = opts.recordShipyard;
+    this.hasPendingKeeperApproval = opts.hasPendingKeeperApproval;
     this.keeperMarket = opts.keeperMarket;
     this.intentFor = opts.intentFor;
     this.done = opts.done;
@@ -1367,6 +1374,20 @@ export class ShipAgent {
       // actually stock FUEL, and refuelIfNeeded() already logs and
       // swallows that case rather than throwing.
       await this.refuelIfNeeded(0, undefined, 0.95);
+      // A recordShipyard() call just above can raise a fresh buyKeeperProbe
+      // request — the operator has to see it, decide, and have that
+      // decision actually acted on while a ship is still physically here to
+      // buy with (see FleetManager.resolvePendingKeeperProbeApproval()'s own
+      // comment on why presence at the moment of purchase matters). Touring
+      // on before that happens is exactly the race that method's dock-if-
+      // orbiting fix papers over rather than avoids — staying put here
+      // avoids it outright. Denial and auto-approval both close the request
+      // too (see ApprovalGate.request()'s own comment), so this is never an
+      // indefinite hold.
+      if (this.hasPendingKeeperApproval && yardTargets.includes(standingAt) && (await this.hasPendingKeeperApproval(standingAt))) {
+        this.log(`tour scout: holding at ${standingAt} — keeper probe approval pending`);
+        return true;
+      }
     }
 
     const targets = [...marketTargets, ...yardTargets];

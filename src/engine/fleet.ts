@@ -1565,6 +1565,7 @@ export class FleetManager {
           shipyardTourTargets: () => this.shipyardTourTargets(),
           advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
           getCredits: () => this.spendableCredits(),
           galaxy: this.galaxy,
           store: this.store,
@@ -1627,6 +1628,7 @@ export class FleetManager {
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
@@ -1666,6 +1668,7 @@ export class FleetManager {
           shipyardTourTargets: () => this.shipyardTourTargets(),
           advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
           getCredits: () => this.spendableCredits(),
           galaxy: this.galaxy,
           store: this.store,
@@ -1805,6 +1808,7 @@ export class FleetManager {
             marketTourTargets: () => this.marketTourTargets(),
             shipyardTourTargets: () => this.shipyardTourTargets(),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -1852,6 +1856,7 @@ export class FleetManager {
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
@@ -1885,6 +1890,7 @@ export class FleetManager {
             shipyardTourTargets: () => this.shipyardTourTargets(),
             advanceTourDestination: () => this.advanceTourDispatch(shipSymbol),
             recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -3673,6 +3679,17 @@ export class FleetManager {
     } catch (err) {
       // ignore: shipyard may not be scannable
     }
+  }
+
+  /** True while a buyKeeperProbe request for exactly this waypoint is still
+   *  open — wired into every tour/scout ShipAgent as hasPendingKeeperApproval
+   *  so the ship that raised the request (or found one already open on a
+   *  revisit) stays put until the operator decides or the timeout policy
+   *  does, rather than touring off before the purchase can go through. */
+  private async hasPendingKeeperProbeApproval(waypointSymbol: string): Promise<boolean> {
+    if (!this.store || !this.tenantId) return false;
+    const row = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe");
+    return row?.shipSymbol === waypointSymbol;
   }
 
   /**
@@ -5578,6 +5595,7 @@ export class FleetManager {
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits, sym),
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+        hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
         keeperMarket: () => this.keeperMarkets.get(sym),
         getCredits: () => this.spendableCredits(),
         galaxy: this.galaxy,

@@ -11,6 +11,20 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: a tour ship that finds an uncovered shipyard now holds there,
+  docked, until its own keeper-probe approval is decided.** Operator
+  requirement, prompted directly by the two live keeper-probe-approval
+  races fixed earlier this session: touring on before the operator (or
+  the timeout policy) decides just reopens the same "is a ship really
+  still there" gap those fixes closed reactively. `tourScout()` now
+  checks a new `hasPendingKeeperApproval` callback right after recording
+  a shipyard's stock — if a `buyKeeperProbe` request for exactly this
+  waypoint is still open (raised just now, or found already open on a
+  revisit), it holds instead of picking its next stop. Closes on its
+  own once the request is decided (approved, denied, or auto-decided by
+  the timeout) — never an indefinite hold. Two new tests in
+  `tests/tourScout.test.ts`.
+
 - **Add: manual Dock/Undock to Tower's ship-action sheet.** Desktop has
   had this for a while (`.dock-toggle`, hitting the existing
   `/api/fleet/dock` toggle endpoint), but Tower's sheet never got a
