@@ -350,6 +350,13 @@ function renderSheet(row) {
   const holdBtn = row.manual
     ? `<button class="btn" data-act="release">Release</button>`
     : `<button class="btn" data-act="hold">Hold</button>`;
+  // Same /api/fleet/dock toggle endpoint desktop's .dock-toggle already
+  // uses — Tower's sheet just never had a button wired to it. Disabled
+  // (not hidden) mid-transit, matching the endpoint's own guard, so the
+  // operator sees why rather than the button silently vanishing.
+  const dockBtn = row.nav === "IN_TRANSIT"
+    ? `<button class="btn" disabled title="in transit — wait for arrival">Dock / Undock</button>`
+    : `<button class="btn" data-act="dock-toggle">${row.nav === "DOCKED" ? "Undock" : "Dock"}</button>`;
   let extra = "";
   if (sendFormOpen) {
     extra += `<div class="sheet-inline-form"><input id="send-wp-input" placeholder="Waypoint, e.g. X1-A-B2" /><button class="btn pri" data-act="send-go">Go</button></div>`;
@@ -383,6 +390,7 @@ function renderSheet(row) {
   $("sheet-actions").innerHTML = `
     <button class="btn" data-act="send-toggle">Send to waypoint</button>
     ${holdBtn}
+    ${dockBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
@@ -521,6 +529,12 @@ $("sheet-actions").addEventListener("click", async (e) => {
   if (act === "hold" || act === "release") {
     b.disabled = true;
     try { await api("POST", `/api/fleet/${act}`, { shipSymbol: ship }); await loadBridge(); }
+    catch (err) { alert(err.message); }
+    return renderFleetView();
+  }
+  if (act === "dock-toggle") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/dock", { shipSymbol: ship }); await loadBridge(); }
     catch (err) { alert(err.message); }
     return renderFleetView();
   }

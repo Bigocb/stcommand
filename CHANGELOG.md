@@ -11,6 +11,13 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: manual Dock/Undock to Tower's ship-action sheet.** Desktop has
+  had this for a while (`.dock-toggle`, hitting the existing
+  `/api/fleet/dock` toggle endpoint), but Tower's sheet never got a
+  button wired to it. Same endpoint, same label logic (reads current
+  `nav.status`, disabled with an explanatory title while in transit
+  rather than hidden).
+
 - **Fix: approving a "buy keeper probe" request could still fail even
   when the confirming ship was genuinely, currently at the yard — just
   in orbit rather than docked.** Follow-up to this session's earlier
