@@ -11,6 +11,26 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: `ScoutAgent.dispatchTo()` never actually flew the ship, breaking
+  every jump through it.** Live incident, caught within an hour of shipping
+  the scout-jump feature below: THEO-A sat at X1-B48-F25A while the fleet
+  logged `THEO-A jumping X1-B48-B13A -> X1-VJ42-X19E` followed immediately
+  by `Failed to execute jump. Waypoint X1-B48-F25A is not a jump gate.` on
+  a ~90s retry loop for 15+ minutes straight. Root cause: unlike every other
+  role's `dispatchTo()` (`ShipAgent`, `TraderAgent`, `SiphonerAgent` all
+  actually fly there and block until arrival, propagating `Pending`
+  correctly inside a scheduled tick), `ScoutAgent.dispatchTo()` just set a
+  `manualGoal` flag and returned immediately, leaving the actual flight for
+  some future tick to notice. `jumpShip()`/`dispatchShip()` assume the
+  standard contract — they call `dispatchTo()` to reach the gate, then
+  immediately attempt the live jump expecting the ship to already be there
+  — so for a scout the ship never moved and every jump attempt failed
+  against wherever it actually was standing. `ScoutAgent.dispatchTo()` now
+  matches the other roles: navigates and orbits for real (still recording
+  `manualGoal` so a later tick charts the destination), letting
+  `schedulerDriven` propagate `Pending` exactly like `ShipAgent.dispatchTo()`
+  already does. Three new tests in `tests/scoutDispatchTo.test.ts`.
+
 - **Chart scouts jump to a new system once their current one is fully
   charted, instead of idling forever.** Live incident: THEO-A was
   converted to `scout` and assigned X1-B48, but a live public-API check

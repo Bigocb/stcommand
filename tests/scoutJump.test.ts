@@ -73,11 +73,10 @@ describe("ScoutAgent.tick: jumping to a new system once the current one is fully
   });
 
   it("propagates a Pending thrown by the jump hook untouched, not swallowed as a failure", async () => {
-    const { Pending } = await import("../src/engine/agentStep.js");
-    class FakePending extends Pending {}
+    const { Pending, NavigationPending } = await import("../src/engine/agentStep.js");
     const { agent } = makeScout({
       jumpToUnchartedSystem: async () => {
-        throw new FakePending(Date.now() + 1000);
+        throw new NavigationPending(Date.now() + 1000);
       },
     });
 

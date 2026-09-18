@@ -231,9 +231,33 @@ export class ScoutAgent {
     this.suspended = false;
   }
 
-  /** One-shot manual dispatch: chart this waypoint, then return to autonomous mode. */
-  dispatchTo(waypoint: string): void {
+  /**
+   * Fly there now, then chart it once arrived (manualGoal makes the next
+   * tick's chart attempt target this waypoint even after arrival).
+   *
+   * Confirmed live: this used to just set the flag and return immediately,
+   * with the actual flight left for some later scheduled tick to notice —
+   * every other role's dispatchTo() (ShipAgent, TraderAgent, SiphonerAgent)
+   * actually flies there, and dispatchShip()/jumpShip() both assume that
+   * contract (they call dispatchTo() to reach a gate, then immediately try
+   * the live jump/action expecting the ship to already be there). For a
+   * scout this silently broke jumpShip(): the ship never moved, and every
+   * live jump attempt failed with "Waypoint <wherever it actually was> is
+   * not a jump gate" — the exact failure THEO-A hit in a retry loop for
+   * over 15 minutes once ScoutAgent gained the ability to jump itself to a
+   * new system. Mirrors ShipAgent.dispatchTo(): schedulerDriven (set by
+   * nextTask() before calling tick()) makes navigateTo() throw Pending
+   * instead of blocking, so this still composes correctly inside a
+   * scheduled tick; a direct manual call blocks for real, same as before.
+   */
+  async dispatchTo(waypoint: string): Promise<void> {
     this.manualGoal = waypoint;
+    await this.refresh();
+    if (this.ship.nav.waypointSymbol !== waypoint || this.ship.nav.status === "IN_TRANSIT") {
+      await this.refuelIfNeeded(5, waypoint);
+      await this.navigateTo(waypoint);
+      await this.ensureInOrbit();
+    }
   }
 
   release(): void {
