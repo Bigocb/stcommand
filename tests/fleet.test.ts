@@ -236,6 +236,62 @@ describe("FleetManager.findSystemPath: routes around gates known to be under con
   });
 });
 
+describe("FleetManager.advanceTourDispatch: a mid-hop transit is not a failed jump", () => {
+  // jumpShip() reaches the gate via dispatchShip()/agent.dispatchTo(), which
+  // for a tour ship really flies there and throws NavigationPending as real
+  // control flow while schedulerDriven is true — not a failure. Confirmed
+  // live: THEO-14, dispatched to tour X1-B48 (2 hops away), got stuck
+  // touring X1-XB94 forever, logging "tour dispatch hop to X1-B48 failed
+  // ... [object Object]" (String()-ing a Pending, not an Error) on every
+  // retry, because the old catch treated the Pending as a genuine jump
+  // failure and wrongly recorded a perfectly fine gate as under construction.
+  function fakeGalaxyWithGate() {
+    return {
+      jumpConnections: () => [{ from: "X1-A-GATE", to: "X1-B-GATE" }],
+      gateComplete: () => undefined,
+      loadSystem: async () => {},
+      getSystem: (sys: string) => (sys === "X1-B" ? { symbol: "X1-B", waypoints: [{ symbol: "X1-B-GATE", type: "JUMP_GATE" }] } : undefined),
+      recordGateNotComplete: () => {},
+    };
+  }
+
+  it("propagates NavigationPending instead of recording the gate as under construction", async () => {
+    const { NavigationPending, Pending } = await import("../src/engine/agentStep.js");
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent]);
+    (fleet as any).galaxy = fakeGalaxyWithGate();
+    (fleet as any).tourDestinations.set("SHIP-1", "X1-B");
+    (fleet as any).jumpShip = async () => {
+      throw new NavigationPending(Date.now() + 1000);
+    };
+    let recordedNotComplete = false;
+    (fleet as any).galaxy.recordGateNotComplete = () => {
+      recordedNotComplete = true;
+    };
+
+    await assert.rejects(() => (fleet as any).advanceTourDispatch("SHIP-1"), (err: unknown) => err instanceof Pending);
+    assert.equal(recordedNotComplete, false, "a mid-transit Pending must not be misread as the gate being under construction");
+  });
+
+  it("still treats a real jump failure as evidence the gate is under construction", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([agent]);
+    (fleet as any).galaxy = fakeGalaxyWithGate();
+    (fleet as any).tourDestinations.set("SHIP-1", "X1-B");
+    (fleet as any).jumpShip = async () => {
+      throw new Error("gate X1-B-GATE is under construction");
+    };
+    let recordedNotComplete = false;
+    (fleet as any).galaxy.recordGateNotComplete = () => {
+      recordedNotComplete = true;
+    };
+
+    const result = await (fleet as any).advanceTourDispatch("SHIP-1");
+    assert.equal(result, false);
+    assert.equal(recordedNotComplete, true);
+  });
+});
+
 describe("FleetManager.jettisonCargo", () => {
   function makeAgentWithCargo(symbol: string, inventory: { symbol: string; units: number }[]) {
     const units = inventory.reduce((sum, i) => sum + i.units, 0);

@@ -11,6 +11,26 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a tour ship dispatched across multiple jump-gate hops got stuck
+  mid-route, mis-reading its own in-flight transit as a failed jump.** Live
+  incident: THEO-14 was bought and dispatched to tour X1-B48 (2 known hops
+  away), but sat touring X1-XB94 indefinitely, logging `tour dispatch hop
+  to X1-B48 failed, touring X1-XB94 while waiting: [object Object]` on
+  every retry. `advanceTourDispatch()`'s `jumpShip()` call reaches the gate
+  via `dispatchShip()`/`agent.dispatchTo()`, which for a tour ship
+  (`ShipAgent`) really flies there and throws `NavigationPending` as real
+  control flow while `schedulerDriven` is true — not a failure. The old
+  catch treated any thrown value as a genuine jump failure, permanently
+  (mis-)recording a perfectly good gate as under construction via
+  `recordGateNotComplete()` and falling back to local touring — the exact
+  same misdiagnosis on every subsequent retry, since a multi-hop dispatch
+  always needs at least one real transit. (The `[object Object]` was
+  `String()`-ing a `Pending`, which isn't an `Error`.) `advanceTourDispatch()`
+  now re-throws `Pending` so it propagates to `nextTourTask()`'s own catch,
+  which already reschedules correctly at `err.resumeAt` — a genuine jump
+  rejection still records the gate as blocked, unchanged. Two new tests in
+  `tests/fleet.test.ts`.
+
 - **Fix: `ScoutAgent.dispatchTo()` never actually flew the ship, breaking
   every jump through it.** Live incident, caught within an hour of shipping
   the scout-jump feature below: THEO-A sat at X1-B48-F25A while the fleet

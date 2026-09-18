@@ -12,7 +12,7 @@ import type { Store, CargoIntent, HeldRouteRow } from "../db/store.js";
 import { ApprovalGate } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
-import { IDLE_STEP, type AgentStep } from "./agentStep.js";
+import { IDLE_STEP, Pending, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { GalaxyAtlas } from "./galaxy.js";
@@ -2678,6 +2678,21 @@ export class FleetManager {
     try {
       await this.jumpShip(shipSymbol, remoteGate.symbol);
     } catch (err) {
+      // jumpShip() reaches the gate via dispatchShip()/agent.dispatchTo(),
+      // which for a tour ship (ShipAgent) really flies there and throws
+      // NavigationPending as real control flow while schedulerDriven is
+      // true (set by nextTourTask() before tourScout() calls this) — not a
+      // failure. Swallowing it here as "the jump failed" incorrectly
+      // recorded a perfectly fine gate as under construction and fell back
+      // to local touring "while waiting" forever, since the very next
+      // attempt hit the identical mis-caught Pending again. Confirmed live:
+      // THEO-14, dispatched to tour X1-B48 (2 hops away), got stuck
+      // touring X1-XB94 with the log line "tour dispatch hop to X1-B48
+      // failed ... [object Object]" repeating on every retry — `[object
+      // Object]` because `String()`-ing a Pending (not an Error) gives
+      // exactly that. Must propagate to nextTourTask()'s own catch, which
+      // already reschedules correctly at `err.resumeAt`.
+      if (err instanceof Pending) throw err;
       // Same reasoning as the explore path's own jump-failure handler
       // (ShipProxy.runFleetDrivenGoal, JUMP phase): a live rejection is
       // stronger evidence than any cached guess, and correcting the cache
