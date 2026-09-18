@@ -11,6 +11,25 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: approving a "buy keeper probe" request on the dashboard could
+  silently fail and quietly re-ask later, with no visible error.** Live
+  incident: X1-MV41-XZ3Z asked for approval twice, both approved, both
+  purchases failed with "must have at least one ship available at the
+  purchase location" — each failure burned the approval, so the next time
+  any ship happened to redock at that shipyard, `maybeRequestKeeperProbe()`
+  asked fresh, with no memory of the earlier approve. Root cause:
+  `resolvePendingKeeperProbeApproval()` (`src/engine/fleet.ts`) already
+  guarded against firing the purchase with nothing there, but the guard
+  trusted `fleetStatusSummary()`'s cached ship positions — each ship's own
+  agent's last-known nav, current only as of that ship's own last tick.
+  This method runs every fleet tick regardless of whether the candidate
+  ship's own tick has run recently, so a tour ship that had already moved
+  on since its last tick still read as "at" the yard, passed the guard,
+  and the real purchase then failed against SpaceTraders' live state. Now
+  confirms the candidate is genuinely still there with one live
+  `getShip()` call before ever consuming the approval — the same
+  live-over-cached pattern already used everywhere else in this file.
+
 - **Fix: a stalled HTTP call could silently kill a ship's scheduler task
   forever, with no error and no reschedule.** Live incident: two different
   traders (THEO-1, THEO-11) each went dark for 30-50+ minutes, both

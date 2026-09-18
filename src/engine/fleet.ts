@@ -3784,7 +3784,28 @@ export class FleetManager {
       row.status === "approved" ||
       row.status === "auto_approved" ||
       (row.status === "pending" && new Date(row.expiresAt).getTime() <= Date.now()); // onTimeout: "approve"
-    if (willApprove && !this.fleetStatusSummary().some((s) => s.waypoint === waypointSymbol)) return;
+    if (willApprove) {
+      // fleetStatusSummary()'s `waypoint` is each ship's own agent's cached
+      // nav — only as fresh as that ship's last tick, which can lag well
+      // behind reality: this method runs every fleet tick regardless of
+      // whether the candidate ship's own tick has run recently. Confirmed
+      // live, X1-MV41-XZ3Z, twice: the cache still showed a tour ship "at"
+      // the yard well after it had moved on, this guard passed, and the
+      // real purchaseShip() call failed with "must have at least one ship
+      // available at the purchase location" — silently burning the
+      // approval and forcing a fresh operator prompt next time some ship
+      // happened to redock there, exactly the loop the operator reported.
+      // One cheap getShip() call confirms the candidate is genuinely,
+      // currently there before any row gets consumed.
+      const candidate = this.fleetStatusSummary().find((s) => s.waypoint === waypointSymbol)?.symbol;
+      if (!candidate) return;
+      try {
+        const live = await this.api.getShip(candidate);
+        if (live.nav.waypointSymbol !== waypointSymbol) return;
+      } catch {
+        return;
+      }
+    }
     const approved = await this.approvals.request("buyKeeperProbe", {
       shipSymbol: waypointSymbol,
       detail: row.detail,
