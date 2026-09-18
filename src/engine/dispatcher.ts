@@ -721,6 +721,22 @@ export class RouteDispatcher {
         continue;
       }
       if (next.has(t.shipSymbol)) continue;
+      // A busy trader with no carried-forward record here means the
+      // dispatcher's own in-memory assignments map was wiped (a restart)
+      // while this ship was mid-haul — cargo already bought, in the hold,
+      // for a trip this process now has no memory of. Handing it fresh
+      // work would abandon that cargo: this same recompute would rank it
+      // for some unrelated good, and the ship has no room left to act on
+      // it (hold already full). Confirmed live: THEO-1 was mid-flight to
+      // sell 40u MEDICINE when a restart landed between the buy completing
+      // and its held_route pin being written; every recompute since then
+      // handed it a fresh, unexecutable good (MACHINERY, then ANTIMATTER)
+      // while it sat full and unable to buy any of them. Leave it alone —
+      // TraderAgent's own tick() already recovers a mid-trip good from
+      // held_route (see initialHeldRoutes) independently of anything the
+      // dispatcher assigns, and that is the one place with the real cargo
+      // detail (which good, how much) to act on correctly.
+      if (t.busy) continue;
       // Prefer work this ship can actually start on. `work` is ranked by
       // profit alone, and taking the global best for every trader is a
       // scheduler with no node affinity: when X1-RD37 was first surveyed its

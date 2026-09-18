@@ -11,6 +11,28 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a trader restarting mid-haul could lose track of cargo it had
+  already bought, get reassigned an unexecutable good, and sit stuck full
+  forever.** Live incident: THEO-1 bought 40u MEDICINE in two 20u lots five
+  seconds apart; a Render restart (triggered by an unrelated deploy) landed
+  right after the second lot but before `persistHeldRoute()` ran — that
+  write only happened once, after the *entire* multi-lot buy loop
+  completed, not after each lot. On reboot the app had no durable memory of
+  the trip, so `deliverHeldCargo()` had nothing to resume, and
+  `RouteDispatcher.recompute()`'s busy-carry-forward logic (which only
+  protects a trader when its own in-memory `this.assignments` map — wiped
+  on every restart — already has a record for it) handed the now-full,
+  cargo-stuck ship a fresh, unexecutable good on every recompute since.
+  Two independent fixes: `trader.ts` now sets `heldRoute`/`heldCost` and
+  calls `persistHeldRoute()` after *every* lot of a multi-lot buy, not once
+  at the end, so even a restart between the first lot and the second finds
+  a durable pin for what's already in the hold; `dispatcher.ts`'s
+  `recompute()` now also skips any trader reporting `busy: true` (real
+  cargo in the hold, per `dispatcherTraders()`) even when it has no
+  carried-forward assignment record, leaving genuinely busy ships alone
+  rather than assigning them fresh work — `TraderAgent`'s own held-route
+  recovery is the one place with enough detail to resume correctly.
+
 - **Fix: the dedicated explorer role re-toured a system's markets on every
   single revisit, forever, instead of just the first.** Live incident:
   THEO-C (role `explorer`) ping-ponged between X1-FF6 and X1-NR97 — the

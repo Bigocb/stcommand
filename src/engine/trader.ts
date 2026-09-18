@@ -1591,6 +1591,23 @@ export class TraderAgent {
         });
         this.log(`bought ${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
         this.onActivity?.("buy", `${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
+        // Pinned and persisted after every lot, not once after the whole
+        // loop — a multi-lot buy can take several real API round trips
+        // (several seconds), and a restart landing between one lot and the
+        // next used to find no pin at all yet, since the old single
+        // end-of-loop write hadn't run. Confirmed live: THEO-1 bought 40u
+        // MEDICINE in two 20u lots five seconds apart; a restart landed
+        // right after the second lot but before this write, so on reboot
+        // the app had no memory of the trip and the dispatcher handed the
+        // (now full, cargo-stuck) ship a fresh, unexecutable good on every
+        // recompute since. Re-persisting each lot means even a restart
+        // between the *first* lot and the second still finds a durable pin
+        // for what's already in the hold. See migration 013_held_route.sql's
+        // comment for the original incident this table was built to close.
+        const avgCostSoFar = totalPaid / bought;
+        this.heldCost.set(route.good, avgCostSoFar);
+        this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize });
+        await this.persistHeldRoute?.(route.good, { buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize }, avgCostSoFar);
         // Stop topping off once the price has drifted (supply depleting lot
         // over lot) past what still clears the margin floor against this
         // route's sell price — the same guard the pre-loop stale-snapshot
@@ -1598,14 +1615,6 @@ export class TraderAgent {
         if (route.sellPrice - lastPrice < this.marginFloor) break;
       }
       if (bought <= 0) return true;
-      const avgCost = totalPaid / bought;
-      this.heldCost.set(route.good, avgCost);
-      this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize });
-      // Persisted the same moment it's set in memory, not lazily on some
-      // later tick — a restart between here and the sell half must find
-      // this leg already durable, not lose it. See migration
-      // 013_held_route.sql's comment for the incident this closes.
-      await this.persistHeldRoute?.(route.good, { buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize }, avgCost);
       // Stop here. The sell is a separate reconciled step — deliverHeldCargo()
       // picks the trip up next tick from the pin just recorded, and gets to
       // the market by arriving there rather than by falling through a
