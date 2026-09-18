@@ -71,6 +71,8 @@ export interface ScoutOptions {
   galaxy?: import("./galaxy.js").GalaxyAtlas;
   /** Store for runExploreGoal to record module catalogs and shipyard data. */
   store?: import("../db/store.js").Store;
+  /** Called when runExploreGoal actually surveys a system — see ShipProxy's own comment. */
+  onSystemSurveyed?: (systemSymbol: string) => void;
   shouldRun?: () => boolean;
 }
 
@@ -167,6 +169,7 @@ export class ScoutAgent {
       done: this.done,
       galaxy: this.galaxy,
       store: this.store,
+      onSystemSurveyed: opts.onSystemSurveyed,
     });
   }
 

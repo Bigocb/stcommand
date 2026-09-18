@@ -1670,6 +1670,7 @@ export class FleetManager {
           galaxy: this.galaxy,
           store: this.store,
           done: () => this.forgetIntent(ship.symbol),
+          onSystemSurveyed: (sys) => this.surveyedSystems.add(sys),
         }).withRegistry(this.registry),
       );
       this.log(`role: tour ${ship.symbol} (market/shipyard intel)`);
@@ -1888,6 +1889,7 @@ export class FleetManager {
             galaxy: this.galaxy,
             store: this.store,
             done: () => this.forgetIntent(shipSymbol),
+            onSystemSurveyed: (sys) => this.surveyedSystems.add(sys),
           }).withRegistry(this.registry),
         );
         return undefined;
@@ -1954,6 +1956,7 @@ export class FleetManager {
         galaxy: this.galaxy,
         store: this.store,
         done: () => this.forgetIntent(ship.symbol),
+        onSystemSurveyed: (sys) => this.surveyedSystems.add(sys),
       })
         .withRegistry(this.registry)
         .withCharted(this.rawWaypoints.filter((w) => w.chart).map((w) => w.symbol)),
@@ -2938,6 +2941,22 @@ export class FleetManager {
           await this.skipGateConstruction(target);
         }
         throw err;
+      }
+      // A repeat visit to a system this explorer flow has already surveyed
+      // wastes real fuel/time re-touring markets it already has data for —
+      // confirmed live: THEO-C (dedicated explorer role) ping-ponged between
+      // X1-FF6 and X1-NR97 for over a day straight (the only two systems its
+      // home gate connects to, both fully surveyed within the first couple
+      // of trips — candidates.find(c => !surveyedSystems.has(c)) has
+      // nothing left to return once both are done, so it always falls back
+      // to candidates[0]), re-running the exact same multi-stop market tour
+      // — including a 574-fuel DRIFT leg to X1-FF6-F25B — on every single
+      // visit, forever, for zero new data. Once a system is marked
+      // surveyed, later visits just jump through on the way to whichever
+      // candidate comes next, instead of re-touring it.
+      if (this.surveyedSystems.has(target)) {
+        this.log(`${shipSymbol}: ${target} already surveyed, skipping market re-tour`);
+        return target;
       }
       await this.surveySystem(target);
       // surveySystem()'s own surveyMarkets() call sweeps every MARKETPLACE

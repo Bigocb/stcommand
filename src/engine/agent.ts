@@ -132,6 +132,8 @@ export interface AgentOptions {
   done?: () => void;
   /** Called when runTenderGoal gives up on a rescue after repeated failures — see ShipProxy's own comment. */
   onTenderAbandoned?: (strandedSymbol: string, reason: string) => void;
+  /** Called when runExploreGoal actually surveys a system — see ShipProxy's own comment. */
+  onSystemSurveyed?: (systemSymbol: string) => void;
   shouldRun?: () => boolean;
 }
 
@@ -315,6 +317,7 @@ export class ShipAgent {
       findFuelStop: opts.findFuelStop,
       done: this.done,
       onTenderAbandoned: this.onTenderAbandoned,
+      onSystemSurveyed: opts.onSystemSurveyed,
       galaxy: this.galaxy,
       store: this.store,
     });

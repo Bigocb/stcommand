@@ -292,6 +292,58 @@ describe("FleetManager.advanceTourDispatch: a mid-hop transit is not a failed ju
   });
 });
 
+describe("FleetManager.exploreSystem: a re-visited system is not re-toured", () => {
+  // Confirmed live: THEO-A (dedicated explorer role) ping-ponged between
+  // X1-FF6 and X1-NR97 — the only two systems its home gate connects to,
+  // both fully surveyed within the first couple of trips — for over a day
+  // straight, re-running the exact same multi-stop market tour (including a
+  // 574-fuel DRIFT leg) on every single visit, because candidates.find(c =>
+  // !surveyedSystems.has(c)) has nothing left to return once both are done
+  // and always falls back to candidates[0] — the system it was just in.
+  function fakeGalaxyWithGate() {
+    return {
+      connectedSystems: () => ["X1-B"],
+      loadSystem: async () => {},
+      gatesTo: () => ["X1-A-GATE"],
+      getSystem: () => ({ symbol: "X1-B", waypoints: [{ symbol: "X1-B-GATE", type: "JUMP_GATE" }] }),
+      refreshGateConstruction: async () => true,
+    };
+  }
+
+  function makeExplorerFleet() {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([]);
+    (fleet as any).explorers.set("SHIP-1", agent);
+    (fleet as any).api = { getShip: async () => agent.getShip() };
+    (fleet as any).galaxy = fakeGalaxyWithGate();
+    (fleet as any).jumpShip = async () => {};
+    return { fleet, agent };
+  }
+
+  it("skips the market re-tour for a system already surveyed", async () => {
+    const { fleet } = makeExplorerFleet();
+    (fleet as any).surveyedSystems.add("X1-B");
+    let surveyed = false;
+    (fleet as any).surveySystem = async () => { surveyed = true; };
+
+    const target = await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.equal(target, "X1-B");
+    assert.equal(surveyed, false, "must not re-run the market tour for a system already surveyed");
+  });
+
+  it("still surveys a genuinely new system", async () => {
+    const { fleet } = makeExplorerFleet();
+    let surveyed = false;
+    (fleet as any).surveySystem = async () => { surveyed = true; };
+
+    const target = await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.equal(target, "X1-B");
+    assert.equal(surveyed, true, "a system seen for the first time must still be surveyed");
+  });
+});
+
 describe("FleetManager.jettisonCargo", () => {
   function makeAgentWithCargo(symbol: string, inventory: { symbol: string; units: number }[]) {
     const units = inventory.reduce((sum, i) => sum + i.units, 0);

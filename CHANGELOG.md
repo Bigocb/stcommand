@@ -11,6 +11,30 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: the dedicated explorer role re-toured a system's markets on every
+  single revisit, forever, instead of just the first.** Live incident:
+  THEO-C (role `explorer`) ping-ponged between X1-FF6 and X1-NR97 — the
+  only two systems its home gate connects to, both fully surveyed within
+  the first couple of trips — for over a day straight, re-running the exact
+  same multi-stop market tour (including a 574-fuel DRIFT leg to
+  X1-FF6-F25B) on every visit for zero new data.
+  `FleetManager.exploreSystem()`'s candidate selection already tries to
+  prefer an unsurveyed system (`candidates.find(c =>
+  !surveyedSystems.has(c))`), but once every reachable system is surveyed
+  it has nothing left to return and falls back to `candidates[0]` — the
+  system it just came from — and the function then unconditionally re-ran
+  the whole market survey regardless of whether `target` was already
+  marked surveyed. It now skips straight to the jump-through once a target
+  is already in `surveyedSystems`. Separately: `ShipProxy.runExploreGoal()`
+  (the path `autoExplore()`'s occasional repurposing of an idle tour/scout
+  ship uses) never marked a system surveyed at all — a real, independent
+  gap from the same root cause, now fixed with a new `onSystemSurveyed`
+  callback wired from `FleetManager` into every tour/scout/explorer
+  `ShipAgent`/`ScoutAgent` construction site. Two new tests in
+  `tests/fleet.test.ts` covering `exploreSystem()`'s skip; the existing
+  `tests/shipProxy.test.ts` suite (unchanged) confirms `runExploreGoal()`
+  itself still behaves correctly with the new callback wired in.
+
 - **Fix: a scout refusing to even attempt a leg it couldn't afford at
   CRUISE, when DRIFT could likely have covered it.** Live incident,
   immediately downstream of the fix below: once THEO-A got past

@@ -87,6 +87,25 @@ export interface ShipProxyOptions {
    * of why.
    */
   onTenderAbandoned?: (strandedSymbol: string, reason: string) => void;
+  /**
+   * Called by runExploreGoal() once it has actually surveyed a system's
+   * markets, so the fleet can mark that system done and stop re-proposing
+   * it as an explore target.
+   *
+   * Without this, FleetManager.surveyedSystems was dead state: it is
+   * written only by the legacy FleetManager.surveySystem()/exploreSystem()
+   * pair, which nothing in the live explore flow calls any more — that
+   * flow runs entirely through this method instead, via
+   * autoExplore()'s proposed intent. So `surveyedSystems` never grew, every
+   * reachable system read as permanently unsurveyed, and autoExplore() kept
+   * re-proposing the same one or two systems forever. Confirmed live:
+   * THEO-C ping-ponged between X1-FF6 and X1-NR97 — the only two systems
+   * its home gate connects to — for over a day straight, re-running the
+   * exact same multi-stop market tour (including a 574-fuel DRIFT leg) on
+   * every single visit, having genuinely already surveyed both within the
+   * first couple of trips.
+   */
+  onSystemSurveyed?: (systemSymbol: string) => void;
 }
 
 /**
@@ -140,6 +159,7 @@ export class ShipProxy {
   private readonly done?: () => void;
   private readonly onTenderAbandoned?: ShipProxyOptions["onTenderAbandoned"];
   private readonly jumpTo?: ShipProxyOptions["jumpTo"];
+  private readonly onSystemSurveyed?: ShipProxyOptions["onSystemSurveyed"];
   private step: AgentStep = IDLE_STEP;
 
   /**
@@ -181,6 +201,7 @@ export class ShipProxy {
     this.done = opts.done;
     this.onTenderAbandoned = opts.onTenderAbandoned;
     this.jumpTo = opts.jumpTo;
+    this.onSystemSurveyed = opts.onSystemSurveyed;
   }
 
   get symbol(): string {
@@ -837,6 +858,9 @@ export class ShipProxy {
         this.log(`explore: surveying markets in ${intent.goal.system}`);
         await this.galaxy.surveyMarkets(intent.goal.system, this.store);
       }
+      // Mark the system done so autoExplore() stops re-proposing it — see
+      // onSystemSurveyed's own comment for the live incident this fixes.
+      this.onSystemSurveyed?.(intent.goal.system);
       phase = ExplorePhase.MARKET;
       this.explorePhase.set(key, phase);
     }
