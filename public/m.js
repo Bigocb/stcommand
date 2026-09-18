@@ -913,8 +913,18 @@ function renderMarketYards() {
 function renderMarkets() {
   $("mkt-routes").hidden = mktSeg !== "routes";
   $("mkt-yards").hidden = mktSeg !== "yards";
-  renderMarketRoutes();
-  renderMarketYards();
+  // Skipped while a picker is open, not just re-rendered around it — this is
+  // called from the 15s poll subscription (loadMarkets() → subscribe()), and
+  // rebuilding the list mid-tap replaces the exact buttons the operator is
+  // reaching for. A touch's click can land on whatever new element ends up
+  // under the same screen position after a rebuild, not the one that was
+  // there when the tap started — confirmed live: choosing a specific "also"
+  // shipyard location bought at the cheapest (first-listed) one instead, the
+  // operator's tap landing on that row after a poll swapped the list out
+  // from under them. Both toggle handlers still call their render function
+  // directly to open/close a picker — only the periodic path is guarded.
+  if (openRouteGood === null) renderMarketRoutes();
+  if (openYardGroup === null) renderMarketYards();
 }
 
 $("mkt-seg").addEventListener("click", (e) => {

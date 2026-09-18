@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: Tower's new per-location shipyard/route pickers could buy at (or
+  assign) the wrong location — tapping a specific "also" shipyard bought
+  at the cheapest one instead.** Same root cause as the ship-detail-panel
+  fix earlier this session, one tab over: Tower's Markets tab polls every
+  15s (`loadMarkets()` → the `subscribe("markets", ...)` path), and
+  `renderMarkets()` unconditionally rebuilds both the routes list and the
+  yards list on every poll — including whichever picker the operator just
+  opened. A tap that straddles that rebuild can land on whatever element
+  ends up at the same screen position afterward, not the one that was
+  there when the tap started; live report matched exactly ("clicked the
+  row I wanted, but nothing happened" / bought at the home system
+  instead). `renderMarkets()` now skips rebuilding a list while its
+  picker is open (`openRouteGood`/`openYardGroup`); each toggle handler
+  still calls its own render function directly, so opening/closing a
+  picker is unaffected — only the periodic path is guarded.
+
 - **Add: a tour ship that finds an uncovered shipyard now holds there,
   docked, until its own keeper-probe approval is decided.** Operator
   requirement, prompted directly by the two live keeper-probe-approval
