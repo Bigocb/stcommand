@@ -9,6 +9,18 @@ export type { paths, components };
 
 export const API_BASE = "https://api.spacetraders.io/v2";
 
+// Neither the global fetch nor undici's ever time out on their own — a
+// dropped connection or a server that accepts the request and never replies
+// leaves the call pending forever. request()'s retry loop is bounded by
+// attempt count, but that only helps once a call actually settles; without
+// this, one stalled connection wedges a ship's entire scheduler task
+// permanently (no error, no reschedule), since nothing above this layer can
+// ever observe the call failing. Confirmed live: two different traders each
+// went silent for 30-50+ minutes immediately after a navigate call, with no
+// error logged and no further scheduler activity for that ship at all —
+// both recovered only once the whole process restarted.
+const REQUEST_TIMEOUT_MS = 20_000;
+
 export class APIError extends Error {
   constructor(
     message: string,
@@ -317,9 +329,34 @@ export class Client {
         },
         body: req.body !== undefined ? JSON.stringify(req.body) : undefined,
       };
-      const res: Pick<Response, "status" | "ok" | "headers" | "text"> = this.dispatcher
-        ? await undiciFetch(url, { ...init, dispatcher: this.dispatcher })
-        : await fetch(url, init);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      let res: Pick<Response, "status" | "ok" | "headers" | "text">;
+      try {
+        res = this.dispatcher
+          ? await undiciFetch(url, { ...init, dispatcher: this.dispatcher, signal: controller.signal })
+          : await fetch(url, { ...init, signal: controller.signal });
+      } catch (err) {
+        // A stalled connection (or any other fetch-level rejection) must not
+        // dead-end the caller's whole scheduler task the way it did before
+        // this timeout existed — see REQUEST_TIMEOUT_MS's own comment. Retry
+        // it exactly like a 5xx, bounded by the same maxRetries, then give up
+        // with a real, throwable error instead of hanging.
+        if (attempt < this.maxRetries) {
+          const delayMs = this.retryBackoffMs * 2 ** attempt;
+          attempt += 1;
+          await sleep(delayMs);
+          continue;
+        }
+        const timedOut = err instanceof Error && err.name === "AbortError";
+        throw new APIError(
+          timedOut ? `request timed out after ${REQUEST_TIMEOUT_MS}ms` : `request failed: ${err instanceof Error ? err.message : String(err)}`,
+          0,
+          timedOut ? "REQUEST_TIMEOUT" : "NETWORK_ERROR",
+        );
+      } finally {
+        clearTimeout(timer);
+      }
 
       const retryAfter = res.headers.get("retry-after");
 

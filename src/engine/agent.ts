@@ -1216,7 +1216,20 @@ export class ShipAgent {
     // Market/shipyard tours are secondary intel work.
     const target = this.pickSurveyTarget();
     if (target) {
-      await this.refuelIfNeeded(5, target.symbol);
+      // Skipped when already standing on target — pickSurveyTarget() prefers
+      // staying put in the field the ship is already in (see its own
+      // comment), which is the common case once a surveyor has settled into
+      // a field. refuelIfNeeded()'s round-trip budget prices a full "get
+      // there, then get back out to a market" trip even for a target 0
+      // distance away, and an asteroid field is never a market itself — so a
+      // surveyor parked exactly where it should be logged a false-positive
+      // "cannot refuel and no reachable market" WARN every tick, indefinitely,
+      // despite surveying successfully every time. Same root cause as
+      // scout.ts's pickChartTarget() call site (see its own comment for the
+      // THEO-A incident this pattern originally caused there).
+      if (this.ship.nav.waypointSymbol !== target.symbol) {
+        await this.refuelIfNeeded(5, target.symbol);
+      }
       this.log(`survey scout: surveying ${target.symbol}`);
       await this.navigateTo(target.symbol);
       await this.ensureInOrbit();

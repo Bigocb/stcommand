@@ -11,6 +11,44 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a stalled HTTP call could silently kill a ship's scheduler task
+  forever, with no error and no reschedule.** Live incident: two different
+  traders (THEO-1, THEO-11) each went dark for 30-50+ minutes, both
+  immediately after logging the DRIFT-leg fuel diagnostic (`DRIFT leg to
+  X: needs N at cruise, have M/C`) and just before the actual navigate
+  call — no error logged, no further scheduler activity for either ship at
+  all, until the whole process restarted. `Client.request()`
+  (`src/core/client.ts`) called `fetch()`/`undiciFetch()` with no timeout
+  or `AbortController` at all; if that one call stalls (dropped
+  connection, server accepts but never replies), the promise never
+  settles, and since `trader.ts`'s scheduler wrapper only reschedules from
+  a call that actually resolves or rejects, the ship's whole task chain
+  hangs permanently and invisibly. Two independent ships hitting the exact
+  same hang point is what made this a systemic gap rather than a fluke.
+  Every request now races a 20s `AbortController` timeout; a stalled call
+  retries like a 5xx (bounded by the existing `maxRetries`) and then
+  throws a real, catchable `APIError` instead of hanging, so the ship's
+  usual error-backoff-and-retry path takes over.
+
+- **Fix: a surveyor parked in its own asteroid field logged a false
+  "cannot refuel and no reachable market" warning on every single tick,
+  indefinitely, despite surveying successfully every time.**
+  `pickSurveyTarget()` (`src/engine/agent.ts`) deliberately prefers
+  staying put once a surveyor is already sitting in an asteroid field —
+  re-surveying the same field keeps the pool fresh without burning fuel.
+  But `surveyScout()` still called `refuelIfNeeded(5, target.symbol)`
+  unconditionally, even when `target` was exactly where the ship already
+  stood. `refuelIfNeeded()`'s round-trip budget prices a full "get there,
+  then get back out to the nearest market" trip regardless of distance —
+  for a 0-distance target that's still whatever it costs to reach the
+  nearest real market from an asteroid field that isn't one itself, which
+  can be large or entirely unreachable. Same root cause `scout.ts`'s
+  `pickChartTarget()` call site hit earlier this session (the THEO-A
+  6-hour-hold incident) — now fixed the same way there: the refuel gate is
+  skipped entirely when the ship is already standing on its own target,
+  since no travel is about to happen and there's nothing to budget fuel
+  for.
+
 - **Fix: a trader restarting mid-haul could lose track of cargo it had
   already bought, get reassigned an unexecutable good, and sit stuck full
   forever.** Live incident: THEO-1 bought 40u MEDICINE in two 20u lots five
