@@ -11,6 +11,27 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: shipyard/module intel listings (desktop and Tower) only let you
+  buy at the cheapest location for a ship type or component — every other
+  location the "also: X, Y" line named was inert text, with no way to buy
+  there instead.** Live report: an operator with a ship already at one of
+  the "also" waypoints had no way to buy there at all, only at the
+  (possibly distant) cheapest listing. Each "also" location is now its
+  own real, clickable buy target — small inline buttons on desktop
+  (`.buy-ship-alt`/`.buy-mod` in `renderShipyardIntel()`), an expandable
+  per-location picker on Tower (`renderMarketYards()`, same toggle pattern
+  the route-assignment picker already used).
+
+- **Fix/clarify: buying a ship failed with a raw "must have at least one
+  ship available at the purchase location" even when a ship was right
+  there — in orbit.** That's the live API's actual requirement, not a
+  bug: per SpaceTraders' own docs, only a *docked* ship can access a
+  shipyard — orbit only grants navigate/extract. `FleetManager.buyShip()`
+  now catches that specific failure and rethrows with the real
+  requirement spelled out ("no ship of yours is docked at ... orbiting
+  isn't enough") instead of the generic API wording, on both the desktop
+  and Tower buy flows (they share this one code path).
+
 - **Fix: dispatching a tour ship to a system (or any `<select>`-driven
   action in a ship's detail panel) was unusable — the panel reset out from
   under the operator on every attempt, before a choice could be made.**

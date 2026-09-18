@@ -817,6 +817,7 @@ subscribe("markets", () => { if (mapTabActive()) renderScope(); if (marketsTabAc
  */
 let mktSeg = "routes";
 let openRouteGood = null;
+let openYardGroup = null;
 
 function tradersFor() {
   return (fleetStatus.ships ?? []).filter((s) => s.role === "trader");
@@ -858,11 +859,24 @@ function renderMarketYards() {
     for (const rows of groups) {
       const best = rows[0];
       const others = rows.slice(1, 3);
+      const groupKey = best.shipType;
+      const isOpen = openYardGroup === groupKey;
+      // "also X, Y" used to be inert text — the single Buy button always
+      // targeted `best` (cheapest), with no way to buy at any of the other
+      // locations it's listing right next to it. Confirmed live: an
+      // operator with a ship sitting at one of the "also" waypoints had no
+      // way to buy there at all, only at the (possibly distant) cheapest
+      // one. Tapping the location line now expands every candidate as its
+      // own row with its own Buy button, same toggle pattern
+      // openRouteGood already uses below for route assignment.
       html += `<div class="yline">
-        <span class="yn">${escapeHtml(best.shipTypeName)}<br><span class="rr-legs">${escapeHtml(shortWp(best.waypointSymbol))}${others.length ? ` · also ${others.map((o) => shortWp(o.waypointSymbol)).join(", ")}` : ""}</span></span>
+        <span class="yn">${escapeHtml(best.shipTypeName)}<br><button class="rr-legs yline-toggle" data-act="yard-toggle" data-group="${escapeHtml(groupKey)}" style="background:none;border:none;padding:0;color:inherit;font:inherit;text-decoration:underline;cursor:pointer">${escapeHtml(shortWp(best.waypointSymbol))}${others.length ? ` · also ${others.map((o) => shortWp(o.waypointSymbol)).join(", ")}` : ""}${rows.length > 1 ? (isOpen ? " (close)" : " (choose)") : ""}</button></span>
         <span class="yp">${fmt(best.purchasePrice)}c</span>
         <button class="btn pri" data-buy-ship="${escapeHtml(best.shipType)}" data-yard="${escapeHtml(best.waypointSymbol)}">Buy</button>
       </div>`;
+      if (isOpen) {
+        html += `<div class="ship-pick">${rows.map((r) => `<button data-buy-ship="${escapeHtml(r.shipType)}" data-yard="${escapeHtml(r.waypointSymbol)}"><span>${escapeHtml(shortWp(r.waypointSymbol))}</span><span>${fmt(r.purchasePrice)}c</span></button>`).join("")}</div>`;
+      }
     }
   }
   if (mods.length) {
@@ -919,10 +933,16 @@ $("mkt-routes").addEventListener("click", async (e) => {
 });
 
 $("mkt-yards").addEventListener("click", async (e) => {
+  const toggle = e.target.closest("button[data-act='yard-toggle']");
+  if (toggle) { openYardGroup = openYardGroup === toggle.dataset.group ? null : toggle.dataset.group; return renderMarketYards(); }
   const b = e.target.closest("button[data-buy-ship]");
   if (!b) return;
   b.disabled = true;
-  try { await api("POST", "/api/fleet/buy", { shipType: b.dataset.buyShip, yardSymbol: b.dataset.yard }); await loadState(); }
+  try {
+    await api("POST", "/api/fleet/buy", { shipType: b.dataset.buyShip, yardSymbol: b.dataset.yard });
+    openYardGroup = null;
+    await loadState();
+  }
   catch (err) { alert(err.message); b.disabled = false; }
 });
 

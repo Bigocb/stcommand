@@ -5320,7 +5320,8 @@ function renderShipyardIntel() {
         const others = rows.slice(1, 4);
         html += `<div class="row" style="align-items:center">
           <span class="icon">⛵</span>
-          <span class="route"><b>${shortWp(best.waypointSymbol)}</b> · ${best.shipTypeName}<br><span class="note">${best.systemSymbol} · fuel ${best.fuelCapacity} · ${fmt(best.purchasePrice)}c · <span class="${stale ? "stale" : ""}">${age} old</span></span>${others.length ? `<br><span class="note">also: ${others.map((o) => `${shortWp(o.waypointSymbol)} ${fmt(o.purchasePrice)}c`).join(" · ")}</span>` : ""}</span>
+          <span class="route"><b>${shortWp(best.waypointSymbol)}</b> · ${best.shipTypeName}<br><span class="note">${best.systemSymbol} · fuel ${best.fuelCapacity} · ${fmt(best.purchasePrice)}c · <span class="${stale ? "stale" : ""}">${age} old</span></span>${others.length ? `<br><span class="note">also:
+          ${others.map((o) => `<button class="buy-ship buy-ship-alt" data-type="${o.shipType}" data-yard="${o.waypointSymbol}" title="Buy ${o.shipTypeName} at ${o.waypointSymbol}">${shortWp(o.waypointSymbol)} ${fmt(o.purchasePrice)}c</button>`).join(" ")}</span>` : ""}</span>
           <span class="marg">${fmt(best.purchasePrice)}c</span>
           <button class="buy-ship" data-type="${best.shipType}" data-yard="${best.waypointSymbol}" title="Buy ${best.shipTypeName}">Buy</button>
         </div>`;
@@ -5342,7 +5343,8 @@ function renderShipyardIntel() {
         const others = rows.slice(1, 4);
         html += `<div class="row" style="align-items:center">
           <span class="icon">${best.kind === "module" ? "▣" : "◈"}</span>
-          <span class="route"><b>${best.symbol}</b><br><span class="note">${shortWp(best.waypointSymbol)} · ${fmt(best.purchasePrice)}c</span>${others.length ? `<br><span class="note">also: ${others.map((o) => `${shortWp(o.waypointSymbol)} ${fmt(o.purchasePrice)}c`).join(" · ")}</span>` : ""}</span>
+          <span class="route"><b>${best.symbol}</b><br><span class="note">${shortWp(best.waypointSymbol)} · ${fmt(best.purchasePrice)}c</span>${others.length ? `<br><span class="note">also:
+          ${others.map((o) => `<button class="buy-mod buy-ship-alt" data-comp="${o.symbol}" data-market="${o.waypointSymbol}" title="Buy ${o.symbol} at ${o.waypointSymbol}">${shortWp(o.waypointSymbol)} ${fmt(o.purchasePrice)}c</button>`).join(" ")}</span>` : ""}</span>
           <span class="marg">${fmt(best.purchasePrice)}c</span>
           <button class="buy-mod" data-comp="${best.symbol}" data-market="${best.waypointSymbol}">Buy</button>
         </div>`;

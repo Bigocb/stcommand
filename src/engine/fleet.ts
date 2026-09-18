@@ -2082,7 +2082,26 @@ export class FleetManager {
       throw new Error(`need ${offer.purchasePrice + this.minCashReserve()}c, have ${agent.credits}c`);
     }
     this.log(`purchasing ${type} at ${yardSymbol} for ${offer.purchasePrice} credits`);
-    const res = await this.api.purchaseShip(type, yardSymbol);
+    let res;
+    try {
+      res = await this.api.purchaseShip(type, yardSymbol);
+    } catch (err) {
+      // The live API's own message ("must have at least one ship available
+      // at the purchase location") doesn't say DOCKED specifically, and an
+      // orbiting ship reads as "at" the yard to an operator glancing at the
+      // map — confirmed live: an operator with a ship genuinely in orbit
+      // right at this exact waypoint still hit this, since orbit only
+      // grants navigate/extract, not market/shipyard access (see this
+      // endpoint's own SpaceTraders docs: "Docked ships can access
+      // elements in their current location, such as the market or a
+      // shipyard"). Rethrown with the actual requirement spelled out
+      // rather than operators re-discovering it by trial and error.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/must have at least one ship available/i.test(msg)) {
+        throw new Error(`no ship of yours is docked at ${yardSymbol} — orbiting isn't enough, it must be docked to buy here`);
+      }
+      throw err;
+    }
     // Register by frame, not by ship type: atCap() below and the boot-time
     // registration loop (init()'s `ship.frame?.symbol` call) both check
     // `shipCap:<frame>` — a ship's live API object never carries its

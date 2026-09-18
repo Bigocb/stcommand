@@ -385,10 +385,10 @@ body {
 .route-row .rr-legs { font-family: var(--mono); font-size: 9.5px; color: var(--dim); margin: 4px 0 8px; }
 .route-row .rr-actions { display: flex; }
 .route-row .rr-actions .btn { flex: 1; }
-.route-row .ship-pick {
-  margin-top: 8px; display: flex; flex-direction: column; gap: 6px;
+.ship-pick {
+  margin-top: 8px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px;
 }
-.route-row .ship-pick button {
+.ship-pick button {
   display: flex; align-items: center; justify-content: space-between; background: var(--raised);
   border: 1px solid var(--hair-hi); border-radius: 3px; padding: 8px 10px; color: var(--bone);
   font-family: var(--mono); font-size: 10.5px;
