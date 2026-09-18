@@ -221,10 +221,18 @@ describe("an extraction session survives being interrupted by its own cooldown",
 });
 
 describe("ScoutAgent honours refuelIfNeeded()'s refusal", () => {
-  it("holds instead of flying a leg it was just told it cannot fuel", async () => {
-    // The same bug already fixed in tourScout(): the return value was
-    // discarded and the navigate fired anyway, producing a "requires N more
-    // fuel" rejection and a 10-second retry loop against the same target.
+  it("holds only when truly out of fuel — refuelIfNeeded()'s refusal alone doesn't stop the leg", async () => {
+    // Originally: the return value was discarded and the navigate fired
+    // anyway, producing a "requires N more fuel" rejection and a 10-second
+    // retry loop against the same target (the same bug already fixed in
+    // tourScout()). Later tightened further: refuelIfNeeded()'s refusal
+    // only means the leg is unaffordable at CRUISE — it doesn't know
+    // navigateTo() can still fall back to DRIFT. Confirmed live: THEO-A
+    // held at 92/300 fuel, unable to afford a CRUISE round trip to the
+    // system's only known market, for over 6 hours — even though DRIFT
+    // could likely have covered the distance on a fraction of that fuel.
+    // So a refusal with fuel still in the tank must not stop the leg;
+    // only genuinely having nothing to fly with (0 fuel) should.
     const ship = makeShip("SCOUT-1");
     const logs: string[] = [];
     const agent = new ScoutAgent(ship as any, {
@@ -242,12 +250,37 @@ describe("ScoutAgent honours refuelIfNeeded()'s refusal", () => {
     agent.withCharted(["X1-A-A1"]);
 
     let navigated = false;
-    (agent as any).refuelIfNeeded = async () => false; // cannot fuel, nowhere reachable
+    (agent as any).refuelIfNeeded = async () => false; // cannot afford CRUISE, no reachable market
+    (agent as any).navigateTo = async () => { navigated = true; };
+    (agent as any).ensureInOrbit = async () => {};
+
+    const worked = await agent.tick();
+
+    assert.equal(navigated, true, "fuel remains (100), so navigateTo() must still get a chance to fall back to DRIFT");
+    assert.ok(!logs.some((l) => l.includes("not enough fuel")), "must not hold when there's fuel left to attempt the leg with");
+  });
+
+  it("still holds when genuinely out of fuel", async () => {
+    const ship = makeShip("SCOUT-1");
+    ship.fuel = { current: 0, capacity: 100 };
+    const logs: string[] = [];
+    const agent = new ScoutAgent(ship as any, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      log: (m: string) => logs.push(m),
+    });
+    agent.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-B9", x: 10, y: 0 },
+    ] as any, []);
+    agent.withCharted(["X1-A-A1"]);
+
+    let navigated = false;
+    (agent as any).refuelIfNeeded = async () => false;
     (agent as any).navigateTo = async () => { navigated = true; };
 
     const worked = await agent.tick();
 
-    assert.equal(navigated, false, "must not attempt a leg it cannot fuel");
+    assert.equal(navigated, false, "must not attempt a leg with nothing to fly it with");
     assert.equal(worked, false);
     assert.ok(logs.some((l) => l.includes("not enough fuel")), "must say why it is holding");
   });

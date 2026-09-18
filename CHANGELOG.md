@@ -11,6 +11,26 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a scout refusing to even attempt a leg it couldn't afford at
+  CRUISE, when DRIFT could likely have covered it.** Live incident,
+  immediately downstream of the fix below: once THEO-A got past
+  X1-MV41-B11A, its next target sat far enough away that a full CRUISE
+  round trip to the system's only known market (~104 fuel) exceeded its
+  92/300 tank — and it held indefinitely, `not enough fuel for
+  X1-MV41-EX9X and no reachable market`, the same as before. But
+  `navigateTo()` already has an automatic DRIFT fallback for exactly this
+  case (`chooseFlightMode()` in `flightMode.ts`, whose own design note
+  says "any successful navigation beats none" — DRIFT costs meaningfully
+  less fuel than CRUISE for the same distance, in exchange for a much
+  slower transit), and the real navigate API is the final authority
+  either way. The scout's pre-flight `refuelIfNeeded()` gate never gave it
+  the chance: a refusal was treated as "cannot proceed at all" and held
+  before `navigateTo()` ever ran. It now only holds when genuinely out of
+  fuel (0, matching `navigateTo()`'s own `StrandedError` threshold) —
+  otherwise it hands off to `navigateTo()` and lets DRIFT (or the live
+  API's own rejection, worst case) decide. Tests updated/added in
+  `tests/cooldownPending.test.ts` and `tests/scoutSelfTarget.test.ts`.
+
 - **Fix: a scout standing exactly on its own next chart target held for
   fuel it didn't need, for over 6 hours straight.** Live incident: THEO-A
   jumped into X1-MV41 (the earlier fix below working as intended), toured a

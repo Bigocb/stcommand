@@ -57,9 +57,15 @@ describe("ScoutAgent.tick: charting the waypoint the ship is already standing on
     assert.ok(!logs.some((l) => l.includes("holding at") && l.includes("not enough fuel")));
   });
 
-  it("still holds for fuel when the target genuinely requires travel", async () => {
-    const ship = makeShip("X1-MV41-B11A", "X1-MV41", 2);
+  it("attempts the leg via navigateTo()'s own DRIFT fallback rather than holding, as long as fuel remains", async () => {
+    // Confirmed live: THEO-A hit this same wall one step further along —
+    // 92/300 fuel, a ~104-fuel CRUISE round trip to the only known market,
+    // held indefinitely — even though DRIFT could likely have covered that
+    // distance on a fraction of the fuel. refuelIfNeeded()'s refusal only
+    // means "can't afford CRUISE"; it must not veto the leg outright.
+    const ship = makeShip("X1-MV41-B11A", "X1-MV41", 92);
     const logs: string[] = [];
+    let navigated: string | undefined;
     const agent = new ScoutAgent(ship, {
       api: { getShip: async () => ship } as any,
       log: (m) => logs.push(m),
@@ -72,9 +78,36 @@ describe("ScoutAgent.tick: charting the waypoint the ship is already standing on
       [],
     );
     agent.withCharted(["X1-MV41-B11A"]);
+    (agent as any).navigateTo = async (t: string) => { navigated = t; };
+    (agent as any).ensureInOrbit = async () => {};
 
     const worked = await agent.tick();
 
+    assert.equal(navigated, "X1-MV41-FAR", "must hand off to navigateTo() instead of holding");
+    assert.ok(!logs.some((l) => l.includes("holding at") && l.includes("not enough fuel")));
+  });
+
+  it("still holds when genuinely out of fuel", async () => {
+    const ship = makeShip("X1-MV41-B11A", "X1-MV41", 0);
+    const logs: string[] = [];
+    let navigated = false;
+    const agent = new ScoutAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+    });
+    agent.withWorld(
+      [
+        { symbol: "X1-MV41-B11A", x: 103, y: 310 },
+        { symbol: "X1-MV41-FAR", x: 200, y: 310 },
+      ] as any,
+      [],
+    );
+    agent.withCharted(["X1-MV41-B11A"]);
+    (agent as any).navigateTo = async () => { navigated = true; };
+
+    const worked = await agent.tick();
+
+    assert.equal(navigated, false, "nothing to fly a leg with at 0 fuel");
     assert.equal(worked, false);
     assert.ok(logs.some((l) => l.includes("holding at") && l.includes("not enough fuel")));
   });

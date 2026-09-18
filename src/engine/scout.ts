@@ -434,10 +434,6 @@ export class ScoutAgent {
       this.log("scout: no uncharted waypoints to chart");
       return false;
     }
-    // Same rule tourScout() already follows: a false here means "not enough
-    // fuel and nowhere reachable to get more", and flying the leg anyway just
-    // trades that log line for a rejected navigate every 10 s.
-    //
     // Skipped entirely when the ship is already standing on `target` — no
     // travel is about to happen, so there is nothing to budget fuel for.
     // fuelNeededRoundTrip() prices a full "get there, then get back out to a
@@ -450,9 +446,28 @@ export class ScoutAgent {
     // reachable market" — because the budget still included the ~100+ fuel
     // return trip to the system's one distant fuel station, a cost that has
     // nothing to do with charting a waypoint the ship is already sitting on.
-    if (this.ship.nav.waypointSymbol !== target && !(await this.refuelIfNeeded(5, target))) {
-      this.log(`holding at ${this.ship.nav.waypointSymbol}: not enough fuel for ${target} and no reachable market`);
-      return false;
+    //
+    // When the ship does need to travel, a refuel refusal only means it
+    // can't afford this leg at CRUISE — refuelIfNeeded() doesn't know
+    // navigateTo() can still fall back to DRIFT, which costs far less fuel
+    // for the same distance (see flightMode.ts's own design note: "any
+    // successful navigation beats none"). Confirmed live, same incident:
+    // once THEO-A moved past B11A, it hit this exact wall again at the next
+    // target — 92/300 fuel, a ~104-fuel CRUISE round trip to the system's
+    // only known market, "not enough fuel ... and no reachable market" —
+    // and sat there indefinitely even though DRIFT could likely have
+    // covered that distance on a fraction of the fuel. Only give up here
+    // when there is truly nothing to fly with (matching navigateTo()'s own
+    // StrandedError threshold, so that throw is never actually reached);
+    // otherwise hand off to navigateTo() and let its own mode selection —
+    // and, as a last resort, the live API's own rejection — be the real
+    // authority, same as every other leg any other role flies.
+    if (this.ship.nav.waypointSymbol !== target) {
+      const refueled = await this.refuelIfNeeded(5, target);
+      if (!refueled && this.ship.fuel.capacity > 0 && this.ship.fuel.current <= 0) {
+        this.log(`holding at ${this.ship.nav.waypointSymbol}: not enough fuel for ${target} and no reachable market`);
+        return false;
+      }
     }
     await this.navigateTo(target);
     await this.ensureInOrbit();
