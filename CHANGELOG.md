@@ -11,6 +11,29 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: dispatching a tour ship to a system (or any `<select>`-driven
+  action in a ship's detail panel) was unusable — the panel reset out from
+  under the operator on every attempt, before a choice could be made.**
+  Live report: "EVERY time I try and use this so send a tour somewhere it
+  refreshes before I can choose." Both places a ship's detail panel
+  renders (`openShipDetails()`, shared by the Bridge triage rail's
+  `#manifest` and the Fleet tab's own tabbed `#fleet-detail` pane) rebuild
+  from scratch on every 5-second fleet-data poll while open — a fix
+  earlier in this file's history ("typing resets after a few seconds")
+  already preserves a plain text input's value/caret across that rebuild,
+  but a `<select>` has no equivalent: choosing an option opens the
+  browser's own native picker UI entirely outside the page's DOM, and the
+  element stays focused with its value unchanged for however long that
+  picker is open — long enough, routinely, to lose the race against a 5s
+  poll. The rebuild then replaces the `<select>` out from under the still-
+  open picker, so no selection was ever possible to begin with; the
+  Fleet-page pane didn't even have the text-input fix. Both refresh
+  functions (`refreshOpenShipDetails()`, `refreshFleetShipDetail()`) now
+  skip the rebuild entirely for a poll cycle whenever focus is already
+  inside the panel, rather than trying to preserve a picker they can't see
+  into — the next quiet poll (once the operator is done) picks up
+  whatever changed instead.
+
 - **Fix: approving a "buy keeper probe" request on the dashboard could
   silently fail and quietly re-ask later, with no visible error.** Live
   incident: X1-MV41-XZ3Z asked for approval twice, both approved, both

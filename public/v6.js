@@ -5119,10 +5119,27 @@ function openShipDetails(shipSymbol, opts = {}) {
  * half-typed into the dispatch-waypoint box (with its cursor), and how far
  * the sheet is scrolled. Without that, a sheet that rebuilds every five
  * seconds is worse than one that never does.
+ *
+ * That value/caret restore only covers a text input, though — it cannot
+ * help a <select>. Choosing an option from a <select> means the OS renders
+ * its own native picker UI entirely outside this page's DOM; the element
+ * stays focused (and its .value unchanged) for as long as that picker is
+ * open, however long the operator takes to scroll to and tap an option.
+ * Rebuilding the panel underneath that open picker replaces the <select>
+ * it's anchored to mid-interaction — the picker was never given a chance to
+ * commit a value at all, so the operator just sees the whole sheet reset.
+ * Confirmed live: dispatching a tour ship (the tour-dispatch system
+ * <select> here) failed this way on every attempt, since picking a system
+ * from that list routinely takes longer than the 5s poll interval. Rather
+ * than try to preserve a picker this script cannot see into, skip the
+ * rebuild entirely for this cycle whenever focus is already inside the
+ * panel — the operator is mid-interaction with *something* here, and the
+ * next quiet poll picks up whatever changed once they're done.
  */
 function refreshOpenShipDetails() {
   const m = $("manifest");
   if (!m || m.style.display === "none" || !selectedShip) return;
+  if (document.activeElement && m.contains(document.activeElement)) return;
   // Snapshot every input/select/textarea's value (and focus/caret, for
   // whichever one is currently focused) before the panel's full re-render
   // below blows them all away with fresh elements — previously only
@@ -5249,11 +5266,17 @@ function openFleetShipDetail(shipSymbol) {
 /** Re-render the Fleet page's detail pane when new fleet data lands — same
  *  reasoning as refreshOpenShipDetails(), just for the second place this
  *  content now lives. Preserves scroll position; the active tab already
- *  survives a rebuild via fleetDetailActiveTab (read by tabifyShipDetail()). */
+ *  survives a rebuild via fleetDetailActiveTab (read by tabifyShipDetail()).
+ *  Also skips the rebuild outright while focus is inside the pane — see
+ *  refreshOpenShipDetails()'s own comment on why a <select>'s native picker
+ *  needs this, not just value preservation. This pane didn't even have the
+ *  Bridge panel's partial fix; same live bug (tour-dispatch <select> reset
+ *  mid-pick), reported from this exact tabbed Fleet-page layout. */
 function refreshFleetShipDetail() {
   const el = $("fleet-detail");
   const titleEl = $("fleet-detail-title");
   if (!el || !titleEl) return;
+  if (document.activeElement && el.contains(document.activeElement)) return;
   if (!fleetDetailShip) {
     titleEl.textContent = "Select a ship";
     el.innerHTML = '<div class="empty">Click a hull above to see its details.</div>';
