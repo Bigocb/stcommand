@@ -11,6 +11,25 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix (best-diagnosis, unconfirmed on-device): Tower's per-location
+  shipyard/route picker rows didn't respond to a tap at all on iPhone,
+  even after the poll-rebuild fix above.** Live report: the picker opens
+  fine (its toggle button works reliably) but tapping a row inside it did
+  nothing — confirmed working from a desktop browser via the equivalent
+  `.buy-ship-alt` buttons, so this is mobile-Safari-specific, not a
+  server or logic bug. The one concrete difference found between the
+  toggle button (works) and the picker's row buttons (don't) in the same
+  delegated-click container: the toggle has `cursor: pointer` set inline,
+  the row buttons had no `cursor` at all — a known class of iOS Safari
+  issue where a delegated `click` (handled by an ancestor's listener
+  rather than the element's own) doesn't fire reliably on an element with
+  no `cursor: pointer`/interactive CSS signal. `.ship-pick button` now
+  sets `cursor: pointer`, `touch-action: manipulation`, and an explicit
+  tap-highlight color. This is a plausible fix based on the available
+  evidence, not one confirmed against a real device in this sandbox —
+  flagged honestly, needs the operator to confirm it actually resolves
+  the tap.
+
 - **Fix: Tower's new per-location shipyard/route pickers could buy at (or
   assign) the wrong location — tapping a specific "also" shipyard bought
   at the cheapest one instead.** Same root cause as the ship-detail-panel

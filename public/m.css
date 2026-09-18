@@ -391,7 +391,8 @@ body {
 .ship-pick button {
   display: flex; align-items: center; justify-content: space-between; background: var(--raised);
   border: 1px solid var(--hair-hi); border-radius: 3px; padding: 8px 10px; color: var(--bone);
-  font-family: var(--mono); font-size: 10.5px;
+  font-family: var(--mono); font-size: 10.5px; cursor: pointer; touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(255, 176, 32, 0.25);
 }
 
 /* ── More: list-of-sections ──────────────────
