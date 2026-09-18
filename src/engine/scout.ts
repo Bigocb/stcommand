@@ -23,6 +23,13 @@ export interface ScoutOptions {
   /** Jump this ship to a waypoint in a different system; forwarded to the
    *  shared executor's runHoldGoal(), for a hold whose target is cross-system. */
   jumpTo?: (shipSymbol: string, waypointSymbol: string) => Promise<void>;
+  /** Called when this scout has nothing left to chart in its current
+   *  system — jumps it to a connected system that might still have
+   *  uncharted waypoints, subject to the fleet's own budget/gate checks.
+   *  Returns true if a jump was made. Can throw Pending (a navigate/jump
+   *  already in flight) exactly like jumpTo/exploreNext — must propagate
+   *  untouched, not be caught here. */
+  jumpToUnchartedSystem?: (shipSymbol: string) => Promise<boolean>;
   findFuelStop?: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) => Promise<string | undefined>;
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
@@ -81,6 +88,7 @@ export class ScoutAgent {
   private readonly onActivity: ScoutOptions["onActivity"];
   private readonly recordMarket: ScoutOptions["recordMarket"];
   private readonly onScan: ScoutOptions["onScan"];
+  private readonly jumpToUnchartedSystem: ScoutOptions["jumpToUnchartedSystem"];
   private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
   private readonly intentFor?: ScoutOptions["intentFor"];
@@ -140,6 +148,7 @@ export class ScoutAgent {
     this.store = opts.store;
     this.shouldRun = opts.shouldRun;
     this.onScan = opts.onScan;
+    this.jumpToUnchartedSystem = opts.jumpToUnchartedSystem;
     this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
     this.systemSymbol = ship.nav.systemSymbol;
     // Built last: it owns the ship state every `this.ship` accessor above
@@ -392,6 +401,12 @@ export class ScoutAgent {
           return false;
         }
       }
+      // No catch here, deliberately — same reasoning as agent.ts's
+      // exploreNext: this can throw NavigationPending/CooldownPending as
+      // real control flow (a jump/dispatch already in progress from a
+      // previous call), and swallowing those here would misreport a jump
+      // that's actually proceeding normally as a failure.
+      if (this.jumpToUnchartedSystem && (await this.jumpToUnchartedSystem(this.symbol))) return true;
       this.log("scout: no uncharted waypoints to chart");
       return false;
     }

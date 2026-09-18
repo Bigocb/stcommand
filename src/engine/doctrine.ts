@@ -171,6 +171,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "risk", defaultAdopted: false,
   },
   {
+    key: "scoutCreditFloor",
+    name: "Scout credit floor",
+    description: "If the fleet's credits fall to or below this, a chart scout that's fully charted its current system parks instead of jumping to look for another one — same reasoning as the explorer credit floor, just scaled to a scout's own (much cheaper, single-jump) spend. 0 disables this floor (only the exploring master switch applies).",
+    value: 0, min: 0, max: 500_000, step: 5_000, unit: "c",
+    enabled: true, enforced: true, category: "risk", defaultAdopted: false,
+  },
+  {
     key: "warehouseTarget",
     name: "Warehouse",
     description: "Master switch for warehousing — off by default: until enabled, the dispatcher only ever assigns direct round trips, same as today. Which goods get bought/sold through the warehouse, and how much of each to hold, is set per-good in the Warehouse pane, not here — this value isn't used.",

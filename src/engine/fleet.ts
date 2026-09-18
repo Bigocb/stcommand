@@ -274,6 +274,12 @@ export class FleetManager {
    */
   private readonly registry: Registry;
   private surveyedSystems = new Set<string>();
+  /** Systems a chart scout has confirmed have nothing left uncharted —
+   *  see scoutJumpToUnchartedSystem()'s own comment. Deliberately separate
+   *  from surveyedSystems: that set means "an explorer snapshotted this
+   *  system's markets", which says nothing about whether every waypoint in
+   *  it has actually been charted. */
+  private scoutExhaustedSystems = new Set<string>();
   private lastExploreTick = 0;
   /**
    * Desired state, one intent per ship — see intent.ts. The fleet-level
@@ -1944,6 +1950,7 @@ export class FleetManager {
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
         jumpTo: (sym, wp) => this.jumpShip(sym, wp),
+        jumpToUnchartedSystem: (sym) => this.scoutJumpToUnchartedSystem(sym),
         galaxy: this.galaxy,
         store: this.store,
         done: () => this.forgetIntent(ship.symbol),
@@ -2714,6 +2721,92 @@ export class FleetManager {
     const floor = this.doctrine.value("explorerCreditFloor", 0);
     if (floor > 0 && this.credits <= floor) return `credits (${this.credits}c) are at or below the explorer credit floor (${floor}c)`;
     return undefined;
+  }
+
+  /** Same reasoning as explorersShouldPark(), for a chart scout's own
+   *  (much cheaper, single-hop) jump — shares the exploring master switch
+   *  but has its own credit floor, so a scout's routine "move on, this
+   *  system's done" jump isn't gated by a floor sized for the dedicated
+   *  explorer fleet's larger, more frequent spend. */
+  private scoutsShouldPark(): string | undefined {
+    if (!this.doctrine.isEnabledOr("exploringEnabled", true)) return "exploring is switched off in doctrine";
+    const floor = this.doctrine.value("scoutCreditFloor", 0);
+    if (floor > 0 && this.credits <= floor) return `credits (${this.credits}c) are at or below the scout credit floor (${floor}c)`;
+    return undefined;
+  }
+
+  /**
+   * A chart scout with nothing left to chart in its current system (per
+   * ScoutAgent.pickChartTarget() coming up empty) jumps to a connected
+   * system that might still have uncharted waypoints, instead of sitting
+   * idle forever reporting "no uncharted waypoints to chart" — confirmed
+   * live: THEO-A kept scouting X1-B48 after every one of its 30 waypoints
+   * had already been charted by another agent (almost certainly the rival
+   * HYDRA fleet), burning fuel cycling "already charted, skipping" with
+   * nothing to show for it.
+   *
+   * Mirrors exploreSystem()'s budget/gate-construction handling, but does
+   * not survey every market in the destination the way a dedicated
+   * explorer does — that's explorer's job; this just gets the scout
+   * somewhere with charting work left. Returns true if a jump was made.
+   */
+  private async scoutJumpToUnchartedSystem(shipSymbol: string): Promise<boolean> {
+    const parkReason = this.scoutsShouldPark();
+    if (parkReason) {
+      this.log(`${shipSymbol}: scout jump skipped, ${parkReason}`);
+      return false;
+    }
+    // jumpShip() reaches the gate via dispatchShip(), which parks the ship
+    // manual "until released" — see exploreSystem()'s own comment on the
+    // exact same hazard. Unconditional release, same fix.
+    try {
+      const ship = await this.api.getShip(shipSymbol);
+      const currentSystem = ship.nav.systemSymbol;
+      // This scout came here because pickChartTarget() found nothing left
+      // reachable in currentSystem — record it as exhausted so future scout
+      // jumps (this ship's or another's) don't bounce straight back here.
+      this.scoutExhaustedSystems.add(currentSystem);
+      const now = Date.now();
+      const connected = this.galaxy.connectedSystems(currentSystem);
+      const candidates = connected.filter(
+        (c) => c !== currentSystem && !this.scoutExhaustedSystems.has(c) && (this.gateConstructionSkipUntil.get(c) ?? 0) <= now,
+      );
+      for (const c of candidates) if (!this.galaxy.getSystem(c)) await this.galaxy.loadSystem(c);
+      // Prefer a system already known to have an uncharted waypoint;
+      // otherwise one whose waypoints just came back empty from loadSystem()
+      // above is genuinely unknown territory and worth a look before
+      // retrying anything already-checked-and-full.
+      const target =
+        candidates.find((c) => (this.galaxy.getSystem(c)?.waypoints ?? []).some((w) => !w.chart)) ??
+        candidates.find((c) => (this.galaxy.getSystem(c)?.waypoints ?? []).length === 0) ??
+        candidates[0];
+      if (!target) {
+        this.log(`${shipSymbol}: scout found no connected system left to try from ${currentSystem}`);
+        return false;
+      }
+      const remoteGate = this.galaxy.getSystem(target)?.waypoints.find((w) => w.type === "JUMP_GATE");
+      if (!remoteGate) {
+        this.log(`${shipSymbol}: ${target} has no jump gate waypoint, skipping`);
+        return false;
+      }
+      try {
+        await this.jumpShip(shipSymbol, remoteGate.symbol);
+      } catch (err) {
+        if (err instanceof Error && /under construction/i.test(err.message)) await this.skipGateConstruction(target);
+        throw err;
+      }
+      // Force a live re-fetch of the destination's waypoints (not
+      // loadSystem()'s cache, which can predate the current chart state —
+      // exactly the stale-cache bug refreshWaypointTraits() was built to
+      // fix for tour scouts) so this scout's very next tick sees accurate
+      // chart status instead of possibly-stale data.
+      await this.refreshSystemMarkets(target);
+      if (!(this.galaxy.getSystem(target)?.waypoints ?? []).some((w) => !w.chart)) this.scoutExhaustedSystems.add(target);
+      this.log(`${shipSymbol}: scout jumped to ${target} looking for uncharted waypoints`);
+      return true;
+    } finally {
+      this.controlledAgent(shipSymbol)?.release();
+    }
   }
 
   /** Send an idle/explorer ship to scout a connected system. */

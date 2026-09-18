@@ -11,6 +11,27 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Chart scouts jump to a new system once their current one is fully
+  charted, instead of idling forever.** Live incident: THEO-A was
+  converted to `scout` and assigned X1-B48, but a live public-API check
+  confirmed all 30 of B48's waypoints already had a `chart` (almost
+  certainly charted first by the 32-ship rival fleet HYDRA) — it kept
+  cycling every waypoint logging `already charted, skipping`, burning fuel
+  for zero value with no way out. `ScoutAgent` gained a
+  `jumpToUnchartedSystem` hook, called when `pickChartTarget()` comes up
+  empty and there's nothing left to sensor-scan either; `FleetManager`'s
+  new `scoutJumpToUnchartedSystem()` picks a connected system (preferring
+  one already known to have an uncharted waypoint, then an unchecked one,
+  before retrying anything already confirmed empty — tracked in a new
+  `scoutExhaustedSystems` set so it can't ping-pong between two exhausted
+  neighbors), jumps via the existing `jumpShip()`, and force-refreshes the
+  destination's waypoint traits (`refreshWaypointTraits()`, same fix as the
+  B48 stale-cache bug below) so the very next tick sees accurate chart
+  status. Gated by a new `scoutCreditFloor` doctrine value plus the shared
+  `exploringEnabled` switch — same budget-limit shape as explorers'
+  `explorerCreditFloor`, sized separately since a scout's jump is a much
+  cheaper, single-hop spend. Four new tests in `tests/scoutJump.test.ts`.
+
 - **Traders top off at a fuel market before departing, not just when low.**
   Live incident: THEO-B (600-unit tank) departed a fuel-selling market at
   392/600 (65%) — above the old `<50%` refuel trigger, so `navigateTo()`
