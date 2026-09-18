@@ -380,7 +380,7 @@ function renderSheet(row) {
         </select>
         <button class="btn pri" data-act="role-set">Set</button>
       </div>
-      ${mismatch ? `<div class="role-warn">⚠ ${escapeHtml(mismatch)} — the ship won't be able to do this role's job</div>` : ""}
+      ${mismatch ? `<div class="role-warn">⚠ ${escapeHtml(mismatch)}</div>` : ""}
       ${currentRole === "keeper" ? `<input class="role-keeper-wp" placeholder="keeper market waypoint (skip if already there)" />` : ""}
     </div>`;
   }

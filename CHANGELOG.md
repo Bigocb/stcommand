@@ -11,6 +11,21 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: the role-change warning claimed a non-probe keeper "won't be able
+  to do this role's job" — it will, just less efficiently than a probe.**
+  `roleMismatchReason()`'s keeper case only flags a hull mismatch because
+  `FleetManager.setShipRole()` places no actual restriction on it — any
+  ship reassigned to keeper flies itself to its assigned market and docks
+  there via the same `navigateTo()` every other role uses
+  (`keeperPoll()`, `agent.ts`). Only a probe/satellite is special-cased
+  elsewhere (bought directly at the target waypoint, since it has no fuel
+  and can never move itself there) — a mobile hull works fine as a
+  keeper, it just spends fuel a probe wouldn't. The warning now says so
+  instead of implying the assignment won't work: rewrote it as a
+  self-contained per-role message (desktop and Tower both stop appending
+  a generic "won't be able to do this role's job" suffix that was simply
+  wrong for this one case).
+
 - **Fix (best-diagnosis, unconfirmed on-device): Tower's per-location
   shipyard/route picker rows didn't respond to a tap at all on iPhone,
   even after the poll-rebuild fix above.** Live report: the picker opens

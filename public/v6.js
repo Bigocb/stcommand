@@ -4937,7 +4937,7 @@ function openShipDetails(shipSymbol, opts = {}) {
       if (warnRow) {
         warnRow.style.display = reason ? "" : "none";
         const span = warnRow.querySelector(".tgt");
-        if (span) span.textContent = reason ? `⚠ ${reason} — the ship won't be able to do this role's job` : "";
+        if (span) span.textContent = reason ? `⚠ ${reason}` : "";
       }
     };
     sel.addEventListener("change", toggle);

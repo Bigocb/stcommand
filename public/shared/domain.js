@@ -102,15 +102,26 @@ export function countdown(iso) {
   return `${h}h ${m}m`;
 }
 
+/**
+ * A self-contained warning (no generic suffix expected from callers — see
+ * their own history for why): keeper is the one role a hull mismatch
+ * doesn't actually block. keeperPoll() (agent.ts) flies any ship to its
+ * assigned market and docks it there like any other navigateTo() call —
+ * only a probe/satellite is special-cased elsewhere for buying it directly
+ * at the target waypoint, because it has no fuel and can never fly itself
+ * anywhere. A non-probe keeper works fine, it just burns fuel a probe
+ * wouldn't — every other role's mismatch here is a real "can't do the job"
+ * blocker (no mount, wrong frame, no cargo), so those keep that framing.
+ */
 export function roleMismatchReason(role, ship) {
   const mountSymbols = (ship.mounts ?? []).map((m) => m.symbol);
   const frame = ship.frame?.symbol ?? "";
-  if (role === "miner" && !mountSymbols.some((s) => s.startsWith("MOUNT_MINING_LASER"))) return "no mining laser mounted";
-  if (role === "surveyor" && !mountSymbols.some((s) => s.startsWith("MOUNT_SURVEYOR"))) return "no surveyor mounted";
-  if (role === "siphoner" && !mountSymbols.some((s) => s.startsWith("MOUNT_GAS_SIPHON"))) return "no gas siphon mounted";
-  if (role === "tour" && frame !== "FRAME_SHUTTLE" && ship.registration?.role !== "COMMAND") return "not a shuttle or command frame";
-  if (role === "keeper" && ship.registration?.role !== "SATELLITE" && frame !== "FRAME_PROBE") return "not a probe/satellite hull";
-  if (role === "trader" && (ship.cargo?.capacity ?? 0) < 15) return "cargo capacity under 15";
+  if (role === "miner" && !mountSymbols.some((s) => s.startsWith("MOUNT_MINING_LASER"))) return "no mining laser mounted — the ship won't be able to do this role's job";
+  if (role === "surveyor" && !mountSymbols.some((s) => s.startsWith("MOUNT_SURVEYOR"))) return "no surveyor mounted — the ship won't be able to do this role's job";
+  if (role === "siphoner" && !mountSymbols.some((s) => s.startsWith("MOUNT_GAS_SIPHON"))) return "no gas siphon mounted — the ship won't be able to do this role's job";
+  if (role === "tour" && frame !== "FRAME_SHUTTLE" && ship.registration?.role !== "COMMAND") return "not a shuttle or command frame — the ship won't be able to do this role's job";
+  if (role === "keeper" && ship.registration?.role !== "SATELLITE" && frame !== "FRAME_PROBE") return "not a probe/satellite hull — it'll work fine, just flying itself to the market and burning fuel a fuel-less probe wouldn't need";
+  if (role === "trader" && (ship.cargo?.capacity ?? 0) < 15) return "cargo capacity under 15 — the ship won't be able to do this role's job";
   return null;
 }
 
