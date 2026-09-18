@@ -11,6 +11,23 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: approving a "buy keeper probe" request could still fail even
+  when the confirming ship was genuinely, currently at the yard — just
+  in orbit rather than docked.** Follow-up to this session's earlier
+  keeper-probe-approval fix (which closed the *stale-cache* version of
+  this failure) — a second, separate live report showed the same
+  underlying requirement biting a different way: `purchaseShip()` only
+  grants access to a docked ship (orbit is navigate/extract only), and
+  `resolvePendingKeeperProbeApproval()`'s live presence check confirmed
+  the ship was at the right waypoint but never checked docked status.
+  It now docks the candidate itself when it's in orbit there, the same
+  idempotent dock-if-orbiting step every other purchase call site in
+  this file already takes — rather than consuming the approval and
+  gambling on catching the ship already docked. `purchaseKeeperProbe()`
+  also gets the same clearer "orbiting isn't enough" error wording
+  `buyShip()` got, since it calls `purchaseShip()` directly and doesn't
+  inherit that translation.
+
 - **Fix: shipyard/module intel listings (desktop and Tower) only let you
   buy at the cheapest location for a ship type or component — every other
   location the "also: X, Y" line named was inert text, with no way to buy

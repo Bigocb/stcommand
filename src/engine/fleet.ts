@@ -3737,7 +3737,20 @@ export class FleetManager {
   private async purchaseKeeperProbe(waypointSymbol: string, price: number): Promise<void> {
     try {
       this.log(`purchasing SHIP_PROBE at ${waypointSymbol} for ${price} credits (no keeper stationed here)`);
-      const res = await this.api.purchaseShip("SHIP_PROBE", waypointSymbol);
+      let res;
+      try {
+        res = await this.api.purchaseShip("SHIP_PROBE", waypointSymbol);
+      } catch (err) {
+        // Same rewrite buyShip() applies — see its own comment. This path
+        // doesn't go through buyShip() (it purchases directly, since it
+        // already knows the price from the stored approval), so it needs
+        // its own copy of the translation rather than inheriting it.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/must have at least one ship available/i.test(msg)) {
+          throw new Error(`no ship of yours is docked at ${waypointSymbol} — orbiting isn't enough, it must be docked to buy here`);
+        }
+        throw err;
+      }
       await this.doctrine.ensureShipTypeRule(res.ship.frame.symbol);
       this.recordLedger?.({
         timestamp: new Date().toISOString(),
@@ -3815,12 +3828,24 @@ export class FleetManager {
       // approval and forcing a fresh operator prompt next time some ship
       // happened to redock there, exactly the loop the operator reported.
       // One cheap getShip() call confirms the candidate is genuinely,
-      // currently there before any row gets consumed.
+      // currently there before any row gets consumed. Being at the right
+      // waypoint isn't enough by itself, either — confirmed live (a second,
+      // separate incident after the fix above shipped): an operator's ship
+      // was genuinely sitting right at the yard, in orbit, and the
+      // purchase still failed the same way. SpaceTraders only grants
+      // shipyard access to a *docked* ship (orbit is for navigate/extract
+      // only — see purchase-ship's own API docs), so this docks the
+      // candidate itself when it's in orbit there rather than gambling on
+      // catching it already docked — the same idempotent dock-if-orbiting
+      // step every other purchase call site in this file already does
+      // before its own purchaseShip() call.
       const candidate = this.fleetStatusSummary().find((s) => s.waypoint === waypointSymbol)?.symbol;
       if (!candidate) return;
       try {
         const live = await this.api.getShip(candidate);
         if (live.nav.waypointSymbol !== waypointSymbol) return;
+        if (live.nav.status === "IN_ORBIT") await this.api.dockShip(candidate);
+        else if (live.nav.status !== "DOCKED") return;
       } catch {
         return;
       }
