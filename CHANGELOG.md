@@ -35,6 +35,22 @@ be useful context; not a complete project history — see `git log` for that.
   `tests/shipProxy.test.ts` suite (unchanged) confirms `runExploreGoal()`
   itself still behaves correctly with the new callback wired in.
 
+- **The dedicated explorer now backtracks through known space once its
+  immediate neighbors are exhausted, instead of just bouncing between
+  them.** Follow-up to the fix above: skipping the re-tour stopped the
+  wasted fuel, but THEO-C still had no way to reach anything past X1-FF6
+  or X1-NR97 — `exploreSystem()`'s candidate selection only ever looked at
+  systems *directly* connected to wherever the ship currently stood, so
+  with both immediate neighbors surveyed it was permanently capped at
+  those two, forever. New `FleetManager.nextHopToUnsurveyed()` runs the
+  same multi-hop BFS `advanceTourDispatch()` already uses for a tour
+  ship's cross-system trip, but across *every* system this tenant knows
+  of, and returns just the next hop toward the nearest one still
+  unsurveyed — so the explorer now hops back through an already-known
+  system when that's genuinely the only way onward, rather than treating
+  "nothing new next door" as "nothing new anywhere." Two new tests in
+  `tests/fleet.test.ts`.
+
 - **Fix: a scout refusing to even attempt a leg it couldn't afford at
   CRUISE, when DRIFT could likely have covered it.** Live incident,
   immediately downstream of the fix below: once THEO-A got past

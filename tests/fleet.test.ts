@@ -344,6 +344,41 @@ describe("FleetManager.exploreSystem: a re-visited system is not re-toured", () 
   });
 });
 
+describe("FleetManager.nextHopToUnsurveyed: backtracking once direct neighbors are exhausted", () => {
+  // Confirmed live: THEO-C's home gate reaches only X1-FF6 and X1-NR97
+  // directly, both fully surveyed, so it just bounced between the two
+  // forever with no way to notice a third system reachable by hopping back
+  // through either of them first.
+  it("finds an unsurveyed system beyond the immediate neighbors and returns the next hop toward it", () => {
+    const fleet = makeFleet([]);
+    (fleet as any).galaxy = {
+      jumpConnections: () => [
+        { from: "X1-A-GATE", to: "X1-B-GATE" },
+        { from: "X1-B-GATE2", to: "X1-C-GATE" },
+      ],
+      gateComplete: () => undefined,
+      listSystems: () => [{ symbol: "X1-B" }, { symbol: "X1-C" }],
+    };
+    (fleet as any).surveyedSystems.add("X1-B"); // the only direct neighbor, already done
+
+    const hop = (fleet as any).nextHopToUnsurveyed("X1-A");
+
+    assert.equal(hop, "X1-B", "must backtrack through the already-surveyed neighbor to reach X1-C beyond it");
+  });
+
+  it("returns undefined when nothing unsurveyed is known anywhere", () => {
+    const fleet = makeFleet([]);
+    (fleet as any).galaxy = {
+      jumpConnections: () => [{ from: "X1-A-GATE", to: "X1-B-GATE" }],
+      gateComplete: () => undefined,
+      listSystems: () => [{ symbol: "X1-B" }],
+    };
+    (fleet as any).surveyedSystems.add("X1-B");
+
+    assert.equal((fleet as any).nextHopToUnsurveyed("X1-A"), undefined);
+  });
+});
+
 describe("FleetManager.jettisonCargo", () => {
   function makeAgentWithCargo(symbol: string, inventory: { symbol: string; units: number }[]) {
     const units = inventory.reduce((sum, i) => sum + i.units, 0);

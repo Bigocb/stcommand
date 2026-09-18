@@ -2596,6 +2596,29 @@ export class FleetManager {
   }
 
   /**
+   * When nothing directly connected to `currentSystem` is unsurveyed, look
+   * further out: any system this tenant knows about at all (charted by any
+   * ship, not just this explorer) that hasn't been surveyed yet, reached by
+   * the shortest known path from here. Returns just the next hop to take,
+   * not the final destination — exploreSystem()'s own jump logic already
+   * knows how to fly one hop, it just needs to be told which one.
+   *
+   * O(known systems × BFS) — fine at this scale (a handful of jump-gate
+   * hops per tenant), and only runs at all once the cheap direct-neighbor
+   * check above has already failed.
+   */
+  private nextHopToUnsurveyed(currentSystem: string): string | undefined {
+    let best: string[] | undefined;
+    for (const sys of this.galaxy.listSystems().map((s) => s.symbol)) {
+      if (sys === currentSystem || this.surveyedSystems.has(sys)) continue;
+      const path = this.findSystemPath(currentSystem, sys);
+      if (!path || path.length < 2) continue;
+      if (!best || path.length < best.length) best = path;
+    }
+    return best?.[1];
+  }
+
+  /**
    * Dispatch a ship to become a remote tour shuttle: put it (or confirm it
    * already is) on the "tour" role, then start it walking the known
    * jump-gate graph toward `targetSystem` one hop per tick via
@@ -2879,10 +2902,21 @@ export class FleetManager {
       // this always picked candidates[0], which for a ship freshly jumped
       // *into* a system is almost always the way it just came from, sending
       // "Scout connected systems" straight back to already-charted space
-      // instead of anywhere new. Falls back to candidates[0] once nothing
-      // reachable is left unsurveyed, same as autoExplore()'s own
-      // definition of "done here".
-      const target = targetSystem ?? candidates.find((c) => !this.surveyedSystems.has(c)) ?? candidates[0];
+      // instead of anywhere new. Once every *directly* connected system is
+      // surveyed, backtrack through known space instead of just bouncing
+      // between the same one or two neighbors forever — confirmed live:
+      // THEO-C's home gate reaches only X1-FF6 and X1-NR97 directly, both
+      // fully surveyed, so with only this direct check it ping-ponged
+      // between the two for over a day with no way to notice a third
+      // system reachable by hopping back through either of them (or home)
+      // first. nextHopToUnsurveyed() runs the same multi-hop BFS
+      // advanceTourDispatch() already uses for a tour ship's cross-system
+      // trip, across every system this tenant knows of, and returns just
+      // the next hop to take — so the jump logic below treats it exactly
+      // like any other one-hop candidate. Only once *that* also comes up
+      // empty (nothing unsurveyed known anywhere) does this fall back to
+      // candidates[0], same as before.
+      const target = targetSystem ?? candidates.find((c) => !this.surveyedSystems.has(c)) ?? this.nextHopToUnsurveyed(currentSystem) ?? candidates[0];
       if (!target) throw new Error(`no connected systems known from ${currentSystem}`);
       await this.galaxy.loadSystem(target);
       await this.markSystemCharted(target);
