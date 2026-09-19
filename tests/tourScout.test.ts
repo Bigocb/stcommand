@@ -494,6 +494,39 @@ describe("ShipAgent.tourScout: shipyard inventory on arrival, the market fix's o
     assert.deepEqual(shipyardsRecorded, [], "a plain market must not get a spurious shipyard scan");
   });
 
+  // Confirmed live 2026-09-19: THEO-13 docked at X1-JN44-A27X, a real,
+  // trait-confirmed shipyard (visible in the operator's own map tooltip),
+  // and got a market snapshot but never a shipyard one. Root cause:
+  // shipyardTourTargets() (fleet.ts) trait-scans the in-memory galaxy
+  // atlas, populated lazily by loadSystem() calls made *this process's own
+  // lifetime* — a process that restarted (an unrelated deploy) since last
+  // loading this ship's system reports empty yardTargets for it, even
+  // though the ship is standing right on top of a real shipyard.
+  it("still scans ship stock even when yardTargets is empty, if the registry's own trait data says this waypoint is a shipyard", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    const shipyardsRecorded: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => [],
+      // Simulates the stale-cache bug: shipyardTourTargets() reports
+      // nothing, as it would right after a restart that hasn't re-loaded
+      // this system yet — but the registry (durable trait data, populated
+      // independently via withWorld() below) still knows the truth.
+      shipyardTourTargets: async () => [],
+      recordMarket: async () => {},
+      recordShipyard: async (wp) => { shipyardsRecorded.push(wp); },
+    });
+    agent.withWorld(remotePositions.map((w: any) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }, { symbol: "SHIPYARD" }] })) as any, []);
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async () => { throw new Error("must not navigate — nothing else is reachable"); };
+    (agent as any).ensureDocked = async () => {};
+
+    await (agent as any).tourScout();
+
+    assert.deepEqual(shipyardsRecorded, ["X1-REMOTE-A1"], "registry.isShipyard() must catch what a stale yardTargets list missed");
+  });
+
   // Live requirement: a tour ship that finds a shipyard and raises (or finds
   // already open) a buyKeeperProbe request must stay put — docked, right
   // there — until the operator decides or the timeout policy does, since

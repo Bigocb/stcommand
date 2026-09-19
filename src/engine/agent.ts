@@ -1359,7 +1359,23 @@ export class ShipAgent {
       // was refreshed on arrival for prices and never for inventory, for the
       // identical reason prices used to never update — flagged and left open
       // when the market half was fixed (see that commit's own message).
-      if (this.recordShipyard && yardTargets.includes(standingAt)) await this.recordShipyard(standingAt);
+      //
+      // `|| this.registry.isShipyard(standingAt)`: yardTargets alone isn't
+      // reliable here — shipyardTourTargets() (fleet.ts) trait-scans
+      // `this.galaxy.listSystems()`, an in-memory cache populated lazily by
+      // loadSystem() calls made *during this process's own lifetime*, so a
+      // freshly-restarted process that hasn't yet re-loaded this ship's
+      // system reports zero shipyard targets for it — even one the ship is
+      // standing right on top of. `this.registry.isShipyard()` (same class
+      // recordMarket()'s own isMarket() check above already trusts) reads
+      // durable trait data instead, so it doesn't share that blind spot.
+      // Confirmed live: THEO-13 docked at X1-JN44-A27X (a real, trait-
+      // confirmed shipyard — the operator saw it directly in the map
+      // tooltip) got a market snapshot but never a shipyard one, across
+      // several minutes and a docked/resumed cycle, because an unrelated
+      // deploy had reset the process in between and nothing had re-loaded
+      // X1-JN44 into the in-memory galaxy cache since.
+      if (this.recordShipyard && (yardTargets.includes(standingAt) || this.registry.isShipyard(standingAt))) await this.recordShipyard(standingAt);
       // Top off here whenever the tank isn't already essentially full,
       // regardless of whether this leg actually needed it — a tour ship
       // never knows what it'll be asked to reach next (a remote dispatch,
