@@ -93,6 +93,27 @@ describe("Scheduler.runOnce", () => {
     assert.deepEqual(ran, ["rescue", "trade"]);
   });
 
+  it("sets the Client's ambient priority to the running task's own priority, and restores it to routine (1) afterward — even when the task throws", async () => {
+    // docs/api-request-priority-plan.md: a Task's own priority decided
+    // whether it got admitted this pass, but every HTTP call it makes
+    // underneath used to hit the shared RateLimiter at flat routine
+    // priority regardless — a rescue task and a telemetry task, once both
+    // admitted, queued as equals at the wire. setClientPriority closes that
+    // gap by mirroring the task's priority onto the tenant's Client for the
+    // duration of run().
+    const seen: number[] = [];
+    const sched = new Scheduler({ ratePerSec: 100, burst: 100, setClientPriority: (p) => seen.push(p) });
+    sched.enqueue(makeTask({ id: "rescue", priority: 0, run: async () => { seen.push(-1); return { actualCalls: 1 }; } }));
+    await sched.runOnce();
+    assert.deepEqual(seen, [0, -1, 1], "priority set to the task's own (0) before run(), restored to routine (1) after");
+
+    const seen2: number[] = [];
+    const sched2 = new Scheduler({ ratePerSec: 100, burst: 100, setClientPriority: (p) => seen2.push(p) });
+    sched2.enqueue(makeTask({ id: "bad", priority: 3, run: async () => { throw new Error("boom"); } }));
+    await sched2.runOnce();
+    assert.deepEqual(seen2, [3, 1], "a throwing task must still restore routine priority, not leave the Client parked boosted");
+  });
+
   it("chains a task's `next` result into the queue for the following pass", async () => {
     const sched = new Scheduler({ ratePerSec: 100, burst: 100 });
     const ran: string[] = [];

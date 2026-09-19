@@ -87,6 +87,10 @@ export class Scheduler {
   private readonly burst: number;
   private readonly log: (msg: string) => void;
   private readonly heartbeatMs: number;
+  /** Ambient hook into the tenant's Client.setPriority() — see docs/
+   *  api-request-priority-plan.md. Optional so a Scheduler built without a
+   *  live API client (e.g. a test) behaves exactly as before. */
+  private readonly setClientPriority?: (priority: number) => void;
   /**
    * Counters for the heartbeat below. Every one of them exists because a
    * failure of that kind was, at some point today, completely silent: a task
@@ -102,7 +106,7 @@ export class Scheduler {
   private lastHeartbeat = Date.now();
   private lastRanAt = Date.now();
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -119,6 +123,7 @@ export class Scheduler {
     this.isPaused = opts.isPaused ?? (() => false);
     this.log = opts.log ?? (() => {});
     this.heartbeatMs = opts.heartbeatMs ?? 30_000;
+    this.setClientPriority = opts.setClientPriority;
   }
 
   enqueue(task: Task): void {
@@ -152,6 +157,19 @@ export class Scheduler {
       }
       this.skips.delete(task.id);
       this.queue.splice(this.queue.indexOf(task), 1);
+      // Ambient priority, not threaded through every call site: the Task
+      // already knows how urgent it is (that's what got it admitted ahead of
+      // lower-priority work above), but every HTTP call it makes underneath
+      // still hit the shared RateLimiter at flat routine priority — a
+      // priority-0 rescue task and a priority-4 telemetry poll, once both
+      // admitted, queued as equals at the wire. Setting the tenant's Client
+      // to this task's own priority for the duration of run() closes that
+      // gap the same way boot priority already works (setPriority(0) before,
+      // setPriority(1) after) — see docs/api-request-priority-plan.md. Always
+      // restored in `finally`, run() throwing included, so a failing task
+      // can never leave the Client parked at a boosted priority for whatever
+      // runs after it.
+      this.setClientPriority?.(task.priority);
       try {
         const result = await task.run();
         this.budget.consumeTokens(result.actualCalls);
@@ -170,6 +188,8 @@ export class Scheduler {
         // Re-enqueue with a small backoff so a persistently failing task
         // cannot spin the runner, and cannot silently vanish either.
         this.enqueue({ ...task, earliestRunAt: Date.now() + 5_000 });
+      } finally {
+        this.setClientPriority?.(1);
       }
     }
     this.heartbeat(ready.length);
