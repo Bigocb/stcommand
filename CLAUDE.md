@@ -95,6 +95,39 @@ error wall of logs even starts. `serverResets.next` could also drive a
 scheduled, not guaranteed to fire exactly on time. Not scoped/built;
 flagged here and in `docs/TODO.md` for whoever picks it up next.
 
+## Diagnosing a ship that "looks stuck" mid-transit — check logs before concluding it's broken
+
+Confirmed 2026-09-19: a ship correctly mid-flight on a long single-leg
+**drift** transit can look, from `stcommand_get_fleet_status` /
+`stcommand_get_activity` alone, exactly like a stuck/broken dispatch.
+Don't conclude "stuck" from these symptoms without checking Render logs
+for that ship's actual navigate/ETA line first:
+
+- **Fuel pinned at a constant value for a long time is NOT a stuck
+  symptom.** SpaceTraders deducts navigation fuel entirely **upfront**
+  when a flight starts, not gradually over the transit. A ship that
+  departed with fuel `X` and shows fuel `X-1` (or whatever the leg cost)
+  for the *entire* transit is behaving exactly as expected — there is
+  no further fuel draw to watch for until it arrives.
+- **No activity-log entries for an hour+ is NOT a stuck symptom either**
+  if the ship is on one continuous leg. There's nothing to log mid-flight
+  — the ship agent just waits for arrival. Compare against other ships
+  only if they're also on a single long leg; a busy multi-hop tour ship
+  logging constantly is not a fair comparison.
+- **An unchanged target waypoint with no intermediate hops is expected**
+  for a direct in-system drift leg (as opposed to a multi-hop
+  jump-gate tour like `dispatch_tour`, which does show intermediate
+  waypoints).
+- **DRIFT mode is slow — ETAs can run into hours.** A ship without
+  enough fuel for cruise falls back to drift
+  (`"needs X at cruise, have Y/Z"` in the logs), and drift ETAs of
+  10,000+ seconds (3+ hours) for a single leg are normal, not a bug.
+
+Before flagging a ship as stuck, check Render logs for that ship's own
+`navigating to <waypoint>, ETA <seconds>s` line and do the arithmetic
+against wall-clock time — that's the ground truth, not the polled
+snapshot fields above.
+
 ## Dual-push convention
 
 Render only auto-deploys from `main`, but this repo's actual working
