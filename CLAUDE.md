@@ -138,6 +138,28 @@ This matters because fleet overhead (refuels, jump costs — jumps run
 frequently) and in-flight inventory can make the naive gross-totals diff
 look flat or negative even during a genuinely profitable session.
 
+## Player-facing guidance vs. engineering notes
+
+This file (CLAUDE.md) is read by a Claude Code session working on the
+repo — it has no reach into a separate agent that connects purely as a
+player over the hosted MCP server (`/mcp`, `src/mcp/`), since that agent
+never sees this repo at all. For *that* audience, `src/mcp/server.ts`
+sets `PLAYER_INSTRUCTIONS`, the MCP `initialize` response's `instructions`
+field — most MCP clients surface it to the connecting model as a hint, so
+it's the one message that actually reaches a game-playing agent. It's kept
+short and non-technical on purpose (a player's field guide, not a
+codebase tour) and currently covers the handful of things a live operator
+has had to correct a connected agent on more than once: fuel not
+draining mid-flight isn't a stall, a quiet activity feed during a long
+leg isn't either, dock/orbit log lines near departure are often
+refueling rather than arrival, re-issuing a command on an already-
+IN_TRANSIT ship doesn't do anything useful, and `dispatch_tour` (not
+`dispatch_ship`/`jump_ship`) is what walks a ship more than one gate
+away. Add to it when a live-ops incident turns out to be a connected
+agent misreading normal game behavior as a bug — that's the signal this
+section exists to capture, the MCP-player equivalent of this file's own
+"Reporting matched buy/sell P&L" entry below.
+
 ## Docs to keep current
 
 - `docs/TODO.md` — open items; move a closed one to `CHANGELOG.md`
