@@ -585,14 +585,27 @@ describe("Store shared galaxy tables (no tenant scoping)", () => {
     assert.equal(atYard[0]?.purchasePrice, 121_000);
   });
 
-  it("recordShipyardInventory clears every row for a waypoint that now offers nothing", async () => {
+  it("recordShipyardInventory treats an empty fetch as no-visibility, not confirmed-empty, and leaves prior rows alone", async () => {
+    // The live API only returns the full `ships` list when one of our own
+    // ships is physically docked at that waypoint right now; with none
+    // there it comes back empty regardless of true stock. A periodic
+    // background sweep (GalaxyAtlas.surveyShipyards()) calls this for every
+    // shipyard-trait waypoint in a system, almost always without a ship
+    // docked at most of them — so an empty write here used to wipe out
+    // exactly what a tour/keeper ship's own dock had just correctly
+    // recorded a moment earlier. Confirmed live: real inventory at
+    // X1-TX45-A2 appeared, then vanished within a minute, with no purchase
+    // or actual restock in between.
     const wp = `X1-SY${Date.now()}-EMPTY`;
     await store.recordShipyardInventory("X1-SY", wp, [
       { type: "SHIP_PROBE", name: "Probe", purchasePrice: 12_000, frame: { fuelCapacity: 0 } },
     ]);
     await store.recordShipyardInventory("X1-SY", wp, []);
     const yards = await store.shipyardInventory();
-    assert.equal(yards.filter((y) => y.waypointSymbol === wp).length, 0);
+    const atYard = yards.filter((y) => y.waypointSymbol === wp);
+    assert.equal(atYard.length, 1, "an empty fetch must not delete data we have no reason to believe is stale");
+    assert.equal(atYard[0]?.shipType, "SHIP_PROBE");
+    assert.equal(atYard[0]?.purchasePrice, 12_000);
   });
 
   it("getSystemTopology returns undefined for a system never cached", async () => {

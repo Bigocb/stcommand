@@ -1205,12 +1205,27 @@ export class Store {
    *  current fetch — including all of them, when the yard now offers
    *  nothing (`ships` empty) — keeps the table an honest mirror of what
    *  the yard last reported, not an accumulating log of everything it
-   *  ever has. */
+   *  ever has.
+   *
+   *  BUT: the live API only populates `ships` (the full purchasable list
+   *  with price) when one of our own ships is physically present/docked
+   *  at that waypoint right now — with none there, it comes back empty
+   *  regardless of true stock. `GalaxyAtlas.surveyShipyards()` sweeps
+   *  every shipyard-trait waypoint in a system on a periodic background
+   *  refresh, almost always without a ship docked at most of them.
+   *  Treating that routine "no visibility" empty response the same as a
+   *  genuine sold-out yard meant every sweep silently deleted whatever a
+   *  tour/keeper ship's own dock had just correctly recorded — confirmed
+   *  live: an operator watched real inventory at X1-TX45-A2 appear, then
+   *  vanish again within a minute, with no purchase or actual restock in
+   *  between. An empty fetch here is therefore a no-op: it carries no
+   *  information either way, so it must not touch existing rows. */
   async recordShipyardInventory(
     systemSymbol: string,
     waypointSymbol: string,
     ships: { type: string; name: string; purchasePrice: number; frame?: { fuelCapacity?: number; cargoCapacity?: number; moduleSlots?: number; mountingPoints?: number; symbol?: string } }[],
   ): Promise<void> {
+    if (ships.length === 0) return;
     await withPool(this.pool, async (c) => {
       await c.query(
         `DELETE FROM shipyard_inventory WHERE waypoint_symbol = $1 AND ship_type <> ALL($2::text[])`,
