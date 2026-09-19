@@ -2567,6 +2567,30 @@ export class FleetManager {
   }
 
   /**
+   * jumpShip(), but for the dashboard's manual "jump to waypoint" control
+   * specifically — establishes an operator hold at the destination and
+   * cancels any standing dispatchTourShip() destination, same reasoning as
+   * sendShipTo()'s own comment. jumpShip() itself must stay a bare
+   * primitive: it's also how advanceTourDestination()'s own automatic
+   * multi-hop walk performs each of ITS hops, and claiming ownership or
+   * clearing tourDestination inside jumpShip() would make that walk
+   * self-cancel after its very first hop. Confirmed live: an operator used
+   * this control to send THEO-1C to X1-TX45; the raw jump moved the ship
+   * there correctly, but nothing recorded it as an operator action, so a
+   * stale tourDestination from an unrelated earlier trip picked up right
+   * where it left off on the ship's next tourScout() tick — same ship
+   * landed in the same place, for a completely different, unintended
+   * reason.
+   */
+  async manualJumpShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
+    await this.jumpShip(shipSymbol, waypointSymbol);
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol, tourDestination: null });
+    this.dispatcher.release(shipSymbol);
+    this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
+    this.log(`${shipSymbol}: operator hold at ${waypointSymbol} (manual jump)`);
+  }
+
+  /**
    * Shortest *usable* known path of systems from `fromSystem` to `toSystem`,
    * walking only jump-gate connections this tenant has actually charted
    * (galaxy.jumpConnections() — waypoint-level pairs, collapsed here to one

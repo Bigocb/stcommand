@@ -1237,7 +1237,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const { shipSymbol, waypointSymbol } = req.body ?? {};
     if (typeof shipSymbol !== "string" || typeof waypointSymbol !== "string") return res.status(400).json({ error: "shipSymbol and waypointSymbol required" });
     try {
-      await w.fleet.jumpShip(shipSymbol, waypointSymbol);
+      await w.fleet.manualJumpShip(shipSymbol, waypointSymbol);
       res.json({ ok: true, shipSymbol, waypointSymbol });
     } catch (err) {
       console.error("[dashboard] jump error", err);

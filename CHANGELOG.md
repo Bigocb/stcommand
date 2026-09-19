@@ -11,6 +11,24 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: the Navigate tab's manual "jump" control never registered as an
+  operator action at all.** Turned out to be the real culprit behind the
+  `tourDestination` bug below, not the plain dispatch control: `/fleet/jump`
+  called `FleetManager.jumpShip()` — a bare navigation primitive — directly.
+  Confirmed live: an operator jumped THEO-1C to X1-TX45 from its Navigate
+  tab; the jump itself succeeded, but nothing claimed ownership, set a
+  hold, or cleared its stale `tourDestination`, so the very next
+  `tourScout()` tick picked the old automatic destination back up as if
+  the manual action had never happened — the ship landed in the operator's
+  chosen system for one tick, then kept walking on its own schedule.
+  `jumpShip()` itself has to stay a bare primitive (it's also how
+  `advanceTourDestination()` performs each hop of an automatic multi-hop
+  tour trip — giving it hold/ownership side effects would make that walk
+  self-cancel after one hop). Added `manualJumpShip()`, a thin wrapper used
+  only by the dashboard's `/fleet/jump` route, that claims operator
+  ownership and clears `tourDestination` after the jump — same pattern
+  `sendShipTo()` already uses for the plain dispatch control.
+
 - **Fix: `sendShipTo()`/`holdShip()` (the manual dispatch/hold controls)
   never cleared a leftover `dispatchTourShip()` destination.** Confirmed
   live, same THEO-1C: a deploy restart restored a stale `tourDestination`
