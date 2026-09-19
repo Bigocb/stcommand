@@ -4,6 +4,42 @@ Durable, repo-level knowledge that should survive any one session. See
 `docs/architecture-overview.md` for the system-by-system design breakdown
 and `docs/TODO.md`/`CHANGELOG.md` for what's in flight or already shipped.
 
+## Operating the fleet via the stcommand MCP server
+
+The `stcommand` MCP server's own `initialize` response carries operating
+instructions for its tools — re-read after any MCP reconnect/restart, since
+they can be updated independently of this file. Key points worth keeping
+here so they don't get lost between sessions:
+
+- **This is a live, persistent fleet, not turn-based.** Ships keep flying
+  in the background between tool calls. Re-checking state is cheap;
+  re-issuing a command "to make sure it took" usually isn't useful and can
+  interrupt a flight that was already progressing correctly (see the
+  drift-vs-stuck section above — this is exactly the trap that led to
+  misdiagnosing THEO-1C as stuck).
+- **Every tool call acts immediately at operator trust level.** There's no
+  confirm step except `stcommand_decide_approval`'s own gate.
+- **Reassigning a ship's role interrupts whatever it was doing.** Don't
+  call `stcommand_set_ship_role` on a ship mid-task without a reason — it
+  won't finish its current job first.
+- **Movement tools are scoped by distance, and using the wrong one for the
+  range fails:**
+  - `stcommand_dispatch_ship` — same-system only; sends to a waypoint and
+    holds there once arrived.
+  - `stcommand_jump_ship` — exactly one hop to an adjacent system through
+    a gate.
+  - `stcommand_dispatch_tour` — more than one jump away; takes a *system*
+    symbol (not a waypoint) and walks the jump-gate graph automatically,
+    then tours that system's markets indefinitely once it arrives.
+  - Confirmed 2026-09-19: calling `dispatch_ship` with a same-system
+    waypoint target failed with `"Failed to execute jump. Waypoint ... is
+    not connected to the current location"` for a ship that had just been
+    given a `dispatch_tour` system-level destination — same-system moves
+    should never require jump-gate logic at all, so this points to a real
+    bug in how the coordinator routes a `dispatch_ship` call issued right
+    after a `dispatch_tour` call on the same ship, not a usage error.
+    Worth a proper look if it recurs.
+
 ## SpaceTraders universe resets
 
 SpaceTraders resets its entire game universe **weekly** (per the game's
