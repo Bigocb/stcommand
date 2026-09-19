@@ -20,6 +20,16 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   galaxy overview, missions/contracts/warehouse/doctrine writes, the
   confirm-flag requirement on destructive actions) still to build,
   tracked in `src/mcp/tools.ts`'s own trailing comment.
+  **Follow-up idea, not started**: the co-pilot (`agentChat.ts`'s
+  `ChatAgent`) should never grow its own separate execution tools —
+  its own header comment ("adding an execution tool later is one object
+  in `tools`") invites exactly the divergent-path mistake this session's
+  earlier fixes were about. When it needs to act, it should call the
+  same handler logic `src/mcp/tools.ts` registers, not reimplement
+  dispatch/hold/jump/etc. a second time. Written up in
+  `docs/mcp-server-plan.md` §9 and `docs/engine-redesign.md` §9 (the
+  latter generalizing this past ship ownership specifically — "any
+  shared action surface needs one gate, not several").
 
 - [ ] **Why doesn't the fuel-tender rescue ever reach a ship stranded
   mid-fleet-driven-goal?** Found 2026-09-14 investigating why THEO's

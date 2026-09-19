@@ -340,3 +340,36 @@ pass:
    operator managing several of their own tenants (THEO, THEO-1, THEO-2)
    just holds multiple keys in their MCP client's own config. No
    multi-tenant-scoped key needed; not building that.
+
+## 9. The co-pilot is a fifth caller — unify it, don't let it diverge
+
+Raised 2026-09-19, right after the first pass shipped: this app already
+has a second agent surface, the co-pilot (`ChatAgent`, `agentChat.ts`),
+with its own tool-calling system (`ChatTool[]`) — currently read-only,
+but its own header comment says *"Adding an execution tool later is one
+object in `tools` — nothing else changes."* Taken literally, that's
+exactly the trap §3 warns about: an execution tool bolted onto the
+co-pilot's own array would reimplement dispatch/hold/jump/etc. a second
+time, fully disconnected from this server's tools — not a hypothetical
+future risk, a comment already sitting in the codebase inviting it.
+
+**Don't build the co-pilot a second set of execution tools.** Once it
+needs to *act*, not just read, it should call the same handler logic
+`src/mcp/tools.ts` registers — either by making `ChatAgent` an internal
+MCP client of this same `/mcp` server, or (cheaper, no network hop for a
+same-process caller) by having `agentChat.ts` import and call the same
+functions this file's tools wrap, translated into whatever shape its own
+LLM's tool-call format needs. Either way: one implementation of "what can
+an agent do to this fleet," reachable through three front doors
+(dashboard HTTP, MCP, co-pilot chat), not three separate implementations
+that can quietly disagree the way this session's whole day of bugs did.
+
+This is also the concrete instance that ties this document back to
+`docs/engine-redesign.md`'s own thesis: the "eight ownership mechanisms"
+problem that document collapses into one `Directive`/`DirectiveBoard`
+wasn't really about ships specifically — it's about *any* place several
+independent systems can each decide "I'll act on this" without a shared
+gate. This server is a fourth such caller (dashboard, the engine's own
+autonomous controllers, an MCP client, and now potentially the co-pilot);
+see `docs/engine-redesign.md`'s new §9 for where this lands in that
+design.

@@ -923,3 +923,61 @@ operator's judgment:
    re-checks it) are left as doctrine-tunable values, not fixed in this
    design, matching the current system's own philosophy that these are
    operator-tunable policy, not engineering constants.
+
+---
+
+## 9. The thesis generalizes past ship ownership: any shared action surface needs one gate, not several
+
+Added 2026-09-19, prompted by a live example that landed the same day
+this document's §1 was written to justify itself: `docs/mcp-server-plan.md`
+scoped and shipped a hosted MCP server so an agent could dispatch/hold/
+jump ships the same way an operator does from the dashboard. Getting that
+server *right* required stating, explicitly, a rule this whole design
+already assumes implicitly — every write path has to call the exact same
+`FleetManager` methods every other caller uses, never a parallel
+reimplementation — because the two live bugs fixed earlier that same
+session (a manual jump not registering as a hold; a tour-dispatch trip
+not excluded from the auto-explore borrow pool) were both instances of
+exactly that failure, just between *existing* callers (dashboard routes,
+`autoExplore()`) rather than a new one.
+
+Writing that rule down for the MCP server surfaced a third, not-yet-real
+instance already latent in the codebase: the co-pilot (`agentChat.ts`'s
+`ChatAgent`) has its own separate tool-calling system, currently
+read-only, with its own header comment inviting exactly this mistake —
+*"Adding an execution tool later is one object in `tools` — nothing else
+changes."* It would not, in fact, be nothing else — it would be a fourth
+independent implementation of "what can an agent do to this ship,"
+alongside dashboard HTTP routes, the engine's own autonomous controllers,
+and now an MCP client.
+
+**The generalization**: §1's `Directive`/`DirectiveBoard` collapses eight
+mechanisms that each answered "who owns this ship right now" into one.
+That was never really a fact about ships specifically — it's the general
+shape of what happens when several independent systems can each decide
+to *act* on something without going through a shared gate first. Ship
+ownership was this codebase's worst, most-incident-generating instance of
+that shape (per the requirements doc's own audit), which is why §1 solves
+it first and in the most depth. But the same shape now visibly applies to
+a second axis this design didn't originally scope: **who is allowed to
+*execute* an action at all**, distinct from *whose priority wins* when
+two proposals compete for the same ship. §1-§4's `Directive`/`Controller`/
+executor split already answers the priority question generally; this
+section names the execution-surface question as the same family of
+problem, not yet folded into the design above because — same honesty as
+§8's other open items — it needs its own pass, not a rushed addition
+here.
+
+**Concretely, not building today, but worth stating as the target
+shape**: every caller that can make a fleet *do* something — a dashboard
+click, an MCP tool call, a co-pilot tool call, the engine's own
+controllers — should end up calling into the same layer this design's §1
+`propose()`/`commit()` and §3 executor already define, never a
+surface-specific reimplementation of "how do I move a ship." The MCP
+server's own tool handlers already follow this rule today (they call
+`FleetManager` methods directly, per its own §3); the natural next step,
+if and when the co-pilot grows execution tools, is for it to call those
+*same* handlers rather than inventing a `ChatTool`-shaped equivalent of
+them. Not scoped further here — flagged as the concrete reason this
+design's core thesis extends past the ship-ownership problem it was
+written to solve.
