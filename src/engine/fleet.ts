@@ -2082,6 +2082,17 @@ export class FleetManager {
     const agent = await this.api.getMyAgent();
     const yardSystem = yardSymbol.slice(0, yardSymbol.lastIndexOf("-"));
     const shipyard = await this.api.getShipyard(yardSystem, yardSymbol);
+    // This fetch is exactly what a tour ship's own recordShipyardSnapshot()
+    // caches, but buyShip() never wrote it anywhere — confirmed live: an
+    // operator bought a ship at a shipyard, then found that same ship type
+    // still absent from the Yards panel/stcommand_get_shipyard_inventory
+    // for that waypoint, because the only two things that ever call
+    // Store.recordShipyardInventory() are the initial system survey and a
+    // tour ship's own arrival — a manual purchase, despite fetching fresher
+    // inventory data than either of those, discarded it instead of caching
+    // it. Cache it here regardless of whether the purchase itself succeeds
+    // below — this data is valid the moment it's fetched.
+    await this.store?.recordShipyardInventory(yardSystem, yardSymbol, shipyard.ships ?? []);
     const offer = shipyard.ships?.find((s) => s.type === type);
     if (!offer) throw new Error(`${type} not available at ${yardSymbol}`);
     if (!this.canAfford(offer.purchasePrice, agent.credits)) {
