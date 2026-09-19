@@ -43,6 +43,25 @@ export function decryptSecret(enc: Buffer, iv: Buffer): string {
 }
 
 /**
+ * One-way digest of an MCP API key (`docs/mcp-server-plan.md`), for
+ * `tenant_mcp_keys.key_hash`. Unlike the session cookie above (which signs
+ * a *known* id so a client can't forge one it was never issued) this has to
+ * support the reverse lookup: given only the raw key a caller presents,
+ * find which tenant it belongs to — so it's a deterministic digest, not a
+ * salted/keyed comparison against one expected value. HMAC-SHA256 (not a
+ * plain hash) still ties it to `SESSION_SECRET`, so a leaked database dump
+ * alone doesn't let an attacker precompute valid-looking hashes without
+ * also having the server's own secret. Safe as a plain indexed lookup
+ * (not a timing-sensitive comparison) because the *input* — the raw key —
+ * is the high-entropy secret here, generated server-side with enough bits
+ * that guessing one is infeasible; nothing about a table lookup being
+ * non-constant-time reveals anything about a key nobody has presented yet.
+ */
+export function hashApiKey(rawKey: string): string {
+  return createHmac("sha256", masterKey()).update(rawKey).digest("hex");
+}
+
+/**
  * Sign a session id for use as a cookie value: `<sessionId>.<hmac>`. The
  * session id itself is a random uuid (unguessable on its own), and the HMAC
  * stops a client from presenting an id it never received a valid cookie for

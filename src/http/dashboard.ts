@@ -3,6 +3,7 @@ import type pg from "pg";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
 import { buildTriage } from "../engine/triage.js";
 import { setTenantDiscordWebhook, getTenantDiscordWebhook, getTenantDiscordEnabled, setTenantDiscordEnabled, getTenantLlmConfig, clearOnboardingPending } from "../db/tenants.js";
+import { mintMcpKey, listMcpKeys, revokeMcpKey } from "../db/mcpKeys.js";
 import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
 import { makeTTLCache } from "./cache.js";
 import type { SpaceTradersAPI } from "../core/client.js";
@@ -1450,6 +1451,48 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         await registry.setLlmConfig(w.tenantId, undefined);
       }
       res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * MCP API key management (docs/mcp-server-plan.md §8: minting matches
+   * dashboard-login trust — no extra confirmation step). GET lists every
+   * key's metadata, never the raw key (it's never stored — see
+   * mcpKeys.ts's own comment). POST mints a new one; the raw key is
+   * present in this one response only, same "shown once" UX as a GitHub
+   * personal access token.
+   */
+  router.get("/mcp-keys", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      res.json({ keys: await listMcpKeys(pool, w.tenantId) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/mcp-keys", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { label } = req.body ?? {};
+    if (typeof label !== "string" || !label.trim()) return res.status(400).json({ error: "label required" });
+    try {
+      const { id, rawKey } = await mintMcpKey(pool, w.tenantId, label.trim());
+      res.json({ ok: true, id, key: rawKey });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/mcp-keys/:id/revoke", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      await revokeMcpKey(pool, w.tenantId, req.params.id);
+      res.json({ ok: true, id: req.params.id });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }

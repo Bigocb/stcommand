@@ -756,6 +756,14 @@ async function renderBook() {
         <button class="btn ghost" id="copilot-clear">Clear</button>
         <div class="ok" id="copilot-ok"></div>
       </div>
+      <div class="book-settings" id="mcp-key-settings">
+        <span class="l">MCP access</span>
+        <div id="mcp-key-list" class="mcp-key-list"></div>
+        <input type="text" id="mcp-key-label" placeholder="Key label (e.g. \"Claude Code\")" />
+        <button class="btn ghost" id="mcp-key-mint">Generate key</button>
+        <div class="ok" id="mcp-key-ok"></div>
+        <div id="mcp-key-reveal" class="mcp-key-reveal" hidden></div>
+      </div>
     </div>
     <div class="marg">${margHtml}</div>`;
 
@@ -795,6 +803,7 @@ async function renderBook() {
   // re-attaching each time too, not just once at boot.
   initDiscord();
   initCopilotSettings();
+  initMcpKeySettings();
 }
 
 /** Click-to-edit for a book clause's value chip: swaps the button for a
@@ -1871,6 +1880,55 @@ async function initCopilotSettings() {
       modelEl.value = "";
       keyEl.value = "";
       keyEl.placeholder = "API key";
+    } catch (e) { okEl.style.color = "var(--red)"; okEl.textContent = e.message; }
+  });
+}
+
+/** MCP key management (docs/mcp-server-plan.md): list existing keys with a
+ *  Revoke button, and mint a new one — the raw key is shown exactly once,
+ *  right after minting, since the server never stores it (only its hash) and
+ *  has no way to show it again later. Same "shown once" UX as a GitHub PAT. */
+async function initMcpKeySettings() {
+  const listEl = $("mcp-key-list"), labelEl = $("mcp-key-label"), okEl = $("mcp-key-ok"), revealEl = $("mcp-key-reveal");
+  if (!listEl) return;
+
+  async function refreshList() {
+    try {
+      const { keys } = await api("GET", "/api/mcp-keys");
+      if (!keys.length) { listEl.innerHTML = '<div class="empty">No keys yet.</div>'; return; }
+      listEl.innerHTML = keys.map((k) => `
+        <div class="mcp-key-row" data-id="${escapeAttr(k.id)}">
+          <span class="mcp-key-label">${escapeHtml(k.label)}${k.revokedAt ? " (revoked)" : ""}</span>
+          <span class="mcp-key-meta">${k.lastUsedAt ? `last used ${fmtAge(k.lastUsedAt)} ago` : "never used"}</span>
+          ${k.revokedAt ? "" : `<button class="btn ghost mcp-key-revoke" data-id="${escapeAttr(k.id)}">Revoke</button>`}
+        </div>
+      `).join("");
+    } catch (e) { /* engine not ready yet — leave the list blank */ }
+  }
+  await refreshList();
+
+  listEl.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".mcp-key-revoke");
+    if (!btn) return;
+    if (!confirm("Revoke this key? Any MCP client using it stops working immediately.")) return;
+    try {
+      await api("POST", `/api/mcp-keys/${btn.dataset.id}/revoke`, {});
+      await refreshList();
+    } catch (e) { okEl.style.color = "var(--red)"; okEl.textContent = e.message; }
+  });
+
+  $("mcp-key-mint").addEventListener("click", async () => {
+    const label = labelEl.value.trim();
+    if (!label) { okEl.textContent = "Label required."; okEl.style.color = "var(--red)"; return; }
+    try {
+      const { key } = await api("POST", "/api/mcp-keys", { label });
+      okEl.style.color = "var(--green)";
+      okEl.textContent = "Key generated — copy it now, it won't be shown again.";
+      revealEl.hidden = false;
+      revealEl.innerHTML = `<code>${escapeHtml(key)}</code> <button class="btn ghost" id="mcp-key-copy">Copy</button>`;
+      $("mcp-key-copy").addEventListener("click", () => navigator.clipboard?.writeText(key));
+      labelEl.value = "";
+      await refreshList();
     } catch (e) { okEl.style.color = "var(--red)"; okEl.textContent = e.message; }
   });
 }

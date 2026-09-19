@@ -1,11 +1,19 @@
 # A hosted MCP server for stcommand — scoping
 
-Not built yet. This is a design pass — tool inventory, auth model,
-architecture, and open questions — for an MCP (Model Context Protocol)
-server hosted as part of this app, so an agent (Claude or otherwise) can
-take the same game actions an operator takes by hand from the dashboard,
-instead of the operator relaying instructions through a human in the
-loop.
+**Status: first pass shipped 2026-09-19** (see `CHANGELOG.md`) — auth
+infrastructure, 6 read-only tools, and 10 write tools, covering
+everything this session's own live-ops work actually needed (dispatch,
+hold, release, jump, tour-dispatch, role, dock, refuel, buy, approvals).
+The rest of §4's tool inventory (bridge, markets, galaxy overview,
+missions/contracts/warehouse/doctrine writes, destructive-action confirm
+flags) is designed here but not yet built — `src/mcp/tools.ts`'s own
+trailing comment tracks exactly what's outstanding. This doc otherwise
+still reflects the original design pass below.
+
+An MCP (Model Context Protocol) server hosted as part of this app, so an
+agent (Claude or otherwise) can take the same game actions an operator
+takes by hand from the dashboard, instead of the operator relaying
+instructions through a human in the loop.
 
 ## Why this, why now
 

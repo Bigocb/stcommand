@@ -7,6 +7,20 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Hosted MCP server (`docs/mcp-server-plan.md`) — first pass shipped
+  2026-09-19, not yet exercised live.** Auth (`tenant_mcp_keys` +
+  `POST/GET /api/mcp-keys`, minted from the dashboard's Book-mode settings
+  panel), mounted at `/mcp`, 6 read-only tools + 10 write tools covering
+  dispatch/hold/release/jump/tour-dispatch/role/dock/refuel/buy/approvals
+  — every write tool routes through the exact same `FleetManager` method
+  the matching dashboard route calls (the doc's §3 constraint). Needs: an
+  operator to actually mint a key and connect an MCP client to confirm it
+  works end-to-end (nothing has exercised this against the live deployed
+  server yet); the rest of the doc's tool inventory (bridge, markets,
+  galaxy overview, missions/contracts/warehouse/doctrine writes, the
+  confirm-flag requirement on destructive actions) still to build,
+  tracked in `src/mcp/tools.ts`'s own trailing comment.
+
 - [ ] **Why doesn't the fuel-tender rescue ever reach a ship stranded
   mid-fleet-driven-goal?** Found 2026-09-14 investigating why THEO's
   overnight credit balance was flat: THEO-4 and THEO-9 (both mid-scrap,
@@ -175,24 +189,6 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Design docs written, no implementation decision made
 
-- [ ] `docs/mcp-server-plan.md` — a hosted MCP server so an agent can take
-  the same manual game actions an operator takes from the dashboard
-  (dispatch, hold, buy, trade, approvals, etc.), instead of relaying them
-  through a human. Full tool inventory mapped 1:1 to every
-  `dashboard.ts` route, per-tenant Bearer-key auth (new
-  `tenant_mcp_keys` table, modeled on `admin.ts`'s own key-auth
-  pattern), and — the load-bearing design constraint — every write tool
-  must route through the same `FleetManager` methods
-  (`sendShipTo`/`manualJumpShip`/`dispatchTourShip`/etc.) the dashboard
-  already calls, not a reimplementation, given this session's whole day
-  was spent closing bugs from exactly that kind of divergence between
-  manual-action paths. Operator resolved the doc's open questions
-  2026-09-19: key minting matches dashboard-login trust (no extra
-  confirmation step), read-only and write tools are designed/built
-  together in one pass (not a standalone read-only release), every
-  write action gets a distinct `source: "mcp"` attribution tag in
-  logs/ledger, one key per tenant is sufficient (no multi-tenant-scoped
-  key). Not started.
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task
   priority into `RateLimiter.acquire()`. Not urgent; latent until the
   shared limiter is actually contended.

@@ -11,6 +11,8 @@ import { createDashboardRouter } from "../http/dashboard.js";
 import { createUiVersionRouter, cacheHeaders } from "../http/uiVersions.js";
 import { createAdminRouter } from "../http/admin.js";
 import { createCartographyRouter } from "../http/cartography.js";
+import { createMcpAuth } from "../http/mcpAuth.js";
+import { createMcpRouter } from "../mcp/server.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 import { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 
@@ -112,6 +114,11 @@ async function main(): Promise<void> {
   // isn't scoped to any one tenant at all.
   app.use("/api/admin", createAdminRouter(pool, registry, galaxyCrawler));
   if (!process.env.ADMIN_KEY) log("ADMIN_KEY is not set — /admin is disabled (every /api/admin/* request 503s)");
+
+  // The hosted MCP server (docs/mcp-server-plan.md): its own per-tenant
+  // Bearer-key auth, not the session-cookie flow — mounted ahead of
+  // resolveTenant for the same reason /api/admin and /api/cartography are.
+  app.use("/mcp", createMcpAuth(pool), createMcpRouter(registry));
 
   const resolveTenant = createResolveTenant(pool);
   const store = new Store(pool);

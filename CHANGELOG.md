@@ -11,6 +11,39 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: a hosted MCP server (`/mcp`), first pass — an agent can now take
+  real fleet actions instead of an operator relaying them by hand.**
+  Per `docs/mcp-server-plan.md`: per-tenant Bearer-key auth (new
+  `tenant_mcp_keys` table + `hashApiKey()` in `src/auth/crypto.ts`,
+  minted/revoked from the dashboard's Book-mode settings panel via
+  `GET/POST /api/mcp-keys`, `POST /api/mcp-keys/:id/revoke` — the raw key
+  is shown exactly once, at mint time, same as a GitHub PAT), mounted at
+  `/mcp` ahead of the cookie-based `resolveTenant` (same position
+  `/api/admin` occupies). Stateless Streamable HTTP
+  (`@modelcontextprotocol/sdk`) — a fresh `McpServer` per request, nothing
+  held across restarts.
+  16 tools: 6 read-only (`stcommand_get_state`, `_fleet_status`,
+  `_approvals`, `_doctrine`, `_activity`, `_ship_state`) and 10 write
+  (`stcommand_dispatch_ship`, `_hold_ship`, `_release_ship`, `_jump_ship`,
+  `_dispatch_tour`, `_set_ship_role`, `_dock_toggle`, `_refuel_ship`,
+  `_buy_ship`, `_decide_approval`) — covering everything this session's
+  own live-ops work on THEO-1C actually needed. Every write tool calls
+  the *exact* `FleetManager` method the matching dashboard route already
+  calls (`sendShipTo`/`manualJumpShip`/`dispatchTourShip`/etc.) — the
+  design doc's own load-bearing constraint, given today's earlier fixes
+  were all bugs from exactly that kind of divergence between manual-
+  action paths. Every write tool call is also logged to the existing
+  `operator_actions` table with a `mcp_`-prefixed kind and
+  `meta.source: "mcp"`, so a later investigation can tell an agent's
+  action from a dashboard click.
+  Not yet built (tracked in `src/mcp/tools.ts`'s own trailing comment and
+  `docs/TODO.md`): `stcommand_get_bridge`/`_markets`/`_galaxy_overview`
+  (each composes several store calls the way their dashboard handlers do
+  — worth factoring that composition out of `dashboard.ts` first), the
+  missions/contracts/warehouse/doctrine write tools, and the
+  confirm-flag requirement on destructive actions
+  (scrap/sell-ship/abandon-contract/pause-fleet) once those are added.
+
 - **Fix: `autoExplore()`'s idle check didn't know about a `dispatchTourShip()`
   destination, so a ship on a real, operator-directed multi-system tour
   trip kept getting offered up for the `autoExploreBorrow` approval gate

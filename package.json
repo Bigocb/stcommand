@@ -18,6 +18,7 @@
   "description": "Standing Orders: multi-tenant autonomous SpaceTraders fleet engine",
   "type": "module",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^22.10.5",
     "@types/pg": "^8.11.10",
     "dotenv": "^17.4.2",
@@ -26,7 +27,8 @@
     "pg": "^8.13.1",
     "tsx": "^4.23.11",
     "typescript": "^5.7.3",
-    "undici": "^8.10.2"
+    "undici": "^8.10.2",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.6"
