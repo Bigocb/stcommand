@@ -11,6 +11,20 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: `sendShipTo()`/`holdShip()` (the manual dispatch/hold controls)
+  never cleared a leftover `dispatchTourShip()` destination.** Confirmed
+  live, same THEO-1C: a deploy restart restored a stale `tourDestination`
+  (X1-YG81) from an unrelated earlier trip; the operator then dispatched
+  THEO-1C to X1-TX45 via the dashboard's plain dispatch control, which
+  correctly held it at the target waypoint — but `tourDestination` was a
+  separate persisted field the hold never touched, so `tourScout()`'s
+  `advanceTourDestination()` picked the stale goal back up on its very
+  next tick and walked the ship straight through the operator's hold
+  toward X1-YG81. `sendShipTo()`/`holdShip()` now clear `tourDestination`
+  in the same `updateShipManualState()` call that sets the hold, so a
+  manual dispatch always wins over a standing automatic tour plan instead
+  of just outrunning it for one tick.
+
 - **`autoExplore()`'s opportunistic borrow of an idle tour/scout ship now
   requires operator approval, same gate as a ship purchase.** This path
   (`FleetManager.autoExplore()`) pulls any idle tour or chart-scout ship —

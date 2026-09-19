@@ -4327,7 +4327,17 @@ export class FleetManager {
    * through, and Release withdraws it.
    */
   async sendShipTo(shipSymbol: string, waypointSymbol: string): Promise<void> {
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol });
+    // Also cancel any standing dispatchTourShip() destination — confirmed
+    // live: an operator dispatched THEO-1C to X1-TX45 via this path, which
+    // holds it at the target waypoint, but a leftover tourDestination from
+    // an earlier (unrelated) multi-hop tour survived untouched and
+    // advanceTourDestination() kept walking toward IT on the very next
+    // tourScout() tick — the operator hold only pins where the ship stands
+    // right now, it was never wired to also silence this separate field.
+    // An operator taking manual control of a ship is exactly the moment a
+    // stale automatic "keep walking toward system X" plan should be
+    // dropped, not merely outrun for one tick.
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol, tourDestination: null });
     this.dispatcher.release(shipSymbol);
     this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
     this.log(`${shipSymbol}: operator hold at ${waypointSymbol}`);
@@ -4364,7 +4374,10 @@ export class FleetManager {
     // executor — this used to call agent.dispatchTo(), which set a private
     // flag *and* flew the ship from here, which is rule 1 broken and a second
     // ownership record besides.
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: here });
+    // Same reasoning as sendShipTo()'s own comment: a manual hold must also
+    // cancel a leftover dispatchTourShip() destination, or advanceTourDestination()
+    // just walks straight past this hold on the ship's next tourScout() tick.
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: here, tourDestination: null });
     // A held ship stops trading, so it must stop reserving a good — otherwise
     // holding one trader quietly withdraws its route from the whole fleet.
     this.dispatcher.release(shipSymbol);
