@@ -181,6 +181,13 @@ async function main(): Promise<void> {
     res.sendFile(resolve(PUBLIC_DIR, "m.html"));
   });
 
+  // Deck: the desktop redesign, docs/deck-desktop-design.md. Same pattern as
+  // Tower — its own route, shell, manifest, and visual identity.
+  app.get("/deck", (_req, res) => {
+    res.set(cacheHeaders(resolve(PUBLIC_DIR, "deck.html")) ?? {});
+    res.sendFile(resolve(PUBLIC_DIR, "deck.html"));
+  });
+
   app.use(express.static(PUBLIC_DIR, {
     index: "v6.html",
     // See cacheHeaders(): HTML must not be cached or a browser pins itself

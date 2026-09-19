@@ -11,6 +11,21 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: Deck (`/deck`), the desktop redesign — Overview pass built
+  2026-09-19.** `docs/deck-desktop-design.md` was written as a mechanical,
+  step-by-step build spec (full CSS and HTML copied verbatim, exact data
+  bindings checked against real code) specifically to be built without
+  needing design judgment calls. First pass: `/deck` route + shell + Overview
+  screen only (KPI row, Wants-vs-Doing triage table, live Approvals/Activity
+  signal rail), reusing `public/shared/*.js` patterns verbatim — no new
+  backend routes, no new `Store`/`FleetManager` methods, same
+  `loadState`/`loadBridge`/`loadApprovals`/`loadDispatch`/`loadActivity`
+  polling as Tower. Fleet/Markets/Map/Ops/Doctrine and the ⌘K command
+  palette are later passes, not this one. The ⌘K hint renders inert. Shell
+  nav items for future screens show "coming soon" placeholders. Live
+  verification pending — the operator will confirm Overview works end-to-end
+  after deployment, same pattern Tower's own first pass followed.
+
 - **Fix: a hold targeting a waypoint 2+ hops away retried an impossible
   direct jump forever.** `ShipProxy.runHoldGoal()`'s cross-system branch
   (`jumpTo`, wired to `FleetManager.jumpShip()`) passed the hold's *final*

@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Deck</title>
+<link rel="manifest" href="/manifest-deck.webmanifest">
+<link rel="apple-touch-icon" href="/icons/deck-apple-touch-icon.png">
+<link rel="icon" href="/icons/deck-favicon-32.png" sizes="32x32">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Deck">
+<meta name="theme-color" content="#0a0908">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/deck.css">
+</head>
+<body>
+
+<div class="auth-gate" id="auth-gate">
+  <form class="auth-box" id="auth-form">
+    <h1>DECK</h1>
+    <input id="auth-token" type="password" placeholder="Agent token" autocomplete="off">
+    <div class="auth-err" id="auth-err"></div>
+    <button class="btn pri" type="submit">Sign in</button>
+  </form>
+</div>
+
+<div class="app" id="app-root" hidden>
+  <div class="shell">
+    <div class="rail" id="rail">
+      <div class="mark"></div>
+      <button class="item active" data-view="overview"><div class="ic">◎</div>Overview</button>
+      <button class="item" data-view="fleet"><div class="ic">⛴</div>Fleet</button>
+      <button class="item" data-view="markets"><div class="ic">₡</div>Markets</button>
+      <button class="item" data-view="map"><div class="ic">✦</div>Map</button>
+      <button class="item" data-view="ops"><div class="ic">☰</div>Ops</button>
+      <button class="item" data-view="doctrine"><div class="ic">§</div>Doctrine</button>
+    </div>
+    <div class="main">
+      <div class="topbar">
+        <div class="brand">DECK <em>· <span id="tb-agent">—</span></em></div>
+        <div class="stat"><span class="l">Credits</span><span class="v amber" id="tb-credits">—</span></div>
+        <div class="stat"><span class="l">Rate</span><span class="v" id="tb-rate">—</span></div>
+        <div class="stat"><span class="l">Ships</span><span class="v" id="tb-ships">—</span></div>
+        <div class="grow"></div>
+        <div class="pill" id="tb-conn"><i></i>—</div>
+        <div class="modes" id="tb-modes"><span data-mode="auto">AUTO</span><span data-mode="halt">HALT</span></div>
+        <div class="kbd" title="Not wired yet">⌘K</div>
+      </div>
+      <div class="body3">
+        <div class="content" id="view-overview">
+          <div class="kpirow" id="ov-kpis"></div>
+          <div class="cols2">
+            <div class="panel">
+              <div class="panel-h"><span class="dot"></span><span class="title">Home system</span><span class="count" id="ov-map-count"></span></div>
+              <div class="chart minimap" id="ov-minimap"></div>
+              <div class="legend">
+                <span><i style="background:var(--ice)"></i>Market</span>
+                <span><i class="sw-gate"></i>Gate</span>
+                <span><i class="sw-ship" style="border-bottom-color:var(--green)"></i>Ship</span>
+                <span><i style="background:var(--red)"></i>Stranded</span>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-h"><span class="dot"></span><span class="title">Wants vs. Doing</span><span class="count">sorted by mismatch age</span></div>
+              <div class="panel-b" style="padding:0">
+                <table>
+                  <tr><th>Ship</th><th>Wants</th><th>Doing</th><th></th></tr>
+                  <tbody id="ov-wantsdo-rows"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inert placeholders — later passes replace these -->
+        <div class="content" id="view-fleet" hidden><div class="empty">Fleet — coming soon.</div></div>
+        <div class="content" id="view-markets" hidden><div class="empty">Markets — coming soon.</div></div>
+        <div class="content" id="view-map" hidden><div class="empty">Map — coming soon.</div></div>
+        <div class="content" id="view-ops" hidden><div class="empty">Ops — coming soon.</div></div>
+        <div class="content" id="view-doctrine" hidden><div class="empty">Doctrine — coming soon.</div></div>
+
+        <div class="signal">
+          <div class="sig-sec">
+            <div class="sig-h">Approvals<b id="sig-approvals-count">—</b></div>
+            <div id="sig-approvals"></div>
+          </div>
+          <div class="sig-h">Activity</div>
+          <div class="actlog" id="sig-activity"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/deck.js"></script>
+</body>
+</html>

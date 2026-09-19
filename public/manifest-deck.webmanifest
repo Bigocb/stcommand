@@ -1,0 +1,13 @@
+{
+  "name": "Deck",
+  "short_name": "Deck",
+  "start_url": "/deck",
+  "scope": "/deck",
+  "display": "standalone",
+  "background_color": "#0a0908",
+  "theme_color": "#0a0908",
+  "icons": [
+    { "src": "/icons/deck-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/deck-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

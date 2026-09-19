@@ -1,0 +1,157 @@
+:root{
+  --ground:#0a0908; --panel:#15130f; --raised:#201d16; --raised2:#2a251b; --sunken:#0f0d0a;
+  --hair:rgba(255,199,120,.14); --hair-hi:rgba(255,199,120,.26);
+  --amber:#ffb020; --amber-dim:rgba(255,176,32,.14); --amber-glow:rgba(255,176,32,.35);
+  --ice:#93a6b4; --ice-dim:rgba(147,166,180,.5);
+  --green:#58d68d; --green-dim:rgba(88,214,141,.14);
+  --red:#ff6152; --red-dim:rgba(255,97,82,.14);
+  --bone:#f3efe6; --dim:#93897a; --dim2:#5f5648;
+  --chrome:'Chakra Petch',ui-sans-serif,system-ui,sans-serif;
+  --sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--ground); color:var(--bone); font-family:var(--sans);
+  overflow:hidden;
+}
+a{color:var(--amber)}
+
+/* ── shell ── */
+.shell{display:flex;height:100vh;height:100dvh;min-height:0}
+.rail{width:76px;flex:0 0 auto;background:var(--panel);border-right:1px solid var(--hair);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:6px}
+.rail .mark{width:28px;height:28px;border:1.5px solid var(--amber);border-radius:50%;position:relative;margin-bottom:16px}
+.rail .mark::after{content:"";position:absolute;inset:6px;border:1px solid var(--amber);border-radius:50%;opacity:.5}
+/* 60px square — clears the 44px touch floor with real margin, since this
+   is the one control an operator taps every screen change on a kiosk. */
+.rail .item{width:60px;height:60px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--dim);font-family:var(--chrome);font-size:9.5px;letter-spacing:.04em;flex-direction:column;gap:5px;cursor:pointer;border:none;background:none}
+.rail .item .ic{width:19px;height:19px;font-size:17px;line-height:1}
+.rail .item.active{background:var(--amber-dim);color:var(--amber);box-shadow:inset 0 0 0 1px var(--hair-hi)}
+.rail .item:not(.active):hover{background:var(--raised);color:var(--ice)}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{
+  height:46px;flex:0 0 auto;border-bottom:1px solid var(--hair);display:flex;align-items:center;
+  gap:22px;padding:0 16px;background:var(--panel);
+}
+.topbar .brand{font-family:var(--chrome);font-weight:700;font-size:13px;letter-spacing:.14em;color:var(--bone)}
+.topbar .brand em{color:var(--amber);font-style:normal}
+.topbar .stat{display:flex;flex-direction:column;gap:1px;line-height:1.1}
+.topbar .stat .l{font-family:var(--chrome);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2)}
+.topbar .stat .v{font-family:var(--mono);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.topbar .stat .v.amber{color:var(--amber)} .topbar .stat .v.bad{color:var(--red)} .topbar .stat .v.good{color:var(--green)}
+.topbar .grow{flex:1}
+.topbar .pill{font-family:var(--mono);font-size:10px;color:var(--green);background:var(--green-dim);border:1px solid rgba(88,214,141,.3);border-radius:3px;padding:3px 8px;display:flex;align-items:center;gap:5px}
+.topbar .pill i{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green)}
+.topbar .pill.stale{color:var(--amber);background:var(--amber-dim);border-color:var(--amber-glow)}
+.topbar .pill.stale i{background:var(--amber);box-shadow:0 0 6px var(--amber)}
+.topbar .pill.offline{color:var(--red);background:var(--red-dim);border-color:rgba(255,97,82,.3)}
+.topbar .pill.offline i{background:var(--red);box-shadow:0 0 6px var(--red)}
+.topbar .kbd{font-family:var(--mono);font-size:10px;color:var(--dim);background:var(--sunken);border:1px solid var(--hair);border-radius:4px;padding:4px 8px;cursor:default}
+.topbar .modes{display:flex;background:var(--sunken);border:1px solid var(--hair);border-radius:4px;overflow:hidden}
+.topbar .modes span{font-family:var(--chrome);font-size:10px;letter-spacing:.08em;padding:5px 10px;color:var(--dim);cursor:pointer;border:none;background:none}
+.topbar .modes span.on{background:var(--amber-dim);color:var(--amber)}
+
+.body3{flex:1;display:flex;min-height:0}
+.content{flex:1;overflow:hidden;padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.signal{width:290px;flex:0 0 auto;border-left:1px solid var(--hair);background:var(--panel);display:flex;flex-direction:column;overflow:hidden}
+.sig-h{font-family:var(--chrome);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);padding:12px 14px 8px;display:flex;justify-content:space-between}
+.sig-h b{color:var(--amber);font-weight:600}
+.sig-sec{border-bottom:1px solid var(--hair);padding-bottom:10px;margin-bottom:8px}
+.approval{margin:0 12px 8px;background:var(--raised);border:1px solid var(--hair-hi);border-left:2px solid var(--amber);border-radius:4px;padding:10px 11px;display:flex;flex-direction:column;gap:6px}
+.approval .kind{font-family:var(--chrome);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--amber)}
+.approval .body{font-size:11.5px;color:var(--bone);line-height:1.45}
+.approval .body code{font-family:var(--mono);font-size:10.5px;color:var(--ice)}
+.approval .meta{font-family:var(--mono);font-size:9.5px;color:var(--dim2)}
+.approval .btns{display:flex;gap:6px;margin-top:2px}
+/* 44px is the touch target floor (Apple HIG / WCAG 2.5.5) — every
+   tappable control is sized to clear it, not just padded. */
+.btn{font-family:var(--chrome);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;border-radius:4px;padding:10px 16px;min-height:40px;border:1px solid var(--hair-hi);background:var(--raised2);color:var(--bone);cursor:pointer}
+.btn.pri{background:var(--amber);border-color:var(--amber);color:#1a1204;font-weight:700}
+.btn.deny{color:var(--red);border-color:rgba(255,97,82,.35)}
+.btn:disabled{opacity:.5;cursor:default}
+.actlog{flex:1;overflow-y:auto;padding:0 12px 12px;display:flex;flex-direction:column;gap:7px}
+.actline{font-size:11px;line-height:1.5;color:var(--dim);border-left:2px solid var(--hair);padding-left:9px}
+.actline b{color:var(--ice);font-weight:600;font-family:var(--mono);font-size:10.5px}
+.actline.warn{border-color:var(--red);color:#d9b9b3}
+.actline.warn b{color:var(--red)}
+.actline .t{font-family:var(--mono);font-size:9px;color:var(--dim2);display:block;margin-top:1px}
+.empty{color:var(--dim);font-size:11px;padding:8px 0}
+
+/* KPI row */
+.kpirow{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;flex:0 0 auto}
+.kpi{background:var(--panel);border:1px solid var(--hair);border-radius:5px;padding:11px 13px;display:flex;flex-direction:column;gap:5px}
+.kpi .k{font-family:var(--chrome);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2)}
+.kpi .v{font-family:var(--mono);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.kpi .v.amber{color:var(--amber)} .kpi .v.bad{color:var(--red)} .kpi .v.good{color:var(--green)}
+.kpi .sub{font-family:var(--mono);font-size:9.5px;color:var(--dim2)}
+
+.cols2{flex:1;display:grid;grid-template-columns:1.1fr 1.4fr;gap:14px;min-height:0}
+.panel{background:var(--panel);border:1px solid var(--hair);border-radius:6px;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.panel-h{padding:10px 14px;border-bottom:1px solid var(--hair);display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.panel-h .dot{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 5px var(--amber)}
+.panel-h .title{font-family:var(--chrome);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--bone)}
+.panel-h .count{font-family:var(--mono);font-size:10px;color:var(--dim);margin-left:auto}
+.panel-b{flex:1;overflow:auto;padding:10px 14px}
+
+/* spatial mini-map — real x/y waypoint positions, home system only,
+   no radar rings/sweep: same data v6's own map uses, restyled flat. */
+.chart{position:relative;flex:1;overflow:hidden;min-height:0;
+  background-color:var(--sunken);
+  background-image:
+    linear-gradient(rgba(147,166,180,.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(147,166,180,.05) 1px, transparent 1px);
+  background-size:28px 28px;
+}
+.minimap{position:relative;flex:1;border-radius:4px;margin:10px 14px;overflow:hidden}
+.chartlines{position:absolute;inset:0;width:100%;height:100%}
+.blip{position:absolute;border-radius:50%;transform:translate(-50%,-50%)}
+.blip.planet{width:8px;height:8px;background:var(--ice)}
+.blip.station{width:8px;height:8px;border-radius:2px;background:var(--bone)}
+.blip.market{width:7px;height:7px;background:var(--ice)}
+.blip.asteroid{width:6px;height:6px;border-radius:2px;transform:translate(-50%,-50%) rotate(45deg);background:var(--dim2)}
+.blip.fuel{width:7px;height:7px;background:var(--green)}
+.blip.gate{width:0;height:0;border-radius:0;background:none;
+  border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid var(--amber);
+  filter:drop-shadow(0 0 4px var(--amber-glow))}
+.blip.ship{width:0;height:0;border-radius:0;background:none;
+  border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:8px solid var(--green);
+  filter:drop-shadow(0 0 4px var(--green))}
+.blip.shipwarn{border-bottom-color:var(--red);filter:drop-shadow(0 0 5px var(--red))}
+.blabel{position:absolute;font-family:var(--mono);font-size:8.5px;color:var(--dim);white-space:nowrap;transform:translate(7px,-6px)}
+.legend{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--hair);font-family:var(--mono);font-size:9.5px;color:var(--dim);flex-wrap:wrap}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i.sw-gate{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--amber)}
+.legend i.sw-ship{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:7px solid var(--green)}
+.legend i{width:8px;height:8px;border-radius:50%;display:block}
+
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th{text-align:left;font-family:var(--chrome);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim2);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--hair);position:sticky;top:0;background:var(--panel)}
+td{padding:7px 8px;border-bottom:1px solid rgba(255,199,120,.06);vertical-align:middle}
+tr:hover td{background:var(--raised)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.shipsym{font-family:var(--mono);color:var(--bone);font-weight:600}
+.mismatch{display:flex;flex-direction:column;gap:2px}
+.mismatch .w{color:var(--ice);font-size:10.5px}
+.mismatch .d{color:var(--red);font-size:10.5px}
+.badge-age{font-family:var(--mono);font-size:10px;color:var(--red);background:var(--red-dim);border-radius:3px;padding:2px 6px}
+.rowact{display:flex;gap:5px}
+.rowact button{font-family:var(--chrome);font-size:9px;padding:3px 7px;border-radius:3px;border:1px solid var(--hair-hi);background:var(--raised2);color:var(--bone);cursor:pointer}
+
+/* auth gate — same mechanism Tower's own gate uses (POST /api/gate/login);
+   a tenant already signed in on desktop is already signed in here too. */
+.auth-gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--ground);z-index:50}
+.auth-gate[hidden]{display:none}
+.auth-box{width:320px;display:flex;flex-direction:column;gap:14px;padding:24px;background:var(--panel);border:1px solid var(--hair);border-radius:8px}
+.auth-box h1{font-family:var(--chrome);font-size:18px;margin:0;color:var(--bone)}
+.auth-box input{background:var(--sunken);border:1px solid var(--hair);border-radius:5px;padding:10px 12px;min-height:40px;color:var(--bone);font-family:var(--mono);font-size:12px}
+.auth-err{color:var(--red);font-size:11px;min-height:14px}
+.app[hidden]{display:none}
+
+@media (max-width:980px){
+  .cols2{grid-template-columns:1fr}
+  .kpirow{grid-template-columns:repeat(3,1fr)}
+  .signal{display:none}
+}
