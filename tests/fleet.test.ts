@@ -704,10 +704,14 @@ describe("FleetManager.getIntel", () => {
   // operator switching between agents from different SpaceTraders server
   // resets saw the old agent's stale scans listed forever alongside the
   // new one's, with no way to tell which was still real. getIntel() now
-  // filters both to systems this fleet's own galaxy atlas has actually
-  // loaded — the natural boundary, since loadSystem() only succeeds
-  // against the live API for systems that exist in the *current* reset.
-  it("only returns shipyards/modules in systems this fleet's galaxy atlas actually knows about", async () => {
+  // filters both to `chartedSystems` — durable, DB-backed, and correctly
+  // wiped on a real server reset (fleet_flags is a TENANT_GAME_TABLES
+  // table) — rather than the galaxy atlas's own in-memory `listSystems()`,
+  // which is empty on every fresh process boot regardless of how much the
+  // tenant has actually charted (confirmed live: THEO-13's freshly-surveyed
+  // X1-JN44 shipyards vanished from getIntel() the moment an unrelated
+  // deploy restarted the process).
+  it("only returns shipyards/modules in systems this fleet has actually charted", async () => {
     const fakeStore = {
       shipyardInventory: async () => [
         { systemSymbol: "X1-A", waypointSymbol: "X1-A-A1", shipType: "SHIP_PROBE", shipTypeName: "Probe", purchasePrice: 100, fuelCapacity: 0, cargoCapacity: 0, moduleSlots: 0, mountingPoints: 0, frameSymbol: "FRAME_PROBE", timestamp: new Date().toISOString() },
@@ -719,7 +723,7 @@ describe("FleetManager.getIntel", () => {
       ],
     };
     const fleet = new FleetManager({ api: {} as any, store: fakeStore as any });
-    (fleet as any).galaxy = { listSystems: () => [{ symbol: "X1-A" }], getSystem: () => undefined };
+    (fleet as any).chartedSystems = new Set(["X1-A"]);
 
     const intel = await fleet.getIntel();
 

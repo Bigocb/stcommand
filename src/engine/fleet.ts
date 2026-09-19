@@ -4283,17 +4283,28 @@ export class FleetManager {
    * resets (confirmed live): the old agent's scans never expire or get
    * cleared, so they kept showing up forever alongside the new agent's,
    * with no way to tell which was still real. Filtering to systems this
-   * fleet's own galaxy atlas has actually loaded (loadSystem() only ever
-   * succeeds against the live API for systems that exist in the *current*
-   * reset) is the natural scope — it keeps genuinely-shared intel between
-   * a user's own concurrent agents on the same reset, while dropping
-   * anything from a system this agent has no way to reach.
+   * tenant has actually charted (`chartedSystems`, durable — see
+   * `markSystemCharted()`) is the natural scope — it keeps genuinely-shared
+   * intel between a user's own concurrent agents on the same reset, while
+   * dropping anything from a system this agent has no way to reach, and
+   * (per CLAUDE.md's reset-cleanup notes) gets correctly wiped on a real
+   * server reset since `fleet_flags` is a `TENANT_GAME_TABLES` table.
+   *
+   * NOT `this.galaxy.listSystems()`, which this used before: that's an
+   * in-memory cache populated lazily by `loadSystem()` calls made *during
+   * this process's own lifetime* — empty on every fresh boot, regardless
+   * of how much the tenant has actually charted historically. Confirmed
+   * live: THEO-13 jumped to X1-JN44, surveySystem() found and durably
+   * recorded 4 shipyards there, then an unrelated deploy restarted the
+   * process — the next getIntel() call (dashboard and MCP alike) reported
+   * zero shipyards for a system it had already fully surveyed, because
+   * nothing had called loadSystem("X1-JN44") again yet in the new process.
    */
   async getIntel(): Promise<{
     shipyards: Awaited<ReturnType<Store["shipyardInventory"]>>;
     modules: Awaited<ReturnType<Store["moduleCatalog"]>>;
   }> {
-    const knownSystems = new Set(this.galaxy.listSystems().map((s) => s.symbol));
+    const knownSystems = this.chartedSystems;
     const shipyards = ((await this.store?.shipyardInventory()) ?? []).filter((r) => knownSystems.has(r.systemSymbol));
     const modules = ((await this.store?.moduleCatalog()) ?? []).filter((r) => knownSystems.has(r.systemSymbol));
     return { shipyards, modules };
