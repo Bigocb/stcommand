@@ -2125,11 +2125,18 @@ export class FleetManager {
       tradeSymbol: type,
       total: res.transaction.price,
     });
+    const purchaseDetail = `purchased ship ${res.ship.symbol} (${type}) at ${yardSymbol} for ${res.transaction.price}c`;
+    // Confirmed live: buyShip() posted to Discord but never called
+    // this.onActivity() — every other transaction (trades, jumps, refuels)
+    // does, so a ship purchase was the one thing that never showed up in
+    // the in-app activity feed (dashboard, Tower, or stcommand_get_activity),
+    // silently, regardless of which shipyard or ship type.
+    this.onActivity?.("ship", purchaseDetail, -res.transaction.price);
     await this.discord?.postActivity({
       timestamp: new Date().toISOString(),
       shipSymbol: "fleet",
       kind: "ship",
-      detail: `purchased ship ${res.ship.symbol} (${type}) at ${yardSymbol} for ${res.transaction.price}c`,
+      detail: purchaseDetail,
       credits: -res.transaction.price,
     });
     await this.assignRole(res.ship);
