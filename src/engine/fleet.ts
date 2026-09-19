@@ -2509,6 +2509,18 @@ export class FleetManager {
     if (!gate) throw new Error(`no jump gate from ${sourceSystem} to ${targetSystem}`);
     if (ship.nav.waypointSymbol !== gate || ship.nav.status === "IN_TRANSIT") {
       await this.dispatchShip(shipSymbol, gate);
+    }
+    // Must be IN_ORBIT to jump — checked fresh rather than trusting `ship`
+    // (stale once dispatchShip() above may have moved it), and unconditional
+    // rather than only after a dispatch: a ship already sitting at the gate
+    // but DOCKED (e.g. it stopped there to refuel on an earlier tick, or
+    // arrived and docked itself) skipped this whole block before, since
+    // `waypointSymbol === gate` and status wasn't IN_TRANSIT. Confirmed
+    // live: THEO-13, docked at X1-UQ47-C29F (the gate) after refueling,
+    // failed every jump attempt with "Ship is not currently in orbit at
+    // X1-UQ47-C29F" until the fleet restarted and re-derived state.
+    const atGate = ship.nav.waypointSymbol === gate && ship.nav.status !== "IN_TRANSIT" ? ship : await this.api.getShip(shipSymbol);
+    if (atGate.nav.status !== "IN_ORBIT") {
       await this.api.orbitShip(shipSymbol);
     }
     this.log(`${shipSymbol} jumping ${gate} -> ${waypointSymbol}`);
