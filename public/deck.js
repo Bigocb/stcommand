@@ -563,7 +563,7 @@ function renderMarkets() {
     if (!warehouseState.goods.length) {
       return '<div class="empty">Warehouse is empty.</div>';
     }
-    return warehouseState.goods.map((g) => `
+    const goodsRows = warehouseState.goods.map((g) => `
       <div class="goodrow">
         <div style="flex:1">
           <div class="name">${escapeHtml(g.goodSymbol)}</div>
@@ -572,6 +572,13 @@ function renderMarkets() {
         <div class="profit">${fmt(g.value)}c</div>
       </div>
     `).join('');
+    const totalRow = `
+      <div class="goodrow" style="border-bottom:none;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,199,120,.06)">
+        <div style="flex:1;font-weight:600">Total</div>
+        <div class="profit">${fmt(warehouseState.totalValue)}cr</div>
+      </div>
+    `;
+    return goodsRows + totalRow;
   })();
   const warehouseEl = $("mk-warehouse");
   if (warehouseEl) warehouseEl.innerHTML = warehouseHtml;
