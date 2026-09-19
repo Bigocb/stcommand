@@ -1,10 +1,12 @@
 # A hosted MCP server for stcommand — scoping
 
 **Status: first pass shipped 2026-09-19** (see `CHANGELOG.md`) — auth
-infrastructure, 6 read-only tools, and 10 write tools, covering
+infrastructure, 10 read-only tools, and 10 write tools, covering
 everything this session's own live-ops work actually needed (dispatch,
-hold, release, jump, tour-dispatch, role, dock, refuel, buy, approvals).
-The rest of §4's tool inventory (bridge, markets, galaxy overview,
+hold, release, jump, tour-dispatch, role, dock, refuel, buy, approvals)
+plus a trading/pricing intel group added the same day (best price for a
+good, price trend, shipyard inventory, known goods list). The rest of
+§4's tool inventory (bridge, markets' *routes* view, galaxy overview,
 missions/contracts/warehouse/doctrine writes, destructive-action confirm
 flags) is designed here but not yet built — `src/mcp/tools.ts`'s own
 trailing comment tracks exactly what's outstanding. This doc otherwise

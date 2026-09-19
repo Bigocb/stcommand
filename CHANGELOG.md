@@ -11,6 +11,20 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: trading/pricing intel tools to `/mcp`** — `stcommand_get_goods`
+  (every observed TradeSymbol, for resolving a plain-language good name),
+  `stcommand_get_best_price` (cheapest-to-buy and best-to-sell locations
+  for a good, scoped to this tenant's own charted systems and the same
+  freshness window the dashboard's Markets tab uses — never another
+  tenant's unexplored markets, even though `market_latest` is shared
+  server-wide), `stcommand_get_price_trend` (per-minute avg/min/max sell
+  price over a time window, via the existing `goodPriceHistory()`), and
+  `stcommand_get_shipyard_inventory` (every observed ship type/price per
+  shipyard, filterable by system or ship type). All four reuse the exact
+  Store/FleetManager methods `dashboard.ts`'s own `/markets`/`/prices`/
+  `/goods` routes already call — no separate query logic. 20 tools total
+  now (10 read-only, 10 write).
+
 - **Fix: `/mcp` rejected a bare API key, requiring the literal `Bearer `
   prefix — confirmed live, broke a real setup.** A `.mcp.json` committed
   to the repo by another session interpolates

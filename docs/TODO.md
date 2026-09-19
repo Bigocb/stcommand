@@ -8,18 +8,22 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 ## Live ops — needs a decision or action
 
 - [ ] **Hosted MCP server (`docs/mcp-server-plan.md`) — first pass shipped
-  2026-09-19, not yet exercised live.** Auth (`tenant_mcp_keys` +
-  `POST/GET /api/mcp-keys`, minted from the dashboard's Book-mode settings
-  panel), mounted at `/mcp`, 6 read-only tools + 10 write tools covering
-  dispatch/hold/release/jump/tour-dispatch/role/dock/refuel/buy/approvals
-  — every write tool routes through the exact same `FleetManager` method
-  the matching dashboard route calls (the doc's §3 constraint). Needs: an
-  operator to actually mint a key and connect an MCP client to confirm it
-  works end-to-end (nothing has exercised this against the live deployed
-  server yet); the rest of the doc's tool inventory (bridge, markets,
-  galaxy overview, missions/contracts/warehouse/doctrine writes, the
-  confirm-flag requirement on destructive actions) still to build,
-  tracked in `src/mcp/tools.ts`'s own trailing comment.
+  2026-09-19, connection confirmed working live the same day.** Auth
+  (`tenant_mcp_keys` + `POST/GET /api/mcp-keys`, minted from the
+  dashboard's Book-mode settings panel), mounted at `/mcp`, 20 tools (10
+  read-only, 10 write) covering dispatch/hold/release/jump/tour-dispatch/
+  role/dock/refuel/buy/approvals plus a trading/pricing intel group
+  (best price, price trend, shipyard inventory, known goods) — every
+  write tool routes through the exact same `FleetManager` method the
+  matching dashboard route calls (the doc's §3 constraint). Along the
+  way: fixed `createMcpAuth` to accept a bare key (not just literal
+  `Bearer <key>` — a real `.mcp.json` config committed by another session
+  hit this), and added request-level logging to `/mcp` since Render
+  doesn't capture request-type logs for this service at all (confirmed
+  absent even for ordinary dashboard POSTs). Still to build (tracked in
+  `src/mcp/tools.ts`'s own trailing comment): bridge, markets' routes
+  view, galaxy overview, missions/contracts/warehouse/doctrine writes,
+  the confirm-flag requirement on destructive actions.
   **Follow-up idea, not started**: the co-pilot (`agentChat.ts`'s
   `ChatAgent`) should never grow its own separate execution tools —
   its own header comment ("adding an execution tool later is one object

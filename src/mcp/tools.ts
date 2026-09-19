@@ -113,6 +113,88 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     async () => textResult({ states: await w.store.getAllShipStates(w.tenantId) }),
   );
 
+  // ── Trading / pricing intel (read-only) ──────────────────────────────
+  // Same underlying data the dashboard's Markets tab (/api/markets,
+  // /api/prices, /api/goods) reads — no separate query logic invented here,
+  // per this file's header comment.
+
+  server.registerTool(
+    "stcommand_get_goods",
+    {
+      description: "Every trade good symbol this tenant has ever observed a price for — use this to resolve a plain-language good name to its exact TradeSymbol before calling the other pricing tools.",
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async () => {
+      const snaps = await w.store.latestMarketSnapshots();
+      return textResult({ goods: [...new Set(snaps.map((s) => s.goodSymbol))].sort() });
+    },
+  );
+
+  server.registerTool(
+    "stcommand_get_best_price",
+    {
+      title: "Best known buy/sell price for a good",
+      description: "Where to buy a good cheapest and sell it highest, across every market this tenant has actually charted — same freshness window and charted-systems scoping the dashboard's Markets tab uses (a tenant never sees another tenant's unexplored markets, even though market data itself is shared across the whole server).",
+      inputSchema: {
+        good: z.string().describe("Exact TradeSymbol, e.g. FAB_MATS — use stcommand_get_goods if unsure of the exact symbol"),
+        system: z.string().optional().describe("Restrict to one system symbol, e.g. X1-TX45"),
+        maxResultsEach: z.number().int().min(1).max(20).default(5).describe("How many cheapest-buy and best-sell locations to return"),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async ({ good, system, maxResultsEach }) => {
+      const maxAgeMin = w.fleet.doctrine.value("snapshotMaxAgeMin", 5_256_000);
+      const charted = new Set(w.fleet.getChartedSystems());
+      let rows = (await w.store.freshMarketSnapshots(maxAgeMin))
+        .filter((s) => charted.has(s.systemSymbol) && s.goodSymbol === good);
+      if (system) rows = rows.filter((s) => s.systemSymbol === system);
+      if (rows.length === 0) {
+        return textResult({ good, system: system ?? null, cheapestToBuy: [], bestToSell: [], note: "no fresh, charted price data for this good — try a broader system scope, or send a ship to observe it" });
+      }
+      const cheapestToBuy = [...rows].sort((a, b) => a.purchasePrice - b.purchasePrice).slice(0, maxResultsEach)
+        .map((r) => ({ waypointSymbol: r.waypointSymbol, systemSymbol: r.systemSymbol, purchasePrice: r.purchasePrice, supply: r.supply, tradeVolume: r.tradeVolume, observedAt: r.timestamp }));
+      const bestToSell = [...rows].sort((a, b) => b.sellPrice - a.sellPrice).slice(0, maxResultsEach)
+        .map((r) => ({ waypointSymbol: r.waypointSymbol, systemSymbol: r.systemSymbol, sellPrice: r.sellPrice, supply: r.supply, tradeVolume: r.tradeVolume, observedAt: r.timestamp }));
+      return textResult({ good, system: system ?? null, cheapestToBuy, bestToSell });
+    },
+  );
+
+  server.registerTool(
+    "stcommand_get_price_trend",
+    {
+      title: "Price trend for a good over time",
+      description: "Per-minute average/min/max sell price across every market observation of this good since the given time — shows whether a price is rising, falling, or stable.",
+      inputSchema: {
+        good: z.string().describe("Exact TradeSymbol, e.g. FAB_MATS"),
+        sinceHours: z.number().min(0.5).max(24 * 30).default(24).describe("How far back to look, in hours"),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async ({ good, sinceHours }) => {
+      const since = new Date(Date.now() - sinceHours * 3_600_000).toISOString();
+      const points = await w.store.goodPriceHistory(good, since);
+      return textResult({ good, sinceHours, points });
+    },
+  );
+
+  server.registerTool(
+    "stcommand_get_shipyard_inventory",
+    {
+      title: "Shipyard inventory across charted systems",
+      description: "Every ship type this tenant has observed for sale at every shipyard it's charted, with price and hull stats — optionally filtered to one system or ship type.",
+      inputSchema: {
+        system: z.string().optional().describe("Restrict to one system symbol, e.g. X1-TX45"),
+        shipType: z.string().optional().describe("Restrict to one ship type, e.g. SHIP_LIGHT_HAULER"),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async ({ system, shipType }) => {
+      const { shipyards } = await w.fleet.getIntel();
+      const filtered = shipyards.filter((y) => (!system || y.systemSymbol === system) && (!shipType || y.shipType === shipType));
+      return textResult({ shipyards: filtered });
+    },
+  );
+
   // ── Fleet actions (write) ────────────────────────────────────────────
   // Each calls the exact FleetManager method the matching dashboard.ts
   // route calls — see this file's header comment.
@@ -328,13 +410,15 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
 
 /**
  * Not yet implemented (tracked in docs/mcp-server-plan.md §4/§7, not
- * silently dropped): stcommand_get_bridge and stcommand_get_markets (both
- * compose several store calls the way dashboard.ts's own handlers do —
- * worth factoring that composition out of dashboard.ts into a shared
- * function both callers use, rather than duplicating it here, when this
- * server's next round of tools gets built) and stcommand_get_galaxy_overview
- * (same reasoning); the missions/contracts/warehouse/doctrine write tools
- * from the plan's §4 tables; and the confirm-flag requirement on
+ * silently dropped): stcommand_get_bridge and stcommand_get_markets's own
+ * *routes* view (best-profit round trips accounting for fuel/distance,
+ * not just raw price — the trading-tools group above answers "best price"
+ * and "trend", not "best round-trip route") and stcommand_get_galaxy_overview
+ * (all three compose several store calls the way dashboard.ts's own
+ * handlers do — worth factoring that composition out of dashboard.ts into
+ * a shared function both callers use, rather than duplicating it here);
+ * the missions/contracts/warehouse/doctrine write tools from the plan's §4
+ * tables; and the confirm-flag requirement on
  * stcommand_scrap_ship/stcommand_sell_ship/stcommand_abandon_contract/
  * stcommand_pause_fleet once those are added (§5 of the plan).
  */
