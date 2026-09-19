@@ -1,17 +1,19 @@
 /**
- * Deck — desktop redesign, Overview pass only. See docs/deck-desktop-design.md
- * for the build spec. All data comes through the same shared/*.js store every
- * other UI version uses (loadState/loadBridge/loadApprovals/loadDispatch/
- * loadActivity), with no new fetching layer.
+ * Deck — desktop redesign. Overview (pass 1), Fleet (pass 2), and Markets (pass 3)
+ * screens. See docs/deck-desktop-design.md, docs/deck-fleet-design.md, and
+ * docs/deck-markets-design.md for build specs. All data comes through the same
+ * shared/*.js store every other UI version uses, with no new fetching layer.
  */
 import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, activity,
+  marketRoutes, intel, warehouseState,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
+  loadMarkets, loadGoods, loadWarehouse,
 } from "/shared/store.js";
-import { fmt, signed, escapeHtml, fmtTime } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, fmtTime, shortWp } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -48,7 +50,7 @@ $("auth-form").addEventListener("submit", async (e) => {
 });
 
 /* ── view switching ────────────────────────
- * Overview is the only real screen; others show inert placeholders.
+ * Overview, Fleet, and Markets screens; others show inert placeholders.
  */
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
@@ -56,6 +58,7 @@ function setView(name) {
   const viewEl = $(`view-${name}`);
   if (viewEl) viewEl.hidden = false;
   if (name === "fleet") renderFleet();
+  if (name === "markets") renderMarkets();
 }
 
 $("rail").addEventListener("click", (e) => {
@@ -491,6 +494,110 @@ function escapeAttr(s) {
   return (s + "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+/* ── Markets screen (pass 3) ─────────────────
+ * Routes, Yards & outfitting, Warehouse, Dispatch read-only panels.
+ */
+function renderMarkets() {
+  // Routes panel
+  const routesHtml = (() => {
+    if (!marketRoutes.length) {
+      return '<div class="empty">No profitable routes yet.</div>';
+    }
+    const sorted = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0));
+    const top5 = sorted.slice(0, 5);
+    return top5.map((r) => `
+      <div class="goodrow">
+        <div style="flex:1">
+          <div class="name">${escapeHtml(r.goodSymbol)}</div>
+          <div class="route">${escapeHtml(r.buyAt)} → ${escapeHtml(r.sellAt)}</div>
+        </div>
+        <div class="profit">${signed(r.profitPerTrip)}</div>
+      </div>
+    `).join('');
+  })();
+  const routesEl = $("mk-routes");
+  if (routesEl) routesEl.innerHTML = routesHtml;
+
+  // Yards & outfitting panel
+  const yardsHtml = (() => {
+    const yards = intel.shipyards ?? [];
+    if (!yards.length) {
+      return '<div class="empty">No shipyard intel yet.</div>';
+    }
+    const byType = new Map();
+    for (const y of yards) {
+      if (!byType.has(y.shipType)) byType.set(y.shipType, []);
+      byType.get(y.shipType).push(y);
+    }
+    const groups = [...byType.values()]
+      .map((rows) => rows.slice().sort((a, b) => a.purchasePrice - b.purchasePrice))
+      .sort((a, b) => a[0].purchasePrice - b[0].purchasePrice)
+      .slice(0, 5);
+    if (!groups.length) {
+      return '<div class="empty">No shipyard intel yet.</div>';
+    }
+    return groups.map((rows) => {
+      const best = rows[0];
+      return `
+        <div class="goodrow">
+          <div style="flex:1">
+            <div class="name">${escapeHtml(best.shipTypeName)}</div>
+            <div class="route">${escapeHtml(shortWp(best.waypointSymbol))}</div>
+          </div>
+          <div class="profit">${fmt(best.purchasePrice)}c</div>
+        </div>
+      `;
+    }).join('');
+  })();
+  const yardsEl = $("mk-yards");
+  if (yardsEl) yardsEl.innerHTML = yardsHtml;
+
+  // Warehouse panel
+  const whCountText = warehouseState.ship
+    ? `${escapeHtml(warehouseState.ship.waypointSymbol)} · ${warehouseState.goods.length} goods`
+    : `no ship designated · ${warehouseState.goods.length} goods`;
+  const whCountEl = $("mk-wh-count");
+  if (whCountEl) whCountEl.textContent = whCountText;
+
+  const warehouseHtml = (() => {
+    if (!warehouseState.goods.length) {
+      return '<div class="empty">Warehouse is empty.</div>';
+    }
+    return warehouseState.goods.map((g) => `
+      <div class="goodrow">
+        <div style="flex:1">
+          <div class="name">${escapeHtml(g.goodSymbol)}</div>
+          <div class="route">${g.units}u</div>
+        </div>
+        <div class="profit">${fmt(g.value)}c</div>
+      </div>
+    `).join('');
+  })();
+  const warehouseEl = $("mk-warehouse");
+  if (warehouseEl) warehouseEl.innerHTML = warehouseHtml;
+
+  // Dispatch panel
+  const dispatchHtml = (() => {
+    if (!dispatchAssignments.length) {
+      return '<div class="empty">No traders assigned routes yet.</div>';
+    }
+    const top5 = dispatchAssignments.slice(0, 5);
+    return top5.map((a) => {
+      const job = jobFor(a.shipSymbol, "trader");
+      return `
+        <div class="goodrow">
+          <div style="flex:1">
+            <div class="name">${escapeHtml(a.shipSymbol)}</div>
+            <div class="route">${escapeHtml(job)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  })();
+  const dispatchEl = $("mk-dispatch");
+  if (dispatchEl) dispatchEl.innerHTML = dispatchHtml;
+}
+
 /* ── subscriptions ──────────────────────────
  * Wire render functions to data slices.
  */
@@ -512,6 +619,10 @@ subscribe("approvals", () => {
 subscribe("dispatch", () => {
   renderKPIs();
   renderFleet();
+  renderMarkets();
+});
+subscribe("goods", () => {
+  renderMarkets();
 });
 subscribe("activity", () => {
   renderActivity();
@@ -529,11 +640,15 @@ function boot() {
   loadApprovals();
   loadDispatch();
   loadActivity();
+  loadMarkets();
+  loadGoods();
+  loadWarehouse();
   renderTopbar();
   renderKPIs();
   renderMinimap();
   renderWantsDoing();
   renderFleet();
+  renderMarkets();
   renderApprovals();
   renderActivity();
 }
@@ -544,6 +659,9 @@ function pollTick() {
   loadApprovals();
   loadDispatch();
   loadActivity();
+  loadMarkets();
+  loadGoods();
+  loadWarehouse();
 }
 
 setInterval(() => {

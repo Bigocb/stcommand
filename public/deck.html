@@ -104,9 +104,35 @@
           </div>
         </div>
 
+        <!-- Markets screen (pass 3) -->
+        <div class="content" id="view-markets" hidden>
+          <div class="mgrid">
+            <!-- Routes panel -->
+            <div class="panel">
+              <div class="panel-h"><span class="dot"></span><span class="title">Routes</span><span class="count">top 5</span></div>
+              <div class="panel-b" id="mk-routes"></div>
+            </div>
+            <!-- Yards & outfitting panel -->
+            <div class="panel">
+              <div class="panel-h"><span class="dot"></span><span class="title">Yards & Outfitting</span><span class="count">top 5</span></div>
+              <div class="panel-b" id="mk-yards"></div>
+            </div>
+            <!-- Warehouse panel -->
+            <div class="panel">
+              <div class="panel-h"><span class="dot"></span><span class="title">Warehouse</span><span class="count" id="mk-wh-count"></span></div>
+              <div class="panel-b" id="mk-warehouse"></div>
+            </div>
+            <!-- Dispatch panel -->
+            <div class="panel">
+              <div class="panel-h"><span class="dot"></span><span class="title">Dispatch</span><span class="count">traders</span></div>
+              <div class="panel-b" id="mk-dispatch"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Inert placeholders — later passes replace these -->
         <!-- (Fleet moved above) -->
-        <div class="content" id="view-markets" hidden><div class="empty">Markets — coming soon.</div></div>
+        <!-- (Markets moved above) -->
         <div class="content" id="view-map" hidden><div class="empty">Map — coming soon.</div></div>
         <div class="content" id="view-ops" hidden><div class="empty">Ops — coming soon.</div></div>
         <div class="content" id="view-doctrine" hidden><div class="empty">Doctrine — coming soon.</div></div>

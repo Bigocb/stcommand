@@ -169,6 +169,13 @@ tr:hover td{background:var(--raised)}
 
 tr.sel td{background:var(--amber-dim)}
 
+/* Markets screen (pass 3) */
+.mgrid{flex:1;display:grid;grid-template-columns:1.3fr 1fr;grid-template-rows:1fr 1fr;gap:14px;min-height:0}
+.goodrow{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,199,120,.06);font-size:11.5px}
+.goodrow .name{font-family:var(--mono);color:var(--bone)}
+.goodrow .route{font-size:10px;color:var(--dim)}
+.profit{font-family:var(--mono);font-weight:600;color:var(--green)}
+
 /* auth gate — same mechanism Tower's own gate uses (POST /api/gate/login);
    a tenant already signed in on desktop is already signed in here too. */
 .auth-gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--ground);z-index:50}
