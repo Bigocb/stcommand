@@ -55,6 +55,7 @@ function setView(name) {
   document.querySelectorAll(".rail .item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
   const viewEl = $(`view-${name}`);
   if (viewEl) viewEl.hidden = false;
+  if (name === "fleet") renderFleet();
 }
 
 $("rail").addEventListener("click", (e) => {
@@ -326,6 +327,170 @@ function renderActivity() {
   `).join("");
 }
 
+/* ── Fleet screen (pass 2) ──────────────────
+ * System-scope chip row, ship table, and detail panel.
+ */
+function jobFor(shipSymbol, role) {
+  if (role !== "trader") return "—";
+  const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
+  if (!a) return "unassigned";
+  if (a.role === "direct") return `route: ${a.good}`;
+  if (a.role === "contractBuy") return `contract: ${a.good}`;
+  if (a.role === "haul") return `mission: ${a.good}`;
+  if (a.role === "buy") return a.missionBuy ? `mission: ${a.good}` : `warehouse buy: ${a.good}`;
+  if (a.role === "sell") return `warehouse sell: ${a.good}`;
+  return a.good;
+}
+
+function fleetRows() {
+  const ships = state?.ships ?? [];
+  const strandedBy = new Set((fleetStatus.stranded ?? []).map((s) => s.symbol));
+  return ships.map((s) => {
+    const st = (fleetStatus.ships ?? []).find((x) => x.symbol === s.symbol);
+    return {
+      symbol: s.symbol,
+      role: st?.role ?? "—",
+      job: jobFor(s.symbol, st?.role),
+      stranded: strandedBy.has(s.symbol),
+      fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
+      cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
+      goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
+      at: s.nav?.waypointSymbol ?? "",
+      frame: s.frame?.symbol ?? "",
+      cargoInventory: s.cargo?.inventory ?? [],
+    };
+  });
+}
+
+let selectedFleetShip = null;
+let selectedFleetSystem = "All systems";
+
+function renderFleet() {
+  const rows = fleetRows();
+
+  // Group by system (derive from waypoint: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")))
+  const groupedSystems = {};
+  for (const row of rows) {
+    let sys = "Unknown";
+    if (row.at) {
+      const lastDash = row.at.lastIndexOf("-");
+      if (lastDash > 0) sys = row.at.slice(0, lastDash);
+    }
+    if (!groupedSystems[sys]) groupedSystems[sys] = [];
+    groupedSystems[sys].push(row);
+  }
+
+  // Render chip row
+  const systems = Object.keys(groupedSystems).sort();
+  const chipHTML = `
+    <div class="syschip${selectedFleetSystem === "All systems" ? " on" : ""}" data-sys="All systems">All systems · ${rows.length}</div>
+    ${systems.map((sys) => `<div class="syschip${selectedFleetSystem === sys ? " on" : ""}" data-sys="${escapeAttr(sys)}">${escapeHtml(sys)} · ${groupedSystems[sys].length}</div>`).join("")}
+  `;
+  $("fleet-chiprow").innerHTML = chipHTML;
+
+  // Wire chip clicks
+  $("fleet-chiprow").querySelectorAll(".syschip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      selectedFleetSystem = chip.dataset.sys;
+      renderFleet();
+    });
+  });
+
+  // Filter rows to selected system
+  const displayRows = selectedFleetSystem === "All systems" ? rows : rows.filter((r) => {
+    let sys = "Unknown";
+    if (r.at) {
+      const lastDash = r.at.lastIndexOf("-");
+      if (lastDash > 0) sys = r.at.slice(0, lastDash);
+    }
+    return sys === selectedFleetSystem;
+  });
+
+  // Render table
+  const tableHTML = displayRows.map((row) => {
+    const fuelPct = row.fuelCap ? Math.round((row.fuel / row.fuelCap) * 100) : 0;
+    let statusClass = "";
+    if (row.goal === "stranded") statusClass = "bad";
+    else if (["in_transit", "docked", "orbiting"].some((s) => row.goal.includes(s))) statusClass = "good";
+
+    return `
+      <tr data-ship="${escapeAttr(row.symbol)}"${selectedFleetShip === row.symbol ? ' class="sel"' : ""}>
+        <td><span class="shipsym">${escapeHtml(row.symbol)}</span></td>
+        <td><span class="chip ${escapeHtml(row.role)}">${escapeHtml(row.role)}</span></td>
+        <td>${escapeHtml(row.job)}</td>
+        <td${statusClass ? ` class="${statusClass}"` : ""}>${escapeHtml(row.goal)}</td>
+        <td class="mono">${fuelPct}%</td>
+        <td class="mono">${row.cargo}/${row.cargoCap}</td>
+        <td class="mono">${escapeHtml(row.at)}</td>
+      </tr>
+    `;
+  }).join("");
+  $("fleet-table-rows").innerHTML = tableHTML;
+
+  // Wire table row clicks
+  $("fleet-table").querySelectorAll("tbody tr").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      selectedFleetShip = tr.dataset.ship;
+      renderFleet();
+    });
+  });
+
+  // Render detail panel
+  if (selectedFleetShip) {
+    const shipRow = rows.find((r) => r.symbol === selectedFleetShip);
+    if (shipRow) {
+      const wants = shipRow.role === "trader" ? (shipRow.job !== "unassigned" && shipRow.job !== "—" ? shipRow.job : "unassigned") : shipRow.role.charAt(0).toUpperCase() + shipRow.role.slice(1);
+      const doing = shipRow.goal;
+
+      const detailHeadHTML = `
+        <div class="name"><span class="shipsym">${escapeHtml(shipRow.symbol)}</span><span class="chip ${escapeHtml(shipRow.role)}">${escapeHtml(shipRow.role)}</span></div>
+        <div class="wantsdo">
+          <div class="wd">
+            <div class="l">Wants</div>
+            <div class="v">${escapeHtml(wants)}</div>
+          </div>
+          <div class="wd${doing === "stranded" ? " bad" : ""}">
+            <div class="l">Doing</div>
+            <div class="v">${escapeHtml(doing)}</div>
+          </div>
+        </div>
+      `;
+      $("fleet-detail-head").innerHTML = detailHeadHTML;
+
+      const cargoHTML = shipRow.cargoInventory.map((item) => {
+        const pct = (item.units / shipRow.cargoCap) * 100;
+        return `
+          <div class="cargorow">
+            <span class="g">${escapeHtml(item.symbol)}</span>
+            <span class="mono">${item.units}/${shipRow.cargoCap}</span>
+          </div>
+          <div class="meter"><i style="width:${pct}%"></i></div>
+        `;
+      }).join("");
+
+      const detailBodyHTML = `
+        ${cargoHTML}
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+          <div>
+            <div class="wd"><div class="l">Frame</div><div class="v">${escapeHtml(shipRow.frame)}</div></div>
+          </div>
+          <div>
+            <div class="wd"><div class="l">Fuel</div><div class="v mono">${shipRow.fuel}/${shipRow.fuelCap}</div></div>
+          </div>
+        </div>
+      `;
+      $("fleet-detail-body").innerHTML = detailBodyHTML;
+    }
+  } else {
+    $("fleet-detail-head").innerHTML = '<div class="empty">Select a ship to see details.</div>';
+    $("fleet-detail-body").innerHTML = '';
+  }
+}
+
+function escapeAttr(s) {
+  return (s + "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 /* ── subscriptions ──────────────────────────
  * Wire render functions to data slices.
  */
@@ -334,6 +499,7 @@ subscribe("state", () => {
   renderKPIs();
   renderMinimap();
   renderWantsDoing();
+  renderFleet();
 });
 subscribe("bridge", () => {
   renderTopbar();
@@ -345,6 +511,7 @@ subscribe("approvals", () => {
 });
 subscribe("dispatch", () => {
   renderKPIs();
+  renderFleet();
 });
 subscribe("activity", () => {
   renderActivity();
@@ -366,6 +533,7 @@ function boot() {
   renderKPIs();
   renderMinimap();
   renderWantsDoing();
+  renderFleet();
   renderApprovals();
   renderActivity();
 }
