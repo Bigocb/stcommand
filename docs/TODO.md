@@ -186,9 +186,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   (`sendShipTo`/`manualJumpShip`/`dispatchTourShip`/etc.) the dashboard
   already calls, not a reimplementation, given this session's whole day
   was spent closing bugs from exactly that kind of divergence between
-  manual-action paths. Phased: read-only tools first (zero risk, proves
-  the auth plumbing), then fleet writes, then missions/contracts/
-  warehouse/doctrine writes, then an eval suite. Not started.
+  manual-action paths. Operator resolved the doc's open questions
+  2026-09-19: key minting matches dashboard-login trust (no extra
+  confirmation step), read-only and write tools are designed/built
+  together in one pass (not a standalone read-only release), every
+  write action gets a distinct `source: "mcp"` attribution tag in
+  logs/ledger, one key per tenant is sufficient (no multi-tenant-scoped
+  key). Not started.
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task
   priority into `RateLimiter.acquire()`. Not urgent; latent until the
   shared limiter is actually contended.

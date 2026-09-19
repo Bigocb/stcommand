@@ -248,6 +248,15 @@ Two things need more than that baseline, though:
   wrong reads of "did the dispatch work" from log lines alone) — a tool
   response that states the resulting state plainly avoids needing a
   second read-only call just to confirm the first one worked.
+- **Every write tool's actions are attributed distinctly in logs/ledger/
+  activity feed** — resolved (§8): yes, tag them. Every `onActivity()`/
+  `recordLedger()`/`this.log()` call a write tool's underlying
+  `FleetManager` method already makes takes (or can be threaded) a
+  `source` value; MCP-originated calls pass `source: "mcp"` (or, if
+  worth the extra granularity later, `"mcp:<key label>"`) instead of
+  falling back to whatever the dashboard path defaults to. Cheap to add
+  at the tool-adapter layer — each handler just needs to pass its origin
+  through to the existing call, not a new logging concept.
 
 Rate limiting is **not** a new concern: every tool call still spends real
 SpaceTraders API budget through the same per-tenant `Scheduler`/token-
@@ -285,14 +294,19 @@ src/mcp/
 
 ## 7. Phasing
 
-1. **Read-only tools + auth infrastructure.** Zero risk, immediately
-   useful (an agent — this session or another — can already answer "what's
-   THEO-1C doing right now" without a human relaying logs), and proves the
-   auth/mounting/tenant-resolution plumbing before anything can spend
-   credits or move a ship.
+Resolved (§8): read-only and write tools are designed and built
+**together** in one pass, not split into a standalone read-only release
+lived with before writes are even designed. Sequencing within that one
+pass:
+
+1. **Auth infrastructure** (`tenant_mcp_keys`, the Bearer-key middleware,
+   the dashboard's mint/revoke panel) and **read-only tools** first, since
+   nothing else can be tested end-to-end without them and they carry zero
+   risk on their own.
 2. **Fleet write tools**, routed through existing `FleetManager` methods
    per §3, with the confirm-flag requirement on the destructive subset
-   from day one (not bolted on later).
+   and `source: "mcp"` attribution (§5) built in from the start, not
+   bolted on later.
 3. **Missions/contracts/warehouse/doctrine write tools.**
 4. **Evaluation suite** (per the mcp-builder skill's Phase 4): 10
    realistic questions/tasks an agent should be able to complete using
@@ -301,28 +315,20 @@ src/mcp/
    is" (read-only) and "hold every ship currently in X1-TX45" (write,
    verifiable by re-reading fleet status after).
 
-## 8. Open questions
+## 8. Resolved questions (operator decision, 2026-09-19)
 
-1. **Who can mint a key for a tenant?** Presumably the same operator who
-   can already log into that tenant's dashboard — but worth deciding
-   explicitly whether key minting itself needs any extra confirmation
-   step, given a key is a longer-lived bearer credential than a session
-   cookie.
-2. **Should the read-only tool group ship before the write group is even
-   designed in code**, i.e. is phase 1 alone worth shipping and living
-   with for a while before committing to phase 2's write-tool shapes?
-   Leaning yes, given §7's reasoning, but that's a real product decision,
-   not an engineering one.
-3. **Does an MCP-originated action need its own `source` tag** in
-   `onActivity`/ledger/log lines (distinct from "dashboard" or a bare ship
-   symbol) so a later live-ops investigation (the kind this whole session
-   was full of) can immediately tell "an agent did this" from "the
-   operator clicked this"? Cheap to add now, easy to regret not having
-   later — leaning yes, not resolved here.
-4. **Multi-tenant fan-out**: today's `/mcp` design is one key = one
-   tenant, full stop. If the operator later wants one agent session
-   managing several of their own tenants (THEO, THEO-1, THEO-2 for the
-   A/B play-style tracking already in `docs/TODO.md`), that's either
-   multiple keys held by the same MCP client (works today, no new design
-   needed) or a key scoped to multiple tenants (a real widening of the
-   auth model, not assumed here).
+1. **Who can mint a key for a tenant?** Same trust level as dashboard
+   login — no extra confirmation step beyond already being logged into
+   that tenant. No new mint-specific auth flow to design.
+2. **Should read-only tools ship standalone before write tools are even
+   designed?** No — design and build both together in one pass (§7 now
+   reflects this: auth + read-only first *within* that single pass for
+   testability, not as a separately shipped, lived-with release).
+3. **Does an MCP-originated action need its own `source` tag** distinct
+   from "dashboard"? Yes — `source: "mcp"` threaded through the existing
+   `onActivity()`/`recordLedger()`/`this.log()` calls each write tool's
+   underlying `FleetManager` method already makes (§5, §6).
+4. **Multi-tenant fan-out**: one key per tenant is sufficient — an
+   operator managing several of their own tenants (THEO, THEO-1, THEO-2)
+   just holds multiple keys in their MCP client's own config. No
+   multi-tenant-scoped key needed; not building that.
