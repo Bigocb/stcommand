@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "stcommand": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://stcommand.onrender.com/mcp",
+        "--transport",
+        "http-only",
+        "--header",
+        "Authorization:${STCOMMAND_MCP_TOKEN}"
+      ]
+    }
+  }
+}
