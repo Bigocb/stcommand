@@ -19,13 +19,21 @@ import { resolveMcpKey } from "../db/mcpKeys.js";
  */
 export function createMcpAuth(pool: pg.Pool): RequestHandler {
   return async (req, res, next) => {
-    const header = req.header("authorization") ?? "";
-    const match = /^Bearer\s+(.+)$/i.exec(header);
-    if (!match) {
-      res.status(401).json({ error: "missing or malformed Authorization: Bearer <key> header" });
+    const header = (req.header("authorization") ?? "").trim();
+    if (!header) {
+      res.status(401).json({ error: "missing Authorization header — send either \"Bearer <key>\" or the bare key" });
       return;
     }
-    const resolved = await resolveMcpKey(pool, match[1]!.trim());
+    // Accept a bare key, not just "Bearer <key>" — confirmed live: a
+    // config that stores just the raw key in an env var and interpolates
+    // it straight into the header (Authorization:${VAR}, no literal
+    // "Bearer " anywhere in the template) is a natural, easy-to-hit shape,
+    // not a malformed request. sctk_-prefixed keys are only ever this
+    // app's own MCP keys, never ambiguous with another auth scheme, so
+    // there's nothing lost by accepting them unprefixed too.
+    const bearerMatch = /^Bearer\s+(.+)$/i.exec(header);
+    const rawKey = bearerMatch ? bearerMatch[1]!.trim() : header;
+    const resolved = await resolveMcpKey(pool, rawKey);
     if (!resolved) {
       res.status(401).json({ error: "invalid or revoked MCP key" });
       return;

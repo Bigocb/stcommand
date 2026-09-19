@@ -11,6 +11,16 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: `/mcp` rejected a bare API key, requiring the literal `Bearer `
+  prefix — confirmed live, broke a real setup.** A `.mcp.json` committed
+  to the repo by another session interpolates
+  `Authorization:${STCOMMAND_MCP_TOKEN}` from an env var holding just the
+  raw `sctk_...` key, no `"Bearer "` anywhere — a natural, easy-to-hit
+  config shape, not a malformed request. `createMcpAuth` now accepts
+  either `Bearer <key>` or the bare key directly; `sctk_`-prefixed keys
+  are never ambiguous with another auth scheme, so nothing is lost by
+  also accepting them unprefixed.
+
 - **Add: a hosted MCP server (`/mcp`), first pass — an agent can now take
   real fleet actions instead of an operator relaying them by hand.**
   Per `docs/mcp-server-plan.md`: per-tenant Bearer-key auth (new
