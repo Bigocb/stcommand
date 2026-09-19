@@ -563,6 +563,21 @@ long-unvisited markets — the two controllers aren't coordinated
 explicitly, but their incentives point the same direction because they
 both read the same `observedAt`.
 
+**Not designed in here, flagged for later (`docs/TODO.md`, raised
+2026-09-19): buy-side price manipulation via the game's own supply-chain
+graph** (`GET /market/supply-chain`'s `exportToImportMap`) — selling a
+good's upstream production inputs into a market that exports it drives
+that market's sell price down over successive trades, strongest at
+low-`tradeVolume` markets. This is a real lever on the buy side of
+`RouteCandidate.score` (a route's `buyPrice` isn't just observed, it's
+*influenceable*), but it's a genuinely new strategy axis — a controller
+that spends trades pushing a price down before a different trader (or
+mission) exploits it, which is a form of coordination this design's
+Trade controller doesn't currently model at all. Deliberately left open
+rather than folded into §4.1's scoring above pending a manual trial (see
+TODO) confirming the effect is real and large enough to be worth the
+added complexity.
+
 ---
 
 ## 4.2 Navigation: fuel economics and flight-mode selection

@@ -143,6 +143,36 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   autonomously anywhere in the engine today (confirmed by search) — so
   there was no automatic scrap decision to gate.
 
+- [ ] **Supply-chain-aware buy-side price manipulation.** Raised
+  2026-09-19, day before a scheduled reset: `GET /market/supply-chain`
+  (public, unauthenticated — confirmed live against the real API) returns
+  `exportToImportMap`, the game's production graph — e.g. `FAB_MATS`
+  needs `IRON`+`QUARTZ_SAND`; `ADVANCED_CIRCUITRY` needs
+  `ELECTRONICS`+`MICROPROCESSORS`, which themselves need
+  `SILICON_CRYSTALS`+`COPPER`. Selling a good's upstream inputs into a
+  market that exports it raises that market's local supply/activity,
+  which drives its sell price down over successive trades — not
+  instantly, real trade volume over time. This generalizes past gate
+  materials to any produced good a trader wants to buy cheap, and is
+  strongest at *low*-`tradeVolume` markets (the API's own trade-volume
+  field is explicitly "how much a market's price swings per trade" — the
+  opposite of where you'd naively look for a big, liquid market to
+  manipulate).
+  **Explicitly NOT building into the fleet automation before tomorrow's
+  reset** — this galaxy's specific markets are about to be wiped, so
+  there's no runway for anything built against them tonight to pay off,
+  and this is a real new pricing strategy (ties directly into the
+  trade-routing/pricing design in `docs/engine-redesign.md` §4.1,
+  `RouteCandidate.score`) that deserves a proper design pass once there's
+  a fresh galaxy to design against, not a rushed hack under deadline
+  pressure.
+  **Operator wants to try it manually first, tomorrow, before any of it
+  gets built** — pick a market in the new galaxy that exports something
+  worth buying in bulk (a gate material or otherwise), identify its
+  upstream inputs from the supply-chain graph, sell those inputs into it
+  by hand via the dashboard, and see whether the price actually moves the
+  way the theory predicts before spending effort automating it.
+
 ## Design docs written, no implementation decision made
 
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task
