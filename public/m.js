@@ -1162,12 +1162,26 @@ function boot() {
   loadMarkets();
   renderStatusbar();
 }
-setInterval(() => {
-  if (!authed || document.hidden) return;
+function pollTick() {
   loadState(); loadBridge(); loadApprovals(); loadDispatch();
   if (mapTabActive() || marketsTabActive()) loadMarkets();
   if (moreTabActive()) { loadProgramme(); loadWarehouse(); loadActivity(); }
+}
+setInterval(() => {
+  if (!authed || document.hidden) return;
+  pollTick();
 }, 15_000);
+// A backgrounded tab/app stops this interval entirely (iOS Safari suspends
+// timers for a homescreen PWA once it's not the foreground app, sometimes
+// discarding them outright rather than just pausing) — v6.js's own
+// visibilitychange handler exists for exactly this reason. Without it,
+// reopening Tower after even a short time away shows whatever was on
+// screen when it was backgrounded until the next 15s tick lands, which
+// reads as "doesn't update unless I refresh."
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !authed) return;
+  pollTick();
+});
 
 (async function boot0() {
   // "?login=1" (the admin page's "+ New agent" link, forwarded here by
