@@ -102,6 +102,42 @@ branch is `claude/stcommand-ui-parallel-versions-fd5p9q`. **Every commit
 this session makes must be pushed to both** — pushing only to the
 feature branch strands the commit and nothing deploys.
 
+## Reporting matched buy/sell P&L (operator ad-hoc requests)
+
+When asked for a "P&L snapshot" or "how are we doing" on trading, **do not**
+just diff `stcommand_get_state`'s lifetime `totals.buys`/`totals.sells`
+and call the difference "trading net." That number is misleading: it
+counts every open buy (cargo a trader is still holding, not yet sold) as
+if it were a completed loss, so it reads as roughly break-even even in a
+session where every closed trade was profitable.
+
+The right method:
+
+1. Pull `stcommand_get_activity` (limit up to 200) and pick out `kind:
+   "buy"` and `kind: "sell"` entries.
+2. Match a `sell` to an earlier `buy` on the **same ship + same good +
+   same (or subset of) quantity** — that's one completed round trip.
+   Sum the buy legs' `credits` (negative) and the sell legs' `credits`
+   (positive) per round trip to get its profit.
+3. Anything left over is an **open position**, not a loss:
+   - A `buy` with no later matching `sell` — cargo still aboard a ship
+     in transit or docked, cross-check with `stcommand_get_fleet_status`'s
+     `cargo` field for that ship to confirm it's still holding.
+   - A `sell` with no earlier `buy` in the fetched window — its cost
+     basis happened before the window started; report the revenue as
+     realized cash but don't score a margin on it.
+4. Report two numbers, not one: **matched trading net** (sum of only the
+   completed round trips' profit — the true trading performance) and
+   **wallet delta** (the actual credits change, which also absorbs open
+   positions, fuel, jump costs, and refuels). The gap between the two is
+   explained by those non-trade costs plus whatever's still in cargo —
+   call that out explicitly rather than folding it into "trading net."
+
+This matters because fleet overhead (refuels, jump costs — jumps run
+~5,000-5,700c each and this fleet's explorers/tour ships jump
+frequently) and in-flight inventory can make the naive gross-totals diff
+look flat or negative even during a genuinely profitable session.
+
 ## Docs to keep current
 
 - `docs/TODO.md` — open items; move a closed one to `CHANGELOG.md`
