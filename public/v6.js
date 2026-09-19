@@ -5468,9 +5468,10 @@ function renderShipyardIntel() {
         const age = fmtAge(best.timestamp);
         const stale = best.timestamp && (Date.now() - new Date(best.timestamp).getTime()) > 90 * 60_000;
         const others = rows.slice(1, 4);
+        const metricsAttrs = `data-fuel="${best.fuelCapacity}" data-cargo="${best.cargoCapacity}" data-modules="${best.moduleSlots}" data-mounts="${best.mountingPoints}" data-frame="${escapeHtml(best.frameSymbol ?? "")}" data-name="${escapeHtml(best.shipTypeName)}"`;
         html += `<div class="row" style="align-items:center">
           <span class="icon">⛵</span>
-          <span class="route"><b>${shortWp(best.waypointSymbol)}</b> · ${best.shipTypeName}<br><span class="note">${best.systemSymbol} · fuel ${best.fuelCapacity} · ${fmt(best.purchasePrice)}c · <span class="${stale ? "stale" : ""}">${age} old</span></span>${others.length ? `<br><span class="note">also:
+          <span class="route"><b>${shortWp(best.waypointSymbol)}</b> · <span class="ship-type-name" ${metricsAttrs}>${best.shipTypeName}</span><br><span class="note">${best.systemSymbol} · fuel ${best.fuelCapacity} · ${fmt(best.purchasePrice)}c · <span class="${stale ? "stale" : ""}">${age} old</span></span>${others.length ? `<br><span class="note">also:
           ${others.map((o) => `<button class="buy-ship buy-ship-alt" data-type="${o.shipType}" data-yard="${o.waypointSymbol}" title="Buy ${o.shipTypeName} at ${o.waypointSymbol}">${shortWp(o.waypointSymbol)} ${fmt(o.purchasePrice)}c</button>`).join(" ")}</span>` : ""}</span>
           <span class="marg">${fmt(best.purchasePrice)}c</span>
           <button class="buy-ship" data-type="${best.shipType}" data-yard="${best.waypointSymbol}" title="Buy ${best.shipTypeName}">Buy</button>
@@ -5535,6 +5536,59 @@ function renderShipyardIntel() {
   }
 }
 
+/** Cursor-following metrics tooltip for a ship-type name in the Yards
+ *  panel — frame stats (fuel/cargo/modules/mounts) are already captured on
+ *  every shipyard scan (Store.recordShipyardInventory) but the list only
+ *  ever showed price and fuel capacity inline. Delegated listeners (below)
+ *  rather than per-element binding: renderShipyardIntel() replaces
+ *  #shipyard-intel's innerHTML on every poll, which would silently drop
+ *  directly-bound listeners on each re-render. */
+function showShipMetricsTip(el, clientX, clientY) {
+  const tip = $("ship-metrics-tip");
+  if (!tip) return;
+  const d = el.dataset;
+  tip.innerHTML = `<h4>${escapeHtml(d.name)}</h4>
+    <div class="row"><span>Frame</span><b>${escapeHtml((d.frame || "—").replace(/^FRAME_/, "").replace(/_/g, " "))}</b></div>
+    <div class="row"><span>Fuel capacity</span><b>${fmt(Number(d.fuel))}</b></div>
+    <div class="row"><span>Cargo capacity</span><b>${fmt(Number(d.cargo))}</b></div>
+    <div class="row"><span>Module slots</span><b>${d.modules}</b></div>
+    <div class="row"><span>Mounting points</span><b>${d.mounts}</b></div>`;
+  tip.classList.add("visible");
+  positionShipMetricsTip(clientX, clientY);
+}
+
+function positionShipMetricsTip(clientX, clientY) {
+  const tip = $("ship-metrics-tip");
+  if (!tip || !tip.classList.contains("visible")) return;
+  const pad = 14;
+  const w = tip.offsetWidth || 180;
+  const h = tip.offsetHeight || 90;
+  let left = clientX + pad;
+  let top = clientY + pad;
+  if (left + w > window.innerWidth - 8) left = clientX - w - pad;
+  if (top + h > window.innerHeight - 8) top = clientY - h - pad;
+  tip.style.left = `${Math.max(8, left)}px`;
+  tip.style.top = `${Math.max(8, top)}px`;
+}
+
+function hideShipMetricsTip() {
+  $("ship-metrics-tip")?.classList.remove("visible");
+}
+
+for (const id of ["shipyard-intel", "mobile-shipyard-intel"]) {
+  const el = $(id);
+  if (!el) continue;
+  el.addEventListener("mouseover", (e) => {
+    const t = e.target.closest(".ship-type-name");
+    if (t) showShipMetricsTip(t, e.clientX, e.clientY);
+  });
+  el.addEventListener("mousemove", (e) => {
+    if (e.target.closest(".ship-type-name")) positionShipMetricsTip(e.clientX, e.clientY);
+  });
+  el.addEventListener("mouseout", (e) => {
+    if (e.target.closest(".ship-type-name") && !e.relatedTarget?.closest(".ship-type-name")) hideShipMetricsTip();
+  });
+}
 
 
 
