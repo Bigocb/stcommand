@@ -11,6 +11,19 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Galaxy map: hover tooltip for system glyphs, and a declutter pass for
+  crowded local clusters.** The galaxy-mode overview (`renderGalaxy3D()`,
+  `v6.js`) previously gave a system glyph no feedback at all until you
+  clicked it (which immediately drops you into that system) — there was
+  no way to check a system's stats without navigating away first. Hovering
+  a glyph now shows the same `#map-tip` panel the per-system waypoint view
+  already uses, with type, home/marketplace/shipyard/jump-gate tags, and
+  ship count. Separately, real galaxy coordinates cluster tightly in
+  places (confirmed live — dense charted neighborhoods drew as an
+  unreadable knot of overlapping rings); added `declutterGlyphPositions()`,
+  a light pairwise-repulsion pass that nudges only still-overlapping glyph
+  pairs apart after scaling, leaving isolated systems untouched.
+
 - **Fix: the role-change warning claimed a non-probe keeper "won't be able
   to do this role's job" — it will, just less efficiently than a probe.**
   `roleMismatchReason()`'s keeper case only flags a hull mismatch because

@@ -1117,6 +1117,36 @@ function bfsRoute(edges, from, to) {
   return null;
 }
 
+/** Nudges apart any two glyphs in `posMap` (symbol -> {x, z}, mutated in
+ *  place) still closer than `minDist` after real-coordinate scaling — a
+ *  cheap pairwise relaxation, not a full force-directed layout, since only
+ *  crowded local clusters need correcting and everything else should stay
+ *  exactly where its real coordinates put it. Bails early once nothing
+ *  moved a full pass, and caps iterations so a genuinely dense knot (more
+ *  pairs too close than minDist can resolve in-place) settles into "less
+ *  overlapping" rather than looping to convergence that may not exist. */
+function declutterGlyphPositions(posMap, minDist, iterations = 40) {
+  const symbols = [...posMap.keys()];
+  for (let iter = 0; iter < iterations; iter++) {
+    let moved = false;
+    for (let i = 0; i < symbols.length; i++) {
+      const a = posMap.get(symbols[i]);
+      for (let j = i + 1; j < symbols.length; j++) {
+        const b = posMap.get(symbols[j]);
+        const dx = b.x - a.x, dz = b.z - a.z;
+        const dist = Math.hypot(dx, dz) || 0.001;
+        if (dist >= minDist) continue;
+        moved = true;
+        const push = (minDist - dist) / 2;
+        const ux = dx / dist, uz = dz / dist;
+        a.x -= ux * push; a.z -= uz * push;
+        b.x += ux * push; b.z += uz * push;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
 /**
  * Populate the shared 3D scene with the galaxy overview instead of one
  * system's own waypoints — called from renderMap() when galaxyMode is on,
@@ -1207,6 +1237,18 @@ function renderGalaxy3D() {
   const toScene = (x, y) => ({ x: (x - cx) * scale, z: (y - cy) * scale });
   systemSpan = 160;
 
+  // Real coordinates cluster tightly in places (confirmed live — a dense
+  // neighborhood of charted systems overlapping into an unreadable knot of
+  // rings), and this view was already a schematic rather than a precise
+  // plot (see the file-level comment: each system collapses to a generated
+  // "mini system" glyph, not its real content). So positions get a light
+  // local declutter pass after scaling: any two glyphs still closer than
+  // their combined visual footprint get pushed apart along the line
+  // between them, a few iterations, until they clear or the pass gives up.
+  // This only ever nudges crowded pairs — isolated systems don't move.
+  const glyphPos = new Map(known.map((s) => [s.symbol, toScene(s.x, s.y)]));
+  declutterGlyphPositions(glyphPos, 11);
+
   const path = bfsRoute(data.edges, routeFrom, routeTo);
   const routeEdgeKeys = new Set();
   if (path) for (let i = 0; i < path.length - 1; i++) routeEdgeKeys.add([path[i], path[i + 1]].sort().join("|"));
@@ -1223,9 +1265,8 @@ function renderGalaxy3D() {
   }
 
   for (const e of data.edges) {
-    const a = known.find((s) => s.symbol === e.a), b = known.find((s) => s.symbol === e.b);
-    if (!a || !b) continue;
-    const pa = toScene(a.x, a.y), pb = toScene(b.x, b.y);
+    const pa = glyphPos.get(e.a), pb = glyphPos.get(e.b);
+    if (!pa || !pb) continue;
     const onRoute = routeEdgeKeys.has([e.a, e.b].sort().join("|"));
     const geo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(pa.x, 0, pa.z),
@@ -1244,7 +1285,7 @@ function renderGalaxy3D() {
   // currently there. A schematic for navigating/planning, not a market
   // survey — that detail already lives in the per-system view.
   for (const s of known) {
-    const p = toScene(s.x, s.y);
+    const p = glyphPos.get(s.symbol);
     const isHome = s.symbol === data.home;
     const onRoute = routeSystems.has(s.symbol);
     const color = s.ships > 0 ? "--accent" : (isHome ? "--ice" : "--dim");
@@ -1359,6 +1400,7 @@ function setGalaxyMode(on) {
     loadGalaxyOverview();
   } else {
     $("galaxy-overview").innerHTML = "";
+    if (galaxyHoverSymbol) { galaxyHoverSymbol = null; hideWaypointTip(); }
     renderMapLiveOrScrub();
   }
 }
@@ -2254,6 +2296,7 @@ let composer, bloomPass; // undefined if the postprocessing addons failed to loa
 let bodiesGroup, ringsGroup, shipsGroup, glowGroup, linesGroup, liveTrailGroup;
 const pickables = []; // { mesh, kind: 'waypoint'|'ship', symbol }
 let raycaster, pointerNdc;
+let galaxyHoverSymbol = null; // which galaxy-system glyph the pointer is currently over, or null
 const orbitCam = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
 const orbitGoal = { theta: 0.7, phi: 1.0, radius: 60, target: new THREE.Vector3(0, 0, 0) };
 let systemSpan = 90; // current system's own radius, used to scale zoom limits to it
@@ -4343,6 +4386,18 @@ function attachMapControls() {
     lastX = e.clientX; lastY = e.clientY;
     if (rotating) rotateCamera(dx, dy); else panCamera(dx, dy);
   });
+  // Hover tooltip for galaxy-mode system glyphs — a separate, host-scoped
+  // listener rather than folding into the window-level one above, since
+  // that one only needs to fire while a drag/rotate gesture is already in
+  // progress and this one only needs to fire while the pointer is over the
+  // canvas at all.
+  host.addEventListener("pointermove", (e) => {
+    if (dragging || rotating || !galaxyMode) return;
+    updateGalaxyHover(e.clientX, e.clientY);
+  });
+  host.addEventListener("pointerleave", () => {
+    if (galaxyHoverSymbol) { galaxyHoverSymbol = null; hideWaypointTip(); }
+  });
   host.addEventListener("wheel", (e) => {
     e.preventDefault();
     const min = systemSpan * 0.35, max = systemSpan * 6;
@@ -4543,6 +4598,43 @@ function showWaypointTip(symbol) {
 function hideWaypointTip() {
   $("map-tip").classList.remove("visible");
   mapTipFor = null;
+}
+
+/** Hover-driven, not click-toggle like showWaypointTip() — a galaxy-mode
+ *  glyph is a click TARGET (click drops into that system), so the tip has
+ *  to appear on hover alone or it would never be readable before the click
+ *  already navigated away. Reuses the same #map-tip panel and stat-tag
+ *  markup as the per-system waypoint tip since it's the same "stats at a
+ *  glance" job, one level zoomed out. */
+function showGalaxySystemTip(symbol) {
+  const tip = $("map-tip");
+  const data = galaxyOverviewData;
+  const s = data?.systems.find((x) => x.symbol === symbol);
+  if (!s) return;
+  const typeLabel = s.type ? s.type.replace(/_/g, " ").toLowerCase() : "unknown type";
+  let html = `<h4>${symbol}</h4>`;
+  html += `<span class="coords">${typeLabel}</span>`;
+  html += `<div class="tags">`;
+  if (symbol === data.home) html += `<span class="tag type">home</span>`;
+  if (s.hasMarket) html += `<span class="tag market">marketplace</span>`;
+  if (s.hasShipyard) html += `<span class="tag yard">shipyard</span>`;
+  if (s.hasJumpGate) html += `<span class="tag type">jump gate</span>`;
+  html += `</div>`;
+  html += `<div class="row"><span>Ships here</span><b>${s.ships}</b></div>`;
+  tip.innerHTML = html;
+  tip.classList.add("visible");
+}
+
+/** Called on every galaxy-mode pointermove (not drag/rotate) to keep the
+ *  hover tip in sync with whichever glyph, if any, is under the pointer.
+ *  Cheap no-op when the hovered symbol hasn't changed, so a stationary
+ *  pointer over one glyph doesn't re-render the tip every frame. */
+function updateGalaxyHover(clientX, clientY) {
+  const hit = pickAt(clientX, clientY);
+  const symbol = hit && hit.kind === "galaxy-system" ? hit.symbol : null;
+  if (symbol === galaxyHoverSymbol) return;
+  galaxyHoverSymbol = symbol;
+  if (symbol) showGalaxySystemTip(symbol); else hideWaypointTip();
 }
 
 function openTradePanel(shipSymbol) {
