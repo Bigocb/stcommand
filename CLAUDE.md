@@ -180,16 +180,19 @@ never sees this repo at all. For *that* audience, `src/mcp/server.ts`
 sets `PLAYER_INSTRUCTIONS`, the MCP `initialize` response's `instructions`
 field — most MCP clients surface it to the connecting model as a hint, so
 it's the one message that actually reaches a game-playing agent. It's kept
-short and non-technical on purpose (a player's field guide, not a
-codebase tour) and currently covers the handful of things a live operator
-has had to correct a connected agent on more than once: fuel not
-draining mid-flight isn't a stall, a quiet activity feed during a long
-leg isn't either, dock/orbit log lines near departure are often
-refueling rather than arrival, re-issuing a command on an already-
-IN_TRANSIT ship doesn't do anything useful, and `dispatch_tour` (not
-`dispatch_ship`/`jump_ship`) is what walks a ship more than one gate
-away. Add to it when a live-ops incident turns out to be a connected
-agent misreading normal game behavior as a bug — that's the signal this
+non-technical on purpose (a player's field guide, not a codebase tour) and
+covers, top to bottom: the ship-role vocabulary (trader/miner/siphoner/
+surveyor/explorer/scout/tour/keeper — what each one actually does),
+moving ships around (dispatch_ship vs. jump_ship vs. dispatch_tour, and
+why fuel not draining mid-flight isn't a stall), trading/pricing tools,
+buying ships, the approvals gate, the read-state tools, and — the
+original seed of this section — the handful of things a live operator
+has had to correct a connected agent on more than once: dock/orbit log
+lines near departure are often refueling rather than arrival, re-issuing
+a command on an already-IN_TRANSIT ship doesn't do anything useful, and
+so on. Add to it when a live-ops incident turns out to be a connected
+agent misreading normal game behavior as a bug, or when a new tool/role
+ships that a player would need to know about — that's the signal this
 section exists to capture, the MCP-player equivalent of this file's own
 "Reporting matched buy/sell P&L" entry below.
 
