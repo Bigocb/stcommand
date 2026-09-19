@@ -732,6 +732,48 @@ describe("FleetManager.getIntel", () => {
   });
 });
 
+describe("FleetManager.markSystemCharted", () => {
+  // Confirmed live 2026-09-19: X1-TX45 was successfully surveyed (26
+  // markets, 3 shipyards, durably written to shipyard_inventory) three
+  // times across three different process instances inside about two
+  // hours — Render restarted mid-deploy each time, re-running THEO-1C's
+  // held-dispatch jump. markSystemCharted() used to serialize only
+  // this.chartedSystems (seeded once, at this process's own boot) and
+  // write it as a blind overwrite of the "chartedSystems" fleet_flag row.
+  // Whichever process's write landed last — if its own in-memory set
+  // didn't (yet) include X1-TX45 — silently erased the charted flag for a
+  // system whose survey data was sitting right there in the DB the whole
+  // time, so getChartedSystems()-scoped reads (getIntel() among them)
+  // permanently reported it as unknown.
+  it("unions with whatever another process already persisted, instead of overwriting it", async () => {
+    const writes: string[] = [];
+    const fakeStore = {
+      getFleetFlag: async (_tenantId: string, key: string) =>
+        key === "chartedSystems" ? JSON.stringify(["X1-TX45"]) : undefined,
+      setFleetFlag: async (_tenantId: string, key: string, value: string) => {
+        if (key === "chartedSystems") writes.push(value);
+      },
+    };
+    const fleet = new FleetManager({ api: {} as any, store: fakeStore as any, tenantId: "t1" } as any);
+    // This process's own in-memory set only knows about a system IT
+    // charted this boot — X1-TX45 (charted by some other, since-restarted
+    // process) is not in it yet.
+    (fleet as any).chartedSystems = new Set(["X1-JN44"]);
+
+    await (fleet as any).markSystemCharted("X1-JN44");
+
+    assert.deepEqual(writes, [], "already-known system: no write at all, matching the existing no-op-on-repeat behavior");
+
+    await (fleet as any).markSystemCharted("X1-UQ47");
+
+    assert.equal(writes.length, 1, "a genuinely new system still writes exactly once");
+    const persisted = new Set(JSON.parse(writes[0]!));
+    assert.ok(persisted.has("X1-TX45"), "must not drop what another process already persisted");
+    assert.ok(persisted.has("X1-JN44"), "must keep what this process already knew");
+    assert.ok(persisted.has("X1-UQ47"), "must include the newly-charted system");
+  });
+});
+
 describe("FleetManager dispatcher eligibility", () => {
   it("a suspended trader stops reserving its good for the whole fleet", () => {
     // An assignment reserves its good against the entire rest of the fleet.

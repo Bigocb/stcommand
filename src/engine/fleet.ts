@@ -1383,12 +1383,38 @@ export class FleetManager {
   /** Record `systemSymbol` in the durable charted-systems set — see that
    *  field's own comment. A no-op once a system is already recorded, so
    *  chartOccupiedSystems()'s every-tick call only ever writes on first
-   *  sight of a genuinely new system, not on every cache-hit reload. */
+   *  sight of a genuinely new system, not on every cache-hit reload.
+   *
+   * Reads the persisted flag fresh and unions it in before writing, rather
+   * than serializing `this.chartedSystems` alone — that in-memory set is
+   * only ever seeded once, at this process's own boot, from whatever the
+   * flag held *then*. Confirmed live: X1-TX45 was successfully surveyed
+   * (26 markets, 3 shipyards, durably written) three separate times across
+   * three different process instances within about two hours — Render
+   * restarted this service mid-deploy each time, and every restart re-ran
+   * THEO-1C's held-dispatch jump. Each of those processes' own
+   * markSystemCharted() call for X1-TX45 wrote *its own* in-memory set back
+   * as a blind overwrite; whichever process happened to write last, with a
+   * set that didn't (yet) include X1-TX45 (e.g. one that booted from an
+   * older snapshot, or crashed before adding it), silently erased the
+   * charted flag for a system whose actual survey data was sitting right
+   * there in the DB the whole time. getIntel()'s shipyard/module listing —
+   * and anything else scoped by getChartedSystems() — then permanently
+   * (until something re-charts it) reported that system as unknown, not
+   * because the data was missing, but because the *flag* saying "we've
+   * been here" lost a race between two overlapping processes each holding
+   * an incomplete copy of the truth. Reading-then-unioning here makes this
+   * a monotonic merge instead of a last-writer-wins overwrite, so it no
+   * longer matters which process's write lands last. */
   private async markSystemCharted(systemSymbol: string): Promise<void> {
     if (this.chartedSystems.has(systemSymbol)) return;
     this.chartedSystems.add(systemSymbol);
-    if (this.tenantId) {
-      await this.store?.setFleetFlag(this.tenantId, "chartedSystems", JSON.stringify([...this.chartedSystems]));
+    if (this.tenantId && this.store) {
+      const persisted = await this.store.getFleetFlag(this.tenantId, "chartedSystems");
+      if (persisted) {
+        try { for (const s of JSON.parse(persisted) as string[]) this.chartedSystems.add(s); } catch { /* malformed row; proceed with what we have */ }
+      }
+      await this.store.setFleetFlag(this.tenantId, "chartedSystems", JSON.stringify([...this.chartedSystems]));
     }
   }
 
