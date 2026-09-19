@@ -243,3 +243,9 @@ section exists to capture, the MCP-player equivalent of this file's own
   not for every feature.
 - `docs/mobile-app-design.md` — Tower (the `/m` mobile app)'s IA and
   visual identity, and its shipped-vs-pending status per screen.
+- `docs/deck-desktop-design.md` — Deck (the `/deck` desktop redesign)'s
+  build spec: written as a literal, mechanical step-by-step brief (full
+  CSS/HTML embedded, exact `store.js` field names) so a low-context build
+  pass doesn't have to make design judgment calls. Update its §1 scope
+  and §9 "what's next" as each pass actually ships, same as
+  `mobile-app-design.md`'s own running status updates for Tower.

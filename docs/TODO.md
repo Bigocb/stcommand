@@ -7,6 +7,20 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Deck (`/deck` desktop redesign) — build spec written 2026-09-19,
+  not yet built.** `docs/deck-desktop-design.md` is a literal, mechanical
+  step-by-step brief (full CSS/HTML embedded verbatim from the approved
+  mockup, exact `store.js` field names checked against the real code) —
+  written explicitly so an initial build pass (intended for a lower-
+  context/cheaper-model subagent) doesn't have to make design judgment
+  calls. Scope of the first pass: `/deck` route + shell + Overview screen
+  only (KPI row, Wants-vs-Doing triage table, live Approvals/Activity
+  rail), reusing `public/shared/*.js` and Tower's own patterns exactly —
+  no new backend routes. Fleet/Markets/Map/Ops/Doctrine and the ⌘K
+  command palette are later passes, not this one. Once built: verify live
+  (mirror Tower's own "Verify Tower live" item below), then move this
+  entry's status forward the same way Tower's own status updates ran in
+  `docs/mobile-app-design.md`.
 - [ ] **Hosted MCP server (`docs/mcp-server-plan.md`) — first pass shipped
   2026-09-19, connection confirmed working live the same day.** Auth
   (`tenant_mcp_keys` + `POST/GET /api/mcp-keys`, minted from the
