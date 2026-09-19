@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **`autoExplore()`'s opportunistic borrow of an idle tour/scout ship now
+  requires operator approval, same gate as a ship purchase.** This path
+  (`FleetManager.autoExplore()`) pulls any idle tour or chart-scout ship —
+  cargo empty, not held, not mid-transit — onto a multi-minute jump trip to
+  an unsurveyed connected system, entirely separately from the dedicated
+  `explorer` role. Confirmed live: an operator-dispatched tour ship
+  (THEO-1C, sent to look around COSMIC's home system, X1-TX45) got
+  borrowed into an explore trip to X1-QB86 within a minute of finishing
+  its survey pass and going idle — invisible from outside since the
+  ship's role never changed from `tour`, so there was no way to tell it
+  was about to leave. Now gated behind `ApprovalGate.request("autoExploreBorrow", ...)`,
+  same one-request-at-a-time-fleet-wide pattern as `buyScout`/
+  `buyKeeperProbe` (2h timeout, auto-approves if nobody's watching —
+  preserves today's fully-automatic behavior for an unattended fleet,
+  while giving an operator who's actually looking a chance to say no).
+
 - **Galaxy map: hover tooltip for system glyphs, and a declutter pass for
   crowded local clusters.** The galaxy-mode overview (`renderGalaxy3D()`,
   `v6.js`) previously gave a system glyph no feedback at all until you

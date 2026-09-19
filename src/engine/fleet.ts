@@ -6312,6 +6312,32 @@ export class FleetManager {
         .slice(0, 3)
         .map((w) => w.symbol);
 
+      // Operator approval gate — same pattern as maybeBuyShip()'s, applied
+      // here because this borrow is invisible from the outside: the ship's
+      // role stays "tour"/"scout", so an operator who parked one somewhere
+      // on purpose (to look around a system, say) has no way to tell it's
+      // about to be pulled onto a multi-minute jump trip until it's already
+      // gone. Confirmed live: an operator-dispatched tour ship got borrowed
+      // into an explore trip within a minute of going idle. One request at
+      // a time fleet-wide (kind is a single fixed string), same as
+      // buyScout/buyKeeperProbe — the next candidate gets its own request
+      // once this one clears, rather than flooding the operator if several
+      // scouts go idle in the same pass.
+      const approved = await this.approvals.request("autoExploreBorrow", {
+        shipSymbol: scout.s,
+        detail: `borrow idle ${scout.s} to explore ${target}`,
+        timeoutMs: 2 * 60 * 60_000,
+        onTimeout: "approve",
+      });
+      if (approved === undefined) {
+        this.log(`auto-explore ${target}: awaiting operator approval to borrow ${scout.s}`);
+        continue;
+      }
+      if (approved === false) {
+        this.log(`auto-explore ${target}: operator denied borrowing ${scout.s}`);
+        continue;
+      }
+
       this.intents.propose({
         ship: scout.s,
         priority: 3,
