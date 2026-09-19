@@ -175,6 +175,20 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Design docs written, no implementation decision made
 
+- [ ] `docs/mcp-server-plan.md` — a hosted MCP server so an agent can take
+  the same manual game actions an operator takes from the dashboard
+  (dispatch, hold, buy, trade, approvals, etc.), instead of relaying them
+  through a human. Full tool inventory mapped 1:1 to every
+  `dashboard.ts` route, per-tenant Bearer-key auth (new
+  `tenant_mcp_keys` table, modeled on `admin.ts`'s own key-auth
+  pattern), and — the load-bearing design constraint — every write tool
+  must route through the same `FleetManager` methods
+  (`sendShipTo`/`manualJumpShip`/`dispatchTourShip`/etc.) the dashboard
+  already calls, not a reimplementation, given this session's whole day
+  was spent closing bugs from exactly that kind of divergence between
+  manual-action paths. Phased: read-only tools first (zero risk, proves
+  the auth plumbing), then fleet writes, then missions/contracts/
+  warehouse/doctrine writes, then an eval suite. Not started.
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task
   priority into `RateLimiter.acquire()`. Not urgent; latent until the
   shared limiter is actually contended.
