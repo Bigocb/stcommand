@@ -74,8 +74,38 @@
           </div>
         </div>
 
+        <!-- Fleet screen (pass 2) -->
+        <div class="content" id="view-fleet" hidden>
+          <div class="chiprow" id="fleet-chiprow"></div>
+          <div class="fleetsplit">
+            <div class="panel" style="min-height:0;display:flex;flex-direction:column">
+              <div class="panel-h"><span class="dot"></span><span class="title">Fleet</span></div>
+              <div class="panel-b" style="padding:0;overflow:auto;flex:1">
+                <table id="fleet-table">
+                  <tr>
+                    <th>Ship</th>
+                    <th>Role</th>
+                    <th>Job</th>
+                    <th>Status</th>
+                    <th>Fuel %</th>
+                    <th>Cargo</th>
+                    <th>Loc</th>
+                  </tr>
+                  <tbody id="fleet-table-rows"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="panel" style="min-height:0;display:flex;flex-direction:column;overflow:hidden">
+              <div class="detailhead" id="fleet-detail-head">
+                <div class="empty">Select a ship to see details.</div>
+              </div>
+              <div style="flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px" id="fleet-detail-body"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Inert placeholders — later passes replace these -->
-        <div class="content" id="view-fleet" hidden><div class="empty">Fleet — coming soon.</div></div>
+        <!-- (Fleet moved above) -->
         <div class="content" id="view-markets" hidden><div class="empty">Markets — coming soon.</div></div>
         <div class="content" id="view-map" hidden><div class="empty">Map — coming soon.</div></div>
         <div class="content" id="view-ops" hidden><div class="empty">Ops — coming soon.</div></div>
