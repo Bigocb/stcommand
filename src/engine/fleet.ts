@@ -6250,8 +6250,18 @@ export class FleetManager {
     ]
       // Never pull a ship whose role was deliberately overridden (manual role,
       // operator hold) off its assigned job to scout — same protection the
-      // promotion and keeper logic already give them.
-      .filter((c) => !this.manualRoleShips.has(c.s) && !this.isHeld(c.s))
+      // promotion and keeper logic already give them. A ship with a pinned
+      // dispatchTourShip() destination is the same case in spirit but was
+      // missing here: that control never calls isHeld()/operatorHolds (it
+      // only sets tourDestination, a separate field — see sendShipTo()'s own
+      // comment on that split), so a ship the operator explicitly sent to
+      // tour a specific system read as "idle" every time it was docked
+      // between hops, and got repeatedly offered up for borrowing here.
+      // Confirmed live: an operator dispatched THEO-1C on a real 7-hop
+      // tour-dispatch trip and had to deny an autoExploreBorrow request for
+      // it roughly every 15-25 minutes, once per docked stop along the way,
+      // even though it was actively mid-mission the entire time.
+      .filter((c) => !this.manualRoleShips.has(c.s) && !this.isHeld(c.s) && !this.tourDestinations.has(c.s))
       .filter((c) => idle(c.s, c.a))
       .sort((a, b) => rank(a.fuel) - rank(b.fuel));
     if (dedicated.length === 0) return;

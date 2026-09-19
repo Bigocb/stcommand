@@ -11,6 +11,20 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: `autoExplore()`'s idle check didn't know about a `dispatchTourShip()`
+  destination, so a ship on a real, operator-directed multi-system tour
+  trip kept getting offered up for the `autoExploreBorrow` approval gate
+  (see below) at every docked stop along the way.** `dispatchTourShip()` —
+  the Fleet tab's "send this tour ship to system X" control — only ever
+  sets `tourDestination`; unlike `sendShipTo()`/`manualJumpShip()` it never
+  calls into `isHeld()`/`operatorHolds`, so a ship mid-dispatch read as
+  "idle" (not held, cargo empty, not mid-transit) every time it paused
+  between hops. Confirmed live: an operator dispatched THEO-1C on a real
+  7-hop trip toward X1-TX45 and had to deny an `autoExploreBorrow` request
+  roughly once per stop, ~every 15-25 minutes, for a ship that was
+  actively mid-mission the whole time. `autoExplore()`'s eligibility
+  filter now also excludes any ship with a live `tourDestination`.
+
 - **Fix: the Navigate tab's manual "jump" control never registered as an
   operator action at all.** Turned out to be the real culprit behind the
   `tourDestination` bug below, not the plain dispatch control: `/fleet/jump`
