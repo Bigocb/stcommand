@@ -31,10 +31,19 @@ export function createMcpRouter(registry: TenantRegistry): Router {
       return;
     }
 
+    // Same visibility gap mcpAuth.ts's own comment describes — this is the
+    // only trace of a request past auth until the response actually lands
+    // or errors. req.body's jsonrpc "method" (initialize, tools/list,
+    // tools/call, ...) is the single most useful field for telling a
+    // client-side connection drop apart from a server-side one.
+    const rpcMethod = (req.body as { method?: unknown } | undefined)?.method;
+    console.log(`[mcp] tenant=${tenantId} method=${String(rpcMethod ?? "?")} — request received`);
+
     let worker;
     try {
       worker = await registry.getOrCreate(tenantId, agentSymbol);
     } catch (err) {
+      console.error(`[mcp] tenant=${tenantId} engine boot failed`, err);
       res.status(503).json({
         jsonrpc: "2.0",
         error: { code: -32001, message: `engine not ready: ${err instanceof Error ? err.message : String(err)}` },
@@ -50,12 +59,14 @@ export function createMcpRouter(registry: TenantRegistry): Router {
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
+      console.log(`[mcp] tenant=${tenantId} method=${String(rpcMethod ?? "?")} — response sent, status=${res.statusCode}`);
       res.on("close", () => {
+        console.log(`[mcp] tenant=${tenantId} method=${String(rpcMethod ?? "?")} — connection closed`);
         transport.close();
         server.close();
       });
     } catch (err) {
-      console.error("[mcp] request error", err);
+      console.error(`[mcp] tenant=${tenantId} method=${String(rpcMethod ?? "?")} — request error`, err);
       if (!res.headersSent) {
         res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: "internal server error" }, id: null });
       }

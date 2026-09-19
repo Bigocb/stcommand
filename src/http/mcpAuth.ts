@@ -17,10 +17,26 @@ import { resolveMcpKey } from "../db/mcpKeys.js";
  * downstream Store/FleetManager call already reads those two, regardless
  * of which auth path set them.
  */
+/** Log line prefix every /mcp request emits — the *only* current visibility
+ *  into whether a call is reaching the server at all. Render's request-type
+ *  logs aren't captured for this service (confirmed absent even for
+ *  ordinary dashboard POSTs earlier the same session), and this handler
+ *  previously only logged on an unexpected internal error — a rejected or
+ *  silently-dropped connection attempt left no trace anywhere. Deliberately
+ *  logs the *shape* of what arrived (method, whether an Authorization
+ *  header is present, its length, first/last few chars) never the raw key
+ *  itself. */
+function logAttempt(req: { method: string; header(name: string): string | undefined }, outcome: string): void {
+  const header = (req.header("authorization") ?? "").trim();
+  const shape = header ? `present, len=${header.length}, "${header.slice(0, 10)}…${header.slice(-4)}"` : "absent";
+  console.log(`[mcp-auth] ${req.method} authorization=${shape} -> ${outcome}`);
+}
+
 export function createMcpAuth(pool: pg.Pool): RequestHandler {
   return async (req, res, next) => {
     const header = (req.header("authorization") ?? "").trim();
     if (!header) {
+      logAttempt(req, "401 missing header");
       res.status(401).json({ error: "missing Authorization header — send either \"Bearer <key>\" or the bare key" });
       return;
     }
@@ -35,9 +51,11 @@ export function createMcpAuth(pool: pg.Pool): RequestHandler {
     const rawKey = bearerMatch ? bearerMatch[1]!.trim() : header;
     const resolved = await resolveMcpKey(pool, rawKey);
     if (!resolved) {
+      logAttempt(req, "401 key not found/revoked");
       res.status(401).json({ error: "invalid or revoked MCP key" });
       return;
     }
+    logAttempt(req, `200 tenant=${resolved.tenantId}`);
     req.tenantId = resolved.tenantId;
     req.agentSymbol = resolved.agentSymbol;
     next();
