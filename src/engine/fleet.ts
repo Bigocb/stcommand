@@ -856,7 +856,7 @@ export class FleetManager {
       recordMarket: (wp) => this.recordMarketSnapshot(wp),
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
-      jumpTo: (sym, wp) => this.jumpShip(sym, wp),
+      jumpTo: (sym, wp) => this.jumpToward(sym, wp),
       atlas: this.galaxy,
       shouldRun: () => !this.paused,
       // Prefer what this ship itself last paid; fall back to the fleet-wide
@@ -1527,7 +1527,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1554,7 +1554,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1587,7 +1587,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1623,7 +1623,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1657,7 +1657,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1771,7 +1771,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1798,7 +1798,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1828,7 +1828,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1851,7 +1851,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1879,7 +1879,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1911,7 +1911,7 @@ export class FleetManager {
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
           repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpShip(sym, wp),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
           findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
             this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
@@ -1957,7 +1957,7 @@ export class FleetManager {
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
-        jumpTo: (sym, wp) => this.jumpShip(sym, wp),
+        jumpTo: (sym, wp) => this.jumpToward(sym, wp),
         jumpToUnchartedSystem: (sym) => this.scoutJumpToUnchartedSystem(sym),
         galaxy: this.galaxy,
         store: this.store,
@@ -2722,17 +2722,46 @@ export class FleetManager {
       this.log(`${shipSymbol}: arrived in ${dest}, touring in place`);
       return false;
     }
-    if (ship.nav.status === "IN_TRANSIT") return true; // already mid-hop, nothing to do this tick
-    const path = this.findSystemPath(ship.nav.systemSymbol, dest);
+    return this.hopToward(shipSymbol, dest, ship);
+  }
+
+  /**
+   * Take one hop toward `targetSystem` from wherever `shipSymbol` currently
+   * is, via the known jump-gate graph — factored out of
+   * `advanceTourDispatch()` (which already did exactly this for a tour
+   * ship's own multi-hop dispatch) so `runHoldGoal()`'s `jumpTo` wiring
+   * (see `jumpToward()` below) can share it instead of calling
+   * `jumpShip()` directly with the *final* target waypoint. `jumpShip()`
+   * is a single-direct-gate-only primitive — it throws "not connected"
+   * for anything more than one hop away — and `runHoldGoal()` was doing
+   * exactly that: passing a hold's target straight through, correctly for
+   * an adjacent system, silently broken for anything farther. Confirmed
+   * live: THEO-13, held 2 hops from its target system, retried the
+   * identical doomed direct jump every tick forever with "Failed to
+   * execute jump ... is not connected to the current location." — the
+   * exact failure mode `advanceTourDispatch()`'s own history (THEO-14,
+   * same symptom) already existed to prevent, just for a caller that
+   * never got the fix.
+   *
+   * Returns true if a hop was taken or is already in flight, false if
+   * arrived, blocked, or no path is known yet — same contract
+   * `advanceTourDispatch()` already had, now shared. `ship`, if the
+   * caller already has a fresh one, skips a redundant `getShip()` call.
+   */
+  private async hopToward(shipSymbol: string, targetSystem: string, ship?: Ship): Promise<boolean> {
+    const s = ship ?? (await this.api.getShip(shipSymbol));
+    if (s.nav.systemSymbol === targetSystem) return false; // arrival is the caller's job, not this primitive's
+    if (s.nav.status === "IN_TRANSIT") return true; // already mid-hop, nothing to do this tick
+    const path = this.findSystemPath(s.nav.systemSymbol, targetSystem);
     if (!path || path.length < 2) {
-      this.log(`${shipSymbol}: no known jump-gate path from ${ship.nav.systemSymbol} to ${dest} yet — will retry as more of the galaxy is charted`);
+      this.log(`${shipSymbol}: no known jump-gate path from ${s.nav.systemSymbol} to ${targetSystem} yet — will retry as more of the galaxy is charted`);
       return false;
     }
     const nextSystem = path[1]!;
     await this.galaxy.loadSystem(nextSystem);
     const remoteGate = this.galaxy.getSystem(nextSystem)?.waypoints.find((w) => w.type === "JUMP_GATE");
     if (!remoteGate) {
-      this.log(`${shipSymbol}: ${nextSystem} (next hop toward ${dest}) has no known jump gate yet — will retry`);
+      this.log(`${shipSymbol}: ${nextSystem} (next hop toward ${targetSystem}) has no known jump gate yet — will retry`);
       return false;
     }
     // A gate the cache already knows is still under construction (a live
@@ -2747,26 +2776,25 @@ export class FleetManager {
     // changes; FleetManager.tick()'s periodic refreshGateConstruction()
     // sweep is what notices a genuinely-finished gate and flips this back.
     if (this.galaxy.gateComplete(remoteGate.symbol) === false) {
-      this.log(`${shipSymbol}: ${remoteGate.symbol} is still under construction — touring ${ship.nav.systemSymbol} while waiting`);
+      this.log(`${shipSymbol}: ${remoteGate.symbol} is still under construction — will retry`);
       return false;
     }
     try {
       await this.jumpShip(shipSymbol, remoteGate.symbol);
     } catch (err) {
       // jumpShip() reaches the gate via dispatchShip()/agent.dispatchTo(),
-      // which for a tour ship (ShipAgent) really flies there and throws
-      // NavigationPending as real control flow while schedulerDriven is
-      // true (set by nextTourTask() before tourScout() calls this) — not a
-      // failure. Swallowing it here as "the jump failed" incorrectly
-      // recorded a perfectly fine gate as under construction and fell back
-      // to local touring "while waiting" forever, since the very next
-      // attempt hit the identical mis-caught Pending again. Confirmed live:
-      // THEO-14, dispatched to tour X1-B48 (2 hops away), got stuck
-      // touring X1-XB94 with the log line "tour dispatch hop to X1-B48
-      // failed ... [object Object]" repeating on every retry — `[object
-      // Object]` because `String()`-ing a Pending (not an Error) gives
-      // exactly that. Must propagate to nextTourTask()'s own catch, which
-      // already reschedules correctly at `err.resumeAt`.
+      // which for a scheduler-driven ship really flies there and throws
+      // NavigationPending as real control flow — not a failure. Swallowing
+      // it here as "the jump failed" incorrectly recorded a perfectly fine
+      // gate as under construction and fell back to "while waiting" forever,
+      // since the very next attempt hit the identical mis-caught Pending
+      // again. Confirmed live: THEO-14, dispatched to tour X1-B48 (2 hops
+      // away), got stuck touring X1-XB94 with the log line "tour dispatch
+      // hop to X1-B48 failed ... [object Object]" repeating on every retry —
+      // `[object Object]` because `String()`-ing a Pending (not an Error)
+      // gives exactly that. Must propagate to the caller's own catch (for a
+      // scheduler-driven tour ship, nextTourTask()'s, which already
+      // reschedules correctly at `err.resumeAt`).
       if (err instanceof Pending) throw err;
       // Same reasoning as the explore path's own jump-failure handler
       // (ShipProxy.runFleetDrivenGoal, JUMP phase): a live rejection is
@@ -2774,10 +2802,26 @@ export class FleetManager {
       // here is what lets the gateComplete() check above actually catch
       // this next tick instead of retrying the identical doomed jump forever.
       this.galaxy.recordGateNotComplete(remoteGate.symbol);
-      this.log(`${shipSymbol}: tour dispatch hop to ${nextSystem} failed, touring ${ship.nav.systemSymbol} while waiting: ${err instanceof Error ? err.message : String(err)}`);
+      this.log(`${shipSymbol}: hop to ${nextSystem} (toward ${targetSystem}) failed, will retry: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
     return true;
+  }
+
+  /**
+   * `jumpTo` wiring for `ShipProxy.runHoldGoal()` (and every other
+   * scheduler-driven role's identical cross-system-hold branch) — see
+   * `hopToward()`'s own comment for why this exists instead of the
+   * previous `(sym, wp) => this.jumpShip(sym, wp)` wiring. `waypointSymbol`
+   * is the hold's *final* target; this only ever takes the next hop toward
+   * it, exactly like `advanceTourDispatch()` does for a tour ship's own
+   * dispatch — the caller (`runHoldGoal()`) re-invokes this every tick
+   * until the ship's system matches the target's, the same re-proposed-
+   * and-re-executed-every-tick shape its own comment already describes.
+   */
+  private async jumpToward(shipSymbol: string, waypointSymbol: string): Promise<void> {
+    const targetSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
+    await this.hopToward(shipSymbol, targetSystem);
   }
 
   /**

@@ -11,6 +11,27 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a hold targeting a waypoint 2+ hops away retried an impossible
+  direct jump forever.** `ShipProxy.runHoldGoal()`'s cross-system branch
+  (`jumpTo`, wired to `FleetManager.jumpShip()`) passed the hold's *final*
+  target waypoint straight to a single-direct-gate-only jump primitive —
+  correct for an adjacent system, permanently broken for anything farther,
+  since `jumpShip()` throws "not connected" and there was no multi-hop
+  fallback. Confirmed live via the new MCP tools: an agent held THEO-13 at
+  a waypoint 2 hops away and it retried the identical doomed jump every
+  tick forever ("Failed to execute jump ... is not connected to the
+  current location") — the exact failure class `advanceTourDispatch()`
+  (a tour ship's own multi-hop dispatch) already existed to prevent, for
+  a caller that never got the fix. Factored `advanceTourDispatch()`'s
+  hop-by-hop walk into a shared `hopToward()`, and added `jumpToward()` —
+  now every `jumpTo` wiring (13 sites, every scheduler-driven role) takes
+  one hop at a time toward the target and lets the next tick take the
+  next, instead of one all-or-nothing direct jump. This bug predates the
+  MCP server (`sendShipTo()`'s own cross-system dispatch had the same
+  gap) — the MCP tools just made it easy to hit by dispatching a ship
+  somewhere a human operator would normally reach via tour-dispatch
+  instead.
+
 - **Add: trading/pricing intel tools to `/mcp`** — `stcommand_get_goods`
   (every observed TradeSymbol, for resolving a plain-language good name),
   `stcommand_get_best_price` (cheapest-to-buy and best-to-sell locations
