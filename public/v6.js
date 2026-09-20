@@ -5629,16 +5629,29 @@ function renderPriceChart(points, elId = "price-chart-room") {
   // letterboxed (default preserveAspectRatio="xMidYMid meet"), leaving empty
   // space on either side of the chart on any container wider than 2.46:1.
   const W = Math.max(120, el.clientWidth || 320), H = Math.max(60, el.clientHeight || 130), P = 12;
-  const vals = points.map((p) => Number(p.avg));
+  const sellVals = points.map((p) => Number(p.avg));
+  // buyAvg is a later-added column (goodPriceHistory()) — snapshots recorded
+  // before that migration have no purchase_price aggregate, so tolerate
+  // missing/NaN values rather than let one bad point collapse the whole
+  // buy-line's scale.
+  const buyVals = points.map((p) => (p.buyAvg == null ? NaN : Number(p.buyAvg)));
+  const hasBuy = buyVals.some((v) => Number.isFinite(v));
   const times = points.map((p) => new Date(p.t).getTime());
-  let min = Math.min(...vals), max = Math.max(...vals);
+  // Shared y-scale across both series so the two lines are directly
+  // comparable (the margin between them IS the story here), not each
+  // independently normalized to its own range.
+  const allVals = hasBuy ? [...sellVals, ...buyVals.filter(Number.isFinite)] : sellVals;
+  let min = Math.min(...allVals), max = Math.max(...allVals);
   if (min === max) { min -= 1; max += 1; }
   const span = max - min;
   const x = (i) => P + (i / (points.length - 1 || 1)) * (W - P * 2);
   const y = (v) => H - P - ((v - min) / span) * (H - P * 2);
-  const line = vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  const area = `${line} L${x(points.length - 1).toFixed(1)},${H - P} L${x(0).toFixed(1)},${H - P} Z`;
+  const toLine = (vals) => vals.map((v, i) => (Number.isFinite(v) ? `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}` : "")).join(" ");
+  const sellLine = toLine(sellVals);
+  const area = `${sellLine} L${x(points.length - 1).toFixed(1)},${H - P} L${x(0).toFixed(1)},${H - P} Z`;
+  const buyLine = hasBuy ? toLine(buyVals) : "";
   const lastIdx = points.length - 1;
+  const lastBuy = buyVals[lastIdx];
   let html = `<svg viewBox="0 0 ${W} ${H}">
     <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="rgba(240,71,154,0.35)"/>
@@ -5646,12 +5659,20 @@ function renderPriceChart(points, elId = "price-chart-room") {
     </linearGradient></defs>
     ${[0.25, 0.5, 0.75].map((f) => `<line x1="${P}" x2="${W - P}" y1="${y(min + span * f)}" y2="${y(min + span * f)}" stroke="rgba(148,163,178,0.12)" stroke-width="1"/>`).join("")}
     <path d="${area}" fill="url(#${gradId})"/>
-    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
-    <circle cx="${x(lastIdx)}" cy="${y(vals[lastIdx])}" r="2.5" fill="var(--accent)"/>
+    <path d="${sellLine}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="${x(lastIdx)}" cy="${y(sellVals[lastIdx])}" r="2.5" fill="var(--accent)"/>
+    ${hasBuy ? `<path d="${buyLine}" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="3,2"/>` : ""}
+    ${hasBuy && Number.isFinite(lastBuy) ? `<circle cx="${x(lastIdx)}" cy="${y(lastBuy)}" r="2.5" fill="var(--green)"/>` : ""}
     <text x="${P}" y="${y(max)}" font-size="8" fill="var(--dim)">${Math.round(max)}</text>
     <text x="${P}" y="${y(min)}" font-size="8" fill="var(--dim)">${Math.round(min)}</text>
     <text x="${P}" y="${H - 2}" font-size="8" fill="var(--dim)">${new Date(times[0]).toLocaleTimeString("en-US", { hour12: false })}</text>
     <text x="${W - P}" y="${H - 2}" font-size="8" fill="var(--dim)" text-anchor="end">${new Date(times[lastIdx]).toLocaleTimeString("en-US", { hour12: false })}</text>
+    ${hasBuy ? `<g transform="translate(${W - P - 78},${P - 4})" font-size="8">
+      <line x1="0" y1="0" x2="10" y2="0" stroke="var(--accent)" stroke-width="1.5"/>
+      <text x="13" y="3" fill="var(--dim)">sell</text>
+      <line x1="38" y1="0" x2="48" y2="0" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="3,2"/>
+      <text x="51" y="3" fill="var(--dim)">buy</text>
+    </g>` : ""}
   </svg>`;
   el.innerHTML = html;
 }

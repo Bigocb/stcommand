@@ -450,21 +450,24 @@ export class Store {
    * table — same data for every tenant, so this is the one "activity-shaped"
    * method that isn't tenant-scoped despite living in this section.
    */
-  async goodPriceHistory(good: string, since: string): Promise<{ t: string; avg: number; min: number; max: number }[]> {
+  async goodPriceHistory(good: string, since: string): Promise<{ t: string; avg: number; min: number; max: number; buyAvg: number; buyMin: number; buyMax: number }[]> {
     return withPool(this.pool, async (c) => {
-      const res = await c.query<{ t: string; avg: string; min: number; max: number }>(
+      const res = await c.query<{ t: string; avg: string; min: number; max: number; buy_avg: string; buy_min: number; buy_max: number }>(
         `SELECT
            to_char(date_trunc('minute', timestamp), 'YYYY-MM-DD"T"HH24:MI') AS t,
            ROUND(AVG(sell_price)::numeric, 1) AS avg,
            MIN(sell_price) AS min,
-           MAX(sell_price) AS max
+           MAX(sell_price) AS max,
+           ROUND(AVG(purchase_price)::numeric, 1) AS buy_avg,
+           MIN(purchase_price) AS buy_min,
+           MAX(purchase_price) AS buy_max
          FROM market_snapshots
          WHERE good_symbol = $1 AND timestamp >= $2
          GROUP BY t
          ORDER BY t ASC`,
         [good, since],
       );
-      return res.rows.map((r) => ({ t: r.t, avg: Number(r.avg), min: r.min, max: r.max }));
+      return res.rows.map((r) => ({ t: r.t, avg: Number(r.avg), min: r.min, max: r.max, buyAvg: Number(r.buy_avg), buyMin: r.buy_min, buyMax: r.buy_max }));
     });
   }
 
