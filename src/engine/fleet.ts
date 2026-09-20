@@ -585,7 +585,17 @@ export class FleetManager {
           this.log(`restore mine pin ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      if (st.holdWaypoint) {
+      // Skip when a minePin also restored above: mineAt() now clears
+      // holdWaypoint (in DB and this.operatorHolds) as part of asserting
+      // that a mine-pin supersedes a hold, but `st` here is one snapshot
+      // read before either restore ran, so its own holdWaypoint field is
+      // already stale once minePin wins. Restoring it anyway would
+      // silently reinstate the very hold mineAt() just cleared — confirmed
+      // live 2026-09-20: a tenant whose persisted state still had both
+      // fields set (from before this precedence existed) redeployed, and
+      // THEO-1 came back under "manual hold" immediately after its mine
+      // pin was restored.
+      if (st.holdWaypoint && !st.minePin) {
         try {
           await this.holdShip(shipSymbol);
         } catch (err) {

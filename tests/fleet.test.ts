@@ -1977,6 +1977,36 @@ describe("FleetManager.init: promotion respects manual role overrides", () => {
     assert.equal(status?.paused, false, "the stale hold must not be replayed on top of the reassigned role");
   });
 
+  it("a mine-pinned ship stays mining, not held, across a restart", async () => {
+    // Confirmed live 2026-09-20: the Manipulation Routes "Assign" action
+    // held THEO-1 at an asteroid (operator hold, ship parked doing
+    // nothing), then a later mineAt() call correctly cleared that hold —
+    // but the tenant's persisted shipManualState still had a stale
+    // holdWaypoint left over from before that fix shipped. On the very
+    // next redeploy, init()'s restore loop read that one stale snapshot,
+    // restored the mine pin (which itself re-clears the hold), and then
+    // unconditionally restored the hold too from the same now-outdated
+    // snapshot — silently re-parking the ship a second time, right after
+    // un-parking it.
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const ship = makeRawShip("SHIP-MINER", { cargoCapacity: 40, mining: true, frame: "FRAME_DRONE" });
+
+    const firstBoot = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
+    await firstBoot.init();
+    await firstBoot.setShipRole("SHIP-MINER", "miner");
+    await firstBoot.holdShip("SHIP-MINER");
+    await firstBoot.mineAt("SHIP-MINER", "X1-TEST-B2");
+
+    const restarted = new FleetManager({ api: makeInitApi([ship]), store, tenantId });
+    await restarted.init();
+
+    assert.ok((restarted as any).miners.has("SHIP-MINER"), "the miner role must survive the restart");
+    const status = restarted.getShipStatuses().find((s) => s.symbol === "SHIP-MINER");
+    assert.equal(status?.paused, false, "the mine pin must win — a restored ship pinned to mine must not come back held");
+    assert.equal(status?.pinnedField, "X1-TEST-B2", "the mine pin itself must still survive the restart");
+  });
+
   it("a paused mission stays paused across a restart instead of quietly resuming", async () => {
     // Confirmed live: nothing in init() ever called missions.startConstruction()
     // again for a mission that existed before the restart, so
