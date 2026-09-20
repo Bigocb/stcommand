@@ -5717,6 +5717,7 @@ function loadMobilePanels() {
   loadWarehouse();
   loadProgramme();
   loadDoctrine();
+  loadManipulationRoutes();
 }
 mobileMQ.addEventListener("change", (e) => { if (e.matches && authed) loadMobilePanels(); });
 
@@ -6107,19 +6108,15 @@ async function assignShipToManipulationWaypoint(shipSymbol, waypointSymbol, btn)
   }
 }
 
-function renderManipulationRoutes() {
-  const el = $("ops-manipulation-routes");
-  if (!el) return;
-  if (!manipulationRoutes.length) {
-    el.innerHTML = '<div class="empty">No manipulation routes found.</div>';
-    return;
-  }
+/** Builds one copy of the manipulation-routes markup, with history-panel
+ *  ids namespaced by idPrefix so the desktop Ops pane and the mobile Ops
+ *  screen can render independent copies without id collisions. */
+function buildManipulationRoutesHtml(idPrefix) {
   const shipOptions = (fleetStatus.ships ?? [])
     .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
     .join("");
-
-  el.innerHTML = manipulationRoutes.map((r, i) => {
-    const historyId = `mr-history-${i}`;
+  return manipulationRoutes.map((r, i) => {
+    const historyId = `${idPrefix}-mr-history-${i}`;
     const marketHtml = r.market
       ? `<span class="ops-sub">${escapeHtml(r.market.waypointSymbol)} @ ${fmt(r.market.purchasePrice)}c · volume ${r.market.tradeVolume}</span>
          <button class="btn mr-history-toggle" data-wp="${escapeAttr(r.market.waypointSymbol)}" data-good="${escapeAttr(r.targetGood)}" data-inputs="${escapeAttr(r.inputs.map((inp) => inp.good).join(","))}" data-target="${historyId}">History</button>`
@@ -6147,17 +6144,28 @@ function renderManipulationRoutes() {
       <div id="${historyId}"></div>
     </div>`;
   }).join("");
+}
 
+function wireManipulationRoutesEvents(el) {
   el.querySelectorAll(".mr-assign").forEach((btn) => {
     btn.addEventListener("click", () => {
       const select = btn.parentElement.querySelector(".mr-ship-select");
       assignShipToManipulationWaypoint(select?.value, btn.dataset.wp, btn);
     });
   });
-
   el.querySelectorAll(".mr-history-toggle").forEach((btn) => {
     btn.addEventListener("click", () => loadAndRenderManipulationHistory(btn));
   });
+}
+
+function renderManipulationRoutes() {
+  const empty = '<div class="empty">No manipulation routes found.</div>';
+  for (const id of ["ops-manipulation-routes", "mobile-manipulation-routes"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.innerHTML = manipulationRoutes.length ? buildManipulationRoutesHtml(id) : empty;
+    if (manipulationRoutes.length) wireManipulationRoutesEvents(el);
+  }
 }
 
 /** Fetches and renders one route's price-history + input-sell-log —
