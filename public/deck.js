@@ -1078,6 +1078,94 @@ document.addEventListener("visibilitychange", () => {
   pollTick();
 });
 
+/* ── Command palette (⌘K) ───────────────────
+ * Jump to a rail section or a ship by symbol. No actions beyond
+ * navigation this pass — see docs' own "what happens after" notes on
+ * every prior spec doc, which all named this as the final scoped piece.
+ */
+const CMDK_SECTIONS = [
+  { key: "overview", label: "Overview" },
+  { key: "fleet", label: "Fleet" },
+  { key: "markets", label: "Markets" },
+  { key: "map", label: "Map" },
+  { key: "ops", label: "Ops" },
+  { key: "doctrine", label: "Doctrine" },
+];
+let cmdkSelected = 0;
+
+function cmdkItems(query) {
+  const q = query.trim().toLowerCase();
+  const sections = CMDK_SECTIONS
+    .filter((s) => !q || s.label.toLowerCase().includes(q) || s.key.includes(q))
+    .map((s) => ({ tag: "section", label: s.label, run: () => setView(s.key) }));
+  const ships = (state?.ships ?? [])
+    .filter((s) => !q || s.symbol.toLowerCase().includes(q))
+    .slice(0, 8)
+    .map((s) => ({
+      tag: "ship",
+      label: s.symbol,
+      run: () => {
+        selectedFleetShip = s.symbol;
+        selectedFleetSystem = "All systems";
+        setView("fleet");
+      },
+    }));
+  return [...sections, ...ships];
+}
+
+function renderCmdk() {
+  const items = cmdkItems($("cmdk-input").value);
+  cmdkSelected = Math.min(cmdkSelected, Math.max(items.length - 1, 0));
+  const el = $("cmdk-list");
+  if (!items.length) {
+    el.innerHTML = '<div class="cpempty">No matches.</div>';
+    return;
+  }
+  el.innerHTML = items.map((it, i) => `
+    <div class="cpitem${i === cmdkSelected ? " sel" : ""}" data-i="${i}">
+      <span class="tag">${escapeHtml(it.tag)}</span>
+      <span class="lbl">${escapeHtml(it.label)}</span>
+    </div>`).join("");
+  el.querySelectorAll(".cpitem").forEach((row) => {
+    row.addEventListener("click", () => { items[Number(row.dataset.i)].run(); closeCmdk(); });
+  });
+}
+
+function openCmdk() {
+  cmdkSelected = 0;
+  $("cmdk-input").value = "";
+  $("cmdk-overlay").hidden = false;
+  renderCmdk();
+  $("cmdk-input").focus();
+}
+
+function closeCmdk() {
+  $("cmdk-overlay").hidden = true;
+}
+
+$("cmdk-trigger").addEventListener("click", openCmdk);
+
+$("cmdk-input").addEventListener("input", () => { cmdkSelected = 0; renderCmdk(); });
+
+$("cmdk-input").addEventListener("keydown", (e) => {
+  const items = cmdkItems($("cmdk-input").value);
+  if (e.key === "ArrowDown") { e.preventDefault(); cmdkSelected = Math.min(cmdkSelected + 1, items.length - 1); renderCmdk(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); cmdkSelected = Math.max(cmdkSelected - 1, 0); renderCmdk(); }
+  else if (e.key === "Enter") { e.preventDefault(); const it = items[cmdkSelected]; if (it) { it.run(); closeCmdk(); } }
+  else if (e.key === "Escape") { e.preventDefault(); closeCmdk(); }
+});
+
+$("cmdk-overlay").addEventListener("click", (e) => { if (e.target === $("cmdk-overlay")) closeCmdk(); });
+
+document.addEventListener("keydown", (e) => {
+  if (!authed) return;
+  const isK = e.key === "k" || e.key === "K";
+  if (isK && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    if ($("cmdk-overlay").hidden) openCmdk(); else closeCmdk();
+  }
+});
+
 (async function boot0() {
   if (new URLSearchParams(window.location.search).get("login") === "1") {
     window.history.replaceState({}, "", window.location.pathname);

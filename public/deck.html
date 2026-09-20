@@ -46,7 +46,7 @@
         <div class="grow"></div>
         <div class="pill" id="tb-conn"><i></i>—</div>
         <div class="modes" id="tb-modes"><span data-mode="auto">AUTO</span><span data-mode="halt">HALT</span></div>
-        <div class="kbd" title="Not wired yet">⌘K</div>
+        <div class="kbd" id="cmdk-trigger" title="Open command palette">⌘K</div>
       </div>
       <div class="body3">
         <div class="content" id="view-overview">
@@ -184,6 +184,13 @@
           <div class="actlog" id="sig-activity"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="cpoverlay" id="cmdk-overlay" hidden>
+    <div class="cpbox">
+      <div class="cpinput"><span class="sym">⌘K</span><input type="text" id="cmdk-input" placeholder="Go to a ship or section…" autocomplete="off"></div>
+      <div class="cplist" id="cmdk-list"></div>
     </div>
   </div>
 </div>
