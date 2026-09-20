@@ -1,6 +1,6 @@
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
-import { ShipAgent } from "./agent.js";
+import { ShipAgent, REFINE_RECIPES, REFINERY_MODULES } from "./agent.js";
 import { TraderAgent, type TraderOptions } from "./trader.js";
 import { ScoutAgent } from "./scout.js";
 import { SiphonerAgent } from "./siphoner.js";
@@ -4240,13 +4240,40 @@ export class FleetManager {
    * new Deck screen this session already used. It does not dispatch a
    * ship, mine anything, or sell anything itself.
    */
+  /**
+   * True when `good` is a refined metal (IRON, COPPER, ALUMINUM, ...) that
+   * mining never yields directly — extraction only ever produces the raw
+   * `_ORE` form, which must go through `/refine` before a market that
+   * imports the refined name will buy it. Confirmed live 2026-09-20: THEO-1
+   * mined 24 IRON_ORE at a candidate asteroid this finder itself suggested,
+   * and none of it was sellable at the target market (X1-SN30-F50 imports
+   * "IRON", not "IRON_ORE") — it just piled up unsellable in cargo.
+   */
+  private static needsRefining(good: string): boolean {
+    return Object.values(REFINE_RECIPES).includes(good as (typeof REFINE_RECIPES)[string]);
+  }
+
+  /** True when at least one ship in the fleet has a module the live
+   *  `/refine` endpoint actually accepts — see REFINERY_MODULES's own
+   *  comment for why MODULE_MINERAL_PROCESSOR_I doesn't count despite the
+   *  name. Scoped to miners/surveyors, the only roles that would ever be
+   *  the one asked to refine what it just mined. */
+  private fleetCanRefine(): boolean {
+    for (const agent of [...this.miners.values(), ...this.surveyors.values()]) {
+      if (agent.getShip().modules.some((m) => (REFINERY_MODULES as readonly string[]).includes(m.symbol))) return true;
+    }
+    return false;
+  }
+
   async findManipulationRoutes(targetGoods: string[]): Promise<{
     targetGood: string;
     market: { systemSymbol: string; waypointSymbol: string; purchasePrice: number; tradeVolume: number } | undefined;
-    inputs: { good: string; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string; type: string }[] }[];
+    inputs: { good: string; needsRefining: boolean; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string; type: string }[] }[];
+    fleetCanRefine: boolean;
   }[]> {
     const chain = await getSupplyChain(this.api).catch(() => undefined);
     const snapshots = (await this.store?.latestMarketSnapshots()) ?? [];
+    const fleetCanRefine = this.fleetCanRefine();
     const out: Awaited<ReturnType<FleetManager["findManipulationRoutes"]>> = [];
 
     for (const targetGood of targetGoods) {
@@ -4261,8 +4288,9 @@ export class FleetManager {
         ? { systemSymbol: marketRows[0].systemSymbol, waypointSymbol: marketRows[0].waypointSymbol, purchasePrice: marketRows[0].purchasePrice, tradeVolume: marketRows[0].tradeVolume }
         : undefined;
 
-      const inputs: { good: string; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string; type: string }[] }[] = [];
+      const inputs: { good: string; needsRefining: boolean; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string; type: string }[] }[] = [];
       for (const good of inputGoods) {
+        const needsRefining = FleetManager.needsRefining(good);
         const hints = FleetManager.DEPOSIT_TRAIT_HINTS[good] ?? [];
         const candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string; type: string }[] = [];
         // Scoped to the target market's own system (same reasoning as
@@ -4280,9 +4308,9 @@ export class FleetManager {
             if (matchedHint) candidateAsteroids.push({ systemSymbol: sys, waypointSymbol: w.symbol, traitHint: matchedHint, type: w.type });
           }
         }
-        inputs.push({ good, candidateAsteroids });
+        inputs.push({ good, needsRefining, candidateAsteroids });
       }
-      out.push({ targetGood, market, inputs });
+      out.push({ targetGood, market, inputs, fleetCanRefine });
     }
     return out;
   }

@@ -1077,7 +1077,10 @@ function renderMoreManipulationRoutes() {
             </div>`;
           }).join("")
         : '<div class="detail">no candidate asteroid found nearby</div>';
-      return `<div class="detail">need: ${escapeHtml(inp.good)}</div>${asteroidRows}`;
+      const refineWarning = inp.needsRefining
+        ? `<div class="detail" style="color:var(--red,#e05555)">⚠ mining yields ${escapeHtml(inp.good)}_ORE, not ${escapeHtml(inp.good)} — this market won't buy the ore${r.fleetCanRefine ? "; a refinery-capable ship must refine it first" : ", and no ship in the fleet has a refinery module yet"}</div>`
+        : "";
+      return `<div class="detail">need: ${escapeHtml(inp.good)}</div>${refineWarning}${asteroidRows}`;
     }).join("");
     return `<div class="card">
       <div class="row1"><span class="who">${escapeHtml(r.targetGood)}</span></div>

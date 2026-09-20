@@ -783,8 +783,12 @@ function renderManipulationRoutes() {
             </div>`;
           }).join("")
         : '<div style="padding:6px 14px;color:var(--dim2);font-size:10.5px">no candidate asteroid found nearby</div>';
+      const refineWarning = inp.needsRefining
+        ? `<div style="padding:2px 14px 6px;font-size:9.5px;color:var(--red,#e05555)">⚠ mining yields ${escapeHtml(inp.good)}_ORE, not ${escapeHtml(inp.good)} — this market won't buy the ore${r.fleetCanRefine ? "; a refinery-capable ship must refine it first" : ", and no ship in the fleet has a refinery module (MODULE_ORE_REFINERY_I/MODULE_FUEL_REFINERY_I) installed yet"}</div>`
+        : "";
       return `
         <div style="padding:6px 14px;font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em">need: ${escapeHtml(inp.good)}</div>
+        ${refineWarning}
         ${asteroidRows}`;
     }).join("");
     return `

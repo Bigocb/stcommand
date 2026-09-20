@@ -176,8 +176,19 @@ const ORE_GOODS = [
   "AMMONIA_ICE",
 ];
 
+/**
+ * The only two module symbols the live `/my/ships/{s}/refine` endpoint
+ * actually accepts — confirmed against the real API 2026-09-20 (a ship
+ * with MODULE_MINERAL_PROCESSOR_I/MODULE_GAS_PROCESSOR_I installed, which
+ * sound plausible but are NOT refinery modules, got back "Ship does not
+ * have any refinery modules" with this exact pair listed as the valid
+ * set). Do not add MODULE_MINERAL_PROCESSOR_I/MODULE_MICRO_REFINERY_I
+ * here without re-confirming against the live API first.
+ */
+export const REFINERY_MODULES = ["MODULE_ORE_REFINERY_I", "MODULE_FUEL_REFINERY_I"] as const;
+
 /** Maps a basic (saleable) good to the processed good refine produces from it (10:1). */
-const REFINE_RECIPES: Record<string, "IRON" | "COPPER" | "SILVER" | "GOLD" | "ALUMINUM" | "PLATINUM" | "URANITE" | "MERITIUM" | "FUEL"> = {
+export const REFINE_RECIPES: Record<string, "IRON" | "COPPER" | "SILVER" | "GOLD" | "ALUMINUM" | "PLATINUM" | "URANITE" | "MERITIUM" | "FUEL"> = {
   IRON_ORE: "IRON",
   COPPER_ORE: "COPPER",
   ALUMINUM_ORE: "ALUMINUM",
@@ -406,9 +417,7 @@ export class ShipAgent {
 
   /** True if the ship can refine ores (a refinery/processor module is installed). */
   private canRefine(): boolean {
-    return this.ship.modules.some((m) =>
-      ["MODULE_ORE_REFINERY_I", "MODULE_FUEL_REFINERY_I"].includes(m.symbol),
-    );
+    return this.ship.modules.some((m) => (REFINERY_MODULES as readonly string[]).includes(m.symbol));
   }
 
   /** Best price this ship could get selling `symbol` at any reachable market, or 0. */
