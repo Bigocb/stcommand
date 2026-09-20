@@ -9,9 +9,10 @@ import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, activity,
   marketRoutes, intel, warehouseState,
+  systems, marketSnapshots, leaderboard,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
-  loadMarkets, loadGoods, loadWarehouse,
+  loadMarkets, loadGoods, loadWarehouse, loadGalaxy,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp } from "/shared/domain.js";
 
@@ -59,6 +60,10 @@ function setView(name) {
   if (viewEl) viewEl.hidden = false;
   if (name === "fleet") renderFleet();
   if (name === "markets") renderMarkets();
+  if (name === "map") {
+    loadGalaxy();
+    renderMap();
+  }
 }
 
 $("rail").addEventListener("click", (e) => {
@@ -605,6 +610,220 @@ function renderMarkets() {
   if (dispatchEl) dispatchEl.innerHTML = dispatchHtml;
 }
 
+/* ── Map screen (pass 4) ────────────────────
+ * System chips, 2D waypoint scatter, market detail panel, leaderboard.
+ */
+function normalizeCoords(waypoints) {
+  const xs = waypoints.map((w) => w.x), ys = waypoints.map((w) => w.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const spanX = maxX - minX || 1, spanY = maxY - minY || 1;
+  // 10-90% range, not 0-100%, so a waypoint at the extreme edge of the
+  // system doesn't render its blip half-clipped by the chart's own border.
+  return (w) => ({
+    left: 10 + ((w.x - minX) / spanX) * 80,
+    top: 10 + ((w.y - minY) / spanY) * 80,
+  });
+}
+
+let selectedMapSystem = null;
+let selectedMapWaypoint = null;
+
+function renderMap() {
+  const rows = fleetRows();
+
+  // Determine systems: home system + all systems where fleet has ships
+  const homeSystem = state?.agent?.headquarters?.slice(0, state.agent.headquarters.lastIndexOf("-")) ?? "Unknown";
+  const fleetSystems = new Set([homeSystem]);
+  for (const row of rows) {
+    if (row.at) {
+      const lastDash = row.at.lastIndexOf("-");
+      if (lastDash > 0) {
+        fleetSystems.add(row.at.slice(0, lastDash));
+      }
+    }
+  }
+  const sysArray = Array.from(fleetSystems).sort();
+
+  // Default to home system if not yet selected
+  if (!selectedMapSystem || !sysArray.includes(selectedMapSystem)) {
+    selectedMapSystem = homeSystem;
+    selectedMapWaypoint = null;
+  }
+
+  // Render chip row
+  const chipHTML = sysArray.map((sys) =>
+    `<div class="syschip${selectedMapSystem === sys ? " on" : ""}" data-sys="${escapeAttr(sys)}">${escapeHtml(sys)}</div>`
+  ).join("");
+  $("map-chiprow").innerHTML = chipHTML;
+
+  // Wire chip clicks
+  $("map-chiprow").querySelectorAll(".syschip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      selectedMapSystem = chip.dataset.sys;
+      selectedMapWaypoint = null;
+      renderMap();
+    });
+  });
+
+  // Get waypoints for selected system
+  const system = systems.find((s) => s.symbol === selectedMapSystem);
+  const waypoints = system?.waypoints ?? [];
+
+  // Render chart with blips
+  const normalizer = normalizeCoords(waypoints);
+  const blipsHtml = waypoints.map((wp) => {
+    const coords = normalizer(wp);
+
+    // Determine blip class
+    let blipClass = "planet"; // fallback
+    if (wp.type === "JUMP_GATE") {
+      blipClass = "gate";
+    } else if (wp.traits?.some((t) => t.symbol === "MARKETPLACE") && wp.type !== "JUMP_GATE") {
+      blipClass = "market";
+    } else if (wp.traits?.some((t) => t.symbol === "FUEL_STATION") && wp.type !== "JUMP_GATE") {
+      blipClass = "fuel";
+    } else if (wp.type === "ASTEROID_FIELD" || wp.type === "ENGINEERED_ASTEROID") {
+      blipClass = "asteroid";
+    } else if (wp.type === "ORBITAL_STATION") {
+      blipClass = "station";
+    }
+
+    const shortSymbol = wp.symbol.slice(wp.symbol.lastIndexOf("-") + 1);
+    return `<div class="blip ${blipClass}" style="left:${coords.left}%;top:${coords.top}%" data-wp="${escapeAttr(wp.symbol)}">
+      <div class="blabel">${escapeHtml(shortSymbol)}</div>
+    </div>`;
+  }).join("");
+
+  // Add ships to the chart
+  const shipHtml = rows
+    .filter((row) => {
+      if (row.at) {
+        const lastDash = row.at.lastIndexOf("-");
+        if (lastDash > 0) {
+          const sys = row.at.slice(0, lastDash);
+          return sys === selectedMapSystem;
+        }
+      }
+      return false;
+    })
+    .filter((row) => {
+      // Only show docked/orbiting ships, not in transit
+      const ship = (state?.ships ?? []).find((s) => s.symbol === row.symbol);
+      return ship && ship.nav?.status !== "IN_TRANSIT";
+    })
+    .map((row) => {
+      const wp = waypoints.find((w) => w.symbol === row.at);
+      if (!wp) return "";
+      const coords = normalizer(wp);
+      const shipClass = row.stranded ? "shipwarn" : "ship";
+      return `<div class="blip ${shipClass}" style="left:${coords.left}%;top:${coords.top}%"></div>`;
+    })
+    .join("");
+
+  $("map-chart").innerHTML = blipsHtml + shipHtml;
+
+  // Wire blip clicks
+  $("map-chart").querySelectorAll(".blip[data-wp]").forEach((blip) => {
+    blip.addEventListener("click", () => {
+      selectedMapWaypoint = blip.dataset.wp;
+      renderMapDetail();
+    });
+  });
+
+  // Render legend (only show what's actually on the map)
+  const hasGate = waypoints.some((w) => w.type === "JUMP_GATE");
+  const hasMarket = waypoints.some((w) => w.traits?.some((t) => t.symbol === "MARKETPLACE"));
+  const hasFuel = waypoints.some((w) => w.traits?.some((t) => t.symbol === "FUEL_STATION"));
+  const hasAsteroid = waypoints.some((w) => w.type === "ASTEROID_FIELD" || w.type === "ENGINEERED_ASTEROID");
+  const hasStation = waypoints.some((w) => w.type === "ORBITAL_STATION");
+  const hasPlanet = waypoints.some((w) => !["JUMP_GATE", "ASTEROID_FIELD", "ENGINEERED_ASTEROID", "ORBITAL_STATION"].includes(w.type) && !w.traits?.some((t) => t.symbol === "MARKETPLACE" || t.symbol === "FUEL_STATION"));
+  const hasShip = rows.some((row) => {
+    if (row.at) {
+      const lastDash = row.at.lastIndexOf("-");
+      if (lastDash > 0) {
+        const sys = row.at.slice(0, lastDash);
+        return sys === selectedMapSystem;
+      }
+    }
+    return false;
+  });
+  const hasStranded = rows.some((row) => row.stranded && row.at && row.at.slice(0, row.at.lastIndexOf("-")) === selectedMapSystem);
+
+  const legendItems = [];
+  if (hasPlanet) legendItems.push('<span><i style="background:var(--ice)"></i>Planet</span>');
+  if (hasStation) legendItems.push('<span><i class="sw-station" style="background:var(--bone)"></i>Station</span>');
+  if (hasMarket) legendItems.push('<span><i style="background:var(--ice)"></i>Market</span>');
+  if (hasAsteroid) legendItems.push('<span><i class="sw-asteroid" style="background:var(--dim2)"></i>Asteroid</span>');
+  if (hasFuel) legendItems.push('<span><i style="background:var(--green)"></i>Fuel</span>');
+  if (hasGate) legendItems.push('<span><i class="sw-gate"></i>Gate</span>');
+  if (hasShip || hasStranded) {
+    if (hasStranded) {
+      legendItems.push('<span><i class="sw-ship" style="border-bottom-color:var(--red)"></i>Stranded</span>');
+    } else {
+      legendItems.push('<span><i class="sw-ship"></i>Ship</span>');
+    }
+  }
+
+  $("map-legend").innerHTML = legendItems.length ? `<div class="legend">${legendItems.join("")}</div>` : "";
+
+  // Render detail panel
+  renderMapDetail();
+
+  // Render leaderboard
+  renderMapLeaderboard();
+}
+
+function renderMapDetail() {
+  const el = $("map-market-detail");
+  if (!selectedMapWaypoint) {
+    el.innerHTML = '<div class="empty">Click a waypoint to see its market.</div>';
+    return;
+  }
+
+  const snapshots = marketSnapshots.filter((s) => s.waypointSymbol === selectedMapWaypoint);
+  if (!snapshots.length) {
+    el.innerHTML = '<div class="empty">No market data for this waypoint yet.</div>';
+    return;
+  }
+
+  const html = snapshots.map((s) => `
+    <div class="goodrow">
+      <div style="flex:1">
+        <div class="name">${escapeHtml(s.goodSymbol)}</div>
+      </div>
+      <div style="display:flex;gap:8px;color:var(--dim);font-size:10px">
+        <span>buy ${s.purchasePrice}c</span>
+        <span>sell ${s.sellPrice}c</span>
+      </div>
+    </div>
+  `).join("");
+  el.innerHTML = html;
+}
+
+function renderMapLeaderboard() {
+  const el = $("map-leaderboard");
+  if (!leaderboard.length) {
+    el.innerHTML = '<div style="color:var(--dim2);font-size:11px">No leaderboard data yet.</div>';
+    return;
+  }
+
+  const sorted = [...leaderboard].sort((a, b) => (b.credits ?? 0) - (a.credits ?? 0));
+  const top3 = sorted.slice(0, 3);
+  const mySymbol = state?.agent?.symbol;
+
+  const html = top3.map((a, i) => {
+    const isMe = a.agentSymbol === mySymbol;
+    return `
+      <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,199,120,.06);font-size:10px${isMe ? ";color:var(--accent)" : ""}">
+        <span>${escapeHtml(a.agentSymbol)}${isMe ? " · you" : ""}</span>
+        <span class="mono">${fmt(a.credits)}c</span>
+      </div>
+    `;
+  }).join("");
+  el.innerHTML = html;
+}
+
 /* ── subscriptions ──────────────────────────
  * Wire render functions to data slices.
  */
@@ -614,6 +833,7 @@ subscribe("state", () => {
   renderMinimap();
   renderWantsDoing();
   renderFleet();
+  if (!$("view-map").hidden) renderMap();
 });
 subscribe("bridge", () => {
   renderTopbar();
@@ -633,6 +853,11 @@ subscribe("goods", () => {
 });
 subscribe("activity", () => {
   renderActivity();
+});
+subscribe("galaxy", () => {
+  if (!$("view-map").hidden) renderMap();
+  if (!$("view-map").hidden) renderMapDetail();
+  if (!$("view-map").hidden) renderMapLeaderboard();
 });
 subscribeConnection(() => {
   renderTopbar();

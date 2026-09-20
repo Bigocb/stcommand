@@ -130,10 +130,26 @@
           </div>
         </div>
 
+        <!-- Map screen (pass 4) -->
+        <div class="content" id="view-map" hidden>
+          <div class="chiprow" id="map-chiprow"></div>
+          <div class="mapstage">
+            <div>
+              <div class="chart" id="map-chart"></div>
+              <div class="legend" id="map-legend"></div>
+            </div>
+            <div class="panel" style="display:flex;flex-direction:column;min-height:0">
+              <div class="panel-h"><span class="dot"></span><span class="title">Market</span></div>
+              <div class="panel-b" style="flex:1;overflow:auto" id="map-market-detail"></div>
+              <div style="border-top:1px solid var(--hair);padding:10px 14px;font-family:var(--chrome);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim2)">Top Agents</div>
+              <div style="padding:10px 14px;font-size:11px;color:var(--dim)" id="map-leaderboard"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Inert placeholders — later passes replace these -->
         <!-- (Fleet moved above) -->
         <!-- (Markets moved above) -->
-        <div class="content" id="view-map" hidden><div class="empty">Map — coming soon.</div></div>
         <div class="content" id="view-ops" hidden><div class="empty">Ops — coming soon.</div></div>
         <div class="content" id="view-doctrine" hidden><div class="empty">Doctrine — coming soon.</div></div>
 
