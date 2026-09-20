@@ -4960,7 +4960,17 @@ export class FleetManager {
       throw new Error(`${waypointSymbol} is a ${type}, not an asteroid field`);
     }
     agent.mineAt(waypointSymbol);
-    await this.updateShipManualState(shipSymbol, { minePin: waypointSymbol });
+    // Clear any standing operator hold on this ship. Confirmed live
+    // 2026-09-20: mineAt() used to only set minePin, leaving a prior
+    // sendShipTo()/holdShip() hold's `holdWaypoint` (and this.operatorHolds
+    // entry) in place — proposeOperatorHolds() re-proposes that "hold" goal
+    // every single tick regardless of minePin, so a ship dispatched-and-held
+    // somewhere and then pinned to mine there just sat parked, never
+    // extracting. A mine-pin is a more specific, active instruction than a
+    // passive hold and should supersede it, same reasoning sendShipTo()
+    // already applies when it drops a stale tourDestination on manual
+    // takeover.
+    await this.updateShipManualState(shipSymbol, { minePin: waypointSymbol, holdWaypoint: null });
     this.log(`${shipSymbol} pinned to mine at ${waypointSymbol}`);
   }
 
