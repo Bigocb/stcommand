@@ -11,9 +11,11 @@ import {
   marketRoutes, intel, warehouseState,
   systems, marketSnapshots, leaderboard,
   contracts, missions,
+  doctrineRules, doctrineFires, doctrineFireShips,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
   loadMarkets, loadGoods, loadWarehouse, loadGalaxy, loadProgramme,
+  loadDoctrine, loadDoctrineFireShips,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp } from "/shared/domain.js";
 
@@ -68,6 +70,11 @@ function setView(name) {
   if (name === "ops") {
     loadProgramme();
     renderOps();
+  }
+  if (name === "doctrine") {
+    loadDoctrine();
+    loadDoctrineFireShips();
+    renderDoctrine();
   }
 }
 
@@ -703,6 +710,73 @@ function renderOps() {
   })();
   const missionsEl = $("ops-missions");
   if (missionsEl) missionsEl.innerHTML = missionsHtml;
+}
+
+/* ── Doctrine screen (pass 6) ────────────────
+ * Standing orders and recent activity, read-only display.
+ */
+function renderDoctrine() {
+  // Standing Orders panel
+  const standingOrdersHtml = (() => {
+    if (!doctrineRules.length) {
+      return '<div class="empty">No standing orders configured.</div>';
+    }
+    const applied = doctrineRules.filter(r => r.enabled).length;
+    const headerHtml = `<div style="padding:10px 14px;border-bottom:1px solid var(--hair);display:flex;gap:8px;align-items:center">
+      <span style="flex:1;font-weight:600;font-size:12px">Standing Orders</span>
+      <span style="font-size:10px;color:var(--dim2)">${applied} / ${doctrineRules.length} applied</span>
+    </div>`;
+    const rulesHtml = doctrineRules.map((r) => {
+      const enabledStatus = r.enabled ? "on" : "off";
+      return `
+        <div style="margin-bottom:12px;padding:10px 14px;border-bottom:1px solid var(--hair);last:child:border-bottom:none">
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="flex:1">
+              <span style="font-weight:600;font-size:12px">${escapeHtml(r.name)}</span>
+              <span class="chip" style="font-size:9px;padding:2px 6px;margin-left:8px">${enabledStatus}</span>
+            </span>
+          </div>
+          <div style="font-size:11px;color:var(--dim2);margin-top:4px">${escapeHtml(String(r.value))}</div>
+        </div>
+      `;
+    }).join('');
+    return headerHtml + rulesHtml;
+  })();
+  const standingOrdersEl = $("doctrine-standing-orders");
+  if (standingOrdersEl) standingOrdersEl.innerHTML = standingOrdersHtml;
+
+  // Recent Activity panel
+  const recentActivityHtml = (() => {
+    const notes = doctrineRules
+      .map((r) => ({ r, stats: doctrineFires.get(r.key), ships: doctrineFireShips.get(r.key) ?? [] }))
+      .filter((x) => x.stats && x.stats.fireCount > 0)
+      .sort((a, b) => b.stats.fireCount - a.stats.fireCount)
+      .slice(0, 6);
+
+    if (!notes.length) {
+      return '<div class="empty">No rules have fired yet.</div>';
+    }
+
+    const headerHtml = `<div style="padding:10px 14px;border-bottom:1px solid var(--hair);display:flex;gap:8px;align-items:center">
+      <span style="flex:1;font-weight:600;font-size:12px">Recent Activity</span>
+    </div>`;
+    const notesHtml = notes.map(({ r, stats, ships }) => {
+      const lastFired = stats.lastFired ? fmtTime(stats.lastFired) : "never";
+      const shipsText = ships.length ? ships.join(", ") : "—";
+      return `
+        <div style="margin-bottom:12px;padding:10px 14px;border-bottom:1px solid var(--hair);last:child:border-bottom:none">
+          <div style="font-weight:600;font-size:12px">${escapeHtml(r.name)}</div>
+          <div style="font-size:11px;color:var(--dim2);margin-top:4px">
+            Fired <b>${stats.fireCount}</b> time${stats.fireCount === 1 ? "" : "s"}, last ${lastFired}
+          </div>
+          <div style="font-size:10px;color:var(--dim2);margin-top:4px">Ships: ${escapeHtml(shipsText)}</div>
+        </div>
+      `;
+    }).join('');
+    return headerHtml + notesHtml;
+  })();
+  const recentActivityEl = $("doctrine-recent-activity");
+  if (recentActivityEl) recentActivityEl.innerHTML = recentActivityHtml;
 }
 
 /* ── Map screen (pass 4) ────────────────────
