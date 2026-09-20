@@ -83,6 +83,23 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json({ system, agents: galaxyCrawler.agentsInSystem(system) });
   });
 
+  // The durable counterpart to /agents-in-system above — that route only
+  // ever answers with GalaxyCrawler's latest in-memory pass (one point),
+  // this one answers with agent_credit_snapshots' full history for the
+  // same system (many points), so the dashboard can plot a running tally
+  // instead of a single number.
+  router.get("/agents-in-system/history", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const system = w.fleet.getSystemSymbol();
+    const since = String(req.query.since ?? new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString());
+    try {
+      res.json({ system, history: await w.store.agentCreditHistory(system, since) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/state", (req, res) => {
     const w = worker(req);
     if (!w) {

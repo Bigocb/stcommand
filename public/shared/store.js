@@ -95,6 +95,13 @@ export let factions = [];
  *  first agent-directory pass completes; that's a real "not fetched yet"
  *  state, not an error, so it renders as such rather than a spinner. */
 export let systemAgents = [];
+/** The running tally behind systemAgents — durable credit/ship-count
+ *  history per agent in this tenant's home system, from
+ *  agent_credit_snapshots (one point per hourly galaxy-crawl pass), not
+ *  just the single latest snapshot systemAgents itself holds. Shape:
+ *  { agentSymbol, credits, shipCount, timestamp }[], oldest first per
+ *  agent (see loadGalaxy()). */
+export let systemAgentsHistory = [];
 
 export let narrative = "";
 /** Who wrote it — "llm" or "template" — plus the model and any error the
@@ -388,14 +395,16 @@ export async function loadApprovals() {
 
 export async function loadGalaxy() {
   try {
-    const [board, facs, sysAgents] = await Promise.all([
+    const [board, facs, sysAgents, sysAgentsHist] = await Promise.all([
       fetch("/api/leaderboard").then((r) => r.json()),
       fetch("/api/factions").then((r) => r.json()),
       fetch("/api/agents-in-system").then((r) => r.json()),
+      fetch("/api/agents-in-system/history").then((r) => r.json()),
     ]);
     leaderboard = board.agents ?? [];
     factions = facs.factions ?? [];
     systemAgents = (sysAgents.agents ?? []).slice().sort((a, b) => b.shipCount - a.shipCount);
+    systemAgentsHistory = sysAgentsHist.history ?? [];
     notify("galaxy");
   } catch (e) { console.error(e); }
 }

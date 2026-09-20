@@ -246,6 +246,14 @@ export class GalaxyCrawler {
     this.lastAgentsCrawlAt = Date.now();
     this.log(`galaxy crawl: recorded ${out.length} agents across ${bySystem.size} systems`);
     this.recordActivity(`Recorded ${out.length} agents across ${bySystem.size} systems`);
+    try {
+      await this.store.recordAgentCreditSnapshots(out);
+    } catch (err) {
+      // Durable history is a bonus on top of the in-memory snapshot this
+      // method already maintains (agentsInSystem() still works either way)
+      // — a write failure here shouldn't block the crawl loop or retry logic.
+      this.log(`galaxy crawl: agent credit snapshot persist failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /** One page of the galaxy-wide systems list, resuming from wherever the

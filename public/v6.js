@@ -23,7 +23,7 @@ import {
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
   dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
-  missions, leaderboard, factions, systemAgents, narrative, narrativeMeta, chatHistory,
+  missions, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
   approvals, manipulationRoutes,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
@@ -5967,19 +5967,36 @@ function renderFactions(factions) {
  *  fleet's data, so it reads real signal a fleet-only dashboard can't show:
  *  confirmed useful live, a competitor many times this fleet's size sharing
  *  the same home waypoint explained both a mystery gate contributor and a
- *  market staying crushed longer than this fleet's own volume would predict. */
-function renderSystemAgents(agents) {
+ *  market staying crushed longer than this fleet's own volume would predict.
+ *  `history` is the running tally behind the current snapshot — one point
+ *  per hourly galaxy-crawl pass (agent_credit_snapshots) — shown as a
+ *  signed delta since the earliest point on record for that agent, not
+ *  just the single current-credits number `agents` alone would give. */
+function renderSystemAgents(agents, history) {
   const el = $("system-agents");
   const countEl = $("system-agents-count");
   if (!el) return;
   const mySymbol = state?.agent?.symbol;
   if (countEl) countEl.textContent = agents.length ? `${agents.length} agents` : "—";
   if (!agents.length) { el.innerHTML = '<div class="empty">No agent data yet — the background galaxy crawl hasn\'t completed its first pass.</div>'; return; }
-  el.innerHTML = `<div class="loadout-grid">${agents.map((a) => `
+  const byAgent = new Map();
+  for (const h of history ?? []) {
+    if (!byAgent.has(h.agentSymbol)) byAgent.set(h.agentSymbol, []);
+    byAgent.get(h.agentSymbol).push(h);
+  }
+  el.innerHTML = `<div class="loadout-grid">${agents.map((a) => {
+    const points = byAgent.get(a.symbol) ?? [];
+    const first = points[0];
+    // Need at least two points to call it a trend — a single snapshot
+    // (this tick's own history row, if the crawl just ran) isn't one.
+    const delta = first && points.length > 1 ? a.credits - first.credits : null;
+    const deltaHtml = delta == null ? "" : ` <span style="color:${delta > 0 ? "var(--green)" : delta < 0 ? "var(--red)" : "var(--dim)"}">${signed(delta)}c since ${fmtTime(first.timestamp)}</span>`;
+    return `
     <div class="loadout-item" style="justify-content:space-between">
       <span class="n">${escapeHtml(a.symbol)}${a.symbol === mySymbol ? ' <span style="color:var(--accent)">· you</span>' : ""}</span>
-      <span class="d">${a.shipCount}${a.shipCount === 1 ? " ship" : " ships"} · ${fmt(a.credits)}c</span>
-    </div>`).join("")}</div>`;
+      <span class="d">${a.shipCount}${a.shipCount === 1 ? " ship" : " ships"} · ${fmt(a.credits)}c${deltaHtml}</span>
+    </div>`;
+  }).join("")}</div>`;
 }
 
 
@@ -6603,7 +6620,7 @@ subscribe("prices", () => {
 subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); });
 subscribe("manipulationRoutes", renderManipulationRoutes);
 subscribe("approvals", () => { renderApprovalsBanner(); renderApprovals(); });
-subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); renderSystemAgents(systemAgents); });
+subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); renderSystemAgents(systemAgents, systemAgentsHistory); });
 subscribe("narrative", renderNarrative);
 subscribe("chat", renderChatHistory);
 subscribe("connection", renderConnectionStatus);

@@ -1791,6 +1791,44 @@ export class Store {
     });
   }
 
+  /** One row per known agent per crawl pass — the running tally behind
+   *  "agents in my home system" (see agent_credit_snapshots's own
+   *  migration comment for why). A bulk multi-row INSERT, not per-agent
+   *  queries, since crawlAgents() calls this with the full ~200-agent
+   *  directory in one shot every hour. */
+  async recordAgentCreditSnapshots(agents: { symbol: string; headquarters: string; credits: number; shipCount: number }[]): Promise<void> {
+    if (agents.length === 0) return;
+    await withPool(this.pool, async (c) => {
+      const values: unknown[] = [];
+      const rows = agents.map((a, i) => {
+        const system = a.headquarters.split("-").slice(0, 2).join("-");
+        values.push(system, a.symbol, a.credits, a.shipCount);
+        const base = i * 4;
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, now())`;
+      });
+      await c.query(
+        `INSERT INTO agent_credit_snapshots (system_symbol, agent_symbol, credits, ship_count, timestamp) VALUES ${rows.join(", ")}`,
+        values,
+      );
+    });
+  }
+
+  /** Credit/ship-count history for every agent headquartered in `systemSymbol`,
+   *  newest first per agent — the operator-facing "running tally" the
+   *  dashboard's system-agents panel plots. */
+  async agentCreditHistory(systemSymbol: string, since: string): Promise<{ agentSymbol: string; credits: number; shipCount: number; timestamp: string }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ agent_symbol: string; credits: string; ship_count: number; timestamp: string }>(
+        `SELECT agent_symbol, credits, ship_count, timestamp
+         FROM agent_credit_snapshots
+         WHERE system_symbol = $1 AND timestamp >= $2
+         ORDER BY agent_symbol ASC, timestamp ASC`,
+        [systemSymbol, since],
+      );
+      return res.rows.map((r) => ({ agentSymbol: r.agent_symbol, credits: Number(r.credits), shipCount: r.ship_count, timestamp: r.timestamp }));
+    });
+  }
+
   /** Resumable cursor storage for background crawl jobs — see galaxy_crawl_state's own migration comment. */
   async getCrawlState<T>(key: string): Promise<T | undefined> {
     return withPool(this.pool, async (c) => {
@@ -2271,7 +2309,7 @@ export class Store {
   private static readonly SHARED_GALAXY_TABLES = [
     "galaxy_systems", "galaxy_factions", "galaxy_crawl_state",
     "market_snapshots", "market_latest", "shipyard_inventory", "module_catalog",
-    "galaxy_jump_costs", "galaxy_gate_construction",
+    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots",
   ];
 
   /** Wipes every shared galaxy-fact table — see SHARED_GALAXY_TABLES's own

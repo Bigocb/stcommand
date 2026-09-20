@@ -638,4 +638,27 @@ describe("Store shared galaxy tables (no tenant scoping)", () => {
     const afterGates = await store.getSystemTopology(sys);
     assert.deepEqual(afterGates?.jumpGates, jumpGates, "must update the existing row, not insert a second one");
   });
+
+  it("recordAgentCreditSnapshots + agentCreditHistory round-trip, keyed by the system parsed out of headquarters", async () => {
+    const sys = `X1-AC${Date.now()}`;
+    await store.recordAgentCreditSnapshots([
+      { symbol: "RIVAL-1", headquarters: `${sys}-A1`, credits: 1000, shipCount: 2 },
+      { symbol: "OTHER-SYSTEM", headquarters: "X1-ELSEWHERE-A1", credits: 500, shipCount: 1 },
+    ]);
+    await store.recordAgentCreditSnapshots([
+      { symbol: "RIVAL-1", headquarters: `${sys}-A1`, credits: 1400, shipCount: 3 },
+    ]);
+
+    const history = await store.agentCreditHistory(sys, new Date(Date.now() - 60_000).toISOString());
+    const rival = history.filter((h) => h.agentSymbol === "RIVAL-1");
+    assert.equal(rival.length, 2, "both snapshot passes must be recorded, not overwritten");
+    assert.equal(rival[0]!.credits, 1000, "oldest first");
+    assert.equal(rival[1]!.credits, 1400);
+    assert.equal(rival[1]!.shipCount, 3);
+    assert.ok(!history.some((h) => h.agentSymbol === "OTHER-SYSTEM"), "an agent headquartered in a different system must not leak into this system's history");
+  });
+
+  it("recordAgentCreditSnapshots is a no-op on an empty list, not an invalid empty-VALUES insert", async () => {
+    await assert.doesNotReject(() => store.recordAgentCreditSnapshots([]));
+  });
 });
