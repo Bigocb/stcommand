@@ -358,10 +358,14 @@ export async function loadProgramme() {
 }
 
 /** Buy-side price-manipulation route candidates — see FleetManager.
- *  findManipulationRoutes()'s own comment. `goods` defaults to just
- *  FAB_MATS, the one confirmed live 2026-09-20. Fetch-on-demand, same
+ *  findManipulationRoutes()'s own comment. `goods` defaults to FAB_MATS
+ *  (confirmed live 2026-09-20) plus ADVANCED_CIRCUITRY — its own direct
+ *  inputs (ELECTRONICS, MICROPROCESSORS) are manufactured goods, not raw
+ *  ore, so the finder (one level of inputs deep, no recursive lookup)
+ *  will likely show no candidate asteroids for it; still worth surfacing
+ *  in case a market importing those exists nearby. Fetch-on-demand, same
  *  shape as loadProgramme() — not polled. */
-export async function loadManipulationRoutes(goods = "FAB_MATS") {
+export async function loadManipulationRoutes(goods = "FAB_MATS,ADVANCED_CIRCUITRY") {
   try {
     const res = await fetch(`/api/manipulation-routes?goods=${encodeURIComponent(goods)}`);
     manipulationRoutes = res.ok ? (await res.json()).routes ?? [] : [];

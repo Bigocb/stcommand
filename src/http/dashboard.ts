@@ -693,7 +693,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.get("/manipulation-routes", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    const goodsParam = typeof req.query.goods === "string" ? req.query.goods : "FAB_MATS";
+    const goodsParam = typeof req.query.goods === "string" ? req.query.goods : "FAB_MATS,ADVANCED_CIRCUITRY";
     const goods = goodsParam.split(",").map((g) => g.trim()).filter(Boolean);
     try {
       res.json({ routes: await w.fleet.findManipulationRoutes(goods) });
