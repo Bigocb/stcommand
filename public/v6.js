@@ -24,10 +24,10 @@ import {
   dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
   missions, leaderboard, factions, systemAgents, narrative, narrativeMeta, chatHistory,
-  approvals,
+  approvals, manipulationRoutes,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
-  loadApprovals,
+  loadApprovals, loadManipulationRoutes,
 } from "/shared/store.js";
 import {
   login, register as registerAgent, logout as endSession,
@@ -380,7 +380,7 @@ function loadViewData(name) {
   if (name === "fleet") { loadDispatch(); renderFleetTable(); }
   if (name === "markets") { loadMarkets(marketSystemFilter); loadGoods(); }
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
-  if (name === "ops") loadProgramme();
+  if (name === "ops") { loadProgramme(); loadManipulationRoutes(); }
   if (name === "galaxy") loadGalaxy();
 }
 
@@ -6083,6 +6083,115 @@ function renderMissions(list) {
   for (const id of ["missions", "mobile-missions"]) { const el = $(id); if (el) el.innerHTML = html; }
 }
 
+/* ── Manipulation routes (Ops) ──────────────
+ * docs/TODO.md's supply-chain-aware buy-side price manipulation idea.
+ * Read-only finder + a manual "assign" action that reuses the existing
+ * /api/fleet/dispatch (send-and-hold) endpoint — this never mines,
+ * sells, or picks a route on its own. See FleetManager.
+ * findManipulationRoutes()'s own comment for why the asteroid matches
+ * are a trait-based hint, not a confirmed deposit.
+ */
+async function assignShipToManipulationWaypoint(shipSymbol, waypointSymbol, btn) {
+  if (!shipSymbol) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = "Assigning…";
+  try {
+    await api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol });
+    btn.textContent = "Assigned ✓";
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  } catch (err) {
+    console.error(err);
+    btn.textContent = "Failed";
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  }
+}
+
+function renderManipulationRoutes() {
+  const el = $("ops-manipulation-routes");
+  if (!el) return;
+  if (!manipulationRoutes.length) {
+    el.innerHTML = '<div class="empty">No manipulation routes found.</div>';
+    return;
+  }
+  const shipOptions = (fleetStatus.ships ?? [])
+    .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
+    .join("");
+
+  el.innerHTML = manipulationRoutes.map((r, i) => {
+    const historyId = `mr-history-${i}`;
+    const marketHtml = r.market
+      ? `<span class="ops-sub">${escapeHtml(r.market.waypointSymbol)} @ ${fmt(r.market.purchasePrice)}c · volume ${r.market.tradeVolume}</span>
+         <button class="btn mr-history-toggle" data-wp="${escapeAttr(r.market.waypointSymbol)}" data-good="${escapeAttr(r.targetGood)}" data-inputs="${escapeAttr(r.inputs.map((inp) => inp.good).join(","))}" data-target="${historyId}">History</button>`
+      : '<span class="ops-sub">no known exporter yet</span>';
+    const inputsHtml = r.inputs.map((inp) => {
+      const asteroidRows = inp.candidateAsteroids.length
+        ? inp.candidateAsteroids.map((a) => `
+            <div class="ops-row">
+              <span class="ops-title">${escapeHtml(a.waypointSymbol)}</span>
+              <span class="ops-sub">hint: ${escapeHtml(a.traitHint)}</span>
+              <span class="fill"></span>
+              <select class="mr-ship-select" aria-label="Ship to assign">${shipOptions}</select>
+              <button class="btn mr-assign" data-wp="${escapeAttr(a.waypointSymbol)}">Assign</button>
+            </div>`).join("")
+        : '<div class="ops-row"><span class="ops-sub">no candidate asteroid found nearby</span></div>';
+      return `<div class="ops-row"><span class="ops-sub">need: ${escapeHtml(inp.good)}</span></div>${asteroidRows}`;
+    }).join("");
+    return `<div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">${escapeHtml(r.targetGood)}</span>
+        <span class="fill"></span>
+        ${marketHtml}
+      </div>
+      ${inputsHtml}
+      <div id="${historyId}"></div>
+    </div>`;
+  }).join("");
+
+  el.querySelectorAll(".mr-assign").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const select = btn.parentElement.querySelector(".mr-ship-select");
+      assignShipToManipulationWaypoint(select?.value, btn.dataset.wp, btn);
+    });
+  });
+
+  el.querySelectorAll(".mr-history-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => loadAndRenderManipulationHistory(btn));
+  });
+}
+
+/** Fetches and renders one route's price-history + input-sell-log —
+ *  fetch-on-click, not polled, since this is a diagnostic the operator
+ *  pulls up on demand rather than something that needs to stay live. */
+async function loadAndRenderManipulationHistory(btn) {
+  const target = $(btn.dataset.target);
+  if (!target) return;
+  if (target.dataset.loaded === "1") { target.innerHTML = ""; target.dataset.loaded = ""; return; }
+  target.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const params = new URLSearchParams({ waypoint: btn.dataset.wp, good: btn.dataset.good, inputs: btn.dataset.inputs });
+    const res = await fetch(`/api/manipulation-routes/history?${params}`);
+    const data = res.ok ? await res.json() : { priceHistory: [], inputSells: [] };
+    const priceRows = (data.priceHistory ?? []).slice(0, 10).map((p) => `
+      <div class="ops-row"><span class="ops-sub">${escapeHtml(fmtTime(p.timestamp))}</span><span class="fill"></span>
+      <span>buy ${fmt(p.purchasePrice)}c · sell ${fmt(p.sellPrice)}c · vol ${p.tradeVolume}</span></div>`).join("")
+      || '<div class="ops-row"><span class="ops-sub">No price history recorded yet.</span></div>';
+    const sellRows = (data.inputSells ?? []).slice(0, 10).map((s) => `
+      <div class="ops-row"><span class="ops-sub">${escapeHtml(fmtTime(s.timestamp))}</span><span class="fill"></span>
+      <span>${escapeHtml(s.shipSymbol)} sold ${s.units}u ${escapeHtml(s.tradeSymbol)} @ ${fmt(s.pricePerUnit)}c</span></div>`).join("")
+      || '<div class="ops-row"><span class="ops-sub">No input sells recorded yet at this waypoint.</span></div>';
+    target.innerHTML = `
+      <div class="ops-head" style="margin-top:6px"><span class="ops-sub">price history (newest first)</span></div>
+      ${priceRows}
+      <div class="ops-head" style="margin-top:6px"><span class="ops-sub">input sells at this waypoint</span></div>
+      ${sellRows}`;
+    target.dataset.loaded = "1";
+  } catch (err) {
+    console.error(err);
+    target.innerHTML = '<div class="ops-row"><span class="ops-sub">Failed to load history.</span></div>';
+  }
+}
+
 async function missionStart(waypointInputId) {
   const wp = $(waypointInputId).value.trim();
   if (!wp) { showToastGlobal("Enter a construction waypoint first", true); return; }
@@ -6440,6 +6549,7 @@ subscribe("prices", () => {
   if (pricePoints.length) renderPriceChart(pricePoints, "price-chart");
 });
 subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); });
+subscribe("manipulationRoutes", renderManipulationRoutes);
 subscribe("approvals", () => { renderApprovalsBanner(); renderApprovals(); });
 subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); renderSystemAgents(systemAgents); });
 subscribe("narrative", renderNarrative);
