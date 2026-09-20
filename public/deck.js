@@ -679,9 +679,9 @@ function renderMap() {
     let blipClass = "planet"; // fallback
     if (wp.type === "JUMP_GATE") {
       blipClass = "gate";
-    } else if (wp.traits?.some((t) => t.symbol === "MARKETPLACE") && wp.type !== "JUMP_GATE") {
+    } else if (wp.traits?.includes("MARKETPLACE")) {
       blipClass = "market";
-    } else if (wp.traits?.some((t) => t.symbol === "FUEL_STATION") && wp.type !== "JUMP_GATE") {
+    } else if (wp.traits?.includes("FUEL_STATION")) {
       blipClass = "fuel";
     } else if (wp.type === "ASTEROID_FIELD" || wp.type === "ENGINEERED_ASTEROID") {
       blipClass = "asteroid";
