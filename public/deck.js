@@ -10,9 +10,10 @@ import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, activity,
   marketRoutes, intel, warehouseState,
   systems, marketSnapshots, leaderboard,
+  contracts, missions,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
-  loadMarkets, loadGoods, loadWarehouse, loadGalaxy,
+  loadMarkets, loadGoods, loadWarehouse, loadGalaxy, loadProgramme,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp } from "/shared/domain.js";
 
@@ -63,6 +64,10 @@ function setView(name) {
   if (name === "map") {
     loadGalaxy();
     renderMap();
+  }
+  if (name === "ops") {
+    loadProgramme();
+    renderOps();
   }
 }
 
@@ -610,6 +615,96 @@ function renderMarkets() {
   if (dispatchEl) dispatchEl.innerHTML = dispatchHtml;
 }
 
+/* ── Ops screen (pass 5) ──────────────────────
+ * Contracts and construction missions, read-only display.
+ */
+function renderOps() {
+  // Contracts panel
+  const contractsHtml = (() => {
+    if (!contracts.length) {
+      return '<div class="empty">No contracts available.</div>';
+    }
+    return contracts.map((c) => {
+      const status = c.accepted ? "accepted" : c.declined ? "declined" : c.abandoned ? "not being worked" : "offered";
+      const deliverables = (c.deliver ?? []).map((d) => {
+        const pct = d.unitsRequired ? Math.round((d.unitsFulfilled / d.unitsRequired) * 100) : 0;
+        return `
+          <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-bottom:1px solid var(--hair)">
+            <div style="display:flex;gap:8px;align-items:center">
+              <span style="flex:1;font-size:11px;font-weight:500">${escapeHtml(d.tradeSymbol)}</span>
+              <span style="font-size:10px;color:var(--dim2)">→ ${escapeHtml(d.destinationSymbol)}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span style="font-size:10px;color:var(--dim2)">${d.unitsFulfilled}/${d.unitsRequired}</span>
+              <div class="meter"><i style="width:${pct}%"></i></div>
+              <span style="font-size:10px;color:var(--dim2);min-width:30px;text-align:right">${pct}%</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+      const total = c.onAccepted + c.onFulfilled;
+      return `
+        <div style="margin-bottom:12px;border:1px solid var(--hair);border-radius:6px;overflow:hidden;background:var(--panel)">
+          <div style="padding:10px 14px;border-bottom:1px solid var(--hair);display:flex;gap:8px;align-items:center">
+            <span style="flex:1;font-weight:600;font-size:12px">${escapeHtml(c.type)} · ${escapeHtml(c.factionSymbol)}</span>
+            <span class="chip" style="font-size:9px;padding:2px 6px">${escapeHtml(status)}</span>
+          </div>
+          <div style="display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--hair);font-size:11px;color:var(--dim2)">
+            <span>+${fmt(c.onAccepted)}</span>
+            <span>/</span>
+            <span>+${fmt(c.onFulfilled)}</span>
+          </div>
+          ${deliverables}
+          <div style="padding:8px 14px;font-size:10px;color:var(--dim2)">deadline ${fmtTime(c.deadline)}</div>
+        </div>
+      `;
+    }).join("");
+  })();
+  const contractsEl = $("ops-contracts");
+  if (contractsEl) contractsEl.innerHTML = contractsHtml;
+
+  // Missions panel
+  const missionsHtml = (() => {
+    const active = (missions ?? []).filter((m) => m.status === "active");
+    if (!active.length) {
+      return '<div class="empty">No construction missions.</div>';
+    }
+    return active.map((m) => {
+      const allDone = (m.materials ?? []).every((mat) => mat.fulfilled >= mat.required);
+      const status = m.paused ? "paused" : allDone ? "complete" : "supplying";
+      const materials = (m.materials ?? []).map((mat) => {
+        const pct = mat.required ? Math.round((mat.fulfilled / mat.required) * 100) : 0;
+        return `
+          <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-bottom:1px solid var(--hair)">
+            <div style="display:flex;gap:8px;align-items:center">
+              <span style="flex:1;font-size:11px;font-weight:500">${escapeHtml(mat.tradeSymbol)}</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span style="font-size:10px;color:var(--dim2)">${mat.fulfilled}/${mat.required}</span>
+              <div class="meter"><i style="width:${pct}%"></i></div>
+              <span style="font-size:10px;color:var(--dim2);min-width:30px;text-align:right">${pct}%</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+      return `
+        <div style="margin-bottom:12px;border:1px solid var(--hair);border-radius:6px;overflow:hidden;background:var(--panel)">
+          <div style="padding:10px 14px;border-bottom:1px solid var(--hair);display:flex;gap:8px;align-items:center">
+            <span style="flex:1;font-weight:600;font-size:12px">${escapeHtml(m.targetWaypoint)}</span>
+            <span class="chip" style="font-size:9px;padding:2px 6px">${escapeHtml(status)}</span>
+          </div>
+          <div style="padding:8px 14px;border-bottom:1px solid var(--hair);font-size:11px;color:var(--dim2)">
+            ${m.assignedShip ? `carrier ${escapeHtml(m.assignedShip)}` : "no carrier yet"}
+          </div>
+          ${materials}
+        </div>
+      `;
+    }).join("");
+  })();
+  const missionsEl = $("ops-missions");
+  if (missionsEl) missionsEl.innerHTML = missionsHtml;
+}
+
 /* ── Map screen (pass 4) ────────────────────
  * System chips, 2D waypoint scatter, market detail panel, leaderboard.
  */
@@ -858,6 +953,9 @@ subscribe("galaxy", () => {
   if (!$("view-map").hidden) renderMap();
   if (!$("view-map").hidden) renderMapDetail();
   if (!$("view-map").hidden) renderMapLeaderboard();
+});
+subscribe("programme", () => {
+  if (!$("view-ops").hidden) renderOps();
 });
 subscribeConnection(() => {
   renderTopbar();

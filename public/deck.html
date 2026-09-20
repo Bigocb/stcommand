@@ -150,7 +150,19 @@
         <!-- Inert placeholders — later passes replace these -->
         <!-- (Fleet moved above) -->
         <!-- (Markets moved above) -->
-        <div class="content" id="view-ops" hidden><div class="empty">Ops — coming soon.</div></div>
+        <!-- Ops screen (pass 5) -->
+        <div class="content" id="view-ops" hidden>
+          <div class="cols2">
+            <div class="panel" style="min-height:0;display:flex;flex-direction:column">
+              <div class="panel-h"><span class="dot"></span><span class="title">Contracts</span></div>
+              <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-contracts"></div>
+            </div>
+            <div class="panel" style="min-height:0;display:flex;flex-direction:column">
+              <div class="panel-h"><span class="dot"></span><span class="title">Missions</span></div>
+              <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-missions"></div>
+            </div>
+          </div>
+        </div>
         <div class="content" id="view-doctrine" hidden><div class="empty">Doctrine — coming soon.</div></div>
 
         <div class="signal">
