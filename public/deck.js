@@ -10,11 +10,11 @@ import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, activity,
   marketRoutes, intel, warehouseState,
   systems, marketSnapshots, leaderboard,
-  contracts, missions,
+  contracts, missions, manipulationRoutes,
   doctrineRules, doctrineFires, doctrineFireShips,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
-  loadMarkets, loadGoods, loadWarehouse, loadGalaxy, loadProgramme,
+  loadMarkets, loadGoods, loadWarehouse, loadGalaxy, loadProgramme, loadManipulationRoutes,
   loadDoctrine, loadDoctrineFireShips,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp } from "/shared/domain.js";
@@ -69,6 +69,7 @@ function setView(name) {
   }
   if (name === "ops") {
     loadProgramme();
+    loadManipulationRoutes();
     renderOps();
   }
   if (name === "doctrine") {
@@ -712,6 +713,80 @@ function renderOps() {
   if (missionsEl) missionsEl.innerHTML = missionsHtml;
 }
 
+/* ── Manipulation routes (Ops) ──────────────
+ * docs/TODO.md's supply-chain-aware buy-side price manipulation idea.
+ * Read-only finder + a manual "assign" action that reuses the existing
+ * /api/fleet/dispatch (send-and-hold) endpoint — this never mines,
+ * sells, or picks a route on its own. See FleetManager.
+ * findManipulationRoutes()'s own comment for why the asteroid matches
+ * are a trait-based hint, not a confirmed deposit.
+ */
+async function assignShipToWaypoint(shipSymbol, waypointSymbol, btn) {
+  if (!shipSymbol) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = "Assigning…";
+  try {
+    await api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol });
+    btn.textContent = "Assigned ✓";
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  } catch (err) {
+    console.error(err);
+    btn.textContent = "Failed";
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  }
+}
+
+function renderManipulationRoutes() {
+  const el = $("ops-manipulation-routes");
+  if (!el) return;
+  if (!manipulationRoutes.length) {
+    el.innerHTML = '<div class="empty">No manipulation routes found.</div>';
+    return;
+  }
+  // Any ship not already committed to a role that would make reassigning
+  // it disruptive mid-task — miners are the natural fit (they're the ones
+  // that would actually extract the input good), but any idle-ish hull
+  // works for a manual one-off dispatch, so the picker isn't role-locked.
+  const shipOptions = (state?.ships ?? [])
+    .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`)
+    .join("");
+
+  el.innerHTML = manipulationRoutes.map((r) => {
+    const marketHtml = r.market
+      ? `<span class="shipsym">${escapeHtml(r.market.waypointSymbol)}</span> <span style="color:var(--dim2)">@ ${fmt(r.market.purchasePrice)}c · volume ${r.market.tradeVolume}</span>`
+      : '<span style="color:var(--dim2)">no known exporter yet</span>';
+    const inputsHtml = r.inputs.map((inp) => {
+      const asteroidRows = inp.candidateAsteroids.length
+        ? inp.candidateAsteroids.map((a) => `
+            <div style="display:flex;gap:8px;align-items:center;padding:6px 14px;border-bottom:1px solid var(--hair)">
+              <span style="flex:1;font-size:11px"><b>${escapeHtml(a.waypointSymbol)}</b> <span style="color:var(--dim2)">· hint: ${escapeHtml(a.traitHint)}</span></span>
+              <select class="mr-ship-select" style="background:var(--sunken);border:1px solid var(--hair);color:var(--bone);border-radius:4px;font-size:10px;padding:2px 4px">${shipOptions}</select>
+              <button class="btn mr-assign" data-wp="${escapeAttr(a.waypointSymbol)}" style="font-size:9px;padding:4px 8px;min-height:auto">Assign</button>
+            </div>`).join("")
+        : '<div style="padding:6px 14px;color:var(--dim2);font-size:10.5px">no candidate asteroid found nearby</div>';
+      return `
+        <div style="padding:6px 14px;font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em">need: ${escapeHtml(inp.good)}</div>
+        ${asteroidRows}`;
+    }).join("");
+    return `
+      <div style="margin-bottom:12px;border:1px solid var(--hair);border-radius:6px;overflow:hidden;background:var(--panel)">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--hair);display:flex;gap:8px;align-items:center">
+          <span style="flex:1;font-weight:600;font-size:12px">${escapeHtml(r.targetGood)}</span>
+          ${marketHtml}
+        </div>
+        ${inputsHtml}
+      </div>`;
+  }).join("");
+
+  el.querySelectorAll(".mr-assign").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const select = btn.previousElementSibling;
+      assignShipToWaypoint(select?.value, btn.dataset.wp, btn);
+    });
+  });
+}
+
 /* ── Doctrine screen (pass 6) ────────────────
  * Standing orders and recent activity, read-only display.
  */
@@ -1030,6 +1105,9 @@ subscribe("galaxy", () => {
 });
 subscribe("programme", () => {
   if (!$("view-ops").hidden) renderOps();
+});
+subscribe("manipulationRoutes", () => {
+  if (!$("view-ops").hidden) renderManipulationRoutes();
 });
 subscribeConnection(() => {
   renderTopbar();

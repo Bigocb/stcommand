@@ -84,6 +84,7 @@ export let pricePoints = [];
 
 export let contracts = [];
 export let missions = [];
+export let manipulationRoutes = [];
 
 export let approvals = [];
 
@@ -353,6 +354,18 @@ export async function loadProgramme() {
     contracts = cres.ok ? (await cres.json()).contracts ?? [] : [];
     missions = mres.ok ? (await mres.json()).missions ?? [] : [];
     notify("programme");
+  } catch (e) { console.error(e); }
+}
+
+/** Buy-side price-manipulation route candidates — see FleetManager.
+ *  findManipulationRoutes()'s own comment. `goods` defaults to just
+ *  FAB_MATS, the one confirmed live 2026-09-20. Fetch-on-demand, same
+ *  shape as loadProgramme() — not polled. */
+export async function loadManipulationRoutes(goods = "FAB_MATS") {
+  try {
+    const res = await fetch(`/api/manipulation-routes?goods=${encodeURIComponent(goods)}`);
+    manipulationRoutes = res.ok ? (await res.json()).routes ?? [] : [];
+    notify("manipulationRoutes");
   } catch (e) { console.error(e); }
 }
 

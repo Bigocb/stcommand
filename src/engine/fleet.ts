@@ -4186,6 +4186,97 @@ export class FleetManager {
     return this.materialBuyers(tradeSymbol, systemSymbol);
   }
 
+  /**
+   * Heuristic map from a raw/refined good to the asteroid-field trait
+   * categories that plausibly deposit it — SpaceTraders only reveals a
+   * waypoint's *actual* extractable goods via a live SURVEY action, and
+   * nothing in this codebase persists survey results durably (confirmed
+   * live 2026-09-20: no survey/deposit table anywhere in store.ts). This
+   * table is a stand-in until that exists: it says "this trait category
+   * plausibly has this good," not "confirmed." Callers must present it as
+   * a suggestion, never as verified fact — see findManipulationRoutes()'s
+   * own comment.
+   */
+  private static readonly DEPOSIT_TRAIT_HINTS: Record<string, string[]> = {
+    IRON: ["COMMON_METAL_DEPOSITS"], IRON_ORE: ["COMMON_METAL_DEPOSITS"],
+    COPPER: ["COMMON_METAL_DEPOSITS"], COPPER_ORE: ["COMMON_METAL_DEPOSITS"],
+    ALUMINUM: ["COMMON_METAL_DEPOSITS"], ALUMINUM_ORE: ["COMMON_METAL_DEPOSITS"],
+    GOLD: ["PRECIOUS_METAL_DEPOSITS"], GOLD_ORE: ["PRECIOUS_METAL_DEPOSITS"],
+    SILVER: ["PRECIOUS_METAL_DEPOSITS"], SILVER_ORE: ["PRECIOUS_METAL_DEPOSITS"],
+    PLATINUM: ["PRECIOUS_METAL_DEPOSITS"], PLATINUM_ORE: ["PRECIOUS_METAL_DEPOSITS"],
+    URANITE: ["RARE_METAL_DEPOSITS"], URANITE_ORE: ["RARE_METAL_DEPOSITS"],
+    MERITIUM: ["RARE_METAL_DEPOSITS"], MERITIUM_ORE: ["RARE_METAL_DEPOSITS"],
+    QUARTZ_SAND: ["MINERAL_DEPOSITS"], SILICON_CRYSTALS: ["MINERAL_DEPOSITS"],
+    ICE_WATER: ["MINERAL_DEPOSITS", "ICE_CRYSTALS"], AMMONIA_ICE: ["MINERAL_DEPOSITS", "ICE_CRYSTALS"],
+    PRECIOUS_STONES: ["MINERAL_DEPOSITS"], DIAMONDS: ["MINERAL_DEPOSITS"],
+    HYDROCARBON: ["EXPLOSIVE_GASES", "METHANE_POOLS"],
+    LIQUID_HYDROGEN: ["EXPLOSIVE_GASES"], LIQUID_NITROGEN: ["EXPLOSIVE_GASES"],
+  };
+
+  /**
+   * "Buy-side price manipulation" route finder — docs/TODO.md's supply-
+   * chain-aware pricing idea, operator-confirmed live 2026-09-20 at
+   * X1-SN30-F50 (a market that exports FAB_MATS while importing its exact
+   * upstream inputs, IRON + QUARTZ_SAND, per the public /market/supply-
+   * chain graph). For each target good, finds every known market that
+   * EXPORTs it, and for each of that good's upstream inputs, suggests
+   * nearby asteroid fields whose trait categories plausibly deposit that
+   * input — see DEPOSIT_TRAIT_HINTS's own comment on why "suggests," not
+   * "confirms": there is no durable survey data to check against yet.
+   *
+   * This is a finder, not an actor: it recommends candidates for the
+   * operator to manually assign a ship to (via the existing dispatch
+   * endpoint), the same read-only-then-operator-decides shape every other
+   * new Deck screen this session already used. It does not dispatch a
+   * ship, mine anything, or sell anything itself.
+   */
+  async findManipulationRoutes(targetGoods: string[]): Promise<{
+    targetGood: string;
+    market: { systemSymbol: string; waypointSymbol: string; purchasePrice: number; tradeVolume: number } | undefined;
+    inputs: { good: string; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string }[] }[];
+  }[]> {
+    const chain = await getSupplyChain(this.api).catch(() => undefined);
+    const snapshots = (await this.store?.latestMarketSnapshots()) ?? [];
+    const out: Awaited<ReturnType<FleetManager["findManipulationRoutes"]>> = [];
+
+    for (const targetGood of targetGoods) {
+      const inputGoods = chain?.exportToImportMap[targetGood] ?? [];
+      // Cheapest-tradeVolume-first: docs/TODO.md's own note that this trick
+      // is strongest at *low* tradeVolume markets (bigger price swing per
+      // unit sold), not the naively-appealing high-volume ones.
+      const marketRows = snapshots
+        .filter((r) => r.goodSymbol === targetGood && r.type === "EXPORT")
+        .sort((a, b) => a.tradeVolume - b.tradeVolume);
+      const market = marketRows[0]
+        ? { systemSymbol: marketRows[0].systemSymbol, waypointSymbol: marketRows[0].waypointSymbol, purchasePrice: marketRows[0].purchasePrice, tradeVolume: marketRows[0].tradeVolume }
+        : undefined;
+
+      const inputs: { good: string; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string }[] }[] = [];
+      for (const good of inputGoods) {
+        const hints = FleetManager.DEPOSIT_TRAIT_HINTS[good] ?? [];
+        const candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string }[] = [];
+        // Scoped to the target market's own system (same reasoning as
+        // materialBuyers()/discoverMaterialBuyers(): a candidate the
+        // fleet can't actually reach without a jump wastes the finder's
+        // usefulness) — falls back to every charted system only if no
+        // market for this good is known yet, so the finder still returns
+        // something useful before a market's even been located.
+        const systemsToScan = market ? [market.systemSymbol] : this.galaxy.listSystems().map((s) => s.symbol);
+        for (const sys of systemsToScan) {
+          const known = this.galaxy.getSystem(sys);
+          for (const w of known?.waypoints ?? []) {
+            if (w.type !== "ASTEROID_FIELD" && w.type !== "ENGINEERED_ASTEROID" && w.type !== "GAS_GIANT") continue;
+            const matchedHint = hints.find((h) => w.traits.some((t) => t.symbol === h));
+            if (matchedHint) candidateAsteroids.push({ systemSymbol: sys, waypointSymbol: w.symbol, traitHint: matchedHint });
+          }
+        }
+        inputs.push({ good, candidateAsteroids });
+      }
+      out.push({ targetGood, market, inputs });
+    }
+    return out;
+  }
+
   /** Active missions for the dashboard. */
   async getMissions() {
     return (await this.missions.list()).map((m) => ({ ...m, paused: this.missions.isPaused(m.targetWaypoint) }));

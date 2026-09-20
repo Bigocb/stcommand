@@ -152,7 +152,7 @@
         <!-- (Markets moved above) -->
         <!-- Ops screen (pass 5) -->
         <div class="content" id="view-ops" hidden>
-          <div class="cols2">
+          <div class="cols2" style="flex:0 0 auto;height:280px">
             <div class="panel" style="min-height:0;display:flex;flex-direction:column">
               <div class="panel-h"><span class="dot"></span><span class="title">Contracts</span></div>
               <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-contracts"></div>
@@ -161,6 +161,10 @@
               <div class="panel-h"><span class="dot"></span><span class="title">Missions</span></div>
               <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-missions"></div>
             </div>
+          </div>
+          <div class="panel" style="flex:1;min-height:0;display:flex;flex-direction:column;margin-top:14px">
+            <div class="panel-h"><span class="dot"></span><span class="title">Manipulation Routes</span><span class="count" style="margin-left:auto;color:var(--dim2);font-size:10px">suggested, not confirmed — see asteroid trait hints</span></div>
+            <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-manipulation-routes"></div>
           </div>
         </div>
         <!-- Doctrine screen (pass 6) -->

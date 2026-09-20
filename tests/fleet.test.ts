@@ -5,6 +5,7 @@ import { Registry } from "../src/engine/registry.js";
 import { FleetManager, DEFAULT_KEEPER_MARKETS } from "../src/engine/fleet.js";
 import { createPool } from "../src/db/pool.js";
 import { Store } from "../src/db/store.js";
+import { resetSupplyChainCacheForTests } from "../src/engine/supplyChain.js";
 
 /**
  * Ported from straders' tests/fleet.test.ts. Same assertions and scenarios;
@@ -771,6 +772,70 @@ describe("FleetManager.markSystemCharted", () => {
     assert.ok(persisted.has("X1-TX45"), "must not drop what another process already persisted");
     assert.ok(persisted.has("X1-JN44"), "must keep what this process already knew");
     assert.ok(persisted.has("X1-UQ47"), "must include the newly-charted system");
+  });
+});
+
+describe("FleetManager.findManipulationRoutes", () => {
+  // Operator-confirmed live 2026-09-20: X1-SN30-F50 exports FAB_MATS while
+  // importing exactly its upstream inputs (IRON + QUARTZ_SAND, per the
+  // public /market/supply-chain graph) -- this is the scenario that
+  // discovery was made against, ported into a fixture.
+  it("finds the exporting market and a trait-hinted asteroid per upstream input", async () => {
+    resetSupplyChainCacheForTests();
+    const fakeApi = {
+      getSupplyChain: async () => ({ exportToImportMap: { FAB_MATS: ["IRON", "QUARTZ_SAND"] } }),
+    };
+    const fakeStore = {
+      latestMarketSnapshots: async () => [
+        { systemSymbol: "X1-SN30", waypointSymbol: "X1-SN30-F50", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "MODERATE", purchasePrice: 1298, sellPrice: 900, tradeVolume: 20, timestamp: "2026-09-20T00:00:00Z" },
+        // A decoy row for a different good, at the same waypoint, must not leak in.
+        { systemSymbol: "X1-SN30", waypointSymbol: "X1-SN30-F50", goodSymbol: "SILICON_CRYSTALS", type: "IMPORT", supply: "MODERATE", purchasePrice: 50, sellPrice: 20, tradeVolume: 20, timestamp: "2026-09-20T00:00:00Z" },
+      ],
+    };
+    const fleet = new FleetManager({ api: fakeApi as any, store: fakeStore as any, tenantId: "t1" } as any);
+    (fleet as any).galaxy.systems.set("X1-SN30", {
+      symbol: "X1-SN30",
+      waypoints: [
+        { symbol: "X1-SN30-F50", x: 0, y: 0, type: "PLANET", traits: [{ symbol: "MARKETPLACE" }] },
+        { symbol: "X1-SN30-H56", x: 5, y: 5, type: "ASTEROID_FIELD", traits: [{ symbol: "COMMON_METAL_DEPOSITS" }] },
+        { symbol: "X1-SN30-B7", x: -3, y: 2, type: "ASTEROID_FIELD", traits: [{ symbol: "MINERAL_DEPOSITS" }] },
+        // Same trait as H56, but not an asteroid/gas-giant type -- must be excluded.
+        { symbol: "X1-SN30-A1", x: 1, y: 1, type: "PLANET", traits: [{ symbol: "COMMON_METAL_DEPOSITS" }] },
+      ],
+      jumpGates: [], markets: [], shipyards: [],
+    });
+
+    const routes = await fleet.findManipulationRoutes(["FAB_MATS"]);
+
+    assert.equal(routes.length, 1);
+    const route = routes[0]!;
+    assert.equal(route.targetGood, "FAB_MATS");
+    assert.deepEqual(route.market, { systemSymbol: "X1-SN30", waypointSymbol: "X1-SN30-F50", purchasePrice: 1298, tradeVolume: 20 });
+
+    const ironInput = route.inputs.find((i) => i.good === "IRON");
+    assert.ok(ironInput, "IRON must be listed as an upstream input");
+    assert.deepEqual(
+      ironInput!.candidateAsteroids.map((a) => a.waypointSymbol),
+      ["X1-SN30-H56"],
+      "only the trait-matched asteroid, not the same-trait planet, must be suggested",
+    );
+
+    const quartzInput = route.inputs.find((i) => i.good === "QUARTZ_SAND");
+    assert.ok(quartzInput, "QUARTZ_SAND must be listed as an upstream input");
+    assert.deepEqual(quartzInput!.candidateAsteroids.map((a) => a.waypointSymbol), ["X1-SN30-B7"]);
+  });
+
+  it("still returns the good with no market/candidates rather than throwing, when nothing is known yet", async () => {
+    resetSupplyChainCacheForTests();
+    const fakeApi = { getSupplyChain: async () => ({ exportToImportMap: {} }) };
+    const fakeStore = { latestMarketSnapshots: async () => [] };
+    const fleet = new FleetManager({ api: fakeApi as any, store: fakeStore as any, tenantId: "t1" } as any);
+
+    const routes = await fleet.findManipulationRoutes(["FAB_MATS"]);
+
+    assert.equal(routes.length, 1);
+    assert.equal(routes[0]!.market, undefined);
+    assert.deepEqual(routes[0]!.inputs, []);
   });
 });
 
