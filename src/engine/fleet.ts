@@ -4277,6 +4277,30 @@ export class FleetManager {
     return out;
   }
 
+  /**
+   * Evidence for whether a buy-side manipulation attempt at `waypointSymbol`
+   * is actually working: the target good's recorded price history there
+   * (from the durable, append-only market_snapshots table — no new
+   * persistence, every market snapshot already lands there regardless of
+   * why it was taken) alongside this tenant's own sell log for the input
+   * goods at that same waypoint. The operator's own eyes on "did the price
+   * move after these sells" — this method does not itself judge whether it
+   * worked, just lines the two series up.
+   */
+  async getManipulationHistory(waypointSymbol: string, targetGood: string, inputGoods: string[]): Promise<{
+    priceHistory: { timestamp: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[];
+    inputSells: { timestamp: string; shipSymbol: string; tradeSymbol: string; units: number; pricePerUnit: number; total: number }[];
+  }> {
+    const priceHistoryRows = (await this.store?.marketPriceHistory(waypointSymbol, targetGood)) ?? [];
+    const inputSells = this.tenantId && this.store
+      ? await this.store.ledgerSellsAt(this.tenantId, waypointSymbol, inputGoods)
+      : [];
+    return {
+      priceHistory: priceHistoryRows.map((r) => ({ timestamp: r.timestamp, purchasePrice: r.purchasePrice, sellPrice: r.sellPrice, tradeVolume: r.tradeVolume })),
+      inputSells,
+    };
+  }
+
   /** Active missions for the dashboard. */
   async getMissions() {
     return (await this.missions.list()).map((m) => ({ ...m, paused: this.missions.isPaused(m.targetWaypoint) }));

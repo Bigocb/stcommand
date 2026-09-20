@@ -752,9 +752,11 @@ function renderManipulationRoutes() {
     .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`)
     .join("");
 
-  el.innerHTML = manipulationRoutes.map((r) => {
+  el.innerHTML = manipulationRoutes.map((r, i) => {
+    const historyId = `mr-history-${i}`;
     const marketHtml = r.market
-      ? `<span class="shipsym">${escapeHtml(r.market.waypointSymbol)}</span> <span style="color:var(--dim2)">@ ${fmt(r.market.purchasePrice)}c · volume ${r.market.tradeVolume}</span>`
+      ? `<span class="shipsym">${escapeHtml(r.market.waypointSymbol)}</span> <span style="color:var(--dim2)">@ ${fmt(r.market.purchasePrice)}c · volume ${r.market.tradeVolume}</span>
+         <button class="btn mr-history-toggle" data-wp="${escapeAttr(r.market.waypointSymbol)}" data-good="${escapeAttr(r.targetGood)}" data-inputs="${escapeAttr(r.inputs.map((inp) => inp.good).join(","))}" data-target="${historyId}" style="font-size:9px;padding:4px 8px;min-height:auto">History</button>`
       : '<span style="color:var(--dim2)">no known exporter yet</span>';
     const inputsHtml = r.inputs.map((inp) => {
       const asteroidRows = inp.candidateAsteroids.length
@@ -776,6 +778,7 @@ function renderManipulationRoutes() {
           ${marketHtml}
         </div>
         ${inputsHtml}
+        <div id="${historyId}"></div>
       </div>`;
   }).join("");
 
@@ -785,6 +788,46 @@ function renderManipulationRoutes() {
       assignShipToWaypoint(select?.value, btn.dataset.wp, btn);
     });
   });
+
+  el.querySelectorAll(".mr-history-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => loadAndRenderManipulationHistory(btn));
+  });
+}
+
+/** Fetches and renders one route's price-history + input-sell-log —
+ *  fetch-on-click, not polled, since this is a diagnostic the operator
+ *  pulls up on demand rather than something that needs to stay live. */
+async function loadAndRenderManipulationHistory(btn) {
+  const target = $(btn.dataset.target);
+  if (!target) return;
+  if (target.dataset.loaded === "1") { target.innerHTML = ""; target.dataset.loaded = ""; return; }
+  target.innerHTML = '<div style="padding:8px 14px;color:var(--dim2);font-size:10.5px">Loading…</div>';
+  try {
+    const params = new URLSearchParams({ waypoint: btn.dataset.wp, good: btn.dataset.good, inputs: btn.dataset.inputs });
+    const res = await fetch(`/api/manipulation-routes/history?${params}`);
+    const data = res.ok ? await res.json() : { priceHistory: [], inputSells: [] };
+    const priceRows = (data.priceHistory ?? []).slice(0, 10).map((p) => `
+      <div style="display:flex;gap:8px;padding:4px 14px;font-size:10.5px">
+        <span style="color:var(--dim2);flex:1">${escapeHtml(fmtTime(p.timestamp))}</span>
+        <span class="mono">buy ${fmt(p.purchasePrice)}c · sell ${fmt(p.sellPrice)}c · vol ${p.tradeVolume}</span>
+      </div>`).join("") || '<div style="padding:4px 14px;color:var(--dim2);font-size:10.5px">No price history recorded yet.</div>';
+    const sellRows = (data.inputSells ?? []).slice(0, 10).map((s) => `
+      <div style="display:flex;gap:8px;padding:4px 14px;font-size:10.5px">
+        <span style="color:var(--dim2);flex:1">${escapeHtml(fmtTime(s.timestamp))}</span>
+        <span class="mono">${escapeHtml(s.shipSymbol)} sold ${s.units}u ${escapeHtml(s.tradeSymbol)} @ ${fmt(s.pricePerUnit)}c</span>
+      </div>`).join("") || '<div style="padding:4px 14px;color:var(--dim2);font-size:10.5px">No input sells recorded yet at this waypoint.</div>';
+    target.innerHTML = `
+      <div style="border-top:1px solid var(--hair);padding-top:6px;margin-top:2px">
+        <div style="padding:4px 14px;font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em">price history (newest first)</div>
+        ${priceRows}
+        <div style="padding:4px 14px;font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em">input sells at this waypoint</div>
+        ${sellRows}
+      </div>`;
+    target.dataset.loaded = "1";
+  } catch (err) {
+    console.error(err);
+    target.innerHTML = '<div style="padding:8px 14px;color:var(--red);font-size:10.5px">Failed to load history.</div>';
+  }
 }
 
 /* ── Doctrine screen (pass 6) ────────────────

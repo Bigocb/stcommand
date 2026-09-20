@@ -307,6 +307,38 @@ export class Store {
     });
   }
 
+  /**
+   * Sell entries at one waypoint for a given set of goods, newest first —
+   * for watching whether a deliberate buy-side manipulation attempt
+   * (docs/TODO.md's supply-chain-aware pricing idea) is actually landing
+   * sells at the intended market. Tenant-scoped like every other ledger
+   * read (RLS via withTenant) — this tenant's own sells only, same as the
+   * rest of the ledger.
+   */
+  async ledgerSellsAt(tenantId: string, waypointSymbol: string, tradeSymbols: string[], limit = 50): Promise<
+    { timestamp: string; shipSymbol: string; tradeSymbol: string; units: number; pricePerUnit: number; total: number }[]
+  > {
+    if (tradeSymbols.length === 0) return [];
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{
+        timestamp: Date; ship_symbol: string; trade_symbol: string; units: number; price_per_unit: number; total: number;
+      }>(
+        `SELECT timestamp, ship_symbol, trade_symbol, units, price_per_unit, total
+         FROM ledger WHERE type = 'SELL' AND waypoint_symbol = $1 AND trade_symbol = ANY($2::text[])
+         ORDER BY timestamp DESC LIMIT $3`,
+        [waypointSymbol, tradeSymbols, limit],
+      );
+      return res.rows.map((r) => ({
+        timestamp: r.timestamp.toISOString(),
+        shipSymbol: r.ship_symbol,
+        tradeSymbol: r.trade_symbol,
+        units: r.units,
+        pricePerUnit: r.price_per_unit,
+        total: r.total,
+      }));
+    });
+  }
+
   // ── Activity ────────────────────────────────────────────────
 
   async recordActivity(tenantId: string, entry: ActivityEntry): Promise<void> {
@@ -975,6 +1007,30 @@ export class Store {
           params,
         );
       }
+    });
+  }
+
+  /**
+   * The full recorded price history for one good at one waypoint, newest
+   * first — a plain read of the append-only `market_snapshots` table
+   * (never overwritten, unlike `market_latest`), for watching whether a
+   * price actually moved after a deliberate buy-side manipulation attempt
+   * (docs/TODO.md's supply-chain-aware pricing idea). No new persistence:
+   * every recordMarkets() call already writes here regardless of why the
+   * snapshot was taken.
+   */
+  async marketPriceHistory(waypointSymbol: string, goodSymbol: string, limit = 50): Promise<MarketRow[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{
+        system_symbol: string; waypoint_symbol: string; good_symbol: string; type: string;
+        supply: string; purchase_price: number; sell_price: number; trade_volume: number; timestamp: Date;
+      }>(
+        `SELECT system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp
+         FROM market_snapshots WHERE waypoint_symbol = $1 AND good_symbol = $2
+         ORDER BY timestamp DESC LIMIT $3`,
+        [waypointSymbol, goodSymbol, limit],
+      );
+      return res.rows.map(Store.mapMarketRow);
     });
   }
 

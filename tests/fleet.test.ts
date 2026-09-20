@@ -825,6 +825,31 @@ describe("FleetManager.findManipulationRoutes", () => {
     assert.deepEqual(quartzInput!.candidateAsteroids.map((a) => a.waypointSymbol), ["X1-SN30-B7"]);
   });
 
+  it("getManipulationHistory lines up the target good's price history with the tenant's own input sells at that waypoint", async () => {
+    const priceRows = [
+      { systemSymbol: "X1-SN30", waypointSymbol: "X1-SN30-F50", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "MODERATE", purchasePrice: 1298, sellPrice: 900, tradeVolume: 20, timestamp: "2026-09-20T14:00:00Z" },
+      { systemSymbol: "X1-SN30", waypointSymbol: "X1-SN30-F50", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "MODERATE", purchasePrice: 1150, sellPrice: 800, tradeVolume: 20, timestamp: "2026-09-20T15:00:00Z" },
+    ];
+    const sellRows = [
+      { timestamp: "2026-09-20T14:30:00Z", shipSymbol: "THEO-9", tradeSymbol: "IRON", units: 40, pricePerUnit: 12, total: 480 },
+    ];
+    const calls: unknown[][] = [];
+    const fakeStore = {
+      marketPriceHistory: async (wp: string, good: string) => { calls.push(["price", wp, good]); return priceRows; },
+      ledgerSellsAt: async (tenantId: string, wp: string, goods: string[]) => { calls.push(["sells", tenantId, wp, goods]); return sellRows; },
+    };
+    const fleet = new FleetManager({ api: {} as any, store: fakeStore as any, tenantId: "t1" } as any);
+
+    const history = await fleet.getManipulationHistory("X1-SN30-F50", "FAB_MATS", ["IRON", "QUARTZ_SAND"]);
+
+    assert.deepEqual(history.priceHistory.map((p) => p.purchasePrice), [1298, 1150]);
+    assert.deepEqual(history.inputSells, sellRows);
+    assert.deepEqual(calls, [
+      ["price", "X1-SN30-F50", "FAB_MATS"],
+      ["sells", "t1", "X1-SN30-F50", ["IRON", "QUARTZ_SAND"]],
+    ]);
+  });
+
   it("still returns the good with no market/candidates rather than throwing, when nothing is known yet", async () => {
     resetSupplyChainCacheForTests();
     const fakeApi = { getSupplyChain: async () => ({ exportToImportMap: {} }) };
