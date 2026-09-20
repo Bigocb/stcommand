@@ -198,6 +198,7 @@ tr.sel td{background:var(--amber-dim)}
 /* command palette (⌘K) */
 .kbd{cursor:pointer}
 .cpoverlay{position:fixed;inset:0;background:rgba(5,4,3,.72);display:flex;align-items:flex-start;justify-content:center;padding-top:110px;backdrop-filter:blur(2px);z-index:50}
+.cpoverlay[hidden]{display:none}
 .cpbox{width:480px;max-width:90vw;background:var(--panel);border:1px solid var(--amber-glow);border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.6);overflow:hidden}
 .cpinput{display:flex;align-items:center;gap:10px;padding:16px;min-height:52px;border-bottom:1px solid var(--hair)}
 .cpinput .sym{color:var(--amber);font-family:var(--mono)}
