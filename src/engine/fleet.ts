@@ -4233,7 +4233,7 @@ export class FleetManager {
   async findManipulationRoutes(targetGoods: string[]): Promise<{
     targetGood: string;
     market: { systemSymbol: string; waypointSymbol: string; purchasePrice: number; tradeVolume: number } | undefined;
-    inputs: { good: string; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string }[] }[];
+    inputs: { good: string; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string; type: string }[] }[];
   }[]> {
     const chain = await getSupplyChain(this.api).catch(() => undefined);
     const snapshots = (await this.store?.latestMarketSnapshots()) ?? [];
@@ -4251,10 +4251,10 @@ export class FleetManager {
         ? { systemSymbol: marketRows[0].systemSymbol, waypointSymbol: marketRows[0].waypointSymbol, purchasePrice: marketRows[0].purchasePrice, tradeVolume: marketRows[0].tradeVolume }
         : undefined;
 
-      const inputs: { good: string; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string }[] }[] = [];
+      const inputs: { good: string; candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string; type: string }[] }[] = [];
       for (const good of inputGoods) {
         const hints = FleetManager.DEPOSIT_TRAIT_HINTS[good] ?? [];
-        const candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string }[] = [];
+        const candidateAsteroids: { systemSymbol: string; waypointSymbol: string; traitHint: string; type: string }[] = [];
         // Scoped to the target market's own system (same reasoning as
         // materialBuyers()/discoverMaterialBuyers(): a candidate the
         // fleet can't actually reach without a jump wastes the finder's
@@ -4267,7 +4267,7 @@ export class FleetManager {
           for (const w of known?.waypoints ?? []) {
             if (w.type !== "ASTEROID_FIELD" && w.type !== "ENGINEERED_ASTEROID" && w.type !== "GAS_GIANT") continue;
             const matchedHint = hints.find((h) => w.traits.some((t) => t.symbol === h));
-            if (matchedHint) candidateAsteroids.push({ systemSymbol: sys, waypointSymbol: w.symbol, traitHint: matchedHint });
+            if (matchedHint) candidateAsteroids.push({ systemSymbol: sys, waypointSymbol: w.symbol, traitHint: matchedHint, type: w.type });
           }
         }
         inputs.push({ good, candidateAsteroids });

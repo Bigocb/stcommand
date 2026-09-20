@@ -1034,16 +1034,27 @@ function renderMoreMissions() {
 
 /* ── More: Manipulation routes ────────────────
  * Mirrors deck.js/v6.js's Ops panel — a read-only finder plus a manual
- * "assign" action that reuses the existing /api/fleet/dispatch
- * (send-and-hold) endpoint. See FleetManager.findManipulationRoutes()'s
- * own comment for why the asteroid matches are a trait-based hint, not a
- * confirmed deposit.
+ * assign action.
+ *
+ * IMPORTANT: for an ASTEROID_FIELD/ENGINEERED_ASTEROID candidate this
+ * calls /api/fleet/mine (FleetManager.mineAt) — pins a miner/surveyor to
+ * actively extract at that field. It used to call /api/fleet/dispatch
+ * (send-and-hold) for every candidate, which — confirmed live 2026-09-20,
+ * THEO-1 sat idle at X1-SN30-XC5F for almost an hour — silently parks the
+ * ship under an operator hold and overrides its role's own extract loop
+ * instead of mining there. GAS_GIANT candidates still use dispatch/hold
+ * since there's no siphon-pin equivalent to mineAt yet — labeled "Hold"
+ * rather than "Assign" so that distinction isn't hidden again.
  */
 function renderMoreManipulationRoutes() {
   const el = $("more-manipulation-routes");
   if (!el) return;
   if (!manipulationRoutes.length) { el.innerHTML = '<div class="empty">No manipulation routes found.</div>'; return; }
-  const shipOptions = (fleetStatus.ships ?? [])
+  const minerOptions = (fleetStatus.ships ?? [])
+    .filter((s) => s.role === "miner" || s.role === "surveyor")
+    .map((s) => `<option value="${escapeHtml(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
+    .join("");
+  const anyShipOptions = (fleetStatus.ships ?? [])
     .map((s) => `<option value="${escapeHtml(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
     .join("");
   el.innerHTML = manipulationRoutes.map((r, i) => {
@@ -1056,12 +1067,15 @@ function renderMoreManipulationRoutes() {
       : "";
     const inputsHtml = r.inputs.map((inp) => {
       const asteroidRows = inp.candidateAsteroids.length
-        ? inp.candidateAsteroids.map((a) => `
-            <div class="prog-row"><span>${escapeHtml(a.waypointSymbol)}</span><span class="pr-pct">hint: ${escapeHtml(a.traitHint)}</span></div>
+        ? inp.candidateAsteroids.map((a) => {
+            const mine = a.type === "ASTEROID_FIELD" || a.type === "ENGINEERED_ASTEROID";
+            return `
+            <div class="prog-row"><span>${escapeHtml(a.waypointSymbol)}</span><span class="pr-pct">hint: ${escapeHtml(a.traitHint)}${mine ? "" : " · gas giant"}</span></div>
             <div class="acts">
-              <select class="role-select mr-ship-select">${shipOptions}</select>
-              <button class="btn pri mr-assign" data-wp="${escapeHtml(a.waypointSymbol)}">Assign</button>
-            </div>`).join("")
+              <select class="role-select mr-ship-select">${mine ? minerOptions : anyShipOptions}</select>
+              <button class="btn pri mr-assign" data-wp="${escapeHtml(a.waypointSymbol)}" data-type="${escapeHtml(a.type)}">${mine ? "Assign" : "Hold"}</button>
+            </div>`;
+          }).join("")
         : '<div class="detail">no candidate asteroid found nearby</div>';
       return `<div class="detail">need: ${escapeHtml(inp.good)}</div>${asteroidRows}`;
     }).join("");
@@ -1075,13 +1089,15 @@ function renderMoreManipulationRoutes() {
   }).join("");
 }
 
-async function assignShipToManipulationWaypoint(shipSymbol, waypointSymbol, btn) {
+async function assignShipToManipulationWaypoint(shipSymbol, waypointSymbol, type, btn) {
   if (!shipSymbol) return;
+  const mine = type === "ASTEROID_FIELD" || type === "ENGINEERED_ASTEROID";
   btn.disabled = true;
   const original = btn.textContent;
-  btn.textContent = "Assigning…";
+  btn.textContent = mine ? "Assigning…" : "Holding…";
   try {
-    await api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol });
+    if (mine) await api("POST", "/api/fleet/mine", { shipSymbol, waypointSymbol });
+    else await api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol });
     btn.textContent = "Assigned ✓";
     setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
   } catch (err) {
@@ -1122,7 +1138,7 @@ $("more-manipulation-routes").addEventListener("click", (e) => {
   const assignBtn = e.target.closest("button.mr-assign");
   if (assignBtn) {
     const select = assignBtn.parentElement.querySelector(".mr-ship-select");
-    assignShipToManipulationWaypoint(select?.value, assignBtn.dataset.wp, assignBtn);
+    assignShipToManipulationWaypoint(select?.value, assignBtn.dataset.wp, assignBtn.dataset.type, assignBtn);
     return;
   }
   const historyBtn = e.target.closest("button.mr-history-toggle");

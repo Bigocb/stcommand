@@ -6086,19 +6086,27 @@ function renderMissions(list) {
 
 /* ── Manipulation routes (Ops) ──────────────
  * docs/TODO.md's supply-chain-aware buy-side price manipulation idea.
- * Read-only finder + a manual "assign" action that reuses the existing
- * /api/fleet/dispatch (send-and-hold) endpoint — this never mines,
- * sells, or picks a route on its own. See FleetManager.
- * findManipulationRoutes()'s own comment for why the asteroid matches
- * are a trait-based hint, not a confirmed deposit.
+ * Read-only finder + a manual "assign" action.
+ *
+ * IMPORTANT: for an ASTEROID_FIELD/ENGINEERED_ASTEROID candidate this
+ * calls /api/fleet/mine (FleetManager.mineAt) — pins a miner/surveyor to
+ * actively extract at that field. It used to call /api/fleet/dispatch
+ * (send-and-hold) for every candidate, which — confirmed live 2026-09-20,
+ * THEO-1 sat idle at X1-SN30-XC5F for almost an hour — silently parks the
+ * ship under an operator hold and overrides its role's own extract loop
+ * instead of mining there. GAS_GIANT candidates still use dispatch/hold
+ * since there's no siphon-pin equivalent to mineAt yet — labeled "Hold"
+ * rather than "Assign" so that distinction isn't hidden again.
  */
-async function assignShipToManipulationWaypoint(shipSymbol, waypointSymbol, btn) {
+async function assignShipToManipulationWaypoint(shipSymbol, waypointSymbol, type, btn) {
   if (!shipSymbol) return;
+  const mine = type === "ASTEROID_FIELD" || type === "ENGINEERED_ASTEROID";
   btn.disabled = true;
   const original = btn.textContent;
-  btn.textContent = "Assigning…";
+  btn.textContent = mine ? "Assigning…" : "Holding…";
   try {
-    await api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol });
+    if (mine) await api("POST", "/api/fleet/mine", { shipSymbol, waypointSymbol });
+    else await api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol });
     btn.textContent = "Assigned ✓";
     setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
   } catch (err) {
@@ -6112,7 +6120,16 @@ async function assignShipToManipulationWaypoint(shipSymbol, waypointSymbol, btn)
  *  ids namespaced by idPrefix so the desktop Ops pane and the mobile Ops
  *  screen can render independent copies without id collisions. */
 function buildManipulationRoutesHtml(idPrefix) {
-  const shipOptions = (fleetStatus.ships ?? [])
+  // mineAt() only accepts a ship already in the miner/surveyor role — an
+  // unfiltered picker let an operator "assign" a trader or keeper, which
+  // then failed the mine call outright (or, before this fix, silently sat
+  // parked under a hold instead). Gas-giant candidates have no pin
+  // mechanism yet, so they keep the unrestricted picker for a manual hold.
+  const minerOptions = (fleetStatus.ships ?? [])
+    .filter((s) => s.role === "miner" || s.role === "surveyor")
+    .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
+    .join("");
+  const anyShipOptions = (fleetStatus.ships ?? [])
     .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
     .join("");
   return manipulationRoutes.map((r, i) => {
@@ -6123,14 +6140,17 @@ function buildManipulationRoutesHtml(idPrefix) {
       : '<span class="ops-sub">no known exporter yet</span>';
     const inputsHtml = r.inputs.map((inp) => {
       const asteroidRows = inp.candidateAsteroids.length
-        ? inp.candidateAsteroids.map((a) => `
+        ? inp.candidateAsteroids.map((a) => {
+            const mine = a.type === "ASTEROID_FIELD" || a.type === "ENGINEERED_ASTEROID";
+            return `
             <div class="ops-row">
               <span class="ops-title">${escapeHtml(a.waypointSymbol)}</span>
-              <span class="ops-sub">hint: ${escapeHtml(a.traitHint)}</span>
+              <span class="ops-sub">hint: ${escapeHtml(a.traitHint)}${mine ? "" : " · gas giant, no auto-siphon-pin yet"}</span>
               <span class="fill"></span>
-              <select class="mr-ship-select" aria-label="Ship to assign">${shipOptions}</select>
-              <button class="btn mr-assign" data-wp="${escapeAttr(a.waypointSymbol)}">Assign</button>
-            </div>`).join("")
+              <select class="mr-ship-select" aria-label="Ship to assign">${mine ? minerOptions : anyShipOptions}</select>
+              <button class="btn mr-assign" data-wp="${escapeAttr(a.waypointSymbol)}" data-type="${escapeAttr(a.type)}">${mine ? "Assign" : "Hold"}</button>
+            </div>`;
+          }).join("")
         : '<div class="ops-row"><span class="ops-sub">no candidate asteroid found nearby</span></div>';
       return `<div class="ops-row"><span class="ops-sub">need: ${escapeHtml(inp.good)}</span></div>${asteroidRows}`;
     }).join("");
@@ -6150,7 +6170,7 @@ function wireManipulationRoutesEvents(el) {
   el.querySelectorAll(".mr-assign").forEach((btn) => {
     btn.addEventListener("click", () => {
       const select = btn.parentElement.querySelector(".mr-ship-select");
-      assignShipToManipulationWaypoint(select?.value, btn.dataset.wp, btn);
+      assignShipToManipulationWaypoint(select?.value, btn.dataset.wp, btn.dataset.type, btn);
     });
   });
   el.querySelectorAll(".mr-history-toggle").forEach((btn) => {
