@@ -4050,22 +4050,79 @@ export class FleetManager {
     if (!best) return; // no shipyard in this system has a cached probe in stock right now
     if (!this.canAfford(best.price)) return;
 
+    const shipSymbol = `${best.waypointSymbol}|${marketWaypoint}`;
+    // Live bug, 2026-09-21: ApprovalGate.request() dedups by KIND only — it
+    // has no idea a decided row it finds might belong to a different
+    // market's proposal than the one this call is about. With this kind now
+    // firing from many independent call sites (a fresh ship dock at ANY
+    // priority market, plus the queue-advance below), two different
+    // markets' calls landing close together meant one could blindly consume
+    // and misattribute a decision that was actually about the other —
+    // confirmed live: several different markets logged "denied by operator"
+    // in an eight-second cluster, which is not humanly possible to actually
+    // decide that fast. Peek first: only let approvals.request() run when
+    // the kind is genuinely free, or the row already sitting there is
+    // provably about THIS exact shipyard/market pairing. Otherwise back off
+    // silently — advanceKeeperMarketQueue() will get back to this market
+    // once the kind frees up.
+    if (this.store && this.tenantId) {
+      const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
+      if (existing && existing.shipSymbol !== shipSymbol) return;
+    }
+
     const approved = await this.approvals.request("buyKeeperProbeForMarket", {
-      shipSymbol: `${best.waypointSymbol}|${marketWaypoint}`,
-      detail: `probe at ${best.waypointSymbol} for ${best.price}c, will drift to ${marketWaypoint} (${goodsCount} goods${recommended ? ", recommended" : `, below the ${minGoods}-good recommended threshold`}) — no keeper stationed there yet`,
+      shipSymbol,
+      // "at <yard>" is the purchase SOURCE (wherever cached stock exists —
+      // may already have its own, unrelated keeper; that doesn't block
+      // buying another probe there to send elsewhere), "to <market>" is the
+      // actual coverage target this request is about. Led with "to" after
+      // an operator read "at A2" as "covering A2 again" — A2 already had a
+      // keeper.
+      detail: `probe to ${marketWaypoint} (${goodsCount} goods${recommended ? ", recommended" : `, below the ${minGoods}-good recommended threshold`}) — buying at ${best.waypointSymbol} for ${best.price}c, no keeper stationed at ${marketWaypoint} yet`,
       cost: best.price,
       timeoutMs: 2 * 60 * 60_000,
       onTimeout: "approve",
     });
     if (approved === undefined) {
-      this.log(`keeper probe purchase at ${best.waypointSymbol} (for market ${marketWaypoint}) awaiting operator approval`);
+      this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) awaiting operator approval`);
       return;
     }
     if (approved === false) {
-      this.log(`keeper probe purchase at ${best.waypointSymbol} (for market ${marketWaypoint}) denied by operator`);
+      this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) denied by operator`);
       return;
     }
     await this.purchaseKeeperProbe(best.waypointSymbol, marketWaypoint, best.price);
+  }
+
+  /**
+   * Deterministic queue-advance for the market-triggered keeper-probe
+   * check, called every tick alongside resolvePendingKeeperProbeApproval().
+   * Without this, only the very first market added in a
+   * setKeeperPriorityMarkets() batch (or whichever priority market some
+   * ship's regular route happened to visit next) ever got checked —
+   * everything else silently waited on ship-traffic luck. Confirmed live
+   * 2026-09-21: an operator added several markets to the priority list at
+   * once and some got an approval within a minute while others took much
+   * longer, purely because of which markets busy trade routes happened to
+   * pass through first.
+   *
+   * Fires the next uncovered priority-list market's check whenever the
+   * buyKeeperProbeForMarket kind is genuinely free (no unconsumed row at
+   * all, pending or decided) — one at a time, same anti-flood shape as
+   * every other approval kind in this file, but now actually cycling
+   * through the whole priority list on a bounded cadence instead of
+   * stalling indefinitely on markets nothing happens to visit.
+   */
+  private async advanceKeeperMarketQueue(): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
+    const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
+    if (existing) return; // something's already in flight — resolvePendingKeeperProbeApproval() owns resolving it
+    const priority = await this.keeperPriorityMarkets();
+    const covered = new Set(this.keeperMarkets.values());
+    const next = priority.find((m) => !covered.has(m));
+    if (!next) return; // every priority market is already covered
+    await this.maybeRequestKeeperProbeForMarket(next);
   }
 
   /**
@@ -6067,6 +6124,7 @@ export class FleetManager {
     await this.maybeBuyShip();
     await this.resolvePendingKeeperProbeApproval("buyKeeperProbe");
     await this.resolvePendingKeeperProbeApproval("buyKeeperProbeForMarket");
+    await this.advanceKeeperMarketQueue();
     await this.maybeBuyScout();
     await this.maybeBuySiphoner();
     await this.maybeInstallScanner();
@@ -6097,10 +6155,17 @@ export class FleetManager {
     if (target <= 0) return;
     const coverList = await this.keeperCoverList();
     const priority = await this.keeperPriorityMarkets();
-    // Prefer an idle miner (empty hold, not manual, not suspended); fall back
-    // to an idle tour shuttle so we never block on a busy ship. Drains the
-    // whole uncovered list in one pass when coverList is on; otherwise stops at
-    // the keeperCount cap. The conversion itself makes no API calls, so the old
+    // Idle miners only (empty hold, not manual, not suspended) — an idle
+    // tour shuttle used to be a fallback candidate here too, removed
+    // 2026-09-21 at the operator's request: a tour ship pulled into keeper
+    // duty is a ship that no longer tours, which is exactly what feeds
+    // maybeRequestKeeperProbeForMarket()'s market-visit trigger and keeps
+    // marketTourTargets()/shipyardTourTargets() fresh — converting tour
+    // ships to plug keeper gaps was quietly working against the coverage
+    // this file is trying to build. Confirmed live: THEO-8, the fleet's
+    // tour ship, got converted this way. Drains the whole uncovered list in
+    // one pass when coverList is on; otherwise stops at the keeperCount
+    // cap. The conversion itself makes no API calls, so the old
     // one-ship-per-pass crawl just wasted minutes.
     // The command ship is never a candidate, no matter how it's equipped —
     // a fleet's flagship (registration.role === "COMMAND") shouldn't get
@@ -6115,16 +6180,14 @@ export class FleetManager {
     const available = this.availableFor("keeper");
     const idle = (sym: string, a: ShipAgent) => available.has(sym) && (a.getShip().cargo?.units ?? 0) === 0 && a.getShip().registration?.role !== "COMMAND";
     const miners = [...this.miners.entries()].filter(([sym, a]) => idle(sym, a));
-    const shuttles = [...this.tours.entries()].filter(([sym, a]) => idle(sym, a));
     for (;;) {
       const need = await this.priorityUncovered();
       if (need.length === 0) break;
       if (!coverList && this.keepers.size >= target) break;
-      const miner = miners.shift();
-      const source = miner ?? shuttles.shift();
+      const source = miners.shift();
       if (!source) break;
       const [sym, agent] = source;
-      const what = miner ? "miner" : "shuttle";
+      const what = "miner";
       const market = need[0]!;
       // Cutover (Greenfield Phase 4): the idle() filter above already
       // excludes manual/suspended ships (MissionManager suspends its

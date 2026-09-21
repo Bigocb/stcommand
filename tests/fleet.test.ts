@@ -1585,6 +1585,28 @@ describe("Keeper markets: no cross-tenant data leakage, command ship excluded", 
     // own error-backoff retries keep the test process alive indefinitely.
     (fleet as any).keepers.get("MINER-1")?.stop();
   });
+
+  // 2026-09-21, operator request after confirming live that THEO-8 (the
+  // fleet's tour ship) got converted this way: an idle tour shuttle used to
+  // be a fallback candidate when no idle miner was available. Removed
+  // entirely — a tour ship pulled into keeper duty is a ship that no longer
+  // tours, working against the very market-visit coverage this file
+  // maintains elsewhere (marketTourTargets()/shipyardTourTargets(),
+  // maybeRequestKeeperProbeForMarket()).
+  it("never converts an idle tour ship to keeper, even with no idle miner available", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const tourShip = makeFakeAgent("TOUR-1", "X1-A-A1");
+    const fleet = makeFleet([], store, tenantId);
+    (fleet as any).tours.set("TOUR-1", tourShip);
+    await fleet.doctrine.set("keeperCount", { value: 5, enabled: true });
+    await store.setFleetFlag(tenantId, "keeperMarkets", JSON.stringify(["X1-A-D46"]));
+
+    await (fleet as any).maybeAssignKeepers();
+
+    assert.ok(!(fleet as any).keepers.has("TOUR-1"), "an idle tour ship must never be converted, even as a fallback with no miner available");
+    assert.ok((fleet as any).tours.has("TOUR-1"), "must stay a tour ship, not get pulled out of the tours map");
+  });
 });
 
 describe("FleetManager.setShipRole", () => {
