@@ -3701,6 +3701,14 @@ export class FleetManager {
         if (w.traits.some((t) => t.symbol === "MARKETPLACE")) out.add(w.symbol);
       }
     }
+    // A market with a keeper actually stationed there already gets a fresh
+    // snapshot every keeperPoll() cycle — a tour ship revisiting it is pure
+    // duplicate work. Excluded here (not just left to staleMarketTargets()'s
+    // freshness filter) so it drops out of every consumer at once, including
+    // the raw marketTourTargets() list itself and sectorTourTargets(), which
+    // both derive from this. See maybeAssignKeepers() for the coverage
+    // registry (this.keeperMarkets) this reads.
+    for (const covered of this.keeperMarkets.values()) out.delete(covered);
     return [...out].sort();
   }
 
@@ -3738,6 +3746,12 @@ export class FleetManager {
         if (w.traits.some((t) => t.symbol === "SHIPYARD")) out.add(w.symbol);
       }
     }
+    // Same reasoning as marketTourTargets()'s own keeper exclusion: a keeper
+    // stationed at a shipyard-market already refreshes that yard's ship
+    // stock too (keeperPoll() calls recordShipyard() whenever its market
+    // has one), so a tour ship revisiting it duplicates work a keeper is
+    // already doing every cycle.
+    for (const covered of this.keeperMarkets.values()) out.delete(covered);
     return [...out].sort();
   }
 
@@ -3787,10 +3801,17 @@ export class FleetManager {
   }
 
   /**
-   * Assign a keeper market to a probe/satellite. Probes can't move, so the
-   * keeper market must be where the probe already is — and that waypoint must
-   * be a marketplace (so its prices are worth polling). Prefer shipyard-markets
-   * (A2, C43, H56) since they're also where we buy ships.
+   * Default keeper market for a ship converting into the role with no
+   * explicit market given (e.g. an idle miner/shuttle picked up by
+   * maybeAssignKeepers(), or a manual role change with no keeperMarket
+   * argument) — falls back to wherever the ship already is, as long as
+   * that's a marketplace worth polling. Not a movement limitation: a
+   * keeper's own tick loop (keeperPoll(), agent.ts) already repositions
+   * itself to its pinned market if it isn't there — including a 0-fuel
+   * probe/satellite, confirmed live 2026-09-21 (chooseFlightMode() treats
+   * 0 capacity as fuel-independent, not undrivable). This just avoids
+   * picking an unnecessary trip for a ship that's already sitting
+   * somewhere useful.
    */
   private keeperMarketFor(ship: Ship): string | undefined {
     const here = ship.nav.waypointSymbol;
@@ -3815,33 +3836,93 @@ export class FleetManager {
     }
   }
 
-  /** True while a buyKeeperProbe request for exactly this waypoint is still
-   *  open — wired into every tour/scout ShipAgent as hasPendingKeeperApproval
-   *  so the ship that raised the request (or found one already open on a
-   *  revisit) stays put until the operator decides or the timeout policy
-   *  does, rather than touring off before the purchase can go through. */
+  /** True while a buyKeeperProbe request raised from exactly this shipyard is
+   *  still open — wired into every tour/scout ShipAgent as
+   *  hasPendingKeeperApproval so the ship that raised the request (or found
+   *  one already open on a revisit) stays put until the operator decides or
+   *  the timeout policy does, rather than touring off before the purchase
+   *  can go through. `row.shipSymbol` packs "shipyardWaypoint|targetMarket"
+   *  (see maybeRequestKeeperProbe()'s own comment on why) — only the
+   *  shipyard half matters here, since that's what determines whether a
+   *  ship sitting at THIS waypoint should hold. */
   private async hasPendingKeeperProbeApproval(waypointSymbol: string): Promise<boolean> {
     if (!this.store || !this.tenantId) return false;
     const row = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe");
-    return row?.shipSymbol === waypointSymbol;
+    return row?.shipSymbol?.split("|")[0] === waypointSymbol;
   }
+
+  /**
+   * The nearest uncovered market a freshly-bought probe at `fromWaypoint`
+   * (a shipyard) should drift to. `fromWaypoint` itself is always a valid
+   * candidate — preserves the original, unconditional "any uncovered
+   * shipyard gets a probe" behavior for a tenant who's never configured a
+   * keeper priority list (`DEFAULT_KEEPER_MARKETS` is empty; most tenants
+   * never touch keeperMarkets) — a probe still gets planted at the yard it
+   * was bought at, same as before this change, if nothing better applies.
+   * Every OTHER market on the operator's keeper priority list, reachable
+   * same-system, is an additional candidate on top of that — this is the
+   * actual expansion the change is for, but it's additive, never a reason
+   * the shipyard itself stops qualifying. Same-system only, deliberately:
+   * reaching a different system would need jump-fuel handling this pass
+   * doesn't add. Returns undefined only if the shipyard is itself already
+   * covered AND no priority market in-system is uncovered.
+   */
+  private nearestUncoveredKeeperMarket(fromWaypoint: string): string | undefined {
+    const fromSystem = fromWaypoint.slice(0, fromWaypoint.lastIndexOf("-"));
+    const covered = new Set(this.keeperMarkets.values());
+    const positions = new Map(this.galaxy.allPositions().map((p) => [p.symbol, p]));
+    const from = positions.get(fromWaypoint);
+    const candidates = new Set(this.keeperPriorityMarketsCache ?? []);
+    candidates.add(fromWaypoint);
+    let best: { symbol: string; dist: number } | undefined;
+    for (const sym of candidates) {
+      if (covered.has(sym)) continue;
+      const pos = positions.get(sym);
+      // Same waypoint-symbol convention used everywhere else in this file
+      // (e.g. recordShipyardSnapshot() above) as the fallback when the
+      // galaxy cache has no charted position for this symbol yet — still
+      // enough to tell same-system from cross-system without needing x/y.
+      const symSystem = pos?.systemSymbol ?? sym.slice(0, sym.lastIndexOf("-"));
+      if (symSystem !== fromSystem) continue; // a priority market outside this system — out of reach from here
+      const dist = pos && from ? Math.hypot(pos.x - from.x, pos.y - from.y) : sym === fromWaypoint ? 0 : Infinity;
+      if (!best || dist < best.dist) best = { symbol: sym, dist };
+    }
+    return best?.symbol;
+  }
+
+  /** Synchronous cache of the last-loaded keeper priority list —
+   *  nearestUncoveredKeeperMarket() can't be async (it's called from a
+   *  tight loop building candidate lists), and this list only changes when
+   *  an operator edits it, so refreshing it once per tick (see
+   *  maybeAssignKeepers(), which already loads it every pass) is fresh
+   *  enough. Undefined until the first load completes. */
+  private keeperPriorityMarketsCache: string[] | undefined;
 
   /**
    * Any ship visiting a shipyard (tour ships do this routinely, per
    * marketTourTargets()'s own trait-scan) is the one moment we can see
    * whether it stocks probes at all — this only fires from a real, already-
    * successful getShipyard() call, so it never spends a call chasing one
-   * down. A shipyard with no keeper stationed there only ever gets a price
-   * refresh when some other ship happens to pass through; a probe has no
-   * fuel and can never move under its own power (confirmed live), so buying
-   * one AT this exact waypoint is the only way to plant a permanent keeper
-   * here at all — unlike a keeper converted from an idle miner/shuttle
-   * (maybeAssignKeepers()), which only ever covers the operator's configured
-   * `keeperMarkets` list, not an opportunistically-discovered shipyard.
+   * down. Checks the whole operator keeper-priority list for an uncovered
+   * market reachable same-system from here (nearestUncoveredKeeperMarket()),
+   * not just whether this exact shipyard is covered — a probe bought here
+   * can drift to a different market entirely once purchased.
+   *
+   * A probe/satellite has 0 fuel capacity, which used to mean "can never
+   * move under its own power" in this codebase's own (wrong) assumption —
+   * confirmed live 2026-09-21 that's false: chooseFlightMode() already
+   * treats a 0-capacity ship as fuel-independent (mode doesn't matter, it
+   * never burns any either way), and keeperPoll() already repositions any
+   * keeper to its pinned market on its own if it isn't there yet. So the
+   * only thing that ever actually required "buy it exactly where it'll
+   * stay" was this method picking the purchase waypoint as the pin too —
+   * not any real movement limitation.
    */
   private async maybeRequestKeeperProbe(waypointSymbol: string, ships: { type: string; purchasePrice: number }[]): Promise<void> {
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
-    if ([...this.keeperMarkets.values()].includes(waypointSymbol)) return; // already covered
+    this.keeperPriorityMarketsCache = await this.keeperPriorityMarkets();
+    const target = this.nearestUncoveredKeeperMarket(waypointSymbol);
+    if (!target) return; // nothing on the priority list needs covering from here
     const probe = ships.find((s) => s.type === "SHIP_PROBE");
     if (!probe) return; // this yard doesn't stock one right now
     if (!this.canAfford(probe.purchasePrice)) return;
@@ -3850,10 +3931,16 @@ export class FleetManager {
     // pattern maybeBuyShip()'s "buyShip" already uses — avoids flooding the
     // operator with simultaneous asks if several uncovered shipyards get
     // visited in quick succession; the next one gets its own request once
-    // this one clears.
+    // this one clears. shipSymbol packs "shipyard|target" — pending_approvals
+    // has no generic payload column (see 016_pending_approvals.sql), and this
+    // is the one field free to repurpose the same way it already was before
+    // this change (it held just the shipyard waypoint, alone).
+    const detail = target === waypointSymbol
+      ? `probe at ${waypointSymbol} for ${probe.purchasePrice}c — no keeper stationed there yet`
+      : `probe at ${waypointSymbol} for ${probe.purchasePrice}c, will drift to ${target} — no keeper stationed there yet`;
     const approved = await this.approvals.request("buyKeeperProbe", {
-      shipSymbol: waypointSymbol,
-      detail: `probe at ${waypointSymbol} for ${probe.purchasePrice}c — no keeper stationed there yet`,
+      shipSymbol: `${waypointSymbol}|${target}`,
+      detail,
       cost: probe.purchasePrice,
       timeoutMs: 2 * 60 * 60_000,
       onTimeout: "approve",
@@ -3866,7 +3953,7 @@ export class FleetManager {
       this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
       return;
     }
-    await this.purchaseKeeperProbe(waypointSymbol, probe.purchasePrice);
+    await this.purchaseKeeperProbe(waypointSymbol, target, probe.purchasePrice);
   }
 
   /**
@@ -3885,9 +3972,9 @@ export class FleetManager {
    * "purchasing SHIP_PROBE" log line at all, ~12 minutes after approval,
    * for exactly this reason.
    */
-  private async purchaseKeeperProbe(waypointSymbol: string, price: number): Promise<void> {
+  private async purchaseKeeperProbe(waypointSymbol: string, targetMarket: string, price: number): Promise<void> {
     try {
-      this.log(`purchasing SHIP_PROBE at ${waypointSymbol} for ${price} credits (no keeper stationed here)`);
+      this.log(`purchasing SHIP_PROBE at ${waypointSymbol} for ${price} credits (destined for ${targetMarket})`);
       let res;
       try {
         res = await this.api.purchaseShip("SHIP_PROBE", waypointSymbol);
@@ -3915,22 +4002,26 @@ export class FleetManager {
         timestamp: new Date().toISOString(),
         shipSymbol: "fleet",
         kind: "ship",
-        detail: `purchased keeper probe ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c`,
+        detail: targetMarket === waypointSymbol
+          ? `purchased keeper probe ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c`
+          : `purchased keeper probe ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c, drifting to ${targetMarket}`,
         credits: -res.transaction.price,
       });
-      // Force straight into the keeper role pinned to this exact waypoint —
-      // assignRole()'s own classifier would put a bare probe there anyway,
-      // but setShipRole() is what actually persists the market pin and
-      // survives a restart (restorePersistedManualRoles()), same as any
-      // other operator-directed role assignment.
-      await this.setShipRole(res.ship.symbol, "keeper", waypointSymbol);
+      // Pin the keeper role to targetMarket, not the purchase waypoint —
+      // these can now differ (nearestUncoveredKeeperMarket() may have picked
+      // a different market on the priority list to cover). setShipRole()
+      // persists the pin and survives a restart (restorePersistedManualRoles());
+      // keeperPoll() (agent.ts) already repositions any keeper that isn't at
+      // its pinned market on its own, 0-fuel probes included — see
+      // maybeRequestKeeperProbe()'s own comment for why that's safe now.
+      await this.setShipRole(res.ship.symbol, "keeper", targetMarket);
       // Durable going forward, not just this one purchase — an operator
       // looking at the Book's keeper priority list should see this market
       // listed, same as any keeper the operator configured by hand.
       const priority = await this.keeperPriorityMarkets();
-      if (!priority.includes(waypointSymbol)) await this.setKeeperPriorityMarkets([...priority, waypointSymbol]);
+      if (!priority.includes(targetMarket)) await this.setKeeperPriorityMarkets([...priority, targetMarket]);
     } catch (err) {
-      this.log(`failed to buy keeper probe at ${waypointSymbol}: ${err instanceof Error ? err.message : String(err)}`);
+      this.log(`failed to buy keeper probe at ${waypointSymbol} (destined for ${targetMarket}): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -3948,7 +4039,15 @@ export class FleetManager {
     if (!this.store || !this.tenantId) return;
     const row = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe");
     if (!row || !row.shipSymbol || row.cost == null) return;
-    const waypointSymbol = row.shipSymbol; // maybeRequestKeeperProbe() stores the yard waypoint here
+    // maybeRequestKeeperProbe() packs "shipyardWaypoint|targetMarket" into
+    // this field — see its own comment for why (no generic payload column
+    // on pending_approvals). Pre-existing rows from before that change only
+    // ever had a bare waypoint with no "|", which still parses correctly
+    // here (targetRaw falls back to the shipyard itself, exactly today's
+    // old behavior).
+    const [waypointSymbol, targetRaw] = row.shipSymbol.split("|");
+    if (!waypointSymbol) return;
+    const targetMarket = targetRaw ?? waypointSymbol;
     // Purchasing a ship at a SpaceTraders shipyard requires one of the
     // agent's own ships to already be docked there — a guarantee
     // maybeRequestKeeperProbe() got for free by only ever running while a
@@ -4002,7 +4101,7 @@ export class FleetManager {
       }
     }
     const approved = await this.approvals.request("buyKeeperProbe", {
-      shipSymbol: waypointSymbol,
+      shipSymbol: row.shipSymbol,
       detail: row.detail,
       cost: row.cost,
       timeoutMs: 2 * 60 * 60_000,
@@ -4013,7 +4112,7 @@ export class FleetManager {
       this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
       return;
     }
-    await this.purchaseKeeperProbe(waypointSymbol, row.cost);
+    await this.purchaseKeeperProbe(waypointSymbol, targetMarket, row.cost);
   }
 
   /**

@@ -1828,6 +1828,94 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
 
     assert.deepEqual(calls.purchase, [], "denied — must not buy");
   });
+
+  // 2026-09-21 expansion: maybeRequestKeeperProbe() no longer only asks "is
+  // THIS shipyard covered?" — it checks the whole operator keeper-priority
+  // list for an uncovered market reachable same-system
+  // (nearestUncoveredKeeperMarket()), and a freshly-bought probe can drift
+  // to a *different* market than the one it was purchased at. This test
+  // exercises exactly that fallback path: the shipyard itself is already
+  // covered, but a priority-list market in the same system is not, so the
+  // probe should still get bought (destined elsewhere) rather than skipped.
+  it("buys a probe for a different, uncovered priority-list market when the shipyard itself is already covered", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }], { tenantId, store });
+    (fleet as any).keeperMarkets.set("EXISTING-KEEPER", "X1-A-YARD"); // the yard itself is covered
+    await fleet.setKeeperPriorityMarkets(["X1-A-YARD", "X1-A-MARKET2"]); // MARKET2 is not
+
+    // Same two-step flow as the resolvePendingKeeperProbeApproval tests
+    // above: the approval gate doesn't auto-resolve synchronously inside a
+    // single recordShipyardSnapshot() call, so the request has to be
+    // approved out-of-band and then re-polled, same as a real operator
+    // deciding on the dashboard.
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+    assert.deepEqual(calls.purchase, [], "sanity: still awaiting a decision");
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbe");
+    assert.ok(row, "sanity: the request was actually persisted");
+    assert.equal(row!.shipSymbol, "X1-A-YARD|X1-A-MARKET2", "packed field must carry both the purchase waypoint and the drift target");
+    await store.decideApproval(tenantId, row!.id, "approved");
+    markShipAt(fleet, "IDLE-1", "X1-A-YARD");
+
+    await (fleet as any).resolvePendingKeeperProbeApproval();
+
+    assert.deepEqual(calls.purchase, ["X1-A-YARD"], "still bought AT the shipyard — that's the only place probes are sold");
+    assert.equal((fleet as any).keeperMarkets.get("PROBE-1"), "X1-A-MARKET2", "pinned to the uncovered priority market, not the purchase waypoint");
+    (fleet as any).keepers.get("PROBE-1")?.stop();
+  });
+
+  it("does not buy a probe when the shipyard and every priority-list market in-system are already covered", async () => {
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }]);
+    (fleet as any).keeperMarkets.set("EXISTING-KEEPER", "X1-A-YARD");
+    (fleet as any).keeperMarkets.set("OTHER-KEEPER", "X1-A-MARKET2");
+    await fleet.setKeeperPriorityMarkets(["X1-A-YARD", "X1-A-MARKET2"]);
+
+    await fleet.recordShipyardSnapshot("X1-A-YARD");
+
+    assert.deepEqual(calls.purchase, [], "nothing left to cover from here — must not buy");
+  });
+});
+
+describe("FleetManager tour targets exclude keeper-covered markets", () => {
+  // A market (or shipyard) with a keeper actually stationed there already
+  // gets a fresh snapshot every keeperPoll() cycle (confirmed: it calls both
+  // recordMarket() unconditionally and recordShipyard() when the market is
+  // also a shipyard) — a tour ship revisiting it is pure duplicate work.
+  // marketTourTargets()/shipyardTourTargets() are the two root list-builders
+  // every tour-target consumer (staleMarketTargets(), sectorTourTargets())
+  // derives from, so excluding keeper-covered waypoints there propagates
+  // everywhere at once.
+  it("marketTourTargets excludes a market a keeper already covers", async () => {
+    const fleet = new FleetManager({ api: {} as any });
+    (fleet as any).store = { latestMarketSnapshots: async () => [{ waypointSymbol: "X1-A-MARKET1" }, { waypointSymbol: "X1-A-MARKET2" }] };
+    (fleet as any).galaxy = { listSystems: () => [] }; // trait-scan contributes nothing extra; store snapshots are the only source here
+    (fleet as any).keeperMarkets.set("KEEPER-1", "X1-A-MARKET2");
+
+    const targets = await (fleet as any).marketTourTargets();
+
+    assert.ok(targets.includes("X1-A-MARKET1"), "uncovered market stays a tour target");
+    assert.ok(!targets.includes("X1-A-MARKET2"), "keeper-covered market must be excluded — a tour ship revisiting it is duplicate work");
+  });
+
+  it("shipyardTourTargets excludes a shipyard-market a keeper already covers", async () => {
+    const fleet = new FleetManager({ api: {} as any });
+    (fleet as any).store = {
+      shipyardInventory: async () => [
+        { systemSymbol: "X1-A", waypointSymbol: "X1-A-YARD1" },
+        { systemSymbol: "X1-A", waypointSymbol: "X1-A-YARD2" },
+      ],
+    };
+    // knownSystems (shipyardTourTargets' own filter, guarding against stale
+    // rows from a system this tenant's reset doesn't have) is built from
+    // galaxy.listSystems() — X1-A must be "known" or both rows get dropped.
+    (fleet as any).galaxy = { listSystems: () => [{ symbol: "X1-A" }], getSystem: () => undefined };
+    (fleet as any).keeperMarkets.set("KEEPER-1", "X1-A-YARD2");
+
+    const targets = await (fleet as any).shipyardTourTargets();
+
+    assert.ok(targets.includes("X1-A-YARD1"), "uncovered shipyard stays a tour target");
+    assert.ok(!targets.includes("X1-A-YARD2"), "keeper-covered shipyard must be excluded — keeperPoll() already keeps its ship stock fresh");
+  });
 });
 
 describe("FleetManager.restorePersistedManualRoles (setShipRole surviving a restart)", () => {
