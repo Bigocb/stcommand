@@ -1766,7 +1766,7 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
     await store.decideApproval(tenantId, row!.id, "approved");
     markShipAt(fleet, "IDLE-1", "X1-A-YARD");
 
-    await (fleet as any).resolvePendingKeeperProbeApproval();
+    await (fleet as any).resolvePendingKeeperProbeApproval("buyKeeperProbe");
 
     assert.deepEqual(calls.purchase, ["X1-A-YARD"], "the approved purchase must go through without a fresh shipyard scan");
     assert.equal((fleet as any).keeperMarkets.get("PROBE-1"), "X1-A-YARD");
@@ -1792,14 +1792,14 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
     await store.decideApproval(tenantId, row!.id, "approved");
 
     // No ship is currently at the yard — the triggering ship already moved on.
-    await (fleet as any).resolvePendingKeeperProbeApproval();
+    await (fleet as any).resolvePendingKeeperProbeApproval("buyKeeperProbe");
     assert.deepEqual(calls.purchase, [], "must not attempt a purchase that SpaceTraders will reject");
     const stillUnconsumed = await store.getUnconsumedApproval(tenantId, "buyKeeperProbe");
     assert.ok(stillUnconsumed, "the decision must not be thrown away just because no ship is there yet");
 
     // A ship arrives (or is simply still known to be there next tick).
     markShipAt(fleet, "IDLE-1", "X1-A-YARD");
-    await (fleet as any).resolvePendingKeeperProbeApproval();
+    await (fleet as any).resolvePendingKeeperProbeApproval("buyKeeperProbe");
     assert.deepEqual(calls.purchase, ["X1-A-YARD"], "now that a ship is present, the purchase must go through");
     (fleet as any).keepers.get("PROBE-1")?.stop();
   });
@@ -1810,7 +1810,7 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
     const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }], { tenantId, store });
 
     await fleet.recordShipyardSnapshot("X1-A-YARD");
-    await (fleet as any).resolvePendingKeeperProbeApproval();
+    await (fleet as any).resolvePendingKeeperProbeApproval("buyKeeperProbe");
 
     assert.deepEqual(calls.purchase, [], "no decision yet — must not buy");
   });
@@ -1824,7 +1824,7 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
     const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbe");
     await store.decideApproval(tenantId, row!.id, "denied");
 
-    await (fleet as any).resolvePendingKeeperProbeApproval();
+    await (fleet as any).resolvePendingKeeperProbeApproval("buyKeeperProbe");
 
     assert.deepEqual(calls.purchase, [], "denied — must not buy");
   });
@@ -1857,7 +1857,7 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
     await store.decideApproval(tenantId, row!.id, "approved");
     markShipAt(fleet, "IDLE-1", "X1-A-YARD");
 
-    await (fleet as any).resolvePendingKeeperProbeApproval();
+    await (fleet as any).resolvePendingKeeperProbeApproval("buyKeeperProbe");
 
     assert.deepEqual(calls.purchase, ["X1-A-YARD"], "still bought AT the shipyard — that's the only place probes are sold");
     assert.equal((fleet as any).keeperMarkets.get("PROBE-1"), "X1-A-MARKET2", "pinned to the uncovered priority market, not the purchase waypoint");
@@ -1873,6 +1873,125 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
     await fleet.recordShipyardSnapshot("X1-A-YARD");
 
     assert.deepEqual(calls.purchase, [], "nothing left to cover from here — must not buy");
+  });
+});
+
+describe("FleetManager.recordMarketSnapshot triggers a keeper probe request for a plain market visit", () => {
+  // This is the actual "expand the keeper check to markets" ask: a tour ship
+  // visiting a plain market (no SHIPYARD trait, never reaches
+  // recordShipyardSnapshot()/maybeRequestKeeperProbe() at all) should still
+  // be able to trigger a keeper-probe proposal, using a shipyard's
+  // ALREADY-CACHED stock (this.store.shipyardInventory()) rather than a
+  // live scan. Uses its own "buyKeeperProbeForMarket" approval kind — see
+  // maybeRequestKeeperProbeForMarket()'s own comment on why it can't share
+  // "buyKeeperProbe" with the shipyard-triggered path.
+  // `sys` picks the system prefix each test uses for its market/yard
+  // waypoints — shipyard_inventory is a SHARED, tenant-unscoped table (see
+  // this repo's own CLAUDE.md on SHARED_GALAXY_TABLES), so a row one test
+  // writes is visible to every other test sharing the same Postgres
+  // instance regardless of tenant. Each test below uses its own system
+  // prefix precisely to avoid a row one test seeds bleeding into another
+  // test asserting "nothing cached".
+  function makeMarketFleet(sys: string, opts: { tenantId?: string; store?: Store } = {}) {
+    const calls = { purchase: [] as string[] };
+    const fleet = new FleetManager({
+      api: {
+        getMarket: async () => ({ tradeGoods: [{ symbol: "ALUMINUM", type: "EXPORT", supply: "ABUNDANT", purchasePrice: 100, sellPrice: 90, tradeVolume: 100 }] }),
+        purchaseShip: async (type: string, waypointSymbol: string) => {
+          calls.purchase.push(waypointSymbol);
+          return {
+            ship: {
+              symbol: "PROBE-1",
+              nav: { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) },
+              cargo: { capacity: 0, units: 0, inventory: [] },
+              fuel: { current: 0, capacity: 0 },
+              frame: { symbol: "FRAME_PROBE" },
+              registration: { role: "SATELLITE" },
+            },
+            transaction: { price: 5000 },
+          };
+        },
+        getShip: async (s: string) => ({
+          symbol: s,
+          nav: { status: "DOCKED", waypointSymbol: `${sys}-YARD`, systemSymbol: sys },
+          cargo: { capacity: 0, units: 0, inventory: [] },
+          fuel: { current: 0, capacity: 0 },
+          frame: { symbol: "FRAME_PROBE" },
+          registration: { role: "SATELLITE" },
+        }),
+      } as any,
+      store: opts.store,
+      tenantId: opts.tenantId,
+    });
+    (fleet as any).store = opts.store;
+    if (opts.store) opts.store.recordMarket = async () => {};
+    const registry = Registry.standalone();
+    registry.seed([{ symbol: `${sys}-MARKET1`, x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] }]);
+    (fleet as any).registry = registry;
+    (fleet as any).credits = 100_000;
+    return { fleet, calls };
+  }
+
+  function markShipAt(fleet: any, symbol: string, waypointSymbol: string): void {
+    fleet.idleShips.set(symbol, {
+      symbol,
+      nav: { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) },
+      fuel: { current: 0, capacity: 0 },
+      cargo: { units: 0, capacity: 0, inventory: [] },
+      cooldown: { remainingSeconds: 0 },
+    });
+  }
+
+  it("requests a probe from the nearest cached shipyard when an operator-flagged market has none", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet, calls } = makeMarketFleet("X1-MKA", { tenantId, store });
+    await fleet.setKeeperPriorityMarkets(["X1-MKA-MARKET1"]);
+    // Simulate an earlier shipyard visit having already cached this yard's
+    // stock — maybeRequestKeeperProbeForMarket() deliberately doesn't do a
+    // live getShipyard() scan of its own (see its own comment on why).
+    await store.recordShipyardInventory("X1-MKA", "X1-MKA-YARD", [{ type: "SHIP_PROBE", name: "Probe", purchasePrice: 5000 }]);
+
+    await fleet.recordMarketSnapshot("X1-MKA-MARKET1");
+    assert.deepEqual(calls.purchase, [], "sanity: still awaiting a decision");
+
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbeForMarket");
+    assert.ok(row, "the market visit must raise its own request, not reuse the shipyard-triggered kind");
+    assert.equal(row!.shipSymbol, "X1-MKA-YARD|X1-MKA-MARKET1");
+    await store.decideApproval(tenantId, row!.id, "approved");
+    markShipAt(fleet, "IDLE-1", "X1-MKA-YARD");
+
+    await (fleet as any).resolvePendingKeeperProbeApproval("buyKeeperProbeForMarket");
+
+    assert.deepEqual(calls.purchase, ["X1-MKA-YARD"], "bought at the shipyard the cached stock came from");
+    assert.equal((fleet as any).keeperMarkets.get("PROBE-1"), "X1-MKA-MARKET1", "pinned to the market that triggered the request, not the shipyard");
+    (fleet as any).keepers.get("PROBE-1")?.stop();
+  });
+
+  it("does not request a probe for a market the operator hasn't flagged as a keeper priority", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet } = makeMarketFleet("X1-MKB", { tenantId, store });
+    // No setKeeperPriorityMarkets() call — DEFAULT_KEEPER_MARKETS is empty.
+    await store.recordShipyardInventory("X1-MKB", "X1-MKB-YARD", [{ type: "SHIP_PROBE", name: "Probe", purchasePrice: 5000 }]);
+
+    await fleet.recordMarketSnapshot("X1-MKB-MARKET1");
+
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbeForMarket");
+    assert.equal(row, undefined, "unflagged market — every visit fleet-wide would spam a request otherwise");
+  });
+
+  it("does not request a probe when no shipyard in the system has one in cached stock", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet } = makeMarketFleet("X1-MKC", { tenantId, store });
+    await fleet.setKeeperPriorityMarkets(["X1-MKC-MARKET1"]);
+    // No recordShipyardInventory() call at all — nothing cached yet.
+
+    await fleet.recordMarketSnapshot("X1-MKC-MARKET1");
+
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbeForMarket");
+    assert.equal(row, undefined, "nothing to buy from — must not request");
   });
 });
 

@@ -1536,6 +1536,18 @@ export class FleetManager {
         fetchedAt: new Date().toISOString(),
       });
       this.onActivity?.("market", `snapshot ${waypointSymbol} (${goods.length} goods)`, 0);
+      // The actual "expand the keeper check to markets" ask (2026-09-21,
+      // corrected after initially only expanding the shipyard-triggered
+      // path's drift *destination* — that left the trigger itself still
+      // shipyard-only, so a tour ship visiting nothing but plain markets,
+      // which is most of what it does, never ran any keeper-probe check at
+      // all). recordMarketSnapshot() is the one choke point every market
+      // dock already funnels through fleet-wide (traders, miners, tour,
+      // keeper, everyone — see the recordMarket: callbacks wired into every
+      // ShipAgent constructor in this file), so this is where a market
+      // visit itself gets to propose a probe, independent of whether this
+      // ship happens to also be at a shipyard.
+      await this.maybeRequestKeeperProbeForMarket(waypointSymbol);
     } catch (err) {
       // ignore: market may not be scannable
     }
@@ -3836,19 +3848,26 @@ export class FleetManager {
     }
   }
 
-  /** True while a buyKeeperProbe request raised from exactly this shipyard is
-   *  still open — wired into every tour/scout ShipAgent as
-   *  hasPendingKeeperApproval so the ship that raised the request (or found
-   *  one already open on a revisit) stays put until the operator decides or
-   *  the timeout policy does, rather than touring off before the purchase
-   *  can go through. `row.shipSymbol` packs "shipyardWaypoint|targetMarket"
-   *  (see maybeRequestKeeperProbe()'s own comment on why) — only the
-   *  shipyard half matters here, since that's what determines whether a
-   *  ship sitting at THIS waypoint should hold. */
+  /** True while a keeper-probe request that would buy AT exactly this
+   *  shipyard is still open — either kind, "buyKeeperProbe" (shipyard-
+   *  triggered) or "buyKeeperProbeForMarket" (market-triggered, see
+   *  maybeRequestKeeperProbeForMarket()) — wired into every tour/scout
+   *  ShipAgent as hasPendingKeeperApproval so the ship that raised the
+   *  request (or found one already open on a revisit) stays put until the
+   *  operator decides or the timeout policy does, rather than touring off
+   *  before the purchase can go through (a market-triggered request still
+   *  needs a ship physically docked at the SHIPYARD half to complete, same
+   *  as the shipyard-triggered one — see resolvePendingKeeperProbeApproval()).
+   *  `row.shipSymbol` packs "shipyardWaypoint|targetMarket" on both kinds —
+   *  only the shipyard half matters here, since that's what determines
+   *  whether a ship sitting at THIS waypoint should hold. */
   private async hasPendingKeeperProbeApproval(waypointSymbol: string): Promise<boolean> {
     if (!this.store || !this.tenantId) return false;
-    const row = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe");
-    return row?.shipSymbol?.split("|")[0] === waypointSymbol;
+    const [shipyardRow, marketRow] = await Promise.all([
+      this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe"),
+      this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket"),
+    ]);
+    return shipyardRow?.shipSymbol?.split("|")[0] === waypointSymbol || marketRow?.shipSymbol?.split("|")[0] === waypointSymbol;
   }
 
   /**
@@ -3957,6 +3976,86 @@ export class FleetManager {
   }
 
   /**
+   * The market-triggered half of the keeper-probe expansion — this is the
+   * actual "expand the buy-a-keeper check to markets" ask. Called from
+   * recordMarketSnapshot() for EVERY market any ship docks at (tour, trader,
+   * miner, whoever), not gated on that ship also being at a shipyard —
+   * maybeRequestKeeperProbe() above only ever fires on a shipyard visit,
+   * which is why a tour ship touring nothing but plain markets (the common
+   * case) never triggered a keeper-probe check at all before this existed.
+   *
+   * Unlike the shipyard-triggered path, this can't do a live getShipyard()
+   * scan — the ship that just docked is at a market, not necessarily near a
+   * shipyard, and spending an extra API call chasing one down for every
+   * single market visit would be wasteful. Instead this reads the shared,
+   * galaxy-wide shipyard_inventory table (this.store.shipyardInventory()) —
+   * whatever a PAST visit already recorded, same table
+   * maybeRequestKeeperProbe()/recordShipyardSnapshot() populates. If nothing
+   * has ever scanned a shipyard in this system yet, this is a no-op until
+   * one has; it doesn't go looking.
+   *
+   * Deliberately gated on the operator's keeper-priority list (unlike the
+   * shipyard-triggered path, which treats ANY uncovered shipyard as fair
+   * game by default) — this fires on every single market dock fleet-wide,
+   * so doing that unconditionally would mean a purchase proposal at
+   * practically every market a ship ever visits. Only a market the operator
+   * actually flagged as worth covering triggers a request from here.
+   *
+   * Uses its own approval kind ("buyKeeperProbeForMarket", not
+   * "buyKeeperProbe") deliberately — ApprovalGate.request() only returns a
+   * decision, not which specific proposal it belongs to, so two call sites
+   * sharing one kind risk one consuming a decision meant for the other's
+   * shipyard/target pair (e.g. this method's own request for shipyard Y
+   * accidentally consuming an approval the operator meant for
+   * maybeRequestKeeperProbe()'s shipyard X). A separate kind keeps
+   * ApprovalGate's per-kind single-open-request dedup independent for each
+   * trigger path. resolvePendingKeeperProbeApproval() takes a kind
+   * parameter so it can poll both.
+   */
+  private async maybeRequestKeeperProbeForMarket(marketWaypoint: string): Promise<void> {
+    if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
+    if ([...this.keeperMarkets.values()].includes(marketWaypoint)) return; // already covered
+    const priority = await this.keeperPriorityMarkets();
+    if (!priority.includes(marketWaypoint)) return; // operator hasn't flagged this market as worth a keeper
+
+    const marketSystem = marketWaypoint.slice(0, marketWaypoint.lastIndexOf("-"));
+    const positions = new Map(this.galaxy.allPositions().map((p) => [p.symbol, p]));
+    const marketPos = positions.get(marketWaypoint);
+    const yards = (await this.store?.shipyardInventory()) ?? [];
+    let best: { waypointSymbol: string; price: number; dist: number } | undefined;
+    for (const row of yards) {
+      if (row.systemSymbol !== marketSystem) continue;
+      if (row.shipType !== "SHIP_PROBE") continue;
+      const yardPos = positions.get(row.waypointSymbol);
+      // Same fallback convention as nearestUncoveredKeeperMarket(): the
+      // shipyard itself as a candidate (dist 0) when it coincides with the
+      // market, otherwise unreachable-until-proven-otherwise if we have no
+      // charted position for it yet.
+      const dist = yardPos && marketPos ? Math.hypot(yardPos.x - marketPos.x, yardPos.y - marketPos.y) : row.waypointSymbol === marketWaypoint ? 0 : Infinity;
+      if (!best || dist < best.dist) best = { waypointSymbol: row.waypointSymbol, price: row.purchasePrice, dist };
+    }
+    if (!best) return; // no shipyard in this system has a cached probe in stock right now
+    if (!this.canAfford(best.price)) return;
+
+    const approved = await this.approvals.request("buyKeeperProbeForMarket", {
+      shipSymbol: `${best.waypointSymbol}|${marketWaypoint}`,
+      detail: `probe at ${best.waypointSymbol} for ${best.price}c, will drift to ${marketWaypoint} — no keeper stationed there yet`,
+      cost: best.price,
+      timeoutMs: 2 * 60 * 60_000,
+      onTimeout: "approve",
+    });
+    if (approved === undefined) {
+      this.log(`keeper probe purchase at ${best.waypointSymbol} (for market ${marketWaypoint}) awaiting operator approval`);
+      return;
+    }
+    if (approved === false) {
+      this.log(`keeper probe purchase at ${best.waypointSymbol} (for market ${marketWaypoint}) denied by operator`);
+      return;
+    }
+    await this.purchaseKeeperProbe(best.waypointSymbol, marketWaypoint, best.price);
+  }
+
+  /**
    * Second half of maybeRequestKeeperProbe() — actually spending the
    * credits once ApprovalGate says yes. Split out so
    * resolvePendingKeeperProbeApproval() can call it too: this same code
@@ -4026,25 +4125,33 @@ export class FleetManager {
   }
 
   /**
-   * Runs every tick (unlike maybeRequestKeeperProbe(), which only runs when
-   * a ship happens to dock at an uncovered shipyard) so an operator's
-   * dashboard decision on a buyKeeperProbe approval is picked up promptly
-   * even if nothing revisits that exact waypoint again soon. Re-issuing the
-   * same "buyKeeperProbe" kind through ApprovalGate.request() is safe and
-   * cheap: it's the same DB-polled row lookup request() already does, using
-   * the cost/detail the original request stored rather than a fresh
-   * shipyard scan.
+   * Runs every tick (unlike maybeRequestKeeperProbe()/
+   * maybeRequestKeeperProbeForMarket(), which only run when a ship happens
+   * to dock somewhere relevant) so an operator's dashboard decision on a
+   * keeper-probe approval is picked up promptly even if nothing revisits
+   * that exact waypoint again soon. Re-issuing the same `kind` through
+   * ApprovalGate.request() is safe and cheap: it's the same DB-polled row
+   * lookup request() already does, using the cost/detail the original
+   * request stored rather than a fresh scan.
+   *
+   * Takes `kind` because there are now two independent request kinds —
+   * "buyKeeperProbe" (shipyard-triggered) and "buyKeeperProbeForMarket"
+   * (market-triggered, see maybeRequestKeeperProbeForMarket()'s own comment
+   * on why they can't share one kind) — and this same resolve-and-purchase
+   * logic applies to both; only the approval row's kind differs. Called
+   * once per kind from the tick loop.
    */
-  private async resolvePendingKeeperProbeApproval(): Promise<void> {
+  private async resolvePendingKeeperProbeApproval(kind: "buyKeeperProbe" | "buyKeeperProbeForMarket"): Promise<void> {
     if (!this.store || !this.tenantId) return;
-    const row = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe");
+    const row = await this.store.getUnconsumedApproval(this.tenantId, kind);
     if (!row || !row.shipSymbol || row.cost == null) return;
-    // maybeRequestKeeperProbe() packs "shipyardWaypoint|targetMarket" into
-    // this field — see its own comment for why (no generic payload column
-    // on pending_approvals). Pre-existing rows from before that change only
-    // ever had a bare waypoint with no "|", which still parses correctly
-    // here (targetRaw falls back to the shipyard itself, exactly today's
-    // old behavior).
+    // Both maybeRequestKeeperProbe() and maybeRequestKeeperProbeForMarket()
+    // pack "shipyardWaypoint|targetMarket" into this field — see either's
+    // own comment for why (no generic payload column on pending_approvals).
+    // Pre-existing rows from before that packing existed only ever had a
+    // bare waypoint with no "|", which still parses correctly here
+    // (targetRaw falls back to the shipyard itself, exactly today's old
+    // behavior).
     const [waypointSymbol, targetRaw] = row.shipSymbol.split("|");
     if (!waypointSymbol) return;
     const targetMarket = targetRaw ?? waypointSymbol;
@@ -4100,7 +4207,7 @@ export class FleetManager {
         return;
       }
     }
-    const approved = await this.approvals.request("buyKeeperProbe", {
+    const approved = await this.approvals.request(kind, {
       shipSymbol: row.shipSymbol,
       detail: row.detail,
       cost: row.cost,
@@ -5921,7 +6028,8 @@ export class FleetManager {
     }
     await this.maybeGrowExplorers();
     await this.maybeBuyShip();
-    await this.resolvePendingKeeperProbeApproval();
+    await this.resolvePendingKeeperProbeApproval("buyKeeperProbe");
+    await this.resolvePendingKeeperProbeApproval("buyKeeperProbeForMarket");
     await this.maybeBuyScout();
     await this.maybeBuySiphoner();
     await this.maybeInstallScanner();
