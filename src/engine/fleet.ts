@@ -867,6 +867,8 @@ export class FleetManager {
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
       jumpTo: (sym, wp) => this.jumpToward(sym, wp),
+      findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
+        this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
       atlas: this.galaxy,
       shouldRun: () => !this.paused,
       // Prefer what this ship itself last paid; fall back to the fleet-wide
