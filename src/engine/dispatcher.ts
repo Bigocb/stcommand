@@ -778,7 +778,32 @@ export class RouteDispatcher {
         return distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity;
       };
       const item = work.find((w) => !usedKeys.has(w.key) && reachable(w));
-      if (!item) continue;
+      if (!item) {
+        // Extends the temporary diagnostic below (docs: "why are idle
+        // traders not getting assigned when profitable routes exist",
+        // 06eb755) — that log answered "how many/what work" but not "why
+        // did THIS ship reject THIS item," which is the actual open
+        // question after confirming live (2026-09-21) that idle traders sat
+        // unassigned for 30+ minutes with real, same-system, profitable
+        // work sitting in the list every cycle. One line per idle ship that
+        // got nothing, showing the exact reason each of its top candidates
+        // was rejected — cross-system/no-jump vs. over-fuel-range vs.
+        // already claimed this cycle. Remove alongside 06eb755's log once
+        // both questions are answered.
+        if (log && !t.busy && !this.manual.has(t.shipSymbol) && work.length > 0) {
+          const reasons = work.slice(0, 4).map((w) => {
+            if (usedKeys.has(w.key)) return `${w.key}:claimed-this-cycle`;
+            if (w.buySystem === undefined) return `${w.key}:no-buySystem(always-reachable)`;
+            if (t.system === undefined) return `${w.key}:trader-has-no-system(always-reachable)`;
+            if (w.buySystem !== t.system) return `${w.key}:cross-system(${t.system}->${w.buySystem}) canJump=${canJump(t.system, w.buySystem)}`;
+            if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return `${w.key}:missing-position-data(always-reachable)`;
+            const d = distanceBetween(t.waypoint, w.buyAt);
+            return `${w.key}:buyDist(${t.waypoint}->${w.buyAt})=${d} vs cap=${t.fuelCapacity} -> ${d > t.fuelCapacity ? "TOO FAR" : "in range, check sell leg"}`;
+          });
+          log(`dispatch: ${t.shipSymbol} idle, sys=${t.system ?? "?"} wp=${t.waypoint ?? "?"} fuelCap=${t.fuelCapacity ?? "?"} got nothing — ${reasons.join(" | ")}`);
+        }
+        continue;
+      }
       usedKeys.add(item.key);
       next.set(t.shipSymbol, item.make(t.shipSymbol));
     }
