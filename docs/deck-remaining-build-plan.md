@@ -224,14 +224,15 @@ inline style a third and fourth time.
 
 ## 2. Pass B — Trade Ops actions (dispatch + warehouse) — BUILT 2026-09-20
 
-**Status**: the two required toolbars shipped (see the CHANGELOG entry of
-the same date); the three lower-priority items below remain unbuilt, as
-the spec itself allowed. One implementation note: the selects repopulate
-from the store slices inside `renderMarkets()`/`setSelectOptions()`, which
-is why `subscribe("state", ...)` now also calls `renderMarkets()` — the
-warehouse ship list comes from `state.ships`, and without that the
-candidate list would only refresh when the dispatch slice happened to
-change. The sections below are retained as the build record.
+**Status**: shipped in full — the two required toolbars *and* the three
+lower-priority items (see the CHANGELOG entry of the same date). One
+implementation note: the selects repopulate from the store slices inside
+`renderMarkets()`/`setSelectOptions()`, which is why `subscribe("state",
+...)` now also calls `renderMarkets()` — the warehouse ship list comes
+from `state.ships`, and without that the candidate list would only
+refresh when the dispatch slice happened to change. The keeper textarea
+re-seeds only when unfocused so a poll can't clobber active typing. The
+sections below are retained as the build record.
 
 **Why second**: Deck's Markets screen already *shows* warehouse and
 dispatch data — this pass is "make the read-only panels write", not new

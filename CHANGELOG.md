@@ -27,10 +27,16 @@ be useful context; not a complete project history — see `git log` for that.
   the operator's current choice, the same discipline `v6.js`'s
   `renderDispatch()`/`renderWarehouse()` already follow — a 15s refresh
   must not yank a selection back to the first option mid-interaction.
-  No backend change. The plan's lower-priority items within this pass
-  (warehouse manual adjust, warehouse sell-targets, keeper station
-  config) are explicitly optional and remain unbuilt. Live verification
-  pending (no DB/token in the build environment).
+  No backend change. The plan's lower-priority items within this pass were
+  also built in the same commit: warehouse manual **Adjust**
+  (`POST /api/warehouse/adjust`), curated **sell-targets** add/remove
+  (`POST /api/warehouse/targets` + `/targets/remove`, each removable
+  inline from the warehouse panel), and a **Keeper stations** panel
+  (`POST /api/keeper/markets` — save the line list, the cover-full-list
+  toggle, and reset-to-defaults). The keeper textarea is only re-seeded
+  from the store when it isn't focused, so a 15s poll can't wipe a
+  half-typed list. Live verification pending (no DB/token in the build
+  environment).
 
 - **Add: Deck (`/deck`) Fleet ship-action sheet — Pass A of
   `docs/deck-remaining-build-plan.md`, built 2026-09-20.** The single

@@ -12,10 +12,11 @@ import {
   systems, marketSnapshots, leaderboard,
   contracts, missions, manipulationRoutes,
   doctrineRules, doctrineFires, doctrineFireShips,
+  keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
   loadMarkets, loadGoods, loadWarehouse, loadGalaxy, loadProgramme, loadManipulationRoutes,
-  loadDoctrine, loadDoctrineFireShips,
+  loadDoctrine, loadDoctrineFireShips, loadKeepers,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
@@ -822,10 +823,8 @@ function renderMarkets() {
   if (whCountEl) whCountEl.textContent = whCountText;
 
   const warehouseHtml = (() => {
-    if (!warehouseState.goods.length) {
-      return '<div class="empty">Warehouse is empty.</div>';
-    }
-    const goodsRows = warehouseState.goods.map((g) => `
+    const goodsRows = warehouseState.goods.length
+      ? warehouseState.goods.map((g) => `
       <div class="goodrow">
         <div style="flex:1">
           <div class="name">${escapeHtml(g.goodSymbol)}</div>
@@ -833,14 +832,32 @@ function renderMarkets() {
         </div>
         <div class="profit">${fmt(g.value)}c</div>
       </div>
-    `).join('');
-    const totalRow = `
+    `).join('')
+      : '<div class="empty">Warehouse is empty.</div>';
+    const totalRow = warehouseState.goods.length ? `
       <div class="goodrow" style="border-bottom:none;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,199,120,.06)">
         <div style="flex:1;font-weight:600">Total</div>
         <div class="profit">${fmt(warehouseState.totalValue)}cr</div>
       </div>
-    `;
-    return goodsRows + totalRow;
+    ` : '';
+    // Curated targets (optional Pass B) — the goods the warehouse is
+    // allowed to buy/sell, each removable inline. Rendered even when the
+    // hold itself is empty, since the curated list is independent of
+    // what's currently on the books.
+    const targets = warehouseState.targets ?? [];
+    const targetsHeader = `<div class="dtl-h">Curated goods</div>`;
+    const targetsRows = targets.length
+      ? targets.map((t) => `
+          <div class="goodrow">
+            <div style="flex:1">
+              <div class="name">${escapeHtml(t.goodSymbol)}</div>
+              <div class="route">target ${t.target}u${t.forMission ? " · mission" : ""}</div>
+            </div>
+            <button class="btn deny" style="min-height:auto;padding:5px 10px;font-size:9px" data-remove-good="${escapeAttr(t.goodSymbol)}">Remove</button>
+          </div>
+        `).join('')
+      : '<div class="empty">No curated goods — the warehouse buys/sells nothing until you add some.</div>';
+    return goodsRows + totalRow + targetsHeader + targetsRows;
   })();
   const warehouseEl = $("mk-warehouse");
   if (warehouseEl) warehouseEl.innerHTML = warehouseHtml;
@@ -875,6 +892,37 @@ function renderMarkets() {
   setSelectOptions($("mk-dispatch-good"), [...new Set(dispatchRoutes.map((r) => r.good))]);
   const whCandidates = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 20);
   setSelectOptions($("mk-warehouse-ship"), whCandidates.map((s) => s.symbol));
+  // Adjust good list: whatever's already held, plus anything currently
+  // routed — same union v6.js's renderWarehouse() builds.
+  setSelectOptions($("mk-warehouse-adjust-good"), [
+    ...new Set([...warehouseState.goods.map((g) => g.goodSymbol), ...dispatchRoutes.map((r) => r.good)]),
+  ]);
+
+  // Keeper panel (optional Pass B) — static textarea, so re-rendering must
+  // not clobber what the operator is midway through typing.
+  renderKeepers();
+}
+
+function renderKeepers() {
+  const countEl = $("mk-keeper-count");
+  if (countEl) countEl.textContent = `${keeperStationsCfg.length} stationed · ${keeperMarketsCfg.length} listed`;
+  const cover = $("mk-keeper-cover");
+  if (cover) cover.setAttribute("aria-pressed", String(keeperCoverList));
+  const ta = $("mk-keeper-markets");
+  // Only seed the textarea when it isn't already being edited — a poll
+  // landing mid-type would otherwise wipe the operator's work.
+  if (ta && document.activeElement !== ta) ta.value = keeperMarketsCfg.join("\n");
+  const el = $("mk-keeper-stations");
+  if (!el) return;
+  if (!keeperStationsCfg.length) { el.innerHTML = '<div class="empty">No keepers stationed yet.</div>'; return; }
+  el.innerHTML = keeperStationsCfg.map((s) => `
+    <div class="goodrow">
+      <div style="flex:1">
+        <div class="name">${escapeHtml(s.market)}</div>
+        <div class="route">guarded by ${escapeHtml(s.shipSymbol)}</div>
+      </div>
+    </div>
+  `).join("");
 }
 
 /** Repopulates a <select>, keeping the previous value if it's still a
@@ -929,6 +977,66 @@ $("mk-warehouse-release").addEventListener("click", async () => {
   try {
     await api("POST", "/api/warehouse/release");
     await loadWarehouse();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-warehouse-adjust").addEventListener("click", async () => {
+  const good = $("mk-warehouse-adjust-good").value;
+  const units = Number($("mk-warehouse-adjust-units").value);
+  const price = Number($("mk-warehouse-adjust-price").value) || 0;
+  const direction = $("mk-warehouse-adjust-direction").value;
+  if (!good || !units || units <= 0) return;
+  try {
+    await api("POST", "/api/warehouse/adjust", { good, units, direction, price });
+    $("mk-warehouse-adjust-units").value = "";
+    $("mk-warehouse-adjust-price").value = "";
+    await loadWarehouse();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-warehouse-target-add").addEventListener("click", async () => {
+  const good = $("mk-warehouse-target-good").value.trim().toUpperCase();
+  const target = Number($("mk-warehouse-target-units").value);
+  const forMission = $("mk-warehouse-target-mission").checked;
+  if (!good || !target || target <= 0) return;
+  try {
+    await api("POST", "/api/warehouse/targets", { good, target, forMission });
+    $("mk-warehouse-target-good").value = "";
+    $("mk-warehouse-target-units").value = "";
+    $("mk-warehouse-target-mission").checked = false;
+    await loadWarehouse();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-warehouse").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-remove-good]");
+  if (!btn) return;
+  try {
+    await api("POST", "/api/warehouse/targets/remove", { good: btn.dataset.removeGood });
+    await loadWarehouse();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-keeper-save").addEventListener("click", async () => {
+  const lines = $("mk-keeper-markets").value.split("\n").map((l) => l.trim().toUpperCase()).filter(Boolean);
+  try {
+    await api("POST", "/api/keeper/markets", { markets: lines });
+    await loadKeepers();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-keeper-cover").addEventListener("click", async () => {
+  const next = !keeperCoverList;
+  try {
+    await api("POST", "/api/keeper/markets", { coverList: next });
+    await loadKeepers();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-keeper-reset").addEventListener("click", async () => {
+  try {
+    await api("POST", "/api/keeper/markets", { reset: true });
+    await loadKeepers();
   } catch (err) { alert(err.message); }
 });
 
@@ -1468,6 +1576,12 @@ subscribe("dispatch", () => {
 subscribe("goods", () => {
   renderMarkets();
 });
+subscribe("warehouse", () => {
+  renderMarkets();
+});
+subscribe("keepers", () => {
+  renderKeepers();
+});
 subscribe("activity", () => {
   renderActivity();
 });
@@ -1498,6 +1612,7 @@ function boot() {
   loadMarkets();
   loadGoods();
   loadWarehouse();
+  loadKeepers();
   renderTopbar();
   renderKPIs();
   renderMinimap();
@@ -1517,6 +1632,7 @@ function pollTick() {
   loadMarkets();
   loadGoods();
   loadWarehouse();
+  loadKeepers();
 }
 
 setInterval(() => {
