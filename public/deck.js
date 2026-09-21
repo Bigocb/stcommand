@@ -7,7 +7,7 @@
 import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
-  state, bridge, fleetStatus, approvals, dispatchAssignments, activity,
+  state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, activity,
   marketRoutes, intel, warehouseState,
   systems, marketSnapshots, leaderboard,
   contracts, missions, manipulationRoutes,
@@ -17,7 +17,7 @@ import {
   loadMarkets, loadGoods, loadWarehouse, loadGalaxy, loadProgramme, loadManipulationRoutes,
   loadDoctrine, loadDoctrineFireShips,
 } from "/shared/store.js";
-import { fmt, signed, escapeHtml, fmtTime, shortWp } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -451,6 +451,7 @@ function renderFleet() {
   // Wire table row clicks
   $("fleet-table").querySelectorAll("tbody tr").forEach((tr) => {
     tr.addEventListener("click", () => {
+      if (tr.dataset.ship !== selectedFleetShip) resetFleetActionForms();
       selectedFleetShip = tr.dataset.ship;
       renderFleet();
     });
@@ -499,14 +500,257 @@ function renderFleet() {
             <div class="wd"><div class="l">Fuel</div><div class="v mono">${shipRow.fuel}/${shipRow.fuelCap}</div></div>
           </div>
         </div>
+        <div class="detail-actions" id="fleet-detail-actions"></div>
       `;
       $("fleet-detail-body").innerHTML = detailBodyHTML;
+      renderFleetActions(shipRow);
+    } else {
+      $("fleet-detail-head").innerHTML = '<div class="empty">Select a ship to see details.</div>';
+      $("fleet-detail-body").innerHTML = '';
+      renderFleetActions(null);
     }
   } else {
     $("fleet-detail-head").innerHTML = '<div class="empty">Select a ship to see details.</div>';
     $("fleet-detail-body").innerHTML = '';
+    renderFleetActions(null);
   }
 }
+
+/* ── Fleet ship-action sheet (pass A) ────────
+ * Per-ship hold/release, dock, repair, role change, sell/scrap, assign
+ * route, send-to-waypoint, and full details (jettison/install/remove).
+ * Ported from Tower's own working sheet (public/m.js renderSheet() +
+ * its #sheet-actions handler) — same endpoints, same body shapes. Every
+ * endpoint already existed in src/http/dashboard.ts; no new backend.
+ */
+let fleetSendOpen = false;
+let fleetRouteOpen = false;
+let fleetRoleOpen = false;
+let fleetRoleFormRole = null;
+let fleetDetailsOpen = false;
+
+const SHIP_ROLES = ["trader", "miner", "surveyor", "siphoner", "tour", "explorer", "scout", "keeper"];
+
+function roleLabel(role) {
+  return String(role).split("_").map((w) => w[0] + w.slice(1).toLowerCase()).join(" ");
+}
+
+/** Cargo hold, loadout, modules, mounts, install-from-cargo — the same
+ *  fields Tower's sheet shows; ported verbatim from m.js renderShipDetails(). */
+function renderShipDetails(ship) {
+  if (!ship) return "";
+  const part = (p) => p ? `<div class="detail-row"><span>${escapeHtml(p.name ?? p.symbol)}</span><span class="d">${escapeHtml(p.symbol)}</span></div>` : "";
+  const cargo = ship.cargo?.inventory ?? [];
+  const modules = ship.modules ?? [];
+  const mounts = ship.mounts ?? [];
+  const cargoComps = cargo.filter((i) => i.symbol.startsWith("MODULE_") || i.symbol.startsWith("MOUNT_"));
+
+  const role = ship.registration?.role;
+  const capacity = ship.cargo?.capacity ?? 0;
+
+  return `<div class="ship-details">
+    ${role ? `<div class="detail-row"><span>Type</span><span class="d">${escapeHtml(roleLabel(role))}</span></div>` : ""}
+    <div class="dtl-h">Cargo hold ${ship.cargo?.units ?? 0}/${capacity}</div>
+    ${cargo.length
+      ? cargo.map((i) => `<div class="detail-row"><span>${i.units}u ${escapeHtml(i.symbol)}</span><button class="btn deny" data-act="jettison" data-good="${escapeAttr(i.symbol)}" data-units="${i.units}">Jettison</button></div>`).join("")
+      : '<div class="empty">Hold is empty.</div>'}
+    <div class="dtl-h">Loadout</div>
+    ${part(ship.frame)}${part(ship.reactor)}${part(ship.engine)}
+    <div class="dtl-h">Modules</div>
+    ${modules.length
+      ? modules.map((m) => `<div class="detail-row"><span>${escapeHtml(m.name)}</span><button class="btn deny" data-act="remove-comp" data-comp="${escapeAttr(m.symbol)}">Remove</button></div>`).join("")
+      : '<div class="empty">No modules.</div>'}
+    <div class="dtl-h">Mounts</div>
+    ${mounts.length
+      ? mounts.map((m) => `<div class="detail-row"><span>${escapeHtml(m.name)}</span><button class="btn deny" data-act="remove-comp" data-comp="${escapeAttr(m.symbol)}">Remove</button></div>`).join("")
+      : '<div class="empty">No mounts.</div>'}
+    <div class="dtl-h">Components in cargo</div>
+    ${cargoComps.length
+      ? cargoComps.map((i) => `<div class="detail-row"><span>${escapeHtml(i.symbol)}</span><button class="btn" data-act="install-comp" data-comp="${escapeAttr(i.symbol)}">Install</button></div>`).join("")
+      : '<div class="empty">No modules/mounts in cargo.</div>'}
+  </div>`;
+}
+
+function renderFleetActions(shipRow) {
+  const el = $("fleet-detail-actions");
+  if (!el) return;
+  if (!shipRow) { el.innerHTML = ""; return; }
+  const ship = (state?.ships ?? []).find((s) => s.symbol === shipRow.symbol);
+  if (!ship) { el.innerHTML = ""; return; }
+
+  const st = (fleetStatus.ships ?? []).find((s) => s.symbol === shipRow.symbol);
+  const nav = ship.nav?.status ?? "";
+  const holdBtn = st?.paused
+    ? `<button class="btn" data-act="release">Release</button>`
+    : `<button class="btn" data-act="hold">Hold</button>`;
+  // Disabled (not hidden) mid-transit, matching the endpoint's own guard.
+  const dockBtn = nav === "IN_TRANSIT"
+    ? `<button class="btn" disabled title="in transit — wait for arrival">Dock / Undock</button>`
+    : `<button class="btn" data-act="dock-toggle">${nav === "DOCKED" ? "Undock" : "Dock"}</button>`;
+
+  let extra = "";
+  if (fleetSendOpen) {
+    extra += `<div class="sheet-inline-form"><input class="field-input" id="fleet-send-wp" placeholder="Waypoint, e.g. X1-A-B2" /><button class="btn pri" data-act="send-go">Go</button></div>`;
+  }
+  if (fleetRouteOpen) {
+    const top = [...dispatchRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 4);
+    extra += `<div class="route-pick">${
+      top.length
+        ? top.map((r) => `<button data-act="route-pick" data-good="${escapeAttr(r.good)}"><span>${escapeHtml(r.good)}</span><b>${signed(r.profitPerTrip)}/trip</b></button>`).join("")
+        : '<div class="empty">No profitable routes right now.</div>'
+    }</div>`;
+  }
+  if (fleetRoleOpen) {
+    const currentRole = fleetRoleFormRole ?? (SHIP_ROLES.includes(shipRow.role) ? shipRow.role : SHIP_ROLES[0]);
+    const mismatch = roleMismatchReason(currentRole, ship);
+    extra += `<div class="role-form">
+      <div class="sheet-inline-form">
+        <select class="role-select field-select" aria-label="New role">
+          ${SHIP_ROLES.map((r) => `<option value="${r}" ${r === currentRole ? "selected" : ""}>${r}</option>`).join("")}
+        </select>
+        <button class="btn pri" data-act="role-set">Set</button>
+      </div>
+      ${mismatch ? `<div class="role-warn">⚠ ${escapeHtml(mismatch)}</div>` : ""}
+      ${currentRole === "keeper" ? `<input class="role-keeper-wp field-input" placeholder="keeper market waypoint (skip if already there)" />` : ""}
+    </div>`;
+  }
+  if (fleetDetailsOpen) extra += renderShipDetails(ship);
+
+  el.innerHTML = `
+    <button class="btn" data-act="send-toggle">Send to waypoint</button>
+    ${holdBtn}
+    ${dockBtn}
+    <button class="btn" data-act="route-toggle">Assign route</button>
+    <button class="btn" data-act="repair">Repair</button>
+    <button class="btn deny" data-act="sell">Sell / Scrap</button>
+    <button class="btn full" data-act="role-toggle">${fleetRoleOpen ? "Close" : `Change role (${escapeHtml(shipRow.role)})`}</button>
+    <button class="btn full" data-act="details-toggle">${fleetDetailsOpen ? "Close full details" : "Full details"}</button>
+    ${extra}
+  `;
+}
+
+function resetFleetActionForms() {
+  fleetSendOpen = false;
+  fleetRouteOpen = false;
+  fleetRoleOpen = false;
+  fleetRoleFormRole = null;
+  fleetDetailsOpen = false;
+}
+
+$("fleet-detail-body").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b || b.disabled) return;
+  const act = b.dataset.act;
+  const ship = selectedFleetShip;
+  if (!ship) return;
+
+  if (act === "send-toggle") { fleetSendOpen = !fleetSendOpen; fleetRouteOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
+  if (act === "route-toggle") { fleetRouteOpen = !fleetRouteOpen; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
+  if (act === "role-toggle") {
+    fleetRoleOpen = !fleetRoleOpen;
+    fleetRoleFormRole = null;
+    fleetSendOpen = false;
+    fleetRouteOpen = false;
+    fleetDetailsOpen = false;
+    return renderFleet();
+  }
+  if (act === "details-toggle") {
+    fleetDetailsOpen = !fleetDetailsOpen;
+    fleetSendOpen = false;
+    fleetRouteOpen = false;
+    fleetRoleOpen = false;
+    return renderFleet();
+  }
+  if (act === "jettison") {
+    const { good, units } = b.dataset;
+    if (!confirm(`Jettison ${units}u ${good} from ${ship}? This cannot be undone.`)) return;
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/jettison", { shipSymbol: ship, good, units: Number(units) }); await loadState(); }
+    catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "remove-comp") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/remove-component", { shipSymbol: ship, componentSymbol: b.dataset.comp }); await loadState(); }
+    catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "install-comp") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/install", { shipSymbol: ship, componentSymbol: b.dataset.comp }); await loadState(); }
+    catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "role-set") {
+    const role = $("fleet-detail-actions").querySelector(".role-select")?.value;
+    if (!role) return;
+    const keeperMarket = $("fleet-detail-actions").querySelector(".role-keeper-wp")?.value.trim() || undefined;
+    b.disabled = true;
+    try {
+      await api("POST", "/api/fleet/role", { shipSymbol: ship, role, keeperMarket });
+      resetFleetActionForms();
+      await loadBridge();
+    } catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "send-go") {
+    const wp = $("fleet-send-wp")?.value.trim();
+    if (!wp) return;
+    b.disabled = true;
+    try {
+      await api("POST", "/api/fleet/dispatch", { shipSymbol: ship, waypointSymbol: wp });
+      fleetSendOpen = false;
+      await loadBridge();
+    } catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "route-pick") {
+    const route = dispatchRoutes.find((r) => r.good === b.dataset.good);
+    b.disabled = true;
+    try {
+      await api("POST", "/api/dispatch", {
+        shipSymbol: ship, good: b.dataset.good,
+        buyAt: route?.buyAt, sellAt: route?.sellAt,
+        buyPrice: route?.buyPrice, sellPrice: route?.sellPrice,
+        profitPerTrip: route?.profitPerTrip,
+      });
+      fleetRouteOpen = false;
+      await loadDispatch();
+    } catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "hold" || act === "release") {
+    b.disabled = true;
+    try { await api("POST", `/api/fleet/${act}`, { shipSymbol: ship }); await loadBridge(); }
+    catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "dock-toggle") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/dock", { shipSymbol: ship }); await loadBridge(); }
+    catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "repair") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/repair", { shipSymbol: ship }); await loadBridge(); }
+    catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "sell") {
+    if (!confirm(`Sell ${ship} permanently? It will fly to the nearest shipyard and be scrapped there. This cannot be undone.`)) return;
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/sell-ship", { shipSymbol: ship }); selectedFleetShip = null; await loadState(); }
+    catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+});
+
+$("fleet-detail-body").addEventListener("change", (e) => {
+  if (!e.target.classList.contains("role-select")) return;
+  fleetRoleFormRole = e.target.value;
+  renderFleet();
+});
 
 function escapeAttr(s) {
   return (s + "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");

@@ -58,8 +58,9 @@ What each screen actually does today, confirmed by reading `deck.js`:
 - **Fleet** (`renderFleet`, ~line 389): a table + detail-split layout
   (`.fleetsplit`, `#fleet-table`, `#fleet-detail-head`,
   `#fleet-detail-body`) grouped by system with clickable chips. Clicking a
-  row shows cargo/frame/fuel/wants-doing in the detail pane. **No action
-  buttons exist here at all** — see §1, the single biggest gap.
+  row shows cargo/frame/fuel/wants-doing in the detail pane. Pass A now
+  also renders a full per-ship action sheet (`renderFleetActions`) inside
+  that pane — see §1, now built.
 - **Markets** (`renderMarkets`, ~line 518): Routes, Yards & outfitting, a
   **read-only** Warehouse panel (goods + total value), and a **read-only**
   top-5 dispatch-assignments readout. No write actions.
@@ -74,15 +75,28 @@ What each screen actually does today, confirmed by reading `deck.js`:
 - **Doctrine** (`renderDoctrine`, ~line 856): Standing Orders list and
   recent activity, **read-only** — no enable/disable toggle wired.
 
-Explicitly **not built anywhere in Deck**: per-ship action controls
-(hold/release/role-change/repair/refuel/sell/scrap/jettison/install/
-remove-component/manual send-to-waypoint), warehouse designate/release,
+Explicitly **not built anywhere in Deck**: warehouse designate/release,
 dispatch assign/clear, keeper station config, a Factions list, a System
 Agents (+running credits tally) panel, co-pilot chat/narrative, Map
 replay/scrub, and Fleet bulk-select / cross-system rollup (the original
-design doc's own deferred "screens 6–7").
+design doc's own deferred "screens 6–7"). Per-ship action controls were
+the largest gap and **are now built** — see §1's status line.
 
-## 1. Pass A — Fleet ship-action sheet (highest priority)
+## 1. Pass A — Fleet ship-action sheet (highest priority) — BUILT 2026-09-20
+
+**Status**: shipped. See the CHANGELOG entry of the same date. Implemented
+in `public/deck.js` as `renderFleetActions()` + `renderShipDetails()` +
+`roleLabel()`/`SHIP_ROLES`/`resetFleetActionForms()`, with two delegated
+listeners bound to `#fleet-detail-body`. One deviation from §1c's literal
+wording: the `#fleet-detail-actions` container is created by `renderFleet()`
+rather than declared in `deck.html`, because it would otherwise be wiped by
+the `innerHTML` assignment each render; listeners bind to the stable parent
+instead, same one-handler-keyed-off-`data-act` pattern. `.field-select` and
+`.field-input` were added to `deck.css` per §1d. No backend change, as
+§1b predicted. Live verification still pending (no DB/token in the build
+environment).
+
+The sections below are retained as the build record.
 
 **Why first**: this is the single largest functional gap. An operator can
 *see* every ship in Deck's Fleet screen but cannot act on one — no hold,

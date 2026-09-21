@@ -172,6 +172,48 @@ tr:hover td{background:var(--raised)}
 
 tr.sel td{background:var(--amber-dim)}
 
+/* Fleet ship-action sheet (pass A) — ported from Tower's own sheet
+   (public/m.css), restyled onto Deck's tokens. .field-select/.field-input
+   are the reusable form controls §1d asked for: use them for every new
+   <select>/<input> rather than repeating an inline style. */
+.field-select,.field-input{
+  background:var(--sunken); border:1px solid var(--hair-hi); color:var(--bone);
+  font-family:var(--mono); font-size:11px; padding:8px 10px; border-radius:4px;
+}
+.detail-actions{
+  display:grid; grid-template-columns:1fr 1fr; gap:8px;
+  padding:12px 0 0; border-top:1px solid var(--hair); flex:0 0 auto;
+}
+.detail-actions .btn{text-align:center; padding:11px 4px}
+.detail-actions .btn.full{grid-column:1 / -1}
+.sheet-inline-form{grid-column:1 / -1; display:flex; gap:6px}
+.sheet-inline-form .field-input{flex:1}
+.route-pick{grid-column:1 / -1; display:flex; flex-direction:column; gap:6px}
+.route-pick button{
+  display:flex; align-items:center; justify-content:space-between; background:var(--panel);
+  border:1px solid var(--hair); border-radius:4px; padding:8px 10px; color:var(--bone);
+  font-family:var(--mono); font-size:10.5px; cursor:pointer;
+}
+.route-pick button b{color:var(--green); font-weight:600}
+.role-form{grid-column:1 / -1; display:flex; flex-direction:column; gap:6px}
+.role-form .sheet-inline-form{margin-top:0}
+.role-select{flex:1}
+.role-warn{font-family:var(--mono); font-size:9.5px; color:var(--amber); line-height:1.4}
+.role-keeper-wp{width:100%}
+.ship-details{grid-column:1 / -1; display:flex; flex-direction:column; gap:2px}
+.dtl-h{
+  font-family:var(--chrome); font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--dim); margin:10px 0 2px;
+}
+.dtl-h:first-child{margin-top:0}
+.detail-row{
+  display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 0;
+  border-top:1px solid var(--hair); font-family:var(--mono); font-size:10.5px;
+}
+.detail-row:first-of-type{border-top:none}
+.detail-row .d{color:var(--dim); font-size:9.5px}
+.detail-row .btn{padding:5px 10px; font-size:9px; min-height:auto; flex:0 0 auto}
+
 /* Markets screen (pass 3) */
 .mgrid{flex:1;display:grid;grid-template-columns:1.3fr 1fr;grid-template-rows:1fr 1fr;gap:14px;min-height:0}
 .goodrow{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,199,120,.06);font-size:11.5px}

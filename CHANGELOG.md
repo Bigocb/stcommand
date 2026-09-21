@@ -11,6 +11,30 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: Deck (`/deck`) Fleet ship-action sheet — Pass A of
+  `docs/deck-remaining-build-plan.md`, built 2026-09-20.** The single
+  largest functional gap in Deck was that an operator could *see* every
+  ship on the Fleet screen but not act on one. Ported the shape of Tower's
+  already-working action sheet (`public/m.js`'s `renderSheet()` and its
+  `#sheet-actions` handler) rather than redesigning it: send-to-waypoint,
+  Hold/Release, Dock/Undock (disabled mid-transit, matching the route's own
+  guard), Assign route (top-4 by `profitPerTrip`), Repair, Sell/Scrap
+  (confirm-gated), Change role (with the `roleMismatchReason()` mismatch
+  warning and the keeper-market input shown only for `keeper`), and Full
+  details (per-item Jettison, module/mount Remove, install-from-cargo).
+  **No new backend route and no new `Store`/`FleetManager` method** — every
+  action already had a working endpoint in `src/http/dashboard.ts`; that
+  file was not touched. Added two reusable form classes (`.field-select`,
+  `.field-input`) to `deck.css` so later passes don't re-invent the same
+  inline style a third time. One deliberate deviation from the plan's §1c
+  ("wire a listener on `#fleet-detail-actions`"): the buttons are created
+  inside `renderFleet()`'s `innerHTML` assignment, so a statically-declared
+  container in `deck.html` would be wiped on every render; the two
+  delegated listeners instead bind to the stable `#fleet-detail-body`
+  parent, which is the same one-handler-keyed-off-`data-act` pattern.
+  Live verification pending (no DB/token in the build environment) — the
+  operator will confirm the buttons work end-to-end after deploy.
+
 - **Add: Deck (`/deck`), the desktop redesign — Overview pass built
   2026-09-19.** `docs/deck-desktop-design.md` was written as a mechanical,
   step-by-step build spec (full CSS and HTML copied verbatim, exact data
