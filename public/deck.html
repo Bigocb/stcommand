@@ -120,11 +120,23 @@
             <!-- Warehouse panel -->
             <div class="panel">
               <div class="panel-h"><span class="dot"></span><span class="title">Warehouse</span><span class="count" id="mk-wh-count"></span></div>
+              <div class="mk-toolbar" id="mk-warehouse-toolbar">
+                <select class="field-select" id="mk-warehouse-ship" aria-label="Warehouse ship"></select>
+                <input class="field-input" id="mk-warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
+                <button class="btn pri" id="mk-warehouse-designate">Designate</button>
+                <button class="btn" id="mk-warehouse-release">Release</button>
+              </div>
               <div class="panel-b" id="mk-warehouse"></div>
             </div>
             <!-- Dispatch panel -->
             <div class="panel">
               <div class="panel-h"><span class="dot"></span><span class="title">Dispatch</span><span class="count">traders</span></div>
+              <div class="mk-toolbar" id="mk-dispatch-toolbar">
+                <select class="field-select" id="mk-dispatch-ship" aria-label="Trader ship"></select>
+                <select class="field-select" id="mk-dispatch-good" aria-label="Good"></select>
+                <button class="btn pri" id="mk-dispatch-assign">Assign</button>
+                <button class="btn" id="mk-dispatch-auto">Auto</button>
+              </div>
               <div class="panel-b" id="mk-dispatch"></div>
             </div>
           </div>

@@ -62,8 +62,10 @@ What each screen actually does today, confirmed by reading `deck.js`:
   also renders a full per-ship action sheet (`renderFleetActions`) inside
   that pane — see §1, now built.
 - **Markets** (`renderMarkets`, ~line 518): Routes, Yards & outfitting, a
-  **read-only** Warehouse panel (goods + total value), and a **read-only**
-  top-5 dispatch-assignments readout. No write actions.
+  Warehouse panel (goods + total value), and a top-5 dispatch-assignments
+  readout. Pass B now also renders write toolbars above the warehouse and
+  dispatch panels (`#mk-warehouse-toolbar`, `#mk-dispatch-toolbar`) — see
+  §2, now built.
 - **Map** (`renderMap`, `renderMapDetail`, `renderMapLeaderboard`): a
   spatial chart of the home system plus a compact top-3 leaderboard
   snippet. **No Factions list, no System Agents panel, no replay/scrub.**
@@ -220,7 +222,16 @@ inline style a third and fourth time.
   the environment; if not, say so plainly rather than claiming it was
   verified (same rule the original Deck spec's §7 step 11 already states).
 
-## 2. Pass B — Trade Ops actions (dispatch + warehouse)
+## 2. Pass B — Trade Ops actions (dispatch + warehouse) — BUILT 2026-09-20
+
+**Status**: the two required toolbars shipped (see the CHANGELOG entry of
+the same date); the three lower-priority items below remain unbuilt, as
+the spec itself allowed. One implementation note: the selects repopulate
+from the store slices inside `renderMarkets()`/`setSelectOptions()`, which
+is why `subscribe("state", ...)` now also calls `renderMarkets()` — the
+warehouse ship list comes from `state.ships`, and without that the
+candidate list would only refresh when the dispatch slice happened to
+change. The sections below are retained as the build record.
 
 **Why second**: Deck's Markets screen already *shows* warehouse and
 dispatch data — this pass is "make the read-only panels write", not new

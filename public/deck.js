@@ -865,7 +865,72 @@ function renderMarkets() {
   })();
   const dispatchEl = $("mk-dispatch");
   if (dispatchEl) dispatchEl.innerHTML = dispatchHtml;
+
+  // Toolbars (pass B) — repopulate the selects while preserving whatever
+  // the operator currently has chosen, same discipline as v6.js's
+  // renderDispatch()/renderWarehouse(): a 15s poll must not yank the
+  // selection back to the first option mid-interaction.
+  const traders = (fleetStatus.ships ?? []).filter((s) => s.role === "trader");
+  setSelectOptions($("mk-dispatch-ship"), traders.map((s) => s.symbol));
+  setSelectOptions($("mk-dispatch-good"), [...new Set(dispatchRoutes.map((r) => r.good))]);
+  const whCandidates = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 20);
+  setSelectOptions($("mk-warehouse-ship"), whCandidates.map((s) => s.symbol));
 }
+
+/** Repopulates a <select>, keeping the previous value if it's still a
+ *  valid option — see renderMarkets()'s toolbar note. */
+function setSelectOptions(sel, values) {
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = values.map((v) => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join("");
+  if (values.includes(current)) sel.value = current;
+}
+
+/* ── Markets toolbars (pass B) ───────────────
+ * Ported from v6.js's dispatchAssign/dispatchClear/warehouseDesignate/
+ * warehouseRelease — same endpoints, same body shapes. */
+$("mk-dispatch-assign").addEventListener("click", async () => {
+  const ship = $("mk-dispatch-ship").value;
+  const good = $("mk-dispatch-good").value;
+  if (!ship || !good) return;
+  const route = dispatchRoutes.find((r) => r.good === good);
+  try {
+    await api("POST", "/api/dispatch", {
+      shipSymbol: ship, good,
+      buyAt: route?.buyAt, sellAt: route?.sellAt,
+      buyPrice: route?.buyPrice, sellPrice: route?.sellPrice,
+      profitPerTrip: route?.profitPerTrip,
+    });
+    await loadDispatch();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-dispatch-auto").addEventListener("click", async () => {
+  const ship = $("mk-dispatch-ship").value;
+  if (!ship) return;
+  try {
+    await api("POST", "/api/dispatch", { shipSymbol: ship, clear: true });
+    await loadDispatch();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-warehouse-designate").addEventListener("click", async () => {
+  const shipSymbol = $("mk-warehouse-ship").value;
+  const waypointSymbol = $("mk-warehouse-waypoint").value.trim();
+  if (!shipSymbol || !waypointSymbol) return;
+  try {
+    await api("POST", "/api/warehouse/designate", { shipSymbol, waypointSymbol });
+    $("mk-warehouse-waypoint").value = "";
+    await loadWarehouse();
+  } catch (err) { alert(err.message); }
+});
+
+$("mk-warehouse-release").addEventListener("click", async () => {
+  try {
+    await api("POST", "/api/warehouse/release");
+    await loadWarehouse();
+  } catch (err) { alert(err.message); }
+});
 
 /* ── Ops screen (pass 5) ──────────────────────
  * Contracts and construction missions, read-only display.
@@ -1384,6 +1449,7 @@ subscribe("state", () => {
   renderMinimap();
   renderWantsDoing();
   renderFleet();
+  renderMarkets();
   if (!$("view-map").hidden) renderMap();
 });
 subscribe("bridge", () => {

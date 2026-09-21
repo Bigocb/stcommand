@@ -11,6 +11,27 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: Deck (`/deck`) Markets write toolbars — Pass B of
+  `docs/deck-remaining-build-plan.md`, built 2026-09-20.** Deck's Markets
+  screen already *showed* warehouse and dispatch data read-only; this makes
+  those panels write. Ported the exact working implementation from
+  `public/v6.js` (`dispatchAssign`/`dispatchClear`/`warehouseDesignate`/
+  `warehouseRelease`) — same endpoints, same body shapes. Dispatch toolbar:
+  a trader ship picker, a good picker (distinct `dispatchRoutes[].good`),
+  an **Assign** button (`POST /api/dispatch` with the route's buy/sell
+  fields) and an **Auto** button (`{ shipSymbol, clear: true }`). Warehouse
+  toolbar: a ship picker (holds ≥20), a waypoint input, **Designate**
+  (`POST /api/warehouse/designate`) and **Release**
+  (`POST /api/warehouse/release`). Reused the `.field-select`/`.field-input`
+  classes Pass A added. The selects repopulate on every poll but preserve
+  the operator's current choice, the same discipline `v6.js`'s
+  `renderDispatch()`/`renderWarehouse()` already follow — a 15s refresh
+  must not yank a selection back to the first option mid-interaction.
+  No backend change. The plan's lower-priority items within this pass
+  (warehouse manual adjust, warehouse sell-targets, keeper station
+  config) are explicitly optional and remain unbuilt. Live verification
+  pending (no DB/token in the build environment).
+
 - **Add: Deck (`/deck`) Fleet ship-action sheet — Pass A of
   `docs/deck-remaining-build-plan.md`, built 2026-09-20.** The single
   largest functional gap in Deck was that an operator could *see* every
