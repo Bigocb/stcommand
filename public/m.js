@@ -845,18 +845,25 @@ function renderMarketRoutes() {
   const top = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 20);
   el.innerHTML = top.map((r) => {
     const good = r.goodSymbol;
-    const assigned = dispatchAssignments.find((a) => a.role === "direct" && a.good === good);
-    const picker = openRouteGood === good
+    // Keyed by good+buyAt+sellAt, not just good — the same good can have
+    // several distinct routes in this list (different buy/sell pairs), and
+    // matching by good alone mislabeled every same-good row as "flying"
+    // whichever ship actually ran a *different* leg of that good (confirmed
+    // live 2026-09-21: THEO-1 was shown as flying 3 CLOTHING routes it had
+    // nothing to do with — it only ever ran one specific K90→J63 leg).
+    const routeKey = `${good}|${r.buyAt}|${r.sellAt}`;
+    const assigned = dispatchAssignments.find((a) => a.role === "direct" && a.good === good && a.buyAt === r.buyAt && a.sellAt === r.sellAt);
+    const picker = openRouteGood === routeKey
       ? `<div class="ship-pick">${
           tradersFor().length
-            ? tradersFor().map((s) => `<button data-act="assign-ship" data-good="${escapeHtml(good)}" data-ship="${escapeHtml(s.symbol)}"><span>${escapeHtml(s.symbol)}</span><span>${s.symbol === assigned?.shipSymbol ? "assigned" : "assign"}</span></button>`).join("")
+            ? tradersFor().map((s) => `<button data-act="assign-ship" data-good="${escapeHtml(good)}" data-buy="${escapeHtml(r.buyAt)}" data-sell="${escapeHtml(r.sellAt)}" data-ship="${escapeHtml(s.symbol)}"><span>${escapeHtml(s.symbol)}</span><span>${s.symbol === assigned?.shipSymbol ? "assigned" : "assign"}</span></button>`).join("")
             : '<div class="empty">No trader ships available.</div>'
         }</div>`
       : "";
     return `<div class="route-row">
       <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${signed(r.profitPerTrip)}/trip</span></div>
       <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>
-      <div class="rr-actions"><button class="btn" data-act="route-toggle" data-good="${escapeHtml(good)}">${openRouteGood === good ? "Close" : "Assign a ship"}</button></div>
+      <div class="rr-actions"><button class="btn" data-act="route-toggle" data-key="${escapeHtml(routeKey)}">${openRouteGood === routeKey ? "Close" : "Assign a ship"}</button></div>
       ${picker}
     </div>`;
   }).join("");
@@ -939,11 +946,15 @@ $("mkt-seg").addEventListener("click", (e) => {
 
 $("mkt-routes").addEventListener("click", async (e) => {
   const toggle = e.target.closest("button[data-act='route-toggle']");
-  if (toggle) { openRouteGood = openRouteGood === toggle.dataset.good ? null : toggle.dataset.good; return renderMarketRoutes(); }
+  if (toggle) { openRouteGood = openRouteGood === toggle.dataset.key ? null : toggle.dataset.key; return renderMarketRoutes(); }
   const pick = e.target.closest("button[data-act='assign-ship']");
   if (pick) {
     pick.disabled = true;
-    const route = marketRoutes.find((r) => r.goodSymbol === pick.dataset.good);
+    // Matched by good+buyAt+sellAt, not just good — same fix as the
+    // "flying:" label above: a good with multiple listed routes must
+    // assign the exact leg the operator opened this picker from, not
+    // whichever route for that good happens to sort first in the list.
+    const route = marketRoutes.find((r) => r.goodSymbol === pick.dataset.good && r.buyAt === pick.dataset.buy && r.sellAt === pick.dataset.sell);
     try {
       await api("POST", "/api/dispatch", {
         shipSymbol: pick.dataset.ship, good: route?.goodSymbol,
