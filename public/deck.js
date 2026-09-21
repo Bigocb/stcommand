@@ -1268,7 +1268,9 @@ async function loadAndRenderManipulationHistory(btn) {
 }
 
 /* ── Doctrine screen (pass 6) ────────────────
- * Standing orders and recent activity, read-only display.
+ * Standing orders and recent activity. Pass D wires the enable/disable
+ * toggle on each standing order — ported from Tower's renderMoreDoctrine()
+ * + its click handler (m.js): POST /api/doctrine { key, enabled }.
  */
 function renderDoctrine() {
   // Standing Orders panel
@@ -1284,14 +1286,13 @@ function renderDoctrine() {
     const rulesHtml = doctrineRules.map((r) => {
       const enabledStatus = r.enabled ? "on" : "off";
       return `
-        <div style="margin-bottom:12px;padding:10px 14px;border-bottom:1px solid var(--hair);last:child:border-bottom:none">
-          <div style="display:flex;gap:8px;align-items:center">
-            <span style="flex:1">
-              <span style="font-weight:600;font-size:12px">${escapeHtml(r.name)}</span>
-              <span class="chip" style="font-size:9px;padding:2px 6px;margin-left:8px">${enabledStatus}</span>
-            </span>
-          </div>
-          <div style="font-size:11px;color:var(--dim2);margin-top:4px">${escapeHtml(String(r.value))}</div>
+        <div class="doc-row" data-key="${escapeAttr(r.key)}" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;padding:10px 14px;border-bottom:1px solid var(--hair)">
+          <span style="flex:1">
+            <span style="font-weight:600;font-size:12px">${escapeHtml(r.name)}</span>
+            <span class="chip" style="font-size:9px;padding:2px 6px;margin-left:8px">${enabledStatus}</span>
+            <div style="font-size:11px;color:var(--dim2);margin-top:4px">${escapeHtml(String(r.value))}</div>
+          </span>
+          <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}"><i></i></button>
         </div>
       `;
     }).join('');
@@ -1333,6 +1334,19 @@ function renderDoctrine() {
   const recentActivityEl = $("doctrine-recent-activity");
   if (recentActivityEl) recentActivityEl.innerHTML = recentActivityHtml;
 }
+
+$("doctrine-standing-orders").addEventListener("click", async (e) => {
+  const sw = e.target.closest("button.sw");
+  if (!sw) return;
+  const key = sw.closest(".doc-row").dataset.key;
+  const enabled = sw.getAttribute("aria-pressed") !== "true";
+  sw.disabled = true;
+  try {
+    await api("POST", "/api/doctrine", { key, enabled });
+    await loadDoctrine();
+  } catch (err) { alert(err.message); await loadDoctrine(); }
+  renderDoctrine();
+});
 
 /* ── Map screen (pass 4) ────────────────────
  * System chips, 2D waypoint scatter, market detail panel, leaderboard.
@@ -1650,6 +1664,9 @@ subscribe("galaxy", () => {
 });
 subscribe("programme", () => {
   if (!$("view-ops").hidden) renderOps();
+});
+subscribe("doctrine", () => {
+  if (!$("view-doctrine").hidden) renderDoctrine();
 });
 subscribe("manipulationRoutes", () => {
   if (!$("view-ops").hidden) renderManipulationRoutes();

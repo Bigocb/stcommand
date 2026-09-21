@@ -11,6 +11,20 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: Deck (`/deck`) Doctrine enable/disable toggles — Pass D of
+  `docs/deck-remaining-build-plan.md`, built 2026-09-20.** Deck's Doctrine
+  screen rendered Standing Orders read-only, so an operator could see which
+  rules were on but couldn't flip one without leaving Deck. Ported Tower's
+  toggle control and handler (`m.js`'s `renderMoreDoctrine()` + its click
+  listener): each rule row gets a `.sw` switch whose `aria-pressed`
+  reflects `rule.enabled`, and clicking it calls
+  `POST /api/doctrine { key, enabled: !currentlyEnabled }` then re-fetches
+  via `loadDoctrine()`. Deck's existing list rendering is kept — only the
+  toggle was added, per the plan. Also added a `"doctrine"` subscription
+  (there was none) so the store's own `notify("doctrine")` re-renders the
+  screen, matching how every other slice is wired. No backend change.
+  Live verification pending (no DB/token in the build environment).
+
 - **Add: Deck (`/deck`) Map galaxy data — Pass C of
   `docs/deck-remaining-build-plan.md`, built 2026-09-20.** Deck's Map
   screen had only a top-3 leaderboard snippet; this adds the two panels

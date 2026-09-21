@@ -77,7 +77,8 @@ What each screen actually does today, confirmed by reading `deck.js`:
   toggle, refining warnings) — this one is fully-featured, built and
   fixed across several passes this session, nothing to do here.
 - **Doctrine** (`renderDoctrine`, ~line 856): Standing Orders list and
-  recent activity, **read-only** — no enable/disable toggle wired.
+  recent activity. Pass D now wires an enable/disable toggle on each
+  standing order — see §4, now built.
 
 Explicitly **not built anywhere in Deck**: warehouse designate/release,
 dispatch assign/clear, keeper station config, a Factions list, a System
@@ -341,7 +342,15 @@ than adding a second import statement.
 oldest-first per agent. `public/shared/store.js`'s `loadGalaxy()` already
 calls this; Deck gets it for free once it imports `systemAgentsHistory`.
 
-## 4. Pass D — Doctrine write actions
+## 4. Pass D — Doctrine write actions — BUILT 2026-09-20
+
+**Status**: shipped. `renderDoctrine()` now emits a `.sw` toggle per rule
+(ported from `m.js`'s `renderMoreDoctrine()`) and a delegated click
+handler on `#doctrine-standing-orders` posts `{ key, enabled }` to
+`/api/doctrine` then re-fetches. Deck's existing list markup is
+otherwise unchanged; a missing `"doctrine"` subscription was added so
+store notifications drive the re-render. No backend work. The section
+below is retained as the build record.
 
 Deck's Doctrine screen (`renderDoctrine`, deck.js ~line 856) renders
 Standing Orders read-only. `public/m.js`'s `renderMoreDoctrine()` +
