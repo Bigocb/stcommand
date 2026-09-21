@@ -1543,6 +1543,7 @@ const FLEET_COLS = [
   { key: "crewCurrent", label: "Crew" },
   { key: "goal", label: "Doing" },
   { key: "at", label: "At" },
+  { key: "eta", label: "ETA" },
 ];
 
 
@@ -1555,6 +1556,21 @@ function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift">drift</span>`;
   if (flightMode === "BURN") return `<span class="fm-tag fm-burn">burn</span>`;
   return "";
+}
+
+/** Time remaining until a ship's `nav.route.arrival` (an ISO timestamp the
+ *  game itself commits to on navigate), as "Xh Ym" / "Ym" / "<1m". Already
+ *  arrived or no active transit both read as "—" rather than a negative
+ *  duration — the poll interval means "arrived" is caught here before the
+ *  next state refresh clears IN_TRANSIT. */
+function fmtEta(iso) {
+  if (!iso) return "—";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return "<1m";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 /**
@@ -1596,6 +1612,10 @@ function fleetRows() {
       crewCurrent: s.crew?.current ?? 0, crewCapacity: s.crew?.capacity ?? 0, morale: s.crew?.morale ?? 0,
       goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
       at: s.nav?.waypointSymbol ?? "",
+      // route.arrival is the game's own committed ETA — only meaningful
+      // while actually IN_TRANSIT, since the API leaves it holding the last
+      // flight's arrival time once a ship has landed.
+      eta: s.nav?.status === "IN_TRANSIT" ? s.nav?.route?.arrival : undefined,
       // nav.flightMode is sticky — the API doesn't reset it to CRUISE on
       // arrival, so a ship that flew its last leg in BURN keeps reporting
       // "BURN" while sitting idle in orbit, which reads as meaningless (it
@@ -1752,6 +1772,7 @@ function renderFleetTable() {
         <td class="gauge">${r.crewCapacity ? `<span class="meter${r.morale < 40 ? " neg" : ""}"><i style="width:${Math.max(0, Math.min(100, r.morale))}%"></i></span>${r.crewCurrent}/${r.crewCapacity}` : "—"}</td>
         <td><span class="goal">${escapeHtml(r.goal)}${fmTag(r.flightMode)}</span></td>
         <td><span class="goal">${r.at ? escapeHtml(shortWp(r.at)) : "—"}</span></td>
+        <td><span class="goal">${escapeHtml(fmtEta(r.eta))}</span></td>
       </tr>`).join("")}</tbody>`;
 
   el.querySelectorAll("th[data-key]").forEach((th) => th.addEventListener("click", () => {
