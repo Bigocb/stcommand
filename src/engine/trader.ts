@@ -55,6 +55,7 @@ export interface TraderOptions {
     units?: number;
     pricePerUnit?: number;
     total: number;
+    realizedPnl?: number;
   }) => void;
   /** Called for notable events for the live feed. */
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
@@ -1284,6 +1285,7 @@ export class TraderAgent {
           units: lot,
           pricePerUnit: sold.transaction.pricePerUnit,
           total: sold.transaction.totalPrice,
+          realizedPnl: this.heldCost.has(item.symbol) ? sold.transaction.totalPrice - (this.heldCost.get(item.symbol) ?? 0) * lot : undefined,
         });
         this.onActivity?.("sell", `${lot}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice, this.symbol);
         remaining -= lot;
@@ -1506,6 +1508,7 @@ export class TraderAgent {
           units: lot,
           pricePerUnit: sold.transaction.pricePerUnit,
           total: sold.transaction.totalPrice,
+          realizedPnl: this.heldCost.has(item.symbol) ? sold.transaction.totalPrice - (this.heldCost.get(item.symbol) ?? 0) * lot : undefined,
         });
         this.onActivity?.("sell", `${lot}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt}`, sold.transaction.totalPrice, this.symbol);
         this.recordSale?.(item.symbol, leg.sellAt, lot);
@@ -1809,6 +1812,7 @@ export class TraderAgent {
       units: withdrawn.units,
       pricePerUnit: sold.transaction.pricePerUnit,
       total: sold.transaction.totalPrice,
+      realizedPnl: sold.transaction.totalPrice - withdrawn.avgCost * withdrawn.units,
     });
     this.log(`sold ${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`);
     this.onActivity?.("sell", `${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`, sold.transaction.totalPrice, this.symbol);

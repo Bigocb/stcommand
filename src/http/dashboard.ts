@@ -332,9 +332,25 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const state = w.state.get();
       const status = { ships: w.fleet.getShipStatuses(), stranded: w.fleet.getStrandedShips(), paused: w.fleet.isPaused() };
 
+      // netSeries buckets are raw gross buy-minus-sell per hour — a single
+      // bucket swings hard on nothing but timing (a bucket that catches a
+      // big buy with its matching sell one bucket later reads as a heavy
+      // loss even though the position is fine), confirmed live 2026-09-21.
+      // Averaging a few trailing complete buckets instead of reading the
+      // last one alone smooths that out without hiding a genuine trend —
+      // still just gross wallet movement, not realized trading P&L (see
+      // matchedNet below for that).
+      const RATE_WINDOW_HOURS = 3;
       const complete = series.slice(0, -1);
-      const rate = Math.round(complete.at(-1)?.net ?? series.at(-1)?.net ?? 0);
-      const prev = Math.round(complete.at(-2)?.net ?? 0);
+      const avg = (bucket: typeof complete) => (bucket.length ? bucket.reduce((s, p) => s + p.net, 0) / bucket.length : 0);
+      const rate = Math.round(avg(complete.slice(-RATE_WINDOW_HOURS)));
+      const prev = Math.round(avg(complete.slice(-RATE_WINDOW_HOURS * 2, -RATE_WINDOW_HOURS)));
+
+      // Realized P&L from completed round trips only, over the same trailing
+      // window the smoothed rate above uses — the number from this
+      // session's own "Reporting matched buy/sell P&L" operator walkthrough
+      // (CLAUDE.md), computed live instead of by hand from activity logs.
+      const matched = await w.store.matchedNet(w.tenantId, new Date(Date.now() - RATE_WINDOW_HOURS * 3600_000).toISOString());
 
       const HISTORY_HOURS = 24;
       const historyStart = new Date(Date.now() - HISTORY_HOURS * 3600_000).toISOString();
@@ -361,6 +377,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
 
       res.json({
         rate, prevRate: prev, forgone,
+        matchedNet: matched.net, matchedTrades: matched.trades, matchedWindowHours: RATE_WINDOW_HOURS,
         series: series.map((p) => p.net),
         credits: state.agent?.credits ?? 0,
         shipCount: state.agent?.shipCount ?? 0,

@@ -904,6 +904,17 @@ function renderTopbar() {
 
   const forgone = bridge.forgone ?? 0;
   $("forgone").textContent = forgone ? signed(forgone) + "/hr" : "—";
+
+  // Realized P&L from completed round trips only, over the same window the
+  // smoothed rate above averages — see dashboard.ts's /bridge handler. Reads
+  // "—" rather than 0 when nothing has closed yet in the window, so an idle
+  // fleet doesn't look like a zero-profit one.
+  const matchedEl = $("matched-net");
+  const trades = bridge.matchedTrades ?? 0;
+  matchedEl.textContent = trades ? signed(bridge.matchedNet ?? 0) : "—";
+  matchedEl.className = "v " + (trades ? ((bridge.matchedNet ?? 0) > 0 ? "good" : (bridge.matchedNet ?? 0) < 0 ? "bad" : "") : "");
+  matchedEl.title = trades ? `${trades} completed trade${trades === 1 ? "" : "s"} in the last ${bridge.matchedWindowHours ?? 3}h` : "";
+
   renderSpark(bridge.series ?? []);
   updateModeToggle();
   renderMobileTopbar();

@@ -94,6 +94,7 @@ export interface FleetOptions {
     units?: number;
     pricePerUnit?: number;
     total: number;
+    realizedPnl?: number;
   }) => void;
   /** Called for notable events for the live feed. */
   /**

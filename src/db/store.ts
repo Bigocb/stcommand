@@ -50,6 +50,13 @@ export interface LedgerEntry {
   units?: number;
   pricePerUnit?: number;
   total: number;
+  // Proceeds minus this lot's own tracked cost basis — only meaningful for a
+  // SELL where a cost basis was actually tracked (ordinary arbitrage; see
+  // TraderAgent's heldCost/warehouse withdraw). Undefined for every other
+  // row type and for a SELL with no tracked cost (mined/siphoned cargo,
+  // manual dumps) — NULL there means "no matched-trade number applies",
+  // never zero. See migrations/023_ledger_realized_pnl.sql.
+  realizedPnl?: number;
 }
 
 export interface ActivityEntry {
@@ -272,8 +279,8 @@ export class Store {
   async recordLedger(tenantId: string, entry: LedgerEntry): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           tenantId,
           entry.timestamp,
@@ -284,9 +291,31 @@ export class Store {
           entry.units ?? null,
           entry.pricePerUnit ?? null,
           entry.total,
+          entry.realizedPnl ?? null,
         ],
       ),
     );
+  }
+
+  /**
+   * Realized P&L from completed round trips only — sum of `realized_pnl`
+   * across SELL rows that actually tracked a cost basis, in the window
+   * since `sinceIso`. Deliberately excludes open positions (a buy with no
+   * matching sell yet) and non-trading costs (fuel/repair/ship purchases),
+   * unlike netSeries()'s gross-totals-per-bucket, which is why that number
+   * can swing hard negative in a window that just happens to catch a buy
+   * before its sell — see CLAUDE.md's "Reporting matched buy/sell P&L".
+   */
+  async matchedNet(tenantId: string, sinceIso: string): Promise<{ net: number; trades: number }> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ net: number | null; trades: string }>(
+        `SELECT COALESCE(SUM(realized_pnl), 0) AS net, COUNT(*) AS trades
+         FROM ledger
+         WHERE timestamp >= $1 AND type = 'SELL' AND realized_pnl IS NOT NULL`,
+        [sinceIso],
+      );
+      return { net: Math.round(res.rows[0]?.net ?? 0), trades: Number(res.rows[0]?.trades ?? 0) };
+    });
   }
 
   async ledgerTotals(tenantId: string): Promise<{ credits: number; buys: number; sells: number }> {

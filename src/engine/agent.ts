@@ -41,6 +41,7 @@ export interface AgentOptions {
     units?: number;
     pricePerUnit?: number;
     total: number;
+    realizedPnl?: number;
   }) => void;
   /** Called with this ship when it holds cargo. Returns a destination to fly to, `true` if handled, or falsy if nothing to do. */
   deliverCargo?: (ship: Ship) => Promise<string | true | null | undefined>;
@@ -861,6 +862,7 @@ export class ShipAgent {
       units,
       pricePerUnit: sold.transaction.pricePerUnit,
       total: sold.transaction.totalPrice,
+      realizedPnl: sold.transaction.totalPrice - bought.transaction.totalPrice,
     });
     const gain = sold.transaction.totalPrice - bought.transaction.totalPrice;
     this.log(`arbitrage: sold ${units}u ${route.good} @ ${sold.transaction.pricePerUnit}c (gain ${gain}c)`);
