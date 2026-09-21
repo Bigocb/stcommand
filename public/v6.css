@@ -902,6 +902,11 @@
   .mkt .h .sys { color:var(--violet); font-size:8px; letter-spacing:0.1em; }
   .mkt .h .age { color:var(--dim); font-size:8.5px; }
   .mkt .h .age.stale { color:var(--red); }
+  .keeper-badge { font-size:8.5px; letter-spacing:0.05em; text-transform:uppercase; padding:1px 5px; border:1px solid var(--hairline); border-radius:2px; }
+  .keeper-badge.covered { color:var(--green); border-color:var(--green); }
+  .keeper-badge.pending { color:var(--accent); border-color:var(--accent); cursor:pointer; }
+  .keeper-badge.none { color:var(--dim); cursor:pointer; }
+  .keeper-badge.none:hover { color:var(--bone); }
   .mkt .goods { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:3px; }
   .mkt .g { display:grid; grid-template-columns:1fr auto auto; gap:5px; align-items:baseline; background:var(--ink); border:1px solid var(--hairline); padding:2px 5px; font-size:9px; }
   .mkt .g .n { color:var(--ice); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

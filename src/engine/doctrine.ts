@@ -130,9 +130,16 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   },
   {
     key: "autoKeeperProbes",
-    name: "Auto-buy shipyard keepers",
-    description: "When a ship visits a shipyard with no keeper stationed there, request to buy a probe on the spot to become one — a probe has no fuel and can never move (confirmed live), so buying it AT that exact waypoint is the only way to plant a keeper there at all. Goes through the same operator approval gate as any other autonomous purchase, one request at a time fleet-wide. On by default.",
+    name: "Auto-buy keepers",
+    description: "Propose buying a probe to cover an uncovered market: either when a ship visits a shipyard directly (buys AT that yard, drifts to the nearest uncovered priority market if a different one needs it more), or when a ship visits any market on the keeper priority list (buys from the nearest in-system shipyard with cached stock, drifts here). A probe has 0 fuel capacity, but that doesn't mean it can't move — it's fuel-independent, and a keeper's own tick loop repositions it to its pinned market on its own. Goes through the same operator approval gate as any other autonomous purchase, one request at a time per trigger kind fleet-wide. On by default.",
     value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "keeperMinGoodsRecommended",
+    name: "Keeper recommendation threshold",
+    description: "The deterministic \"worth covering?\" signal a keeper-probe approval annotates itself with: a market whose latest snapshot lists at least this many distinct goods is flagged recommended. Informational only right now — it does not gate the request, the operator still decides — but it's meant to grow into what drives auto-approval later.",
+    value: 5, min: 1, max: 30, step: 1, unit: " goods",
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {

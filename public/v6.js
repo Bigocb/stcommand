@@ -1993,6 +1993,7 @@ function renderSnapshots() {
     const stale = stamp && (Date.now() - new Date(stamp).getTime()) > 90 * 60_000;
     return `<div class="mkt">
       <div class="h"><span><b>${escapeHtml(shortWp(wp))}</b></span>
+        ${keeperBadge(wp)}
         <span class="age ${stale ? "stale" : ""}">${fmtTime(stamp)} · ${age} old</span></div>
       <div class="goods">${goods.map((g) => `<div class="g">
         <span class="n" title="${escapeAttr(g.goodSymbol)}">${escapeHtml(g.goodSymbol)}</span>
@@ -2000,6 +2001,42 @@ function renderSnapshots() {
     </div>`;
   }).join("");
 }
+
+/** Covered / priority-but-uncovered / unflagged indicator for one market
+ *  waypoint, rendered inline in the Markets tab's Prices & snapshots list
+ *  (the operator's explicit ask: an at-a-glance covered indicator right
+ *  where they're already looking at markets, plus an easy way to add one
+ *  to the keeper priority list from there instead of only from the Book's
+ *  keeper-markets textarea). "Covered" reads from keeperStationsCfg (an
+ *  actual keeper stationed there); "pending" from keeperMarketsCfg (on the
+ *  priority list, nothing stationed yet — this is exactly the state that
+ *  now fires an immediate coverage check via setKeeperPriorityMarkets(),
+ *  see fleet.ts) — neither implies the other, since a keeper can be
+ *  stationed manually without ever being added to the priority list. */
+function keeperBadge(wp) {
+  const covered = keeperStationsCfg.some((s) => s.market === wp);
+  const pending = !covered && keeperMarketsCfg.includes(wp);
+  if (covered) return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
+  if (pending) return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — click to remove from the list">◐ pending</span>`;
+  return `<span class="keeper-badge none" data-wp="${escapeAttr(wp)}" role="button" title="Not on the keeper priority list — click to add">+ cover</span>`;
+}
+
+async function toggleKeeperPriority(wp) {
+  const next = keeperMarketsCfg.includes(wp)
+    ? keeperMarketsCfg.filter((m) => m !== wp)
+    : [...keeperMarketsCfg, wp];
+  try {
+    await api("POST", "/api/keeper/markets", { markets: next });
+    // Same illegal-reassignment pitfall as saveKeepers() — loadKeepers()
+    // is what's allowed to update keeperMarketsCfg itself.
+    await loadKeepers();
+    showToastGlobal(next.includes(wp) ? `${shortWp(wp)} added to keeper priority list` : `${shortWp(wp)} removed from keeper priority list`);
+  } catch (err) { showToastGlobal(err.message, true); }
+}
+$("snapshots").addEventListener("click", (e) => {
+  const badge = e.target.closest("[data-wp]");
+  if (badge) toggleKeeperPriority(badge.dataset.wp);
+});
 
 let priceGood = "";
 // Redraw the price chart from its cached points on resize — the chart's
@@ -6669,7 +6706,7 @@ function renderChatHistory() {
 
 subscribe("dispatch", () => { renderDispatch(); renderFleetTable(); renderMobileFleet(); renderMobileFleetStrip(); });
 subscribe("warehouse", renderWarehouse);
-subscribe("keepers", renderKeepers);
+subscribe("keepers", () => { renderKeepers(); renderSnapshots(); });
 subscribe("replay", renderScrubTrack);
 subscribe("prices", () => {
   renderPriceGoods();

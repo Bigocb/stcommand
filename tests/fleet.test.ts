@@ -1924,7 +1924,6 @@ describe("FleetManager.recordMarketSnapshot triggers a keeper probe request for 
       tenantId: opts.tenantId,
     });
     (fleet as any).store = opts.store;
-    if (opts.store) opts.store.recordMarket = async () => {};
     const registry = Registry.standalone();
     registry.seed([{ symbol: `${sys}-MARKET1`, x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] }]);
     (fleet as any).registry = registry;
@@ -1966,6 +1965,66 @@ describe("FleetManager.recordMarketSnapshot triggers a keeper probe request for 
     assert.deepEqual(calls.purchase, ["X1-MKA-YARD"], "bought at the shipyard the cached stock came from");
     assert.equal((fleet as any).keeperMarkets.get("PROBE-1"), "X1-MKA-MARKET1", "pinned to the market that triggered the request, not the shipyard");
     (fleet as any).keepers.get("PROBE-1")?.stop();
+  });
+
+  // 2026-09-21, operator request: adding a waypoint by hand shouldn't sit
+  // inert until some ship happens to dock there next — setKeeperPriorityMarkets()
+  // now fires this same check immediately for every genuinely new entry.
+  it("setKeeperPriorityMarkets fires an immediate check for a newly added market, with a goods-count recommendation in the detail", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet } = makeMarketFleet("X1-MKD", { tenantId, store });
+    // Shipyard stock cached ahead of time, same as the other tests — but
+    // this time nothing ever calls recordMarketSnapshot() at all.
+    await store.recordShipyardInventory("X1-MKD", "X1-MKD-YARD", [{ type: "SHIP_PROBE", name: "Probe", purchasePrice: 5000 }]);
+    // 3 goods — below the default 5-good recommended threshold.
+    await store.recordMarket({ systemSymbol: "X1-MKD", waypointSymbol: "X1-MKD-MARKET1", goodSymbol: "FUEL", type: "EXCHANGE", supply: "ABUNDANT", purchasePrice: 10, sellPrice: 8, tradeVolume: 100 });
+    await store.recordMarket({ systemSymbol: "X1-MKD", waypointSymbol: "X1-MKD-MARKET1", goodSymbol: "IRON", type: "EXPORT", supply: "MODERATE", purchasePrice: 50, sellPrice: 40, tradeVolume: 50 });
+    await store.recordMarket({ systemSymbol: "X1-MKD", waypointSymbol: "X1-MKD-MARKET1", goodSymbol: "COPPER", type: "EXPORT", supply: "MODERATE", purchasePrice: 30, sellPrice: 25, tradeVolume: 50 });
+
+    await fleet.setKeeperPriorityMarkets(["X1-MKD-MARKET1"]);
+
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbeForMarket");
+    assert.ok(row, "adding the waypoint itself must raise the request — no visit should be required");
+    assert.match(row!.detail, /3 goods, below the 5-good recommended threshold/, "the approval must carry the deterministic goods-count signal, not just a bare ask");
+  });
+
+  it("setKeeperPriorityMarkets marks the recommendation when the goods count clears the threshold", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet } = makeMarketFleet("X1-MKE", { tenantId, store });
+    await store.recordShipyardInventory("X1-MKE", "X1-MKE-YARD", [{ type: "SHIP_PROBE", name: "Probe", purchasePrice: 5000 }]);
+    for (const good of ["FUEL", "IRON", "COPPER", "ALUMINUM", "SILVER", "GOLD"]) {
+      await store.recordMarket({ systemSymbol: "X1-MKE", waypointSymbol: "X1-MKE-MARKET1", goodSymbol: good, type: "EXPORT", supply: "MODERATE", purchasePrice: 30, sellPrice: 25, tradeVolume: 50 });
+    }
+
+    await fleet.setKeeperPriorityMarkets(["X1-MKE-MARKET1"]);
+
+    const row = await store.getUnconsumedApproval(tenantId, "buyKeeperProbeForMarket");
+    assert.ok(row);
+    assert.match(row!.detail, /6 goods, recommended/, "6 goods clears the default 5-good threshold");
+  });
+
+  it("does not re-fire the immediate check for a market already on the list", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const { fleet } = makeMarketFleet("X1-MKF", { tenantId, store });
+    await store.recordShipyardInventory("X1-MKF", "X1-MKF-YARD", [{ type: "SHIP_PROBE", name: "Probe", purchasePrice: 5000 }]);
+
+    await fleet.setKeeperPriorityMarkets(["X1-MKF-MARKET1"]);
+    const first = await store.getUnconsumedApproval(tenantId, "buyKeeperProbeForMarket");
+    assert.ok(first);
+    await store.decideApproval(tenantId, first!.id, "denied");
+
+    // Re-saving the SAME list (e.g. the operator re-submits the textarea
+    // unchanged) must not re-propose a request the operator just denied.
+    // decideApproval() alone doesn't "consume" the row (only a later
+    // ApprovalGate.request() poll does that) — so the row denied above is
+    // still the one getUnconsumedApproval() returns; the test asserts
+    // nothing NEW replaced it by checking the id is unchanged.
+    await fleet.setKeeperPriorityMarkets(["X1-MKF-MARKET1"]);
+    const after = await store.getUnconsumedApproval(tenantId, "buyKeeperProbeForMarket");
+    assert.equal(after?.id, first!.id, "still the same denied row — nothing new was raised for a market already on the list");
   });
 
   it("does not request a probe for a market the operator hasn't flagged as a keeper priority", async () => {

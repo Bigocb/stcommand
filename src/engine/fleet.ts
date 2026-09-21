@@ -4018,6 +4018,19 @@ export class FleetManager {
     const priority = await this.keeperPriorityMarkets();
     if (!priority.includes(marketWaypoint)) return; // operator hasn't flagged this market as worth a keeper
 
+    // Deterministic "worth covering?" signal, 2026-09-21: the operator asked
+    // for the approval to carry something concrete to judge by, rather than
+    // a bare yes/no ask — and for this to be the seed of an actual
+    // recommendation, not just decoration, so it can graduate to driving
+    // automation later once it's proven out. Goods count is the first,
+    // simplest signal (chosen over trade volume/volatility/distance-to-
+    // coverage — all viable later additions, see marketGoodsCount()'s own
+    // comment) — this does NOT gate the request, only annotates it; the
+    // operator still decides.
+    const goodsCount = await this.marketGoodsCount(marketWaypoint);
+    const minGoods = this.doctrine.value("keeperMinGoodsRecommended", 5);
+    const recommended = goodsCount >= minGoods;
+
     const marketSystem = marketWaypoint.slice(0, marketWaypoint.lastIndexOf("-"));
     const positions = new Map(this.galaxy.allPositions().map((p) => [p.symbol, p]));
     const marketPos = positions.get(marketWaypoint);
@@ -4039,7 +4052,7 @@ export class FleetManager {
 
     const approved = await this.approvals.request("buyKeeperProbeForMarket", {
       shipSymbol: `${best.waypointSymbol}|${marketWaypoint}`,
-      detail: `probe at ${best.waypointSymbol} for ${best.price}c, will drift to ${marketWaypoint} — no keeper stationed there yet`,
+      detail: `probe at ${best.waypointSymbol} for ${best.price}c, will drift to ${marketWaypoint} (${goodsCount} goods${recommended ? ", recommended" : `, below the ${minGoods}-good recommended threshold`}) — no keeper stationed there yet`,
       cost: best.price,
       timeoutMs: 2 * 60 * 60_000,
       onTimeout: "approve",
@@ -4053,6 +4066,30 @@ export class FleetManager {
       return;
     }
     await this.purchaseKeeperProbe(best.waypointSymbol, marketWaypoint, best.price);
+  }
+
+  /**
+   * How many distinct goods the latest snapshot recorded at this waypoint —
+   * the deterministic "worth covering?" signal maybeRequestKeeperProbeForMarket()
+   * surfaces in its approval detail, 2026-09-21. market_latest is one row
+   * per (waypoint, good) (see the MarketRow shape latestMarketSnapshots()
+   * returns), so a count of matching rows is the goods count — no new query
+   * needed. Zero for a market nothing has ever snapshotted yet.
+   *
+   * Deliberately just this one signal for now, not a composite score: the
+   * operator asked for "a deterministic approach" to prove out first, with
+   * automation to follow once it's working well. Other signals discussed
+   * but not implemented — pick from these before scoring on goods count
+   * alone starts feeling too coarse: trade volume (sum/avg tradeVolume
+   * across this waypoint's goods — a proxy for how much money moves
+   * through it), volatility (reuse Store.marketDynamics(), already built
+   * this session, for a market whose prices swing a lot), or distance from
+   * the nearest existing keeper/shipyard (prioritize filling map gaps over
+   * covering what's already near coverage).
+   */
+  private async marketGoodsCount(waypointSymbol: string): Promise<number> {
+    const rows = (await this.store?.latestMarketSnapshots()) ?? [];
+    return rows.filter((r) => r.waypointSymbol === waypointSymbol).length;
   }
 
   /**
@@ -6324,10 +6361,35 @@ export class FleetManager {
     return def;
   }
 
-  /** Replace the keeper priority list. Returns the cleaned list actually stored. */
+  /**
+   * Replace the keeper priority list. Returns the cleaned list actually
+   * stored.
+   *
+   * Also fires an immediate coverage check for every genuinely NEW entry
+   * (2026-09-21, operator request: adding a waypoint here shouldn't just
+   * sit inert until some ship happens to dock at it or a shipyard next —
+   * the whole point of adding one by hand is to find out right away
+   * whether it's coverable). Reuses maybeRequestKeeperProbeForMarket()
+   * unchanged — it already reads the operator's priority list itself, so
+   * by the time it runs here the list has already been persisted above and
+   * the newly-added market passes its own priority-list check. Failures
+   * are swallowed per-market (logged, not thrown) so one bad add can't
+   * break the rest of a multi-line paste, and purchaseKeeperProbe() /
+   * ApprovalGate already have their own error handling for anything past
+   * the initial checks.
+   */
   async setKeeperPriorityMarkets(markets: string[]): Promise<string[]> {
     const clean = [...new Set(markets.map((m) => m.trim().toUpperCase()).filter((m) => m.length > 0))];
+    const before = await this.keeperPriorityMarkets();
     if (this.tenantId) await this.store?.setFleetFlag(this.tenantId, "keeperMarkets", JSON.stringify(clean));
+    for (const m of clean) {
+      if (before.includes(m)) continue; // already on the list — nothing new to check
+      try {
+        await this.maybeRequestKeeperProbeForMarket(m);
+      } catch (err) {
+        this.log(`immediate keeper-probe check for newly added ${m} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     return clean;
   }
 
