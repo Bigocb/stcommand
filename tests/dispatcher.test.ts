@@ -186,6 +186,42 @@ describe("RouteDispatcher: same-system routes still need a fuel-distance check",
 
     assert.equal(d.assignmentFor("DRAGOM-3")?.good, "AMMUNITION", "no predicate supplied means the old behavior, not every route rejected");
   });
+
+  // 2026-09-21, operator request: a leg beyond single-hop range no longer
+  // has to be flatly rejected — ShipProxy.navigateTo() already reroutes
+  // through a known fuel stop (or falls back to DRIFT) once a ship is
+  // actually flying the leg, so the dispatcher shouldn't withhold the work
+  // item from every idle trader just because none of them can cover it in
+  // one hop. hasFuelStop() is how a caller tells reachable() a relay exists.
+  it("still offers a buy leg beyond the tank when the caller confirms a fuel-stop relay exists", () => {
+    const d = new RouteDispatcher();
+    d.recompute(
+      [farLeg],
+      [{ shipSymbol: "DRAGOM-3", capacity: 15, system: "X1-S84", waypoint: "X1-S84-H56", fuelCapacity: 80 }],
+      [], [], [], [],
+      () => false,
+      (a, b) => (a === "X1-S84-H56" && b === "X1-S84-E51" ? 99 : 0),
+      undefined,
+      (system, from, to) => system === "X1-S84" && from === "X1-S84-H56" && to === "X1-S84-E51",
+    );
+
+    assert.equal(d.assignmentFor("DRAGOM-3")?.good, "AMMUNITION", "a confirmed relay must be enough, not just a direct-only check");
+  });
+
+  it("still rejects the buy leg when hasFuelStop confirms no relay exists either", () => {
+    const d = new RouteDispatcher();
+    d.recompute(
+      [farLeg],
+      [{ shipSymbol: "DRAGOM-3", capacity: 15, system: "X1-S84", waypoint: "X1-S84-H56", fuelCapacity: 80 }],
+      [], [], [], [],
+      () => false,
+      (a, b) => (a === "X1-S84-H56" && b === "X1-S84-E51" ? 99 : 0),
+      undefined,
+      () => false,
+    );
+
+    assert.equal(d.assignmentFor("DRAGOM-3"), undefined, "hasFuelStop confirming no relay must still reject, exactly as before");
+  });
 });
 
 describe("RouteDispatcher: the sell leg needs the same fuel-distance check as the buy leg", () => {
@@ -232,6 +268,21 @@ describe("RouteDispatcher: the sell leg needs the same fuel-distance check as th
     );
 
     assert.equal(d.assignmentFor("THEO-B")?.good, "ADVANCED_CIRCUITRY");
+  });
+
+  it("still offers a sell leg beyond the tank when the caller confirms a fuel-stop relay exists", () => {
+    const d = new RouteDispatcher();
+    d.recompute(
+      [farApartLeg],
+      [{ shipSymbol: "THEO-11", capacity: 15, system: "X1-S84", waypoint: "X1-S84-H56", fuelCapacity: 80 }],
+      [], [], [], [],
+      () => false,
+      dist,
+      undefined,
+      (system, from, to) => system === "X1-S84" && from === "X1-S84-D43" && to === "X1-S84-A4",
+    );
+
+    assert.equal(d.assignmentFor("THEO-11")?.good, "ADVANCED_CIRCUITRY", "a confirmed relay must be enough for the sell leg too");
   });
 
   it("does not apply the sell-leg check across a jump — that leg is a gate transit, not a fuel-distance flight", () => {

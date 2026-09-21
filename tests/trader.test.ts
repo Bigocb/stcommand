@@ -631,6 +631,69 @@ describe("TraderAgent.viableRoute: fuel tank capacity bounds", () => {
     assert.equal(route.buyAt, "X1-A-A2");
     assert.equal(route.sellAt, "X1-A-A3");
   });
+
+  // 2026-09-21, operator request: a leg beyond single-hop range used to be a
+  // flat rejection — "can never be flown, no matter how full the tank." That
+  // was wrong: ShipProxy.navigateTo() (wired with findFuelStop for every
+  // agent type) already reroutes through an intermediate fuel stop or falls
+  // back to DRIFT. Confirmed live: real, same-system, 100k+/trip routes sat
+  // unclaimed with idle traders standing by because the only market that
+  // bought the good sold too far away for any one ship's tank alone.
+  // nextHopToward() is the same "genuinely unreachable, not just far"
+  // authority the contract-delivery path already trusted — these tests
+  // exercise its two new call sites in viableRoute() directly.
+  it("still accepts a here-→buyAt leg beyond the tank, when a known fuel stop makes the hop", () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-FUEL", x: 30, y: 0 }, // reachable from A1 (30 <= 50), and from there A2 is 40 away (<= 50)
+      { symbol: "X1-A-A2", x: 70, y: 0 }, // 70 units from A1 directly — too far in one hop
+      { symbol: "X1-A-A3", x: 75, y: 0 },
+    ]);
+    seedPrices(trader, "X1-A-A2", "X1-A-A3");
+    (trader as any).priceTable.set("X1-A-FUEL", new Map([["FUEL", { buy: 72, sell: 72, volume: 100 }]]));
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+
+    assert.ok(route, "a known relay stop must be enough to keep the route viable, not just a direct-only check");
+  });
+
+  it("still rejects a here→buyAt leg beyond the tank when no fuel stop is known at all", () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 70, y: 0 },
+      { symbol: "X1-A-A3", x: 75, y: 0 },
+    ]);
+    seedPrices(trader, "X1-A-A2", "X1-A-A3");
+    // No third, fuel-selling waypoint anywhere in priceTable — genuinely
+    // nothing to hop through, same as the original "can never be flown" case.
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+
+    assert.equal(route, undefined, "with no relay stop known, this must still reject exactly as before");
+  });
+
+  it("still accepts a buyAt→sellAt leg beyond the tank, when a known fuel stop makes the hop", () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 5, y: 0 }, // buyAt, close to start
+      { symbol: "X1-A-FUEL", x: 35, y: 0 }, // reachable from A2 (30 away), and from there A3 is 45 away (<= 50)
+      { symbol: "X1-A-A3", x: 80, y: 0 }, // 75 units from A2 directly — too far in one hop
+    ]);
+    seedPrices(trader, "X1-A-A2", "X1-A-A3");
+    (trader as any).priceTable.set("X1-A-FUEL", new Map([["FUEL", { buy: 72, sell: 72, volume: 100 }]]));
+    // A steep enough margin that the trip is still profitable even after
+    // tripCost() prices in the full 75-unit distance-based fuel cost — this
+    // test is isolating the relay check itself, not re-proving ordinary
+    // profitability math a shorter-leg test already covers.
+    (trader as any).priceTable.get("X1-A-A3").set("COPPER_ORE", { buy: 8, sell: 300, volume: 40 });
+
+    const route = (trader as any).viableRoute({ good: "COPPER_ORE", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+
+    assert.ok(route, "the sell leg's relay check must use buyAt as its own starting point, not the ship's current position");
+  });
 });
 
 describe("TraderAgent.viableRoute: cross-system, gate-aware", () => {

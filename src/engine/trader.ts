@@ -500,15 +500,23 @@ export class TraderAgent {
   }
 
   /** Nearest known fuel-selling waypoint (same system, reachable on a full
-   *  tank from here) that makes real progress toward `destination` — the
+   *  tank from `from`) that makes real progress toward `destination` — the
    *  multi-hop equivalent of a direct navigateTo() for a leg beyond the
    *  tank's single-hop range. Only considers markets already in
    *  `priceTable` (this fleet's own known intel, not a live galaxy-wide
    *  search) — same scope as every other route decision this agent makes.
    *  Returns undefined if no such stop exists: a route that can't work no
-   *  matter how many hops, not just "hasn't found a good one yet". */
-  private nextHopToward(destination: string): string | undefined {
-    const here = this.ship.nav.waypointSymbol;
+   *  matter how many hops, not just "hasn't found a good one yet".
+   *
+   *  `from` defaults to the ship's current position — the only value the
+   *  original single-argument version ever used, for the one thing that
+   *  called it (contract delivery, always judged from where the ship
+   *  already is). viableRoute() below needs a second, explicit-`from`
+   *  caller: judging the SELL leg of an ordinary arbitrage route means
+   *  asking "reachable from buyAt", not from wherever the ship currently
+   *  sits before it's even bought anything. */
+  private nextHopToward(destination: string, from?: string): string | undefined {
+    const here = from ?? this.ship.nav.waypointSymbol;
     const system = this.systemOf(here);
     const budget = this.ship.fuel.capacity;
     const stops = [...this.priceTable.entries()]
@@ -935,12 +943,31 @@ export class TraderAgent {
     // being wrongly excluded, it is genuinely unflyable until multi-hop
     // routing exists.
     if (!this.systemsConnected(this.systemOf(this.ship.nav.waypointSymbol), buySystem)) return undefined;
-    // A leg whose distance exceeds the ship's own fuel tank capacity can never
-    // be flown, no matter how full the tank is — this is distinct from "not
-    // enough fuel right now" (which a refuel fixes). Confirmed in production:
-    // a full (80/80) ship still got "requires 16 more fuel for navigation"
-    // trying to fly a leg that needed 96. Check both legs a "direct" route
-    // actually requires: here → buyAt, and buyAt → sellAt.
+    // A leg whose distance exceeds the ship's own fuel tank capacity can't be
+    // flown in one hop — this is distinct from "not enough fuel right now"
+    // (which a refuel fixes). Confirmed in production: a full (80/80) ship
+    // still got "requires 16 more fuel for navigation" trying to fly a leg
+    // that needed 96. Check both legs a "direct" route actually requires:
+    // here → buyAt, and buyAt → sellAt.
+    //
+    // 2026-09-21: this used to reject the route outright at this point —
+    // "can never be flown, no matter how full the tank." That was wrong: the
+    // executor (ShipProxy.navigateTo(), via the findFuelStop it's already
+    // wired with) already reroutes a too-far leg through an intermediate
+    // fuel stop, or falls back to DRIFT (flat fuel cost regardless of
+    // distance) when no stop helps — the exact capability
+    // nextHopToward()/dispatchShipHop() already proved out for contract and
+    // mission cargo delivery. Rejecting here purely on raw distance meant a
+    // market like X1-SN30-J63 could sit on real, profitable, same-system
+    // routes with genuinely idle traders standing by and never once get
+    // offered to any of them — confirmed live, DRUGS/ASSAULT_RIFLES/
+    // FIREARMS/CLOTHING (all selling at J63) sat unclaimed for many minutes
+    // at a stretch despite 100k+/trip profit and idle capacity, purely
+    // because no single trader's tank alone covered the round trip. Now
+    // only rejects when nextHopToward() also can't find a way — the same
+    // "genuinely unreachable, not just far" standard the contract-delivery
+    // path already uses. A route that needs a hop is still handed back as
+    // viable; the executor does the actual hopping when it's flown.
     //
     // distBetween() only means anything within one system's own coordinate
     // space — a gate crossing is a jumpShip() call, not a fuel-tank-bound
@@ -948,8 +975,11 @@ export class TraderAgent {
     // entirely rather than comparing two unrelated coordinate spaces.
     if (this.ship.fuel.capacity > 0) {
       if (this.systemOf(this.ship.nav.waypointSymbol) === buySystem &&
-          this.distBetween(this.ship.nav.waypointSymbol, r.buyAt) > this.ship.fuel.capacity) return undefined;
-      if (!crossSystem && this.distBetween(r.buyAt, r.sellAt) > this.ship.fuel.capacity) return undefined;
+          this.distBetween(this.ship.nav.waypointSymbol, r.buyAt) > this.ship.fuel.capacity &&
+          this.nextHopToward(r.buyAt) === undefined) return undefined;
+      if (!crossSystem &&
+          this.distBetween(r.buyAt, r.sellAt) > this.ship.fuel.capacity &&
+          this.nextHopToward(r.sellAt, r.buyAt) === undefined) return undefined;
     }
     const buy = this.priceTable.get(r.buyAt)?.get(r.good);
     const sell = this.priceTable.get(r.sellAt)?.get(r.good);

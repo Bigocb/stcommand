@@ -480,6 +480,14 @@ export class RouteDispatcher {
     // on, since it only fires once per 60s. Remove once the live question is
     // answered.
     log?: (msg: string) => void,
+    // Whether a same-system relay through a known fuel stop closes a gap
+    // `distanceBetween` alone says is too far — see reachable()'s own
+    // comment for why this exists (2026-09-21) and trader.ts's matching
+    // nextHopToward()/viableRoute() fix, which is what actually flies a leg
+    // like this once assigned. Optional and defaults to "no relay known",
+    // same reasoning every other optional param here uses — a caller that
+    // doesn't pass one gets the old, single-hop-only behavior.
+    hasFuelStop?: (system: string, from: string, to: string, capacity: number) => boolean,
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -755,11 +763,24 @@ export class RouteDispatcher {
       // alone doesn't mean the ship can actually reach the buy waypoint
       // *from where it's standing* — see the distanceBetween param's own
       // comment for the live DRAGOM-3 case this closes.
+      //
+      // 2026-09-21: a leg beyond single-hop range no longer disqualifies the
+      // work item outright — hasFuelStop() (when the caller provides one)
+      // checks whether a same-system relay through a known fuel stop closes
+      // the gap, the same capability ShipProxy.navigateTo() already uses to
+      // actually fly a leg like this once assigned (see viableRoute()'s
+      // matching fix in trader.ts for the full story: DRUGS/ASSAULT_RIFLES/
+      // FIREARMS/CLOTHING, all selling at a market too far for any one
+      // trader's direct tank range, sat unclaimed with idle capacity and
+      // real profit on the board for many minutes at a stretch). No
+      // hasFuelStop wired in still means "reject beyond single-hop range",
+      // same as before — this is additive, not a loosened default.
       const reachable = (w: { buySystem?: string; buyAt?: string; sellAt?: string }): boolean => {
         if (w.buySystem === undefined || t.system === undefined) return true;
         if (w.buySystem !== t.system) return canJump(t.system, w.buySystem);
         if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return true;
-        if (distanceBetween(t.waypoint, w.buyAt) > t.fuelCapacity) return false;
+        if (distanceBetween(t.waypoint, w.buyAt) > t.fuelCapacity &&
+            !(hasFuelStop?.(t.system, t.waypoint, w.buyAt, t.fuelCapacity) ?? false)) return false;
         // A `direct` item (sellAt set) needs the *whole round trip* to fit the
         // tank, not just the leg to buyAt — a same-system route whose sell
         // market sits further out than the trader's own fuel capacity still
@@ -775,7 +796,8 @@ export class RouteDispatcher {
         if (w.sellAt === undefined) return true;
         const sellSystem = w.sellAt.slice(0, w.sellAt.lastIndexOf("-"));
         if (sellSystem !== w.buySystem) return true;
-        return distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity;
+        if (distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity) return true;
+        return hasFuelStop?.(w.buySystem, w.buyAt, w.sellAt, t.fuelCapacity) ?? false;
       };
       const item = work.find((w) => !usedKeys.has(w.key) && reachable(w));
       if (!item) {

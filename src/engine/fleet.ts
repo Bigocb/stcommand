@@ -6094,9 +6094,18 @@ export class FleetManager {
       this.computeContractBuyTargets(),
     ]);
     await this.releaseFulfilledManualContractBuys(contractBuyTargets);
+    const traders = this.dispatcherTraders();
+    // Precomputed once per tick, not inside reachable()'s hot per-item loop:
+    // dispatcher.recompute() itself stays synchronous (it's called from many
+    // places that can't await it), but fuelStops() is a store read. Only the
+    // systems idle traders actually sit in matter — reachable()'s relay
+    // check never looks outside a trader's own system anyway.
+    const traderSystems = new Set(traders.map((t) => t.system).filter((s): s is string => s !== undefined));
+    const fuelStopsBySystem = new Map<string, Set<string>>();
+    await Promise.all([...traderSystems].map(async (sys) => { fuelStopsBySystem.set(sys, await this.fuelStops(sys)); }));
     this.dispatcher.recompute(
       routes,
-      this.dispatcherTraders(),
+      traders,
       warehouseTargets,
       haulTargets,
       missionBuyTargets,
@@ -6104,6 +6113,17 @@ export class FleetManager {
       (from, to) => this.galaxy.canJump(from, to),
       (a, b) => this.estimatedFuelBetween(a, b),
       (m) => this.log(m),
+      (system, from, to, capacity) => {
+        const stops = fuelStopsBySystem.get(system);
+        if (!stops) return false;
+        for (const stop of stops) {
+          if (stop === from || stop === to) continue;
+          const d1 = this.estimatedFuelBetween(from, stop);
+          const d2 = this.estimatedFuelBetween(stop, to);
+          if (Number.isFinite(d1) && Number.isFinite(d2) && d1 <= capacity && d2 <= capacity) return true;
+        }
+        return false;
+      },
     );
     // First, so that its priority-0 proposal wins the tie against rescue's
     // own priority-0 hold — ties go to the first proposal, and an operator
