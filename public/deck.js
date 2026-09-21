@@ -225,7 +225,10 @@ function renderMinimap() {
   const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
   const project = (w) => ({ x: 50 + ((w.x - cx) / span) * 80, y: 50 - ((w.y - cy) / span) * 80 });
 
-  // Build HTML
+  // Build HTML. Classes go directly on .blip (same shape renderMap()
+  // emits and the same .blip.* rules deck.css defines) — this used to
+  // emit a nested <span class="mk ..."> that no stylesheet ever matched,
+  // so every marker rendered at zero size and the panel looked empty.
   let html = "";
   for (const w of waypoints) {
     const p = project(w);
@@ -233,7 +236,7 @@ function renderMinimap() {
     if (w.type === "JUMP_GATE") cls = "gate";
     else if (!(w.traits ?? []).includes("MARKETPLACE")) cls = "planet";
 
-    html += `<div class="blip" style="top:${p.y}%;left:${p.x}%"><span class="mk ${cls}"></span></div>`;
+    html += `<div class="blip ${cls}" style="top:${p.y}%;left:${p.x}%"></div>`;
   }
 
   // Add ships
@@ -242,7 +245,7 @@ function renderMinimap() {
     if (!wp) continue;
     const p = project(wp);
     const isStranded = strandedSet.has(s.symbol);
-    html += `<div class="blip" style="top:${p.y}%;left:${p.x}%"><span class="mk ship${isStranded ? "warn" : ""}"></span></div>`;
+    html += `<div class="blip ship${isStranded ? "warn" : ""}" style="top:${p.y}%;left:${p.x}%"></div>`;
   }
 
   $("ov-minimap").innerHTML = html;

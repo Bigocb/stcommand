@@ -11,6 +11,19 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: Deck (`/deck`) Overview's "Home system" mini-map rendered every
+  marker at zero size, so the panel looked blank.** `renderMinimap()`
+  emitted a nested `<span class="mk planet">` marker inside each `.blip`,
+  but `deck.css` (copied verbatim from the design spec's own stylesheet)
+  only defines `.blip.planet`/`.blip.market`/`.blip.gate`/`.blip.ship…` —
+  there is no `.mk` rule anywhere in Deck's CSS. Every waypoint and ship
+  therefore drew a 0×0 element and the chart appeared empty even though
+  `state.systems` was populated and the "N waypoints" count was correct.
+  A pre-existing bug from the original Overview pass, not from the Pass
+  A–D work. Fixed by putting the marker classes directly on the `.blip`
+  div — the same shape `renderMap()` already uses and the same rules
+  `deck.css` already has. Live verification pending.
+
 - **Add: Deck (`/deck`) Doctrine enable/disable toggles — Pass D of
   `docs/deck-remaining-build-plan.md`, built 2026-09-20.** Deck's Doctrine
   screen rendered Standing Orders read-only, so an operator could see which
