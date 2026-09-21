@@ -621,7 +621,7 @@ function renderKeepers() {
     <div class="keeper-row">
       <span class="ship">${escapeHtml(shortWp(r.market))}</span>
       <span class="route-txt">${r.ship
-        ? `<span class="cover">guarded by ${escapeHtml(shortWp(r.ship))}</span>`
+        ? `<span class="cover">guarded by ${escapeHtml(r.ship)}</span>`
         : `<span class="cover missing">no keeper yet</span>`} · <span style="color:var(--dim)">${escapeHtml(r.label)}</span></span>
     </div>`).join("");
 }
@@ -630,9 +630,17 @@ async function saveKeepers() {
   const lines = $("keeper-markets").value.split("\n").map((l) => l.trim().toUpperCase()).filter((l) => l.length);
   try {
     const res = await api("POST", "/api/keeper/markets", { markets: lines });
-    keeperMarketsCfg = res.markets ?? [];
-    showToastGlobal(`Keeper list: ${keeperMarketsCfg.length} markets`);
+    // keeperMarketsCfg is a live import from store.js — an importing module
+    // can only read a named import's binding, never assign to it directly
+    // (that's a hard ES-module rule, not a style choice); doing so throws
+    // "Assignment to constant variable" at runtime. The save itself had
+    // already gone through by this point, so the crash only ever hid a
+    // successful write behind a scary error and skipped the refresh below.
+    // loadKeepers() is store.js's own function — it reassigns its own
+    // binding internally, which is legal, and that's what actually needs to
+    // run here to pick up the saved list.
     await loadKeepers();
+    showToastGlobal(`Keeper list: ${(res.markets ?? []).length} markets`);
   } catch (err) { showToastGlobal(err.message, true); }
 }
 
@@ -5850,10 +5858,12 @@ $("keeper-cover").addEventListener("click", async () => {
   const next = !keeperCoverList;
   try {
     const res = await api("POST", "/api/keeper/markets", { coverList: next });
-    keeperCoverList = res.coverList === true;
-    $("keeper-cover").setAttribute("aria-pressed", String(keeperCoverList));
-    showToastGlobal(keeperCoverList ? "Covering the full list" : "Keeper count cap respected");
+    // Same illegal-reassignment bug as saveKeepers() above — keeperCoverList
+    // is a live import from store.js and can't be assigned here directly.
+    // loadKeepers() refreshes it (and re-renders via the "keepers" subscribe
+    // at the bottom of this file) the legal way.
     await loadKeepers();
+    showToastGlobal(res.coverList === true ? "Covering the full list" : "Keeper count cap respected");
   } catch (err) { showToastGlobal(err.message, true); }
 });
 $("keeper-reset").addEventListener("click", async () => {
