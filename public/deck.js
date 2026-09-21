@@ -9,7 +9,7 @@ import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, activity,
   marketRoutes, intel, warehouseState,
-  systems, marketSnapshots, leaderboard,
+  systems, marketSnapshots, leaderboard, factions, systemAgents, systemAgentsHistory,
   contracts, missions, manipulationRoutes,
   doctrineRules, doctrineFires, doctrineFireShips,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
@@ -1496,6 +1496,62 @@ function renderMap() {
 
   // Render leaderboard
   renderMapLeaderboard();
+
+  // Galaxy data (pass C) — Factions + System Agents, ported from v6.js.
+  renderFactions();
+  renderSystemAgents();
+}
+
+/** Factions list — ported from v6.js's renderFactions(). */
+function renderFactions() {
+  const el = $("map-factions");
+  if (!el) return;
+  const countEl = $("map-factions-count");
+  if (countEl) countEl.textContent = `${factions.length} factions`;
+  if (!factions.length) { el.innerHTML = '<div class="empty">No faction data yet.</div>'; return; }
+  el.innerHTML = factions.map((f) => `
+    <div style="padding:6px 0;border-bottom:1px solid rgba(255,199,120,.06)">
+      <div style="font-family:var(--mono);color:var(--bone)">
+        ${escapeHtml(f.name)} <span style="color:var(--dim2)">(${escapeHtml(f.symbol)})</span>${f.isRecruiting ? ' <span style="color:var(--green)">· recruiting</span>' : ""}
+      </div>
+      <div style="font-size:10px;color:var(--dim);margin-top:2px">${escapeHtml(f.description)}</div>
+      <div style="font-size:10px;color:var(--dim2);margin-top:2px">${(f.traits ?? []).map((t) => escapeHtml(t.name)).join(", ")}</div>
+    </div>
+  `).join("");
+}
+
+/** Other agents headquartered in this tenant's home system, with the
+ *  running credits tally behind the current snapshot — ported from
+ *  v6.js's renderSystemAgents(). `systemAgentsHistory` is the durable
+ *  per-hour series (agent_credit_snapshots); a delta is only shown when
+ *  there are 2+ points, since a single point is not a trend. */
+function renderSystemAgents() {
+  const el = $("map-system-agents");
+  if (!el) return;
+  const countEl = $("map-agents-count");
+  if (countEl) countEl.textContent = systemAgents.length ? `${systemAgents.length} agents` : "—";
+  if (!systemAgents.length) {
+    el.innerHTML = '<div class="empty">No agent data yet — the background galaxy crawl hasn\'t completed its first pass.</div>';
+    return;
+  }
+  const mySymbol = state?.agent?.symbol;
+  const byAgent = new Map();
+  for (const h of systemAgentsHistory ?? []) {
+    if (!byAgent.has(h.agentSymbol)) byAgent.set(h.agentSymbol, []);
+    byAgent.get(h.agentSymbol).push(h);
+  }
+  el.innerHTML = systemAgents.map((a) => {
+    const points = byAgent.get(a.symbol) ?? [];
+    const first = points[0];
+    const delta = first && points.length > 1 ? a.credits - first.credits : null;
+    const deltaHtml = delta == null ? "" : ` <span style="color:${delta > 0 ? "var(--green)" : delta < 0 ? "var(--red)" : "var(--dim)"}">${signed(delta)}c since ${fmtTime(first.timestamp)}</span>`;
+    return `
+      <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,199,120,.06)">
+        <span style="font-family:var(--mono)">${escapeHtml(a.symbol)}${a.symbol === mySymbol ? ' <span style="color:var(--amber)">· you</span>' : ""}</span>
+        <span style="text-align:right">${a.shipCount}${a.shipCount === 1 ? " ship" : " ships"} · ${fmt(a.credits)}c${deltaHtml}</span>
+      </div>
+    `;
+  }).join("");
 }
 
 function renderMapDetail() {
@@ -1589,6 +1645,8 @@ subscribe("galaxy", () => {
   if (!$("view-map").hidden) renderMap();
   if (!$("view-map").hidden) renderMapDetail();
   if (!$("view-map").hidden) renderMapLeaderboard();
+  if (!$("view-map").hidden) renderFactions();
+  if (!$("view-map").hidden) renderSystemAgents();
 });
 subscribe("programme", () => {
   if (!$("view-ops").hidden) renderOps();

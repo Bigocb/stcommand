@@ -68,7 +68,9 @@ What each screen actually does today, confirmed by reading `deck.js`:
   §2, now built.
 - **Map** (`renderMap`, `renderMapDetail`, `renderMapLeaderboard`): a
   spatial chart of the home system plus a compact top-3 leaderboard
-  snippet. **No Factions list, no System Agents panel, no replay/scrub.**
+  snippet. Pass C now also renders a Factions list and a System Agents
+  panel (with the running credits tally) in the same right-hand area — see
+  §3, now built. No replay/scrub.
 - **Ops** (`renderOps`, `renderManipulationRoutes`,
   `loadAndRenderManipulationHistory`): Approvals-adjacent contract/mission
   panels plus the full Manipulation Routes finder (Assign/Hold, History
@@ -268,7 +270,14 @@ these block shipping the two toolbars above:
   `{ reset: true }` to restore defaults — see `v6.js` ~line 610–632 and
   ~5849–5865 for both the save-form and the two toggle buttons).
 
-## 3. Pass C — Galaxy data (Factions + System Agents w/ running tally)
+## 3. Pass C — Galaxy data (Factions + System Agents w/ running tally) — BUILT 2026-09-20
+
+**Status**: shipped. `renderFactions()` and `renderSystemAgents()` were
+ported from `v6.js` into `deck.js` and render into `#map-factions` and
+`#map-system-agents` in the Map screen's existing right-hand panel (no
+seventh rail item, per this section's own design call). The imports were
+added to the existing `/shared/store.js` block; no new fetch, no backend
+work. The three sections below are retained as the build record.
 
 **Why this is fully speced already**: the System Agents panel with a
 running credits tally was just built for `v6.js` this session (commit

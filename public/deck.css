@@ -108,6 +108,9 @@ a{color:var(--amber)}
 }
 .minimap{position:relative;flex:1;border-radius:4px;margin:10px 14px;overflow:hidden}
 .mapstage{flex:1;display:grid;grid-template-columns:1fr 320px;gap:14px;min-height:0}
+/* Section subheader inside the Map side panel (pass C) — same chrome as
+   the old inline "Top Agents" header, now reused for Factions/System Agents. */
+.map-sec-h{display:flex;align-items:center;border-top:1px solid var(--hair);padding:10px 14px;font-family:var(--chrome);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim2)}
 .chartlines{position:absolute;inset:0;width:100%;height:100%}
 .blip{position:absolute;border-radius:50%;transform:translate(-50%,-50%);cursor:pointer}
 .blip.planet{width:8px;height:8px;background:var(--ice)}

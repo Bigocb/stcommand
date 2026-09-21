@@ -185,9 +185,13 @@
             </div>
             <div class="panel" style="display:flex;flex-direction:column;min-height:0">
               <div class="panel-h"><span class="dot"></span><span class="title">Market</span></div>
-              <div class="panel-b" style="flex:1;overflow:auto" id="map-market-detail"></div>
-              <div style="border-top:1px solid var(--hair);padding:10px 14px;font-family:var(--chrome);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim2)">Top Agents</div>
+              <div class="panel-b" style="flex:1;overflow:auto;min-height:120px" id="map-market-detail"></div>
+              <div class="map-sec-h">Top Agents</div>
               <div style="padding:10px 14px;font-size:11px;color:var(--dim)" id="map-leaderboard"></div>
+              <div class="map-sec-h">Factions<span id="map-factions-count" style="margin-left:auto;color:var(--dim2)"></span></div>
+              <div style="padding:10px 14px;font-size:11px;color:var(--dim);max-height:180px;overflow:auto" id="map-factions"></div>
+              <div class="map-sec-h">System Agents<span id="map-agents-count" style="margin-left:auto;color:var(--dim2)"></span></div>
+              <div style="padding:10px 14px;font-size:11px;color:var(--dim);max-height:200px;overflow:auto" id="map-system-agents"></div>
             </div>
           </div>
         </div>

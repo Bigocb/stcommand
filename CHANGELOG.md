@@ -11,6 +11,23 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: Deck (`/deck`) Map galaxy data — Pass C of
+  `docs/deck-remaining-build-plan.md`, built 2026-09-20.** Deck's Map
+  screen had only a top-3 leaderboard snippet; this adds the two panels
+  the plan called for, without adding a seventh rail item (the design call
+  already made for this repo is to extend Map's right-hand panel rather
+  than add a Galaxy tab). Ported `v6.js`'s `renderFactions()` and
+  `renderSystemAgents()` directly. The System Agents panel preserves the
+  running-tally logic exactly: history is grouped by `agentSymbol`, and a
+  signed delta is shown only when there are **2+** points (a single point
+  is not a trend), colored green/red/dim, with the tenant's own agent
+  marked `· you`. **No backend work** — `GET /api/agents-in-system/history`
+  and the durable `agent_credit_snapshots` series were already built this
+  session; `loadGalaxy()` already fetched all four endpoints in one call,
+  so Deck just had to import `factions`/`systemAgents`/`systemAgentsHistory`
+  from the existing store import and render them. Live verification
+  pending (no DB/token in the build environment).
+
 - **Add: Deck (`/deck`) Markets write toolbars — Pass B of
   `docs/deck-remaining-build-plan.md`, built 2026-09-20.** Deck's Markets
   screen already *showed* warehouse and dispatch data read-only; this makes
