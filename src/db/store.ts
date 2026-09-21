@@ -1564,6 +1564,20 @@ export class Store {
     );
   }
 
+  /** Just `system_symbol -> system_type` for every crawled system with a
+   *  known star type — the one thing the per-tenant dashboard's own state
+   *  refresh needs from the shared galaxy table (to color a system's star
+   *  on the 3D map), without listGalaxySystems()'s much heavier per-system
+   *  waypoints/jumpGates jsonb payload that only the cartography page uses. */
+  async listSystemTypes(): Promise<{ systemSymbol: string; systemType: string }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ system_symbol: string; system_type: string }>(
+        `SELECT system_symbol, system_type FROM galaxy_systems WHERE system_type IS NOT NULL`,
+      );
+      return res.rows.map((r) => ({ systemSymbol: r.system_symbol, systemType: r.system_type }));
+    });
+  }
+
   /** Every crawled system's metadata + however much topology is known for
    *  it — the galaxy map's one read query. `waypoints`/`jumpGates` come back
    *  as their raw jsonb (possibly `[]` if only the meta pass has reached

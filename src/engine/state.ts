@@ -9,6 +9,10 @@ export interface SystemView {
   symbol: string;
   waypoints: { symbol: string; x: number; y: number; type: string; traits: string[] }[];
   jumpGates: string[];
+  /** The system's own star type (galaxy_systems.system_type — RED_STAR,
+   *  BLUE_STAR, etc., SpaceTraders' SystemType), when the galaxy crawl has
+   *  learned it. Undefined for a system no crawl pass has reached yet. */
+  type?: string;
 }
 
 export interface FleetSnapshot {

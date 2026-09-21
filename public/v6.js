@@ -2451,6 +2451,16 @@ let starGlowPulse = null; // { core, corona, t } — set once in initMap3D(), an
 // reduces to one small marker at that scale), so this group is just
 // toggled visible/hidden on mode switch instead.
 let starGroup = null;
+// The star sphere/glow/light, and which SystemType they're currently
+// painted for — module-scope (like starGroup) rather than local to
+// initMap3D(), since renderMap() needs to recolor them whenever the
+// current system's own star type differs from the last one rendered. See
+// applyStarColor() below.
+let starMesh = null;
+let starLight = null;
+let starCoreGlow = null;
+let starCorona = null;
+let lastStarType;
 // Jump-gate "active portal" pulse rings. A persistent group (like
 // liveTrailGroup) rather than something renderMap() rebuilds every poll —
 // a gate's own animation phase would otherwise reset every ~1s and never
@@ -2539,12 +2549,13 @@ function initMap3D() {
   // outward in all directions, so every body is lit from the center no
   // matter where it orbits. Low decay keeps distant outliers from going dim.
   //
-  // The star's own *visible* color (STAR_COLOR below, a warm red dwarf
-  // tone) and the *light* it casts are deliberately different colors now —
-  // confirmed live: casting light in that same warm-pink tone washed every
-  // lit body pink, since it was the only real light source in the scene.
-  // A near-neutral warm-white light keeps the star looking like a red
-  // dwarf without tinting everything else.
+  // The star's own *visible* color (per-SystemType, see applyStarColor()
+  // below) and the *light* it casts are deliberately different colors —
+  // confirmed live: casting light in the star's own warm-pink default tone
+  // washed every lit body pink, since it was the only real light source in
+  // the scene. A near-neutral warm-white light keeps a body's shading
+  // legible without tinting everything the color of whatever star it
+  // orbits.
   //
   // The dark side was also crushed to near-black: a PointLight decays with
   // distance, so anything shadow-facing got only whatever the flat ambient
@@ -2555,52 +2566,43 @@ function initMap3D() {
   // too, small, just to lift the absolute floor a touch further.
   scene.add(new THREE.HemisphereLight(0x4a5578, 0x1a1420, 1.35));
   scene.add(new THREE.AmbientLight(0x2a3040, 0.35));
-  const starLight = new THREE.PointLight(0xfff1d8, 2.2, 0, 0.32);
+  starLight = new THREE.PointLight(0xfff1d8, 2.2, 0, 0.32);
   starLight.position.set(0, 0, 0);
   scene.add(starLight);
 
   // A central star marker, bigger than planets so it reads as the system
-  // primary and justifies pushing everything else outward. Red dwarf tone
-  // is easier on the eyes than a blazing white sun and still reads as a
-  // star. The sphere itself is unlit (MeshBasicMaterial — it IS the light
-  // source, nothing should shade it), but a flat single fillStyle read as
-  // a placeholder dot rather than a star: a radial gradient texture gives
-  // it a hot white-yellow core fading to the red-dwarf edge, the same
-  // "limb" cue a real star photo has.
-  const STAR_COLOR = 0xff7b72;
-  const starTex = (() => {
-    const c = document.createElement("canvas");
-    c.width = c.height = 128;
-    const ctx = c.getContext("2d");
-    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, "#fff8e8");
-    g.addColorStop(0.35, "#ffd9a0");
-    g.addColorStop(0.7, "#ff9a72");
-    g.addColorStop(1, "#" + new THREE.Color(STAR_COLOR).getHexString());
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 128, 128);
-    return new THREE.CanvasTexture(c);
-  })();
-  const star = new THREE.Mesh(
+  // primary and justifies pushing everything else outward. The sphere
+  // itself is unlit (MeshBasicMaterial — it IS the light source, nothing
+  // should shade it), but a flat single fillStyle read as a placeholder dot
+  // rather than a star: a radial gradient texture gives it a hot
+  // white-yellow core fading to the edge tone, the same "limb" cue a real
+  // star photo has. Built once here with a plain placeholder texture —
+  // applyStarColor() (below) repaints it for the current system's real
+  // SystemType the moment renderMap() knows one, so the brief placeholder
+  // is never actually visible.
+  starMesh = new THREE.Mesh(
     new THREE.SphereGeometry(6.5, 32, 24),
-    new THREE.MeshBasicMaterial({ map: starTex }),
+    new THREE.MeshBasicMaterial(),
   );
-  star.position.set(0, 0, 0);
-  starGroup.add(star);
+  starMesh.position.set(0, 0, 0);
+  starGroup.add(starMesh);
 
   // Layered glow instead of one flat halo: a tight hot-white core glow
   // reads as brightness right at the surface, a much larger, softer,
   // dimmer corona around that reads as light actually spilling into
   // space. `starGlowPulse` holds both so tickMap3D() can breathe them —
   // a static glow read as another placeholder once the sphere itself
-  // stopped looking like one.
-  const starCoreGlow = makeGlowSprite(new THREE.Color(0xfff2d0), 26);
-  const starCorona = makeGlowSprite(new THREE.Color(STAR_COLOR), 70);
+  // stopped looking like one. The core glow stays warm-white regardless of
+  // star type (a star's very core reads as white-hot either way); only the
+  // corona is tinted per-type, by applyStarColor().
+  starCoreGlow = makeGlowSprite(new THREE.Color(0xfff2d0), 26);
+  starCorona = makeGlowSprite(new THREE.Color(0xff7b72), 70);
   starCoreGlow.position.set(0, 0, 0);
   starCorona.position.set(0, 0, 0);
   starCorona.material.opacity = 0.42;
   starGroup.add(starCorona, starCoreGlow);
   starGlowPulse = { core: starCoreGlow, corona: starCorona, t: 0 };
+  lastStarType = undefined;
 
   raycaster = new THREE.Raycaster();
   pointerNdc = new THREE.Vector2();
@@ -3706,6 +3708,63 @@ function scheduleRebuild() {
   pendingRebuild = requestAnimationFrame(() => { pendingRebuild = null; renderMap(state?.ships ?? []); });
 }
 
+// One look per SpaceTraders SystemType (captured in galaxy_systems.
+// system_type by the galaxy crawler, surfaced on state.systems[].type — see
+// tenantRegistry.ts's refreshState()). `mid`/`edge` are the star sphere's
+// own gradient stops (core stays a constant white-hot fff8e8 for every
+// type); `light` is the PointLight color. Not attempting a literal
+// black-hole render (an accretion disk is a different shape entirely, not
+// just a different tint) — a near-black core with a faint violet rim reads
+// as "unusual" without a bespoke mesh.
+const STAR_TYPE_STYLE = {
+  NEUTRON_STAR: { mid: 0xdcecff, edge: 0xbfe0ff, light: 0xdbe8ff },
+  RED_STAR: { mid: 0xffd9a0, edge: 0xff7b72, light: 0xfff1d8 },
+  ORANGE_STAR: { mid: 0xffcf8a, edge: 0xff9c4d, light: 0xffe9c8 },
+  BLUE_STAR: { mid: 0x9fd0ff, edge: 0x5aa4ff, light: 0xe4f0ff },
+  YOUNG_STAR: { mid: 0xd7f0ff, edge: 0x8fd6ff, light: 0xeef8ff },
+  WHITE_DWARF: { mid: 0xffffff, edge: 0xeaf2ff, light: 0xffffff },
+  BLACK_HOLE: { mid: 0x3a2350, edge: 0x1a0e28, light: 0x8f6ad1 },
+  HYPERGIANT: { mid: 0xe8f6ff, edge: 0xbfe6ff, light: 0xf3fbff },
+  NEBULA: { mid: 0xe4c8ff, edge: 0xb48cff, light: 0xead6ff },
+  UNSTABLE: { mid: 0xffb37a, edge: 0xff5a3c, light: 0xffd9b8 },
+};
+
+/** Rebuilds a radial-gradient CanvasTexture and swaps it onto `target`
+ *  (a Mesh or a glow Sprite, both of which read their color from
+ *  `material.map`, not `material.color` — see makeGlowSprite()'s own
+ *  comment) — the same construction each was originally built with, just
+ *  parameterized by color instead of hardcoded. `stops` is [offset, hex,
+ *  alphaHex?] triples, alphaHex defaulting to opaque ("ff") for the star
+ *  sphere and to a fade-to-transparent pair for a glow sprite. */
+function repaintRadialTexture(target, size, stops) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  const r = size / 2;
+  const g = ctx.createRadialGradient(r, r, 0, r, r, r);
+  for (const [offset, hex, alpha] of stops) g.addColorStop(offset, "#" + new THREE.Color(hex).getHexString() + (alpha ?? "ff"));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  target.material.map?.dispose();
+  target.material.map = new THREE.CanvasTexture(c);
+  target.material.needsUpdate = true;
+}
+
+/** Repaints the system-view star (sphere + corona glow + its point light)
+ *  for `type` (a SystemType, or undefined for a system the crawl hasn't
+ *  typed yet — falls back to the original red-dwarf default). No-ops once
+ *  already painted for this type, so renderMap()'s ~1s poll tick doesn't
+ *  rebuild two canvas textures every call — only an actual system switch
+ *  (or the type arriving from a later crawl pass) does. */
+function applyStarColor(type) {
+  if (!starMesh || type === lastStarType) return;
+  lastStarType = type;
+  const style = STAR_TYPE_STYLE[type] ?? STAR_TYPE_STYLE.RED_STAR;
+  repaintRadialTexture(starMesh, 128, [[0, 0xfff8e8], [0.35, style.mid], [0.7, style.edge], [1, style.edge]]);
+  repaintRadialTexture(starCorona, 64, [[0, style.edge, "aa"], [1, style.edge, "00"]]);
+  starLight.color.set(style.light);
+}
+
 function renderMap(ships, trails = new Map()) {
   if (galaxyMode) { renderGalaxy3D(); return; }
   if (!sceneReady && !mapUnavailable) initMap3D();
@@ -3721,6 +3780,7 @@ function renderMap(ships, trails = new Map()) {
   lastRenderedShips = ships;
 
   const system = systems.find((s) => s.symbol === sys);
+  applyStarColor(system?.type);
   waypoints = system?.waypoints ?? state.waypoints ?? [];
   if (!waypoints.length) {
     const seen = new Map();

@@ -485,10 +485,19 @@ export class TenantRegistry {
         await Promise.all(
           fleet.getChartedSystems().map((sym) => fleet.getGalaxy().loadSystem(sym).catch(() => undefined)),
         );
+        // Star type (galaxy_systems.system_type) lives only in the shared
+        // galaxy table, never in GalaxyAtlas's own in-memory KnownSystem —
+        // that struct only ever carries what a live topology scan returns
+        // (waypoints/jumpGates), and a system's star type comes from the
+        // separate, lighter meta pass the crawler also runs (see
+        // setGalaxySystemMeta()'s own comment). Merged in here rather than
+        // threaded through KnownSystem, since nothing else needs it there.
+        const systemTypes = new Map((await store.listSystemTypes()).map((r) => [r.systemSymbol, r.systemType]));
         const systems = fleet.getGalaxy().listSystems().map((s) => ({
           symbol: s.symbol,
           waypoints: s.waypoints.map((w) => ({ symbol: w.symbol, x: w.x, y: w.y, type: w.type, traits: w.traits.map((t) => t.symbol) })),
           jumpGates: s.jumpGates.map((jg) => jg.symbol),
+          type: systemTypes.get(s.symbol),
         }));
         state.update({
           agent: freshAgent,
