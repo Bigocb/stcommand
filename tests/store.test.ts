@@ -661,4 +661,60 @@ describe("Store shared galaxy tables (no tenant scoping)", () => {
   it("recordAgentCreditSnapshots is a no-op on an empty list, not an invalid empty-VALUES insert", async () => {
     await assert.doesNotReject(() => store.recordAgentCreditSnapshots([]));
   });
+
+  it("marketDynamics counts a supply change as one transition, not two (LAG's leading NULL must not count as a change from nothing)", async () => {
+    const sys = `X1-MD${Date.now()}`;
+    const wp = `${sys}-A1`;
+    // Five ABUNDANT snapshots, then five MODERATE ones: exactly one real
+    // transition. A naive `supply IS DISTINCT FROM prev_supply` (prev_supply
+    // NULL on the very first row) would count that first row too, reporting
+    // 2 instead of 1 — confirmed against real Postgres while building this.
+    const rows = [];
+    for (let i = 0; i < 10; i++) {
+      const supply = i < 5 ? "ABUNDANT" : "MODERATE";
+      rows.push(`('${sys}','${wp}','FAB_MATS','EXPORT','${supply}',${1000 + i * 10},${900 - i * 5},20, now() - interval '${10 - i} hours')`);
+    }
+    await pool.query(
+      `INSERT INTO market_snapshots (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp) VALUES ${rows.join(",")}`,
+    );
+
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const dynamics = await store.marketDynamics(sys, since);
+    const row = dynamics.find((d) => d.goodSymbol === "FAB_MATS");
+    assert.equal(row?.snapshotCount, 10);
+    assert.equal(row?.supplyTransitions, 1, "exactly one real ABUNDANT→MODERATE transition, not one per row change including the leading NULL");
+    assert.equal(row?.commonSupply, "ABUNDANT", "tied 5-5, but MODE() must return a real value, not null/error");
+    assert.ok(row!.sellVolatility > 0, "prices actually varied across the window, volatility must be nonzero");
+  });
+
+  it("systemTypeDynamics groups by galaxy_systems.system_type and ignores systems with no type recorded", async () => {
+    const typedSys = `X1-ST${Date.now()}`;
+    const untypedSys = `X1-UT${Date.now()}`;
+    await pool.query(
+      `INSERT INTO galaxy_systems (system_symbol, waypoints, jump_gates, system_type) VALUES ($1, '[]'::jsonb, '[]'::jsonb, 'RED_STAR')`,
+      [typedSys],
+    );
+    // No galaxy_systems row at all for untypedSys — simulates a system the
+    // crawler has recorded market data for but not yet metadata for.
+    const rows = [
+      `('${typedSys}','${typedSys}-A1','COPPER','EXPORT','ABUNDANT',100,90,10, now())`,
+      `('${typedSys}','${typedSys}-A1','COPPER','EXPORT','ABUNDANT',110,95,10, now() - interval '1 hour')`,
+      `('${typedSys}','${typedSys}-A1','COPPER','EXPORT','ABUNDANT',105,92,10, now() - interval '2 hours')`,
+      `('${untypedSys}','${untypedSys}-A1','COPPER','EXPORT','ABUNDANT',500,490,10, now())`,
+      `('${untypedSys}','${untypedSys}-A1','COPPER','EXPORT','ABUNDANT',510,495,10, now() - interval '1 hour')`,
+      `('${untypedSys}','${untypedSys}-A1','COPPER','EXPORT','ABUNDANT',505,492,10, now() - interval '2 hours')`,
+    ];
+    await pool.query(
+      `INSERT INTO market_snapshots (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp) VALUES ${rows.join(",")}`,
+    );
+
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const bySystemType = await store.systemTypeDynamics(since);
+    const redStar = bySystemType.find((r) => r.systemType === "RED_STAR" && r.systemCount >= 1);
+    // Can't assert exact avgVolatilityCoefficient (other tests/rows may
+    // share RED_STAR), but the typed system's data must show up somewhere
+    // and the untyped one must never surface under any system_type.
+    assert.ok(redStar, "the RED_STAR system_type must appear with at least the seeded system counted");
+    assert.ok(!bySystemType.some((r) => r.systemType == null), "a system with no galaxy_systems row (no system_type) must be excluded entirely, not grouped under null");
+  });
 });

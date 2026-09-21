@@ -1829,6 +1829,137 @@ export class Store {
     });
   }
 
+  /**
+   * Per waypoint+good market behavior within one system over a time window
+   * — the "deep understanding of market dynamics" the operator asked for
+   * 2026-09-21, built entirely from `market_snapshots` (already unpruned,
+   * append-only, one row per good per market visit) plus a window function
+   * for supply-level transitions. No new raw-data table: everything here
+   * is derivable from what the fleet's own market crawling already
+   * records every time any ship docks somewhere with a marketplace.
+   *
+   * `sellVolatility`/`buyVolatility` are population stddev of the raw
+   * price, in the good's own currency units — compare within one good,
+   * not across goods of very different price scales (a 2c swing on a 10c
+   * good and a 2c swing on a 10,000c good are not equally volatile; see
+   * `systemTypeDynamics()` below for the normalized cross-good version of
+   * this same idea). `supplyTransitions` counts how many times the
+   * `supply` enum (ABUNDANT/HIGH/MODERATE/LIMITED/SCARCE) actually changed
+   * between consecutive snapshots in the window — a market that never
+   * transitions is either very stable or very rarely visited; cross-check
+   * against `snapshotCount` before reading too much into a transition
+   * count from only 2-3 data points.
+   */
+  async marketDynamics(systemSymbol: string, since: string): Promise<{
+    waypointSymbol: string; goodSymbol: string; type: string;
+    snapshotCount: number;
+    sellAvg: number; sellVolatility: number;
+    buyAvg: number; buyVolatility: number;
+    avgTradeVolume: number;
+    commonSupply: string;
+    supplyTransitions: number;
+  }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{
+        waypoint_symbol: string; good_symbol: string; type: string;
+        snapshot_count: string;
+        sell_avg: string; sell_volatility: string;
+        buy_avg: string; buy_volatility: string;
+        avg_trade_volume: string;
+        common_supply: string;
+        supply_transitions: string;
+      }>(
+        `WITH base AS (
+           SELECT waypoint_symbol, good_symbol, type, supply, sell_price, purchase_price, trade_volume, timestamp,
+                  LAG(supply) OVER (PARTITION BY waypoint_symbol, good_symbol ORDER BY timestamp) AS prev_supply
+           FROM market_snapshots
+           WHERE system_symbol = $1 AND timestamp >= $2
+         )
+         SELECT
+           waypoint_symbol, good_symbol, type,
+           COUNT(*) AS snapshot_count,
+           ROUND(AVG(sell_price)::numeric, 1) AS sell_avg,
+           ROUND(COALESCE(STDDEV_POP(sell_price), 0)::numeric, 2) AS sell_volatility,
+           ROUND(AVG(purchase_price)::numeric, 1) AS buy_avg,
+           ROUND(COALESCE(STDDEV_POP(purchase_price), 0)::numeric, 2) AS buy_volatility,
+           ROUND(AVG(trade_volume)::numeric, 1) AS avg_trade_volume,
+           MODE() WITHIN GROUP (ORDER BY supply) AS common_supply,
+           SUM(CASE WHEN prev_supply IS NOT NULL AND supply IS DISTINCT FROM prev_supply THEN 1 ELSE 0 END) AS supply_transitions
+         FROM base
+         GROUP BY waypoint_symbol, good_symbol, type
+         ORDER BY sell_volatility DESC NULLS LAST`,
+        [systemSymbol, since],
+      );
+      return res.rows.map((r) => ({
+        waypointSymbol: r.waypoint_symbol, goodSymbol: r.good_symbol, type: r.type,
+        snapshotCount: Number(r.snapshot_count),
+        sellAvg: Number(r.sell_avg), sellVolatility: Number(r.sell_volatility),
+        buyAvg: Number(r.buy_avg), buyVolatility: Number(r.buy_volatility),
+        avgTradeVolume: Number(r.avg_trade_volume),
+        commonSupply: r.common_supply,
+        supplyTransitions: Number(r.supply_transitions),
+      }));
+    });
+  }
+
+  /**
+   * Cross-system-type market comparison — "how market dynamics work in a
+   * given system type" (star type: `galaxy_systems.system_type`, e.g.
+   * RED_STAR/BLUE_STAR/..., filled in by GalaxyCrawler's systems pass).
+   * Volatility here is the average **coefficient of variation**
+   * (stddev/mean) per good-in-a-system, then averaged across every
+   * good+system pair in that system type — a normalized, cross-good-
+   * comparable number, unlike `marketDynamics()`'s raw-currency stddev
+   * above. `HAVING COUNT(*) >= 3` drops good/system pairs with too few
+   * snapshots for a stddev to mean anything.
+   */
+  async systemTypeDynamics(since: string): Promise<{
+    systemType: string;
+    systemCount: number;
+    goodMarketPairs: number;
+    avgVolatilityCoefficient: number;
+    avgTradeVolume: number;
+  }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{
+        system_type: string;
+        system_count: string;
+        good_market_pairs: string;
+        avg_volatility_coefficient: string;
+        avg_trade_volume: string;
+      }>(
+        `WITH per_good AS (
+           SELECT ms.system_symbol, gs.system_type, ms.good_symbol,
+                  AVG(ms.sell_price) AS avg_price,
+                  STDDEV_POP(ms.sell_price) AS price_stddev,
+                  AVG(ms.trade_volume) AS avg_volume
+           FROM market_snapshots ms
+           JOIN galaxy_systems gs ON gs.system_symbol = ms.system_symbol
+           WHERE ms.timestamp >= $1 AND gs.system_type IS NOT NULL
+           GROUP BY ms.system_symbol, gs.system_type, ms.good_symbol
+           HAVING COUNT(*) >= 3
+         )
+         SELECT
+           system_type,
+           COUNT(DISTINCT system_symbol) AS system_count,
+           COUNT(*) AS good_market_pairs,
+           ROUND(AVG(CASE WHEN avg_price > 0 THEN price_stddev / avg_price ELSE NULL END)::numeric, 4) AS avg_volatility_coefficient,
+           ROUND(AVG(avg_volume)::numeric, 1) AS avg_trade_volume
+         FROM per_good
+         GROUP BY system_type
+         ORDER BY avg_volatility_coefficient DESC NULLS LAST`,
+        [since],
+      );
+      return res.rows.map((r) => ({
+        systemType: r.system_type,
+        systemCount: Number(r.system_count),
+        goodMarketPairs: Number(r.good_market_pairs),
+        avgVolatilityCoefficient: Number(r.avg_volatility_coefficient),
+        avgTradeVolume: Number(r.avg_trade_volume),
+      }));
+    });
+  }
+
   /** Resumable cursor storage for background crawl jobs — see galaxy_crawl_state's own migration comment. */
   async getCrawlState<T>(key: string): Promise<T | undefined> {
     return withPool(this.pool, async (c) => {

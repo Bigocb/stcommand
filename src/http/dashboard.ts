@@ -100,6 +100,38 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  // "Deep understanding of market dynamics" (operator request, 2026-09-21):
+  // per-good/market volatility, trade-volume trend, and supply-transition
+  // frequency for the tenant's home system — see Store.marketDynamics()'s
+  // own comment for the exact metrics and why raw stddev is fine here
+  // (single-good comparisons) but not across goods.
+  router.get("/market-dynamics", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const system = w.fleet.getSystemSymbol();
+    const since = String(req.query.since ?? new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString());
+    try {
+      res.json({ system, dynamics: await w.store.marketDynamics(system, since) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // The cross-system-type comparison half of the same request — see
+  // Store.systemTypeDynamics()'s own comment for the normalized
+  // (coefficient-of-variation) volatility metric this uses instead of raw
+  // stddev, since this aggregates across many different goods at once.
+  router.get("/market-dynamics/by-system-type", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const since = String(req.query.since ?? new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString());
+    try {
+      res.json({ bySystemType: await w.store.systemTypeDynamics(since) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/state", (req, res) => {
     const w = worker(req);
     if (!w) {

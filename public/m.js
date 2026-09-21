@@ -12,8 +12,10 @@ import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, intel,
   marketRoutes, contracts, missions, warehouseState, doctrineRules, activity, manipulationRoutes,
+  marketDynamics, marketDynamicsBySystemType,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity, loadManipulationRoutes,
+  loadMarketDynamics,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
 
@@ -68,7 +70,7 @@ function setTab(name) {
   if (name === "fleet") renderFleetView();
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); renderMarkets(); }
-  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadActivity(); loadManipulationRoutes(); renderMore(); }
+  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadActivity(); loadManipulationRoutes(); loadMarketDynamics(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -1192,10 +1194,46 @@ function renderMoreActivity() {
     </div>`).join("");
 }
 
+/** Per-good/market volatility, trade volume, and supply-transition
+ *  frequency for the home system — see Store.marketDynamics()'s own
+ *  comment (src/db/store.ts) for exact metric definitions. Already
+ *  sorted highest-volatility-first by the backend. */
+function renderMoreMarketDynamics() {
+  const countEl = $("more-market-dynamics-count");
+  const el = $("more-market-dynamics");
+  if (!el) return;
+  if (countEl) countEl.textContent = marketDynamics.length;
+  if (!marketDynamics.length) { el.innerHTML = '<div class="empty">No market data yet for this window.</div>'; return; }
+  el.innerHTML = marketDynamics.map((r) => `
+    <div class="card">
+      <div class="row1"><span class="who">${escapeHtml(shortWp(r.waypointSymbol))} · ${escapeHtml(r.goodSymbol)}</span><span class="amt">${fmt(r.sellAvg)}c</span></div>
+      <div class="detail">${escapeHtml(r.type)} · supply ${escapeHtml(r.commonSupply)} · ${r.supplyTransitions} transition${r.supplyTransitions === 1 ? "" : "s"}</div>
+      <div class="prog-row"><span>Volatility</span><span class="pr-pct">±${fmt(r.sellVolatility)}c</span></div>
+      <div class="prog-row"><span>Avg volume</span><span class="pr-pct">${fmt(r.avgTradeVolume)}</span></div>
+    </div>`).join("");
+}
+
+/** Cross-system-type comparison — see Store.systemTypeDynamics()'s own
+ *  comment for why this uses a normalized coefficient-of-variation
+ *  instead of raw stddev (this aggregates across many different goods
+ *  at once, which raw stddev can't compare meaningfully). */
+function renderMoreMarketDynamicsBySystemType() {
+  const el = $("more-market-dynamics-system-type");
+  if (!el) return;
+  if (!marketDynamicsBySystemType.length) { el.innerHTML = '<div class="empty">No system-type data yet.</div>'; return; }
+  el.innerHTML = marketDynamicsBySystemType.map((r) => `
+    <div class="card">
+      <div class="row1"><span class="who">${escapeHtml(r.systemType)}</span><span class="amt">${r.avgVolatilityCoefficient} coeff.</span></div>
+      <div class="detail">${r.systemCount} system${r.systemCount === 1 ? "" : "s"} · ${r.goodMarketPairs} good/market pair${r.goodMarketPairs === 1 ? "" : "s"} · avg volume ${fmt(r.avgTradeVolume)}</div>
+    </div>`).join("");
+}
+
 function renderMore() {
   renderMoreContracts();
   renderMoreMissions();
   renderMoreManipulationRoutes();
+  renderMoreMarketDynamics();
+  renderMoreMarketDynamicsBySystemType();
   renderMoreWarehouse();
   renderMoreDoctrine();
   renderMoreActivity();
@@ -1263,6 +1301,7 @@ $("more-doctrine").addEventListener("click", async (e) => {
 });
 subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); } });
 subscribe("manipulationRoutes", () => { if (moreTabActive()) renderMoreManipulationRoutes(); });
+subscribe("marketDynamics", () => { if (moreTabActive()) { renderMoreMarketDynamics(); renderMoreMarketDynamicsBySystemType(); } });
 subscribe("warehouse", () => { if (moreTabActive()) renderMoreWarehouse(); });
 subscribe("doctrine", () => { if (moreTabActive()) renderMoreDoctrine(); });
 subscribe("activity", () => { if (moreTabActive()) renderMoreActivity(); });

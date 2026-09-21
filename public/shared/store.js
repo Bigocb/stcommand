@@ -103,6 +103,32 @@ export let systemAgents = [];
  *  agent (see loadGalaxy()). */
 export let systemAgentsHistory = [];
 
+/** Per waypoint+good market behavior in this tenant's home system —
+ *  volatility, trade-volume, supply-transition frequency. See
+ *  Store.marketDynamics()'s own comment (src/db/store.ts) for exact
+ *  metric definitions. Fetch-on-demand via loadMarketDynamics(), not
+ *  polled — this is an analysis view, not a live ticker. */
+export let marketDynamics = [];
+/** Cross-system-type comparison (star type, e.g. RED_STAR/BLUE_STAR/...) —
+ *  see Store.systemTypeDynamics()'s own comment for why this uses a
+ *  normalized coefficient-of-variation instead of marketDynamics' raw
+ *  stddev (this aggregates across many different goods at once, which
+ *  raw stddev can't compare meaningfully). */
+export let marketDynamicsBySystemType = [];
+
+export async function loadMarketDynamics(sinceDays = 7) {
+  try {
+    const since = new Date(Date.now() - sinceDays * 24 * 3600 * 1000).toISOString();
+    const [home, bySystemType] = await Promise.all([
+      fetch(`/api/market-dynamics?since=${encodeURIComponent(since)}`).then((r) => r.json()),
+      fetch(`/api/market-dynamics/by-system-type?since=${encodeURIComponent(since)}`).then((r) => r.json()),
+    ]);
+    marketDynamics = home.dynamics ?? [];
+    marketDynamicsBySystemType = bySystemType.bySystemType ?? [];
+    notify("marketDynamics");
+  } catch (e) { console.error(e); }
+}
+
 export let narrative = "";
 /** Who wrote it — "llm" or "template" — plus the model and any error the
  *  generation hit. The only way a tenant discovers their key or endpoint is

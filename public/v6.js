@@ -24,10 +24,10 @@ import {
   dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
   missions, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
-  approvals, manipulationRoutes,
+  approvals, manipulationRoutes, marketDynamics, marketDynamicsBySystemType,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
-  loadApprovals, loadManipulationRoutes,
+  loadApprovals, loadManipulationRoutes, loadMarketDynamics,
 } from "/shared/store.js";
 import {
   login, register as registerAgent, logout as endSession,
@@ -381,7 +381,7 @@ function loadViewData(name) {
   if (name === "markets") { loadMarkets(marketSystemFilter); loadGoods(); }
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
   if (name === "ops") { loadProgramme(); loadManipulationRoutes(); }
-  if (name === "galaxy") loadGalaxy();
+  if (name === "galaxy") { loadGalaxy(); loadMarketDynamics(); }
 }
 
 function initViewSwitch() {
@@ -5999,7 +5999,55 @@ function renderSystemAgents(agents, history) {
   }).join("")}</div>`;
 }
 
+/** Per-good/market volatility, trade volume, and supply-transition
+ *  frequency for the home system — see Store.marketDynamics()'s own
+ *  comment (src/db/store.ts) for exact metric definitions. Sorted by
+ *  the backend already (highest sell-price volatility first) — the
+ *  most-worth-looking-at rows are already on top. */
+function renderMarketDynamics(rows) {
+  const el = $("market-dynamics-table");
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = '<tbody><tr><td class="empty">No market data yet for this window — the fleet needs to visit a few markets first.</td></tr></tbody>';
+    return;
+  }
+  el.innerHTML = `
+    <thead><tr><th>Waypoint</th><th>Good</th><th>Type</th><th class="num">Sell avg</th><th class="num">Volatility</th><th class="num">Avg volume</th><th>Supply</th><th class="num">Transitions</th></tr></thead>
+    <tbody>${rows.map((r) => `
+      <tr>
+        <td><span class="sym">${escapeHtml(shortWp(r.waypointSymbol))}</span></td>
+        <td>${escapeHtml(r.goodSymbol)}</td>
+        <td>${escapeHtml(r.type)}</td>
+        <td class="num">${fmt(r.sellAvg)}c</td>
+        <td class="num">±${fmt(r.sellVolatility)}c</td>
+        <td class="num">${fmt(r.avgTradeVolume)}</td>
+        <td>${escapeHtml(r.commonSupply)}</td>
+        <td class="num">${r.supplyTransitions}</td>
+      </tr>`).join("")}</tbody>`;
+}
 
+/** Cross-system-type comparison — see Store.systemTypeDynamics()'s own
+ *  comment for why this uses a normalized coefficient-of-variation
+ *  instead of raw stddev (this aggregates across many different goods
+ *  at once, which raw stddev can't compare meaningfully). */
+function renderMarketDynamicsBySystemType(rows) {
+  const el = $("market-dynamics-system-type-table");
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = '<tbody><tr><td class="empty">No system-type data yet — needs both market visits and the galaxy-wide systems crawl to have reached those systems.</td></tr></tbody>';
+    return;
+  }
+  el.innerHTML = `
+    <thead><tr><th>System type</th><th class="num">Systems</th><th class="num">Good/market pairs</th><th class="num">Volatility (coeff. of var.)</th><th class="num">Avg volume</th></tr></thead>
+    <tbody>${rows.map((r) => `
+      <tr>
+        <td>${escapeHtml(r.systemType)}</td>
+        <td class="num">${r.systemCount}</td>
+        <td class="num">${r.goodMarketPairs}</td>
+        <td class="num">${r.avgVolatilityCoefficient}</td>
+        <td class="num">${fmt(r.avgTradeVolume)}</td>
+      </tr>`).join("")}</tbody>`;
+}
 
 function renderContracts(list) {
   const countTxt = `${list.length} active`;
@@ -6621,6 +6669,7 @@ subscribe("programme", () => { renderContracts(contracts); renderMissions(missio
 subscribe("manipulationRoutes", renderManipulationRoutes);
 subscribe("approvals", () => { renderApprovalsBanner(); renderApprovals(); });
 subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); renderSystemAgents(systemAgents, systemAgentsHistory); });
+subscribe("marketDynamics", () => { renderMarketDynamics(marketDynamics); renderMarketDynamicsBySystemType(marketDynamicsBySystemType); });
 subscribe("narrative", renderNarrative);
 subscribe("chat", renderChatHistory);
 subscribe("connection", renderConnectionStatus);
