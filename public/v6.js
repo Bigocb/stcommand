@@ -4265,7 +4265,7 @@ function renderShipsInto(ships, s) {
           group.rotation.y = Math.atan2(dx, dz);
           // A small pitch so the hull tilts toward/away from the destination's elevation.
           const dist = Math.hypot(dx, dz) || 1;
-          group.rotation.x = Math.PI / 2 + Math.atan2(dy, dist);
+          group.rotation.x = Math.atan2(dy, dist);
         }
       }
     } else {
