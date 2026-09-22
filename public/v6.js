@@ -7002,6 +7002,16 @@ subscribe("markets", () => {
   renderSnapshots();
   renderShipyardIntel();
   renderLanes();
+  // The price-waypoint dropdown's option list is built from marketSnapshots
+  // (see renderPriceGoods() below), but that function previously only ran
+  // off the "prices" slice — which loadPrices() notifies on chart-specific
+  // events (good/waypoint/timeframe change), not on every fresh market poll.
+  // A market discovered or refreshed after the price panel last touched
+  // "prices" was invisible in the dropdown until the operator changed some
+  // other price control, even though renderSnapshots() (same data, two
+  // lines up) already showed it. Rebuild it here too, whenever the actual
+  // source of truth (marketSnapshots) updates.
+  renderPriceGoods();
 });
 subscribe("doctrine", () => {
   renderMobileDoctrine();
