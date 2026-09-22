@@ -485,24 +485,70 @@ export class Store {
    * several very different markets (a real live case: IRON's price at F49
    * vs F50 vs H56 differed by 2-3x, and the combined average tracked none
    * of them). Omit it for the original fleet-wide behavior.
+   *
+   * The combined ("all markets") path forward-fills: naively grouping raw
+   * snapshots by minute and averaging looked "wrong" for a good sold at
+   * only two very differently-priced markets (confirmed live, ASSAULT_RIFLES
+   * at ~9502c vs ~5248c) — each market's own keeper/probe visits on its own
+   * staggered schedule, so almost no minute bucket ever contains a snapshot
+   * from more than one market. The "average" was really just toggling
+   * between whichever single market happened to report that minute, a
+   * sawtooth that looked like price volatility but was really just which
+   * market got sampled. Carrying each market's last known price forward
+   * into every minute (a per-waypoint as-of join) turns that into a real
+   * blended trend instead.
    */
   async goodPriceHistory(good: string, since: string, waypointSymbol?: string): Promise<{ t: string; avg: number; min: number; max: number; buyAvg: number; buyMin: number; buyMax: number }[]> {
     return withPool(this.pool, async (c) => {
-      const res = await c.query<{ t: string; avg: string; min: number; max: number; buy_avg: string; buy_min: number; buy_max: number }>(
-        `SELECT
-           to_char(date_trunc('minute', timestamp), 'YYYY-MM-DD"T"HH24:MI') AS t,
-           ROUND(AVG(sell_price)::numeric, 1) AS avg,
-           MIN(sell_price) AS min,
-           MAX(sell_price) AS max,
-           ROUND(AVG(purchase_price)::numeric, 1) AS buy_avg,
-           MIN(purchase_price) AS buy_min,
-           MAX(purchase_price) AS buy_max
-         FROM market_snapshots
-         WHERE good_symbol = $1 AND timestamp >= $2 AND ($3::text IS NULL OR waypoint_symbol = $3)
-         GROUP BY t
-         ORDER BY t ASC`,
-        [good, since, waypointSymbol ?? null],
-      );
+      const res = waypointSymbol
+        ? await c.query<{ t: string; avg: string; min: number; max: number; buy_avg: string; buy_min: number; buy_max: number }>(
+            `SELECT
+               to_char(date_trunc('minute', timestamp), 'YYYY-MM-DD"T"HH24:MI') AS t,
+               ROUND(AVG(sell_price)::numeric, 1) AS avg,
+               MIN(sell_price) AS min,
+               MAX(sell_price) AS max,
+               ROUND(AVG(purchase_price)::numeric, 1) AS buy_avg,
+               MIN(purchase_price) AS buy_min,
+               MAX(purchase_price) AS buy_max
+             FROM market_snapshots
+             WHERE good_symbol = $1 AND timestamp >= $2 AND waypoint_symbol = $3
+             GROUP BY t
+             ORDER BY t ASC`,
+            [good, since, waypointSymbol],
+          )
+        : await c.query<{ t: string; avg: string; min: number; max: number; buy_avg: string; buy_min: number; buy_max: number }>(
+            `WITH waypoints AS (
+               SELECT DISTINCT waypoint_symbol FROM market_snapshots WHERE good_symbol = $1 AND timestamp >= $2::timestamptz
+             ),
+             minutes AS (
+               SELECT generate_series(date_trunc('minute', $2::timestamptz), date_trunc('minute', now()), interval '1 minute') AS t
+             ),
+             filled AS (
+               SELECT m.t, f.sell_price, f.purchase_price
+               FROM minutes m
+               CROSS JOIN waypoints w
+               LEFT JOIN LATERAL (
+                 SELECT ms.sell_price, ms.purchase_price
+                 FROM market_snapshots ms
+                 WHERE ms.good_symbol = $1 AND ms.waypoint_symbol = w.waypoint_symbol AND ms.timestamp <= m.t
+                 ORDER BY ms.timestamp DESC
+                 LIMIT 1
+               ) f ON true
+             )
+             SELECT
+               to_char(t, 'YYYY-MM-DD"T"HH24:MI') AS t,
+               ROUND(AVG(sell_price)::numeric, 1) AS avg,
+               MIN(sell_price) AS min,
+               MAX(sell_price) AS max,
+               ROUND(AVG(purchase_price)::numeric, 1) AS buy_avg,
+               MIN(purchase_price) AS buy_min,
+               MAX(purchase_price) AS buy_max
+             FROM filled
+             WHERE sell_price IS NOT NULL
+             GROUP BY t
+             ORDER BY t ASC`,
+            [good, since],
+          );
       return res.rows.map((r) => ({ t: r.t, avg: Number(r.avg), min: r.min, max: r.max, buyAvg: Number(r.buy_avg), buyMin: r.buy_min, buyMax: r.buy_max }));
     });
   }
