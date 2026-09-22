@@ -260,6 +260,12 @@ export class FleetManager {
   running = false;
 
   private readonly surveyPool = new SurveyPool();
+  // Operator-set "prefer this good" per miner (the Fleet tab's miner
+  // preference control) — biases survey selection, see ShipAgent's own
+  // surveyPredicate()/createAndPickSurvey() comments for what this can and
+  // can't guarantee. Persisted the same way dispatchManual is (a single
+  // fleet_flags JSON blob), restored in init() below.
+  private readonly minerPreferences = new Map<string, string>();
 
   private readonly store?: Store;
   private readonly tenantId?: string;
@@ -630,6 +636,17 @@ export class FleetManager {
         }
       } catch (err) {
         this.log(`restore manual dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    const minerPrefFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "minerPreferredGoods") : undefined;
+    if (minerPrefFlag) {
+      try {
+        const all = JSON.parse(minerPrefFlag) as Record<string, string>;
+        for (const [shipSymbol, good] of Object.entries(all)) {
+          if (ships.some((s) => s.symbol === shipSymbol)) this.minerPreferences.set(shipSymbol, good);
+        }
+      } catch (err) {
+        this.log(`restore miner preferences failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     // Rehydrate MissionManager's in-memory active/paused state from whatever
@@ -1213,6 +1230,37 @@ export class FleetManager {
     else await this.store?.setFleetFlag(this.tenantId, "dispatchManual", JSON.stringify(all));
   }
 
+  /** Every miner's currently-configured preferred good, for the Fleet tab. */
+  minerPreferenceList(): { shipSymbol: string; good: string }[] {
+    return [...this.minerPreferences.entries()].map(([shipSymbol, good]) => ({ shipSymbol, good }));
+  }
+
+  /**
+   * Operator preference for which good a specific miner's surveys should
+   * favor — see ShipAgent.surveyPredicate()'s own comment for what this
+   * actually changes (survey selection, not a guaranteed extraction
+   * result). Persisted the same way setManualDispatch() persists its own
+   * override, so it survives a restart.
+   */
+  async setMinerPreference(shipSymbol: string, good: string | undefined): Promise<void> {
+    if (good) this.minerPreferences.set(shipSymbol, good);
+    else this.minerPreferences.delete(shipSymbol);
+    if (!this.tenantId) return;
+    const raw = await this.store?.getFleetFlag(this.tenantId, "minerPreferredGoods");
+    let all: Record<string, string> = {};
+    if (raw) {
+      try {
+        all = JSON.parse(raw);
+      } catch {
+        all = {};
+      }
+    }
+    if (good) all[shipSymbol] = good;
+    else delete all[shipSymbol];
+    if (Object.keys(all).length === 0) await this.store?.removeFleetFlag(this.tenantId, "minerPreferredGoods");
+    else await this.store?.setFleetFlag(this.tenantId, "minerPreferredGoods", JSON.stringify(all));
+  }
+
   /** Jump-leg cost estimate for a route computed from raw trade legs — the
    *  learned per-gate-pair average from real jumpShip() transactions where
    *  one exists, or the flat placeholder for a pair never actually jumped
@@ -1584,6 +1632,7 @@ export class FleetManager {
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
             deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
           surveyPool: this.surveyPool,
+          preferredMiningGood: () => this.minerPreferences.get(ship.symbol),
           protectedGoods: () => this.allProtectedGoods(),
           getCredits: () => this.spendableCredits(),
           galaxy: this.galaxy,

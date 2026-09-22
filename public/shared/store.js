@@ -64,6 +64,7 @@ export let doctrineFireShips = new Map();
 
 export let dispatchRoutes = [];
 export let dispatchAssignments = [];
+export let minerPreferences = [];
 
 /* The same empty shape the renderers assume, not null: they read
    .goods/.ledger/.targets directly, and a null here would make the first
@@ -296,6 +297,7 @@ export async function loadDispatch() {
     const data = await res.json();
     dispatchRoutes = data.routes ?? [];
     dispatchAssignments = data.assignments ?? [];
+    minerPreferences = data.minerPreferences ?? [];
     notify("dispatch");
   } catch (e) { console.error(e); }
 }

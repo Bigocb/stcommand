@@ -642,7 +642,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.get("/dispatch", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    res.json({ routes: await w.fleet.computeDispatchRoutes(), assignments: w.fleet.dispatcher.list() });
+    res.json({
+      routes: await w.fleet.computeDispatchRoutes(),
+      assignments: w.fleet.dispatcher.list(),
+      minerPreferences: w.fleet.minerPreferenceList(),
+    });
   });
 
   router.post("/dispatch", async (req, res) => {
@@ -668,6 +672,27 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         });
       }
       res.json({ ok: true, assignments: w.fleet.dispatcher.list() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Operator preference for which good a specific miner's surveys should
+   *  favor — see FleetManager.setMinerPreference()'s own comment for what
+   *  this can and can't guarantee. */
+  router.post("/miner-preference", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol, good, clear } = req.body ?? {};
+    if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
+    try {
+      if (clear) {
+        await w.fleet.setMinerPreference(shipSymbol, undefined);
+      } else {
+        if (typeof good !== "string" || !good) return res.status(400).json({ error: "good required" });
+        await w.fleet.setMinerPreference(shipSymbol, good);
+      }
+      res.json({ ok: true, minerPreferences: w.fleet.minerPreferenceList() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }

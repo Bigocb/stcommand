@@ -51,6 +51,14 @@ export interface AgentOptions {
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Shared survey registry: surveyor scouts deposit, miners consume. */
   surveyPool?: SurveyPool;
+  /** Operator-set good this specific miner should prefer, if any (the
+   *  Fleet tab's "miner preference" control) — biases survey selection
+   *  toward a deposit containing exactly this good, overriding the default
+   *  refinable-deposit preference. Still a bias, not a guarantee: SpaceTraders
+   *  itself never lets an extraction call name its own result, only weight
+   *  the odds via which survey backs it. Undefined means no preference set,
+   *  which falls back to the existing REFINE_RECIPES-based pick. */
+  preferredMiningGood?: () => string | undefined;
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
   protectedGoods?: () => Set<string>;
   /** Credits actually free to spend — already floor-adjusted (fleet.ts's
@@ -216,6 +224,7 @@ export class ShipAgent {
   /** The world, held by reference — see registry.ts. */
   private registry: Registry = Registry.standalone();
   private readonly surveyPool: SurveyPool | undefined;
+  private readonly preferredMiningGood?: AgentOptions["preferredMiningGood"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly getCredits?: AgentOptions["getCredits"];
   private readonly ensureSystemCharted?: AgentOptions["ensureSystemCharted"];
@@ -302,6 +311,7 @@ export class ShipAgent {
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
     this.surveyPool = opts.surveyPool;
+    this.preferredMiningGood = opts.preferredMiningGood;
     this.protectedGoods = opts.protectedGoods;
     this.getCredits = opts.getCredits;
     this.ensureSystemCharted = opts.ensureSystemCharted;
@@ -1026,6 +1036,19 @@ export class ShipAgent {
   }
 
   /**
+   * Which deposit symbols SurveyPool.pick() should favor for this ship right
+   * now: the operator's own preferred good if one is set (checked against
+   * live, since it can change mid-trip without restarting the ship), else
+   * the existing default of "whatever refines to a metal" — unchanged
+   * behavior for every miner that has no preference configured.
+   */
+  private surveyPredicate(): (depositSymbol: string) => boolean {
+    const preferred = this.preferredMiningGood?.();
+    if (preferred) return (d) => d === preferred;
+    return (d) => Boolean(REFINE_RECIPES[d]);
+  }
+
+  /**
    * Mine ore and refine it in-orbit, packing the hold with processed metal.
    * Each 10:1 refine frees 9 cargo slots that we refill by mining again, so a
    * trip carries ~10x the value per slot. When a surveyor mount is installed,
@@ -1040,7 +1063,7 @@ export class ShipAgent {
     if (!survey && this.hasSurveyor()) {
       survey = await this.createAndPickSurvey();
     } else if (!survey && this.surveyPool) {
-      survey = this.surveyPool.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d]));
+      survey = this.surveyPool.pick(this.ship.nav.waypointSymbol, this.surveyPredicate());
       if (survey) this.log(`using shared survey at ${this.ship.nav.waypointSymbol}`);
     }
     this.rememberSurvey(survey);
@@ -1113,7 +1136,7 @@ export class ShipAgent {
           this.surveyPool?.invalidate(this.ship.nav.waypointSymbol, survey.signature);
           survey = this.hasSurveyor()
             ? await this.createAndPickSurvey()
-            : this.surveyPool?.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d]));
+            : this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate());
           this.rememberSurvey(survey);
           if (survey) continue;
           this.log("no usable survey; falling back to plain extraction");
@@ -1158,21 +1181,28 @@ export class ShipAgent {
       // the scheduler waitCooldown() ends the tick, and a survey we had already
       // paid for would otherwise be thrown away with it.
       let best: components["schemas"]["Survey"] | undefined;
+      // The operator's preferred good outranks the refinable-metal ranking
+      // below entirely — that ranking only exists to pick among several
+      // refinable options, which isn't what a preference is asking for.
+      const preferred = this.preferredMiningGood?.();
+      if (preferred) best = res.surveys.find((s) => s.deposits.some((d) => d.symbol === preferred));
       let bestPrice = 0;
       let anyRefinable: components["schemas"]["Survey"] | undefined;
-      for (const s of res.surveys) {
-        for (const d of s.deposits) {
-          const produce = REFINE_RECIPES[d.symbol];
-          if (!produce) continue;
-          anyRefinable ??= s;
-          const price = this.bestReachableSellPrice(produce);
-          if (price > bestPrice) {
-            bestPrice = price;
-            best = s;
+      if (!best) {
+        for (const s of res.surveys) {
+          for (const d of s.deposits) {
+            const produce = REFINE_RECIPES[d.symbol];
+            if (!produce) continue;
+            anyRefinable ??= s;
+            const price = this.bestReachableSellPrice(produce);
+            if (price > bestPrice) {
+              bestPrice = price;
+              best = s;
+            }
           }
         }
+        best ??= anyRefinable;
       }
-      best ??= anyRefinable;
       // Deposit the survey in the shared pool so non-surveyor miners can use it too.
       this.surveyPool?.record(this.ship.nav.waypointSymbol, ...res.surveys);
       this.log(
@@ -1573,7 +1603,7 @@ export class ShipAgent {
     // survey at this waypoint; fall back to plain extraction.
     let survey: components["schemas"]["Survey"] | undefined =
       this.cachedSurvey() ??
-      this.surveyPool?.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d])) ??
+      this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate()) ??
       (this.hasSurveyor() ? await this.createAndPickSurvey() : undefined);
     this.rememberSurvey(survey);
     if (survey) this.log(`using survey at ${this.ship.nav.waypointSymbol}`);
@@ -1602,7 +1632,7 @@ export class ShipAgent {
           this.log(`survey no longer usable: ${msg}`);
           this.surveyPool?.invalidate(this.ship.nav.waypointSymbol, survey.signature);
           survey =
-            this.surveyPool?.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d])) ??
+            this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate()) ??
             (this.hasSurveyor() ? await this.createAndPickSurvey() : undefined);
           this.rememberSurvey(survey);
           if (survey) continue;

@@ -21,7 +21,7 @@ import {
   connectionStatus,
   loadState, loadBridge, loadActivity, loadMarkets, loadDoctrine,
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
-  dispatchRoutes, dispatchAssignments, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
+  dispatchRoutes, dispatchAssignments, minerPreferences, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
   missions, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
   approvals, manipulationRoutes, marketDynamics, marketDynamicsBySystemType,
@@ -547,6 +547,28 @@ function renderDispatch() {
     const el = $(id);
     if (el) el.innerHTML = rowsHtml;
   }
+}
+
+/** The miner-preference mini-form's ship dropdown and its current list —
+ *  a separate control from the trader-only dispatch panel above it, since
+ *  a miner never gets a dispatcher assignment at all. */
+function renderMinerPreferences() {
+  const miners = (bridge.shipStatus ?? []).filter((s) => s.role === "miner");
+  const sel = $("miner-pref-ship");
+  if (sel) {
+    const current = sel.value;
+    sel.innerHTML = miners.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
+    if (miners.some((m) => m.symbol === current)) sel.value = current;
+  }
+  const list = $("miner-pref-list");
+  if (!list) return;
+  list.innerHTML = !minerPreferences.length
+    ? '<div class="empty">No miner preferences set — every miner surveys for whatever refines to a metal.</div>'
+    : minerPreferences.map((p) => `
+      <div class="dispatch-row">
+        <span class="ship">${escapeHtml(p.shipSymbol)}</span>
+        <span class="good">${escapeHtml(p.good)}</span>
+      </div>`).join("");
 }
 
 function renderWarehouse() {
@@ -6042,6 +6064,26 @@ $("dispatch-custom-assign").addEventListener("click", async () => {
 // it meant hunting for the same ship in the other dropdown first. Reuses
 // the same dispatchClear() the quick-assign toolbar's button already calls.
 $("dispatch-custom-clear").addEventListener("click", () => dispatchClear("dispatch-custom-ship"));
+$("miner-pref-save").addEventListener("click", async () => {
+  const ship = $("miner-pref-ship").value;
+  const good = $("miner-pref-good").value.trim().toUpperCase();
+  if (!ship || !good) { showToastGlobal("ship and good are both required", true); return; }
+  try {
+    await api("POST", "/api/miner-preference", { shipSymbol: ship, good });
+    await loadDispatch();
+    $("miner-pref-good").value = "";
+    showToastGlobal(`${ship} now prefers ${good}`);
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+$("miner-pref-clear").addEventListener("click", async () => {
+  const ship = $("miner-pref-ship").value;
+  if (!ship) return;
+  try {
+    await api("POST", "/api/miner-preference", { shipSymbol: ship, clear: true });
+    await loadDispatch();
+    showToastGlobal(`${ship} preference cleared`);
+  } catch (err) { showToastGlobal(err.message, true); }
+});
 $("keeper-save").addEventListener("click", saveKeepers);
 $("keeper-cover").addEventListener("click", async () => {
   const next = !keeperCoverList;
@@ -6856,7 +6898,7 @@ function renderChatHistory() {
   for (const m of chatHistory) addChatMsg(m.role, m.content);
 }
 
-subscribe("dispatch", () => { renderDispatch(); renderFleetTable(); renderMobileFleet(); renderMobileFleetStrip(); });
+subscribe("dispatch", () => { renderDispatch(); renderMinerPreferences(); renderFleetTable(); renderMobileFleet(); renderMobileFleetStrip(); });
 subscribe("warehouse", renderWarehouse);
 subscribe("keepers", () => { renderKeepers(); renderSnapshots(); });
 subscribe("replay", renderScrubTrack);
