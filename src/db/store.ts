@@ -478,8 +478,15 @@ export class Store {
    * Average/max/min sell price per minute for a good, from the SHARED galaxy
    * table — same data for every tenant, so this is the one "activity-shaped"
    * method that isn't tenant-scoped despite living in this section.
+   *
+   * `waypointSymbol` narrows the fleet-wide aggregate to one specific
+   * market — added because the aggregate mixes every market's price for a
+   * good into one line, which is actively misleading for a good sold at
+   * several very different markets (a real live case: IRON's price at F49
+   * vs F50 vs H56 differed by 2-3x, and the combined average tracked none
+   * of them). Omit it for the original fleet-wide behavior.
    */
-  async goodPriceHistory(good: string, since: string): Promise<{ t: string; avg: number; min: number; max: number; buyAvg: number; buyMin: number; buyMax: number }[]> {
+  async goodPriceHistory(good: string, since: string, waypointSymbol?: string): Promise<{ t: string; avg: number; min: number; max: number; buyAvg: number; buyMin: number; buyMax: number }[]> {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{ t: string; avg: string; min: number; max: number; buy_avg: string; buy_min: number; buy_max: number }>(
         `SELECT
@@ -491,10 +498,10 @@ export class Store {
            MIN(purchase_price) AS buy_min,
            MAX(purchase_price) AS buy_max
          FROM market_snapshots
-         WHERE good_symbol = $1 AND timestamp >= $2
+         WHERE good_symbol = $1 AND timestamp >= $2 AND ($3::text IS NULL OR waypoint_symbol = $3)
          GROUP BY t
          ORDER BY t ASC`,
-        [good, since],
+        [good, since, waypointSymbol ?? null],
       );
       return res.rows.map((r) => ({ t: r.t, avg: Number(r.avg), min: r.min, max: r.max, buyAvg: Number(r.buy_avg), buyMin: r.buy_min, buyMax: r.buy_max }));
     });

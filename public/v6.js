@@ -2116,6 +2116,13 @@ $("snapshots").addEventListener("click", (e) => {
 });
 
 let priceGood = "";
+// "" means "every market" (the original fleet-wide aggregate); a specific
+// waypoint narrows loadPrices() to that one market's own price line — see
+// Store.goodPriceHistory()'s own comment for why the fleet-wide average can
+// be actively misleading for a good sold at very different prices in
+// different places.
+let priceWaypoint = "";
+let priceTimeframeMs = 48 * 3600 * 1000;
 // Redraw the price chart from its cached points on resize — the chart's
 // viewBox matches the container's live size, so it needs to be recomputed
 // when that size changes, not just when new data arrives.
@@ -5981,7 +5988,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-$("price-refresh").addEventListener("click", () => loadPrices(priceGood));
+$("price-refresh").addEventListener("click", () => loadPrices(priceGood, priceTimeframeMs, priceWaypoint));
 // Read the dropdown's own new value, not the stale closed-over priceGood —
 // this listener previously called loadPrices(priceGood) with whatever
 // priceGood already was, so picking a different material fetched the same
@@ -5990,7 +5997,19 @@ $("price-refresh").addEventListener("click", () => loadPrices(priceGood));
 // priceGood, never from what was actually just clicked). The dropdown
 // looked like it "wouldn't let you switch" because nothing ever recorded
 // that a switch had happened.
-$("price-good").addEventListener("change", (e) => { priceGood = e.target.value; loadPrices(priceGood); });
+$("price-good").addEventListener("change", (e) => {
+  priceGood = e.target.value;
+  priceWaypoint = ""; // a waypoint valid for the old good rarely applies to the new one
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
+$("price-waypoint").addEventListener("change", (e) => {
+  priceWaypoint = e.target.value;
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
+$("price-timeframe").addEventListener("change", (e) => {
+  priceTimeframeMs = Number(e.target.value);
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
 
 $("routes-system-filter").addEventListener("change", onMarketSystemFilterChange);
 $("snapshots-system-filter").addEventListener("change", onMarketSystemFilterChange);
@@ -6866,9 +6885,22 @@ function renderPriceGoods() {
   const opts = priceGoods.map((g) =>
     `<option value="${escapeAttr(g)}"${g === chosen ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
   if (sel.innerHTML !== opts) sel.innerHTML = opts;
+  // Every market this fleet has ever snapshotted a price for the chosen
+  // good at — the marketplace picker's own option list. Rebuilt whenever
+  // the good changes (a waypoint valid for one good is rarely valid for
+  // another); left alone otherwise for the same focus-stealing reason as
+  // the good picker above.
+  const wpSel = $("price-waypoint");
+  if (wpSel && document.activeElement !== wpSel) {
+    const waypoints = [...new Set(marketSnapshots.filter((s) => s.goodSymbol === chosen).map((s) => s.waypointSymbol))].sort();
+    if (priceWaypoint && !waypoints.includes(priceWaypoint)) priceWaypoint = "";
+    const wpOpts = `<option value="">All markets</option>` + waypoints.map((wp) =>
+      `<option value="${escapeAttr(wp)}"${wp === priceWaypoint ? " selected" : ""}>${escapeHtml(wp)}</option>`).join("");
+    if (wpSel.innerHTML !== wpOpts) wpSel.innerHTML = wpOpts;
+  }
   // Only fetch when the selection actually moved. Without the guard this
   // re-enters through the "prices" slice that loadPrices() itself notifies.
-  if (chosen !== priceGood) { priceGood = chosen; loadPrices(priceGood); }
+  if (chosen !== priceGood) { priceGood = chosen; priceWaypoint = ""; loadPrices(priceGood, priceTimeframeMs, priceWaypoint); }
 }
 
 function renderNarrative() {

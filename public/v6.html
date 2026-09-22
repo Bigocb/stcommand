@@ -217,6 +217,13 @@
         <div class="pane-b">
           <div class="price-picker">
             <select id="price-good" aria-label="Trade good"></select>
+            <select id="price-waypoint" aria-label="Marketplace"><option value="">All markets</option></select>
+            <select id="price-timeframe" aria-label="Time frame">
+              <option value="21600000">6h</option>
+              <option value="86400000">24h</option>
+              <option value="172800000" selected>48h</option>
+              <option value="604800000">7d</option>
+            </select>
             <button class="btn" id="price-refresh">Refresh</button>
           </div>
           <div class="price-chart" id="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>

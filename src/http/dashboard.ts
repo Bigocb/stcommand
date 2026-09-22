@@ -984,9 +984,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const good = String(req.query.good ?? "");
     const since = String(req.query.since ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString());
+    const waypoint = typeof req.query.waypoint === "string" && req.query.waypoint ? req.query.waypoint : undefined;
     if (!good) return res.status(400).json({ error: "good required" });
     try {
-      res.json({ points: await w.store.goodPriceHistory(good, since) });
+      res.json({ points: await w.store.goodPriceHistory(good, since, waypoint) });
     } catch (err) {
       console.error("[dashboard] /prices error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

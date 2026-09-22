@@ -364,11 +364,12 @@ export async function loadGoods() {
  * and reading it from the DOM here would tie the store to one version's
  * markup. Same reasoning as loadMarkets()' systemFilter.
  */
-export async function loadPrices(good) {
+export async function loadPrices(good, spanMs = 48 * 3600 * 1000, waypoint = "") {
   if (!good) return;
-  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const since = new Date(Date.now() - spanMs).toISOString();
+  const waypointParam = waypoint ? `&waypoint=${encodeURIComponent(waypoint)}` : "";
   try {
-    const res = await fetch(`/api/prices?good=${encodeURIComponent(good)}&since=${encodeURIComponent(since)}`);
+    const res = await fetch(`/api/prices?good=${encodeURIComponent(good)}&since=${encodeURIComponent(since)}${waypointParam}`);
     pricePoints = (await res.json()).points ?? [];
     notify("prices");
   } catch (e) { console.error(e); }
