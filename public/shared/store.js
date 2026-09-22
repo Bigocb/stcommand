@@ -81,6 +81,11 @@ export let replayT0 = 0;
 export let replayT1 = 0;
 
 export let priceGoods = [];
+/** goodSymbol -> every waypoint market_latest has ever snapshotted it at
+ *  (server-authoritative, unfiltered by staleness/system-filter — see
+ *  loadGoods()). Deliberately not derived from marketSnapshots client-side,
+ *  which is a moment-in-time, staleness-filtered subset. */
+export let priceWaypointsByGood = {};
 export let pricePoints = [];
 
 export let contracts = [];
@@ -349,9 +354,10 @@ export async function loadReplay() {
 /** The list of tradeable goods, for the price chart's picker. */
 export async function loadGoods() {
   try {
-    const { goods } = await (await fetch("/api/goods")).json();
+    const { goods, waypointsByGood } = await (await fetch("/api/goods")).json();
     if (!goods?.length) return;
     priceGoods = goods;
+    priceWaypointsByGood = waypointsByGood ?? {};
     notify("prices");
   } catch (e) { console.error(e); }
 }

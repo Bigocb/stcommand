@@ -998,8 +998,26 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     try {
-      const snaps = await w.store.latestMarketSnapshots();
-      res.json({ goods: [...new Set(snaps.map((s) => s.goodSymbol))].sort() });
+      // Same tenant-isolation scoping as /intel and /markets above — this
+      // route was missing it, so a tenant's good/waypoint picker could leak
+      // in goods and markets another tenant had explored on the
+      // shared market_latest table, from systems this tenant never charted.
+      const charted = new Set(w.fleet.getChartedSystems());
+      const snaps = (await w.store.latestMarketSnapshots()).filter((s) => charted.has(s.systemSymbol));
+      // Every waypoint each good has ever been snapshotted at, straight off
+      // the unfiltered market_latest read — not the price chart's own
+      // ?system=/staleness-filtered marketSnapshots cache, which only ever
+      // holds a moment-in-time subset. The waypoint picker filtering that
+      // subset client-side is what produced a dropdown offering markets
+      // that don't actually carry the selected good while omitting one that
+      // does (its own snapshot just wasn't in that subset at the time).
+      const waypointsByGood: Record<string, Set<string>> = {};
+      for (const s of snaps) {
+        (waypointsByGood[s.goodSymbol] ??= new Set()).add(s.waypointSymbol);
+      }
+      const waypointsByGoodSorted: Record<string, string[]> = {};
+      for (const [good, waypoints] of Object.entries(waypointsByGood)) waypointsByGoodSorted[good] = [...waypoints].sort();
+      res.json({ goods: [...new Set(snaps.map((s) => s.goodSymbol))].sort(), waypointsByGood: waypointsByGoodSorted });
     } catch (err) {
       console.error("[dashboard] /goods error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

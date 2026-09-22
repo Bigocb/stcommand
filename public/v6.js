@@ -22,7 +22,7 @@ import {
   loadState, loadBridge, loadActivity, loadMarkets, loadDoctrine,
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
   dispatchRoutes, dispatchAssignments, minerPreferences, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
-  replayByShip, replayT0, replayT1, priceGoods, pricePoints, contracts,
+  replayByShip, replayT0, replayT1, priceGoods, priceWaypointsByGood, pricePoints, contracts,
   missions, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
   approvals, manipulationRoutes, marketDynamics, marketDynamicsBySystemType,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
@@ -6892,7 +6892,13 @@ function renderPriceGoods() {
   // the good picker above.
   const wpSel = $("price-waypoint");
   if (wpSel && document.activeElement !== wpSel) {
-    const waypoints = [...new Set(marketSnapshots.filter((s) => s.goodSymbol === chosen).map((s) => s.waypointSymbol))].sort();
+    // Server-authoritative (see loadGoods()/priceWaypointsByGood), not a
+    // client-side filter of marketSnapshots — that array is a staleness-
+    // and system-filtered live snapshot subset, so it can both miss a
+    // waypoint that genuinely sells this good (snapshot just aged out) and
+    // include ones that don't (stale cache from before the good rotated
+    // out of that market).
+    const waypoints = priceWaypointsByGood[chosen] ?? [];
     if (priceWaypoint && !waypoints.includes(priceWaypoint)) priceWaypoint = "";
     const wpOpts = `<option value="">All markets</option>` + waypoints.map((wp) =>
       `<option value="${escapeAttr(wp)}"${wp === priceWaypoint ? " selected" : ""}>${escapeHtml(wp)}</option>`).join("");
