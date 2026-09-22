@@ -6036,6 +6036,12 @@ $("dispatch-custom-assign").addEventListener("click", async () => {
     showToastGlobal(`${ship} pinned to ${good}: ${shortWp(buyAt)} → ${shortWp(sellAt)}`);
   } catch (err) { showToastGlobal(err.message, true); }
 });
+// The quick-assign toolbar's own "Auto" button only ever read that
+// toolbar's ship dropdown — a ship pinned via the custom-route form (a
+// separate dropdown) had no clear control of its own at all, so clearing
+// it meant hunting for the same ship in the other dropdown first. Reuses
+// the same dispatchClear() the quick-assign toolbar's button already calls.
+$("dispatch-custom-clear").addEventListener("click", () => dispatchClear("dispatch-custom-ship"));
 $("keeper-save").addEventListener("click", saveKeepers);
 $("keeper-cover").addEventListener("click", async () => {
   const next = !keeperCoverList;
