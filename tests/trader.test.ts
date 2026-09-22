@@ -696,6 +696,96 @@ describe("TraderAgent.viableRoute: fuel tank capacity bounds", () => {
   });
 });
 
+// 2026-09-22, operator request: a manually-assigned route (the custom-route
+// form) kept getting rejected every tick on margin/profit floor even though
+// the operator picked that exact buyAt/sellAt/good on purpose — confirmed
+// live, two ships sat orbiting a pinned route for 15+ minutes straight
+// because it was thin (negative margin) or fuel-cost-negative. viableRoute()/
+// whyNotViable()'s new ignoreProfitFloor param lets findRoute() skip both
+// checks for a "manual"-sourced assignment specifically; every other check
+// (reachability, fuel/hop capability, affordability) is untouched.
+describe("TraderAgent.viableRoute: manual assignments can ignore the profit/margin floor", () => {
+  function makeTraderAt(waypoint: string, fuelCapacity: number) {
+    const ship = makeShip();
+    ship.nav = { status: "DOCKED", waypointSymbol: waypoint, systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: fuelCapacity, capacity: fuelCapacity } as any;
+    return new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      marginFloor: 10,
+    });
+  }
+
+  it("rejects a negative-margin route by default", () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 5, y: 0 },
+      { symbol: "X1-A-A3", x: 10, y: 0 },
+    ]);
+    (trader as any).priceTable.set("X1-A-A2", new Map([["IRON", { buy: 300, sell: 300, volume: 40 }]]));
+    (trader as any).priceTable.set("X1-A-A3", new Map([["IRON", { buy: 100, sell: 132, volume: 40 }]]));
+
+    const route = (trader as any).viableRoute({ good: "IRON", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+    const why = (trader as any).whyNotViable({ good: "IRON", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+
+    assert.equal(route, undefined, "a negative-margin route must be rejected by default");
+    assert.match(why, /margin -168c <= floor 10c/);
+  });
+
+  it("accepts the same negative-margin route when told to ignore the profit floor", () => {
+    const trader = makeTraderAt("X1-A-A1", 50);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 5, y: 0 },
+      { symbol: "X1-A-A3", x: 10, y: 0 },
+    ]);
+    (trader as any).priceTable.set("X1-A-A2", new Map([["IRON", { buy: 300, sell: 300, volume: 40 }]]));
+    (trader as any).priceTable.set("X1-A-A3", new Map([["IRON", { buy: 100, sell: 132, volume: 40 }]]));
+
+    const route = (trader as any).viableRoute({ good: "IRON", buyAt: "X1-A-A2", sellAt: "X1-A-A3" }, true);
+    const why = (trader as any).whyNotViable({ good: "IRON", buyAt: "X1-A-A2", sellAt: "X1-A-A3" }, true);
+
+    assert.ok(route, "ignoreProfitFloor=true must let a negative-margin route through");
+    assert.equal(why, "viable");
+  });
+
+  it("rejects a positive-margin route whose fuel cost eats the whole profit, by default", () => {
+    const trader = makeTraderAt("X1-A-A1", 500);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 0, y: 0 },
+      { symbol: "X1-A-A3", x: 400, y: 0 }, // long leg — expensive at CRUISE
+    ]);
+    (trader as any).priceTable.set("X1-A-A2", new Map([
+      ["IRON", { buy: 10, sell: 10, volume: 40 }],
+      ["FUEL", { buy: 72, sell: 72, volume: 100 }],
+    ]));
+    (trader as any).priceTable.set("X1-A-A3", new Map([["IRON", { buy: 5, sell: 12, volume: 40 }]]));
+
+    const route = (trader as any).viableRoute({ good: "IRON", buyAt: "X1-A-A2", sellAt: "X1-A-A3" });
+
+    assert.equal(route, undefined, "thin margin over a long, fuel-expensive leg must still net-reject by default");
+  });
+
+  it("accepts that same fuel-negative route when told to ignore the profit floor", () => {
+    const trader = makeTraderAt("X1-A-A1", 500);
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-A-A2", x: 0, y: 0 },
+      { symbol: "X1-A-A3", x: 400, y: 0 },
+    ]);
+    (trader as any).priceTable.set("X1-A-A2", new Map([
+      ["IRON", { buy: 10, sell: 10, volume: 40 }],
+      ["FUEL", { buy: 72, sell: 72, volume: 100 }],
+    ]));
+    (trader as any).priceTable.set("X1-A-A3", new Map([["IRON", { buy: 5, sell: 12, volume: 40 }]]));
+
+    const route = (trader as any).viableRoute({ good: "IRON", buyAt: "X1-A-A2", sellAt: "X1-A-A3" }, true);
+
+    assert.ok(route, "ignoreProfitFloor=true must let a fuel-negative route through too");
+  });
+});
+
 describe("TraderAgent.viableRoute: cross-system, gate-aware", () => {
   function makeTraderAt(waypoint: string, atlas: any) {
     const ship = makeShip();

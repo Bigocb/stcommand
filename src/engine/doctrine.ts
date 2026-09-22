@@ -75,7 +75,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "marginFloor",
     name: "Margin floor",
-    description: "Ignore arbitrage routes whose per-unit margin is below this.",
+    description: "Ignore arbitrage routes whose per-unit margin is below this. Not applied to a manually-assigned custom route (Dispatch pane) — an operator-picked route flies regardless of margin.",
     value: 10, min: 0, max: 500, step: 5, unit: "c",
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },

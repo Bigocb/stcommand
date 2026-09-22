@@ -835,12 +835,19 @@ export class TraderAgent {
     const assignment = this.assignedRoute?.();
     const assigned = this.asDirectLeg(assignment);
     if (assigned) {
-      const viable = this.viableRoute(assigned);
+      // A manual assignment is the operator naming this exact good/buyAt/
+      // sellAt on purpose (the custom-route form) — margin floor and net
+      // profit are a ranking policy for the dispatcher's own auto picks,
+      // not a constraint the operator's own choice should be silently
+      // vetoed by. Every other check (reachability, fuel/hop capability,
+      // affordability) still applies — see whyNotViable()'s own comment.
+      const ignoreProfitFloor = assignment?.source === "manual";
+      const viable = this.viableRoute(assigned, ignoreProfitFloor);
       if (viable) {
         this.log(`findRoute: flying assigned ${assigned.good} ${assigned.buyAt} -> ${assigned.sellAt}`);
         return viable;
       }
-      const why = this.whyNotViable(assigned);
+      const why = this.whyNotViable(assigned, ignoreProfitFloor);
       this.log(`findRoute: assigned ${assignment?.good} ${assigned.buyAt} -> ${assigned.sellAt} rejected: ${why}`);
       // The dispatcher owns assignments. If it handed us a route we can't fly,
       // don't silently claim a replacement that mutates shared state and churns
@@ -878,8 +885,18 @@ export class TraderAgent {
    * Turn a direct leg into something this ship can actually fly, or
    * undefined if it can't: wrong system, no prices for those markets, margin
    * below the floor, nothing affordable, or fuel eats the profit.
+   *
+   * `ignoreProfitFloor` skips the marginFloor and net-profit checks — set
+   * for a manually-assigned (operator-picked) route only. An operator using
+   * the custom-route form picked this exact good/buyAt/sellAt on purpose;
+   * silently refusing to fly it because the spread is currently thin or
+   * fuel-negative defeats the point of "just fly this route" (confirmed
+   * live: two manually-pinned ships sat rejecting the same assignment every
+   * tick for 15+ minutes). Every other check — reachability, fuel-tank/hop
+   * capability, affordability, dead/protected goods — still applies; those
+   * are hard constraints, not a profitability policy.
    */
-  private whyNotViable(r: DirectLeg): string {
+  private whyNotViable(r: DirectLeg, ignoreProfitFloor = false): string {
     if (r.buyAt === r.sellAt) return "buyAt === sellAt";
     if (this.protectedGoods?.().has(r.good)) return `protected good ${r.good}`;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return `dead route ${r.good}@${r.buyAt}`;
@@ -902,7 +919,7 @@ export class TraderAgent {
       return `missing prices buy=${buy?.buy ?? "?"} sell=${sell?.sell ?? "?"} (priceTable has ${this.priceTable.has(r.buyAt) ? r.buyAt : "no " + r.buyAt}${this.priceTable.has(r.sellAt) ? "/" + r.sellAt : "/no " + r.sellAt})`;
     }
     const margin = sell.sell - buy.buy;
-    if (margin <= this.marginFloor) return `margin ${margin}c <= floor ${this.marginFloor}c`;
+    if (!ignoreProfitFloor && margin <= this.marginFloor) return `margin ${margin}c <= floor ${this.marginFloor}c`;
     const credits = this.getCredits?.() ?? Infinity;
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
     const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
@@ -910,11 +927,11 @@ export class TraderAgent {
     if (volume <= 0 || lotSize <= 0) return `volume=${volume} lotSize=${lotSize} cargo=${this.ship.cargo.capacity} credits=${credits}`;
     const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize };
     const profit = this.routeProfit(route);
-    if (profit <= 0) return `profit ${profit} <= 0 (trip cost ${this.tripCost(r.buyAt, r.sellAt)})`;
+    if (!ignoreProfitFloor && profit <= 0) return `profit ${profit} <= 0 (trip cost ${this.tripCost(r.buyAt, r.sellAt)})`;
     return "viable";
   }
 
-  private viableRoute(r: DirectLeg): Route | undefined {
+  private viableRoute(r: DirectLeg, ignoreProfitFloor = false): Route | undefined {
     if (r.buyAt === r.sellAt) return undefined;
     if (this.protectedGoods?.().has(r.good)) return undefined;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return undefined;
@@ -986,7 +1003,7 @@ export class TraderAgent {
     const sell = this.priceTable.get(r.sellAt)?.get(r.good);
     if (!buy || !sell || buy.buy <= 0) return undefined;
     const margin = sell.sell - buy.buy;
-    if (margin <= this.marginFloor) {
+    if (!ignoreProfitFloor && margin <= this.marginFloor) {
       this.recordDoctrineFire?.("marginFloor");
       return undefined;
     }
@@ -1009,7 +1026,7 @@ export class TraderAgent {
     const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
     if (volume <= 0 || lotSize <= 0) return undefined;
     const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize };
-    if (this.routeProfit(route) <= 0) return undefined;
+    if (!ignoreProfitFloor && this.routeProfit(route) <= 0) return undefined;
     return route;
   }
 
@@ -1567,7 +1584,12 @@ export class TraderAgent {
       const liveBuy = await this.liveBuyPrice(route.buyAt, route.good);
       if (liveBuy !== undefined && liveBuy > route.buyPrice) {
         const liveMargin = route.sellPrice - liveBuy;
-        if (liveMargin < this.marginFloor) {
+        // Same operator-override reasoning as findRoute()'s ignoreProfitFloor
+        // — a manual assignment already got past that gate on purpose, so
+        // this live re-check (meant to catch a snapshot going stale between
+        // planning and purchase) shouldn't turn around and kill it here on
+        // the same margin-floor policy.
+        if (assigned?.source !== "manual" && liveMargin < this.marginFloor) {
           this.recordDoctrineFire?.("marginFloor");
           this.log(
             `skipping buy: ${route.good} at ${route.buyAt} is now ${liveBuy}c (snapshot ${route.buyPrice}c), margin ${liveMargin}c below floor ${this.marginFloor}c`
