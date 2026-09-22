@@ -791,6 +791,15 @@
   tbody tr:hover td { background:var(--glass); }
   td .sym { color:var(--bone); font-weight:600; }
   td .goal { color:var(--dim); font-size:9px; }
+  /* ETA reused .goal's dim 9px style, same as the Job/Waypoint columns next
+     to it — fine for a label, hard to scan for a countdown an operator is
+     actually watching tick down. Its own class: bigger, tabular-nums so
+     digits don't jitter as they change, and teal (this app's transit/
+     in-flight color, already used for fuel/jump-lane accents on the map)
+     only while a ship is actually en route — a docked/idle ship's "—"
+     stays dim so a busy Fleet tab doesn't read as one wall of teal. */
+  td .eta { color:var(--dim); font-size:9px; }
+  td .eta.live { color:var(--teal); font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }
   .rate-up { color:var(--green); } .rate-down { color:var(--red); } .rate-zero { color:var(--dim); }
   .gauge { white-space:nowrap; }
   .meter {

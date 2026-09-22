@@ -1828,7 +1828,7 @@ function renderFleetTable() {
         <td class="gauge">${r.crewCapacity ? `<span class="meter${r.morale < 40 ? " neg" : ""}"><i style="width:${Math.max(0, Math.min(100, r.morale))}%"></i></span>${r.crewCurrent}/${r.crewCapacity}` : "—"}</td>
         <td><span class="goal">${escapeHtml(r.goal)}${fmTag(r.flightMode)}</span></td>
         <td><span class="goal">${r.at ? escapeHtml(shortWp(r.at)) : "—"}</span></td>
-        <td><span class="goal">${escapeHtml(fmtEta(r.eta))}</span></td>
+        <td><span class="eta${fmtEta(r.eta) !== "—" ? " live" : ""}">${escapeHtml(fmtEta(r.eta))}</span></td>
       </tr>`).join("")}</tbody>`;
 
   el.querySelectorAll("th[data-key]").forEach((th) => th.addEventListener("click", () => {
