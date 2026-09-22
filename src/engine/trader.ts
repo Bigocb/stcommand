@@ -787,6 +787,36 @@ export class TraderAgent {
   }
 
   /**
+   * True when `good` is currently held for this ship's own manually-pinned
+   * (custom-route) assignment — the same "operator picked this on purpose"
+   * signal findRoute()'s ignoreProfitFloor already acts on, extended to the
+   * sell side. A pinned route survives across ticks (setManualDispatch
+   * persists it until the operator clears it), so the assignment is still
+   * "manual" by the time bought cargo reaches delivery, whether that's the
+   * same tick (deliverHeldCargo) or the next one after navigateTo() ended
+   * the tick early (clearLeftoverCargo — see its own comment on why a
+   * route's own sell so often finishes there instead).
+   *
+   * Confirmed live 2026-09-22: bypassing findRoute()'s margin/profit floor
+   * alone wasn't enough — three ships manually pinned to sell IRON at the
+   * same market crashed its price with each sale, and the *next* ship's
+   * mid-loss-floor sell held its cargo forever rather than delivering it
+   * where the operator explicitly told it to. Deliberately does not touch
+   * dead/protected-good or reachability checks, only the loss-floor policy.
+   *
+   * Requires role === "direct" specifically, not just source === "manual":
+   * fleet.ts also hands out manual "contractBuy" assignments (a different,
+   * unrelated override — see dashboard.ts's contractBuy manual-clear logic)
+   * that share the same `source: "manual"` tag for a different reason. The
+   * custom-route form is the only thing that ever creates a manual "direct"
+   * assignment, so this stays scoped to exactly that.
+   */
+  private isManualLegFor(good: string): boolean {
+    const a = this.assignedRoute?.();
+    return a?.source === "manual" && a.role === "direct" && a.good === good;
+  }
+
+  /**
    * Both leftover-sweep sell loops below re-check `exceedsLossFloor()`
    * between lots so a price collapsing mid-sale stops the dump instead of
    * emptying the whole hold into it — but that only works if there *is* a
@@ -1265,7 +1295,7 @@ export class TraderAgent {
     if (this.ship.nav.status !== "DOCKED") return undefined;
     try {
       const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
-      if (live !== undefined && (await this.exceedsLossFloor(item.symbol, live))) {
+      if (live !== undefined && !this.isManualLegFor(item.symbol) && (await this.exceedsLossFloor(item.symbol, live))) {
         this.recordDoctrineFire?.("maxLossPct");
         this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
         return true;
@@ -1308,7 +1338,7 @@ export class TraderAgent {
         remaining -= lot;
         soldAny += lot;
         totalReceived += sold.transaction.totalPrice;
-        if (remaining > 0 && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
+        if (remaining > 0 && !this.isManualLegFor(item.symbol) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
           this.recordDoctrineFire?.("maxLossPct");
           this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
           break;
@@ -1490,7 +1520,7 @@ export class TraderAgent {
 
       await this.ensureDocked();
       const live = await this.liveSellPrice(leg.sellAt, item.symbol);
-      if (live !== undefined && (await this.exceedsLossFloor(item.symbol, live))) {
+      if (live !== undefined && !this.isManualLegFor(item.symbol) && (await this.exceedsLossFloor(item.symbol, live))) {
         this.recordDoctrineFire?.("maxLossPct");
         this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
         return true;
@@ -1536,7 +1566,7 @@ export class TraderAgent {
         // dumping the rest of the hold once a lot's own realized price has
         // fallen below the loss floor, same guard the pre-loop live-price
         // check already applied once, up front.
-        if (remaining > 0 && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
+        if (remaining > 0 && !this.isManualLegFor(item.symbol) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
           this.recordDoctrineFire?.("maxLossPct");
           this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
           break;
@@ -1589,7 +1619,16 @@ export class TraderAgent {
         // this live re-check (meant to catch a snapshot going stale between
         // planning and purchase) shouldn't turn around and kill it here on
         // the same margin-floor policy.
-        if (assigned?.source !== "manual" && liveMargin < this.marginFloor) {
+        //
+        // Matched against `route` itself, not just `assigned?.source` —
+        // `assigned` is the ship's outer assignment for this tick and can be
+        // "manual" for an unrelated reason (a manual contractBuy pin, say),
+        // in which case `route` came from claimRoute()/freeChoice() instead
+        // and has nothing to do with that pin. Only bypass when this exact
+        // good/buyAt/sellAt is the ship's own manually-pinned direct route.
+        const isManualRoute = assigned?.source === "manual" && assigned.role === "direct" &&
+          assigned.good === route.good && assigned.buyAt === route.buyAt && assigned.sellAt === route.sellAt;
+        if (!isManualRoute && liveMargin < this.marginFloor) {
           this.recordDoctrineFire?.("marginFloor");
           this.log(
             `skipping buy: ${route.good} at ${route.buyAt} is now ${liveBuy}c (snapshot ${route.buyPrice}c), margin ${liveMargin}c below floor ${this.marginFloor}c`

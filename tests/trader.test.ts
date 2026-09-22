@@ -346,6 +346,75 @@ describe("TraderAgent.tick: clearLeftoverCargo respects protectedGoods", () => {
   });
 });
 
+// 2026-09-22, same operator report as the margin/profit-floor bypass above:
+// bypassing findRoute()'s checks got ships to buy, but three ships manually
+// pinned to sell IRON at the same market crashed its price with each sale
+// (real supply/depth), so the *next* ship's live-price loss-floor check
+// (a completely separate mechanism from margin floor) held its cargo
+// forever instead of delivering it where the operator explicitly told it
+// to sell. isManualLegFor() extends the same "operator picked this on
+// purpose" bypass to the loss floor, but ONLY for the ship's own
+// manually-pinned "direct" assignment on the matching good — every other
+// case (no pin, auto-assigned, a manual pin for an unrelated good, or a
+// manual pin of a different role like contractBuy) must still hold cargo
+// below the floor exactly as before.
+describe("TraderAgent: a manually-pinned direct route bypasses the loss floor, nothing else does", () => {
+  function makeDockedTrader(cargo: { symbol: string; units: number }[], opts: Record<string, unknown> = {}) {
+    const ship = makeShip(cargo);
+    ship.nav = { status: "DOCKED", waypointSymbol: "X1-A-A2", systemSymbol: "X1-A" } as any;
+    let sold = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getMarket: async () => ({ tradeGoods: [{ symbol: "IRON", sellPrice: 155 }] } as any),
+        sellCargo: async () => {
+          sold = true;
+          return { cargo: { ...ship.cargo, units: 0, inventory: [] }, transaction: { pricePerUnit: 155, totalPrice: 155 * 15 } } as any;
+        },
+      } as any,
+      maxLossPct: 15,
+      ...opts,
+    });
+    (trader as any).heldCost.set("IRON", 324); // 155 vs 324 is a ~52% loss — well past a 15% floor
+    return { trader, wasSold: () => sold };
+  }
+
+  it("holds cargo below the loss floor with no assignment at all", async () => {
+    const { trader, wasSold } = makeDockedTrader([{ symbol: "IRON", units: 15 }], { assignedRoute: () => undefined });
+    await trader.tick();
+    assert.equal(wasSold(), false);
+  });
+
+  it("holds cargo below the loss floor for an auto-assigned (non-manual) direct route", async () => {
+    const assignment = { shipSymbol: "SHIP-1", good: "IRON", role: "direct", buyAt: "X1-A-A1", sellAt: "X1-A-A2", buyPrice: 324, sellPrice: 324, profitPerTrip: 0, source: "auto" as const };
+    const { trader, wasSold } = makeDockedTrader([{ symbol: "IRON", units: 15 }], { assignedRoute: () => assignment });
+    await trader.tick();
+    assert.equal(wasSold(), false, "auto-assigned routes must never bypass the loss floor");
+  });
+
+  it("holds cargo below the loss floor for a manual assignment of an unrelated good", async () => {
+    const assignment = { shipSymbol: "SHIP-1", good: "COPPER_ORE", role: "direct", buyAt: "X1-A-A1", sellAt: "X1-A-A2", buyPrice: 10, sellPrice: 20, profitPerTrip: 0, source: "manual" as const };
+    const { trader, wasSold } = makeDockedTrader([{ symbol: "IRON", units: 15 }], { assignedRoute: () => assignment });
+    await trader.tick();
+    assert.equal(wasSold(), false, "a manual pin for a different good must not bypass the loss floor for this one");
+  });
+
+  it("holds cargo below the loss floor for a manual assignment of the same good but a different role (e.g. contractBuy)", async () => {
+    const assignment = { shipSymbol: "SHIP-1", good: "IRON", role: "contractBuy", buyAt: "X1-A-A1", buyPrice: 324, profitPerTrip: 0, source: "manual" as const };
+    const { trader, wasSold } = makeDockedTrader([{ symbol: "IRON", units: 15 }], { assignedRoute: () => assignment });
+    await trader.tick();
+    assert.equal(wasSold(), false, "a manual pin of a non-direct role must not bypass the loss floor");
+  });
+
+  it("sells through the loss floor for the ship's own manually-pinned direct route on the matching good", async () => {
+    const assignment = { shipSymbol: "SHIP-1", good: "IRON", role: "direct", buyAt: "X1-A-A1", sellAt: "X1-A-A2", buyPrice: 324, sellPrice: 324, profitPerTrip: 0, source: "manual" as const };
+    const { trader, wasSold } = makeDockedTrader([{ symbol: "IRON", units: 15 }], { assignedRoute: () => assignment });
+    await trader.tick();
+    assert.equal(wasSold(), true, "the operator's own manually-pinned direct route must deliver despite the loss");
+  });
+});
+
 describe("TraderAgent.discoverPrices: reachability", () => {
   it("picks a same-system market without ever calling getConstruction", async () => {
     const ship = makeShip();
