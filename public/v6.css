@@ -455,6 +455,8 @@
   .warehouse-row .value { color:var(--green); font-variant-numeric:tabular-nums; margin-left:auto; min-width:70px; text-align:right; }
   .warehouse-targets-h { font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); margin:10px 0 4px; }
   .warehouse-targets-h span { text-transform:none; letter-spacing:0; }
+  .dispatch-custom-h { font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); margin:10px 0 4px; }
+  .dispatch-custom-h span { text-transform:none; letter-spacing:0; }
   .warehouse-target-mission { display:flex; align-items:center; gap:5px; font-size:9.5px; color:var(--dim); white-space:nowrap; }
   .warehouse-target-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
   .warehouse-target-row .good { color:var(--teal); font-weight:600; min-width:110px; }

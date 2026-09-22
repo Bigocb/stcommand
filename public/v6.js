@@ -500,6 +500,29 @@ function renderDispatch() {
     sel.innerHTML = goodOptions;
     if (goodSet.includes(current)) sel.value = current;
   }
+  // Custom-route form: ship list is the same trader roster as the quick
+  // assign above; buy/sell market lists are every waypoint this fleet has
+  // ever seen a price snapshot from (marketSnapshots), not just the
+  // top-ranked candidates dispatchRoutes carries — a route the operator
+  // wants flown deliberately (a distant but reliable spread, say) may never
+  // rank high enough to appear there at all.
+  {
+    const sel = $("dispatch-custom-ship");
+    if (sel) {
+      const current = sel.value;
+      sel.innerHTML = shipOptions;
+      if (traders.some((t) => t.symbol === current)) sel.value = current;
+    }
+  }
+  const marketWaypoints = [...new Set(marketSnapshots.map((s) => s.waypointSymbol))].sort();
+  const marketOptions = marketWaypoints.map((wp) => `<option value="${escapeAttr(wp)}">${escapeHtml(wp)}</option>`).join("");
+  for (const id of ["dispatch-custom-buy", "dispatch-custom-sell"]) {
+    const sel = $(id);
+    if (!sel) continue;
+    const current = sel.value;
+    sel.innerHTML = marketOptions;
+    if (marketWaypoints.includes(current)) sel.value = current;
+  }
   // Render the assignment list.
   const rowsHtml = !dispatchAssignments.length
     ? '<div class="empty">No traders assigned routes yet.</div>'
@@ -5982,6 +6005,37 @@ $("dispatch-assign").addEventListener("click", () => dispatchAssign("dispatch-sh
 $("dispatch-clear").addEventListener("click", () => dispatchClear("dispatch-ship"));
 $("mobile-dispatch-assign").addEventListener("click", () => dispatchAssign("mobile-dispatch-ship", "mobile-dispatch-good"));
 $("mobile-dispatch-clear").addEventListener("click", () => dispatchClear("mobile-dispatch-ship"));
+
+// Custom route: an operator-chosen start/end market pair (and good), pinned
+// to a ship exactly like the quick-assign form above (POST /api/dispatch,
+// role "direct", source "manual") — the same manual-override path a
+// dispatcher-ranked assignment goes through, so it survives a restart
+// (setManualDispatch persists it) and gets the same multi-hop/fuel-stop
+// handling, margin-floor check, and loss-floor protection every other
+// direct route gets. buyPrice/sellPrice/profitPerTrip are left for the
+// server to default to 0 — TraderAgent.viableRoute() re-derives real
+// prices from its own live price table before ever flying it, so these
+// fields are informational only, never trusted for the actual trade.
+$("dispatch-custom-assign").addEventListener("click", async () => {
+  const ship = $("dispatch-custom-ship").value;
+  const good = $("dispatch-custom-good").value.trim().toUpperCase();
+  const buyAt = $("dispatch-custom-buy").value;
+  const sellAt = $("dispatch-custom-sell").value;
+  if (!ship || !good || !buyAt || !sellAt) {
+    showToastGlobal("ship, good, start, and end are all required", true);
+    return;
+  }
+  if (buyAt === sellAt) {
+    showToastGlobal("start and end must be different markets", true);
+    return;
+  }
+  try {
+    await api("POST", "/api/dispatch", { shipSymbol: ship, good, buyAt, sellAt });
+    await loadDispatch();
+    $("dispatch-custom-good").value = "";
+    showToastGlobal(`${ship} pinned to ${good}: ${shortWp(buyAt)} → ${shortWp(sellAt)}`);
+  } catch (err) { showToastGlobal(err.message, true); }
+});
 $("keeper-save").addEventListener("click", saveKeepers);
 $("keeper-cover").addEventListener("click", async () => {
   const next = !keeperCoverList;
