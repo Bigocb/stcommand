@@ -6870,6 +6870,7 @@ if (!applyVersionPreference()) mountSwitcher();
 function renderPriceGoods() {
   const sel = $("price-good");
   if (!sel || !priceGoods.length) return;
+  const chosen = priceGoods.includes(priceGood) ? priceGood : priceGoods[0];
   // Every "prices" notification rebuilt this <select> from scratch
   // unconditionally, even when the good list hadn't changed at all — this
   // fires on a 20s poll while Markets is open, so a native dropdown
@@ -6879,12 +6880,18 @@ function renderPriceGoods() {
   // actually changed, and never touch it while it currently has focus —
   // an open dropdown is exactly the moment a "nothing changed" rebuild is
   // most disruptive, since even writing identical innerHTML can force it
-  // closed in some browsers.
-  if (document.activeElement === sel) return;
-  const chosen = priceGoods.includes(priceGood) ? priceGood : priceGoods[0];
-  const opts = priceGoods.map((g) =>
-    `<option value="${escapeAttr(g)}"${g === chosen ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
-  if (sel.innerHTML !== opts) sel.innerHTML = opts;
+  // closed in some browsers. This guard used to gate the *entire*
+  // function (an early return before `chosen` was even computed), which
+  // also skipped the waypoint dropdown below — a native <select> keeps
+  // focus after you pick an option from it, so changing the good left
+  // price-good still == document.activeElement and the waypoint list
+  // silently never updated until something else stole focus (e.g.
+  // clicking Refresh). Scoped down to just this element's own write.
+  if (document.activeElement !== sel) {
+    const opts = priceGoods.map((g) =>
+      `<option value="${escapeAttr(g)}"${g === chosen ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
+    if (sel.innerHTML !== opts) sel.innerHTML = opts;
+  }
   // Every market this fleet has ever snapshotted a price for the chosen
   // good at — the marketplace picker's own option list. Rebuilt whenever
   // the good changes (a waypoint valid for one good is rarely valid for
