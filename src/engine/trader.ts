@@ -937,11 +937,23 @@ export class TraderAgent {
     if (!this.systemsConnected(this.systemOf(this.ship.nav.waypointSymbol), buySystem))
       return `cannot reach buy system ${buySystem} from ${this.ship.nav.systemSymbol}`;
     if (this.ship.fuel.capacity > 0) {
+      // Mirrors viableRoute()'s own check exactly (see its 2026-09-21
+      // comment): a leg longer than one tank isn't automatically unflyable
+      // — the executor reroutes through an intermediate fuel stop when
+      // nextHopToward() finds one. This used to report the flat distance/
+      // capacity mismatch as the reason regardless of whether a hop existed,
+      // which read as "will never work" for a route that was actually just
+      // rejected because no waypoint in range could serve as a stop —
+      // a different, more specific problem with a different fix (a closer
+      // sell market, or a ship with more fuel capacity), not "this good
+      // needs a bigger tank across the board."
       if (this.systemOf(this.ship.nav.waypointSymbol) === buySystem &&
-          this.distBetween(this.ship.nav.waypointSymbol, r.buyAt) > this.ship.fuel.capacity)
-        return `here->buyAt distance ${this.distBetween(this.ship.nav.waypointSymbol, r.buyAt)} exceeds fuel capacity ${this.ship.fuel.capacity}`;
-      if (!crossSystem && this.distBetween(r.buyAt, r.sellAt) > this.ship.fuel.capacity)
-        return `buyAt->sellAt distance ${this.distBetween(r.buyAt, r.sellAt)} exceeds fuel capacity ${this.ship.fuel.capacity}`;
+          this.distBetween(this.ship.nav.waypointSymbol, r.buyAt) > this.ship.fuel.capacity &&
+          this.nextHopToward(r.buyAt) === undefined)
+        return `here->buyAt distance ${this.distBetween(this.ship.nav.waypointSymbol, r.buyAt)} exceeds fuel capacity ${this.ship.fuel.capacity}, and no usable fuel stop found`;
+      if (!crossSystem && this.distBetween(r.buyAt, r.sellAt) > this.ship.fuel.capacity &&
+          this.nextHopToward(r.sellAt, r.buyAt) === undefined)
+        return `buyAt->sellAt distance ${this.distBetween(r.buyAt, r.sellAt)} exceeds fuel capacity ${this.ship.fuel.capacity}, and no usable fuel stop found`;
     }
     const buy = this.priceTable.get(r.buyAt)?.get(r.good);
     const sell = this.priceTable.get(r.sellAt)?.get(r.good);
