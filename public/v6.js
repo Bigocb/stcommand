@@ -5361,12 +5361,20 @@ function openShipDetails(shipSymbol, opts = {}) {
   modal.querySelectorAll(".buy-install").forEach((b) => {
     b.addEventListener("click", async () => {
       b.disabled = true;
+      const label = b.textContent;
+      // buyAndInstallComponent() can take anywhere from a few seconds to a
+      // couple minutes (it may have to fly the ship to the market first) —
+      // a disabled button with unchanged text reads as "nothing happened,"
+      // which is exactly what led to repeat clicks stacking up concurrent
+      // requests on the same ship. Visible pending state closes that gap.
+      b.textContent = "Installing…";
       try {
         await api("POST", "/api/fleet/buy-install", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp, marketWaypoint: b.dataset.market });
+        showToastGlobal(`${b.dataset.comp} installed on ${b.dataset.ship}`);
         await loadState();
         await loadIntel();
         openShipDetails(b.dataset.ship, { containerId });
-      } catch (err) { alert(err.message); b.disabled = false; }
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; b.textContent = label; }
     });
   });
   modal.querySelectorAll(".jump").forEach((b) => {
@@ -5397,21 +5405,27 @@ function openShipDetails(shipSymbol, opts = {}) {
   modal.querySelectorAll(".install").forEach((b) => {
     b.addEventListener("click", async () => {
       b.disabled = true;
+      const label = b.textContent;
+      b.textContent = "Installing…";
       try {
         await api("POST", "/api/fleet/install", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp });
+        showToastGlobal(`${b.dataset.comp} installed on ${b.dataset.ship}`);
         await loadState();
         openShipDetails(b.dataset.ship, { containerId });
-      } catch (err) { alert(err.message); b.disabled = false; }
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; b.textContent = label; }
     });
   });
   modal.querySelectorAll(".rm").forEach((b) => {
     b.addEventListener("click", async () => {
       b.disabled = true;
+      const label = b.textContent;
+      b.textContent = "Removing…";
       try {
         await api("POST", "/api/fleet/remove-component", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp });
+        showToastGlobal(`${b.dataset.comp} removed from ${b.dataset.ship}`);
         await loadState();
         openShipDetails(b.dataset.ship, { containerId });
-      } catch (err) { alert(err.message); b.disabled = false; }
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; b.textContent = label; }
     });
   });
   modal.querySelectorAll(".scrap").forEach((b) => {
@@ -5709,17 +5723,30 @@ function renderShipyardIntel() {
     });
     el.querySelectorAll(".buy-mod").forEach((b) => {
       b.addEventListener("click", async () => {
+        // The ship prompt below defaults to whichever ship happens to sort
+        // first — easy to fire off against the wrong hull without noticing.
+        // A ship's own details panel (Fleet tab → click a hull → Scout &
+        // upgrade) has the same Buy+Install action scoped to that one ship
+        // unambiguously; this generic picker exists for buying from the
+        // Yards tab without navigating there first.
+        const ships = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 1);
+        if (!ships.length) { showToastGlobal("no ship with a cargo hold to install on", true); return; }
+        const shipSymbol = prompt("Install on which ship?", ships[0].symbol);
+        if (!shipSymbol) return;
         b.disabled = true;
+        const label = b.textContent;
+        b.textContent = "Installing…";
         try {
-          const ships = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 1);
-          if (!ships.length) throw new Error("no ship with a cargo hold to install on");
-          const shipSymbol = prompt("Install on which ship?", ships[0].symbol);
-          if (!shipSymbol) return;
           await api("POST", "/api/fleet/buy-install", { shipSymbol, componentSymbol: b.dataset.comp, marketWaypoint: b.dataset.market });
           showToastGlobal(`Installed ${b.dataset.comp} on ${shipSymbol}`);
           await loadState();
           await loadIntel();
-        } catch (err) { if (err.message !== "Prompt aborted") alert(err.message); b.disabled = false; }
+        } catch (err) {
+          showToastGlobal(err.message, true);
+        } finally {
+          b.disabled = false;
+          b.textContent = label;
+        }
       });
     });
   }
