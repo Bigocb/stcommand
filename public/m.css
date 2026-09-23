@@ -243,6 +243,14 @@ body {
   font-size: 12px; padding: 8px 10px; border-radius: 3px;
 }
 .role-warn { font-family: var(--mono); font-size: 9.5px; color: var(--amber); line-height: 1.4; }
+.custom-route-form {
+  grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; margin-top: -2px;
+}
+.custom-route-form input {
+  background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
+  font-size: 12px; padding: 8px 10px; border-radius: 3px;
+}
+.custom-route-form .sheet-inline-form { margin-top: 0; }
 .role-keeper-wp {
   background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
   font-size: 11px; padding: 8px 10px; border-radius: 3px;
@@ -374,6 +382,17 @@ body {
   background: transparent; color: var(--dim);
 }
 .seg button.on { background: var(--amber); border-color: var(--amber); color: #1a1200; }
+
+.price-picker { display: flex; gap: 6px; margin-bottom: 6px; }
+.price-picker select {
+  flex: 1; min-width: 0; background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone);
+  font-family: var(--mono); font-size: 11.5px; padding: 8px 10px; border-radius: 3px;
+}
+.price-chart-room {
+  height: 150px; background: var(--panel); border: 1px solid var(--hair); border-radius: 3px;
+  margin: 6px 0 12px; padding: 6px;
+}
+.price-chart-room svg { width: 100%; height: 100%; display: block; }
 
 .route-row {
   background: var(--panel); border: 1px solid var(--hair); border-radius: 3px; padding: 10px 12px;

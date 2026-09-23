@@ -96,9 +96,24 @@
         <div class="seg" id="mkt-seg">
           <button class="on" data-seg="routes">Routes</button>
           <button data-seg="yards">Yards</button>
+          <button data-seg="prices">Prices</button>
         </div>
         <div id="mkt-routes"></div>
         <div id="mkt-yards" hidden></div>
+        <div id="mkt-prices" hidden>
+          <div class="price-picker">
+            <select id="price-good-sel" aria-label="Good"></select>
+            <select id="price-wp-sel" aria-label="Marketplace"><option value="">All markets</option></select>
+          </div>
+          <div class="seg" id="price-timeframe-seg">
+            <button data-span="3600000">1h</button>
+            <button data-span="21600000">6h</button>
+            <button class="on" data-span="86400000">24h</button>
+          </div>
+          <div class="price-chart-room" id="price-chart-room"></div>
+          <div class="sec-h">Selling here</div>
+          <div id="price-market-list"></div>
+        </div>
       </div>
     </div>
     <div class="screen" data-screen="more">

@@ -10,14 +10,14 @@
 import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
-  state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, intel,
-  marketRoutes, contracts, missions, warehouseState, doctrineRules, activity, manipulationRoutes,
-  marketDynamics, marketDynamicsBySystemType,
+  state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
+  marketRoutes, marketSnapshots, contracts, missions, warehouseState, doctrineRules, activity, manipulationRoutes,
+  marketDynamics, marketDynamicsBySystemType, priceGoods, priceWaypointsByGood, pricePoints,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity, loadManipulationRoutes,
-  loadMarketDynamics,
+  loadMarketDynamics, loadGoods, loadPrices,
 } from "/shared/store.js";
-import { fmt, signed, escapeHtml, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -67,9 +67,12 @@ $("auth-form").addEventListener("submit", async (e) => {
 function setTab(name) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.dataset.screen === name));
   document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
-  if (name === "fleet") renderFleetView();
+  // loadMarkets() on "fleet" too: the sheet's Custom route form reads
+  // marketSnapshots for its buy/sell dropdowns, same staleness fix as
+  // desktop's own loadViewData() comment for its Fleet tab's Job column.
+  if (name === "fleet") { loadMarkets(); renderFleetView(); }
   if (name === "map") { loadMarkets(); renderScope(); }
-  if (name === "markets") { loadMarkets(); renderMarkets(); }
+  if (name === "markets") { loadMarkets(); loadGoods(); renderMarkets(); }
   if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadActivity(); loadManipulationRoutes(); loadMarketDynamics(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
@@ -198,6 +201,29 @@ let routePickerOpen = false;
 let roleFormOpen = false;
 let roleFormRole = null;
 let detailsOpen = false;
+// Custom route: an operator-chosen start/end market pair (and good) pinned
+// to this ship, the same manual-override desktop's dispatch-custom form
+// posts (POST /api/dispatch, role "direct", source "manual") — see that
+// form's own comment in v6.js for why buyPrice/sellPrice/profitPerTrip are
+// left for the server to default, and how it survives a restart.
+let customRouteFormOpen = false;
+// A miner/surveyor's preferred good — biases which survey deposit
+// surveyPredicate() favors (src/engine/agent.ts), never a guarantee the
+// field actually has that deposit. Same POST /api/miner-preference desktop's
+// Dispatch pane form uses.
+let minerPrefFormOpen = false;
+
+/** Every one of the sheet's mutually-exclusive inline forms/pickers, closed
+ *  together — a toggle opens exactly one of these at a time. */
+function closeSheetForms() {
+  sendFormOpen = false;
+  routePickerOpen = false;
+  roleFormOpen = false;
+  roleFormRole = null;
+  detailsOpen = false;
+  customRouteFormOpen = false;
+  minerPrefFormOpen = false;
+}
 
 const SHIP_ROLES = ["trader", "miner", "surveyor", "siphoner", "tour", "explorer", "scout", "keeper"];
 
@@ -326,11 +352,7 @@ $("roster-scroll").addEventListener("click", (e) => {
   if (!b) return;
   fleetIndex = Number(b.dataset.idx);
   sheetOpen = true;
-  sendFormOpen = false;
-  routePickerOpen = false;
-  roleFormOpen = false;
-  roleFormRole = null;
-  detailsOpen = false;
+  closeSheetForms();
   renderSheet(fleetRows()[fleetIndex]);
 });
 
@@ -386,6 +408,35 @@ function renderSheet(row) {
       ${currentRole === "keeper" ? `<input class="role-keeper-wp" placeholder="keeper market waypoint (skip if already there)" />` : ""}
     </div>`;
   }
+  // Same manual-override desktop's Dispatch pane custom-route form posts —
+  // see the state flag's own comment. Trader-only, same as desktop's ship
+  // roster for this form (a route is never something a miner/surveyor/etc.
+  // flies).
+  if (customRouteFormOpen) {
+    const waypoints = [...new Set(marketSnapshots.map((s) => s.waypointSymbol))].sort();
+    const opts = waypoints.map((wp) => `<option value="${escapeAttr(wp)}">${escapeHtml(wp)}</option>`).join("");
+    extra += `<div class="custom-route-form">
+      <input id="custom-route-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+      <select id="custom-route-buy" class="role-select" aria-label="Start (buy) market">${opts}</select>
+      <select id="custom-route-sell" class="role-select" aria-label="End (sell) market">${opts}</select>
+      <div class="sheet-inline-form">
+        <button class="btn pri" data-act="custom-route-assign">Assign</button>
+        <button class="btn ghost" data-act="custom-route-clear">Auto</button>
+      </div>
+    </div>`;
+  }
+  // Biases which deposit surveyPredicate() favors for this ship — see the
+  // state flag's own comment. Miner-only, same as desktop's ship roster.
+  if (minerPrefFormOpen) {
+    const current = minerPreferences.find((p) => p.shipSymbol === row.symbol)?.good;
+    extra += `<div class="custom-route-form">
+      <input id="miner-pref-good-input" placeholder="Preferred good, e.g. IRON_ORE" style="text-transform:uppercase" value="${escapeAttr(current ?? "")}" />
+      <div class="sheet-inline-form">
+        <button class="btn pri" data-act="miner-pref-set">Save</button>
+        <button class="btn ghost" data-act="miner-pref-clear-ship">Clear</button>
+      </div>
+    </div>`;
+  }
   if (detailsOpen) {
     extra += renderShipDetails(row.symbol);
   }
@@ -394,6 +445,8 @@ function renderSheet(row) {
     ${holdBtn}
     ${dockBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
+    ${row.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
+    ${row.role === "miner" ? `<button class="btn" data-act="miner-pref-toggle">Mining preference</button>` : ""}
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
     <button class="btn ghost full" data-act="role-toggle">${roleFormOpen ? "Close" : `Change role (${escapeHtml(row.role)})`}</button>
@@ -451,23 +504,12 @@ $("sheet-actions").addEventListener("click", async (e) => {
   const act = b.dataset.act;
   const ship = sheetShip;
 
-  if (act === "send-toggle") { sendFormOpen = !sendFormOpen; routePickerOpen = false; roleFormOpen = false; detailsOpen = false; return renderFleetView(); }
-  if (act === "route-toggle") { routePickerOpen = !routePickerOpen; sendFormOpen = false; roleFormOpen = false; detailsOpen = false; return renderFleetView(); }
-  if (act === "role-toggle") {
-    roleFormOpen = !roleFormOpen;
-    roleFormRole = null;
-    sendFormOpen = false;
-    routePickerOpen = false;
-    detailsOpen = false;
-    return renderFleetView();
-  }
-  if (act === "details-toggle") {
-    detailsOpen = !detailsOpen;
-    sendFormOpen = false;
-    routePickerOpen = false;
-    roleFormOpen = false;
-    return renderFleetView();
-  }
+  if (act === "send-toggle") { const next = !sendFormOpen; closeSheetForms(); sendFormOpen = next; return renderFleetView(); }
+  if (act === "route-toggle") { const next = !routePickerOpen; closeSheetForms(); routePickerOpen = next; return renderFleetView(); }
+  if (act === "role-toggle") { const next = !roleFormOpen; closeSheetForms(); roleFormOpen = next; return renderFleetView(); }
+  if (act === "details-toggle") { const next = !detailsOpen; closeSheetForms(); detailsOpen = next; return renderFleetView(); }
+  if (act === "custom-route-toggle") { const next = !customRouteFormOpen; closeSheetForms(); customRouteFormOpen = next; return renderFleetView(); }
+  if (act === "miner-pref-toggle") { const next = !minerPrefFormOpen; closeSheetForms(); minerPrefFormOpen = next; return renderFleetView(); }
   if (act === "jettison") {
     const { good, units } = b.dataset;
     if (!confirm(`Jettison ${units}u ${good} from ${ship}? This cannot be undone.`)) return;
@@ -528,6 +570,43 @@ $("sheet-actions").addEventListener("click", async (e) => {
     } catch (err) { alert(err.message); }
     return renderFleetView();
   }
+  if (act === "custom-route-assign") {
+    const good = $("custom-route-good")?.value.trim().toUpperCase();
+    const buyAt = $("custom-route-buy")?.value;
+    const sellAt = $("custom-route-sell")?.value;
+    if (!good || !buyAt || !sellAt) { alert("good, start, and end are all required"); return; }
+    if (buyAt === sellAt) { alert("start and end must be different markets"); return; }
+    b.disabled = true;
+    try {
+      await api("POST", "/api/dispatch", { shipSymbol: ship, good, buyAt, sellAt });
+      customRouteFormOpen = false;
+      await loadDispatch();
+    } catch (err) { alert(err.message); }
+    return renderFleetView();
+  }
+  if (act === "custom-route-clear") {
+    b.disabled = true;
+    try { await api("POST", "/api/dispatch", { shipSymbol: ship, clear: true }); await loadDispatch(); }
+    catch (err) { alert(err.message); }
+    return renderFleetView();
+  }
+  if (act === "miner-pref-set") {
+    const good = $("miner-pref-good-input")?.value.trim().toUpperCase();
+    if (!good) { alert("preferred good is required"); return; }
+    b.disabled = true;
+    try {
+      await api("POST", "/api/miner-preference", { shipSymbol: ship, good });
+      minerPrefFormOpen = false;
+      await loadDispatch();
+    } catch (err) { alert(err.message); }
+    return renderFleetView();
+  }
+  if (act === "miner-pref-clear-ship") {
+    b.disabled = true;
+    try { await api("POST", "/api/miner-preference", { shipSymbol: ship, clear: true }); await loadDispatch(); }
+    catch (err) { alert(err.message); }
+    return renderFleetView();
+  }
   if (act === "hold" || act === "release") {
     b.disabled = true;
     try { await api("POST", `/api/fleet/${act}`, { shipSymbol: ship }); await loadBridge(); }
@@ -571,11 +650,7 @@ function deckStep(delta) {
   const rows = fleetRows();
   if (!rows.length) return;
   fleetIndex = (fleetIndex + delta + rows.length) % rows.length;
-  sendFormOpen = false;
-  routePickerOpen = false;
-  roleFormOpen = false;
-  roleFormRole = null;
-  detailsOpen = false;
+  closeSheetForms();
   renderFleetView();
 }
 $("deck-prev").addEventListener("click", () => deckStep(-1));
@@ -834,6 +909,14 @@ subscribe("markets", () => { if (mapTabActive()) renderScope(); if (marketsTabAc
 let mktSeg = "routes";
 let openRouteGood = null;
 let openYardGroup = null;
+// Prices segment: same three inputs desktop's price chart takes
+// (good/marketplace/timeframe) — see loadPrices()'s own comment in
+// store.js for why "all markets" averages every market's price for a good
+// into one line, and why picking a specific marketplace narrows to a real,
+// trustworthy trend instead.
+let priceGood = "";
+let priceWaypoint = "";
+let priceTimeframeMs = 86_400_000;
 
 function tradersFor() {
   return (fleetStatus.ships ?? []).filter((s) => s.role === "trader");
@@ -919,9 +1002,132 @@ function renderMarketYards() {
   el.innerHTML = html;
 }
 
+/** Every waypoint this fleet has snapshotted selling `good`, each row's
+ *  most recent buy/sell price where a snapshot exists — same source
+ *  (priceWaypointsByGood, server-authoritative) desktop's price-waypoint
+ *  dropdown reads, not a client-side filter of marketSnapshots, which is a
+ *  staleness/system-filtered subset (see store.js's loadGoods() comment
+ *  for the live bug that distinction fixed). */
+function renderPriceMarketList() {
+  const el = $("price-market-list");
+  if (!el) return;
+  const waypoints = priceWaypointsByGood[priceGood] ?? [];
+  if (!waypoints.length) { el.innerHTML = '<div class="empty">No snapshots for this good yet.</div>'; return; }
+  const byWp = new Map(marketSnapshots.filter((s) => s.goodSymbol === priceGood).map((s) => [s.waypointSymbol, s]));
+  el.innerHTML = waypoints.map((wp) => {
+    const snap = byWp.get(wp);
+    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))}</span><span class="d">${
+      snap ? `buy ${fmt(snap.purchasePrice)} · sell ${fmt(snap.sellPrice)}` : "no recent snapshot"
+    }</span></div>`;
+  }).join("");
+}
+
+/** Compact SVG price line, same shape as desktop's renderPriceChart() (see
+ *  v6.js) but in Tower's own palette (amber sell / green buy) — a
+ *  from-scratch render rather than a shared function, since desktop's isn't
+ *  in a module Tower imports from and this pass is deliberately thin (see
+ *  this file's header comment). */
+function renderPriceChart() {
+  const el = $("price-chart-room");
+  if (!el) return;
+  if (!pricePoints.length) { el.innerHTML = '<div class="empty">No price history for this good yet.</div>'; return; }
+  const W = Math.max(120, el.clientWidth || 320), H = Math.max(80, el.clientHeight || 140), P = 12;
+  const sellVals = pricePoints.map((p) => Number(p.avg));
+  const buyVals = pricePoints.map((p) => (p.buyAvg == null ? NaN : Number(p.buyAvg)));
+  const hasBuy = buyVals.some((v) => Number.isFinite(v));
+  const allVals = hasBuy ? [...sellVals, ...buyVals.filter(Number.isFinite)] : sellVals;
+  let min = Math.min(...allVals), max = Math.max(...allVals);
+  if (min === max) { min -= 1; max += 1; }
+  const span = max - min;
+  const x = (i) => P + (i / (pricePoints.length - 1 || 1)) * (W - P * 2);
+  const y = (v) => H - P - ((v - min) / span) * (H - P * 2);
+  const toLine = (vals) => vals.map((v, i) => (Number.isFinite(v) ? `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}` : "")).join(" ");
+  const sellLine = toLine(sellVals);
+  const buyLine = hasBuy ? toLine(buyVals) : "";
+  const lastIdx = pricePoints.length - 1;
+  const lastBuy = buyVals[lastIdx];
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    ${[0.25, 0.5, 0.75].map((f) => `<line x1="${P}" x2="${W - P}" y1="${y(min + span * f)}" y2="${y(min + span * f)}" stroke="rgba(255,199,120,0.12)" stroke-width="1"/>`).join("")}
+    <path d="${sellLine}" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="${x(lastIdx)}" cy="${y(sellVals[lastIdx])}" r="2.5" fill="var(--amber)"/>
+    ${hasBuy ? `<path d="${buyLine}" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="3,2"/>` : ""}
+    ${hasBuy && Number.isFinite(lastBuy) ? `<circle cx="${x(lastIdx)}" cy="${y(lastBuy)}" r="2.5" fill="var(--green)"/>` : ""}
+    <text x="${P}" y="${y(max)}" font-size="8" fill="var(--dim)">${Math.round(max)}</text>
+    <text x="${P}" y="${y(min)}" font-size="8" fill="var(--dim)">${Math.round(min)}</text>
+    ${hasBuy ? `<g transform="translate(${W - P - 66},${P - 4})" font-size="8">
+      <line x1="0" y1="0" x2="9" y2="0" stroke="var(--amber)" stroke-width="1.5"/><text x="12" y="3" fill="var(--dim)">sell</text>
+      <line x1="34" y1="0" x2="43" y2="0" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="3,2"/><text x="46" y="3" fill="var(--dim)">buy</text>
+    </g>` : ""}
+  </svg>`;
+}
+
+/** Rebuilds the good/marketplace <select> option lists — the marketplace
+ *  list is scoped to whatever good is currently chosen and resets to "All
+ *  markets" whenever the good changes, since a waypoint valid for one good
+ *  rarely applies to another. Returns true when `priceGood` itself changed
+ *  (e.g. priceGoods just arrived and picked a first default) so the caller
+ *  knows to fetch — mirrors desktop's renderPriceGoods() guard against
+ *  re-entering through the very "prices" notify loadPrices() itself fires. */
+function renderPricePickers() {
+  let goodChanged = false;
+  const goodSel = $("price-good-sel");
+  if (goodSel && document.activeElement !== goodSel) {
+    if (!priceGoods.includes(priceGood)) {
+      const next = priceGoods[0] ?? "";
+      goodChanged = next !== priceGood;
+      priceGood = next;
+    }
+    goodSel.innerHTML = priceGoods.map((g) => `<option value="${escapeAttr(g)}"${g === priceGood ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
+  }
+  const wpSel = $("price-wp-sel");
+  if (wpSel && document.activeElement !== wpSel) {
+    const waypoints = priceWaypointsByGood[priceGood] ?? [];
+    if (priceWaypoint && !waypoints.includes(priceWaypoint)) priceWaypoint = "";
+    wpSel.innerHTML = `<option value="">All markets</option>` + waypoints.map((wp) => `<option value="${escapeAttr(wp)}"${wp === priceWaypoint ? " selected" : ""}>${escapeHtml(wp)}</option>`).join("");
+  }
+  return goodChanged;
+}
+
+function renderPrices() {
+  renderPricePickers();
+  if (priceGood) loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+  renderPriceChart();
+  renderPriceMarketList();
+}
+
+$("price-good-sel").addEventListener("change", (e) => {
+  priceGood = e.target.value;
+  priceWaypoint = "";
+  renderPrices();
+});
+$("price-wp-sel").addEventListener("change", (e) => {
+  priceWaypoint = e.target.value;
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
+$("price-timeframe-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-span]");
+  if (!b) return;
+  priceTimeframeMs = Number(b.dataset.span);
+  $("price-timeframe-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
+subscribe("prices", () => {
+  if (!marketsTabActive() || mktSeg !== "prices") return;
+  // priceGoods just arriving (first visit, before any good was chosen) is
+  // the one case this needs to trigger its own fetch — everything else
+  // (a manual good/marketplace/timeframe change) already called
+  // loadPrices() itself before this notify ever fired.
+  const goodChanged = renderPricePickers();
+  renderPriceChart();
+  renderPriceMarketList();
+  if (goodChanged && priceGood) loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
+
 function renderMarkets() {
   $("mkt-routes").hidden = mktSeg !== "routes";
   $("mkt-yards").hidden = mktSeg !== "yards";
+  $("mkt-prices").hidden = mktSeg !== "prices";
+  if (mktSeg === "prices") renderPrices();
   // Skipped while a picker is open, not just re-rendered around it — this is
   // called from the 15s poll subscription (loadMarkets() → subscribe()), and
   // rebuilding the list mid-tap replaces the exact buttons the operator is
@@ -1332,7 +1538,8 @@ function boot() {
 }
 function pollTick() {
   loadState(); loadBridge(); loadApprovals(); loadDispatch();
-  if (mapTabActive() || marketsTabActive()) loadMarkets();
+  if (mapTabActive() || marketsTabActive() || fleetTabActive()) loadMarkets();
+  if (marketsTabActive()) loadGoods();
   if (moreTabActive()) { loadProgramme(); loadWarehouse(); loadActivity(); }
 }
 setInterval(() => {
