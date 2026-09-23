@@ -380,7 +380,9 @@ function loadViewData(name) {
   if (name === "fleet") { loadDispatch(); renderFleetTable(); }
   if (name === "markets") { loadMarkets(marketSystemFilter); loadGoods(); }
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
-  if (name === "ops") { loadProgramme(); loadManipulationRoutes(); }
+  // Same staleness gap this comment's "fleet" branch fixes: the Automation
+  // panel's trader rows read dispatchAssignments too, via describeAutomation().
+  if (name === "ops") { loadProgramme(); loadManipulationRoutes(); loadDispatch(); }
   if (name === "galaxy") { loadGalaxy(); loadMarketDynamics(); }
 }
 
@@ -1795,16 +1797,52 @@ function renderFleetSummary() {
   }).join("");
 }
 
+/**
+ * The intent board (see intent.ts's Goal union) only ever gets an entry for
+ * the handful of goals the fleet drives directly through the shared
+ * executor — repair/tender/explore/scrap/keep(on conversion)/hold. A trader
+ * flying its dispatcher-assigned route, a miner working its own extraction
+ * loop, a tour ship on its rotation — the overwhelming majority of a
+ * healthy fleet at any moment — never get an intent-board entry at all,
+ * because their own agent owns that detail end to end and nothing needs to
+ * override it. `wants` being unset there means "nothing is overriding this
+ * ship's normal role loop," not "this ship has nothing to do" — showing
+ * literal "no active goal" for most of the fleet read as if automation had
+ * stalled fleet-wide. This fills in the honest, role-appropriate answer for
+ * exactly that case, from data already available client-side (the same
+ * dispatch assignment the Fleet tab's Job column reads, and the same
+ * pinnedField/tourDestination getShipStatuses() already reports).
+ */
+function describeAutomation(r) {
+  const status = (fleetStatus.ships ?? []).find((s) => s.symbol === r.symbol);
+  if (r.role === "trader") {
+    const job = jobFor(r.symbol, "trader");
+    return job === "unassigned" ? "unassigned — no viable route right now" : job;
+  }
+  if ((r.role === "miner" || r.role === "surveyor") && status?.pinnedField) return `pinned to mine at ${shortWp(status.pinnedField)}`;
+  if (r.role === "miner") return "autonomous — picks its own field each cycle";
+  if (r.role === "surveyor") return "autonomous — surveying for the fleet's miners";
+  if (r.role === "tour" && status?.tourDestination) return `touring toward ${shortWp(status.tourDestination)}`;
+  if (r.role === "tour") return "autonomous — touring known markets";
+  if (r.role === "keeper") return "stationed, keeping its market fresh";
+  if (r.role === "siphoner") return "autonomous — siphoning its assigned target";
+  if (r.role === "scout") return "autonomous — scouting connected systems";
+  if (r.role === "warehouse") return "designated warehouse ship";
+  if (r.role === "idle") return "idle — no role assigned";
+  return "autonomous";
+}
+
 /** Every ship's current automated decision — the control plane's committed
- *  intent (what it wants each ship doing right now, and why), not just the
- *  observed state renderFleetSummary() shows. The coordinator already logs
- *  "<ship>: <from> → <to> (v<n>) — <reason>" once per tick whenever a ship's
- *  intent *changes*, but that only reaches Render's server logs — an
- *  operator otherwise has no way to see what the fleet's brain has decided
- *  right now without asking for a log dump. fleetStatusSummary() already
- *  carries this (wants/wantsReason/wantsSource, alongside `doing`) on every
- *  /api/bridge poll; this just draws it as a real list instead of leaving
- *  it unused. */
+ *  intent where one exists (what it wants each ship doing right now, and
+ *  why), falling back to describeAutomation() for the ships that don't have
+ *  one. Not just the observed state renderFleetSummary() shows: the
+ *  coordinator already logs "<ship>: <from> → <to> (v<n>) — <reason>" once
+ *  per tick whenever a ship's intent *changes*, but that only reaches
+ *  Render's server logs — an operator otherwise has no way to see what the
+ *  fleet's brain has decided right now without asking for a log dump.
+ *  fleetStatusSummary() already carries this (wants/wantsReason/wantsSource,
+ *  alongside `doing`) on every /api/bridge poll; this draws it as a real
+ *  list instead of leaving it unused. */
 function renderAutomationFeed() {
   const el = $("automation-feed");
   const countEl = $("automation-count");
@@ -1816,7 +1854,12 @@ function renderAutomationFeed() {
     const cls = r.doing === "stranded" ? "warn" : r.wantsSource === "operator" ? "hold" : "";
     const wants = r.wants
       ? `<b>${escapeHtml(r.wants)}</b>${r.wantsSource ? ` <span class="src">${escapeHtml(r.wantsSource)}</span>` : ""}`
-      : `<span class="dim">no active goal</span>`;
+      // Not escapeHtml()'d here: jobFor() (used for the trader branch) already
+      // returns pre-escaped markup, and every other branch is either a static
+      // string or a shortWp()'d waypoint symbol — always plain uppercase
+      // alphanumerics from SpaceTraders' own fixed symbol formats, never
+      // operator-supplied text.
+      : `<span class="dim">${describeAutomation(r)}</span>`;
     return `<div class="automation-row ${cls}">
       <span class="ship"><b>${escapeHtml(shortWp(r.symbol))}</b><span class="role">${escapeHtml(r.role)}</span></span>
       <span class="doing">${escapeHtml(r.doing)}</span>

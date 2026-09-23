@@ -1141,6 +1141,22 @@ export class ShipAgent {
           if (survey) continue;
           this.log("no usable survey; falling back to plain extraction");
         }
+        // Not a bad survey — a survey another, better-equipped ship could
+        // use fine, but this specific hull lacks the module/mount its
+        // deposits require (the live case: "does not have a required
+        // mineral processor module"). Retrying the identical extract call
+        // forever, or invalidating the survey for the whole pool over a
+        // limitation that's local to this one ship, are both wrong.
+        // Confirmed live 2026-09-23: THEO-5 hit this every ~40s for 6+
+        // minutes straight, the scheduler re-enqueuing the same doomed
+        // survey each time. Drop it for this ship only and fall back to
+        // plain extraction, which only ever yields base deposits.
+        if (survey && /does not have.*(module|mount)/i.test(msg)) {
+          this.log(`survey needs equipment this ship lacks: ${msg}; falling back to plain extraction`);
+          survey = undefined;
+          this.rememberSurvey(survey);
+          continue;
+        }
         this.log(`extract failed: ${msg}`);
         this.miningSession = null;
         return;
@@ -1637,6 +1653,16 @@ export class ShipAgent {
           this.rememberSurvey(survey);
           if (survey) continue;
           this.log("no usable survey; falling back to plain extraction");
+        }
+        // See mineAndRefine()'s identical branch: a survey another ship
+        // could use fine, but this one lacks the required module/mount for.
+        // Drop it for this ship only rather than retrying forever or
+        // invalidating it for the whole pool.
+        if (survey && /does not have.*(module|mount)/i.test(msg)) {
+          this.log(`survey needs equipment this ship lacks: ${msg}; falling back to plain extraction`);
+          survey = undefined;
+          this.rememberSurvey(survey);
+          continue;
         }
         this.log(`extract failed: ${msg}`);
         this.miningSession = null;
