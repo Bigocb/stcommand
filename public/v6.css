@@ -548,6 +548,25 @@
   .fleet-summary .fs-chip.hold { border-color:rgba(233,196,106,0.4); }
   .fleet-summary .fs-chip.hold i { color:var(--accent); }
 
+  /* Ops tab's "what is every ship's automated decision right now" list —
+     the live counterpart to the coordinator's own tick-change log lines,
+     see renderAutomationFeed()'s own comment. */
+  #automation-feed { display:flex; flex-direction:column; gap:2px; max-height:340px; overflow-y:auto; }
+  .automation-row {
+    display:grid; grid-template-columns:120px 100px 1fr; gap:8px; align-items:baseline;
+    padding:4px 6px; border-radius:3px; font-size:10.5px; color:var(--ice);
+  }
+  .automation-row:nth-child(odd) { background:var(--glass); }
+  .automation-row.warn { background:var(--red-soft); }
+  .automation-row.hold { background:var(--warn-soft); }
+  .automation-row .ship b { color:var(--bone); font-weight:600; }
+  .automation-row .ship .role { color:var(--dim); font-size:9px; margin-left:4px; text-transform:uppercase; letter-spacing:0.04em; }
+  .automation-row .doing { color:var(--dim); }
+  .automation-row .wants b { color:var(--teal); font-weight:600; }
+  .automation-row .wants .src { color:var(--dim); font-size:9px; text-transform:uppercase; letter-spacing:0.04em; margin-left:2px; }
+  .automation-row .wants .why { color:var(--dim); }
+  .automation-row .wants .dim { color:var(--dim); font-style:italic; }
+
   .btn {
     font-family:var(--disp); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; padding:4px 9px;
     background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer; transition:all .15s;

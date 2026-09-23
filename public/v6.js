@@ -1795,6 +1795,36 @@ function renderFleetSummary() {
   }).join("");
 }
 
+/** Every ship's current automated decision — the control plane's committed
+ *  intent (what it wants each ship doing right now, and why), not just the
+ *  observed state renderFleetSummary() shows. The coordinator already logs
+ *  "<ship>: <from> → <to> (v<n>) — <reason>" once per tick whenever a ship's
+ *  intent *changes*, but that only reaches Render's server logs — an
+ *  operator otherwise has no way to see what the fleet's brain has decided
+ *  right now without asking for a log dump. fleetStatusSummary() already
+ *  carries this (wants/wantsReason/wantsSource, alongside `doing`) on every
+ *  /api/bridge poll; this just draws it as a real list instead of leaving
+ *  it unused. */
+function renderAutomationFeed() {
+  const el = $("automation-feed");
+  const countEl = $("automation-count");
+  if (!el) return;
+  const rows = [...(fleetStatus.summary ?? [])].sort((a, b) => a.symbol.localeCompare(b.symbol));
+  if (countEl) countEl.textContent = `${rows.length} ships`;
+  if (!rows.length) { el.innerHTML = '<div class="empty">No ships in the register.</div>'; return; }
+  el.innerHTML = rows.map((r) => {
+    const cls = r.doing === "stranded" ? "warn" : r.wantsSource === "operator" ? "hold" : "";
+    const wants = r.wants
+      ? `<b>${escapeHtml(r.wants)}</b>${r.wantsSource ? ` <span class="src">${escapeHtml(r.wantsSource)}</span>` : ""}`
+      : `<span class="dim">no active goal</span>`;
+    return `<div class="automation-row ${cls}">
+      <span class="ship"><b>${escapeHtml(shortWp(r.symbol))}</b><span class="role">${escapeHtml(r.role)}</span></span>
+      <span class="doing">${escapeHtml(r.doing)}</span>
+      <span class="wants">${wants}${r.wantsReason ? ` <span class="why">— ${escapeHtml(r.wantsReason)}</span>` : ""}</span>
+    </div>`;
+  }).join("");
+}
+
 /** The Fleet tab's roster — every hull, sortable by any column. Field mode's
  *  map is the primary "browse ships" surface for spatial selection, but it
  *  can't show the whole fleet's status at a glance the way a table can, so
@@ -7028,6 +7058,7 @@ subscribe("bridge", () => {
   renderMobileFleetStrip();
   renderMobileHero();
   renderFleetSummary();
+  renderAutomationFeed();
   // The sheet an operator actually acts from — held/released, role, repair —
   // was the one panel missing from this list. See refreshOpenShipDetails().
   refreshOpenShipDetails();
