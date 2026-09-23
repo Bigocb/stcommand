@@ -3568,105 +3568,138 @@ export class FleetManager {
     this.onActivity?.("repair", `${shipSymbol} repaired at ${waypointSymbol} for ${res.transaction.totalPrice}c`, -res.transaction.totalPrice, shipSymbol);
   }
 
+  /**
+   * Runs `fn` with any operator hold on this ship temporarily lifted, then
+   * restores the exact same hold once `fn` settles (success or failure).
+   *
+   * proposeOperatorHolds() re-proposes a held ship's "hold" intent every
+   * single tick, regardless of what else is touching that ship — it's the
+   * only thing ever proposed for a held ship, so nothing else's proposal
+   * ever supersedes it (see intent.ts's supersedes()). installComponent()/
+   * buyAndInstallComponent() fly the ship with raw one-shot dispatchShip()/
+   * jumpShip() calls that don't go through the intent board at all, so nothing
+   * stopped the very next tick's hold enforcement (runHoldGoal(), fired from
+   * the same committed intent) from re-navigating the ship back toward the
+   * hold waypoint mid-transit, cancelling the in-progress trip to the
+   * shipyard. Confirmed live 2026-09-23: THEO-5, held at X1-SN30-F54, spent
+   * over ten minutes cycling dispatch→shipyard / hold-redirect→F54 without
+   * ever completing the install its own purchase had already paid for.
+   */
+  private async withHoldSuspended<T>(shipSymbol: string, fn: () => Promise<T>): Promise<T> {
+    const restoreHold = this.operatorHolds.get(shipSymbol);
+    if (restoreHold) await this.updateShipManualState(shipSymbol, { holdWaypoint: null });
+    try {
+      return await fn();
+    } finally {
+      if (restoreHold) await this.updateShipManualState(shipSymbol, { holdWaypoint: restoreHold });
+    }
+  }
+
   /** Install a module/mount from a ship's cargo at the nearest shipyard. */
   async installComponent(shipSymbol: string, componentSymbol: string): Promise<void> {
-    const ship = await this.api.getShip(shipSymbol);
-    const systemSymbol = ship.nav.systemSymbol;
-    await this.galaxy.loadSystem(systemSymbol);
-    const known = this.galaxy.getSystem(systemSymbol);
-    const yards = known?.waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")) ?? [];
-    if (yards.length === 0) throw new Error(`no shipyard in ${systemSymbol}`);
+    await this.withHoldSuspended(shipSymbol, async () => {
+      const ship = await this.api.getShip(shipSymbol);
+      const systemSymbol = ship.nav.systemSymbol;
+      await this.galaxy.loadSystem(systemSymbol);
+      const known = this.galaxy.getSystem(systemSymbol);
+      const yards = known?.waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")) ?? [];
+      if (yards.length === 0) throw new Error(`no shipyard in ${systemSymbol}`);
 
-    const held = ship.cargo.inventory?.find((i) => i.symbol === componentSymbol);
-    if (!held || held.units <= 0) throw new Error(`${shipSymbol} has no ${componentSymbol} in cargo`);
+      const held = ship.cargo.inventory?.find((i) => i.symbol === componentSymbol);
+      if (!held || held.units <= 0) throw new Error(`${shipSymbol} has no ${componentSymbol} in cargo`);
 
-    // Fly to the nearest shipyard and dock.
-    const yard = yards[0]!;
-    if (ship.nav.waypointSymbol !== yard.symbol || ship.nav.status === "IN_TRANSIT") {
-      await this.dispatchShip(shipSymbol, yard.symbol);
-    }
-    const docked = await this.api.getShip(shipSymbol);
-    if (docked.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
+      // Fly to the nearest shipyard and dock.
+      const yard = yards[0]!;
+      if (ship.nav.waypointSymbol !== yard.symbol || ship.nav.status === "IN_TRANSIT") {
+        await this.dispatchShip(shipSymbol, yard.symbol);
+      }
+      const docked = await this.api.getShip(shipSymbol);
+      if (docked.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
 
-    const isMount = componentSymbol.startsWith("MOUNT_");
-    const res = isMount
-      ? await this.api.installMount(shipSymbol, componentSymbol)
-      : await this.api.installModule(shipSymbol, componentSymbol);
-    this.recordLedger?.({
-      timestamp: new Date().toISOString(),
-      shipSymbol,
-      waypointSymbol: yard.symbol,
-      type: "SHIP",
-      tradeSymbol: componentSymbol,
-      total: res.transaction.totalPrice,
+      const isMount = componentSymbol.startsWith("MOUNT_");
+      const res = isMount
+        ? await this.api.installMount(shipSymbol, componentSymbol)
+        : await this.api.installModule(shipSymbol, componentSymbol);
+      this.recordLedger?.({
+        timestamp: new Date().toISOString(),
+        shipSymbol,
+        waypointSymbol: yard.symbol,
+        type: "SHIP",
+        tradeSymbol: componentSymbol,
+        total: res.transaction.totalPrice,
+      });
+      this.onActivity?.("install", `${shipSymbol} installed ${componentSymbol} at ${yard.symbol}`, -res.transaction.totalPrice, shipSymbol);
+      this.log(`installed ${componentSymbol} on ${shipSymbol} at ${yard.symbol}`);
     });
-    this.onActivity?.("install", `${shipSymbol} installed ${componentSymbol} at ${yard.symbol}`, -res.transaction.totalPrice, shipSymbol);
-    this.log(`installed ${componentSymbol} on ${shipSymbol} at ${yard.symbol}`);
   }
 
   /** Remove a module/mount from a ship at the nearest shipyard (goes back to cargo). */
   async removeComponent(shipSymbol: string, componentSymbol: string): Promise<void> {
-    const ship = await this.api.getShip(shipSymbol);
-    const systemSymbol = ship.nav.systemSymbol;
-    await this.galaxy.loadSystem(systemSymbol);
-    const known = this.galaxy.getSystem(systemSymbol);
-    const yards = known?.waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")) ?? [];
-    if (yards.length === 0) throw new Error(`no shipyard in ${systemSymbol}`);
+    await this.withHoldSuspended(shipSymbol, async () => {
+      const ship = await this.api.getShip(shipSymbol);
+      const systemSymbol = ship.nav.systemSymbol;
+      await this.galaxy.loadSystem(systemSymbol);
+      const known = this.galaxy.getSystem(systemSymbol);
+      const yards = known?.waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")) ?? [];
+      if (yards.length === 0) throw new Error(`no shipyard in ${systemSymbol}`);
 
-    const yard = yards[0]!;
-    if (ship.nav.waypointSymbol !== yard.symbol || ship.nav.status === "IN_TRANSIT") {
-      await this.dispatchShip(shipSymbol, yard.symbol);
-    }
-    const docked = await this.api.getShip(shipSymbol);
-    if (docked.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
+      const yard = yards[0]!;
+      if (ship.nav.waypointSymbol !== yard.symbol || ship.nav.status === "IN_TRANSIT") {
+        await this.dispatchShip(shipSymbol, yard.symbol);
+      }
+      const docked = await this.api.getShip(shipSymbol);
+      if (docked.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
 
-    const isMount = componentSymbol.startsWith("MOUNT_");
-    const res = isMount
-      ? await this.api.removeMount(shipSymbol, componentSymbol)
-      : await this.api.removeModule(shipSymbol, componentSymbol);
-    this.recordLedger?.({
-      timestamp: new Date().toISOString(),
-      shipSymbol,
-      waypointSymbol: yard.symbol,
-      type: "SHIP",
-      tradeSymbol: componentSymbol,
-      total: res.transaction.totalPrice,
+      const isMount = componentSymbol.startsWith("MOUNT_");
+      const res = isMount
+        ? await this.api.removeMount(shipSymbol, componentSymbol)
+        : await this.api.removeModule(shipSymbol, componentSymbol);
+      this.recordLedger?.({
+        timestamp: new Date().toISOString(),
+        shipSymbol,
+        waypointSymbol: yard.symbol,
+        type: "SHIP",
+        tradeSymbol: componentSymbol,
+        total: res.transaction.totalPrice,
+      });
+      this.onActivity?.("install", `${shipSymbol} removed ${componentSymbol} at ${yard.symbol}`, -res.transaction.totalPrice, shipSymbol);
+      this.log(`removed ${componentSymbol} from ${shipSymbol} at ${yard.symbol}`);
     });
-    this.onActivity?.("install", `${shipSymbol} removed ${componentSymbol} at ${yard.symbol}`, -res.transaction.totalPrice, shipSymbol);
-    this.log(`removed ${componentSymbol} from ${shipSymbol} at ${yard.symbol}`);
   }
 
   /** Buy a module/mount from a market and install it on a ship (flies there if needed). */
   async buyAndInstallComponent(shipSymbol: string, componentSymbol: string, marketWaypoint: string): Promise<void> {
-    const ship = await this.api.getShip(shipSymbol);
-    const systemSymbol = ship.nav.systemSymbol;
-    const targetSystem = marketWaypoint.slice(0, marketWaypoint.lastIndexOf("-"));
-    if (ship.nav.systemSymbol !== targetSystem) {
-      await this.jumpShip(shipSymbol, marketWaypoint);
-    } else if (ship.nav.waypointSymbol !== marketWaypoint || ship.nav.status === "IN_TRANSIT") {
-      await this.dispatchShip(shipSymbol, marketWaypoint);
-    }
-    const atMarket = await this.api.getShip(shipSymbol);
-    if (atMarket.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
-    const market = await this.api.getMarket(systemSymbol, marketWaypoint);
-    const listing = market.tradeGoods?.find((g) => g.symbol === componentSymbol);
-    const agent = await this.api.getMyAgent();
-    if (listing && !this.canAfford(listing.purchasePrice, agent.credits)) {
-      throw new Error(`${componentSymbol} costs ${listing.purchasePrice}c, only ${agent.credits - this.minCashReserve()}c available above the cash floor`);
-    }
-    const res = await this.api.purchaseCargo(shipSymbol, componentSymbol, 1);
-    this.recordLedger?.({
-      timestamp: new Date().toISOString(),
-      shipSymbol,
-      waypointSymbol: marketWaypoint,
-      type: "PURCHASE",
-      tradeSymbol: componentSymbol,
-      units: 1,
-      pricePerUnit: res.transaction.pricePerUnit,
-      total: res.transaction.totalPrice,
+    await this.withHoldSuspended(shipSymbol, async () => {
+      const ship = await this.api.getShip(shipSymbol);
+      const systemSymbol = ship.nav.systemSymbol;
+      const targetSystem = marketWaypoint.slice(0, marketWaypoint.lastIndexOf("-"));
+      if (ship.nav.systemSymbol !== targetSystem) {
+        await this.jumpShip(shipSymbol, marketWaypoint);
+      } else if (ship.nav.waypointSymbol !== marketWaypoint || ship.nav.status === "IN_TRANSIT") {
+        await this.dispatchShip(shipSymbol, marketWaypoint);
+      }
+      const atMarket = await this.api.getShip(shipSymbol);
+      if (atMarket.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
+      const market = await this.api.getMarket(systemSymbol, marketWaypoint);
+      const listing = market.tradeGoods?.find((g) => g.symbol === componentSymbol);
+      const agent = await this.api.getMyAgent();
+      if (listing && !this.canAfford(listing.purchasePrice, agent.credits)) {
+        throw new Error(`${componentSymbol} costs ${listing.purchasePrice}c, only ${agent.credits - this.minCashReserve()}c available above the cash floor`);
+      }
+      const res = await this.api.purchaseCargo(shipSymbol, componentSymbol, 1);
+      this.recordLedger?.({
+        timestamp: new Date().toISOString(),
+        shipSymbol,
+        waypointSymbol: marketWaypoint,
+        type: "PURCHASE",
+        tradeSymbol: componentSymbol,
+        units: 1,
+        pricePerUnit: res.transaction.pricePerUnit,
+        total: res.transaction.totalPrice,
+      });
+      this.onActivity?.("buy", `${shipSymbol} bought ${componentSymbol} @ ${res.transaction.pricePerUnit}c`, -res.transaction.totalPrice, shipSymbol);
+      await this.installComponent(shipSymbol, componentSymbol);
     });
-    this.onActivity?.("buy", `${shipSymbol} bought ${componentSymbol} @ ${res.transaction.pricePerUnit}c`, -res.transaction.totalPrice, shipSymbol);
-    await this.installComponent(shipSymbol, componentSymbol);
   }
 
   /** Pick an idle cargo-capable ship to run a mission, preferring the largest hold. */
