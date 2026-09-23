@@ -362,6 +362,20 @@ $("sheet-close").addEventListener("click", () => {
 });
 
 function renderSheet(row) {
+  // subscribe("state"/"bridge"/"dispatch") re-renders the whole Fleet view
+  // (including this sheet) on every ~15s poll while the Fleet tab is open —
+  // fine normally, but it rebuilds #sheet-actions' innerHTML from scratch,
+  // which replaces an open inline form's fields with fresh empty ones and
+  // steals focus mid-edit. The Custom route form has three fields (good +
+  // two market selects); confirmed live: filling it out took longer than
+  // one poll cycle, so the operator's own typing kept getting wiped before
+  // they could finish. Bail out of the whole rebuild while a form field
+  // inside this sheet has focus — same reasoning as desktop's dropdown-
+  // focus guards (renderPriceGoods() etc.): mid-edit is exactly the moment
+  // a "keep it fresh" rebuild is most disruptive. The explicit action
+  // buttons (Assign, Save, …) still work off the untouched DOM either way.
+  const active = document.activeElement;
+  if (active && $("sheet-actions").contains(active) && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName)) return;
   sheetShip = row.symbol;
   $("fleet-sheet").hidden = false;
   // Deck's sheet is a fixed pairing with the front card — no point closing
