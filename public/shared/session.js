@@ -146,7 +146,10 @@ export async function fetchOnboardingCatalog({ attempts = 6, delayMs = (n) => n 
  *
  * `selections` must carry an entry for every catalog key — the server reads
  * a missing key as "not adopted", so a partial object silently switches
- * policies off rather than leaving them at their defaults.
+ * policies off rather than leaving them at their defaults. Each entry is
+ * either a bare boolean (adopt at the catalog default value) or
+ * `{ adopted, value }`, letting the operator set their own number (cash
+ * floor, margin floor, ...) for a policy at the same moment they adopt it.
  */
 export async function completeOnboarding(selections) {
   const res = await fetch("/api/doctrine/onboard", {

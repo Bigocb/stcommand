@@ -156,16 +156,36 @@ function renderOnboarding(catalog) {
       <label class="onboard-item">
         <input type="checkbox" data-key="${escapeAttr(c.key)}" ${c.defaultAdopted ? "checked" : ""} />
         <span class="body"><span class="n">${escapeHtml(c.name)}</span><span class="d">${escapeHtml(c.description)}</span></span>
+        <span class="onboard-value">
+          <input type="number" class="onboard-value-input" data-value-key="${escapeAttr(c.key)}"
+            value="${c.value}" min="${c.min}" max="${c.max}" step="${c.step}"
+            ${c.defaultAdopted ? "" : "disabled"} aria-label="${escapeAttr(c.name)} value" />
+          <span class="onboard-unit">${escapeHtml(c.unit)}</span>
+        </span>
       </label>`).join("")}
   `).join("");
 }
+// The value input only matters once its policy is actually adopted — left
+// enabled while unchecked, an operator could tune a number for a policy
+// that's about to be silently skipped, which reads as "I set this" when it
+// was never sent. Mirrors the checkbox's own checked state on every toggle.
+$("onboard-list").addEventListener("change", (e) => {
+  const cb = e.target.closest("input[type=checkbox][data-key]");
+  if (!cb) return;
+  const valueInput = $("onboard-list").querySelector(`.onboard-value-input[data-value-key="${CSS.escape(cb.dataset.key)}"]`);
+  if (valueInput) valueInput.disabled = !cb.checked;
+});
 
 async function confirmOnboarding() {
   const btn = $("onboard-confirm");
   btn.disabled = true;
   try {
     const selections = {};
-    $("onboard-list").querySelectorAll("input[type=checkbox][data-key]").forEach((cb) => { selections[cb.dataset.key] = cb.checked; });
+    $("onboard-list").querySelectorAll("input[type=checkbox][data-key]").forEach((cb) => {
+      const valueInput = $("onboard-list").querySelector(`.onboard-value-input[data-value-key="${CSS.escape(cb.dataset.key)}"]`);
+      const value = valueInput && valueInput.value !== "" ? Number(valueInput.value) : undefined;
+      selections[cb.dataset.key] = { adopted: cb.checked, value };
+    });
     await completeOnboarding(selections);
     $("onboarding-gate").hidden = true;
     hideAuthGate();

@@ -124,9 +124,16 @@
   .onboard-cat:first-child { margin-top:0; }
   .onboard-item { display:flex; align-items:flex-start; gap:10px; padding:8px 6px; border-bottom:1px solid var(--hairline); cursor:pointer; }
   .onboard-item input[type="checkbox"] { margin-top:3px; accent-color:var(--accent); width:14px; height:14px; flex-shrink:0; }
-  .onboard-item .body { display:flex; flex-direction:column; gap:2px; }
+  .onboard-item .body { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
   .onboard-item .n { font-family:var(--mono); font-weight:700; font-size:12.5px; color:var(--ice); }
   .onboard-item .d { font-size:10.5px; color:var(--dim); line-height:1.5; }
+  .onboard-value { flex-shrink:0; display:flex; align-items:center; gap:4px; margin-top:1px; }
+  .onboard-value-input {
+    width:76px; background:var(--e0); border:1px solid var(--hairline); border-radius:3px; color:var(--bone);
+    font-family:var(--mono); font-size:11.5px; padding:4px 6px; text-align:right;
+  }
+  .onboard-value-input:disabled { opacity:0.4; }
+  .onboard-unit { font-size:9.5px; color:var(--dim); min-width:2ch; }
   .auth-err { color:var(--red); font-size:10px; min-height:12px; text-align:center; }
 
   /* ── top bar ─────────────────────────────── */

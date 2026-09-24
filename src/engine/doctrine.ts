@@ -467,10 +467,20 @@ export class Doctrine {
    * "not adopted" for this tenant means "the captain saw this and skipped
    * it," not "this didn't exist yet when they onboarded" — so a catalog
    * entry added later still starts opt-in for them too, same as anyone else.
+   *
+   * A selection can be a bare boolean (adopt at the catalog default value —
+   * every existing caller before the onboarding screen grew per-policy value
+   * inputs) or `{ adopted, value }`, so a captain can set e.g. their own cash
+   * floor at the same moment they adopt the policy, instead of adopting the
+   * catalog default and immediately having to go find it again in Book mode
+   * to change it.
    */
-  async completeOnboarding(selections: Record<string, boolean>): Promise<DoctrineRule[]> {
+  async completeOnboarding(selections: Record<string, boolean | { adopted: boolean; value?: number }>): Promise<DoctrineRule[]> {
     for (const d of POLICY_CATALOG) {
-      await this.setAdopted(d.key, !!selections[d.key]);
+      const sel = selections[d.key];
+      const adopted = typeof sel === "boolean" ? sel : !!sel?.adopted;
+      const value = typeof sel === "boolean" ? undefined : sel?.value;
+      await this.setAdopted(d.key, adopted, value);
     }
     return this.list();
   }
