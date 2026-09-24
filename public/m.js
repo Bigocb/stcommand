@@ -256,8 +256,26 @@ function fleetRows() {
       waypoint: s.nav?.waypointSymbol ?? "",
       nav: s.nav?.status ?? "",
       stranded: strandedBy.has(s.symbol),
+      // nav.route.arrival is the game's own committed ETA — only meaningful
+      // while actually IN_TRANSIT (the API leaves it holding the last
+      // flight's arrival time once a ship has landed). Same field/guard as
+      // desktop's Fleet tab ETA column (fleetRows() in v6.js).
+      eta: s.nav?.status === "IN_TRANSIT" ? s.nav?.route?.arrival : undefined,
     };
   });
+}
+
+/** Time remaining until a ship's committed arrival, as "Xh Ym"/"Ym"/"<1m" —
+ *  same format as desktop's fmtEta() in v6.js. "—" once already arrived or
+ *  with no active transit, rather than a negative duration. */
+function fmtEta(iso) {
+  if (!iso) return "—";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return "<1m";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 function hullCard(row, extraClass) {
@@ -325,12 +343,14 @@ function renderRoster() {
     const jobTxt = r.job == null ? r.role : r.job;
     const jobCls = r.job === "unassigned" ? " unassigned" : "";
     const fuelPct = r.fuelCap ? Math.round((r.fuel / r.fuelCap) * 100) : 0;
+    const etaTxt = fmtEta(r.eta);
     return `<button class="roster-row${cls}" data-idx="${i}">
       <span class="rr-id"><span class="sym">${escapeHtml(r.symbol)}</span><span class="role">${escapeHtml(r.role)}</span></span>
       <span class="rr-job${jobCls}">${r.stranded ? "STRANDED · " : ""}${escapeHtml(jobTxt)}</span>
       <span class="rr-stats">
         <span class="${fuelPct < 25 ? "lo" : ""}">F${fuelPct}</span>
         <span class="${r.condition < 50 ? "lo" : ""}">H${r.condition}</span>
+        <span class="eta${etaTxt !== "—" ? " live" : ""}">${escapeHtml(etaTxt)}</span>
       </span>
     </button>`;
   }).join("");

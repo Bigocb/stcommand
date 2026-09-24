@@ -191,6 +191,11 @@ body {
 .roster-row .rr-job.unassigned { color: var(--dim); font-style: italic; }
 .roster-row .rr-stats { flex: 0 0 auto; display: flex; gap: 7px; font-family: var(--mono); font-size: 9px; color: var(--dim); }
 .roster-row .rr-stats .lo { color: var(--red); }
+/* ETA — dim "—" for a docked/idle ship, amber (Tower's own in-transit
+   color, same as the map's ship blip) with tabular-nums only while a ship
+   is actually en route. Same reasoning as desktop's own .eta.live. */
+.roster-row .rr-stats .eta { min-width: 34px; text-align: right; }
+.roster-row .rr-stats .eta.live { color: var(--amber); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ── traffic-manager sheet ── */
 .sheet {
