@@ -11,6 +11,24 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: an operator-abandoned contract's goods stayed protected forever,
+  with no way to ever clear a hold that picked them up.** THEO-27/THEO-29
+  (plain auto-miners, no custom route or mission involved) sat with full
+  holds of IRON_ORE indefinitely, silently re-picking a survey and doing
+  nothing every tick. Root cause, confirmed via a persisted
+  `contractOperatorState` fleet flag: an IRON_ORE procurement contract had
+  been abandoned by the operator on 2026-09-20 ("stop sourcing this," per
+  `ContractManager.abandon()`'s own doc comment), but
+  `ContractManager.protectedGoods()` never checked the `abandoned` set the
+  way `outstandingDeliveries()`/`deliverVia()` already did — so IRON_ORE
+  stayed in `allProtectedGoods()` forever (no sell, no jettison) while
+  `deliverVia()` correctly refused to route it anywhere (no active
+  delivery to route to). Two checks that individually made sense
+  disagreed about one contract, and any ship that incidentally mined the
+  now-undeliverable-but-still-protected good got stuck with no exit.
+  `protectedGoods()` now skips abandoned contracts too, same as
+  `outstandingDeliveries()` — the stuck miners' next sell-cargo step
+  should reclaim the ore automatically, no manual jettison needed.
 - **Fix: `MissionManager`/`FeedManager` buy and sell never reached the
   ledger.** Both called `this.api.purchaseCargo()`/`sellCargo()` directly on
   the raw SpaceTraders client, bypassing `recordLedger` (and, for buys, the

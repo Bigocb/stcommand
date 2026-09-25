@@ -416,11 +416,20 @@ export class ContractManager {
    * fetched contract list (see fetchContracts()'s cache/TTL) rather than
    * making a fresh call — fulfillCompleted()/acceptBest() already refresh it
    * once per coordinator tick, which is fresh enough for "don't sell this".
+   *
+   * Must skip `abandoned` contracts exactly like outstandingDeliveries()
+   * does — confirmed live: an operator-abandoned IRON_ORE contract kept its
+   * good in this set forever (this method never checked `abandoned` at
+   * all), while deliverVia() (built on outstandingDeliveries(), which does
+   * check it) refused to route it anywhere. Two miners that incidentally
+   * mined IRON_ORE at a shared asteroid filled their holds with a good that
+   * could never be sold, jettisoned, or delivered — no seller, no route, no
+   * bug in either check alone, just the two disagreeing about one contract.
    */
   protectedGoods(): Set<string> {
     const out = new Set<string>();
     for (const c of this.cache?.contracts ?? []) {
-      if (!c.accepted || c.fulfilled) continue;
+      if (!c.accepted || c.fulfilled || this.abandoned.has(c.id)) continue;
       for (const d of c.terms.deliver ?? []) {
         if (d.unitsRequired - d.unitsFulfilled > 0) out.add(d.tradeSymbol);
       }
