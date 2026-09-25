@@ -80,7 +80,7 @@ function setTab(name) {
   if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); loadGoods(); renderMarkets(); }
-  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadActivity(); loadManipulationRoutes(); loadMarketDynamics(); renderMore(); }
+  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadManipulationRoutes(); loadMarketDynamics(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -168,6 +168,31 @@ function renderTriage() {
           ? `<button class="btn pri" data-act="approve" data-id="${escapeHtml(it.id)}">Approve</button><button class="btn deny" data-act="deny" data-id="${escapeHtml(it.id)}">Deny</button>`
           : `<button class="btn ghost" disabled>Reassign — Fleet tab soon</button>`}
       </div>
+    </div>`).join("");
+}
+
+// Mining/scanning fires constantly and drowns out everything else in a
+// raw activity feed — the operator asked for "what's going on with the
+// fleet," not a tick-by-tick extraction log. Filtered client-side only;
+// the underlying /api/activity feed (and desktop's own view of it) is
+// untouched.
+const ACTIVITY_HIDDEN_KINDS = new Set(["extract", "survey", "siphon", "scan", "market", "shipyard", "flightmode", "navigate"]);
+
+/** Recent buys/sells/feeds/deliveries, live on Home — moved here from a
+ *  buried last-section spot on the More tab (operator report, 2026-09-25:
+ *  "the other UIs have an activity feed where I can see buys and sells as
+ *  they go by" — Tower had one, but nobody was finding it under nine other
+ *  sections on More). Home is the one screen that's always polling, so
+ *  this stays live without needing the More tab ever opened. */
+function renderHomeActivity() {
+  const el = $("home-activity");
+  if (!el) return;
+  const rows = activity.filter((a) => !ACTIVITY_HIDDEN_KINDS.has(a.kind)).slice(0, 20);
+  if (!rows.length) { el.innerHTML = '<div class="empty">No activity yet.</div>'; return; }
+  el.innerHTML = rows.map((a) => `
+    <div class="act-row">
+      <div class="when">${fmtTime(a.timestamp)}</div>
+      <div class="txt">${escapeHtml(a.detail)}${a.credits == null ? "" : ` <span class="amt ${a.credits < 0 ? "neg" : "pos"}">${signed(a.credits)}</span>`}</div>
     </div>`).join("");
 }
 
@@ -1527,25 +1552,6 @@ function renderMoreDoctrine() {
     </div>`).join("");
 }
 
-// Mining/scanning fires constantly and drowns out everything else in a
-// raw activity feed — the operator asked for "what's going on with the
-// fleet," not a tick-by-tick extraction log. Filtered client-side only;
-// the underlying /api/activity feed (and desktop's own view of it) is
-// untouched.
-const ACTIVITY_HIDDEN_KINDS = new Set(["extract", "survey", "siphon", "scan", "market", "shipyard", "flightmode", "navigate"]);
-
-function renderMoreActivity() {
-  const el = $("more-activity");
-  if (!el) return;
-  const rows = activity.filter((a) => !ACTIVITY_HIDDEN_KINDS.has(a.kind)).slice(0, 30);
-  if (!rows.length) { el.innerHTML = '<div class="empty">No activity yet.</div>'; return; }
-  el.innerHTML = rows.map((a) => `
-    <div class="act-row">
-      <div class="when">${fmtTime(a.timestamp)}</div>
-      <div class="txt">${escapeHtml(a.detail)}${a.credits == null ? "" : ` <span class="amt ${a.credits < 0 ? "neg" : "pos"}">${signed(a.credits)}</span>`}</div>
-    </div>`).join("");
-}
-
 /** Per-good/market volatility, trade volume, and supply-transition
  *  frequency for the home system — see Store.marketDynamics()'s own
  *  comment (src/db/store.ts) for exact metric definitions. Already
@@ -1590,7 +1596,6 @@ function renderMore() {
   renderMoreMarketDynamicsBySystemType();
   renderMoreWarehouse();
   renderMoreDoctrine();
-  renderMoreActivity();
 }
 
 $("mission-start-btn").addEventListener("click", async () => {
@@ -1709,7 +1714,7 @@ subscribe("manipulationRoutes", () => { if (moreTabActive()) renderMoreManipulat
 subscribe("marketDynamics", () => { if (moreTabActive()) { renderMoreMarketDynamics(); renderMoreMarketDynamicsBySystemType(); } });
 subscribe("warehouse", () => { if (moreTabActive()) renderMoreWarehouse(); });
 subscribe("doctrine", () => { if (moreTabActive()) renderMoreDoctrine(); });
-subscribe("activity", () => { if (moreTabActive()) renderMoreActivity(); });
+subscribe("activity", () => renderHomeActivity());
 
 /* ── boot ──────────────────────────────────
  * Same 15s polling cadence as v6.js's tradeops/ops tabs — Home always
@@ -1722,18 +1727,23 @@ function boot() {
   loadApprovals();
   loadDispatch();
   loadMarkets();
+  loadActivity();
   renderStatusbar();
 }
 function pollTick() {
-  loadState(); loadBridge(); loadApprovals(); loadDispatch();
+  // loadActivity() unconditionally, same as state/bridge/approvals/
+  // dispatch above it — Home's own Activity section (moved off the More
+  // tab, see renderHomeActivity()'s comment) is on the one screen that's
+  // always polling, not gated to a tab being open.
+  loadState(); loadBridge(); loadApprovals(); loadDispatch(); loadActivity();
   if (mapTabActive() || marketsTabActive() || fleetTabActive()) loadMarkets();
   if (marketsTabActive()) loadGoods();
-  if (moreTabActive()) { loadProgramme(); loadWarehouse(); loadActivity(); }
+  if (moreTabActive()) { loadProgramme(); loadWarehouse(); }
   // fleetTabActive() gets its own, narrower loadProgramme() call — same
   // reason as setTab()'s own comment: a feed/mission claim made while
   // Fleet is already open (e.g. a new carrier assigned mid-session) needs
   // feeds/missions/contracts to stay fresh, not just on first opening the
-  // tab — but Fleet has no use for warehouse/activity, unlike More.
+  // tab — but Fleet has no use for warehouse, unlike More.
   else if (fleetTabActive()) loadProgramme();
 }
 setInterval(() => {

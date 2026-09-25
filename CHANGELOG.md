@@ -11,6 +11,16 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tower: moved the Activity feed from the bottom of the More tab to
+  Home.** Operator report: "the other UIs have an activity feed where I
+  can see buys and sells as they go by" — Tower already had one, but it
+  was the last of ten sections on a long More-tab scroll, easy to miss
+  entirely, and the operator explicitly didn't want it added back there
+  ("there's too much stuff already"). Home already polls continuously (the
+  one screen that's always live), so Activity now lives there instead,
+  right under the triage list — `loadActivity()` moved off the
+  More-tab-only loaders to fire on every boot/poll tick, same as bridge/
+  approvals/dispatch.
 - **Fix: Tower's Fleet screen never actually loaded the data its own new
   feed/mission/contract claim display needs.** `claimFor()`/`fleetRows()`
   (added same day, see the entry below) read `feeds`/`missions`/`contracts`
