@@ -507,6 +507,9 @@ export class FeedManager {
           await this.persist(feed);
           this.onActivity?.("feed", `assigned ${carrier} to feed ${feed.good} → ${feed.targetWaypoint}`, 0, carrier);
         }
+        // A failed pick here used to be silent — see pickFeedCarrier()'s own
+        // comment in fleet.ts (the actual injected pickCarrier callback) for
+        // the throttled diagnostic that now covers it.
       }
     }
 

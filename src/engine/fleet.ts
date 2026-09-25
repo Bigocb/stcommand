@@ -269,6 +269,13 @@ export class FleetManager {
   // fleet_flags JSON blob), restored in init() below.
   private readonly minerPreferences = new Map<string, string>();
 
+  /** Throttle for pickFeedCarrier()'s own "no carrier found" diagnostic —
+   *  that call happens every feed tick regardless of outcome, so logging
+   *  on every failure would spam once a feed with no viable crew sits
+   *  waiting for any length of time. Keyed by targetWaypoint, same 15s
+   *  cadence as feed.ts's own discovery/no-carrier retry timers. */
+  private readonly pickFeedCarrierLogRetry = new Map<string, number>();
+
   private readonly store?: Store;
   private readonly tenantId?: string;
   private readonly approvals: ApprovalGate;
@@ -3823,7 +3830,23 @@ export class FleetManager {
     }
     reachable.sort((a, b) => b.cargo - a.cargo || b.fuelCap - a.fuelCap || a.sym.localeCompare(b.sym));
     const picked = reachable[0]?.sym;
-    if (picked) this.shipRegistry.claim(picked, "feed", this.roleOf(picked));
+    if (picked) {
+      this.shipRegistry.claim(picked, "feed", this.roleOf(picked));
+    } else if (targetWaypoint) {
+      // A failed pick used to be completely untraceable from outside the
+      // process — feed.ts's own step() logged nothing at all when this
+      // returned undefined, indistinguishable from "hasn't ticked yet" no
+      // matter how long a feed sat with zero crew. candidates.length vs
+      // reachable.length distinguishes "no ship is even eligible"
+      // (excluded/committed elsewhere/not available) from "eligible ships
+      // exist but can't reach the target" (fuel/route) — the two failure
+      // modes silence alone couldn't tell apart.
+      const last = this.pickFeedCarrierLogRetry.get(targetWaypoint) ?? 0;
+      if (Date.now() >= last) {
+        this.pickFeedCarrierLogRetry.set(targetWaypoint, Date.now() + 15_000);
+        this.log(`pickFeedCarrier: no carrier for ${targetWaypoint} — ${candidates.length} eligible, ${reachable.length} reachable (requireMiner=${!!requireMiner}, excluded ${exclude.size})`);
+      }
+    }
     return picked;
   }
   /** Known fuel stops (marketplaces that list FUEL) in a system, by symbol. */
