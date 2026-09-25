@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix (live incident): a mine-feed's hold could clog with the
+  asteroid's other deposits and never clear.** `held` (stepCarrier()'s
+  "am I already carrying the target good" check) only counts units of
+  `feed.good` — a hold that's completely full of the asteroid's *other*
+  ore types reads as "empty-handed" and falls into the mine branch, but
+  `mineOnce()` has no free cargo slots to extract into and silently
+  no-ops every call while still reporting success. Confirmed live:
+  THEO-27/THEO-29/THEO-2C (the H56 IRON_ORE feed's crew) sat full of
+  COPPER_ORE/ALUMINUM_ORE/SILICON_CRYSTALS — zero IRON_ORE — for 48+
+  minutes, re-logging "mining at .../using survey at ..." every cycle
+  with nothing ever extracted or delivered. This is *why* H56's price
+  never moved during the whole earlier "do we need more miners or a
+  refinery" discussion — not a market-mechanics answer, a feed that had
+  silently stopped delivering entirely. The mine branch now clears a
+  full-but-wrong-good hold before mining, same as the buy branch already
+  does before buying.
 - **Fix (urgent, live incident): a feed could buy from its own sell
   target, looping in place and burning cash every cycle.** THEO-6's IRON
   feed (H56 → F50, no `buyAt` pin) drove F50's own buy price down through

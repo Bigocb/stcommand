@@ -595,6 +595,24 @@ export class FeedManager {
     // mines — no market lookup at all, since most raw ore has no seller
     // anyway and the flag is an explicit choice, not a fallback guess.
     if (feed.mine) {
+      // `held` above only counts feed.good — a hold that's full of the
+      // asteroid's OTHER deposits (this feed mines an asteroid with several
+      // ore types, only one of which is the target) reads as "empty-handed"
+      // here and falls straight into mining again, but mineOnce() has no
+      // room to extract into and no-ops every call while still reporting
+      // success (extractUntilFull()'s loop just never executes when
+      // cargoFree() is 0). Confirmed live: THEO-27/29/2C sat full of
+      // COPPER_ORE/ALUMINUM_ORE/SILICON_CRYSTALS — zero IRON_ORE — for 48+
+      // minutes, silently re-logging "mining at .../using survey at ..."
+      // every cycle with nothing ever extracted, which is exactly why the
+      // H56 market never moved no matter how long the feed "ran." The buy
+      // branch already clears a full-but-wrong-good hold before sourcing
+      // (see the freeSpace<=0 check below it); mining needs the same clear.
+      const freeSpace = ship.cargo.capacity - ship.cargo.units;
+      if (freeSpace <= 0) {
+        await this.clearUnrelatedCargo(ship.symbol, feed.good, ship.cargo.inventory);
+        return;
+      }
       const mined = await this.mineOnce?.(shipSymbol);
       if (!mined) t.retryAt = Date.now() + 15_000;
       return;
