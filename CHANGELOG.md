@@ -11,6 +11,23 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: starting a feeder chain from tiers that were already running as
+  standalone feeds silently did nothing to those tiers, while still
+  reporting success.** Confirmed live 2026-09-25: operator started three
+  standalone feeds (IRON_ORE→H56, IRON→F50, ELECTRONICS→D40), then built a
+  chain from those same three tiers — `startChain()`'s own "chain started"
+  log fired, but `FeedManager.start()` had an unconditional
+  `if (this.active.has(key)) return;` for a feed already running under that
+  (market, good) key, so none of the three tiers actually received the new
+  `chainId`/`buyAt`. The chain didn't show up in the UI because, in the
+  data, it didn't actually exist — no tier carried its id. Fixed by having
+  `start()` **adopt** an already-running feed into the chain (apply the new
+  `chainId`/`chainName`/`chainOrder`/`buyAt`/`mine` and force its carrier(s)
+  to re-pick their source next tick) instead of no-op'ing, whenever the
+  call is specifically a chain start (`opts.chainId` set); an ordinary
+  repeated `startFeed()` call on an already-running feed is still the
+  harmless no-op it always was.
+
 - **Add: feeder chains — connected feeder tiers where each one buys where
   the previous one sold, instead of each independently re-deriving
   "cheapest known market" and possibly drifting to an unconnected one.**

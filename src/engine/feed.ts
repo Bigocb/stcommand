@@ -177,7 +177,34 @@ export class FeedManager {
   async start(targetWaypoint: string, good: string, opts: FeedStartOptions = {}): Promise<void> {
     const carrierTarget = opts.carrierTarget ?? 1;
     const key = this.key(targetWaypoint, good);
-    if (this.active.has(key)) return;
+    // A feed already running under this exact (targetWaypoint, good) — most
+    // commonly startChain() naming a tier the operator had already started
+    // standalone. A plain re-call (opts.chainId undefined) stays the
+    // no-op it always was; a chain call ADOPTS this feed into the chain
+    // instead of silently doing nothing, which is what used to happen here
+    // and is exactly why a chain built from already-running tiers "saved"
+    // (startChain()'s own log line fired) but no tier actually carried the
+    // new chainId — confirmed live 2026-09-25.
+    const existing = this.active.get(key);
+    if (existing) {
+      if (opts.chainId !== undefined) {
+        existing.chainId = opts.chainId;
+        existing.chainName = opts.chainName;
+        existing.chainOrder = opts.chainOrder;
+        if (opts.buyAt !== undefined) existing.buyAt = opts.buyAt;
+        if (opts.mine !== undefined) existing.mine = opts.mine;
+        // Force the running carrier(s) to re-pick their source next tick —
+        // they may already have locked onto a different market before
+        // being adopted into this chain.
+        for (const t of this.tasks.get(key)?.values() ?? []) {
+          t.market = undefined;
+          t.basePrice = undefined;
+        }
+        await this.persist(existing);
+        this.log(`feed ${good} → ${targetWaypoint}: adopted into chain ${opts.chainName ?? opts.chainId}`);
+      }
+      return;
+    }
     const system = targetWaypoint.slice(0, targetWaypoint.lastIndexOf("-"));
     const known = this.tenantId ? await this.store?.latestFeeds(this.tenantId) : undefined;
     const persisted = known?.find((f) => f.targetWaypoint === targetWaypoint && f.good === good);
@@ -188,15 +215,16 @@ export class FeedManager {
         good,
         assignedShips: [...persisted.assignedShips],
         carrierTarget: persisted.carrierTarget,
-        mine: persisted.mine,
-        buyAt: persisted.buyAt ?? undefined,
-        chainId: persisted.chainId ?? undefined,
-        chainName: persisted.chainName ?? undefined,
-        chainOrder: persisted.chainOrder ?? undefined,
+        mine: opts.mine ?? persisted.mine,
+        buyAt: opts.buyAt ?? persisted.buyAt ?? undefined,
+        chainId: opts.chainId ?? persisted.chainId ?? undefined,
+        chainName: opts.chainId !== undefined ? opts.chainName : (persisted.chainName ?? undefined),
+        chainOrder: opts.chainId !== undefined ? opts.chainOrder : (persisted.chainOrder ?? undefined),
       };
       this.active.set(key, feed);
       if (persisted.paused) {
         this.paused.add(key);
+        if (opts.chainId !== undefined) await this.persist(feed);
         this.log(`feed resumed (from prior state, PAUSED): ${good} → ${targetWaypoint}`);
         return;
       }
@@ -206,6 +234,7 @@ export class FeedManager {
         await this.suspend?.(s);
       }
       this.tasks.set(key, shipTasks);
+      if (opts.chainId !== undefined) await this.persist(feed);
       this.log(`feed resumed (from prior state): ${good} → ${targetWaypoint}`);
       return;
     }
