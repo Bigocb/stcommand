@@ -29,6 +29,11 @@ export interface Feed {
   assignedShips: string[];
   carrierTarget: number;
   paused?: boolean;
+  /** Explicit operator choice: source this good by mining instead of buying
+   *  at a market. Deliberately explicit rather than auto-detected — most
+   *  raw ore has no market seller at all, but guessing "mineable" from that
+   *  alone is unreliable, and the operator already knows which is which. */
+  mine?: boolean;
 }
 
 interface FeedTaskState {
@@ -48,7 +53,10 @@ interface FeedOptions {
   estimatedFuelBetween?: (a: string, b: string) => number;
   canReach?: (shipSymbol: string, targetWaypoint: string) => Promise<boolean>;
   dispatchShip?: (shipSymbol: string, waypointSymbol: string) => Promise<void>;
-  pickCarrier?: (exclude: Set<string>, targetWaypoint?: string) => Promise<string | undefined>;
+  /** `requireMiner` is true for a "mine" feed — its crew must actually be
+   *  able to mine (a plain trader would just spin, unable to source
+   *  anything, since nothing sells the good). */
+  pickCarrier?: (exclude: Set<string>, targetWaypoint?: string, requireMiner?: boolean) => Promise<string | undefined>;
   suspend?: (shipSymbol: string) => void | Promise<void>;
   resume?: (shipSymbol: string) => void;
   /** Sources known to sell a trade good in the given system, cheapest first. */
@@ -57,6 +65,12 @@ interface FeedOptions {
   getCredits?: () => Promise<number>;
   sellCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
   jettisonCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
+  /** Mine one batch of the feed's good for this ship, if it has a mining
+   *  mount and a reachable asteroid — the fallback source when nothing
+   *  sells the good (raw ore, typically). Returns true if it did anything
+   *  (mined or relocated toward an asteroid), false if this ship can't mine
+   *  or has nowhere to mine from right now. */
+  mineOnce?: (shipSymbol: string) => Promise<boolean>;
 }
 
 /** How far a feed buy's live price may drift above the price seen when its
@@ -89,6 +103,7 @@ export class FeedManager {
   private readonly getCredits?: FeedOptions["getCredits"];
   private readonly sellCargo?: FeedOptions["sellCargo"];
   private readonly jettisonCargo?: FeedOptions["jettisonCargo"];
+  private readonly mineOnce?: FeedOptions["mineOnce"];
 
   private active = new Map<string, Feed>();
   /** Key → shipSymbol → that ship's own independent TaskState. */
@@ -115,6 +130,7 @@ export class FeedManager {
     this.getCredits = opts.getCredits;
     this.sellCargo = opts.sellCargo;
     this.jettisonCargo = opts.jettisonCargo;
+    this.mineOnce = opts.mineOnce;
   }
 
   private key(targetWaypoint: string, good: string): string {
@@ -122,7 +138,7 @@ export class FeedManager {
   }
 
   /** Start (or resume, if already persisted) a feeder tier. */
-  async start(targetWaypoint: string, good: string, carrierTarget = 1): Promise<void> {
+  async start(targetWaypoint: string, good: string, carrierTarget = 1, mine = false): Promise<void> {
     const key = this.key(targetWaypoint, good);
     if (this.active.has(key)) return;
     const system = targetWaypoint.slice(0, targetWaypoint.lastIndexOf("-"));
@@ -135,6 +151,7 @@ export class FeedManager {
         good,
         assignedShips: [...persisted.assignedShips],
         carrierTarget: persisted.carrierTarget,
+        mine: persisted.mine,
       };
       this.active.set(key, feed);
       if (persisted.paused) {
@@ -151,11 +168,11 @@ export class FeedManager {
       this.log(`feed resumed (from prior state): ${good} → ${targetWaypoint}`);
       return;
     }
-    const feed: Feed = { targetSystem: system, targetWaypoint, good, assignedShips: [], carrierTarget };
+    const feed: Feed = { targetSystem: system, targetWaypoint, good, assignedShips: [], carrierTarget, mine };
     this.active.set(key, feed);
     this.tasks.set(key, new Map());
     await this.persist(feed);
-    this.log(`feed started: ${good} → ${targetWaypoint} (crew target ${carrierTarget})`);
+    this.log(`feed started: ${good} → ${targetWaypoint} (crew target ${carrierTarget}, source: ${mine ? "mine" : "buy"})`);
     this.onActivity?.("feed", `feeder started: ${good} → ${targetWaypoint}`, 0, undefined);
   }
 
@@ -169,6 +186,7 @@ export class FeedManager {
       assignedShips: f.assignedShips,
       carrierTarget: f.carrierTarget,
       paused: f.paused,
+      mine: f.mine,
     }));
     return [...this.active.values(), ...persisted.filter((p) => !this.active.has(this.key(p.targetWaypoint, p.good)))]
       .map((f) => ({ ...f, paused: this.active.has(this.key(f.targetWaypoint, f.good)) ? this.paused.has(this.key(f.targetWaypoint, f.good)) : (f.paused ?? false) }));
@@ -300,8 +318,11 @@ export class FeedManager {
     if (!shipTasks) return;
 
     if (feed.assignedShips.length < feed.carrierTarget) {
-      const buyers = (await this.listBuyers?.(feed.good, feed.targetSystem)) ?? [];
-      if (buyers.length === 0) {
+      // A "mine" feed has no market seller to check by definition — the
+      // buyer-discovery gate below only applies to a buy feed, where it
+      // avoids assigning a carrier to a good nothing sells yet.
+      const sourceable = feed.mine || ((await this.listBuyers?.(feed.good, feed.targetSystem)) ?? []).length > 0;
+      if (!sourceable) {
         const last = this.preAssignDiscoverRetry.get(key) ?? 0;
         if (Date.now() >= last) {
           this.preAssignDiscoverRetry.set(key, Date.now() + 15_000);
@@ -313,7 +334,7 @@ export class FeedManager {
           }
         }
       } else {
-        const carrier = await this.pickCarrier?.(this.committedShips(), feed.targetWaypoint);
+        const carrier = await this.pickCarrier?.(this.committedShips(), feed.targetWaypoint, feed.mine);
         if (carrier) {
           feed.assignedShips.push(carrier);
           shipTasks.set(carrier, { retryAt: 0 });
@@ -393,7 +414,15 @@ export class FeedManager {
       return;
     }
 
-    // Empty-handed: pick a cheap source market if we don't already have one.
+    // Empty-handed: source the good. An operator-flagged "mine" feed always
+    // mines — no market lookup at all, since most raw ore has no seller
+    // anyway and the flag is an explicit choice, not a fallback guess.
+    if (feed.mine) {
+      const mined = await this.mineOnce?.(shipSymbol);
+      if (!mined) t.retryAt = Date.now() + 15_000;
+      return;
+    }
+    // Otherwise pick a cheap source market if we don't already have one.
     if (!t.market) {
       const buyers = (await this.listBuyers?.(feed.good, feed.targetSystem)) ?? [];
       if (buyers.length === 0) {
@@ -459,6 +488,7 @@ export class FeedManager {
       assignedShips: f.assignedShips,
       carrierTarget: f.carrierTarget,
       paused: this.paused.has(key),
+      mine: f.mine ?? false,
     });
   }
 }

@@ -1300,7 +1300,7 @@ function renderMoreFeeds() {
         <span class="who">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
         <span class="amt">${f.paused ? "off" : "on"}</span>
       </div>
-      <div class="detail">crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
+      <div class="detail">${f.mine ? "mined" : "bought"} · crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
       <div class="acts">
         <input type="number" class="carrier-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
         <button class="btn" data-act="set-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Set crew size</button>
@@ -1557,15 +1557,17 @@ $("more-missions").addEventListener("click", async (e) => {
 $("feed-start-btn").addEventListener("click", async () => {
   const wpInput = $("feed-wp-input");
   const goodInput = $("feed-good-input");
+  const mineInput = $("feed-mine-input");
   const wp = wpInput.value.trim();
   const good = goodInput.value.trim().toUpperCase();
   if (!wp || !good) return;
   const btn = $("feed-start-btn");
   btn.disabled = true;
   try {
-    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: 1 });
+    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: 1, mine: mineInput.checked });
     wpInput.value = "";
     goodInput.value = "";
+    mineInput.checked = false;
     await loadProgramme();
   } catch (err) { alert(err.message); }
   btn.disabled = false;

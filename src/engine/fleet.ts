@@ -398,7 +398,7 @@ export class FleetManager {
       estimatedFuelBetween: (a, b) => this.estimatedFuelBetween(a, b),
       canReach: async (shipSymbol, targetWaypoint) => this.canReachTarget(shipSymbol, targetWaypoint),
       dispatchShip: (s, w) => this.dispatchShipHop(s, w),
-      pickCarrier: (exclude, targetWaypoint) => this.pickFeedCarrier(new Set([...exclude, ...this.missions.committedShips()]), targetWaypoint),
+      pickCarrier: (exclude, targetWaypoint, requireMiner) => this.pickFeedCarrier(new Set([...exclude, ...this.missions.committedShips()]), targetWaypoint, requireMiner),
       suspend: (s) => this.suspendAgent(s),
       resume: (s) => this.resumeAgent(s),
       listBuyers: (good, sys) => this.materialBuyers(good, sys),
@@ -406,6 +406,11 @@ export class FleetManager {
       getCredits: async () => this.spendableCredits(),
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
       jettisonCargo: (s, g, u) => this.jettisonCargo(s, g, u),
+      // A "mine" feed's crew are miners driven by their own ShipAgent's
+      // extraction loop for one batch — see agent.ts's mineOnce() — rather
+      // than FeedManager's own buy/sell primitives, which don't apply to a
+      // good nothing sells.
+      mineOnce: async (shipSymbol) => (await this.miners.get(shipSymbol)?.mineOnce()) ?? false,
     });
   }
 
@@ -706,7 +711,7 @@ export class FleetManager {
       const knownFeeds = (await this.store?.latestFeeds(this.tenantId)) ?? [];
       for (const f of knownFeeds) {
         try {
-          await this.feeds.start(f.targetWaypoint, f.good, f.carrierTarget);
+          await this.feeds.start(f.targetWaypoint, f.good, f.carrierTarget, f.mine);
         } catch (err) {
           this.log(`restore feed ${f.good} → ${f.targetWaypoint} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -3782,12 +3787,14 @@ export class FleetManager {
   /** Pick an idle cargo-capable ship to run a feeder tier — same shape as
    *  pickMissionCarrier(), claiming through the registry as "feed" instead
    *  of "mission" (see shipRegistry.ts's own comment on why they're kept
-   *  as separate owners). */
-  private async pickFeedCarrier(exclude: Set<string>, targetWaypoint?: string): Promise<string | undefined> {
+   *  as separate owners). `requireMiner` restricts candidates to the
+   *  miners pool — a "mine" feed's crew must actually be able to mine, a
+   *  plain trader would just spin, unable to source anything. */
+  private async pickFeedCarrier(exclude: Set<string>, targetWaypoint?: string, requireMiner?: boolean): Promise<string | undefined> {
     const available = this.availableFor("feed");
     const candidates: { sym: string; cargo: number; fuelCap: number }[] = [];
     for (const [s, a] of this.miners) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
-    for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
+    if (!requireMiner) for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
     let reachable = candidates;
     if (targetWaypoint) {
       reachable = [];
@@ -4862,11 +4869,13 @@ export class FleetManager {
     return (await this.feeds.list()).map((f) => ({ ...f, paused: this.feeds.isPaused(f.targetWaypoint, f.good) }));
   }
 
-  /** Start a feeder tier: a crew that buys `good` cheap and sells it into
+  /** Start a feeder tier: a crew that sources `good` and sells it into
    *  `waypointSymbol`, to keep that market's price from spiking under
-   *  another buyer's own repeated purchasing pressure. */
-  startFeed(waypointSymbol: string, good: string, carrierTarget = 1): Promise<void> {
-    return this.feeds.start(waypointSymbol, good, carrierTarget);
+   *  another buyer's own repeated purchasing pressure. `mine` is an
+   *  explicit operator choice to source by mining instead of buying —
+   *  see Feed.mine's own comment in feed.ts. */
+  startFeed(waypointSymbol: string, good: string, carrierTarget = 1, mine = false): Promise<void> {
+    return this.feeds.start(waypointSymbol, good, carrierTarget, mine);
   }
 
   /** Pause a feed (stop buying/selling, release its crew). */
@@ -4888,10 +4897,15 @@ export class FleetManager {
   /** Manually add a ship to a feed's crew — same reachability/claim checks
    *  as assignMissionCarrier(), claiming "feed" instead of "mission". */
   async assignFeedCarrier(waypointSymbol: string, good: string, shipSymbol: string): Promise<void> {
+    const feedList = await this.feeds.list();
+    const thisFeed = feedList.find((f) => f.targetWaypoint === waypointSymbol && f.good === good);
+    if (thisFeed?.mine && !this.miners.has(shipSymbol)) {
+      throw new Error(`${shipSymbol} isn't a miner — ${good} → ${waypointSymbol} is set to source by mining, not buying`);
+    }
     const agent = this.miners.get(shipSymbol) ?? this.traders.get(shipSymbol);
     if (!agent) throw new Error(`${shipSymbol} is not a miner or trader — feeding needs a cargo hold`);
     if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold`);
-    const otherFeed = (await this.feeds.list())
+    const otherFeed = feedList
       .find((f) => f.assignedShips.includes(shipSymbol) && !(f.targetWaypoint === waypointSymbol && f.good === good));
     if (otherFeed) throw new Error(`${shipSymbol} is already feeding ${otherFeed.good} → ${otherFeed.targetWaypoint}`);
     const otherMission = (await this.missions.list()).find((m) => m.assignedShips.includes(shipSymbol) && m.status === "active");

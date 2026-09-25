@@ -1019,9 +1019,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const waypoint = String(req.body?.waypoint ?? "");
     const good = String(req.body?.good ?? "").toUpperCase();
     const carrierTarget = Number(req.body?.carrierTarget ?? 1);
+    const mine = req.body?.mine === true;
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
     try {
-      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1);
+      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1, mine);
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

@@ -279,6 +279,9 @@ export interface FeedRow {
   assignedShips: string[];
   carrierTarget: number;
   paused: boolean;
+  /** Source by mining instead of buying at a market — an explicit operator
+   *  choice, see feed.ts's Feed.mine comment. */
+  mine: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -2176,16 +2179,17 @@ export class Store {
       assignedShips: string[];
       carrierTarget: number;
       paused?: boolean;
+      mine?: boolean;
     },
   ): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO feed_missions (tenant_id, target_system, target_waypoint, good, assigned_ships, carrier_target, paused, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+        `INSERT INTO feed_missions (tenant_id, target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
          ON CONFLICT (tenant_id, target_waypoint, good) DO UPDATE SET
            assigned_ships = excluded.assigned_ships, carrier_target = excluded.carrier_target,
-           paused = excluded.paused, updated_at = excluded.updated_at`,
-        [tenantId, f.targetSystem, f.targetWaypoint, f.good, JSON.stringify(f.assignedShips), f.carrierTarget, f.paused ?? false],
+           paused = excluded.paused, mine = excluded.mine, updated_at = excluded.updated_at`,
+        [tenantId, f.targetSystem, f.targetWaypoint, f.good, JSON.stringify(f.assignedShips), f.carrierTarget, f.paused ?? false, f.mine ?? false],
       ),
     );
   }
@@ -2200,9 +2204,10 @@ export class Store {
         assigned_ships: string[];
         carrier_target: number;
         paused: boolean;
+        mine: boolean;
         created_at: Date;
         updated_at: Date;
-      }>(`SELECT target_system, target_waypoint, good, assigned_ships, carrier_target, paused, created_at, updated_at
+      }>(`SELECT target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, created_at, updated_at
           FROM feed_missions ORDER BY updated_at DESC`);
       return res.rows.map((r) => ({
         targetSystem: r.target_system,
@@ -2211,6 +2216,7 @@ export class Store {
         assignedShips: r.assigned_ships ?? [],
         carrierTarget: r.carrier_target ?? 1,
         paused: r.paused,
+        mine: r.mine ?? false,
         createdAt: r.created_at.toISOString(),
         updatedAt: r.updated_at.toISOString(),
       }));

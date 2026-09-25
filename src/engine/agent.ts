@@ -1002,6 +1002,18 @@ export class ShipAgent {
     }
 
     // 4. Otherwise mine.
+    return this.mineStep();
+  }
+
+  /**
+   * Mine one batch: pick the nearest reachable asteroid, fly there, extract
+   * (or extract-and-refine) until full or the survey's exhausted. Factored
+   * out of tick()'s own step 4 so it's reusable from outside the survival
+   * loop — see mineOnce() below, used by FeedManager for a feeder tier whose
+   * good has no market seller (raw ore, typically) and must be mined
+   * instead of bought.
+   */
+  private async mineStep(): Promise<boolean> {
     if (!this.canMine()) {
       this.goal = { kind: "idle" };
       this.log("no mining mount; idling");
@@ -1033,6 +1045,23 @@ export class ShipAgent {
     }
     await this.refresh();
     return true;
+  }
+
+  /**
+   * Mine one batch for an external driver (FeedManager) rather than this
+   * agent's own survival-loop tick(). Deliberately bypasses tick()'s steps
+   * 1-3 (deliver/sell/arbitrage) — the caller handles delivery itself (a
+   * feed sells everything it mines into its own target market), so running
+   * this ship's normal sell logic in between would fight over the cargo.
+   * Returns false if this ship can't mine at all (no mining mount) or has
+   * no reachable asteroid — the caller should fall back to its own
+   * retry/backoff rather than treat that as a hard failure, since a relocate
+   * move (this ship has no asteroid in range from here but might from a
+   * nearby market) still returns true and makes progress.
+   */
+  async mineOnce(): Promise<boolean> {
+    await this.refresh();
+    return this.mineStep();
   }
 
   /**

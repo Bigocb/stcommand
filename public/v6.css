@@ -476,6 +476,7 @@
   .dispatch-toolbar { display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
   .dispatch-toolbar select { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
   .dispatch-toolbar .btn { padding:4px 10px; font-size:10px; }
+  .checkline { display:flex; align-items:center; gap:4px; font-size:9.5px; color:var(--dim); text-transform:uppercase; letter-spacing:0.05em; white-space:nowrap; }
   .dispatch-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
   .dispatch-row .ship { font-weight:600; color:var(--bone); min-width:100px; }
   .dispatch-row .good { color:var(--teal); font-weight:600; min-width:120px; }

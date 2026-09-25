@@ -11,6 +11,23 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: feeder tiers could only ever source by buying at a market — a
+  feed for a mined good (raw ore, the actual bottom tier of the
+  ore→refinery chain the feature was built for) would sit stuck logging
+  "no source found" forever, since nothing sells raw ore.** Added an
+  explicit "mine instead of buy" checkbox per feed (`Feed.mine`, new
+  `feed_missions.mine` column, migration `027`) — deliberately a manual
+  operator choice, not auto-detected from "has no market seller", since
+  that heuristic is unreliable and the operator already knows which is
+  which. When set, sourcing skips the market lookup entirely and calls a
+  new `ShipAgent.mineOnce()` (`src/engine/agent.ts`, factored out of
+  `tick()`'s own step-4 mining logic so it's reusable outside the normal
+  survival loop) — the crew must be drawn from the miners pool specifically
+  (`pickCarrier`'s new `requireMiner` flag), since a trader has no mining
+  mount and would just spin. Also fixed the auto-crew gate, which checked
+  for a known market buyer before ever assigning a carrier — always false
+  for a mine feed, so it would never staff up at all without this.
+
 - **Add: feeder tiers — a dedicated crew that continuously buys a good
   cheap and sells it into one specific upstream market, to keep that
   market's price from spiking under a buyer's own repeated purchasing

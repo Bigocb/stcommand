@@ -432,6 +432,7 @@ body {
   font-size: 12px; padding: 8px 10px; border-radius: 3px;
 }
 .card .acts .btn { flex: 1; }
+.checkline { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); white-space: nowrap; }
 .prog-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 10.5px; }
 .prog-row .pr-pct { color: var(--dim); }
 .prog-track { height: 5px; background: rgba(255, 255, 255, 0.06); border-radius: 3px; overflow: hidden; margin: 4px 0 8px; }

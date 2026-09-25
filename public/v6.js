@@ -6595,6 +6595,7 @@ function renderFeeds(list) {
     return `<div class="ops-card">
       <div class="ops-head">
         <span class="ops-title">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
+        <span class="tag">${f.mine ? "mine" : "buy"}</span>
         <span class="tag ${f.paused ? "paused" : "done"}">${f.paused ? "off" : "on"}</span>
         <span class="fill"></span>
         <span class="ops-sub">crew ${crew.length}/${target}</span>
@@ -6772,19 +6773,20 @@ async function missionStart(waypointInputId) {
 $("mission-start").addEventListener("click", () => missionStart("mission-waypoint"));
 $("mobile-mission-start").addEventListener("click", () => missionStart("mobile-mission-waypoint"));
 
-async function feedStart(waypointInputId, goodInputId, crewInputId) {
+async function feedStart(waypointInputId, goodInputId, crewInputId, mineInputId) {
   const wp = $(waypointInputId).value.trim();
   const good = $(goodInputId).value.trim().toUpperCase();
   const crew = Number($(crewInputId).value) || 1;
+  const mine = $(mineInputId)?.checked ?? false;
   if (!wp || !good) { showToastGlobal("Enter a market to feed and a good first", true); return; }
   try {
-    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: crew });
-    showToastGlobal(`Feed started: ${good} → ${wp}`);
+    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: crew, mine });
+    showToastGlobal(`Feed started: ${good} → ${wp}${mine ? " (mined)" : ""}`);
     loadProgramme();
   } catch (err) { showToastGlobal(err.message, true); }
 }
-$("feed-start").addEventListener("click", () => feedStart("feed-waypoint", "feed-good", "feed-crew"));
-$("mobile-feed-start").addEventListener("click", () => feedStart("mobile-feed-waypoint", "mobile-feed-good", "mobile-feed-crew"));
+$("feed-start").addEventListener("click", () => feedStart("feed-waypoint", "feed-good", "feed-crew", "feed-mine"));
+$("mobile-feed-start").addEventListener("click", () => feedStart("mobile-feed-waypoint", "mobile-feed-good", "mobile-feed-crew", "mobile-feed-mine"));
 
 async function onContractClick(e) {
   const btn = e.target.closest("button[data-act]");
