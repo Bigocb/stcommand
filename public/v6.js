@@ -23,7 +23,7 @@ import {
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
   dispatchRoutes, dispatchAssignments, minerPreferences, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, priceWaypointsByGood, pricePoints, contracts,
-  missions, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
+  missions, feeds, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
   approvals, manipulationRoutes, marketDynamics, marketDynamicsBySystemType,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
@@ -6560,6 +6560,67 @@ function renderMissions(list) {
   for (const id of ["missions", "mobile-missions"]) { const el = $(id); if (el) el.innerHTML = html; }
 }
 
+/* ── Feeder tiers (Ops) ──────────────────────
+ * A feeder tier is a crew that continuously buys a good cheap and sells it
+ * into one specific upstream market — the counter-pressure to a buyer's own
+ * repeated purchasing driving that market's price up (see FeedManager,
+ * src/engine/feed.ts). Deliberately separate from Construction missions —
+ * a feed has no material/required-fulfilled progress and never completes,
+ * it just runs until toggled off.
+ */
+function renderFeeds(list) {
+  const items = list ?? [];
+  if (!items.length) {
+    const empty = '<div class="empty">No feeder tiers. Enter the market to feed and the good, then Start feed.</div>';
+    for (const id of ["feeds", "mobile-feeds"]) { const el = $(id); if (el) el.innerHTML = empty; }
+    return;
+  }
+  const committedElsewhere = new Set([
+    ...(missions ?? []).flatMap((m) => m.assignedShips ?? []),
+    ...items.flatMap((f) => f.assignedShips ?? []),
+  ]);
+  const carrierCandidates = (fleetStatus.ships ?? []).filter((s) =>
+    (s.role === "miner" || s.role === "trader") && !committedElsewhere.has(s.symbol)
+  );
+  const html = items.map((f) => {
+    const crew = f.assignedShips ?? [];
+    const target = f.carrierTarget ?? 1;
+    const options = carrierCandidates
+      .concat(crew.filter((s) => !carrierCandidates.some((c) => c.symbol === s)).map((s) => ({ symbol: s })))
+      .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
+      .join("");
+    const crewChips = crew.length
+      ? crew.map((s) => `<span class="tag">${escapeHtml(s)} <button class="chip-x" data-act="remove-carrier" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-ship="${escapeAttr(s)}" aria-label="Remove ${escapeHtml(s)}">&times;</button></span>`).join(" ")
+      : '<span class="ops-sub">no crew yet</span>';
+    return `<div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
+        <span class="tag ${f.paused ? "paused" : "done"}">${f.paused ? "off" : "on"}</span>
+        <span class="fill"></span>
+        <span class="ops-sub">crew ${crew.length}/${target}</span>
+      </div>
+      <div class="ops-head" style="margin-top:6px">${crewChips}</div>
+      <div class="ops-head" style="margin-top:6px">
+        <select class="assign-carrier" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" aria-label="Carrier ship">
+          <option value="">add ship…</option>
+          ${options}
+        </select>
+        <button class="btn" data-act="assign" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Add</button>
+      </div>
+      <div class="ops-head" style="margin-top:6px">
+        <input type="number" class="carrier-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
+        <button class="btn" data-act="set-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Set crew size</button>
+        <span class="fill"></span>
+        ${f.paused
+          ? `<button class="btn pri" data-act="on" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn on</button>`
+          : `<button class="btn" data-act="off" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn off</button>`}
+        <button class="btn ghost" data-act="remove" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+  for (const id of ["feeds", "mobile-feeds"]) { const el = $(id); if (el) el.innerHTML = html; }
+}
+
 /* ── Manipulation routes (Ops) ──────────────
  * docs/TODO.md's supply-chain-aware buy-side price manipulation idea.
  * Read-only finder + a manual "assign" action.
@@ -6711,6 +6772,20 @@ async function missionStart(waypointInputId) {
 $("mission-start").addEventListener("click", () => missionStart("mission-waypoint"));
 $("mobile-mission-start").addEventListener("click", () => missionStart("mobile-mission-waypoint"));
 
+async function feedStart(waypointInputId, goodInputId, crewInputId) {
+  const wp = $(waypointInputId).value.trim();
+  const good = $(goodInputId).value.trim().toUpperCase();
+  const crew = Number($(crewInputId).value) || 1;
+  if (!wp || !good) { showToastGlobal("Enter a market to feed and a good first", true); return; }
+  try {
+    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: crew });
+    showToastGlobal(`Feed started: ${good} → ${wp}`);
+    loadProgramme();
+  } catch (err) { showToastGlobal(err.message, true); }
+}
+$("feed-start").addEventListener("click", () => feedStart("feed-waypoint", "feed-good", "feed-crew"));
+$("mobile-feed-start").addEventListener("click", () => feedStart("mobile-feed-waypoint", "mobile-feed-good", "mobile-feed-crew"));
+
 async function onContractClick(e) {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
@@ -6779,6 +6854,43 @@ async function onMissionClick(e) {
 }
 $("missions").addEventListener("click", onMissionClick);
 $("mobile-missions").addEventListener("click", onMissionClick);
+
+async function onFeedClick(e) {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, wp, good, ship } = btn.dataset;
+  try {
+    if (act === "assign") {
+      const select = btn.closest(".ops-head").querySelector(".assign-carrier");
+      const shipSymbol = select?.value;
+      if (!shipSymbol) { showToastGlobal("Pick a ship first", true); return; }
+      await api("POST", "/api/feeds/assign", { waypoint: wp, good, shipSymbol });
+      showToastGlobal(`${shipSymbol} added to feed ${good} → ${wp}`);
+    } else if (act === "remove-carrier") {
+      await api("POST", "/api/feeds/remove-carrier", { waypoint: wp, good, shipSymbol: ship });
+      showToastGlobal(`${ship} removed from feed ${good} → ${wp}`);
+    } else if (act === "set-target") {
+      const input = btn.closest(".ops-head").querySelector(".carrier-target");
+      const count = Number(input?.value);
+      if (!Number.isFinite(count) || count < 0) { showToastGlobal("Enter a valid crew size", true); return; }
+      await api("POST", "/api/feeds/carrier-target", { waypoint: wp, good, count });
+      showToastGlobal(`${good} → ${wp} crew target set to ${count}`);
+    } else if (act === "on") {
+      await api("POST", "/api/feeds/resume", { waypoint: wp, good });
+      showToastGlobal(`Feed ${good} → ${wp} turned on`);
+    } else if (act === "off") {
+      await api("POST", "/api/feeds/pause", { waypoint: wp, good });
+      showToastGlobal(`Feed ${good} → ${wp} turned off`);
+    } else if (act === "remove") {
+      if (!confirm(`Remove the feed ${good} → ${wp}? Its crew is released; this isn't just a pause.`)) return;
+      await api("POST", "/api/feeds/remove", { waypoint: wp, good });
+      showToastGlobal(`Feed ${good} → ${wp} removed`);
+    }
+    loadProgramme();
+  } catch (err) { showToastGlobal(err.message, true); }
+}
+$("feeds").addEventListener("click", onFeedClick);
+$("mobile-feeds").addEventListener("click", onFeedClick);
 
 initViewSwitch();
 initModeToggle();
@@ -7090,7 +7202,7 @@ subscribe("prices", () => {
   renderPriceGoods();
   if (pricePoints.length) renderPriceChart(pricePoints, "price-chart");
 });
-subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); });
+subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); renderFeeds(feeds); });
 subscribe("manipulationRoutes", renderManipulationRoutes);
 subscribe("approvals", () => { renderApprovalsBanner(); renderApprovals(); });
 subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); renderSystemAgents(systemAgents, systemAgentsHistory); });

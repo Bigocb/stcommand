@@ -512,6 +512,9 @@
   .ops-card .tag.declined { color:var(--accent); border-color:var(--accent-soft); }
   .ops-card .tag.paused { color:var(--accent); border-color:var(--accent-soft); }
   .ops-card .tag.done { color:var(--green); border-color:rgba(139,197,135,0.4); }
+  .ops-card .tag .chip-x { background:none; border:none; color:inherit; font-size:10px; line-height:1;
+    margin-left:3px; padding:0 1px; cursor:pointer; font-family:var(--mono); }
+  .ops-card .tag .chip-x:hover { color:var(--accent); }
   .ops-card .prog { height:4px; background:var(--hairline); border-radius:2px; overflow:hidden; margin-top:3px; }
   .ops-card .prog i { display:block; height:100%; background:var(--accent); }
   @media (max-width:1250px) {

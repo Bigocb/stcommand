@@ -11,6 +11,32 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: feeder tiers — a dedicated crew that continuously buys a good
+  cheap and sells it into one specific upstream market, to keep that
+  market's price from spiking under a buyer's own repeated purchasing
+  pressure.** New, deliberately separate `FeedManager`
+  (`src/engine/feed.ts`) and `feed_missions` table (migration `026`) — not
+  a `Mission` kind, kept apart per operator request: a feed has no
+  construction site or required/fulfilled materials to track and never
+  "completes" the way a mission does, it just runs until the operator
+  turns it off. Same crew shape as the multi-carrier mission work below
+  (`assignedShips`/`carrierTarget`, one independent buy→sell `TaskState`
+  per crew ship, throttled auto-ramp toward the crew target) and its own
+  `ship_claims` owner (`"feed"`, ranked with `mission`/`rescue`/`repair` —
+  see `shipRegistry.ts`'s own comment on why it isn't just reused
+  `"mission"`). New routes: `GET /api/feeds`, `POST /api/feeds/start`,
+  `/pause`, `/resume` (the ON/OFF toggle), `/remove` (stop and forget, vs.
+  pause's "keep to resume later"), `/assign`, `/remove-carrier`,
+  `/carrier-target`. New "Feeder tiers" panel in desktop (`v6.js`/
+  `v6.html`, in Ops next to Construction missions) and Tower (`m.js`/
+  `m.html`, in More) — start form, crew list with per-ship remove, crew-
+  size input, and the on/off toggle. This is the first concrete piece of
+  the operator's "protocol" ask (see `docs/TODO.md`): manually starting a
+  feed for each tier of a chain (e.g. X1-SN30's H56→F50→D40 ahead of the
+  ADVANCED_CIRCUITRY bottleneck at I60) is possible today; auto-deriving
+  the whole chain from one construction site is the remaining piece,
+  tracked in `docs/TODO.md`.
+
 - **Add: multi-carrier construction missions — a site can now be staffed by
   more than one ship at once.** `Mission.assignedShip` (a single string)
   was the hard architectural limit blocking parallel buyers on a

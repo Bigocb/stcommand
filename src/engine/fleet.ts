@@ -6,6 +6,7 @@ import { ScoutAgent } from "./scout.js";
 import { SiphonerAgent } from "./siphoner.js";
 import { ContractManager } from "./contract.js";
 import { MissionManager } from "./mission.js";
+import { FeedManager } from "./feed.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent, HeldRouteRow } from "../db/store.js";
@@ -150,6 +151,7 @@ export class FleetManager {
   private readonly api: SpaceTradersAPI;
   readonly contracts?: ContractManager;
   readonly missions: MissionManager;
+  readonly feeds: FeedManager;
   private readonly log: (msg: string) => void;
   private readonly recordLedger: FleetOptions["recordLedger"];
   private readonly onActivity: FleetOptions["onActivity"];
@@ -362,7 +364,11 @@ export class FleetManager {
       estimatedFuelBetween: (a, b) => this.estimatedFuelBetween(a, b),
       canReach: async (shipSymbol, targetWaypoint) => this.canReachTarget(shipSymbol, targetWaypoint),
       dispatchShip: (s, w) => this.dispatchShipHop(s, w),
-      pickCarrier: (exclude, targetWaypoint) => this.pickMissionCarrier(exclude, targetWaypoint),
+      // A mission's own carrier picker must exclude feed crew too — the two
+      // managers are separate instances with no visibility into each other's
+      // commitments otherwise, and a ship claimed by one would otherwise be
+      // "idle" from the other's point of view.
+      pickCarrier: (exclude, targetWaypoint) => this.pickMissionCarrier(new Set([...exclude, ...this.feeds.committedShips()]), targetWaypoint),
       suspend: (s) => this.suspendAgent(s),
       resume: (s) => this.resumeAgent(s),
       listBuyers: (good, sys) => this.materialBuyers(good, sys),
@@ -380,6 +386,25 @@ export class FleetManager {
       // entry, no activity feed row. This wrapper already exists and already
       // records properly; nothing here was stopping mission.ts from using it
       // except this line pointing at the wrong target.
+      jettisonCargo: (s, g, u) => this.jettisonCargo(s, g, u),
+    });
+    this.feeds = new FeedManager({
+      api: this.api,
+      store: opts.store,
+      tenantId: opts.tenantId,
+      log: (m) => this.log(`feed: ${m}`),
+      onActivity: opts.onActivity,
+      getShip: (s) => this.api.getShip(s),
+      estimatedFuelBetween: (a, b) => this.estimatedFuelBetween(a, b),
+      canReach: async (shipSymbol, targetWaypoint) => this.canReachTarget(shipSymbol, targetWaypoint),
+      dispatchShip: (s, w) => this.dispatchShipHop(s, w),
+      pickCarrier: (exclude, targetWaypoint) => this.pickFeedCarrier(new Set([...exclude, ...this.missions.committedShips()]), targetWaypoint),
+      suspend: (s) => this.suspendAgent(s),
+      resume: (s) => this.resumeAgent(s),
+      listBuyers: (good, sys) => this.materialBuyers(good, sys),
+      discoverBuyers: (good, sys) => this.discoverMaterialBuyers(good, sys),
+      getCredits: async () => this.spendableCredits(),
+      sellCargo: (s, g, u) => this.sellCargo(s, g, u),
       jettisonCargo: (s, g, u) => this.jettisonCargo(s, g, u),
     });
   }
@@ -673,6 +698,17 @@ export class FleetManager {
           await this.missions.startConstruction(m.targetWaypoint);
         } catch (err) {
           this.log(`restore mission ${m.targetWaypoint} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      // Same rehydration, same reasoning, for feeder tiers — FeedManager.start()
+      // is idempotent per (targetWaypoint, good) the same way startConstruction()
+      // is per waypoint.
+      const knownFeeds = (await this.store?.latestFeeds(this.tenantId)) ?? [];
+      for (const f of knownFeeds) {
+        try {
+          await this.feeds.start(f.targetWaypoint, f.good, f.carrierTarget);
+        } catch (err) {
+          this.log(`restore feed ${f.good} → ${f.targetWaypoint} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -3742,6 +3778,31 @@ export class FleetManager {
     if (picked) this.shipRegistry.claim(picked, "mission", this.roleOf(picked));
     return picked;
   }
+
+  /** Pick an idle cargo-capable ship to run a feeder tier — same shape as
+   *  pickMissionCarrier(), claiming through the registry as "feed" instead
+   *  of "mission" (see shipRegistry.ts's own comment on why they're kept
+   *  as separate owners). */
+  private async pickFeedCarrier(exclude: Set<string>, targetWaypoint?: string): Promise<string | undefined> {
+    const available = this.availableFor("feed");
+    const candidates: { sym: string; cargo: number; fuelCap: number }[] = [];
+    for (const [s, a] of this.miners) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
+    for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
+    let reachable = candidates;
+    if (targetWaypoint) {
+      reachable = [];
+      for (const c of candidates) {
+        const ship = this.cachedShip(c.sym);
+        if (!ship) continue;
+        if (ship.fuel.capacity <= 0) continue;
+        if (await this.canReachTarget(c.sym, targetWaypoint)) reachable.push(c);
+      }
+    }
+    reachable.sort((a, b) => b.cargo - a.cargo || b.fuelCap - a.fuelCap || a.sym.localeCompare(b.sym));
+    const picked = reachable[0]?.sym;
+    if (picked) this.shipRegistry.claim(picked, "feed", this.roleOf(picked));
+    return picked;
+  }
   /** Known fuel stops (marketplaces that list FUEL) in a system, by symbol. */
   private async fuelStops(systemSymbol: string): Promise<Set<string>> {
     const out = new Set<string>();
@@ -4796,6 +4857,67 @@ export class FleetManager {
     await this.missions.setCarrierTarget(waypointSymbol, count);
   }
 
+  /** Active feeder tiers for the dashboard. */
+  async getFeeds() {
+    return (await this.feeds.list()).map((f) => ({ ...f, paused: this.feeds.isPaused(f.targetWaypoint, f.good) }));
+  }
+
+  /** Start a feeder tier: a crew that buys `good` cheap and sells it into
+   *  `waypointSymbol`, to keep that market's price from spiking under
+   *  another buyer's own repeated purchasing pressure. */
+  startFeed(waypointSymbol: string, good: string, carrierTarget = 1): Promise<void> {
+    return this.feeds.start(waypointSymbol, good, carrierTarget);
+  }
+
+  /** Pause a feed (stop buying/selling, release its crew). */
+  async pauseFeed(waypointSymbol: string, good: string): Promise<void> {
+    await this.feeds.pause(waypointSymbol, good);
+  }
+
+  /** Resume a paused feed. */
+  async resumeFeed(waypointSymbol: string, good: string): Promise<void> {
+    await this.feeds.resumeFeed(waypointSymbol, good);
+  }
+
+  /** Stop and forget a feed entirely — unlike pauseFeed(), this removes the
+   *  persisted row, not just releases the crew. */
+  async removeFeed(waypointSymbol: string, good: string): Promise<void> {
+    await this.feeds.remove(waypointSymbol, good);
+  }
+
+  /** Manually add a ship to a feed's crew — same reachability/claim checks
+   *  as assignMissionCarrier(), claiming "feed" instead of "mission". */
+  async assignFeedCarrier(waypointSymbol: string, good: string, shipSymbol: string): Promise<void> {
+    const agent = this.miners.get(shipSymbol) ?? this.traders.get(shipSymbol);
+    if (!agent) throw new Error(`${shipSymbol} is not a miner or trader — feeding needs a cargo hold`);
+    if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold`);
+    const otherFeed = (await this.feeds.list())
+      .find((f) => f.assignedShips.includes(shipSymbol) && !(f.targetWaypoint === waypointSymbol && f.good === good));
+    if (otherFeed) throw new Error(`${shipSymbol} is already feeding ${otherFeed.good} → ${otherFeed.targetWaypoint}`);
+    const otherMission = (await this.missions.list()).find((m) => m.assignedShips.includes(shipSymbol) && m.status === "active");
+    if (otherMission) throw new Error(`${shipSymbol} is already carrying the mission at ${otherMission.targetWaypoint}`);
+    if (!this.shipRegistry.claim(shipSymbol, "feed", this.roleOf(shipSymbol))) {
+      throw new Error(`${shipSymbol} can't be assigned to a feed — currently claimed by ${this.shipRegistry.ownerOf(shipSymbol)?.owner}`);
+    }
+    const ship = this.cachedShip(shipSymbol);
+    if (ship && ship.fuel?.capacity > 0 && !(await this.canReachTarget(shipSymbol, waypointSymbol))) {
+      this.shipRegistry.release(shipSymbol, "feed");
+      throw new Error(`${shipSymbol} cannot reach ${waypointSymbol} on a full tank, even via refuel stops — pick a ship with more fuel range`);
+    }
+    await this.feeds.assignCarrier(waypointSymbol, good, shipSymbol);
+  }
+
+  /** Release one specific ship from a feed's crew, lowering its carrierTarget to match. */
+  async removeFeedCarrier(waypointSymbol: string, good: string, shipSymbol: string): Promise<void> {
+    await this.feeds.removeCarrier(waypointSymbol, good, shipSymbol);
+    this.shipRegistry.release(shipSymbol, "feed");
+  }
+
+  /** Set how many ships a feed wants staffed. */
+  async setFeedCarrierTarget(waypointSymbol: string, good: string, count: number): Promise<void> {
+    await this.feeds.setCarrierTarget(waypointSymbol, good, count);
+  }
+
   /**
    * Manually pin which trader buys+delivers a contract-deliverable good,
    * instead of leaving it to the dispatcher's own per-tick route computation
@@ -5802,6 +5924,10 @@ export class FleetManager {
     if (!this.tenantId || !this.store) return;
     const warehouseSymbol = this.warehouseShip?.shipSymbol;
     const committed = this.missions.committedShips();
+    // Same idea as `committed` above, for feeder-tier crews — a separate
+    // owner ("feed", not "mission") so the two stay independently visible,
+    // per shipRegistry.ts's own comment on why they're kept apart.
+    const feeding = this.feeds.committedShips();
     // Phase 2 (docs/ship-control-state-audit.md): a fuel tender now claims
     // "rescue" the moment it's picked (see makeRescuePlan()), but this mirror
     // runs later in the same tick and previously had no concept of "rescue"
@@ -5843,9 +5969,11 @@ export class FleetManager {
               ? "repair"
               : committed.has(s.symbol)
                 ? "mission"
-                : s.role === "keeper"
-                  ? "keeper"
-                  : "auto";
+                : feeding.has(s.symbol)
+                  ? "feed"
+                  : s.role === "keeper"
+                    ? "keeper"
+                    : "auto";
       // Phase 4 (docs/ship-control-state-audit.md), the "smaller alternative":
       // a full rewrite of every agent's run-loop gating onto a registry read
       // was judged too risky to do blind (no live-game test coverage). This
@@ -5868,7 +5996,7 @@ export class FleetManager {
       // this fires for was always supposed to be suspended; this just stops
       // that supposed-to-be from silently staying false.
       const agent = this.controlledAgent(s.symbol);
-      if ((owner === "mission" || owner === "rescue" || owner === "repair") && agent && !agent.isSuspended()) {
+      if ((owner === "mission" || owner === "feed" || owner === "rescue" || owner === "repair") && agent && !agent.isSuspended()) {
         this.log(`ship control drift: ${s.symbol} claimed as "${owner}" but its agent reports isSuspended()=false — suspending it now`);
         await agent.suspend();
       }
@@ -6254,6 +6382,7 @@ export class FleetManager {
     // it up. Without one, this direct call is unchanged from before.
     if (!this.scheduler) await this.rescueStranded();
     await this.missions.tick();
+    await this.feeds.tick();
     await this.syncShipStates();
     await this.syncShipManifests();
     await this.syncShipClaims();

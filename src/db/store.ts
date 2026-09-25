@@ -249,7 +249,7 @@ export interface ManifestRow {
 }
 
 /** Greenfield Phase 4: mirrors src/engine/shipRegistry.ts's `Claim` shape — see that file for the ownership model this persists. */
-export type ShipOwner = "operator" | "rescue" | "repair" | "mission" | "warehouse" | "keeper" | "auto";
+export type ShipOwner = "operator" | "rescue" | "repair" | "mission" | "feed" | "warehouse" | "keeper" | "auto";
 
 export interface ClaimRow {
   shipSymbol: string;
@@ -267,6 +267,17 @@ export interface MissionRow {
   assignedShips: string[];
   carrierTarget: number;
   materials: { tradeSymbol: string; required: number; fulfilled: number }[];
+  paused: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FeedRow {
+  targetSystem: string;
+  targetWaypoint: string;
+  good: string;
+  assignedShips: string[];
+  carrierTarget: number;
   paused: boolean;
   createdAt: string;
   updatedAt: string;
@@ -2147,6 +2158,69 @@ export class Store {
   async completeMission(tenantId: string, targetWaypoint: string): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(`UPDATE missions SET status = 'complete', updated_at = now() WHERE target_waypoint = $1`, [targetWaypoint]),
+    );
+  }
+
+  // ── Feeder-tier missions (tenant-scoped) ────────────────────
+  // See migrations/026_feed_missions.sql's own comment: a separate table
+  // from `missions` on purpose — a feed has no construction site or
+  // required/fulfilled materials and never completes, it just runs a crew
+  // continuously buying a good cheap and selling it into one target market.
+
+  async recordFeed(
+    tenantId: string,
+    f: {
+      targetSystem: string;
+      targetWaypoint: string;
+      good: string;
+      assignedShips: string[];
+      carrierTarget: number;
+      paused?: boolean;
+    },
+  ): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO feed_missions (tenant_id, target_system, target_waypoint, good, assigned_ships, carrier_target, paused, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+         ON CONFLICT (tenant_id, target_waypoint, good) DO UPDATE SET
+           assigned_ships = excluded.assigned_ships, carrier_target = excluded.carrier_target,
+           paused = excluded.paused, updated_at = excluded.updated_at`,
+        [tenantId, f.targetSystem, f.targetWaypoint, f.good, JSON.stringify(f.assignedShips), f.carrierTarget, f.paused ?? false],
+      ),
+    );
+  }
+
+  /** All known feeds for a tenant. */
+  async latestFeeds(tenantId: string): Promise<FeedRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{
+        target_system: string;
+        target_waypoint: string;
+        good: string;
+        assigned_ships: string[];
+        carrier_target: number;
+        paused: boolean;
+        created_at: Date;
+        updated_at: Date;
+      }>(`SELECT target_system, target_waypoint, good, assigned_ships, carrier_target, paused, created_at, updated_at
+          FROM feed_missions ORDER BY updated_at DESC`);
+      return res.rows.map((r) => ({
+        targetSystem: r.target_system,
+        targetWaypoint: r.target_waypoint,
+        good: r.good,
+        assignedShips: r.assigned_ships ?? [],
+        carrierTarget: r.carrier_target ?? 1,
+        paused: r.paused,
+        createdAt: r.created_at.toISOString(),
+        updatedAt: r.updated_at.toISOString(),
+      }));
+    });
+  }
+
+  /** Remove a feed entirely (operator-initiated, not just paused). */
+  async deleteFeed(tenantId: string, targetWaypoint: string, good: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(`DELETE FROM feed_missions WHERE target_waypoint = $1 AND good = $2`, [targetWaypoint, good]),
     );
   }
 

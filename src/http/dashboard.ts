@@ -1007,6 +1007,102 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  router.get("/feeds", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ feeds: await w.fleet.getFeeds() });
+  });
+
+  router.post("/feeds/start", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    const carrierTarget = Number(req.body?.carrierTarget ?? 1);
+    if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    try {
+      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1);
+      res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/feeds/pause", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    await w.fleet.pauseFeed(waypoint, good);
+    res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+  });
+
+  router.post("/feeds/resume", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    await w.fleet.resumeFeed(waypoint, good);
+    res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+  });
+
+  router.post("/feeds/remove", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    await w.fleet.removeFeed(waypoint, good);
+    res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+  });
+
+  router.post("/feeds/assign", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    const shipSymbol = String(req.body?.shipSymbol ?? "");
+    if (!waypoint || !good || !shipSymbol) return res.status(400).json({ error: "waypoint, good and shipSymbol required" });
+    try {
+      await w.fleet.assignFeedCarrier(waypoint, good, shipSymbol);
+      res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/feeds/remove-carrier", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    const shipSymbol = String(req.body?.shipSymbol ?? "");
+    if (!waypoint || !good || !shipSymbol) return res.status(400).json({ error: "waypoint, good and shipSymbol required" });
+    try {
+      await w.fleet.removeFeedCarrier(waypoint, good, shipSymbol);
+      res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/feeds/carrier-target", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    const count = Number(req.body?.count);
+    if (!waypoint || !good || !Number.isFinite(count)) return res.status(400).json({ error: "waypoint, good and count required" });
+    try {
+      await w.fleet.setFeedCarrierTarget(waypoint, good, count);
+      res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/prices", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

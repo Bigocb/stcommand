@@ -348,6 +348,18 @@
         </div>
       </div>
       <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Feeder tiers<span class="count">keep an upstream market's price down</span></div>
+        <div class="pane-b">
+          <div class="dispatch-toolbar">
+            <input type="text" id="feed-waypoint" placeholder="market to feed, e.g. X1-SN30-D40" aria-label="Market to feed" />
+            <input type="text" id="feed-good" placeholder="good, e.g. ELECTRONICS" aria-label="Good to feed" style="max-width:160px" />
+            <input type="number" id="feed-crew" min="1" value="1" aria-label="Initial crew size" style="max-width:70px" />
+            <button class="btn" id="feed-start">Start feed</button>
+          </div>
+          <div id="feeds"></div>
+        </div>
+      </div>
+      <div class="pane">
         <div class="pane-h"><span class="dot"></span>Manipulation routes<span class="count">buy-side</span></div>
         <div class="pane-b" id="ops-manipulation-routes"></div>
       </div>
@@ -446,6 +458,18 @@
                 <button class="btn" id="mobile-mission-start">Start</button>
               </div>
               <div id="mobile-missions"></div>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="pane-h"><span class="dot"></span>Feeder tiers<span class="count">keep an upstream market's price down</span></div>
+            <div class="pane-b">
+              <div class="dispatch-toolbar">
+                <input type="text" id="mobile-feed-waypoint" placeholder="market to feed" aria-label="Market to feed" />
+                <input type="text" id="mobile-feed-good" placeholder="good" aria-label="Good to feed" style="max-width:120px" />
+                <input type="number" id="mobile-feed-crew" min="1" value="1" aria-label="Initial crew size" style="max-width:60px" />
+                <button class="btn" id="mobile-feed-start">Start</button>
+              </div>
+              <div id="mobile-feeds"></div>
             </div>
           </div>
           <div class="pane">

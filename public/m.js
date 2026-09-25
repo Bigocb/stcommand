@@ -11,7 +11,7 @@ import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
-  marketRoutes, marketSnapshots, contracts, missions, warehouseState, doctrineRules, activity, manipulationRoutes,
+  marketRoutes, marketSnapshots, contracts, missions, feeds, warehouseState, doctrineRules, activity, manipulationRoutes,
   marketDynamics, marketDynamicsBySystemType, priceGoods, priceWaypointsByGood, pricePoints,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity, loadManipulationRoutes,
@@ -1289,6 +1289,30 @@ function renderMoreMissions() {
   }).join("");
 }
 
+function renderMoreFeeds() {
+  const el = $("more-feeds");
+  if (!feeds.length) { el.innerHTML = '<div class="empty">No feeder tiers.</div>'; return; }
+  el.innerHTML = feeds.map((f) => {
+    const crew = f.assignedShips ?? [];
+    const target = f.carrierTarget ?? 1;
+    return `<div class="card">
+      <div class="row1">
+        <span class="who">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
+        <span class="amt">${f.paused ? "off" : "on"}</span>
+      </div>
+      <div class="detail">crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
+      <div class="acts">
+        <input type="number" class="carrier-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
+        <button class="btn" data-act="set-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Set crew size</button>
+        ${f.paused
+          ? `<button class="btn pri" data-act="on" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Turn on</button>`
+          : `<button class="btn deny" data-act="off" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Turn off</button>`}
+        <button class="btn" data-act="remove" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
 /* ── More: Manipulation routes ────────────────
  * Mirrors deck.js/v6.js's Ops panel — a read-only finder plus a manual
  * assign action.
@@ -1486,6 +1510,7 @@ function renderMoreMarketDynamicsBySystemType() {
 function renderMore() {
   renderMoreContracts();
   renderMoreMissions();
+  renderMoreFeeds();
   renderMoreManipulationRoutes();
   renderMoreMarketDynamics();
   renderMoreMarketDynamicsBySystemType();
@@ -1529,6 +1554,48 @@ $("more-missions").addEventListener("click", async (e) => {
   renderMoreMissions();
 });
 
+$("feed-start-btn").addEventListener("click", async () => {
+  const wpInput = $("feed-wp-input");
+  const goodInput = $("feed-good-input");
+  const wp = wpInput.value.trim();
+  const good = goodInput.value.trim().toUpperCase();
+  if (!wp || !good) return;
+  const btn = $("feed-start-btn");
+  btn.disabled = true;
+  try {
+    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: 1 });
+    wpInput.value = "";
+    goodInput.value = "";
+    await loadProgramme();
+  } catch (err) { alert(err.message); }
+  btn.disabled = false;
+  renderMoreFeeds();
+});
+
+$("more-feeds").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const { act, wp, good } = b.dataset;
+  if (act === "remove" && !confirm(`Remove the feed ${good} → ${wp}? Its crew is released; this isn't just a pause.`)) return;
+  b.disabled = true;
+  try {
+    if (act === "set-target") {
+      const input = b.closest(".acts").querySelector(".carrier-target");
+      const count = Number(input?.value);
+      if (!Number.isFinite(count) || count < 0) { alert("Enter a valid crew size"); return; }
+      await api("POST", "/api/feeds/carrier-target", { waypoint: wp, good, count });
+    } else if (act === "on") {
+      await api("POST", "/api/feeds/resume", { waypoint: wp, good });
+    } else if (act === "off") {
+      await api("POST", "/api/feeds/pause", { waypoint: wp, good });
+    } else if (act === "remove") {
+      await api("POST", "/api/feeds/remove", { waypoint: wp, good });
+    }
+    await loadProgramme();
+  } catch (err) { alert(err.message); }
+  renderMoreFeeds();
+});
+
 $("more-contracts").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
@@ -1561,7 +1628,7 @@ $("more-doctrine").addEventListener("click", async (e) => {
   } catch (err) { alert(err.message); loadDoctrine(); }
   renderMoreDoctrine();
 });
-subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); } });
+subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); renderMoreFeeds(); } });
 subscribe("manipulationRoutes", () => { if (moreTabActive()) renderMoreManipulationRoutes(); });
 subscribe("marketDynamics", () => { if (moreTabActive()) { renderMoreMarketDynamics(); renderMoreMarketDynamicsBySystemType(); } });
 subscribe("warehouse", () => { if (moreTabActive()) renderMoreWarehouse(); });

@@ -16,23 +16,23 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   their own mission cards, so they'll show "no carrier yet" even when a
   crew is assigned. Assigning still works everywhere (the API is
   unchanged) — only the display regresses on those surfaces.
-- [ ] **Protocol: auto-derived, toggleable feeder chain for construction
-  sites.** Operator ask: a repeatable pattern for racing a jump-gate build
-  in any system — bottom tier miners feed an ore-refinery market, which
-  feeds an intermediate-goods market, which feeds the construction site's
-  buy market, with a single ON/OFF toggle per mission and an editable,
-  auto-proposed tier list (walk backward from the site's outstanding
-  material through export→import market matches, default to the auto pick
-  but let the operator swap any tier's market before confirming). The
-  multi-carrier engine work above is the dependency this needs and now
-  has; not yet built: the `FEED_MARKET` mission kind (crew sells into an
-  upstream market's import list instead of `supplyConstruction()`), the
-  backward-walk chain proposer, and the toggle/tier-list UI in both
-  desktop and Tower. First live test case: X1-SN30's ADVANCED_CIRCUITRY
+- [ ] **Protocol: auto-derived chain proposer for feeder tiers.** The
+  engine and manual UI for a feeder tier now exist (`FeedManager`,
+  `src/engine/feed.ts` — see CHANGELOG's feeder-tier entry): an operator
+  can start/stop/toggle/crew-size a "buy `good` cheap, sell it into market
+  X" tier by hand, one tier at a time. What's still not built is the
+  *auto-derive* half of the original ask — walking backward from a
+  construction site's outstanding material through export→import market
+  matches to propose the whole tier chain at once (ore→refinery→
+  intermediate→site), shown as an editable list the operator confirms
+  before it starts, with one master toggle for the whole chain rather than
+  per-tier toggles. First live test case: X1-SN30's ADVANCED_CIRCUITRY
   bottleneck at I60, chain ore→H56→F50→D40 (H56 imports IRON_ORE/
   ALUMINUM_ORE/COPPER_ORE and exports the refined IRON/ALUMINUM/COPPER
   that F50 imports; F50 exports ELECTRONICS, which D40 imports on the way
-  to its own ADVANCED_CIRCUITRY export).
+  to its own ADVANCED_CIRCUITRY export) — can be set up manually with
+  three `/api/feeds/start` calls today; the proposer would do that in one
+  step for any future system.
 - [ ] **Verify Deck (`/deck`) live — Overview pass only.** Built
   2026-09-19: `/deck` route, shell, Overview screen (KPI row, Wants-vs-Doing
   triage table, live Approvals/Activity rail) all wired to real data via

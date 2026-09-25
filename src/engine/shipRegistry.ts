@@ -52,7 +52,23 @@ import type { Store } from "../db/store.js";
 // condition — a stranded ship can't act at all, a low-condition one still
 // can) but above mission, since a mission shouldn't be able to grab a ship
 // that's actively being routed to get fixed.
-export type Owner = "operator" | "rescue" | "repair" | "mission" | "warehouse" | "keeper" | "auto";
+// "feed" added alongside FeedManager (src/engine/feed.ts) — a feeder-tier
+// crew (buy a good cheap, sell it into a specific upstream market to keep
+// that market's price down for whoever's buying its export downstream) is
+// the same shape of commitment as a construction mission: a fleet subsystem
+// driving a ship through raw API calls across several ticks, so it must
+// claim through the registry the same way. Deliberately its own owner, not
+// reused "mission" — kept separate per operator request, and the two are
+// genuinely different commitments an operator may want to reason about
+// independently (a feed never "completes" the way a mission does). Ranked
+// just below mission — never the same precedence as another owner: two
+// owners tied on precedence would each pass the other's "equal-or-weaker"
+// claim check, so whichever claimed most recently would silently win with
+// no actual exclusion. FeedManager/MissionManager's own carrier pickers
+// already exclude each other's committedShips() before ever attempting a
+// claim, so this ordering shouldn't matter in practice — it exists so the
+// registry itself still enforces exclusivity if that ever doesn't hold.
+export type Owner = "operator" | "rescue" | "repair" | "mission" | "feed" | "warehouse" | "keeper" | "auto";
 export type ShipRole = "miner" | "trader" | "surveyor" | "tour" | "keeper" | "scout" | "siphoner" | "explorer" | "warehouse" | "idle";
 
 export interface Claim {
@@ -63,7 +79,7 @@ export interface Claim {
   since: string; // ISO
 }
 
-const PRECEDENCE: Record<Owner, number> = { operator: 0, rescue: 1, repair: 2, mission: 3, warehouse: 4, keeper: 5, auto: 6 };
+const PRECEDENCE: Record<Owner, number> = { operator: 0, rescue: 1, repair: 2, mission: 3, feed: 4, warehouse: 5, keeper: 6, auto: 7 };
 
 export class ShipRegistry {
   private claims = new Map<string, Claim>();
