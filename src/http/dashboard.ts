@@ -688,9 +688,18 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     try {
       if (clear) {
         await w.fleet.setMinerPreference(shipSymbol, undefined);
+        // Play-style tracking (docs/TODO.md), same as /fleet/role — this was
+        // the one operator override with no audit trail at all: confirmed
+        // live, an operator's account of "I set a preference on these ships
+        // days ago" had nothing in operator_actions to check it against,
+        // because this route never logged. setMinerPreference() itself
+        // still doesn't (mirrors setShipRole() never logging on its own —
+        // see /fleet/role's comment), so this is the one place it happens.
+        await w.store.recordOperatorAction(w.tenantId, "miner_preference", shipSymbol, `${shipSymbol}: preference cleared`, { good: null });
       } else {
         if (typeof good !== "string" || !good) return res.status(400).json({ error: "good required" });
         await w.fleet.setMinerPreference(shipSymbol, good);
+        await w.store.recordOperatorAction(w.tenantId, "miner_preference", shipSymbol, `${shipSymbol}: preference → ${good}`, { good });
       }
       res.json({ ok: true, minerPreferences: w.fleet.minerPreferenceList() });
     } catch (err) {

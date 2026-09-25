@@ -11,6 +11,15 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: `POST /api/miner-preference` now logs to `operator_actions`** (kind
+  `miner_preference`), same as `/fleet/role` already does for role changes.
+  Found as a dead end while investigating the IRON_ORE-stuck-miners
+  incident below: the operator's account of having set a mining preference
+  on specific ships days earlier had nothing to check it against —
+  `setMinerPreference()` persists to a single `fleet_flags` JSON blob that
+  gets deleted outright once the last preference is cleared, and neither
+  it nor its HTTP route ever wrote an audit row. Now every set/clear is a
+  permanent, queryable row, regardless of what the current live state is.
 - **Fix: an operator-abandoned contract's goods stayed protected forever,
   with no way to ever clear a hold that picked them up.** THEO-27/THEO-29
   (plain auto-miners, no custom route or mission involved) sat with full
