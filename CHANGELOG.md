@@ -11,6 +11,21 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: `FleetManager.sellCargo()` recorded a real sale to the ledger and
+  activity feed but never printed a log line — the only sell path in the
+  codebase with that gap.** Confirmed live 2026-09-25 answering an
+  operator's "where did my money go": THEO-6 bought 60u EQUIPMENT
+  (~192,140c) on a normal trade route, then got commandeered as a feeder
+  carrier before selling it — `clearUnrelatedCargo()` (shared by
+  FeedManager/MissionManager, used to free a newly-commandeered ship's
+  hold) called this method to sell the EQUIPMENT off, which genuinely
+  worked and genuinely recovered credits, but produced zero trace in the
+  Render log stream. Every other sell path (trader.ts's own sells,
+  feed.ts/mission.ts's direct `api.sellCargo()` calls) already logs
+  itself; an operator grepping logs for "sold" to reconcile a large
+  balance drop found every sale except this one. Added the missing log
+  line, same format as the others.
+
 - **Fix: starting a feeder chain from tiers that were already running as
   standalone feeds silently did nothing to those tiers, while still
   reporting success.** Confirmed live 2026-09-25: operator started three

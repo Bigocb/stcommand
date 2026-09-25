@@ -3549,6 +3549,17 @@ export class FleetManager {
       total: res.transaction.totalPrice,
     });
     this.onActivity?.("sell", `${shipSymbol} sold ${toSell}u ${good} @ ${res.transaction.pricePerUnit}c`, res.transaction.totalPrice, shipSymbol);
+    // Confirmed live 2026-09-25: this is the ONLY sell path in the codebase
+    // that recorded to the ledger/activity feed without a matching log
+    // line (trader.ts's own sells, and feed.ts/mission.ts's direct
+    // api.sellCargo() calls, all log themselves) — this method is what
+    // FeedManager/MissionManager's clearUnrelatedCargo() calls to free a
+    // newly-commandeered ship's hold, so a real sale (e.g. a trader's
+    // leftover EQUIPMENT cleared the moment it became a feed carrier) was
+    // completely untraceable from the log stream, even though the credits
+    // genuinely landed. An operator asking "where did my money go" could
+    // find every other sale by grepping logs except this one.
+    this.log(`${shipSymbol} sold ${toSell}u ${good} @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
   }
 
   /** Dump cargo overboard — no market or dock required, unlike buy/sell. For an operator clearing out dead stock manually; nothing pays for this. */
