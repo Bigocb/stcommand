@@ -49,6 +49,24 @@ interface MissionOptions {
   tenantId?: string;
   log?: (msg: string) => void;
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
+  /** Record a real credits-moving transaction to the ledger. Confirmed live:
+   *  stepCarrier()'s material buy used to call this.api.purchaseCargo()
+   *  directly, bypassing this entirely — every mission purchase was invisible
+   *  to ledger-based reconciliation, discoverable only via ephemeral Render
+   *  logs. Same shape as every other engine class's recordLedger option
+   *  (trader.ts, feed.ts, etc.) so fleet.ts can wire this.recordLedger
+   *  straight through, same as it already does for those. */
+  recordLedger?: (entry: {
+    timestamp: string;
+    shipSymbol: string;
+    waypointSymbol: string;
+    type: "PURCHASE" | "SELL" | "REFUEL";
+    tradeSymbol?: string;
+    units?: number;
+    pricePerUnit?: number;
+    total: number;
+    realizedPnl?: number;
+  }) => void;
   /** Resolve current position/fuel for a ship. */
   getShip?: (symbol: string) => Promise<Ship>;
   /** Estimate fuel between two waypoints. */
@@ -110,6 +128,7 @@ export class MissionManager {
   private readonly tenantId?: string;
   private readonly log: (msg: string) => void;
   private readonly onActivity: MissionOptions["onActivity"];
+  private readonly recordLedger?: MissionOptions["recordLedger"];
   private readonly getShip?: MissionOptions["getShip"];
   private readonly estimatedFuelBetween?: MissionOptions["estimatedFuelBetween"];
   private readonly canReach?: MissionOptions["canReach"];
@@ -145,6 +164,7 @@ export class MissionManager {
     this.tenantId = opts.tenantId;
     this.log = opts.log ?? ((m) => console.log(`[mission] ${m}`));
     this.onActivity = opts.onActivity;
+    this.recordLedger = opts.recordLedger;
     this.getShip = opts.getShip;
     this.estimatedFuelBetween = opts.estimatedFuelBetween;
     this.canReach = opts.canReach;
@@ -673,8 +693,19 @@ export class MissionManager {
         const volumeCap = buyer?.tradeVolume && buyer.tradeVolume > 0 ? buyer.tradeVolume : toBuy;
         const units = Math.max(1, Math.min(toBuy, affordable, volumeCap));
         try {
-          await this.api.purchaseCargo(ship.symbol, material, units);
+          const res = await this.api.purchaseCargo(ship.symbol, material, units);
+          this.recordLedger?.({
+            timestamp: new Date().toISOString(),
+            shipSymbol: ship.symbol,
+            waypointSymbol: market,
+            type: "PURCHASE",
+            tradeSymbol: material,
+            units,
+            pricePerUnit: res.transaction.pricePerUnit,
+            total: res.transaction.totalPrice,
+          });
           this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} bought ${units}u ${material} @ ${price}c at ${market}`);
+          this.onActivity?.("buy", `${ship.symbol} ${units}u ${material} @ ${res.transaction.pricePerUnit}c at ${market} (mission)`, -res.transaction.totalPrice, ship.symbol);
         } catch (err) {
           // Market may not actually stock it (stale intel), or some other
           // per-purchase failure. Block this material for a while and let a

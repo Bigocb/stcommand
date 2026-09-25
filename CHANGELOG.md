@@ -11,6 +11,28 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: `MissionManager`/`FeedManager` buy and sell never reached the
+  ledger.** Both called `this.api.purchaseCargo()`/`sellCargo()` directly on
+  the raw SpaceTraders client, bypassing `recordLedger` (and, for buys, the
+  activity feed) entirely — a whole category of real spend was invisible to
+  ledger-based reconciliation, discoverable only via ephemeral Render logs.
+  Found while tracing a ~330,000c balance drop for the operator: a mission's
+  material purchases and a feed's buy/sell legs left no ledger trail at all.
+  Both managers now take a `recordLedger` option (same shape as
+  trader.ts/siphoner.ts/scout.ts/agent.ts already use), wired from
+  `FleetManager`'s own `this.recordLedger`; feed/mission buys also now fire
+  `onActivity("buy", ...)` for parity with every other buy path in the fleet.
+- **Confirmed, separately: a feed reassignment jettisoning a ship's existing
+  cargo is a real, verified loss, not a bug in the reassignment logic
+  itself.** THEO-6 bought 60u EQUIPMENT (192,140c) at 01:51, was reassigned
+  to a feed at 01:55, and `clearUnrelatedCargo()` tried to sell the
+  EQUIPMENT at the feed's location before jettisoning it — the sell failed
+  (no market there buys EQUIPMENT) and it fell back to jettison at 02:07,
+  logged (`THEO-6 jettisoned 60u EQUIPMENT`) but with zero credits
+  recovered. `clearUnrelatedCargo()`'s sell-then-jettison fallback (already
+  fixed for both managers back on 2026-09-10, commit b064034) is working as
+  designed; the loss here is the ordinary risk of reassigning a ship whose
+  hold isn't sellable at its current location, not a new defect.
 - **Fix: `FleetManager.sellCargo()` recorded a real sale to the ledger and
   activity feed but never printed a log line — the only sell path in the
   codebase with that gap.** Confirmed live 2026-09-25 answering an

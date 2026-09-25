@@ -85,6 +85,22 @@ interface FeedOptions {
   tenantId?: string;
   log?: (msg: string) => void;
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
+  /** Record a real credits-moving transaction to the ledger. Confirmed live:
+   *  stepCarrier()'s buy/sell used to call this.api.purchaseCargo()/
+   *  sellCargo() directly, bypassing this entirely — every feed purchase and
+   *  sell was invisible to ledger-based reconciliation. Same shape as
+   *  mission.ts's own recordLedger option, wired from fleet.ts the same way. */
+  recordLedger?: (entry: {
+    timestamp: string;
+    shipSymbol: string;
+    waypointSymbol: string;
+    type: "PURCHASE" | "SELL" | "REFUEL";
+    tradeSymbol?: string;
+    units?: number;
+    pricePerUnit?: number;
+    total: number;
+    realizedPnl?: number;
+  }) => void;
   getShip?: (symbol: string) => Promise<Ship>;
   estimatedFuelBetween?: (a: string, b: string) => number;
   canReach?: (shipSymbol: string, targetWaypoint: string) => Promise<boolean>;
@@ -127,6 +143,7 @@ export class FeedManager {
   private readonly tenantId?: string;
   private readonly log: (msg: string) => void;
   private readonly onActivity: FeedOptions["onActivity"];
+  private readonly recordLedger?: FeedOptions["recordLedger"];
   private readonly getShip?: FeedOptions["getShip"];
   private readonly estimatedFuelBetween?: FeedOptions["estimatedFuelBetween"];
   private readonly canReach?: FeedOptions["canReach"];
@@ -154,6 +171,7 @@ export class FeedManager {
     this.tenantId = opts.tenantId;
     this.log = opts.log ?? ((m) => console.log(`[feed] ${m}`));
     this.onActivity = opts.onActivity;
+    this.recordLedger = opts.recordLedger;
     this.getShip = opts.getShip;
     this.estimatedFuelBetween = opts.estimatedFuelBetween;
     this.canReach = opts.canReach;
@@ -549,6 +567,16 @@ export class FeedManager {
       if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
       try {
         const res = await this.api.sellCargo(ship.symbol, feed.good, held);
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: ship.symbol,
+          waypointSymbol: feed.targetWaypoint,
+          type: "SELL",
+          tradeSymbol: feed.good,
+          units: held,
+          pricePerUnit: res.transaction.pricePerUnit,
+          total: res.transaction.totalPrice,
+        });
         this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} sold ${held}u @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
         this.onActivity?.("feed", `${ship.symbol} fed ${held}u ${feed.good} into ${feed.targetWaypoint}`, res.transaction.totalPrice, ship.symbol);
       } catch (err) {
@@ -614,8 +642,19 @@ export class FeedManager {
     const volumeCap = buyer?.tradeVolume && buyer.tradeVolume > 0 ? buyer.tradeVolume : freeSpace;
     const units = Math.max(1, Math.min(freeSpace, affordable, volumeCap));
     try {
-      await this.api.purchaseCargo(ship.symbol, feed.good, units);
+      const res = await this.api.purchaseCargo(ship.symbol, feed.good, units);
+      this.recordLedger?.({
+        timestamp: new Date().toISOString(),
+        shipSymbol: ship.symbol,
+        waypointSymbol: sourceMarket,
+        type: "PURCHASE",
+        tradeSymbol: feed.good,
+        units,
+        pricePerUnit: res.transaction.pricePerUnit,
+        total: res.transaction.totalPrice,
+      });
       this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} bought ${units}u @ ${price}c at ${t.market}`);
+      this.onActivity?.("buy", `${ship.symbol} ${units}u ${feed.good} @ ${res.transaction.pricePerUnit}c at ${sourceMarket} (feed)`, -res.transaction.totalPrice, ship.symbol);
     } catch (err) {
       t.retryAt = Date.now() + 15_000;
       t.market = undefined;
