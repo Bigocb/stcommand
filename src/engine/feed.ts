@@ -610,7 +610,17 @@ export class FeedManager {
         const buyers = (await this.listBuyers?.(feed.good, feed.targetSystem)) ?? [];
         t.basePrice = buyers.find((b) => b.waypoint === feed.buyAt)?.purchasePrice;
       } else {
-        const buyers = (await this.listBuyers?.(feed.good, feed.targetSystem)) ?? [];
+        // Exclude the feed's own sell target from the cheapest-known-market
+        // pick. Confirmed live: a feed selling into a market it also (once
+        // in a while, or always) buys that same good at can drive that
+        // market's buy price down far enough, via its own selling, that on
+        // the next cycle "cheapest known market" picks the target itself —
+        // buying back the exact good it just delivered, at a markup, in an
+        // in-place loop that never travels anywhere and burns cash every
+        // cycle (THEO-6/IRON/X1-SN30-F50, 2026-09-25: -6,780c every ~90s,
+        // dozens of cycles, no travel between them — the sell price and the
+        // very next buy price were the same market's own numbers).
+        const buyers = ((await this.listBuyers?.(feed.good, feed.targetSystem)) ?? []).filter((b) => b.waypoint !== feed.targetWaypoint);
         if (buyers.length === 0) {
           t.retryAt = Date.now() + 15_000;
           return;

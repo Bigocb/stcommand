@@ -11,6 +11,19 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix (urgent, live incident): a feed could buy from its own sell
+  target, looping in place and burning cash every cycle.** THEO-6's IRON
+  feed (H56 → F50, no `buyAt` pin) drove F50's own buy price down through
+  its own selling until F50 became the system's cheapest known IRON
+  market — at which point the next cycle's "buy cheapest known market"
+  auto-pick selected F50 itself. The ship never traveled: buy 60u at F50
+  for 13,560c, immediately sell the same 60u back into F50 for 6,780c,
+  repeat — a straight -6,780c every ~90 seconds, dozens of consecutive
+  cycles, confirmed live in the ledger. The cheapest-known-market pick
+  now excludes the feed's own `targetWaypoint`. This doesn't fix the
+  separate, already-known issue of H56 itself inflating from repeated
+  buying (still being designed — see the operator/engineering
+  conversation this session) but it stops the much faster in-place loop.
 - **Tower: moved the Activity feed from the bottom of the More tab to
   Home.** Operator report: "the other UIs have an activity feed where I
   can see buys and sells as they go by" — Tower already had one, but it
