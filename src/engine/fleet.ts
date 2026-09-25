@@ -412,6 +412,7 @@ export class FleetManager {
       resume: (s) => this.resumeAgent(s),
       listBuyers: (good, sys) => this.materialBuyers(good, sys),
       discoverBuyers: (good, sys) => this.discoverMaterialBuyers(good, sys),
+      sellPriceAt: (wp, good) => this.sellPriceAt(wp, good),
       getCredits: async () => this.spendableCredits(),
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
       jettisonCargo: (s, g, u) => this.jettisonCargo(s, g, u),
@@ -4635,6 +4636,19 @@ export class FleetManager {
       .sort((a, b) => a.purchasePrice - b.purchasePrice);
   }
 
+  /** The last known sell price for a good at one specific waypoint — what a
+   *  feed carrier would actually be paid for delivering there right now.
+   *  Undefined if that market has never been observed. Used by
+   *  FeedManager's margin gate (feed.ts's MIN_FEED_MARGIN_PCT) to decide
+   *  whether a buy is worth making, given what it'll fetch at the
+   *  destination — a different question from materialBuyers()'s "where can
+   *  I buy this cheapest," which says nothing about any one market's sell
+   *  side. */
+  private async sellPriceAt(waypointSymbol: string, tradeSymbol: string): Promise<number | undefined> {
+    const rows = (await this.store?.latestMarketSnapshots()) ?? [];
+    return rows.find((r) => r.waypointSymbol === waypointSymbol && r.goodSymbol === tradeSymbol)?.sellPrice;
+  }
+
   /** Survey unknown marketplaces in `systemSymbol` looking for a needed
    *  good. Scoped to that one system for the same reason materialBuyers()
    *  is: surveying (and potentially "finding") a seller in a system the
@@ -4913,8 +4927,8 @@ export class FleetManager {
    *  another buyer's own repeated purchasing pressure. `mine` is an
    *  explicit operator choice to source by mining instead of buying —
    *  see Feed.mine's own comment in feed.ts. */
-  startFeed(waypointSymbol: string, good: string, carrierTarget = 1, mine = false, buyAt?: string): Promise<void> {
-    return this.feeds.start(waypointSymbol, good, { carrierTarget, mine, buyAt });
+  startFeed(waypointSymbol: string, good: string, carrierTarget = 1, mine = false, buyAt?: string, force = false): Promise<void> {
+    return this.feeds.start(waypointSymbol, good, { carrierTarget, mine, buyAt, force });
   }
 
   /** Start a feeder chain: an ordered set of tiers where each one buys
@@ -4948,6 +4962,11 @@ export class FleetManager {
   /** Resume a paused feed. */
   async resumeFeed(waypointSymbol: string, good: string): Promise<void> {
     await this.feeds.resumeFeed(waypointSymbol, good);
+  }
+
+  /** Toggle a feed's margin-gate override — see Feed.force's own comment. */
+  async setFeedForce(waypointSymbol: string, good: string, force: boolean): Promise<void> {
+    await this.feeds.setForce(waypointSymbol, good, force);
   }
 
   /** Stop and forget a feed entirely — unlike pauseFeed(), this removes the

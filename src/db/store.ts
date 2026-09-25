@@ -284,6 +284,9 @@ export interface FeedRow {
   mine: boolean;
   /** Pinned source market — see feed.ts's Feed.buyAt comment. */
   buyAt: string | null;
+  /** Operator override: buy regardless of the margin gate — see feed.ts's
+   *  Feed.force comment. */
+  force: boolean;
   /** Chain membership — see feed.ts's FeedChain comment. */
   chainId: string | null;
   chainName: string | null;
@@ -2187,6 +2190,7 @@ export class Store {
       paused?: boolean;
       mine?: boolean;
       buyAt?: string;
+      force?: boolean;
       chainId?: string;
       chainName?: string;
       chainOrder?: number;
@@ -2194,16 +2198,16 @@ export class Store {
   ): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO feed_missions (tenant_id, target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, chain_id, chain_name, chain_order, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+        `INSERT INTO feed_missions (tenant_id, target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, force, chain_id, chain_name, chain_order, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
          ON CONFLICT (tenant_id, target_waypoint, good) DO UPDATE SET
            assigned_ships = excluded.assigned_ships, carrier_target = excluded.carrier_target,
-           paused = excluded.paused, mine = excluded.mine, buy_at = excluded.buy_at,
+           paused = excluded.paused, mine = excluded.mine, buy_at = excluded.buy_at, force = excluded.force,
            chain_id = excluded.chain_id, chain_name = excluded.chain_name, chain_order = excluded.chain_order,
            updated_at = excluded.updated_at`,
         [
           tenantId, f.targetSystem, f.targetWaypoint, f.good, JSON.stringify(f.assignedShips), f.carrierTarget,
-          f.paused ?? false, f.mine ?? false, f.buyAt ?? null, f.chainId ?? null, f.chainName ?? null, f.chainOrder ?? null,
+          f.paused ?? false, f.mine ?? false, f.buyAt ?? null, f.force ?? false, f.chainId ?? null, f.chainName ?? null, f.chainOrder ?? null,
         ],
       ),
     );
@@ -2221,12 +2225,13 @@ export class Store {
         paused: boolean;
         mine: boolean;
         buy_at: string | null;
+        force: boolean;
         chain_id: string | null;
         chain_name: string | null;
         chain_order: number | null;
         created_at: Date;
         updated_at: Date;
-      }>(`SELECT target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, chain_id, chain_name, chain_order, created_at, updated_at
+      }>(`SELECT target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, force, chain_id, chain_name, chain_order, created_at, updated_at
           FROM feed_missions ORDER BY updated_at DESC`);
       return res.rows.map((r) => ({
         targetSystem: r.target_system,
@@ -2237,6 +2242,7 @@ export class Store {
         paused: r.paused,
         mine: r.mine ?? false,
         buyAt: r.buy_at,
+        force: r.force ?? false,
         chainId: r.chain_id,
         chainName: r.chain_name,
         chainOrder: r.chain_order,

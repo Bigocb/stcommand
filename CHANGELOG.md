@@ -11,6 +11,27 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Feeder tiers: margin-gated buying, replacing the drift check that
+  never actually worked.** The old guard (`MAX_FEED_BUY_INFLATION`)
+  compared each cycle's buy price against a "base price" that got reset
+  to the current price every single cycle — it could never see
+  cumulative drift, which is exactly how THEO-6's H56→F50 IRON feed
+  climbed 90c→240c+ over nine buys without ever tripping it (see the
+  two urgent fixes below, found investigating the same incident). Every
+  buy now checks live profitability instead: the source price against
+  the destination's current sell price (`FleetManager.sellPriceAt()`,
+  new), gated by `MIN_FEED_MARGIN_PCT` (10%). No margin → the feed waits
+  and rechecks every 15s rather than buying regardless, and — since it
+  doesn't reset `t.market` the way the old guard did — it keeps
+  watching the *same* market for recovery instead of pointlessly
+  re-shopping to one that's already known to be worse.
+  New per-feed `force` flag (persisted, migration 029) skips the gate
+  entirely for an operator who wants a route run through regardless —
+  a contract deadline, or just wanting the good moving now. Toggle from
+  the Ops Feeder-tiers panel (`Force`/`Unforce` button on each feed
+  row) or at creation (`force (ignore margin)` checkbox); `POST
+  /api/feeds/force` under the hood. Tower's feed panel stays read-only
+  for now — deliberately out of scope this pass, desktop covers it.
 - **Fix (live incident): a mine-feed's hold could clog with the
   asteroid's other deposits and never clear.** `held` (stepCarrier()'s
   "am I already carrying the target good" check) only counts units of

@@ -41,6 +41,11 @@ export interface Feed {
    *  sold, instead of each tier independently re-deriving "cheapest" and
    *  possibly landing on an unconnected market. Ignored when `mine` is true. */
   buyAt?: string;
+  /** Operator override: buy every cycle regardless of the margin gate below
+   *  (a contract deadline, or just wanting the good moving right now
+   *  regardless of the spreadsheet math). Off by default — see
+   *  stepCarrier()'s margin check for what this skips. */
+  force?: boolean;
   /** Chain membership (see startChain()/listChains()) — undefined for a
    *  standalone feed, unchanged from before chains existed. */
   chainId?: string;
@@ -67,6 +72,7 @@ export interface FeedStartOptions {
   carrierTarget?: number;
   mine?: boolean;
   buyAt?: string;
+  force?: boolean;
   chainId?: string;
   chainName?: string;
   chainOrder?: number;
@@ -74,7 +80,13 @@ export interface FeedStartOptions {
 
 interface FeedTaskState {
   market?: string;
-  /** Purchase price seen when `market` was chosen — see MAX_FEED_BUY_INFLATION. */
+  /** Purchase price seen when `market` was chosen — display/logging only
+   *  now; the margin gate below compares the live price against the
+   *  destination's live sell price every cycle instead, rather than
+   *  against this, which used to get reset (along with `market`) after
+   *  every single feed/sell cycle and so could never see cumulative price
+   *  drift across cycles — see the live incident in stepCarrier()'s own
+   *  comment. */
   basePrice?: number;
   retryAt: number;
 }
@@ -114,6 +126,13 @@ interface FeedOptions {
   /** Sources known to sell a trade good in the given system, cheapest first. */
   listBuyers?: (tradeSymbol: string, systemSymbol: string) => Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]>;
   discoverBuyers?: (tradeSymbol: string, systemSymbol: string) => Promise<{ waypoint: string; purchasePrice: number }[]>;
+  /** The last known sell price for a good at a specific waypoint (what the
+   *  feed would actually be paid for delivering there right now) —
+   *  undefined if that market has never been observed. Used by the margin
+   *  gate in stepCarrier() to decide whether a buy is worth making;
+   *  distinct from listBuyers(), which only ever answers "where can I buy
+   *  this," never "what does a specific market pay for it." */
+  sellPriceAt?: (waypointSymbol: string, tradeSymbol: string) => Promise<number | undefined>;
   getCredits?: () => Promise<number>;
   sellCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
   jettisonCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
@@ -125,11 +144,21 @@ interface FeedOptions {
   mineOnce?: (shipSymbol: string) => Promise<boolean>;
 }
 
-/** How far a feed buy's live price may drift above the price seen when its
- *  source market was chosen before re-shopping — same guard and same
- *  reasoning as MissionManager's MAX_MISSION_BUY_INFLATION (a market a crew
- *  keeps returning to inflates against its own repeated buying). */
-const MAX_FEED_BUY_INFLATION = 0.25;
+/** Minimum gross margin a feed buy must clear against the destination's
+ *  current sell price before it's allowed to happen — e.g. 0.10 means the
+ *  buy price must leave at least 10% of the destination's sell price as
+ *  margin. Replaces the old MAX_FEED_BUY_INFLATION drift check, which
+ *  compared each cycle's price against a "base price" reset every single
+ *  cycle and so could never see cumulative drift across cycles — confirmed
+ *  live: THEO-6's H56→F50 IRON feed climbed from 90c to 240c+ over nine
+ *  buys in ~100 minutes without the old guard ever tripping, because each
+ *  cycle's "base" was just whatever the price happened to be that cycle.
+ *  This checks live profitability instead of price drift, which is both a
+ *  more direct question ("is this trade worth it right now") and
+ *  self-correcting: it needs no memory of an original price, so it can't
+ *  be defeated by that price resetting. Ignored entirely when
+ *  `feed.force` is set. */
+const MIN_FEED_MARGIN_PCT = 0.10;
 
 /** How often a *paused* feed's crew-size display gets rechecked — feeds
  *  don't reconcile against a live construction API the way missions do,
@@ -153,6 +182,7 @@ export class FeedManager {
   private readonly resume?: FeedOptions["resume"];
   private readonly listBuyers?: FeedOptions["listBuyers"];
   private readonly discoverBuyers?: FeedOptions["discoverBuyers"];
+  private readonly sellPriceAt?: FeedOptions["sellPriceAt"];
   private readonly getCredits?: FeedOptions["getCredits"];
   private readonly sellCargo?: FeedOptions["sellCargo"];
   private readonly jettisonCargo?: FeedOptions["jettisonCargo"];
@@ -181,6 +211,7 @@ export class FeedManager {
     this.resume = opts.resume;
     this.listBuyers = opts.listBuyers;
     this.discoverBuyers = opts.discoverBuyers;
+    this.sellPriceAt = opts.sellPriceAt;
     this.getCredits = opts.getCredits;
     this.sellCargo = opts.sellCargo;
     this.jettisonCargo = opts.jettisonCargo;
@@ -211,6 +242,7 @@ export class FeedManager {
         existing.chainOrder = opts.chainOrder;
         if (opts.buyAt !== undefined) existing.buyAt = opts.buyAt;
         if (opts.mine !== undefined) existing.mine = opts.mine;
+        if (opts.force !== undefined) existing.force = opts.force;
         // Force the running carrier(s) to re-pick their source next tick —
         // they may already have locked onto a different market before
         // being adopted into this chain.
@@ -235,6 +267,7 @@ export class FeedManager {
         carrierTarget: persisted.carrierTarget,
         mine: opts.mine ?? persisted.mine,
         buyAt: opts.buyAt ?? persisted.buyAt ?? undefined,
+        force: opts.force ?? persisted.force,
         chainId: opts.chainId ?? persisted.chainId ?? undefined,
         chainName: opts.chainId !== undefined ? opts.chainName : (persisted.chainName ?? undefined),
         chainOrder: opts.chainId !== undefined ? opts.chainOrder : (persisted.chainOrder ?? undefined),
@@ -262,6 +295,7 @@ export class FeedManager {
       carrierTarget,
       mine: opts.mine,
       buyAt: opts.buyAt,
+      force: opts.force,
       chainId: opts.chainId,
       chainName: opts.chainName,
       chainOrder: opts.chainOrder,
@@ -433,6 +467,17 @@ export class FeedManager {
       await this.persist(feed);
       this.log(`feed ${good} → ${targetWaypoint}: resumed`);
     }
+  }
+
+  /** Toggle the operator's margin-gate override for a running feed — see
+   *  Feed.force's own comment for what it skips. */
+  async setForce(targetWaypoint: string, good: string, force: boolean): Promise<void> {
+    const key = this.key(targetWaypoint, good);
+    const feed = this.active.get(key);
+    if (!feed) return;
+    feed.force = force;
+    await this.persist(feed);
+    this.log(`feed ${good} → ${targetWaypoint}: force ${force ? "on" : "off"}`);
   }
 
   /** Stop and forget a feed entirely (not just paused) — releases the crew
@@ -658,16 +703,25 @@ export class FeedManager {
       return;
     }
     const sourceMarket = t.market;
-    const basePrice = t.basePrice;
     const credits = (await this.getCredits?.()) ?? 0;
     const buyer = (await this.listBuyers?.(feed.good, feed.targetSystem))?.find((b) => b.waypoint === sourceMarket);
     const price = buyer?.purchasePrice ?? 0;
-    if (basePrice !== undefined && price > basePrice * (1 + MAX_FEED_BUY_INFLATION)) {
-      t.retryAt = Date.now() + 15_000;
-      t.market = undefined;
-      t.basePrice = undefined;
-      this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${sourceMarket} price for ${feed.good} rose to ${price}c (was ${basePrice}c) — re-shopping instead of buying`);
-      return;
+    // Margin gate: is this trade actually worth making right now? Checked
+    // fresh every cycle against the destination's live sell price rather
+    // than against a remembered "base price" — see MIN_FEED_MARGIN_PCT's
+    // own comment for why. Deliberately does NOT reset t.market/t.basePrice
+    // the way the old drift guard did: there is usually nowhere better to
+    // re-shop to (this was already the cheapest known source), so the
+    // right move is to keep waiting on *this* market to recover, not hunt
+    // for a worse one. `feed.force` skips this entirely, for an operator
+    // who wants the route run through regardless.
+    if (!feed.force) {
+      const sellAt = await this.sellPriceAt?.(feed.targetWaypoint, feed.good);
+      if (sellAt !== undefined && price > sellAt * (1 - MIN_FEED_MARGIN_PCT)) {
+        t.retryAt = Date.now() + 15_000;
+        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${sourceMarket} buy @ ${price}c leaves no margin against ${feed.targetWaypoint}'s ${sellAt}c sell — waiting for either to recover`);
+        return;
+      }
     }
     const affordable = price > 0 ? Math.floor(credits / price) : freeSpace;
     const volumeCap = buyer?.tradeVolume && buyer.tradeVolume > 0 ? buyer.tradeVolume : freeSpace;
@@ -716,6 +770,7 @@ export class FeedManager {
       paused: this.paused.has(key),
       mine: f.mine ?? false,
       buyAt: f.buyAt,
+      force: f.force ?? false,
       chainId: f.chainId,
       chainName: f.chainName,
       chainOrder: f.chainOrder,

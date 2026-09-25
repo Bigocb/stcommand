@@ -6751,6 +6751,7 @@ function renderFeeds(list) {
         <span class="ops-title">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
         <span class="tag">${f.mine ? "mine" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "buy"}</span>
         ${f.chainName ? `<span class="tag">chain: ${escapeHtml(f.chainName)}</span>` : ""}
+        ${f.force ? `<span class="tag" title="Buying every cycle regardless of margin">forced</span>` : ""}
         <span class="tag ${f.paused ? "paused" : "done"}">${f.paused ? "off" : "on"}</span>
         <span class="fill"></span>
         <span class="ops-sub">crew ${crew.length}/${target}</span>
@@ -6770,6 +6771,7 @@ function renderFeeds(list) {
         ${f.paused
           ? `<button class="btn pri" data-act="on" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn on</button>`
           : `<button class="btn" data-act="off" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn off</button>`}
+        <button class="btn ghost" data-act="${f.force ? "unforce" : "force"}" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">${f.force ? "Unforce" : "Force"}</button>
         <button class="btn ghost" data-act="remove" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Remove</button>
       </div>
     </div>`;
@@ -6928,20 +6930,21 @@ async function missionStart(waypointInputId) {
 $("mission-start").addEventListener("click", () => missionStart("mission-waypoint"));
 $("mobile-mission-start").addEventListener("click", () => missionStart("mobile-mission-waypoint"));
 
-async function feedStart(waypointInputId, goodInputId, crewInputId, mineInputId) {
+async function feedStart(waypointInputId, goodInputId, crewInputId, mineInputId, forceInputId) {
   const wp = $(waypointInputId).value.trim();
   const good = $(goodInputId).value.trim().toUpperCase();
   const crew = Number($(crewInputId).value) || 1;
   const mine = $(mineInputId)?.checked ?? false;
+  const force = $(forceInputId)?.checked ?? false;
   if (!wp || !good) { showToastGlobal("Enter a market to feed and a good first", true); return; }
   try {
-    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: crew, mine });
-    showToastGlobal(`Feed started: ${good} → ${wp}${mine ? " (mined)" : ""}`);
+    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: crew, mine, force });
+    showToastGlobal(`Feed started: ${good} → ${wp}${mine ? " (mined)" : ""}${force ? " (forced)" : ""}`);
     loadProgramme();
   } catch (err) { showToastGlobal(err.message, true); }
 }
-$("feed-start").addEventListener("click", () => feedStart("feed-waypoint", "feed-good", "feed-crew", "feed-mine"));
-$("mobile-feed-start").addEventListener("click", () => feedStart("mobile-feed-waypoint", "mobile-feed-good", "mobile-feed-crew", "mobile-feed-mine"));
+$("feed-start").addEventListener("click", () => feedStart("feed-waypoint", "feed-good", "feed-crew", "feed-mine", "feed-force"));
+$("mobile-feed-start").addEventListener("click", () => feedStart("mobile-feed-waypoint", "mobile-feed-good", "mobile-feed-crew", "mobile-feed-mine", "mobile-feed-force"));
 
 async function onContractClick(e) {
   const btn = e.target.closest("button[data-act]");
@@ -7042,6 +7045,9 @@ async function onFeedClick(e) {
       if (!confirm(`Remove the feed ${good} → ${wp}? Its crew is released; this isn't just a pause.`)) return;
       await api("POST", "/api/feeds/remove", { waypoint: wp, good });
       showToastGlobal(`Feed ${good} → ${wp} removed`);
+    } else if (act === "force" || act === "unforce") {
+      await api("POST", "/api/feeds/force", { waypoint: wp, good, force: act === "force" });
+      showToastGlobal(act === "force" ? `Feed ${good} → ${wp} will buy regardless of margin` : `Feed ${good} → ${wp} margin gate re-enabled`);
     }
     loadProgramme();
   } catch (err) { showToastGlobal(err.message, true); }

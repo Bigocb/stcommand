@@ -1030,9 +1030,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const carrierTarget = Number(req.body?.carrierTarget ?? 1);
     const mine = req.body?.mine === true;
     const buyAt = typeof req.body?.buyAt === "string" && req.body.buyAt ? req.body.buyAt : undefined;
+    const force = req.body?.force === true;
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
     try {
-      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1, mine, buyAt);
+      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1, mine, buyAt, force);
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -1111,6 +1112,19 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const good = String(req.body?.good ?? "").toUpperCase();
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
     await w.fleet.resumeFeed(waypoint, good);
+    res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+  });
+
+  /** Toggle a feed's margin-gate override — see Feed.force's own comment
+   *  in feed.ts. */
+  router.post("/feeds/force", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    const force = req.body?.force === true;
+    if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    await w.fleet.setFeedForce(waypoint, good, force);
     res.json({ ok: true, feeds: await w.fleet.getFeeds() });
   });
 
