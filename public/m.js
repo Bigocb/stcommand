@@ -238,6 +238,33 @@ function jobLabel(assignment) {
   return good;
 }
 
+/** What a ship (any role, not just trader) is signed to right now — a feed/
+ *  chain claim, a mission claim, or (lowest priority, informational) cargo
+ *  it holds that an active contract still wants. Mirrors jobFor() in v6.js
+ *  — see that function's own comment for why non-trader roles need this
+ *  too: a feed's crew is very often a miner, and a miner silently holding
+ *  contract-protected cargo was exactly the "who's assigned to what"
+ *  confusion this closes. */
+function claimFor(ship) {
+  const feed = feeds.find((f) => f.assignedShips?.includes(ship.symbol));
+  if (feed) {
+    const label = feed.chainName ? `chain: ${feed.chainName}` : `feed: ${feed.good}`;
+    return `${label} → ${feed.targetWaypoint}`;
+  }
+  const mission = missions.find((m) => m.assignedShips?.includes(ship.symbol));
+  if (mission) {
+    const outstanding = (mission.materials ?? []).find((mm) => mm.fulfilled < mm.required);
+    return `mission: ${outstanding?.tradeSymbol ?? "supplying"} @ ${mission.targetWaypoint}`;
+  }
+  const held = new Set((ship.cargo?.inventory ?? []).map((i) => i.symbol));
+  const wanted = contracts.find((c) => c.accepted && !c.fulfilled && !c.abandoned && c.deliver.some((d) => held.has(d.tradeSymbol) && d.unitsFulfilled < d.unitsRequired));
+  if (wanted) {
+    const d = wanted.deliver.find((x) => held.has(x.tradeSymbol));
+    return `contract: ${d.tradeSymbol} → ${d.destinationSymbol}`;
+  }
+  return null;
+}
+
 function fleetRows() {
   const ships = state?.ships ?? [];
   const statusBy = new Map((fleetStatus.ships ?? []).map((s) => [s.symbol, s]));
@@ -245,11 +272,12 @@ function fleetRows() {
   return ships.map((s) => {
     const st = statusBy.get(s.symbol);
     const assignment = dispatchAssignments.find((a) => a.shipSymbol === s.symbol);
+    const claim = claimFor(s);
     return {
       symbol: s.symbol,
       role: st?.role ?? "—",
       manual: !!st?.paused,
-      job: st?.role === "trader" ? (jobLabel(assignment) ?? "unassigned") : null,
+      job: claim ?? (st?.role === "trader" ? (jobLabel(assignment) ?? "unassigned") : null),
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
       condition: worstConditionPct(s) ?? 100,

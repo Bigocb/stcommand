@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fleet tab/Tower now show a feed/chain, mission, or contract claim for
+  any ship, not just traders.** `jobFor()` (v6.js) and `claimFor()`/
+  `jobLabel()` (m.js) previously only ever computed a "signed to" label
+  for `role === "trader"` — every other role's Job column read "—" even
+  when a mission or feed had actually claimed it, which was exactly the
+  live confusion behind today's stuck-miners investigation (a miner
+  holding contract-protected IRON_ORE with nothing on screen explaining
+  why). Now checks, in order: a feed/chain claim (`feeds`'s own
+  `assignedShips`, showing the chain name when one applies), a mission
+  claim (`missions`'s `assignedShips`, naming the outstanding material),
+  the existing trader-only dispatch assignment, and — lowest priority,
+  informational — cargo the ship happens to be holding that an active,
+  non-abandoned contract still wants. The Automation feed's
+  `describeAutomation()` picks up the same claim ahead of its old
+  role-specific fallback text ("autonomous — picks its own field each
+  cycle" no longer says that about a ship a feed has actually pinned).
 - **Add: `POST /api/miner-preference` now logs to `operator_actions`** (kind
   `miner_preference`), same as `/fleet/role` already does for role changes.
   Found as a dead end while investigating the IRON_ORE-stuck-miners

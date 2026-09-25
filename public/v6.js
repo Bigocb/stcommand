@@ -1652,23 +1652,53 @@ function fmtEta(iso) {
 }
 
 /**
- * What a trader is actually working on, in the same vocabulary the
- * operator thinks in (route/contract/mission), not the dispatcher's
- * internal role names — see TraderAssignment in dispatcher.ts for what
- * each role means. Only traders carry a dispatch assignment at all; every
- * other role's job is already legible from the Doctrine/Doing columns.
+ * What a ship is actually working on, in the same vocabulary the operator
+ * thinks in (feeder chain/feed, mission, contract, route) rather than the
+ * dispatcher's internal role names — see TraderAssignment in dispatcher.ts
+ * for what each role means. Unlike the old trader-only version, this checks
+ * every ship regardless of role: a miner claimed by a feed or holding cargo
+ * a contract needs is exactly the "who's assigned to what" confusion this
+ * exists to resolve (operator report, 2026-09-25 — same investigation that
+ * found the abandoned-contract protectedGoods bug).
+ *
+ * Priority: feed/chain claim, then mission claim (both apply to any role —
+ * a feed's crew is very often a miner, not a trader), then the trader-only
+ * dispatch assignment, then — lowest priority, informational only — cargo
+ * the ship happens to be holding that an active contract still wants,
+ * which explains why that cargo can't be sold/jettisoned even though
+ * nothing "assigned" the ship to the contract in the usual sense.
  */
-function jobFor(shipSymbol, role) {
-  if (role !== "trader") return "—";
-  const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
-  if (!a) return "unassigned";
-  const good = escapeHtml(a.good);
-  if (a.role === "direct") return `route: ${good}`;
-  if (a.role === "contractBuy") return `contract: ${good}`;
-  if (a.role === "haul") return `mission: ${good}`;
-  if (a.role === "buy") return a.missionBuy ? `mission: ${good}` : `warehouse buy: ${good}`;
-  if (a.role === "sell") return `warehouse sell: ${good}`;
-  return good;
+function jobFor(ship, role) {
+  const shipSymbol = ship.symbol;
+  const feed = feeds.find((f) => f.assignedShips?.includes(shipSymbol));
+  if (feed) {
+    const label = feed.chainName ? `chain: ${escapeHtml(feed.chainName)}` : `feed: ${escapeHtml(feed.good)}`;
+    return `${label} → ${escapeHtml(feed.targetWaypoint)}`;
+  }
+  const mission = missions.find((m) => m.assignedShips?.includes(shipSymbol));
+  if (mission) {
+    const outstanding = (mission.materials ?? []).find((mm) => mm.fulfilled < mm.required);
+    return `mission: ${escapeHtml(outstanding?.tradeSymbol ?? "supplying")} @ ${escapeHtml(mission.targetWaypoint)}`;
+  }
+  if (role === "trader") {
+    const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
+    if (a) {
+      const good = escapeHtml(a.good);
+      if (a.role === "direct") return `route: ${good}`;
+      if (a.role === "contractBuy") return `contract: ${good}`;
+      if (a.role === "haul") return `mission: ${good}`;
+      if (a.role === "buy") return a.missionBuy ? `mission: ${good}` : `warehouse buy: ${good}`;
+      if (a.role === "sell") return `warehouse sell: ${good}`;
+      return good;
+    }
+  }
+  const held = new Set((ship.cargo?.inventory ?? []).map((i) => i.symbol));
+  const wanted = contracts.find((c) => c.accepted && !c.fulfilled && !c.abandoned && c.deliver.some((d) => held.has(d.tradeSymbol) && d.unitsFulfilled < d.unitsRequired));
+  if (wanted) {
+    const d = wanted.deliver.find((x) => held.has(x.tradeSymbol));
+    return `contract: ${escapeHtml(d.tradeSymbol)} → ${escapeHtml(d.destinationSymbol)}`;
+  }
+  return role === "trader" ? "unassigned" : "—";
 }
 
 function fleetRows() {
@@ -1680,7 +1710,7 @@ function fleetRows() {
     return {
       symbol: s.symbol,
       role: st?.role ?? "—",
-      job: jobFor(s.symbol, st?.role),
+      job: jobFor(s, st?.role),
       manual: !!st?.paused,
       stranded: strandedBy.has(s.symbol),
       net: earnBy.get(s.symbol) ?? 0,
@@ -1835,10 +1865,16 @@ function renderFleetSummary() {
  */
 function describeAutomation(r) {
   const status = (fleetStatus.ships ?? []).find((s) => s.symbol === r.symbol);
+  const ship = (state?.ships ?? []).find((s) => s.symbol === r.symbol) ?? { symbol: r.symbol };
+  // A feed/chain or mission claim overrides the per-role text below for any
+  // role, not just trader — a feed's crew is very often a miner, and
+  // "autonomous — picks its own field each cycle" is actively misleading
+  // for a ship a feed has actually claimed and pinned to a specific market.
+  const claim = jobFor(ship, r.role);
   if (r.role === "trader") {
-    const job = jobFor(r.symbol, "trader");
-    return job === "unassigned" ? "unassigned — no viable route right now" : job;
+    return claim === "unassigned" ? "unassigned — no viable route right now" : claim;
   }
+  if (claim !== "—") return claim;
   if ((r.role === "miner" || r.role === "surveyor") && status?.pinnedField) return `pinned to mine at ${shortWp(status.pinnedField)}`;
   if (r.role === "miner") return "autonomous — picks its own field each cycle";
   if (r.role === "surveyor") return "autonomous — surveying for the fleet's miners";
