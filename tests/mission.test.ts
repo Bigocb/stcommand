@@ -32,12 +32,12 @@ describe("MissionManager.assignCarrier", () => {
     });
     await mgr.startConstruction("X1-A-I1");
     await mgr.assignCarrier("X1-A-I1", "SHIP-1");
-    assert.equal((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.assignedShip, "SHIP-1");
+    assert.deepEqual((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.assignedShips, ["SHIP-1"]);
     assert.deepEqual(suspended, ["SHIP-1"]);
     assert.deepEqual(resumed, []);
   });
 
-  it("releases the previous carrier back to autonomy when reassigned", async () => {
+  it("adds a second carrier alongside the first instead of replacing it", async () => {
     const suspended: string[] = [];
     const resumed: string[] = [];
     const mgr = new MissionManager({
@@ -48,9 +48,11 @@ describe("MissionManager.assignCarrier", () => {
     await mgr.startConstruction("X1-A-I1");
     await mgr.assignCarrier("X1-A-I1", "SHIP-1");
     await mgr.assignCarrier("X1-A-I1", "SHIP-2");
-    assert.equal((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.assignedShip, "SHIP-2");
+    const mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
+    assert.deepEqual(mission?.assignedShips, ["SHIP-1", "SHIP-2"]);
+    assert.equal(mission?.carrierTarget, 2, "carrierTarget auto-bumps to match the crew a manual assign builds");
     assert.deepEqual(suspended, ["SHIP-1", "SHIP-2"]);
-    assert.deepEqual(resumed, ["SHIP-1"]);
+    assert.deepEqual(resumed, [], "neither carrier is released — they crew the mission together");
   });
 
   it("throws for a mission that doesn't exist", async () => {
@@ -77,7 +79,7 @@ describe("MissionManager.assignCarrier", () => {
     await mgr.pause("X1-A-I1");
 
     assert.deepEqual([...mgr.committedShips()], [], "a paused mission must not hold its former carrier committed");
-    assert.equal((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.assignedShip, undefined);
+    assert.equal((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.assignedShips?.[0], undefined);
   });
 
   it("assigning a carrier to a paused mission does not restart its sourcing state or spend", async () => {
@@ -90,7 +92,7 @@ describe("MissionManager.assignCarrier", () => {
     await mgr.startConstruction("X1-A-I1");
     await mgr.pause("X1-A-I1");
     await mgr.assignCarrier("X1-A-I1", "SHIP-1");
-    assert.equal((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.assignedShip, "SHIP-1");
+    assert.equal((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.assignedShips?.[0], "SHIP-1");
     // Still suspended immediately (the ship is committed) even though the
     // mission itself won't step while paused.
     assert.deepEqual(suspended, ["SHIP-1"]);
@@ -196,7 +198,7 @@ describe("MissionManager.stepCarrier re-discovery", () => {
     assert.ok(discoverCalls >= 1, "an assigned carrier with no known buyer must trigger a fresh survey");
 
     const mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
-    assert.equal(mission?.assignedShip, "SHIP-1", "the carrier must still be assigned, not released, while sourcing");
+    assert.equal(mission?.assignedShips?.[0], "SHIP-1", "the carrier must still be assigned, not released, while sourcing");
   });
 });
 
@@ -253,7 +255,7 @@ describe("MissionManager material fallback", () => {
     );
 
     const mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
-    assert.equal(mission?.assignedShip, "SHIP-1", "the carrier must still be assigned, working the other material");
+    assert.equal(mission?.assignedShips?.[0], "SHIP-1", "the carrier must still be assigned, working the other material");
   });
 
   it("still auto-assigns a carrier when only a later material (not the first) has a known seller", async () => {
@@ -297,7 +299,7 @@ describe("MissionManager material fallback", () => {
     await mgr.tick();
     assert.ok(pickCarrierCalls >= 1, "a carrier must be picked once ANY outstanding material has a known seller");
     const mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
-    assert.equal(mission?.assignedShip, "AUTO-1");
+    assert.equal(mission?.assignedShips?.[0], "AUTO-1");
   });
 });
 
@@ -352,14 +354,14 @@ describe("MissionManager: an unreachable carrier is released without ending the 
     let mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
     assert.ok(mission, "the mission must still exist after its carrier fails reachability");
     assert.equal(mission?.status, "active", "must still be active, not silently dropped");
-    assert.equal(mission?.assignedShip, undefined, "the failed carrier must be cleared so a new pick can happen");
+    assert.equal(mission?.assignedShips?.[0], undefined, "the failed carrier must be cleared so a new pick can happen");
     assert.deepEqual(resumed, ["SHIP-BAD"], "the failed carrier must be released back to autonomy");
 
     // Next tick: pre-assignment gate re-fires (assignedShip is clear),
     // picks SHIP-GOOD, which passes the reachability check this time.
     await mgr.tick();
     mission = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1");
-    assert.equal(mission?.assignedShip, "SHIP-GOOD", "a different, reachable carrier must get a real chance");
+    assert.equal(mission?.assignedShips?.[0], "SHIP-GOOD", "a different, reachable carrier must get a real chance");
   });
 });
 
@@ -429,7 +431,7 @@ describe("MissionManager persistence", () => {
     const fresh = new MissionManager({ api: makeApi([]), store, tenantId: tenantA, suspend: () => {} });
     await fresh.startConstruction("X1-A-P2"); // no-op materials arg — resumes from persisted state
     const found = (await fresh.list()).find((m) => m.targetWaypoint === "X1-A-P2");
-    assert.equal(found?.assignedShip, undefined);
+    assert.equal(found?.assignedShips?.[0], undefined);
     assert.equal(found?.paused, true);
   });
 
@@ -481,6 +483,6 @@ describe("MissionManager persistence", () => {
     await mgr.startConstruction("X1-A-NOSTORE");
     await mgr.assignCarrier("X1-A-NOSTORE", "SHIP-1");
     const found = (await mgr.list()).find((m) => m.targetWaypoint === "X1-A-NOSTORE");
-    assert.equal(found?.assignedShip, "SHIP-1");
+    assert.equal(found?.assignedShips?.[0], "SHIP-1");
   });
 });

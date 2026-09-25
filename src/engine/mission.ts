@@ -17,13 +17,23 @@ export type MissionKind = "SUPPLY_CONSTRUCTION";
 /**
  * A task the fleet has committed to: deliver enough of each material to a
  * construction site (e.g. a jump gate) until the site reports complete.
+ *
+ * `assignedShips`/`carrierTarget` replaced the old singular `assignedShip`
+ * so a bottleneck material can be worked by more than one ship at once (the
+ * "protocol" ramp-up — see CLAUDE.md/docs/TODO.md). `carrierTarget` is how
+ * many ships this mission wants staffed; the engine auto-picks one more per
+ * tick (same throttled ramp-up as the old single-carrier auto-pick) until
+ * `assignedShips.length` reaches it. Defaulting `carrierTarget` to 1
+ * preserves today's single-carrier behavior for every mission that never
+ * touches the new crew-size controls.
  */
 export interface Mission {
   kind: MissionKind;
   targetSystem: string;
   targetWaypoint: string;
   status: "active" | "complete";
-  assignedShip?: string;
+  assignedShips: string[];
+  carrierTarget: number;
   materials: MissionMaterial[];
   /** True while the operator has this mission held (no sourcing, no spending). */
   paused?: boolean;
@@ -114,13 +124,20 @@ export class MissionManager {
   private readonly jettisonCargo?: MissionOptions["jettisonCargo"];
 
   private active = new Map<string, Mission>();
-  /** Per-mission transient state (not persisted): what the carrier is doing right now. */
-  private tasks = new Map<string, TaskState>();
+  /** Per-mission, per-ship transient state (not persisted): what each carrier
+   *  is doing right now. Keyed by waypoint, then by that ship's own symbol —
+   *  every carrier on a mission drives its own independent source→buy→supply
+   *  loop, so each needs its own TaskState. */
+  private tasks = new Map<string, Map<string, TaskState>>();
   /** Waypoint → when its progress was last reconciled against the live site.
    *  Paused missions reconcile on this slow cadence instead of every tick. */
   private lastReconcile = new Map<string, number>();
   /** Waypoints whose missions are paused (no sourcing/spending until resumed). */
   private paused = new Set<string>();
+  /** Waypoint → next time step()'s pre-assignment discovery survey may run,
+   *  for missions with no crew yet (so it's throttled the same way a real
+   *  carrier's own maybeDiscover() call is, instead of firing every tick). */
+  private preAssignDiscoverRetry = new Map<string, number>();
 
   constructor(opts: MissionOptions) {
     this.api = opts.api;
@@ -150,7 +167,15 @@ export class MissionManager {
     const persisted = known?.find((m) => m.targetWaypoint === waypointSymbol && m.status === "active");
     if (persisted) {
       // Resume an interrupted mission from persistent state.
-      const mission: Mission = { kind: "SUPPLY_CONSTRUCTION", targetSystem: system, targetWaypoint: waypointSymbol, status: "active", materials: persisted.materials, assignedShip: persisted.assignedShip ?? undefined };
+      const mission: Mission = {
+        kind: "SUPPLY_CONSTRUCTION",
+        targetSystem: system,
+        targetWaypoint: waypointSymbol,
+        status: "active",
+        materials: persisted.materials,
+        assignedShips: [...persisted.assignedShips],
+        carrierTarget: persisted.carrierTarget,
+      };
       this.active.set(waypointSymbol, mission);
       if (persisted.paused) {
         // Stay paused across restarts — don't re-suspend the carrier or start sourcing.
@@ -158,8 +183,12 @@ export class MissionManager {
         this.log(`mission resumed (from prior state, PAUSED): supply ${waypointSymbol}`);
         return;
       }
-      this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
-      if (mission.assignedShip) await this.suspend?.(mission.assignedShip);
+      const shipTasks = new Map<string, TaskState>();
+      for (const s of mission.assignedShips) {
+        shipTasks.set(s, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
+        await this.suspend?.(s);
+      }
+      this.tasks.set(waypointSymbol, shipTasks);
       this.log(`mission resumed (from prior state): supply ${waypointSymbol}`);
       return;
     }
@@ -173,9 +202,9 @@ export class MissionManager {
         return;
       }
     }
-    const mission: Mission = { kind: "SUPPLY_CONSTRUCTION", targetSystem: system, targetWaypoint: waypointSymbol, status: "active", materials: mats };
+    const mission: Mission = { kind: "SUPPLY_CONSTRUCTION", targetSystem: system, targetWaypoint: waypointSymbol, status: "active", materials: mats, assignedShips: [], carrierTarget: 1 };
     this.active.set(waypointSymbol, mission);
-    this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
+    this.tasks.set(waypointSymbol, new Map());
     await this.persist(mission);
     this.log(`mission started: supply ${waypointSymbol} (${mats.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
     this.onActivity?.("mission", `mission started: supply ${waypointSymbol}`, 0, undefined);
@@ -189,7 +218,8 @@ export class MissionManager {
       targetSystem: m.targetSystem,
       targetWaypoint: m.targetWaypoint,
       status: m.status,
-      assignedShip: m.assignedShip ?? undefined,
+      assignedShips: m.assignedShips,
+      carrierTarget: m.carrierTarget,
       materials: m.materials,
       paused: m.paused,
     }));
@@ -210,7 +240,7 @@ export class MissionManager {
   /** Are any ships currently committed to missions? (fleet should not reassign them) */
   committedShips(): Set<string> {
     const out = new Set<string>();
-    for (const m of this.active.values()) if (m.assignedShip) out.add(m.assignedShip);
+    for (const m of this.active.values()) for (const s of m.assignedShips) out.add(s);
     return out;
   }
 
@@ -279,49 +309,86 @@ export class MissionManager {
   }
 
   /**
-   * Manually set (or replace) a mission's carrier, overriding whatever the
-   * auto-picker chose. Releases any previous carrier back to autonomy first,
-   * and resets in-flight sourcing state — a chosen market or a purchase
-   * mid-flight belonged to the old ship, not this one, so the new carrier
-   * starts its step loop from scratch.
+   * Add a ship to a mission's crew, bumping `carrierTarget` to at least the
+   * new crew size if needed. Unlike the old single-carrier version, this
+   * never replaces an existing carrier — it staffs alongside them. A no-op
+   * if the ship is already on this mission's crew.
    */
   async assignCarrier(waypointSymbol: string, shipSymbol: string): Promise<void> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
-    if (mission.assignedShip === shipSymbol) return;
-    if (mission.assignedShip) {
-      this.resume?.(mission.assignedShip);
-      this.log(`mission ${waypointSymbol}: released ${mission.assignedShip} (reassigned)`);
-    }
-    mission.assignedShip = shipSymbol;
+    if (mission.assignedShips.includes(shipSymbol)) return;
+    mission.assignedShips.push(shipSymbol);
+    if (mission.carrierTarget < mission.assignedShips.length) mission.carrierTarget = mission.assignedShips.length;
     await this.suspend?.(shipSymbol);
     if (!this.paused.has(waypointSymbol)) {
-      this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
+      const shipTasks = this.tasks.get(waypointSymbol) ?? new Map<string, TaskState>();
+      shipTasks.set(shipSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
+      this.tasks.set(waypointSymbol, shipTasks);
     }
     await this.persist(mission);
-    this.log(`mission ${waypointSymbol}: carrier manually set to ${shipSymbol}`);
+    this.log(`mission ${waypointSymbol}: ${shipSymbol} added to crew (${mission.assignedShips.length}/${mission.carrierTarget})`);
     this.onActivity?.("mission", `${shipSymbol} assigned to ${waypointSymbol} by operator`, 0, shipSymbol);
   }
 
-  /** Pause a mission: stop sourcing/spending, release the carrier to autonomy. */
+  /**
+   * Release one specific ship from a mission's crew and lower `carrierTarget`
+   * to match — an explicit operator removal, unlike releaseFailedCarrier()
+   * (an unreachable ship), should not trigger an immediate auto-replacement
+   * next tick.
+   */
+  async removeCarrier(waypointSymbol: string, shipSymbol: string): Promise<void> {
+    const mission = this.active.get(waypointSymbol);
+    if (!mission) return;
+    const idx = mission.assignedShips.indexOf(shipSymbol);
+    if (idx === -1) return;
+    mission.assignedShips.splice(idx, 1);
+    mission.carrierTarget = Math.max(0, mission.carrierTarget - 1);
+    this.tasks.get(waypointSymbol)?.delete(shipSymbol);
+    this.resume?.(shipSymbol);
+    await this.persist(mission);
+    this.log(`mission ${waypointSymbol}: ${shipSymbol} removed from crew (${mission.assignedShips.length}/${mission.carrierTarget})`);
+    this.onActivity?.("mission", `${shipSymbol} removed from ${waypointSymbol} by operator`, 0, shipSymbol);
+  }
+
+  /**
+   * Set the crew size this mission wants staffed. The auto-picker in step()
+   * ramps up toward it one ship per tick; setting a lower target than the
+   * current crew releases the excess immediately (most-recently-added first).
+   */
+  async setCarrierTarget(waypointSymbol: string, count: number): Promise<void> {
+    const mission = this.active.get(waypointSymbol);
+    if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
+    const target = Math.max(0, Math.floor(count));
+    mission.carrierTarget = target;
+    while (mission.assignedShips.length > target) {
+      const ship = mission.assignedShips.pop()!;
+      this.tasks.get(waypointSymbol)?.delete(ship);
+      this.resume?.(ship);
+      this.log(`mission ${waypointSymbol}: ${ship} released (crew target lowered to ${target})`);
+    }
+    await this.persist(mission);
+  }
+
+  /** Pause a mission: stop sourcing/spending, release the whole crew to autonomy. */
   async pause(waypointSymbol: string): Promise<void> {
     if (!this.active.has(waypointSymbol)) return;
     this.paused.add(waypointSymbol);
     const mission = this.active.get(waypointSymbol)!;
-    if (mission.assignedShip) {
-      this.resume?.(mission.assignedShip);
-      this.log(`mission ${waypointSymbol}: paused, released ${mission.assignedShip}`);
-      // Actually let go, not just resume — leaving assignedShip set kept the
-      // ship permanently reported by committedShips() (nothing ever clears
-      // it while the mission sits paused), which meant syncShipClaims() re-
-      // claimed it as owner "mission" on every subsequent tick and — since
-      // mission outranks warehouse in ShipRegistry's precedence — silently
-      // made that ship un-designatable as the warehouse ship for as long as
-      // the mission stayed paused. Confirmed live and by a targeted test.
-      // resumeMission() already handles a cleared assignedShip correctly:
-      // step()'s "no carrier assigned yet" branch just picks a fresh one.
-      mission.assignedShip = undefined;
+    for (const ship of mission.assignedShips) {
+      this.resume?.(ship);
+      this.log(`mission ${waypointSymbol}: paused, released ${ship}`);
     }
+    // Actually let go, not just resume — leaving assignedShips set kept
+    // those ships permanently reported by committedShips() (nothing ever
+    // clears it while the mission sits paused), which meant syncShipClaims()
+    // re-claimed them as owner "mission" on every subsequent tick and —
+    // since mission outranks warehouse in ShipRegistry's precedence —
+    // silently made them un-designatable as the warehouse ship for as long
+    // as the mission stayed paused. Confirmed live and by a targeted test.
+    // resumeMission() already handles a cleared crew correctly: step()'s
+    // auto-pick branch just fills back up toward carrierTarget.
+    mission.assignedShips = [];
     this.tasks.delete(waypointSymbol);
     await this.persist(mission);
   }
@@ -331,7 +398,7 @@ export class MissionManager {
     if (!this.paused.delete(waypointSymbol)) return;
     const mission = this.active.get(waypointSymbol);
     if (mission) {
-      this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
+      this.tasks.set(waypointSymbol, new Map());
       await this.persist(mission);
       this.log(`mission ${waypointSymbol}: resumed`);
     }
@@ -342,18 +409,11 @@ export class MissionManager {
     return this.paused.has(waypointSymbol);
   }
 
-  /** Advance a single mission one step. */
+  /** Advance a single mission one step: reconcile, auto-crew toward
+   *  carrierTarget, then step every currently-assigned carrier once. */
   private async step(mission: Mission): Promise<void> {
-    const t = this.tasks.get(mission.targetWaypoint);
-    if (!t) return;
-    // Back off if we hit a rate limit / error recently.
-    //
-    // This check has to come BEFORE the getConstruction call below, not after
-    // it. It used to sit seventeen lines further down, which meant the backoff
-    // never prevented the request it exists to prevent: every active mission
-    // spent an API call on every 2s coordinator tick no matter how recently it
-    // had been told to wait.
-    if (t.retryAt > Date.now()) return;
+    const shipTasks = this.tasks.get(mission.targetWaypoint);
+    if (!shipTasks) return;
 
     // Reconcile fulfilled counts against the authoritative construction state.
     const c = await this.api.getConstruction(mission.targetSystem, mission.targetWaypoint);
@@ -369,9 +429,12 @@ export class MissionManager {
       this.onActivity?.("mission", `mission complete: ${mission.targetWaypoint}`, 0, undefined);
       return;
     }
-    // Assign a carrier only once we know there's real work to do (a market that
-    // sells a needed material). Otherwise the mission surveys markets while every
-    // ship keeps producing — a blocked mission must never idle a miner.
+
+    // Auto-crew toward carrierTarget, one ship per tick (same throttled
+    // ramp-up the old single-carrier auto-pick used) — only once we know
+    // there's real work to do (a market that sells a needed material).
+    // Otherwise the mission surveys markets while every ship keeps
+    // producing — a blocked mission must never idle a miner.
     //
     // Check every outstanding material, not just whichever sorts first: this
     // gate used to look at only mission.materials.find(...)'s first result
@@ -382,26 +445,45 @@ export class MissionManager {
     // level higher: this is the gate that decides whether to assign a
     // carrier in the first place, so getting it wrong here means the
     // carrier-level fix never even gets a chance to run.
-    if (!mission.assignedShip) {
+    if (mission.assignedShips.length < mission.carrierTarget) {
       const outstanding = mission.materials.filter((m) => m.fulfilled < m.required);
       let sourceable: MissionMaterial | undefined;
       for (const m of outstanding) {
         if (((await this.listBuyers?.(m.tradeSymbol, mission.targetSystem)) ?? []).length > 0) { sourceable = m; break; }
       }
       if (!sourceable) {
-        await this.maybeDiscover(mission, t, outstanding[0]?.tradeSymbol);
-        return;
+        const last = this.preAssignDiscoverRetry.get(mission.targetWaypoint) ?? 0;
+        if (Date.now() >= last) {
+          this.preAssignDiscoverRetry.set(mission.targetWaypoint, Date.now() + 15_000);
+          await this.maybeDiscover(mission, outstanding[0]?.tradeSymbol);
+        }
+      } else {
+        const carrier = await this.pickCarrier?.(this.committedShips(), mission.targetWaypoint);
+        if (carrier) {
+          mission.assignedShips.push(carrier);
+          shipTasks.set(carrier, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
+          await this.suspend?.(carrier);
+          this.log(`mission ${mission.targetWaypoint}: assigned carrier ${carrier} (${mission.assignedShips.length}/${mission.carrierTarget})`);
+          await this.persist(mission);
+          this.onActivity?.("mission", `assigned ${carrier} to ${mission.targetWaypoint}`, 0, carrier);
+        }
       }
-      const carrier = await this.pickCarrier?.(this.committedShips(), mission.targetWaypoint);
-      if (!carrier) return; // no free ship; retry next tick
-      mission.assignedShip = carrier;
-      await this.suspend?.(carrier);
-      this.log(`mission ${mission.targetWaypoint}: assigned carrier ${carrier}`);
-      await this.persist(mission);
-      this.onActivity?.("mission", `assigned ${carrier} to ${mission.targetWaypoint}`, 0, carrier);
     }
 
-    await this.stepCarrier(mission, t);
+    for (const shipSymbol of [...mission.assignedShips]) {
+      const t = shipTasks.get(shipSymbol);
+      if (!t) continue;
+      // Back off if this carrier hit a rate limit / error recently. Checked
+      // per-ship, before any API call for that ship — see the historical
+      // note above on why this has to come before getConstruction: the same
+      // reasoning applies per-carrier now that there can be several.
+      if (t.retryAt > Date.now()) continue;
+      try {
+        await this.stepCarrier(mission, shipSymbol, t);
+      } catch (err) {
+        this.log(`mission ${mission.targetWaypoint}: ${shipSymbol} step error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   /** When sourcing is blocked, survey unknown markets for `tradeSymbol` before
@@ -411,9 +493,8 @@ export class MissionManager {
    *  calling this about a specific blocked t.currentMaterial, e.g., would
    *  actually survey for an unrelated, always-first-in-array material
    *  instead). */
-  private async maybeDiscover(mission: Mission, t: TaskState, tradeSymbol: string | undefined): Promise<void> {
+  private async maybeDiscover(mission: Mission, tradeSymbol: string | undefined): Promise<void> {
     if (!this.discoverBuyers || !tradeSymbol) return;
-    t.retryAt = Date.now() + 15_000;
     const found = await this.discoverBuyers(tradeSymbol, mission.targetSystem);
     if (found.length > 0) {
       this.log(`mission ${mission.targetWaypoint}: discovered sellers of ${tradeSymbol}: ${found.map((b) => `${b.waypoint}@${b.purchasePrice}c`).join(", ")}`);
@@ -450,9 +531,9 @@ export class MissionManager {
     }
   }
 
-  /** Drive the carrier ship through the supply loop. */
-  private async stepCarrier(mission: Mission, t: TaskState): Promise<void> {
-    const ship = await this.getShip?.(mission.assignedShip!);
+  /** Drive one carrier ship through the supply loop. */
+  private async stepCarrier(mission: Mission, shipSymbol: string, t: TaskState): Promise<void> {
+    const ship = await this.getShip?.(shipSymbol);
     if (!ship) return;
     if (ship.nav.status === "IN_TRANSIT") return; // wait for arrival
 
@@ -462,14 +543,14 @@ export class MissionManager {
     // a capable ship can be picked instead.
     if (this.canReach && !(await this.canReach(ship.symbol, mission.targetWaypoint))) {
       this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} cannot reach target (no viable route); releasing`);
-      await this.releaseFailedCarrier(mission, t);
+      await this.releaseFailedCarrier(mission, shipSymbol, t);
       return;
     }
     if (!this.canReach && this.estimatedFuelBetween && ship.fuel.capacity > 0) {
       const need = this.estimatedFuelBetween(ship.nav.waypointSymbol, mission.targetWaypoint);
       if (need > ship.fuel.capacity) {
         this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} cannot reach target (need ${need} fuel, tank ${ship.fuel.capacity}); releasing`);
-        await this.releaseFailedCarrier(mission, t);
+        await this.releaseFailedCarrier(mission, shipSymbol, t);
         return;
       }
     }
@@ -505,7 +586,8 @@ export class MissionManager {
         // assigned, so once assigned (manually or by the auto-picker), a
         // carrier that hit this branch would sit here permanently with no
         // path back to finding a source, indistinguishable from "broken".
-        await this.maybeDiscover(mission, t, t.currentMaterial);
+        t.retryAt = Date.now() + 15_000;
+        await this.maybeDiscover(mission, t.currentMaterial);
         buyers = (await this.listBuyers?.(t.currentMaterial, mission.targetSystem)) ?? [];
         if (buyers.length === 0) {
           this.blockMaterial(t, t.currentMaterial);
@@ -627,19 +709,19 @@ export class MissionManager {
     }
   }
 
-  /** Restore a carrier to autonomous control once the mission ends. */
+  /** Restore the whole crew to autonomous control once the mission ends. */
   private releaseCarrier(mission: Mission): void {
-    if (mission.assignedShip) {
-      this.resume?.(mission.assignedShip);
-      this.log(`mission ${mission.targetWaypoint}: released ${mission.assignedShip}`);
+    for (const ship of mission.assignedShips) {
+      this.resume?.(ship);
+      this.log(`mission ${mission.targetWaypoint}: released ${ship}`);
     }
     this.tasks.delete(mission.targetWaypoint);
     this.active.delete(mission.targetWaypoint);
   }
 
-  /** Release a carrier that failed mid-mission (e.g. it can no longer reach
-   *  the target), WITHOUT ending the mission — a different, capable ship
-   *  should still get a chance on the next tick.
+  /** Release one carrier that failed mid-mission (e.g. it can no longer reach
+   *  the target), WITHOUT ending the mission or lowering carrierTarget — a
+   *  different, capable ship should still get auto-picked on a later tick.
    *
    *  Confirmed live: this call site used to reuse releaseCarrier() above,
    *  which is built for the mission-*complete* case and deletes the mission
@@ -651,12 +733,12 @@ export class MissionManager {
    *  the mission were still running, since this path never touched the
    *  database either. From the operator's side: a mission shows an assigned
    *  ship indefinitely and never moves it, with nothing to suggest why. */
-  private async releaseFailedCarrier(mission: Mission, t: TaskState): Promise<void> {
-    if (mission.assignedShip) {
-      this.resume?.(mission.assignedShip);
-      this.log(`mission ${mission.targetWaypoint}: released ${mission.assignedShip}, mission stays active for a new pick`);
-    }
-    mission.assignedShip = undefined;
+  private async releaseFailedCarrier(mission: Mission, shipSymbol: string, t: TaskState): Promise<void> {
+    this.resume?.(shipSymbol);
+    this.log(`mission ${mission.targetWaypoint}: released ${shipSymbol}, mission stays active for a new pick`);
+    const idx = mission.assignedShips.indexOf(shipSymbol);
+    if (idx !== -1) mission.assignedShips.splice(idx, 1);
+    this.tasks.get(mission.targetWaypoint)?.delete(shipSymbol);
     t.currentMaterial = undefined;
     t.market = undefined;
     await this.persist(mission);
@@ -680,7 +762,8 @@ export class MissionManager {
       targetSystem: m.targetSystem,
       targetWaypoint: m.targetWaypoint,
       status: m.status,
-      assignedShip: m.assignedShip,
+      assignedShips: m.assignedShips,
+      carrierTarget: m.carrierTarget,
       materials: m.materials,
       paused: this.paused.has(m.targetWaypoint),
     });

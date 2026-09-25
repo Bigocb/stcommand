@@ -351,6 +351,8 @@ describe("Store.missions", () => {
       targetSystem: "X1-A",
       targetWaypoint: "X1-A-I59",
       status: "active",
+      assignedShips: [],
+      carrierTarget: 1,
       materials: [{ tradeSymbol: "FAB_MATS", required: 4000, fulfilled: 500 }],
     });
     const missions = await store.latestMissions(tenantA);
@@ -365,6 +367,8 @@ describe("Store.missions", () => {
       targetSystem: "X1-A",
       targetWaypoint: "X1-A-I60",
       status: "active",
+      assignedShips: [],
+      carrierTarget: 1,
       materials: [{ tradeSymbol: "IRON", required: 100, fulfilled: 0 }],
     });
     await store.recordMission(tenantA, {
@@ -372,12 +376,14 @@ describe("Store.missions", () => {
       targetSystem: "X1-A",
       targetWaypoint: "X1-A-I60",
       status: "active",
-      assignedShip: "SHIP-1",
+      assignedShips: ["SHIP-1"],
+      carrierTarget: 2,
       materials: [{ tradeSymbol: "IRON", required: 100, fulfilled: 50 }],
     });
     const matches = (await store.latestMissions(tenantA)).filter((m) => m.targetWaypoint === "X1-A-I60");
     assert.equal(matches.length, 1, "must upsert, not duplicate");
-    assert.equal(matches[0]?.assignedShip, "SHIP-1");
+    assert.deepEqual(matches[0]?.assignedShips, ["SHIP-1"]);
+    assert.equal(matches[0]?.carrierTarget, 2);
     assert.equal(matches[0]?.materials[0]?.fulfilled, 50);
   });
 
@@ -387,6 +393,8 @@ describe("Store.missions", () => {
       targetSystem: "X1-A",
       targetWaypoint: "X1-A-I61",
       status: "active",
+      assignedShips: [],
+      carrierTarget: 1,
       materials: [{ tradeSymbol: "IRON", required: 10, fulfilled: 10 }],
     });
     await store.completeMission(tenantA, "X1-A-I61");

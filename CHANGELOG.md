@@ -11,6 +11,35 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: multi-carrier construction missions — a site can now be staffed by
+  more than one ship at once.** `Mission.assignedShip` (a single string)
+  was the hard architectural limit blocking parallel buyers on a
+  bottleneck material (e.g. ADVANCED_CIRCUITRY at a jump gate, where one
+  carrier alone can't hit a same-day build). Replaced with
+  `assignedShips: string[]` + `carrierTarget: number`; `MissionManager`
+  now runs each crew member's own independent source→buy→supply
+  `TaskState` per tick, auto-ramps the crew toward `carrierTarget` one
+  ship per tick (same throttled pattern the old single-carrier auto-pick
+  used), and exposes `removeCarrier()`/`setCarrierTarget()` alongside the
+  existing `assignCarrier()` (which now *adds* to the crew instead of
+  replacing it). `store.ts`/migration `025_mission_multi_carrier.sql`
+  persists the new `assigned_ships`/`carrier_target` columns (dropped the
+  old singular `assigned_ship` column). New routes
+  `POST /api/missions/remove-carrier` and `POST /api/missions/carrier-target`.
+  Desktop (`v6.js`) and Tower (`m.js`)'s Construction missions panels
+  updated to show the crew and a crew-size control.
+  **Known gap**: `v2.js`–`v5.js` and `deck.js` still read the old
+  `m.assignedShip` field in their own mission panels, which is now always
+  `undefined` — those panels will show "no carrier yet" even when a crew
+  is assigned, until they're ported to `assignedShips` too (see
+  `docs/TODO.md`). Assigning still works from any of them (the API
+  route is unchanged), only the carrier display regresses.
+  This is groundwork for the "protocol" work described in
+  `CLAUDE.md`/`docs/TODO.md` — an auto-derived, toggleable feeder chain
+  (ore → refinery → intermediate → construction site) for speed-running a
+  future gate build; the chain-proposer and the ON/OFF UI are not built
+  yet, this lands the engine layer they depend on.
+
 - **Fix: Deck (`/deck`) Overview's "Home system" mini-map rendered every
   marker at zero size, so the panel looked blank.** `renderMinimap()`
   emitted a nested `<span class="mk planet">` marker inside each `.blip`,

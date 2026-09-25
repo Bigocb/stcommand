@@ -6504,12 +6504,14 @@ function renderMissions(list) {
   // Cargo-capable ships the operator could hand a mission to. A ship already
   // carrying a DIFFERENT mission is excluded — picking it here would strand
   // that other mission's supply run.
-  const committedElsewhere = new Set(active.filter((m) => m.assignedShip).map((m) => m.assignedShip));
+  const committedElsewhere = new Set(active.flatMap((m) => m.assignedShips ?? []));
   const carrierCandidates = (fleetStatus.ships ?? []).filter((s) =>
     (s.role === "miner" || s.role === "trader") && !committedElsewhere.has(s.symbol)
   );
 
   const html = active.map((m) => {
+    const crew = m.assignedShips ?? [];
+    const target = m.carrierTarget ?? 1;
     const mats = (m.materials ?? []).map((mat) => {
       const pct = mat.required ? Math.round((mat.fulfilled / mat.required) * 100) : 0;
       const done = mat.fulfilled >= mat.required;
@@ -6520,26 +6522,34 @@ function renderMissions(list) {
       </div><div class="prog"><i style="width:${pct}%"></i></div>`;
     }).join("");
     const allDone = (m.materials ?? []).every((mat) => mat.fulfilled >= mat.required);
-    // This mission's own carrier is always selectable even though it's
-    // "committed elsewhere" nowhere else — plus every other free candidate.
+    // This mission's own crew is always selectable even though its members
+    // are "committed elsewhere" nowhere else — plus every other free candidate.
     const options = carrierCandidates
-      .concat(m.assignedShip && !carrierCandidates.some((c) => c.symbol === m.assignedShip) ? [{ symbol: m.assignedShip }] : [])
-      .map((s) => `<option value="${escapeAttr(s.symbol)}" ${s.symbol === m.assignedShip ? "selected" : ""}>${escapeHtml(shortWp(s.symbol))}</option>`)
+      .concat(crew.filter((s) => !carrierCandidates.some((c) => c.symbol === s)).map((s) => ({ symbol: s })))
+      .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
       .join("");
+    const crewChips = crew.length
+      ? crew.map((s) => `<span class="tag">${escapeHtml(s)} <button class="chip-x" data-act="remove-carrier" data-wp="${escapeAttr(m.targetWaypoint)}" data-ship="${escapeAttr(s)}" aria-label="Remove ${escapeHtml(s)}">&times;</button></span>`).join(" ")
+      : '<span class="ops-sub">no crew yet</span>';
     return `<div class="ops-card">
       <div class="ops-head">
         <span class="ops-title">${escapeHtml(m.targetWaypoint)}</span>
         ${m.paused ? '<span class="tag paused">paused</span>' : `<span class="tag ${allDone ? "done" : ""}">${allDone ? "complete" : "supplying"}</span>`}
         <span class="fill"></span>
-        <span class="ops-sub">${m.assignedShip ? `carrier ${escapeHtml(m.assignedShip)}` : "no carrier yet"}</span>
+        <span class="ops-sub">crew ${crew.length}/${target}</span>
       </div>
       ${mats}
+      <div class="ops-head" style="margin-top:6px">${crewChips}</div>
       <div class="ops-head" style="margin-top:6px">
         <select class="assign-carrier" data-wp="${escapeAttr(m.targetWaypoint)}" aria-label="Carrier ship">
-          <option value="">${m.assignedShip ? "reassign to…" : "choose a ship…"}</option>
+          <option value="">add ship…</option>
           ${options}
         </select>
-        <button class="btn" data-act="assign" data-wp="${escapeAttr(m.targetWaypoint)}">Assign</button>
+        <button class="btn" data-act="assign" data-wp="${escapeAttr(m.targetWaypoint)}">Add</button>
+      </div>
+      <div class="ops-head" style="margin-top:6px">
+        <input type="number" class="carrier-target" data-wp="${escapeAttr(m.targetWaypoint)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
+        <button class="btn" data-act="set-target" data-wp="${escapeAttr(m.targetWaypoint)}">Set crew size</button>
         <span class="fill"></span>
         ${m.paused
           ? `<button class="btn pri" data-act="resume" data-wp="${escapeAttr(m.targetWaypoint)}">Resume</button>`
@@ -6743,14 +6753,23 @@ $("mobile-contracts").addEventListener("click", onContractClick);
 async function onMissionClick(e) {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
-  const { act, wp } = btn.dataset;
+  const { act, wp, ship } = btn.dataset;
   try {
     if (act === "assign") {
       const select = btn.closest(".ops-head").querySelector(".assign-carrier");
       const shipSymbol = select?.value;
       if (!shipSymbol) { showToastGlobal("Pick a ship first", true); return; }
       await api("POST", "/api/missions/assign", { waypoint: wp, shipSymbol });
-      showToastGlobal(`${shipSymbol} assigned to ${wp}`);
+      showToastGlobal(`${shipSymbol} added to ${wp}`);
+    } else if (act === "remove-carrier") {
+      await api("POST", "/api/missions/remove-carrier", { waypoint: wp, shipSymbol: ship });
+      showToastGlobal(`${ship} removed from ${wp}`);
+    } else if (act === "set-target") {
+      const input = btn.closest(".ops-head").querySelector(".carrier-target");
+      const count = Number(input?.value);
+      if (!Number.isFinite(count) || count < 0) { showToastGlobal("Enter a valid crew size", true); return; }
+      await api("POST", "/api/missions/carrier-target", { waypoint: wp, count });
+      showToastGlobal(`${wp} crew target set to ${count}`);
     } else {
       await api("POST", `/api/missions/${act}`, { waypoint: wp });
       showToastGlobal(`Mission ${act === "pause" ? "paused" : "resumed"}`);

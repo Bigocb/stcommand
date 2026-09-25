@@ -4756,7 +4756,7 @@ export class FleetManager {
     if (!agent) throw new Error(`${shipSymbol} is not a miner or trader — missions need a cargo hold`);
     if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold`);
     const other = (await this.missions.list())
-      .find((m) => m.assignedShip === shipSymbol && m.targetWaypoint !== waypointSymbol && m.status === "active");
+      .find((m) => m.assignedShips.includes(shipSymbol) && m.targetWaypoint !== waypointSymbol && m.status === "active");
     if (other) throw new Error(`${shipSymbol} is already carrying the mission at ${other.targetWaypoint}`);
     // Cutover (Greenfield Phase 4): an operator hold outranks a manual
     // mission assignment — the dashboard's own "manual" override for
@@ -4780,6 +4780,20 @@ export class FleetManager {
       throw new Error(`${shipSymbol} cannot reach ${waypointSymbol} on a full tank, even via refuel stops — pick a ship with more fuel range`);
     }
     await this.missions.assignCarrier(waypointSymbol, shipSymbol);
+  }
+
+  /** Release one specific ship from a mission's crew, lowering carrierTarget
+   *  to match so it isn't immediately auto-replaced. */
+  async removeMissionCarrier(waypointSymbol: string, shipSymbol: string): Promise<void> {
+    await this.missions.removeCarrier(waypointSymbol, shipSymbol);
+    this.shipRegistry.release(shipSymbol, "mission");
+  }
+
+  /** Set how many ships a mission wants staffed — the auto-picker ramps
+   *  toward this over subsequent ticks, or releases the excess immediately
+   *  if it's lower than the current crew. */
+  async setMissionCarrierTarget(waypointSymbol: string, count: number): Promise<void> {
+    await this.missions.setCarrierTarget(waypointSymbol, count);
   }
 
   /**

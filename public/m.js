@@ -1269,14 +1269,18 @@ function renderMoreMissions() {
       return `<div class="prog-row"><span>${escapeHtml(mat.tradeSymbol)}</span><span class="pr-pct">${done ? "supplied" : `${mat.fulfilled}/${mat.required}`}</span></div><div class="prog-track"><i style="width:${pct}%"></i></div>`;
     }).join("");
     const allDone = (m.materials ?? []).every((mat) => mat.fulfilled >= mat.required);
+    const crew = m.assignedShips ?? [];
+    const target = m.carrierTarget ?? 1;
     return `<div class="card">
       <div class="row1">
         <span class="who">${escapeHtml(m.targetWaypoint)}</span>
         <span class="amt">${m.paused ? "paused" : allDone ? "complete" : "supplying"}</span>
       </div>
-      ${m.assignedShip ? `<div class="detail">carrier ${escapeHtml(m.assignedShip)}</div>` : '<div class="detail">no carrier yet</div>'}
+      <div class="detail">crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
       ${matRows}
       <div class="acts">
+        <input type="number" class="carrier-target" data-wp="${escapeHtml(m.targetWaypoint)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
+        <button class="btn" data-act="set-target" data-wp="${escapeHtml(m.targetWaypoint)}">Set crew size</button>
         ${m.paused
           ? `<button class="btn pri" data-act="resume" data-wp="${escapeHtml(m.targetWaypoint)}">Resume</button>`
           : `<button class="btn deny" data-act="pause" data-wp="${escapeHtml(m.targetWaypoint)}">Stop</button>`}
@@ -1509,10 +1513,17 @@ $("more-missions").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
   const { act, wp } = b.dataset;
-  if (act === "pause" && !confirm(`Stop the construction mission at ${wp}? The carrier ship will be released; you can resume later.`)) return;
+  if (act === "pause" && !confirm(`Stop the construction mission at ${wp}? The crew will be released; you can resume later.`)) return;
   b.disabled = true;
   try {
-    await api("POST", `/api/missions/${act}`, { waypoint: wp });
+    if (act === "set-target") {
+      const input = b.closest(".acts").querySelector(".carrier-target");
+      const count = Number(input?.value);
+      if (!Number.isFinite(count) || count < 0) { alert("Enter a valid crew size"); return; }
+      await api("POST", "/api/missions/carrier-target", { waypoint: wp, count });
+    } else {
+      await api("POST", `/api/missions/${act}`, { waypoint: wp });
+    }
     await loadProgramme();
   } catch (err) { alert(err.message); }
   renderMoreMissions();

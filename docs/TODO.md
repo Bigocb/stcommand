@@ -7,6 +7,32 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Port `v2.js`–`v5.js`/`deck.js`'s Construction missions panels to
+  `assignedShips`/multi-carrier.** `Mission.assignedShip` (singular) was
+  replaced by `assignedShips`/`carrierTarget` (see CHANGELOG's
+  multi-carrier entry) so a bottleneck material can run more than one
+  ship. `v6.js`/`m.js` (Tower) were updated to match; the older desktop
+  versions and Deck still read the now-gone `m.assignedShip` field in
+  their own mission cards, so they'll show "no carrier yet" even when a
+  crew is assigned. Assigning still works everywhere (the API is
+  unchanged) — only the display regresses on those surfaces.
+- [ ] **Protocol: auto-derived, toggleable feeder chain for construction
+  sites.** Operator ask: a repeatable pattern for racing a jump-gate build
+  in any system — bottom tier miners feed an ore-refinery market, which
+  feeds an intermediate-goods market, which feeds the construction site's
+  buy market, with a single ON/OFF toggle per mission and an editable,
+  auto-proposed tier list (walk backward from the site's outstanding
+  material through export→import market matches, default to the auto pick
+  but let the operator swap any tier's market before confirming). The
+  multi-carrier engine work above is the dependency this needs and now
+  has; not yet built: the `FEED_MARKET` mission kind (crew sells into an
+  upstream market's import list instead of `supplyConstruction()`), the
+  backward-walk chain proposer, and the toggle/tier-list UI in both
+  desktop and Tower. First live test case: X1-SN30's ADVANCED_CIRCUITRY
+  bottleneck at I60, chain ore→H56→F50→D40 (H56 imports IRON_ORE/
+  ALUMINUM_ORE/COPPER_ORE and exports the refined IRON/ALUMINUM/COPPER
+  that F50 imports; F50 exports ELECTRONICS, which D40 imports on the way
+  to its own ADVANCED_CIRCUITRY export).
 - [ ] **Verify Deck (`/deck`) live — Overview pass only.** Built
   2026-09-19: `/deck` route, shell, Overview screen (KPI row, Wants-vs-Doing
   triage table, live Approvals/Activity rail) all wired to real data via

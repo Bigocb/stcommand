@@ -979,6 +979,34 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  router.post("/missions/remove-carrier", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const shipSymbol = String(req.body?.shipSymbol ?? "");
+    if (!waypoint || !shipSymbol) return res.status(400).json({ error: "waypoint and shipSymbol required" });
+    try {
+      await w.fleet.removeMissionCarrier(waypoint, shipSymbol);
+      res.json({ ok: true, missions: await w.fleet.getMissions() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/missions/carrier-target", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const count = Number(req.body?.count);
+    if (!waypoint || !Number.isFinite(count)) return res.status(400).json({ error: "waypoint and count required" });
+    try {
+      await w.fleet.setMissionCarrierTarget(waypoint, count);
+      res.json({ ok: true, missions: await w.fleet.getMissions() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/prices", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

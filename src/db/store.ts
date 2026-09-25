@@ -264,7 +264,8 @@ export interface MissionRow {
   targetSystem: string;
   targetWaypoint: string;
   status: "active" | "complete";
-  assignedShip: string | null;
+  assignedShips: string[];
+  carrierTarget: number;
   materials: { tradeSymbol: string; required: number; fulfilled: number }[];
   paused: boolean;
   createdAt: string;
@@ -2083,25 +2084,27 @@ export class Store {
       targetSystem: string;
       targetWaypoint: string;
       status: string;
-      assignedShip?: string;
+      assignedShips: string[];
+      carrierTarget: number;
       materials: { tradeSymbol: string; required: number; fulfilled: number }[];
       paused?: boolean;
     },
   ): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO missions (tenant_id, kind, target_system, target_waypoint, status, assigned_ship, materials, paused, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+        `INSERT INTO missions (tenant_id, kind, target_system, target_waypoint, status, assigned_ships, carrier_target, materials, paused, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
          ON CONFLICT (tenant_id, target_waypoint) DO UPDATE SET
-           status = excluded.status, assigned_ship = excluded.assigned_ship, materials = excluded.materials,
-           paused = excluded.paused, updated_at = excluded.updated_at`,
+           status = excluded.status, assigned_ships = excluded.assigned_ships, carrier_target = excluded.carrier_target,
+           materials = excluded.materials, paused = excluded.paused, updated_at = excluded.updated_at`,
         [
           tenantId,
           m.kind,
           m.targetSystem,
           m.targetWaypoint,
           m.status,
-          m.assignedShip ?? null,
+          JSON.stringify(m.assignedShips),
+          m.carrierTarget,
           JSON.stringify(m.materials),
           m.paused ?? false,
         ],
@@ -2117,19 +2120,21 @@ export class Store {
         target_system: string;
         target_waypoint: string;
         status: string;
-        assigned_ship: string | null;
+        assigned_ships: string[];
+        carrier_target: number;
         materials: { tradeSymbol: string; required: number; fulfilled: number }[];
         paused: boolean;
         created_at: Date;
         updated_at: Date;
-      }>(`SELECT kind, target_system, target_waypoint, status, assigned_ship, materials, paused, created_at, updated_at
+      }>(`SELECT kind, target_system, target_waypoint, status, assigned_ships, carrier_target, materials, paused, created_at, updated_at
           FROM missions ORDER BY updated_at DESC`);
       return res.rows.map((r) => ({
         kind: r.kind as "SUPPLY_CONSTRUCTION",
         targetSystem: r.target_system,
         targetWaypoint: r.target_waypoint,
         status: r.status as "active" | "complete",
-        assignedShip: r.assigned_ship,
+        assignedShips: r.assigned_ships ?? [],
+        carrierTarget: r.carrier_target ?? 1,
         materials: r.materials,
         paused: r.paused,
         createdAt: r.created_at.toISOString(),
