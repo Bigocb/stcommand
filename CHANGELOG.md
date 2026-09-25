@@ -11,6 +11,14 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: Tower's Fleet screen never actually loaded the data its own new
+  feed/mission/contract claim display needs.** `claimFor()`/`fleetRows()`
+  (added same day, see the entry below) read `feeds`/`missions`/`contracts`
+  from the shared store, but `loadProgramme()` — the only thing that
+  populates them — was wired to fire on the More tab only, never on Fleet
+  and never at boot. Confirmed live: THEO-6's card showed no feed claim at
+  all on a fresh Fleet-tab visit, because the arrays were still empty.
+  `setTab("fleet")` and the 15s poll now both call `loadProgramme()` too.
 - **Fleet tab/Tower now show a feed/chain, mission, or contract claim for
   any ship, not just traders.** `jobFor()` (v6.js) and `claimFor()`/
   `jobLabel()` (m.js) previously only ever computed a "signed to" label

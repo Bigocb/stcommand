@@ -70,7 +70,14 @@ function setTab(name) {
   // loadMarkets() on "fleet" too: the sheet's Custom route form reads
   // marketSnapshots for its buy/sell dropdowns, same staleness fix as
   // desktop's own loadViewData() comment for its Fleet tab's Job column.
-  if (name === "fleet") { loadMarkets(); renderFleetView(); }
+  // loadProgramme() likewise: claimFor() (fleetRows(), below) reads
+  // feeds/missions/contracts to show a feed/chain/mission/contract claim
+  // on a ship's card, same as desktop's jobFor() — those previously only
+  // ever loaded when the More tab had been opened, so a feed/mission claim
+  // silently failed to show on Fleet until an operator happened to visit
+  // More first this session. Confirmed live: a feed carrier's card showed
+  // no claim at all on a fresh Fleet-tab visit.
+  if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); loadGoods(); renderMarkets(); }
   if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadActivity(); loadManipulationRoutes(); loadMarketDynamics(); renderMore(); }
@@ -1722,6 +1729,12 @@ function pollTick() {
   if (mapTabActive() || marketsTabActive() || fleetTabActive()) loadMarkets();
   if (marketsTabActive()) loadGoods();
   if (moreTabActive()) { loadProgramme(); loadWarehouse(); loadActivity(); }
+  // fleetTabActive() gets its own, narrower loadProgramme() call — same
+  // reason as setTab()'s own comment: a feed/mission claim made while
+  // Fleet is already open (e.g. a new carrier assigned mid-session) needs
+  // feeds/missions/contracts to stay fresh, not just on first opening the
+  // tab — but Fleet has no use for warehouse/activity, unlike More.
+  else if (fleetTabActive()) loadProgramme();
 }
 setInterval(() => {
   if (!authed || document.hidden) return;
