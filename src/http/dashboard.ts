@@ -1020,13 +1020,69 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const good = String(req.body?.good ?? "").toUpperCase();
     const carrierTarget = Number(req.body?.carrierTarget ?? 1);
     const mine = req.body?.mine === true;
+    const buyAt = typeof req.body?.buyAt === "string" && req.body.buyAt ? req.body.buyAt : undefined;
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
     try {
-      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1, mine);
+      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1, mine, buyAt);
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  router.get("/feed-chains", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ chains: await w.fleet.getFeedChains() });
+  });
+
+  router.post("/feed-chains/start", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const name = String(req.body?.name ?? "");
+    const rawTiers: any[] = Array.isArray(req.body?.tiers) ? req.body.tiers : [];
+    if (!name || rawTiers.length === 0) return res.status(400).json({ error: "name and at least one tier required" });
+    const tiers: { good: string; sellAt: string; mine: boolean; buyAt: string | undefined; carrierTarget: number }[] = rawTiers.map((t: any) => ({
+      good: String(t?.good ?? "").toUpperCase(),
+      sellAt: String(t?.sellAt ?? ""),
+      mine: t?.mine === true,
+      buyAt: typeof t?.buyAt === "string" && t.buyAt ? t.buyAt : undefined,
+      carrierTarget: Number.isFinite(Number(t?.carrierTarget)) && Number(t?.carrierTarget) > 0 ? Number(t.carrierTarget) : 1,
+    }));
+    if (tiers.some((t) => !t.good || !t.sellAt)) return res.status(400).json({ error: "every tier needs a good and a market to sell into" });
+    try {
+      const chainId = await w.fleet.startFeedChain(name, tiers);
+      res.json({ ok: true, chainId, chains: await w.fleet.getFeedChains() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/feed-chains/pause", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const chainId = String(req.body?.chainId ?? "");
+    if (!chainId) return res.status(400).json({ error: "chainId required" });
+    await w.fleet.pauseFeedChain(chainId);
+    res.json({ ok: true, chains: await w.fleet.getFeedChains() });
+  });
+
+  router.post("/feed-chains/resume", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const chainId = String(req.body?.chainId ?? "");
+    if (!chainId) return res.status(400).json({ error: "chainId required" });
+    await w.fleet.resumeFeedChain(chainId);
+    res.json({ ok: true, chains: await w.fleet.getFeedChains() });
+  });
+
+  router.post("/feed-chains/remove", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const chainId = String(req.body?.chainId ?? "");
+    if (!chainId) return res.status(400).json({ error: "chainId required" });
+    await w.fleet.removeFeedChain(chainId);
+    res.json({ ok: true, chains: await w.fleet.getFeedChains() });
   });
 
   router.post("/feeds/pause", async (req, res) => {

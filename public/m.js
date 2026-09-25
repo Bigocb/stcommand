@@ -11,7 +11,7 @@ import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
-  marketRoutes, marketSnapshots, contracts, missions, feeds, warehouseState, doctrineRules, activity, manipulationRoutes,
+  marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, warehouseState, doctrineRules, activity, manipulationRoutes,
   marketDynamics, marketDynamicsBySystemType, priceGoods, priceWaypointsByGood, pricePoints,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity, loadManipulationRoutes,
@@ -1289,6 +1289,44 @@ function renderMoreMissions() {
   }).join("");
 }
 
+function renderMoreChains() {
+  const el = $("more-chains");
+  if (!el) return;
+  if (!feedChains.length) { el.innerHTML = '<div class="empty">No feeder chains.</div>'; return; }
+  el.innerHTML = feedChains.map((c) => {
+    const off = c.tiers.every((t) => t.paused);
+    const tierRows = c.tiers.map((t, i) => `<div class="prog-row"><span>${i + 1}. ${escapeHtml(t.good)} → ${escapeHtml(t.targetWaypoint)}</span><span class="pr-pct">${(t.assignedShips ?? []).length}/${t.carrierTarget ?? 1}</span></div>`).join("");
+    return `<div class="card">
+      <div class="row1">
+        <span class="who">${escapeHtml(c.name)}</span>
+        <span class="amt">${off ? "off" : "on"}</span>
+      </div>
+      ${tierRows}
+      <div class="acts">
+        ${off
+          ? `<button class="btn pri" data-act="chain-on" data-chain="${escapeHtml(c.chainId)}">Turn on</button>`
+          : `<button class="btn deny" data-act="chain-off" data-chain="${escapeHtml(c.chainId)}">Turn off</button>`}
+        <button class="btn" data-act="chain-remove" data-chain="${escapeHtml(c.chainId)}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+$("more-chains").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const { act, chain } = b.dataset;
+  if (act === "chain-remove" && !confirm("Remove this whole chain? Every tier's crew is released; this isn't just a pause.")) return;
+  b.disabled = true;
+  try {
+    if (act === "chain-on") await api("POST", "/api/feed-chains/resume", { chainId: chain });
+    else if (act === "chain-off") await api("POST", "/api/feed-chains/pause", { chainId: chain });
+    else if (act === "chain-remove") await api("POST", "/api/feed-chains/remove", { chainId: chain });
+    await loadProgramme();
+  } catch (err) { alert(err.message); }
+  renderMoreChains();
+});
+
 function renderMoreFeeds() {
   const el = $("more-feeds");
   if (!feeds.length) { el.innerHTML = '<div class="empty">No feeder tiers.</div>'; return; }
@@ -1300,7 +1338,7 @@ function renderMoreFeeds() {
         <span class="who">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
         <span class="amt">${f.paused ? "off" : "on"}</span>
       </div>
-      <div class="detail">${f.mine ? "mined" : "bought"} · crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
+      <div class="detail">${f.mine ? "mined" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "bought"}${f.chainName ? ` · chain: ${escapeHtml(f.chainName)}` : ""} · crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
       <div class="acts">
         <input type="number" class="carrier-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
         <button class="btn" data-act="set-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Set crew size</button>
@@ -1510,6 +1548,7 @@ function renderMoreMarketDynamicsBySystemType() {
 function renderMore() {
   renderMoreContracts();
   renderMoreMissions();
+  renderMoreChains();
   renderMoreFeeds();
   renderMoreManipulationRoutes();
   renderMoreMarketDynamics();
@@ -1630,7 +1669,7 @@ $("more-doctrine").addEventListener("click", async (e) => {
   } catch (err) { alert(err.message); loadDoctrine(); }
   renderMoreDoctrine();
 });
-subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); renderMoreFeeds(); } });
+subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); renderMoreChains(); renderMoreFeeds(); } });
 subscribe("manipulationRoutes", () => { if (moreTabActive()) renderMoreManipulationRoutes(); });
 subscribe("marketDynamics", () => { if (moreTabActive()) { renderMoreMarketDynamics(); renderMoreMarketDynamicsBySystemType(); } });
 subscribe("warehouse", () => { if (moreTabActive()) renderMoreWarehouse(); });

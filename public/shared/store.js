@@ -91,6 +91,7 @@ export let pricePoints = [];
 export let contracts = [];
 export let missions = [];
 export let feeds = [];
+export let feedChains = [];
 export let manipulationRoutes = [];
 
 export let approvals = [];
@@ -391,12 +392,13 @@ export async function loadPrices(good, spanMs = 48 * 3600 * 1000, waypoint = "")
  */
 export async function loadProgramme() {
   try {
-    const [cres, mres, fres] = await Promise.all([
-      fetch("/api/contracts"), fetch("/api/missions"), fetch("/api/feeds"), loadDispatch(),
+    const [cres, mres, fres, chres] = await Promise.all([
+      fetch("/api/contracts"), fetch("/api/missions"), fetch("/api/feeds"), fetch("/api/feed-chains"), loadDispatch(),
     ]);
     contracts = cres.ok ? (await cres.json()).contracts ?? [] : [];
     missions = mres.ok ? (await mres.json()).missions ?? [] : [];
     feeds = fres.ok ? (await fres.json()).feeds ?? [] : [];
+    feedChains = chres.ok ? (await chres.json()).chains ?? [] : [];
     notify("programme");
   } catch (e) { console.error(e); }
 }

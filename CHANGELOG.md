@@ -11,6 +11,34 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Add: feeder chains — connected feeder tiers where each one buys where
+  the previous one sold, instead of each independently re-deriving
+  "cheapest known market" and possibly drifting to an unconnected one.**
+  Operator feedback on the standalone feeder-tier feature: "when we make a
+  chain like this, they shouldn't be separate, I want the next step to buy
+  where the previous step sold." A chain (e.g. ore→H56→F50→D40) is several
+  `Feed`s sharing a `chainId` (`FeedManager.startChain()`), with every tier
+  after the first getting its new `buyAt` pin (see below) set automatically
+  to the previous tier's own `targetWaypoint` — no separate persisted
+  entity, just grouping metadata (`chain_id`/`chain_name`/`chain_order`,
+  migration `028`) on the same `feed_missions` rows. Several chains can run
+  at once, each toggled independently (`pauseChain`/`resumeChain` pause/
+  resume every member tier as one unit; `removeChain` stops and forgets the
+  whole thing). New routes: `GET /api/feed-chains`, `POST /api/feed-chains/
+  {start,pause,resume,remove}`. New "Feeder chains" panel in desktop
+  (`v6.js`/`v6.html`, Ops tab) with a dynamic tier-row builder (add/remove
+  tiers, each with its own good/market/mine); Tower (`m.js`/`m.html`) gets
+  a read-only view + on/off toggle for now — building a new chain stays a
+  desktop action, noted on the Tower panel itself. A chain's tiers are
+  still plain `Feed`s underneath, so they also show up in the existing
+  "Feeder tiers" panel (now showing a "chain: `<name>`" badge) with full
+  per-tier crew controls — the chain panel is only for building/toggling
+  the chain as a whole.
+  Also added the underlying **`Feed.buyAt` pin**: a feed's source market
+  can now be fixed explicitly instead of always auto-picking the system's
+  cheapest known seller — the piece a chain tier actually relies on, also
+  usable standalone via `startFeed`'s new `buyAt` param.
+
 - **Fix: feeder tiers could only ever source by buying at a market — a
   feed for a mined good (raw ore, the actual bottom tier of the
   ore→refinery chain the feature was built for) would sit stuck logging

@@ -34,6 +34,42 @@ export interface Feed {
    *  raw ore has no market seller at all, but guessing "mineable" from that
    *  alone is unreliable, and the operator already knows which is which. */
   mine?: boolean;
+  /** Pinned source market — when set, this tier always buys here instead of
+   *  auto-picking the system's cheapest known seller. Set automatically for
+   *  every non-first tier of a chain (see startChain()) to the previous
+   *  tier's own `targetWaypoint`, so each step buys where the one before it
+   *  sold, instead of each tier independently re-deriving "cheapest" and
+   *  possibly landing on an unconnected market. Ignored when `mine` is true. */
+  buyAt?: string;
+  /** Chain membership (see startChain()/listChains()) — undefined for a
+   *  standalone feed, unchanged from before chains existed. */
+  chainId?: string;
+  chainName?: string;
+  /** Position within the chain, bottom tier (closest to raw material) first. */
+  chainOrder?: number;
+}
+
+/** An ordered set of feeder tiers where each tier buys where the previous
+ *  one sold — e.g. ore→H56→F50→D40. Not a separate persisted entity: a
+ *  chain is just a shared `chainId` across several `Feed` rows, grouped on
+ *  read (listChains()) and operated on as a unit (pause/resume/remove all
+ *  member tiers together) via the plain per-feed operations underneath.
+ *  Several chains can run at once, each independent. */
+export interface FeedChain {
+  chainId: string;
+  name: string;
+  targetSystem: string;
+  tiers: Feed[];
+}
+
+/** Options for start()/startChain() tiers. */
+export interface FeedStartOptions {
+  carrierTarget?: number;
+  mine?: boolean;
+  buyAt?: string;
+  chainId?: string;
+  chainName?: string;
+  chainOrder?: number;
 }
 
 interface FeedTaskState {
@@ -138,7 +174,8 @@ export class FeedManager {
   }
 
   /** Start (or resume, if already persisted) a feeder tier. */
-  async start(targetWaypoint: string, good: string, carrierTarget = 1, mine = false): Promise<void> {
+  async start(targetWaypoint: string, good: string, opts: FeedStartOptions = {}): Promise<void> {
+    const carrierTarget = opts.carrierTarget ?? 1;
     const key = this.key(targetWaypoint, good);
     if (this.active.has(key)) return;
     const system = targetWaypoint.slice(0, targetWaypoint.lastIndexOf("-"));
@@ -152,6 +189,10 @@ export class FeedManager {
         assignedShips: [...persisted.assignedShips],
         carrierTarget: persisted.carrierTarget,
         mine: persisted.mine,
+        buyAt: persisted.buyAt ?? undefined,
+        chainId: persisted.chainId ?? undefined,
+        chainName: persisted.chainName ?? undefined,
+        chainOrder: persisted.chainOrder ?? undefined,
       };
       this.active.set(key, feed);
       if (persisted.paused) {
@@ -168,15 +209,85 @@ export class FeedManager {
       this.log(`feed resumed (from prior state): ${good} → ${targetWaypoint}`);
       return;
     }
-    const feed: Feed = { targetSystem: system, targetWaypoint, good, assignedShips: [], carrierTarget, mine };
+    const feed: Feed = {
+      targetSystem: system, good, targetWaypoint,
+      assignedShips: [],
+      carrierTarget,
+      mine: opts.mine,
+      buyAt: opts.buyAt,
+      chainId: opts.chainId,
+      chainName: opts.chainName,
+      chainOrder: opts.chainOrder,
+    };
     this.active.set(key, feed);
     this.tasks.set(key, new Map());
     await this.persist(feed);
-    this.log(`feed started: ${good} → ${targetWaypoint} (crew target ${carrierTarget}, source: ${mine ? "mine" : "buy"})`);
+    this.log(`feed started: ${good} → ${targetWaypoint} (crew target ${carrierTarget}, source: ${feed.mine ? "mine" : feed.buyAt ? `buy @ ${feed.buyAt}` : "buy (cheapest known)"})`);
     this.onActivity?.("feed", `feeder started: ${good} → ${targetWaypoint}`, 0, undefined);
   }
 
-  /** Full list of known feeds. */
+  /**
+   * Start a chain of feeder tiers, bottom-to-top: each tier after the first
+   * has its buyAt pinned to the previous tier's own targetWaypoint, so the
+   * chain actually connects (buys where the last tier sold) instead of each
+   * tier independently re-deriving "cheapest known market" and possibly
+   * landing on an unconnected one. The first tier sources by mining (if
+   * `mine` is set) or an operator-given `buyAt`, same as a standalone feed.
+   * Several chains can run at once — each gets its own chainId, and nothing
+   * here assumes only one exists.
+   */
+  async startChain(name: string, tiers: { good: string; sellAt: string; mine?: boolean; buyAt?: string; carrierTarget?: number }[]): Promise<string> {
+    if (tiers.length === 0) throw new Error("a chain needs at least one tier");
+    const chainId = `chain_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    let prevSellAt: string | undefined;
+    for (let i = 0; i < tiers.length; i++) {
+      const tier = tiers[i]!;
+      await this.start(tier.sellAt, tier.good, {
+        carrierTarget: tier.carrierTarget,
+        mine: tier.mine,
+        buyAt: i === 0 ? tier.buyAt : prevSellAt,
+        chainId, chainName: name, chainOrder: i,
+      });
+      prevSellAt = tier.sellAt;
+    }
+    this.log(`chain started: ${name} (${chainId}), ${tiers.length} tier${tiers.length === 1 ? "" : "s"}`);
+    return chainId;
+  }
+
+  /** Chains, grouped from their member feeds' shared chainId, ordered
+   *  bottom tier first. Standalone feeds (no chainId) aren't included —
+   *  see list() for those. */
+  async listChains(): Promise<FeedChain[]> {
+    const all = await this.list();
+    const grouped = new Map<string, Feed[]>();
+    for (const f of all) {
+      if (!f.chainId) continue;
+      const arr = grouped.get(f.chainId) ?? [];
+      arr.push(f);
+      grouped.set(f.chainId, arr);
+    }
+    return [...grouped.entries()].map(([chainId, tiers]) => {
+      tiers.sort((a, b) => (a.chainOrder ?? 0) - (b.chainOrder ?? 0));
+      return { chainId, name: tiers[0]?.chainName ?? chainId, targetSystem: tiers[0]?.targetSystem ?? "", tiers };
+    });
+  }
+
+  /** Pause every tier of a chain as one unit. */
+  async pauseChain(chainId: string): Promise<void> {
+    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.pause(t.targetWaypoint, t.good);
+  }
+
+  /** Resume every tier of a paused chain as one unit. */
+  async resumeChain(chainId: string): Promise<void> {
+    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.resumeFeed(t.targetWaypoint, t.good);
+  }
+
+  /** Stop and forget every tier of a chain — like remove(), not pause(). */
+  async removeChain(chainId: string): Promise<void> {
+    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.remove(t.targetWaypoint, t.good);
+  }
+
+  /** Full list of known feeds (standalone and chain tiers alike). */
   async list(): Promise<Feed[]> {
     const rows = this.tenantId ? await this.store?.latestFeeds(this.tenantId) : undefined;
     const persisted: Feed[] = (rows ?? []).map((f) => ({
@@ -187,6 +298,10 @@ export class FeedManager {
       carrierTarget: f.carrierTarget,
       paused: f.paused,
       mine: f.mine,
+      buyAt: f.buyAt ?? undefined,
+      chainId: f.chainId ?? undefined,
+      chainName: f.chainName ?? undefined,
+      chainOrder: f.chainOrder ?? undefined,
     }));
     return [...this.active.values(), ...persisted.filter((p) => !this.active.has(this.key(p.targetWaypoint, p.good)))]
       .map((f) => ({ ...f, paused: this.active.has(this.key(f.targetWaypoint, f.good)) ? this.paused.has(this.key(f.targetWaypoint, f.good)) : (f.paused ?? false) }));
@@ -318,10 +433,12 @@ export class FeedManager {
     if (!shipTasks) return;
 
     if (feed.assignedShips.length < feed.carrierTarget) {
-      // A "mine" feed has no market seller to check by definition — the
-      // buyer-discovery gate below only applies to a buy feed, where it
-      // avoids assigning a carrier to a good nothing sells yet.
-      const sourceable = feed.mine || ((await this.listBuyers?.(feed.good, feed.targetSystem)) ?? []).length > 0;
+      // A "mine" feed has no market seller to check by definition, and a
+      // pinned buyAt (chain tier) is sourceable by construction — the
+      // buyer-discovery gate below only applies to a plain buy feed picking
+      // its own cheapest market, where it avoids assigning a carrier to a
+      // good nothing sells yet.
+      const sourceable = feed.mine || !!feed.buyAt || ((await this.listBuyers?.(feed.good, feed.targetSystem)) ?? []).length > 0;
       if (!sourceable) {
         const last = this.preAssignDiscoverRetry.get(key) ?? 0;
         if (Date.now() >= last) {
@@ -422,15 +539,25 @@ export class FeedManager {
       if (!mined) t.retryAt = Date.now() + 15_000;
       return;
     }
-    // Otherwise pick a cheap source market if we don't already have one.
+    // Otherwise pick a source market if we don't already have one — a
+    // pinned buyAt (this tier is part of a chain: buy where the previous
+    // tier sold) always wins over the cheapest-known-market auto-pick, so
+    // the chain actually stays connected instead of drifting to whichever
+    // market happens to be cheapest system-wide.
     if (!t.market) {
-      const buyers = (await this.listBuyers?.(feed.good, feed.targetSystem)) ?? [];
-      if (buyers.length === 0) {
-        t.retryAt = Date.now() + 15_000;
-        return;
+      if (feed.buyAt) {
+        t.market = feed.buyAt;
+        const buyers = (await this.listBuyers?.(feed.good, feed.targetSystem)) ?? [];
+        t.basePrice = buyers.find((b) => b.waypoint === feed.buyAt)?.purchasePrice;
+      } else {
+        const buyers = (await this.listBuyers?.(feed.good, feed.targetSystem)) ?? [];
+        if (buyers.length === 0) {
+          t.retryAt = Date.now() + 15_000;
+          return;
+        }
+        t.market = buyers[0]!.waypoint;
+        t.basePrice = buyers[0]!.purchasePrice;
       }
-      t.market = buyers[0]!.waypoint;
-      t.basePrice = buyers[0]!.purchasePrice;
     }
     if (ship.nav.waypointSymbol !== t.market) {
       await this.dispatchShip?.(ship.symbol, t.market);
@@ -489,6 +616,10 @@ export class FeedManager {
       carrierTarget: f.carrierTarget,
       paused: this.paused.has(key),
       mine: f.mine ?? false,
+      buyAt: f.buyAt,
+      chainId: f.chainId,
+      chainName: f.chainName,
+      chainOrder: f.chainOrder,
     });
   }
 }

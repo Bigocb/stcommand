@@ -348,6 +348,20 @@
         </div>
       </div>
       <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Feeder chains<span class="count">connected tiers — each buys where the last one sold</span></div>
+        <div class="pane-b">
+          <div class="dispatch-toolbar">
+            <input type="text" id="chain-name" placeholder="chain name, e.g. ADVANCED_CIRCUITRY" aria-label="Chain name" />
+          </div>
+          <div id="chain-tier-rows"></div>
+          <div class="dispatch-toolbar">
+            <button class="btn ghost" id="chain-add-tier" type="button">+ Add tier</button>
+            <button class="btn pri" id="chain-start" type="button">Start chain</button>
+          </div>
+          <div id="chains"></div>
+        </div>
+      </div>
+      <div class="pane">
         <div class="pane-h"><span class="dot"></span>Feeder tiers<span class="count">keep an upstream market's price down</span></div>
         <div class="pane-b">
           <div class="dispatch-toolbar">

@@ -477,6 +477,13 @@
   .dispatch-toolbar select { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
   .dispatch-toolbar .btn { padding:4px 10px; font-size:10px; }
   .checkline { display:flex; align-items:center; gap:4px; font-size:9.5px; color:var(--dim); text-transform:uppercase; letter-spacing:0.05em; white-space:nowrap; }
+  .chain-tier-row { display:flex; gap:6px; align-items:center; margin-bottom:5px; flex-wrap:wrap; }
+  .chain-tier-row .tier-n { font-size:9.5px; color:var(--dim); width:14px; text-align:right; flex-shrink:0; }
+  .chain-tier-row input[type="text"] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
+    font-family:var(--mono); font-size:10px; padding:4px 6px; }
+  .chain-tier-row .tier-good { max-width:150px; }
+  .chain-tier-row .tier-market { max-width:170px; }
+  .chain-tier-row .tier-hint { font-size:9px; color:var(--dim); }
   .dispatch-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
   .dispatch-row .ship { font-weight:600; color:var(--bone); min-width:100px; }
   .dispatch-row .good { color:var(--teal); font-weight:600; min-width:120px; }

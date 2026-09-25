@@ -23,7 +23,7 @@ import {
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
   dispatchRoutes, dispatchAssignments, minerPreferences, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, priceWaypointsByGood, pricePoints, contracts,
-  missions, feeds, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
+  missions, feeds, feedChains, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
   approvals, manipulationRoutes, marketDynamics, marketDynamicsBySystemType,
   loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
@@ -6560,13 +6560,131 @@ function renderMissions(list) {
   for (const id of ["missions", "mobile-missions"]) { const el = $(id); if (el) el.innerHTML = html; }
 }
 
+/* ── Feeder chains (Ops) ──────────────────────
+ * A chain is an ordered set of feeder tiers where each tier's buy market is
+ * pinned to the previous tier's own sell market (Feed.buyAt), instead of
+ * each tier independently re-deriving "cheapest known market" and possibly
+ * landing on an unconnected one — e.g. ore→H56→F50→D40. Under the hood a
+ * chain is just several Feeds sharing a chainId (FeedManager.startChain()),
+ * so a chain's own tiers also show up in the plain "Feeder tiers" panel
+ * below with full crew controls — this panel is only for building/toggling
+ * the chain as a whole.
+ */
+function chainTierRowHtml(n, isFirst) {
+  return `<div class="chain-tier-row">
+    <span class="tier-n">${n}</span>
+    <input type="text" class="tier-good" placeholder="good, e.g. IRON_ORE" />
+    <input type="text" class="tier-market" placeholder="sell into, e.g. X1-SN30-H56" />
+    <label class="checkline"><input type="checkbox" class="tier-mine" /> mine</label>
+    <span class="tier-hint">${isFirst ? "" : "buys where the tier above sold"}</span>
+    <button class="btn ghost tier-remove" type="button">&times;</button>
+  </div>`;
+}
+function renumberChainTierRows() {
+  [...$("chain-tier-rows").children].forEach((row, i) => {
+    row.querySelector(".tier-n").textContent = i + 1;
+    row.querySelector(".tier-hint").textContent = i === 0 ? "" : "buys where the tier above sold";
+  });
+}
+function addChainTierRow() {
+  const container = $("chain-tier-rows");
+  container.insertAdjacentHTML("beforeend", chainTierRowHtml(container.children.length + 1, container.children.length === 0));
+}
+$("chain-add-tier").addEventListener("click", addChainTierRow);
+$("chain-tier-rows").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tier-remove");
+  if (!btn) return;
+  btn.closest(".chain-tier-row").remove();
+  renumberChainTierRows();
+});
+addChainTierRow();
+addChainTierRow();
+
+$("chain-start").addEventListener("click", async () => {
+  const name = $("chain-name").value.trim();
+  const rows = [...$("chain-tier-rows").children];
+  const tiers = rows.map((row) => ({
+    good: row.querySelector(".tier-good").value.trim().toUpperCase(),
+    sellAt: row.querySelector(".tier-market").value.trim(),
+    mine: row.querySelector(".tier-mine").checked,
+  }));
+  if (!name || tiers.length === 0 || tiers.some((t) => !t.good || !t.sellAt)) {
+    showToastGlobal("Enter a chain name and fill in every tier", true);
+    return;
+  }
+  try {
+    await api("POST", "/api/feed-chains/start", { name, tiers });
+    showToastGlobal(`Chain started: ${name}`);
+    $("chain-name").value = "";
+    $("chain-tier-rows").innerHTML = "";
+    addChainTierRow();
+    addChainTierRow();
+    loadProgramme();
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+
+function renderChains(list) {
+  const el = $("chains");
+  if (!el) return;
+  const items = list ?? [];
+  if (!items.length) { el.innerHTML = ""; return; }
+  el.innerHTML = items.map((c) => {
+    const off = c.tiers.every((t) => t.paused);
+    const tierRows = c.tiers.map((t, i) => {
+      const crew = t.assignedShips ?? [];
+      const target = t.carrierTarget ?? 1;
+      return `<div class="ops-row">
+        <span class="ops-title">${i + 1}. ${escapeHtml(t.good)} → ${escapeHtml(t.targetWaypoint)}</span>
+        <span class="fill"></span>
+        <span class="ops-sub">${t.mine ? "mined" : t.buyAt ? `buy @ ${escapeHtml(shortWp(t.buyAt))}` : "buy (cheapest)"} · crew ${crew.length}/${target}</span>
+      </div>`;
+    }).join("");
+    return `<div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">${escapeHtml(c.name)}</span>
+        <span class="tag ${off ? "paused" : "done"}">${off ? "off" : "on"}</span>
+        <span class="fill"></span>
+        <span class="ops-sub">${c.tiers.length} tier${c.tiers.length === 1 ? "" : "s"}</span>
+      </div>
+      ${tierRows}
+      <div class="ops-head" style="margin-top:6px">
+        ${off
+          ? `<button class="btn pri" data-act="chain-on" data-chain="${escapeAttr(c.chainId)}">Turn on</button>`
+          : `<button class="btn" data-act="chain-off" data-chain="${escapeAttr(c.chainId)}">Turn off</button>`}
+        <button class="btn ghost" data-act="chain-remove" data-chain="${escapeAttr(c.chainId)}">Remove chain</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+$("chains").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, chain } = btn.dataset;
+  try {
+    if (act === "chain-on") {
+      await api("POST", "/api/feed-chains/resume", { chainId: chain });
+      showToastGlobal("Chain turned on");
+    } else if (act === "chain-off") {
+      await api("POST", "/api/feed-chains/pause", { chainId: chain });
+      showToastGlobal("Chain turned off");
+    } else if (act === "chain-remove") {
+      if (!confirm("Remove this whole chain? Every tier's crew is released; this isn't just a pause.")) return;
+      await api("POST", "/api/feed-chains/remove", { chainId: chain });
+      showToastGlobal("Chain removed");
+    }
+    loadProgramme();
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+
 /* ── Feeder tiers (Ops) ──────────────────────
  * A feeder tier is a crew that continuously buys a good cheap and sells it
  * into one specific upstream market — the counter-pressure to a buyer's own
  * repeated purchasing driving that market's price up (see FeedManager,
  * src/engine/feed.ts). Deliberately separate from Construction missions —
  * a feed has no material/required-fulfilled progress and never completes,
- * it just runs until toggled off.
+ * it just runs until toggled off. A feed that's part of a chain also shows
+ * up here (chains are just Feeds sharing a chainId) with a "chain: <name>"
+ * badge, so per-tier crew management always happens in one place.
  */
 function renderFeeds(list) {
   const items = list ?? [];
@@ -6595,7 +6713,8 @@ function renderFeeds(list) {
     return `<div class="ops-card">
       <div class="ops-head">
         <span class="ops-title">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
-        <span class="tag">${f.mine ? "mine" : "buy"}</span>
+        <span class="tag">${f.mine ? "mine" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "buy"}</span>
+        ${f.chainName ? `<span class="tag">chain: ${escapeHtml(f.chainName)}</span>` : ""}
         <span class="tag ${f.paused ? "paused" : "done"}">${f.paused ? "off" : "on"}</span>
         <span class="fill"></span>
         <span class="ops-sub">crew ${crew.length}/${target}</span>
@@ -7204,7 +7323,7 @@ subscribe("prices", () => {
   renderPriceGoods();
   if (pricePoints.length) renderPriceChart(pricePoints, "price-chart");
 });
-subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); renderFeeds(feeds); });
+subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); renderChains(feedChains); renderFeeds(feeds); });
 subscribe("manipulationRoutes", renderManipulationRoutes);
 subscribe("approvals", () => { renderApprovalsBanner(); renderApprovals(); });
 subscribe("galaxy", () => { renderLeaderboard(leaderboard); renderFactions(factions); renderSystemAgents(systemAgents, systemAgentsHistory); });

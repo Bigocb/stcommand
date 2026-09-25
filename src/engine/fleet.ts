@@ -711,7 +711,10 @@ export class FleetManager {
       const knownFeeds = (await this.store?.latestFeeds(this.tenantId)) ?? [];
       for (const f of knownFeeds) {
         try {
-          await this.feeds.start(f.targetWaypoint, f.good, f.carrierTarget, f.mine);
+          await this.feeds.start(f.targetWaypoint, f.good, {
+            carrierTarget: f.carrierTarget, mine: f.mine, buyAt: f.buyAt ?? undefined,
+            chainId: f.chainId ?? undefined, chainName: f.chainName ?? undefined, chainOrder: f.chainOrder ?? undefined,
+          });
         } catch (err) {
           this.log(`restore feed ${f.good} → ${f.targetWaypoint} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -4874,8 +4877,31 @@ export class FleetManager {
    *  another buyer's own repeated purchasing pressure. `mine` is an
    *  explicit operator choice to source by mining instead of buying —
    *  see Feed.mine's own comment in feed.ts. */
-  startFeed(waypointSymbol: string, good: string, carrierTarget = 1, mine = false): Promise<void> {
-    return this.feeds.start(waypointSymbol, good, carrierTarget, mine);
+  startFeed(waypointSymbol: string, good: string, carrierTarget = 1, mine = false, buyAt?: string): Promise<void> {
+    return this.feeds.start(waypointSymbol, good, { carrierTarget, mine, buyAt });
+  }
+
+  /** Start a feeder chain: an ordered set of tiers where each one buys
+   *  where the previous one sold, instead of each independently picking
+   *  its own cheapest known market. See FeedManager.startChain(). */
+  startFeedChain(name: string, tiers: { good: string; sellAt: string; mine?: boolean; buyAt?: string; carrierTarget?: number }[]): Promise<string> {
+    return this.feeds.startChain(name, tiers);
+  }
+
+  /** All feeder chains (grouped from their member feeds' shared chainId). */
+  async getFeedChains() {
+    return this.feeds.listChains();
+  }
+
+  /** Turn a whole chain on/off as one unit. */
+  async pauseFeedChain(chainId: string): Promise<void> {
+    await this.feeds.pauseChain(chainId);
+  }
+  async resumeFeedChain(chainId: string): Promise<void> {
+    await this.feeds.resumeChain(chainId);
+  }
+  async removeFeedChain(chainId: string): Promise<void> {
+    await this.feeds.removeChain(chainId);
   }
 
   /** Pause a feed (stop buying/selling, release its crew). */
