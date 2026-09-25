@@ -11,6 +11,33 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Feeder tiers: per-feed sell-pacing (spread sells out, not just cap
+  volume) plus a one-time crew-join stagger.** Built from a live
+  operator observation: H56's IRON_ORE price held up better across a
+  quiet multi-hour gap in the ledger than the raw sold-volume for that
+  window would predict, suggesting SpaceTraders' market price may
+  recover between sells, not just react to cumulative recent volume
+  regardless of timing (unverified against SpaceTraders' own docs — that
+  text isn't published — so this ships as a testable bet, not an assumed
+  fact). Two mechanisms, both in `FeedManager`:
+  - **Sell-pacing gate** (the main mechanism): a feed now tracks the
+    last successful sell into its `targetWaypoint`, shared across its
+    whole crew. A carrier arriving with cargo, inside the gap since that
+    last sell, just waits in place (already docked, cargo intact)
+    instead of selling immediately — `DEFAULT_SELL_GAP_MS` (5 min)
+    unless the feed sets its own `sellGapMs` (new, persisted, migration
+    030). Per-feed rather than a global constant since the right gap is
+    a live A/B question per route, same as `force`/`mine` already are.
+    Skipped entirely when `feed.force` is set.
+  - **Crew-join stagger**: a ship joining a feed's crew (auto-picked or
+    operator-assigned) gets its first cycle offset by its join order
+    (`STAGGER_STEP_MS` × slot, capped at `STAGGER_MAX_SLOTS`) instead of
+    starting immediately — a one-time phase nudge so a batch of ships
+    added together don't start their mine/buy→sell cycle in lockstep.
+  UI: a `gap` tag on each feed row (desktop Ops → Feeder tiers), a
+  minutes input + "Set sell gap" button per row, and an optional gap
+  field on the start-feed form; `POST /api/feeds/sell-gap` under the
+  hood. Tower's feed panel stays read-only, same as `force` before it.
 - **Feeder tiers: margin-gated buying, replacing the drift check that
   never actually worked.** The old guard (`MAX_FEED_BUY_INFLATION`)
   compared each cycle's buy price against a "base price" that got reset

@@ -1031,9 +1031,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const mine = req.body?.mine === true;
     const buyAt = typeof req.body?.buyAt === "string" && req.body.buyAt ? req.body.buyAt : undefined;
     const force = req.body?.force === true;
+    const sellGapMin = Number(req.body?.sellGapMin);
+    const sellGapMs = Number.isFinite(sellGapMin) && sellGapMin > 0 ? sellGapMin * 60_000 : undefined;
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
     try {
-      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1, mine, buyAt, force);
+      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1, mine, buyAt, force, sellGapMs);
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -1125,6 +1127,20 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const force = req.body?.force === true;
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
     await w.fleet.setFeedForce(waypoint, good, force);
+    res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+  });
+
+  router.post("/feeds/sell-gap", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    const sellGapMin = req.body?.sellGapMin;
+    const sellGapMs = sellGapMin === null || sellGapMin === undefined || sellGapMin === ""
+      ? undefined
+      : Number(sellGapMin) * 60_000;
+    await w.fleet.setFeedSellGap(waypoint, good, sellGapMs !== undefined && Number.isFinite(sellGapMs) && sellGapMs > 0 ? sellGapMs : undefined);
     res.json({ ok: true, feeds: await w.fleet.getFeeds() });
   });
 

@@ -370,6 +370,7 @@
             <input type="number" id="feed-crew" min="1" value="1" aria-label="Initial crew size" style="max-width:70px" />
             <label class="checkline"><input type="checkbox" id="feed-mine" /> mine instead of buy</label>
             <label class="checkline" title="Buy every cycle regardless of margin against the destination's sell price"><input type="checkbox" id="feed-force" /> force (ignore margin)</label>
+            <input type="number" id="feed-sell-gap" min="0" placeholder="gap min" title="Minimum minutes between sells into this market, shared across the crew (blank = default)" aria-label="Sell gap minutes" style="max-width:80px" />
             <button class="btn" id="feed-start">Start feed</button>
           </div>
           <div id="feeds"></div>
@@ -485,6 +486,7 @@
                 <input type="number" id="mobile-feed-crew" min="1" value="1" aria-label="Initial crew size" style="max-width:60px" />
                 <label class="checkline"><input type="checkbox" id="mobile-feed-mine" /> mine</label>
                 <label class="checkline" title="Buy every cycle regardless of margin"><input type="checkbox" id="mobile-feed-force" /> force</label>
+                <input type="number" id="mobile-feed-sell-gap" min="0" placeholder="gap min" title="Minimum minutes between sells into this market (blank = default)" aria-label="Sell gap minutes" style="max-width:70px" />
                 <button class="btn" id="mobile-feed-start">Start</button>
               </div>
               <div id="mobile-feeds"></div>

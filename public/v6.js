@@ -6752,6 +6752,7 @@ function renderFeeds(list) {
         <span class="tag">${f.mine ? "mine" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "buy"}</span>
         ${f.chainName ? `<span class="tag">chain: ${escapeHtml(f.chainName)}</span>` : ""}
         ${f.force ? `<span class="tag" title="Buying every cycle regardless of margin">forced</span>` : ""}
+        <span class="tag" title="Minimum gap between sells into this market, shared across the crew">gap ${f.sellGapMs ? `${Math.round(f.sellGapMs / 60_000)}m` : "default"}</span>
         <span class="tag ${f.paused ? "paused" : "done"}">${f.paused ? "off" : "on"}</span>
         <span class="fill"></span>
         <span class="ops-sub">crew ${crew.length}/${target}</span>
@@ -6767,6 +6768,8 @@ function renderFeeds(list) {
       <div class="ops-head" style="margin-top:6px">
         <input type="number" class="carrier-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
         <button class="btn" data-act="set-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Set crew size</button>
+        <input type="number" class="sell-gap-min" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" min="0" placeholder="min" value="${f.sellGapMs ? Math.round(f.sellGapMs / 60_000) : ""}" style="width:56px" title="Minimum minutes between sells into this market (blank = default)" aria-label="Sell gap minutes">
+        <button class="btn" data-act="set-sell-gap" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Set sell gap</button>
         <span class="fill"></span>
         ${f.paused
           ? `<button class="btn pri" data-act="on" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn on</button>`
@@ -6930,21 +6933,23 @@ async function missionStart(waypointInputId) {
 $("mission-start").addEventListener("click", () => missionStart("mission-waypoint"));
 $("mobile-mission-start").addEventListener("click", () => missionStart("mobile-mission-waypoint"));
 
-async function feedStart(waypointInputId, goodInputId, crewInputId, mineInputId, forceInputId) {
+async function feedStart(waypointInputId, goodInputId, crewInputId, mineInputId, forceInputId, sellGapInputId) {
   const wp = $(waypointInputId).value.trim();
   const good = $(goodInputId).value.trim().toUpperCase();
   const crew = Number($(crewInputId).value) || 1;
   const mine = $(mineInputId)?.checked ?? false;
   const force = $(forceInputId)?.checked ?? false;
+  const sellGapMinRaw = $(sellGapInputId)?.value?.trim() ?? "";
+  const sellGapMin = sellGapMinRaw === "" ? undefined : Number(sellGapMinRaw);
   if (!wp || !good) { showToastGlobal("Enter a market to feed and a good first", true); return; }
   try {
-    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: crew, mine, force });
-    showToastGlobal(`Feed started: ${good} → ${wp}${mine ? " (mined)" : ""}${force ? " (forced)" : ""}`);
+    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: crew, mine, force, sellGapMin });
+    showToastGlobal(`Feed started: ${good} → ${wp}${mine ? " (mined)" : ""}${force ? " (forced)" : ""}${sellGapMin ? ` (${sellGapMin}m gap)` : ""}`);
     loadProgramme();
   } catch (err) { showToastGlobal(err.message, true); }
 }
-$("feed-start").addEventListener("click", () => feedStart("feed-waypoint", "feed-good", "feed-crew", "feed-mine", "feed-force"));
-$("mobile-feed-start").addEventListener("click", () => feedStart("mobile-feed-waypoint", "mobile-feed-good", "mobile-feed-crew", "mobile-feed-mine", "mobile-feed-force"));
+$("feed-start").addEventListener("click", () => feedStart("feed-waypoint", "feed-good", "feed-crew", "feed-mine", "feed-force", "feed-sell-gap"));
+$("mobile-feed-start").addEventListener("click", () => feedStart("mobile-feed-waypoint", "mobile-feed-good", "mobile-feed-crew", "mobile-feed-mine", "mobile-feed-force", "mobile-feed-sell-gap"));
 
 async function onContractClick(e) {
   const btn = e.target.closest("button[data-act]");
@@ -7048,6 +7053,11 @@ async function onFeedClick(e) {
     } else if (act === "force" || act === "unforce") {
       await api("POST", "/api/feeds/force", { waypoint: wp, good, force: act === "force" });
       showToastGlobal(act === "force" ? `Feed ${good} → ${wp} will buy regardless of margin` : `Feed ${good} → ${wp} margin gate re-enabled`);
+    } else if (act === "set-sell-gap") {
+      const input = btn.closest(".ops-head").querySelector(".sell-gap-min");
+      const sellGapMin = input?.value?.trim() ?? "";
+      await api("POST", "/api/feeds/sell-gap", { waypoint: wp, good, sellGapMin: sellGapMin === "" ? null : Number(sellGapMin) });
+      showToastGlobal(sellGapMin === "" ? `${good} → ${wp} sell gap reset to default` : `${good} → ${wp} sell gap set to ${sellGapMin}m`);
     }
     loadProgramme();
   } catch (err) { showToastGlobal(err.message, true); }

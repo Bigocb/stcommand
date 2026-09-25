@@ -4927,8 +4927,8 @@ export class FleetManager {
    *  another buyer's own repeated purchasing pressure. `mine` is an
    *  explicit operator choice to source by mining instead of buying —
    *  see Feed.mine's own comment in feed.ts. */
-  startFeed(waypointSymbol: string, good: string, carrierTarget = 1, mine = false, buyAt?: string, force = false): Promise<void> {
-    return this.feeds.start(waypointSymbol, good, { carrierTarget, mine, buyAt, force });
+  startFeed(waypointSymbol: string, good: string, carrierTarget = 1, mine = false, buyAt?: string, force = false, sellGapMs?: number): Promise<void> {
+    return this.feeds.start(waypointSymbol, good, { carrierTarget, mine, buyAt, force, sellGapMs });
   }
 
   /** Start a feeder chain: an ordered set of tiers where each one buys
@@ -4967,6 +4967,12 @@ export class FleetManager {
   /** Toggle a feed's margin-gate override — see Feed.force's own comment. */
   async setFeedForce(waypointSymbol: string, good: string, force: boolean): Promise<void> {
     await this.feeds.setForce(waypointSymbol, good, force);
+  }
+
+  /** Set (or clear) a feed's own sell-pacing gap override — see
+   *  FeedManager.setSellGap()/DEFAULT_SELL_GAP_MS. */
+  async setFeedSellGap(waypointSymbol: string, good: string, sellGapMs: number | undefined): Promise<void> {
+    await this.feeds.setSellGap(waypointSymbol, good, sellGapMs);
   }
 
   /** Stop and forget a feed entirely — unlike pauseFeed(), this removes the

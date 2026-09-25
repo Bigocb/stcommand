@@ -46,6 +46,12 @@ export interface Feed {
    *  regardless of the spreadsheet math). Off by default — see
    *  stepCarrier()'s margin check for what this skips. */
   force?: boolean;
+  /** Minimum time (ms) between sells into this feed's targetWaypoint,
+   *  shared across the whole crew — see DEFAULT_SELL_GAP_MS's own comment
+   *  for why this exists. `undefined` means "use the default." Per-feed
+   *  rather than a global constant because the right gap is a live A/B
+   *  question per route, not a fixed constant. */
+  sellGapMs?: number;
   /** Chain membership (see startChain()/listChains()) — undefined for a
    *  standalone feed, unchanged from before chains existed. */
   chainId?: string;
@@ -73,6 +79,7 @@ export interface FeedStartOptions {
   mine?: boolean;
   buyAt?: string;
   force?: boolean;
+  sellGapMs?: number;
   chainId?: string;
   chainName?: string;
   chainOrder?: number;
@@ -160,6 +167,35 @@ interface FeedOptions {
  *  `feed.force` is set. */
 const MIN_FEED_MARGIN_PCT = 0.10;
 
+/** Default minimum gap between sells into a feed's targetWaypoint, shared
+ *  across the whole crew, when the feed doesn't set its own `sellGapMs`.
+ *  Exists because multiple carriers on the same feed tend to fall into
+ *  lockstep (same asteroid, same cargo cap ⇒ same cycle length) and arrive
+ *  to sell within the same few minutes repeatedly — the operator's own
+ *  hypothesis, from watching H56's price hold up better across a quiet
+ *  window than raw sold-volume alone would predict, is that spacing sells
+ *  out matters independently of total volume: SpaceTraders' market price
+ *  looks like it recovers between trades, not just react to cumulative
+ *  units sold regardless of timing. Unverified against SpaceTraders' own
+ *  docs (that text isn't published) — this is a bet worth A/B-testing with
+ *  the ledger the same way the miner-preference experiment was, not an
+ *  assumed fact. A ship that's ready to sell but inside the gap just waits
+ *  in place (already docked, cargo intact) rather than dispatching
+ *  anywhere. Ignored entirely when `feed.force` is set — the operator has
+ *  already said "run this regardless of the spreadsheet math." */
+const DEFAULT_SELL_GAP_MS = 5 * 60_000;
+
+/** Spacing applied to a feed carrier's *first* cycle after joining the
+ *  crew, based on its join order — a one-time phase nudge so a batch of
+ *  ships added together (or picked back-to-back by pickFeedCarrier() in
+ *  the same tick) don't start their mine/buy → sell cycle in lockstep to
+ *  begin with. DEFAULT_SELL_GAP_MS (and its per-feed override) is what
+ *  keeps them apart on every cycle after that; this only staggers cycle
+ *  one. Capped at STAGGER_MAX_SLOTS so a large crew doesn't wait absurdly
+ *  long just to start. */
+const STAGGER_STEP_MS = 2 * 60_000;
+const STAGGER_MAX_SLOTS = 5;
+
 /** How often a *paused* feed's crew-size display gets rechecked — feeds
  *  don't reconcile against a live construction API the way missions do,
  *  so there's nothing to poll while paused; kept only so a resumed feed's
@@ -194,6 +230,12 @@ export class FeedManager {
   private paused = new Set<string>();
   private lastTouch = new Map<string, number>();
   private preAssignDiscoverRetry = new Map<string, number>();
+  /** Last successful sell timestamp per feed key, shared across that feed's
+   *  whole crew — the sell-pacing gate's clock. In-memory only, deliberately
+   *  not persisted: it's a rate limiter, not config, and a restart resetting
+   *  it just means the first post-restart sell isn't gated, same as any
+   *  other in-memory task state here (see `tasks`). */
+  private lastSellAt = new Map<string, number>();
 
   constructor(opts: FeedOptions) {
     this.api = opts.api;
@@ -222,6 +264,15 @@ export class FeedManager {
     return `${targetWaypoint}::${good}`;
   }
 
+  /** First-cycle stagger offset for a ship joining at crew position
+   *  `feed.assignedShips.length` (already includes the new ship) — see
+   *  STAGGER_STEP_MS's own comment. The first ship on a feed (position 1)
+   *  gets no delay. */
+  private staggerOffset(feed: Feed): number {
+    const slot = Math.min(feed.assignedShips.length - 1, STAGGER_MAX_SLOTS);
+    return Math.max(0, slot) * STAGGER_STEP_MS;
+  }
+
   /** Start (or resume, if already persisted) a feeder tier. */
   async start(targetWaypoint: string, good: string, opts: FeedStartOptions = {}): Promise<void> {
     const carrierTarget = opts.carrierTarget ?? 1;
@@ -243,6 +294,7 @@ export class FeedManager {
         if (opts.buyAt !== undefined) existing.buyAt = opts.buyAt;
         if (opts.mine !== undefined) existing.mine = opts.mine;
         if (opts.force !== undefined) existing.force = opts.force;
+        if (opts.sellGapMs !== undefined) existing.sellGapMs = opts.sellGapMs;
         // Force the running carrier(s) to re-pick their source next tick —
         // they may already have locked onto a different market before
         // being adopted into this chain.
@@ -268,6 +320,7 @@ export class FeedManager {
         mine: opts.mine ?? persisted.mine,
         buyAt: opts.buyAt ?? persisted.buyAt ?? undefined,
         force: opts.force ?? persisted.force,
+        sellGapMs: opts.sellGapMs ?? persisted.sellGapMs ?? undefined,
         chainId: opts.chainId ?? persisted.chainId ?? undefined,
         chainName: opts.chainId !== undefined ? opts.chainName : (persisted.chainName ?? undefined),
         chainOrder: opts.chainId !== undefined ? opts.chainOrder : (persisted.chainOrder ?? undefined),
@@ -296,6 +349,7 @@ export class FeedManager {
       mine: opts.mine,
       buyAt: opts.buyAt,
       force: opts.force,
+      sellGapMs: opts.sellGapMs,
       chainId: opts.chainId,
       chainName: opts.chainName,
       chainOrder: opts.chainOrder,
@@ -380,6 +434,7 @@ export class FeedManager {
       paused: f.paused,
       mine: f.mine,
       buyAt: f.buyAt ?? undefined,
+      sellGapMs: f.sellGapMs ?? undefined,
       chainId: f.chainId ?? undefined,
       chainName: f.chainName ?? undefined,
       chainOrder: f.chainOrder ?? undefined,
@@ -405,7 +460,7 @@ export class FeedManager {
     await this.suspend?.(shipSymbol);
     if (!this.paused.has(key)) {
       const shipTasks = this.tasks.get(key) ?? new Map<string, FeedTaskState>();
-      shipTasks.set(shipSymbol, { retryAt: 0 });
+      shipTasks.set(shipSymbol, { retryAt: Date.now() + this.staggerOffset(feed) });
       this.tasks.set(key, shipTasks);
     }
     await this.persist(feed);
@@ -480,6 +535,17 @@ export class FeedManager {
     this.log(`feed ${good} → ${targetWaypoint}: force ${force ? "on" : "off"}`);
   }
 
+  /** Set (or clear, with `undefined`) this feed's own sell-pacing gap,
+   *  overriding DEFAULT_SELL_GAP_MS — see that constant's comment. */
+  async setSellGap(targetWaypoint: string, good: string, sellGapMs: number | undefined): Promise<void> {
+    const key = this.key(targetWaypoint, good);
+    const feed = this.active.get(key);
+    if (!feed) return;
+    feed.sellGapMs = sellGapMs;
+    await this.persist(feed);
+    this.log(`feed ${good} → ${targetWaypoint}: sell gap set to ${sellGapMs !== undefined ? `${Math.round(sellGapMs / 1000)}s` : "default"}`);
+  }
+
   /** Stop and forget a feed entirely (not just paused) — releases the crew
    *  and removes the persisted row, unlike pause() which keeps it around
    *  to resume later. */
@@ -546,7 +612,7 @@ export class FeedManager {
         const carrier = await this.pickCarrier?.(this.committedShips(), feed.targetWaypoint, feed.mine);
         if (carrier) {
           feed.assignedShips.push(carrier);
-          shipTasks.set(carrier, { retryAt: 0 });
+          shipTasks.set(carrier, { retryAt: Date.now() + this.staggerOffset(feed) });
           await this.suspend?.(carrier);
           this.log(`feed ${feed.good} → ${feed.targetWaypoint}: assigned carrier ${carrier} (${feed.assignedShips.length}/${feed.carrierTarget})`);
           await this.persist(feed);
@@ -613,8 +679,25 @@ export class FeedManager {
         return;
       }
       if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
+      // Sell-pacing gate: hold off if the last sell into this market (by
+      // any ship on this crew) was too recent — see DEFAULT_SELL_GAP_MS's
+      // own comment. The ship just waits here, already docked with cargo
+      // intact; `feed.force` skips this the same way it skips the margin
+      // gate, for an operator who wants the route run through regardless.
+      if (!feed.force) {
+        const gapMs = feed.sellGapMs ?? DEFAULT_SELL_GAP_MS;
+        const feedKey = this.key(feed.targetWaypoint, feed.good);
+        const last = this.lastSellAt.get(feedKey) ?? 0;
+        const readyAt = last + gapMs;
+        if (Date.now() < readyAt) {
+          t.retryAt = readyAt;
+          this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} holding ${held}u, waiting ${Math.round((readyAt - Date.now()) / 1000)}s more for sell-gap (${Math.round(gapMs / 1000)}s)`);
+          return;
+        }
+      }
       try {
         const res = await this.api.sellCargo(ship.symbol, feed.good, held);
+        this.lastSellAt.set(this.key(feed.targetWaypoint, feed.good), Date.now());
         this.recordLedger?.({
           timestamp: new Date().toISOString(),
           shipSymbol: ship.symbol,
@@ -771,6 +854,7 @@ export class FeedManager {
       mine: f.mine ?? false,
       buyAt: f.buyAt,
       force: f.force ?? false,
+      sellGapMs: f.sellGapMs,
       chainId: f.chainId,
       chainName: f.chainName,
       chainOrder: f.chainOrder,
