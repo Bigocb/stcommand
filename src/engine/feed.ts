@@ -740,9 +740,22 @@ export class FeedManager {
 
     const cargo = await this.api.getShipCargo(ship.symbol);
     const held = cargo.inventory.find((i) => i.symbol === feed.good)?.units ?? 0;
+    const holdFreeSpace = cargo.capacity - cargo.units;
 
-    // Holding the good already: deliver it before sourcing more.
-    if (held > 0) {
+    // Holding the good already: deliver it before sourcing more — but for a
+    // mine feed, only once the hold is actually full. Without the
+    // `freeSpace <= 0` condition, this fired the instant held>0, which meant
+    // every single (small, RNG-sized) extraction batch became its own
+    // separate trip to the market — confirmed live on H56: sells of 1-5u,
+    // constantly, instead of full 15u loads. A mine feed with room left just
+    // falls through to the mining branch below instead (junk still gets
+    // cleared out every pass, same as before — only the good's own units are
+    // left to accumulate toward a full hold). Doesn't fight the sell-gap
+    // gate: filling a hold takes several mining cycles regardless, which is
+    // already longer than any sensible gap, so the gate essentially never
+    // binds once sells are this much bigger. A buy feed is unaffected —
+    // there's no mining cycle to wait out, so it still delivers on sight.
+    if (held > 0 && (!feed.mine || holdFreeSpace <= 0)) {
       if (ship.nav.waypointSymbol !== feed.targetWaypoint) {
         await this.dispatchShip?.(ship.symbol, feed.targetWaypoint);
         return;
