@@ -11,6 +11,16 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tower: set a feed's sell-gap ("spread") from the mobile UI, not just
+  desktop.** Tower's feed panel (`more-feeds`) already had start/pause/
+  resume/remove/crew-size, unlike `force` which stayed desktop-only —
+  extended the same pattern to `sellGapMs`: a `gap Xm`/`gap default` tag
+  on each feed card, a minutes input + "Set spread" button per card
+  (`POST /api/feeds/sell-gap`, same endpoint desktop uses), and an
+  optional gap field on the start-feed form so a fresh feed can set its
+  spread at creation instead of reverting to the 5-minute default and
+  needing a second call to fix it — exactly the gap in the workflow that
+  came up live recreating the H56 feed earlier this session.
 - **Full per-step timing instrumentation for the coordinator's tick() pass,
   after the feed heartbeat itself proved the stall wasn't feed-side.**
   The previous entry's heartbeat (logs at most once a minute,
