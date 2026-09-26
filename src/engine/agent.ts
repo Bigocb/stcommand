@@ -1058,10 +1058,29 @@ export class ShipAgent {
    * retry/backoff rather than treat that as a hard failure, since a relocate
    * move (this ship has no asteroid in range from here but might from a
    * nearby market) still returns true and makes progress.
+   *
+   * `schedulerDriven` is set around the call for the same reason nextTask()
+   * sets it around tick() — without it, mineStep()'s extractUntilFull()/
+   * mineAndRefine() loops sleep out every real extraction cooldown in place
+   * (waitCooldown()'s non-scheduler-driven branch), so a single mineOnce()
+   * call runs a full mine-to-cargo-full cycle synchronously — a dozen-plus
+   * ~69s cooldown waits back to back for one ship. Confirmed live: a single
+   * FeedManager.tick() → feeds.tick() pass took 405786ms driving exactly
+   * this, blocking FleetManager.tick() (and every other ship in the fleet,
+   * not just this feed's crew) for the whole 6.8 minutes. With this set,
+   * the first cooldown throws CooldownPending instead, propagating out of
+   * mineStep() through this call — the caller (FeedManager.stepCarrier())
+   * catches `Pending` and reschedules via `err.resumeAt`, exactly like a
+   * scheduler-driven nextTask() chain does.
    */
   async mineOnce(): Promise<boolean> {
     await this.refresh();
-    return this.mineStep();
+    this.schedulerDriven = true;
+    try {
+      return await this.mineStep();
+    } finally {
+      this.schedulerDriven = false;
+    }
   }
 
   /**

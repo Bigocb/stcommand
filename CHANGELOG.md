@@ -11,6 +11,34 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a feeder tier's mining crew ran a full mine-to-cargo-full cycle
+  synchronously inside a single `feeds.tick()` call, blocking the whole
+  fleet coordinator (not just that feed) for as long as one ship's cycle
+  took.** Found live, hours after the galaxy-crawl rate-limit fix below —
+  same symptom (`FleetManager.tick()`'s per-step timing instrumentation
+  flagging `feeds.tick()` at 400s+ in one pass) recurring on a feed that
+  had nothing to do with the crawler. Root cause: `FeedManager.stepCarrier()`'s
+  mine branch calls `ShipAgent.mineOnce()`, which calls `mineStep()` →
+  `extractUntilFull()` — a `while (cargoFree() > 0)` loop that extracts,
+  then `await`s the real ~69s extraction cooldown, then extracts again,
+  until the hold is completely full. `mineOnce()` never set
+  `schedulerDriven`, so `waitCooldown()`'s scheduler-aware branch (throw
+  `CooldownPending` instead of sleeping — the same mechanism every other
+  scheduler-driven agent loop already relies on, see
+  `agentStep.ts`'s `CooldownPending` doc comment) never engaged; each
+  `mineOnce()` call genuinely slept out every cooldown in place, one ship
+  at a time, inside the one shared `feeds.tick()` await chain that
+  `FleetManager.tick()` itself waits on. Confirmed live: one
+  `feeds.tick()` pass took 405786ms (6.8 minutes) driving exactly this,
+  during which nothing else in the fleet's coordinator pass could
+  advance. Fix: `mineOnce()` now sets `schedulerDriven = true` around its
+  call into `mineStep()` (mirroring `nextTask()`'s own pattern), and
+  `FeedManager.stepCarrier()`'s mine branch catches `Pending` and
+  reschedules that ship at `err.resumeAt` instead of letting the
+  exception either block or fall through as log-spammy noise — so a feed
+  now drives one extraction per `mineOnce()` call and yields, instead of
+  running its crew's entire mining cycle inline.
+
 - **Fix: galaxy crawl's agent-directory pass hammered SpaceTraders' real
   rate limit on every single attempt, continuously, for at least two
   days.** Found chasing an unrelated mystery — the new per-feed

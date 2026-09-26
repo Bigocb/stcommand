@@ -1,6 +1,7 @@
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { Store } from "../db/store.js";
+import { Pending } from "./agentStep.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -765,8 +766,25 @@ export class FeedManager {
         await this.clearUnrelatedCargo(ship.symbol, feed.good, ship.cargo.inventory);
         return;
       }
-      const mined = await this.mineOnce?.(shipSymbol);
-      if (!mined) t.retryAt = Date.now() + 15_000;
+      // mineOnce() runs schedulerDriven, so a real extraction cooldown throws
+      // Pending (CooldownPending/NavigationPending) instead of sleeping it
+      // out in place — see mineOnce()'s own comment for why that matters
+      // here: without it, one call drives this ship through a full
+      // mine-to-cargo-full cycle synchronously, blocking this entire
+      // feeds.tick() pass (and therefore FleetManager.tick() and every other
+      // ship in the fleet) for as long as that takes. Reschedule at the
+      // real resume time instead, exactly like a scheduler-driven
+      // nextTask() chain does with the same exception.
+      try {
+        const mined = await this.mineOnce?.(shipSymbol);
+        if (!mined) t.retryAt = Date.now() + 15_000;
+      } catch (err) {
+        if (err instanceof Pending) {
+          t.retryAt = err.resumeAt;
+          return;
+        }
+        throw err;
+      }
       return;
     }
     // Otherwise pick a source market if we don't already have one — a
