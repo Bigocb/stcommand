@@ -421,6 +421,7 @@ export class FleetManager {
       // than FeedManager's own buy/sell primitives, which don't apply to a
       // good nothing sells.
       mineOnce: async (shipSymbol) => (await this.miners.get(shipSymbol)?.mineOnce()) ?? false,
+      setMinerPreference: (shipSymbol, good) => this.setMinerPreference(shipSymbol, good),
     });
   }
 

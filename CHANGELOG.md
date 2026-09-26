@@ -11,6 +11,34 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a "mine" feed's crew was never told which good to actually mine —
+  extraction defaulted to "whatever refines to a metal," with no bias
+  toward the feed's own target.** `ShipAgent.surveyPredicate()` only
+  favors a specific deposit when that ship has an operator-set miner
+  preference (`FleetManager.setMinerPreference()`); nothing in
+  `FeedManager` ever set it for a feed's own crew. Confirmed live: three
+  of the H56 IRON_ORE feed's six miners had it set (by hand, the day
+  before, for the original 3-ship crew) and reliably drew IRON_ORE; the
+  three added later never got it and mostly extracted ALUMINUM_ORE/
+  QUARTZ_SAND/ICE_WATER/SILICON_CRYSTALS/COPPER_ORE instead, over 40
+  minutes of live extraction logs. `FeedManager` now sets a carrier's
+  miner preference to `feed.good` on every join (auto-picked, manually
+  assigned, or restored at boot) and clears it on every leave (removed,
+  released by a lowered crew target, or the feed paused) — so a "mine"
+  feed's crew is always biased toward its own good without operator
+  action, and an existing crew missing it (like the three above) picks
+  it up automatically the next time the process restarts and restores
+  feeds from the DB.
+
+- **Fix: a "mine" feed only cleared off-target cargo once the hold was
+  completely full, so junk ore sat taking up room for most of a mining
+  cycle instead of getting sold out of the way immediately.**
+  `stepCarrier()`'s mine branch called `clearUnrelatedCargo()` only when
+  `cargoFree() <= 0`; now it clears as soon as any unit of a good other
+  than `feed.good` is in the hold, freeing room for the feed's actual
+  target right away instead of waiting for a full hold that, with an
+  unbiased survey, could take many cycles to reach.
+
 - **Fix: a feed carrier holding refined FUEL as cargo (bought via its own
   arbitrage trade) could never be cleared to make room for the feed's own
   good, permanently blocking it from ever doing feed work.** Found live

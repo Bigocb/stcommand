@@ -131,6 +131,17 @@ interface FeedOptions {
   pickCarrier?: (exclude: Set<string>, targetWaypoint?: string, requireMiner?: boolean) => Promise<string | undefined>;
   suspend?: (shipSymbol: string) => void | Promise<void>;
   resume?: (shipSymbol: string) => void;
+  /** Set (or clear, with `undefined`) a ship's survey preference — see
+   *  ShipAgent.surveyPredicate()'s own comment. A "mine" feed's crew needs
+   *  this pointed at `feed.good`, or extraction defaults to "whatever
+   *  refines to a metal" with no bias toward the feed's actual target;
+   *  confirmed live, an operator had set this by hand for an original
+   *  3-ship crew, but three more ships added later never got it, and sat
+   *  mining mostly off-target ore for the whole session. Called on every
+   *  join (set) and leave (clear) so a crew never has to be fixed up by
+   *  hand again, and on every feed restore at boot so an existing crew
+   *  missing it gets it filled in without operator action. */
+  setMinerPreference?: (shipSymbol: string, good: string | undefined) => void | Promise<void>;
   /** Sources known to sell a trade good in the given system, cheapest first. */
   listBuyers?: (tradeSymbol: string, systemSymbol: string) => Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]>;
   discoverBuyers?: (tradeSymbol: string, systemSymbol: string) => Promise<{ waypoint: string; purchasePrice: number }[]>;
@@ -224,6 +235,7 @@ export class FeedManager {
   private readonly sellCargo?: FeedOptions["sellCargo"];
   private readonly jettisonCargo?: FeedOptions["jettisonCargo"];
   private readonly mineOnce?: FeedOptions["mineOnce"];
+  private readonly setMinerPreference?: FeedOptions["setMinerPreference"];
 
   private active = new Map<string, Feed>();
   /** Key → shipSymbol → that ship's own independent TaskState. */
@@ -270,6 +282,7 @@ export class FeedManager {
     this.sellCargo = opts.sellCargo;
     this.jettisonCargo = opts.jettisonCargo;
     this.mineOnce = opts.mineOnce;
+    this.setMinerPreference = opts.setMinerPreference;
   }
 
   private key(targetWaypoint: string, good: string): string {
@@ -348,6 +361,7 @@ export class FeedManager {
       for (const s of feed.assignedShips) {
         shipTasks.set(s, { retryAt: 0 });
         await this.suspend?.(s);
+        if (feed.mine) await this.setMinerPreference?.(s, feed.good);
       }
       this.tasks.set(key, shipTasks);
       if (opts.chainId !== undefined) await this.persist(feed);
@@ -470,6 +484,7 @@ export class FeedManager {
     feed.assignedShips.push(shipSymbol);
     if (feed.carrierTarget < feed.assignedShips.length) feed.carrierTarget = feed.assignedShips.length;
     await this.suspend?.(shipSymbol);
+    if (feed.mine) await this.setMinerPreference?.(shipSymbol, feed.good);
     if (!this.paused.has(key)) {
       const shipTasks = this.tasks.get(key) ?? new Map<string, FeedTaskState>();
       shipTasks.set(shipSymbol, { retryAt: Date.now() + this.staggerOffset(feed) });
@@ -490,6 +505,7 @@ export class FeedManager {
     feed.carrierTarget = Math.max(0, feed.carrierTarget - 1);
     this.tasks.get(key)?.delete(shipSymbol);
     this.resume?.(shipSymbol);
+    if (feed.mine) await this.setMinerPreference?.(shipSymbol, undefined);
     await this.persist(feed);
     this.log(`feed ${good} → ${targetWaypoint}: ${shipSymbol} removed from crew (${feed.assignedShips.length}/${feed.carrierTarget})`);
     this.onActivity?.("feed", `${shipSymbol} removed from feed ${good} → ${targetWaypoint} by operator`, 0, shipSymbol);
@@ -505,6 +521,7 @@ export class FeedManager {
       const ship = feed.assignedShips.pop()!;
       this.tasks.get(key)?.delete(ship);
       this.resume?.(ship);
+      if (feed.mine) await this.setMinerPreference?.(ship, undefined);
       this.log(`feed ${good} → ${targetWaypoint}: ${ship} released (crew target lowered to ${target})`);
     }
     await this.persist(feed);
@@ -518,6 +535,7 @@ export class FeedManager {
     const feed = this.active.get(key)!;
     for (const ship of feed.assignedShips) {
       this.resume?.(ship);
+      if (feed.mine) await this.setMinerPreference?.(ship, undefined);
       this.log(`feed ${good} → ${targetWaypoint}: paused, released ${ship}`);
     }
     feed.assignedShips = [];
@@ -632,6 +650,7 @@ export class FeedManager {
           feed.assignedShips.push(carrier);
           shipTasks.set(carrier, { retryAt: Date.now() + this.staggerOffset(feed) });
           await this.suspend?.(carrier);
+          if (feed.mine) await this.setMinerPreference?.(carrier, feed.good);
           this.log(`feed ${feed.good} → ${feed.targetWaypoint}: assigned carrier ${carrier} (${feed.assignedShips.length}/${feed.carrierTarget})`);
           await this.persist(feed);
           this.onActivity?.("feed", `assigned ${carrier} to feed ${feed.good} → ${feed.targetWaypoint}`, 0, carrier);
@@ -773,9 +792,16 @@ export class FeedManager {
       // every cycle with nothing ever extracted, which is exactly why the
       // H56 market never moved no matter how long the feed "ran." The buy
       // branch already clears a full-but-wrong-good hold before sourcing
-      // (see the freeSpace<=0 check below it); mining needs the same clear.
-      const freeSpace = ship.cargo.capacity - ship.cargo.units;
-      if (freeSpace <= 0) {
+      // (see the check below it); mining needs the same clear — and,
+      // unlike the buy branch, needs it as soon as any off-target ore shows
+      // up, not only once the hold is completely full. A survey pool not
+      // biased toward feed.good (see setMinerPreference — a per-ship
+      // override, not something this loop can rely on being set) yields a
+      // mix of deposits, so waiting for "full" here would spend most of a
+      // mining cycle carrying dead weight that's already blocking room the
+      // feed's own good could be using.
+      const junk = ship.cargo.inventory.filter((i) => i.symbol !== feed.good && i.units > 0);
+      if (junk.length > 0) {
         await this.clearUnrelatedCargo(ship.symbol, feed.good, ship.cargo.inventory);
         return;
       }
