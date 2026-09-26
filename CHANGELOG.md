@@ -55,6 +55,25 @@ be useful context; not a complete project history — see `git log` for that.
   (the same fetch `held` already trusts) for both the check and the
   clear call.
 
+- **Fix (second follow-up, same session): that snapshot fix didn't fully
+  hold — a different ship hit the identical symptom minutes later with a
+  different good.** THEO-2D got stuck exactly like THEO-27 had, this
+  time on ALUMINUM_ORE, even after the previous fix made both the junk
+  check and the clear call read the same `cargo` snapshot. Confirmed
+  `Client.get()` has no caching layer at all — both `getShip()` and
+  `getShipCargo()` are genuinely uncached live fetches every time — so
+  `sellCargo()`'s own internal fresh fetch (inside `ensureShipAtMarket()`)
+  can still disagree with a `cargo` snapshot taken moments earlier,
+  likely from real queuing delay under the shared rate limiter between
+  the two calls, not any bug in which variable is read. Rather than chase
+  that further, made `clearUnrelatedCargo()` resilient to it directly:
+  if a good neither sells nor jettisons (both live-checked against
+  fresher state than this loop's own snapshot), that's functionally
+  already-cleared from this loop's perspective — log and move to the
+  next item instead of throwing out of the whole call, which is what
+  was silently preventing every following pass from ever reaching
+  `mineOnce()` again for that ship.
+
 - **Fix: a feed carrier holding refined FUEL as cargo (bought via its own
   arbitrage trade) could never be cleared to make room for the feed's own
   good, permanently blocking it from ever doing feed work.** Found live

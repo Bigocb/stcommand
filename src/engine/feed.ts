@@ -693,8 +693,27 @@ export class FeedManager {
       if (item.symbol === keep || item.units <= 0) continue;
       try {
         await this.sellCargo?.(shipSymbol, item.symbol, item.units);
-      } catch {
-        await this.jettisonCargo?.(shipSymbol, item.symbol, item.units);
+      } catch (err) {
+        try {
+          await this.jettisonCargo?.(shipSymbol, item.symbol, item.units);
+        } catch (err2) {
+          // Confirmed live: sellCargo()'s own fresh getShip() fetch (inside
+          // ensureShipAtMarket()) can report a good as absent moments after
+          // the `inventory` snapshot this loop was given said otherwise —
+          // seen with two different ships/goods within minutes of each
+          // other, so it's a real, reproducible disagreement between two
+          // genuinely uncached live fetches (confirmed: Client.get() has no
+          // caching layer), not one-off bad luck. Left unhandled, that
+          // disagreement used to propagate out of this whole loop as a
+          // thrown error, which step()'s own catch just logged and moved
+          // on from — meaning this ship's mine branch never reached the
+          // `return` after this call, and so never reached mineOnce()
+          // either, on every single following pass, forever. Whatever the
+          // exact cause, an item neither sale nor jettison can find is
+          // functionally already cleared from this loop's perspective —
+          // log and move on to the next item instead of blocking the ship.
+          this.log(`feed: ${shipSymbol}: couldn't clear ${item.units}u ${item.symbol} (sell: ${err instanceof Error ? err.message : String(err)}; jettison: ${err2 instanceof Error ? err2.message : String(err2)})`);
+        }
       }
     }
   }
