@@ -11,6 +11,24 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Feeder tiers: heartbeat + arrival logging, after an unexplained silent
+  gap.** Live incident: a freshly-recreated H56 IRON_ORE feed sat at 0/3
+  crew for ~9 minutes with zero log output — not even
+  `pickFeedCarrier()`'s own throttled "no carrier" diagnostic, which
+  should fire at least every 15s on a genuine failed pick. `feeds.tick()`
+  runs every 2s from the coordinator loop, so a real failure-to-pick
+  should have logged dozens of times; it logged none, and the scheduler's
+  own heartbeat showed the fleet healthy (not starved) throughout, ruling
+  out that as the cause. Root cause not yet identified — this ships two
+  new log lines so it's provable next time instead of inferred from
+  absence: a once-a-minute unconditional heartbeat at the top of
+  `step()` (crew count, mine/force/gap settings) proving whether a feed
+  is even being reached, and a `"... arrived with Nu, gap clear — selling
+  now"` line symmetric with the existing `"... holding ... waiting"` log,
+  so every arrival is visible whether the sell-gap held it or not — two
+  ships arriving and each immediately selling within seconds of each
+  other now shows up directly instead of only being inferable from
+  suspiciously-close sell timestamps.
 - **Feeder tiers: per-feed sell-pacing (spread sells out, not just cap
   volume) plus a one-time crew-join stagger.** Built from a live
   operator observation: H56's IRON_ORE price held up better across a

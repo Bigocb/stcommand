@@ -230,6 +230,17 @@ export class FeedManager {
   private paused = new Set<string>();
   private lastTouch = new Map<string, number>();
   private preAssignDiscoverRetry = new Map<string, number>();
+  /** Throttled once-a-minute proof-of-life per feed, logged unconditionally
+   *  at the top of step() — added after a live incident where a fresh feed
+   *  sat at 0/3 crew for ~9 minutes with ZERO log output at all (not even
+   *  the throttled "no carrier" diagnostic in pickFeedCarrier(), which
+   *  should fire at least every 15s on a genuine failed pick). That absence
+   *  was itself unexplained: step() runs every ~2s from the coordinator's
+   *  tick() loop, so a real failure-to-pick should have logged dozens of
+   *  times in 9 minutes. This heartbeat exists so the next time it happens,
+   *  there's direct proof of whether step() is even being reached for this
+   *  feed, rather than inferring it from the absence of other logs. */
+  private stepHeartbeatRetry = new Map<string, number>();
   /** Last successful sell timestamp per feed key, shared across that feed's
    *  whole crew — the sell-pacing gate's clock. In-memory only, deliberately
    *  not persisted: it's a rate limiter, not config, and a restart resetting
@@ -590,6 +601,12 @@ export class FeedManager {
     const shipTasks = this.tasks.get(key);
     if (!shipTasks) return;
 
+    const hbLast = this.stepHeartbeatRetry.get(key) ?? 0;
+    if (Date.now() >= hbLast) {
+      this.stepHeartbeatRetry.set(key, Date.now() + 60_000);
+      this.log(`feed ${feed.good} → ${feed.targetWaypoint}: heartbeat — crew ${feed.assignedShips.length}/${feed.carrierTarget} [${feed.assignedShips.join(",")}], mine=${!!feed.mine}, force=${!!feed.force}, gapMs=${feed.sellGapMs ?? DEFAULT_SELL_GAP_MS}`);
+    }
+
     if (feed.assignedShips.length < feed.carrierTarget) {
       // A "mine" feed has no market seller to check by definition, and a
       // pinned buyAt (chain tier) is sourceable by construction — the
@@ -695,6 +712,13 @@ export class FeedManager {
           return;
         }
       }
+      // Symmetric with the "holding ... waiting" log above — every arrival
+      // with cargo ready logs something, whether the gate held it or not,
+      // so the crew's actual arrival cadence is directly visible in logs
+      // instead of only inferable from completed sells (which hides a
+      // ship that arrived and sold within seconds of another one, i.e.
+      // the crew is still bunched even though no sell was blocked).
+      this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} arrived with ${held}u, gap clear${feed.force ? " (forced)" : ""} — selling now`);
       try {
         const res = await this.api.sellCargo(ship.symbol, feed.good, held);
         this.lastSellAt.set(this.key(feed.targetWaypoint, feed.good), Date.now());
