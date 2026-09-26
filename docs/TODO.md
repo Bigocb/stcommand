@@ -25,13 +25,20 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   6 dedicated surveyors feeding H56, against one trader currently buying
   IRON there, and reports the price looks "balanced" — i.e. holding in
   the MODERATE-or-better supply band (operator's stated target) rather
-  than sliding back to LIMITED/SCARCE. Not yet closed out: no formal
-  before/after numbers captured at the 10-miner/6-surveyor crew size
-  specifically (the falling-price numbers above predate this exact
-  configuration), and no read yet on whether a *second* trader buying
-  concurrently would still be absorbed. **Follow-up idea raised by
-  operator**: once real price/supply bands are established for a route
-  under buying pressure, feed the observed thresholds into the
+  than sliding back to LIMITED/SCARCE. Update 2026-09-26 ~22:00-23:00:
+  operator identified the two buyers as THEO-1 (steady, tagged `(feed)` —
+  40u IRON every ~11min, a real chain buyer per `feed IRON →
+  X1-SN30-F50`) and THEO-6 (also just assigned to that same chain at
+  22:16, plus occasional opportunistic buys from THEO-8, untagged, not
+  part of any feed). With both THEO-1 and THEO-6 buying against the
+  10-miner/6-surveyor crew, IRON slipped from 89c/ABUNDANT (22:17) to
+  106c/MODERATE (22:53) — still in the green zone but trending the wrong
+  way. Operator's read: "10 miners isn't enough for that" (2 buyers) —
+  reduced back to 1 buyer at ~22:55 to see if the price stabilizes/
+  recovers. **Open**: no read yet on where it settles with 1 buyer, or
+  what buyer:miner ratio is the actual breaking point. **Follow-up idea
+  raised by operator**: once real price/supply bands are established for
+  a route under buying pressure, feed the observed thresholds into the
   margin-gate/`force` logic so a feed could auto-react (e.g. bias crew
   size or throttle a chain's buy leg) instead of needing a human watching
   the dashboard.
