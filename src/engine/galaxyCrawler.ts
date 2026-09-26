@@ -99,6 +99,11 @@ export class GalaxyCrawler {
   private agentsBySystem = new Map<string, PublicAgent[]>();
   private agentsCrawlDone = false;
   private lastAgentsCrawlAt = 0;
+  /** Resumable page cursor + accumulator for the agents crawl — see
+   *  crawlAgentsPage()'s own comment for why this replaced a single
+   *  unthrottled loop through every page. */
+  private agentsCrawlPage = 1;
+  private agentsCrawlAccumulator: PublicAgent[] = [];
 
   /** Last ~50 crawl events, newest first — for a public activity-log panel.
    *  In-memory only; a restart just starts a fresh log, same as it starts
@@ -158,6 +163,8 @@ export class GalaxyCrawler {
     this.agentsBySystem = new Map();
     this.agentsCrawlDone = false;
     this.lastAgentsCrawlAt = 0;
+    this.agentsCrawlPage = 1;
+    this.agentsCrawlAccumulator = [];
     this.activity.length = 0;
     this.recordActivity("Reset detected — galaxy crawl restarting from the beginning");
   }
@@ -176,7 +183,7 @@ export class GalaxyCrawler {
       return;
     }
     if (!this.agentsCrawlDone || Date.now() - this.lastAgentsCrawlAt >= AGENTS_REFRESH_INTERVAL_MS) {
-      await this.crawlAgents();
+      await this.crawlAgentsPage();
       return;
     }
     await this.crawlOneGate();
@@ -216,43 +223,61 @@ export class GalaxyCrawler {
     this.factionsDone = true;
   }
 
-  /** Full agent directory, one shot — same scale as factions (low hundreds
-   *  on a fresh reset), so no resumable cursor needed. Re-run periodically
-   *  (see AGENTS_REFRESH_INTERVAL_MS) rather than only once, since unlike
-   *  factions/systems, credits and ship counts genuinely change over time. */
-  private async crawlAgents(): Promise<void> {
-    let out: PublicAgent[];
+  /** One page of the galaxy-wide agent directory per call — same resumable,
+   *  one-page-per-tick pacing as crawlSystemsPage(), not the single
+   *  unthrottled `for(;;)` loop this used to be.
+   *
+   *  That old shape fetched every page back-to-back with zero delay between
+   *  requests, which was fine "on a fresh reset" when the agent count was
+   *  low (a page or two), but breaks down as the galaxy-wide directory
+   *  grows over the days following a reset: once it needs more than a
+   *  couple of pages, firing them all in one unthrottled burst blows
+   *  straight through SpaceTraders' real per-IP ceiling (2 req/s — see
+   *  client.ts's own RateLimiter comment) within its own loop, every single
+   *  time it runs. Confirmed live: this had been failing on literally every
+   *  attempt, continuously, for at least two days (checked logs back to
+   *  2026-09-24) — completely unrelated to any code change; the agent
+   *  count had just grown past whatever page count first exceeded the
+   *  burst tolerance. And because the old code had no partial-progress
+   *  cursor either, `agentsCrawlDone` never got set, so `tick()`'s hourly
+   *  gate never applied — it retried the *entire* unthrottled burst again
+   *  on literally the next 5s tick, forever, with no way to recover on its
+   *  own. One page per tick (this crawler ticks every 5s — see
+   *  cli/index.ts) keeps this crawl at ~0.2 req/s regardless of how large
+   *  the directory grows, the same margin crawlSystemsPage() already
+   *  proved safe at galaxy scale. A page that fails just retries the same
+   *  page next tick — accumulated pages aren't discarded. */
+  private async crawlAgentsPage(): Promise<void> {
     try {
-      const acc: PublicAgent[] = [];
-      let page = 1;
-      for (;;) {
-        const res = await this.fetchPublic<{ data: PublicAgent[] }>("/agents", { limit: 20, page });
-        acc.push(...res.data);
-        if (res.data.length < 20) break;
-        page += 1;
+      const res = await this.fetchPublic<{ data: PublicAgent[] }>("/agents", { limit: 20, page: this.agentsCrawlPage });
+      this.agentsCrawlAccumulator.push(...res.data);
+      if (res.data.length === 20) {
+        this.agentsCrawlPage += 1;
+        return;
       }
-      out = acc;
+      const out = this.agentsCrawlAccumulator;
+      const bySystem = new Map<string, PublicAgent[]>();
+      for (const a of out) {
+        const system = a.headquarters.split("-").slice(0, 2).join("-");
+        (bySystem.get(system) ?? bySystem.set(system, []).get(system)!).push(a);
+      }
+      this.agentsBySystem = bySystem;
+      this.agentsCrawlDone = true;
+      this.lastAgentsCrawlAt = Date.now();
+      this.agentsCrawlPage = 1;
+      this.agentsCrawlAccumulator = [];
+      this.log(`galaxy crawl: recorded ${out.length} agents across ${bySystem.size} systems`);
+      this.recordActivity(`Recorded ${out.length} agents across ${bySystem.size} systems`);
+      try {
+        await this.store.recordAgentCreditSnapshots(out);
+      } catch (err) {
+        // Durable history is a bonus on top of the in-memory snapshot this
+        // method already maintains (agentsInSystem() still works either way)
+        // — a write failure here shouldn't block the crawl loop or retry logic.
+        this.log(`galaxy crawl: agent credit snapshot persist failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } catch (err) {
-      this.log(`galaxy crawl: agent directory pass failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
-      return;
-    }
-    const bySystem = new Map<string, PublicAgent[]>();
-    for (const a of out) {
-      const system = a.headquarters.split("-").slice(0, 2).join("-");
-      (bySystem.get(system) ?? bySystem.set(system, []).get(system)!).push(a);
-    }
-    this.agentsBySystem = bySystem;
-    this.agentsCrawlDone = true;
-    this.lastAgentsCrawlAt = Date.now();
-    this.log(`galaxy crawl: recorded ${out.length} agents across ${bySystem.size} systems`);
-    this.recordActivity(`Recorded ${out.length} agents across ${bySystem.size} systems`);
-    try {
-      await this.store.recordAgentCreditSnapshots(out);
-    } catch (err) {
-      // Durable history is a bonus on top of the in-memory snapshot this
-      // method already maintains (agentsInSystem() still works either way)
-      // — a write failure here shouldn't block the crawl loop or retry logic.
-      this.log(`galaxy crawl: agent credit snapshot persist failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.log(`galaxy crawl: agent directory page ${this.agentsCrawlPage} failed, will retry: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

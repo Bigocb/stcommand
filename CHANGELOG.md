@@ -11,6 +11,32 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: galaxy crawl's agent-directory pass hammered SpaceTraders' real
+  rate limit on every single attempt, continuously, for at least two
+  days.** Found chasing an unrelated mystery — the new per-feed
+  heartbeat (previous entries) itself went silent for 5-10 minutes at a
+  time, and `FleetManager.tick()`'s new per-step timing instrumentation
+  pinned it to `feeds.tick()` taking 400s+ in one pass. Neither was the
+  real cause: `GalaxyCrawler.crawlAgents()` fetched every page of the
+  galaxy-wide agent directory in a single unthrottled `for(;;)` loop,
+  zero delay between requests — fine "on a fresh reset" when the
+  directory was a page or two, but once it grows past a couple of pages
+  (organic growth over the days since the last reset, no code involved)
+  that burst alone blows straight through SpaceTraders' real per-IP
+  ceiling (2 req/s) within its own loop. Worse: since a failed pass never
+  set `agentsCrawlDone`, the hourly re-run gate never applied — it retried
+  the *entire* unthrottled burst again on literally the next 5s tick,
+  forever, with zero backoff and no way to recover on its own. Checked
+  Render logs back to 2026-09-24: this had been failing continuously for
+  at least two days, single-instance, unrelated to any redeploy or code
+  change — just the agent count crossing whatever page count first
+  exceeded the burst tolerance.
+  Fix: `crawlAgentsPage()` replaces the loop with the same one-page-per-
+  tick, resumable pattern `crawlSystemsPage()` already used safely at
+  full galaxy scale (this crawler ticks every 5s — see `cli/index.ts` —
+  so one page per tick is ~0.2 req/s regardless of how large the
+  directory grows). A failed page just retries the same page next tick;
+  already-accumulated pages aren't discarded.
 - **Tower: set a feed's sell-gap ("spread") from the mobile UI, not just
   desktop.** Tower's feed panel (`more-feeds`) already had start/pause/
   resume/remove/crew-size, unlike `force` which stayed desktop-only —
