@@ -6365,6 +6365,68 @@ export class FleetManager {
 
   /** One coordination pass over the whole fleet. */
   private lastDeadTokenLog = 0;
+  /** Per-step timings for the tick() pass currently in progress — reset at
+   *  the top of tick(), read and flushed at the bottom. See timed()/
+   *  timedSync()/flushTickTimings() and migrations/031_tick_step_timings.sql's
+   *  comment for why this exists: a live incident where feeds.tick() (called
+   *  every ~2s from this same serial pass) went silent for 5-10 minutes at a
+   *  time, with no other symptom anywhere else in the fleet — meaning
+   *  something EARLIER in this same tick() call chain was occasionally
+   *  blocking for minutes, and nothing before this instrumentation could
+   *  say which step. */
+  private tickStepTimings: { name: string; ms: number }[] = [];
+  /** A single step taking this long or longer logs immediately. */
+  private static readonly STEP_WARN_MS = 1_000;
+  /** A whole tick() pass taking this long or longer gets its full
+   *  per-step breakdown persisted via Store.recordSlowTick() — see that
+   *  table's own comment for why only slow passes are recorded, not every
+   *  one (a tick fires every ~2s; logging every pass would be ~30
+   *  rows/minute/tenant for no diagnostic benefit while healthy). */
+  private static readonly TICK_WARN_MS = 3_000;
+
+  /** Time one async step of a tick() pass, logging immediately if it's
+   *  slow and always recording it into this pass's tickStepTimings. */
+  private async timed<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    const start = Date.now();
+    try {
+      return await fn();
+    } finally {
+      const ms = Date.now() - start;
+      this.tickStepTimings.push({ name, ms });
+      if (ms >= FleetManager.STEP_WARN_MS) this.log(`tick: ${name} took ${ms}ms`);
+    }
+  }
+
+  /** Same as timed(), for the handful of tick() steps that are synchronous
+   *  (dispatcher.recompute(), proposeOperatorHolds(), etc.) — kept separate
+   *  from timed() so every call site stays honest about whether it's
+   *  actually awaiting something. */
+  private timedSync<T>(name: string, fn: () => T): T {
+    const start = Date.now();
+    const result = fn();
+    const ms = Date.now() - start;
+    this.tickStepTimings.push({ name, ms });
+    if (ms >= FleetManager.STEP_WARN_MS) this.log(`tick: ${name} took ${ms}ms`);
+    return result;
+  }
+
+  /** Called once at the end of every tick() pass (both the paused/halted
+   *  early-return and the full pass) — logs and persists the full
+   *  per-step breakdown only when the pass as a whole was slow. */
+  private async flushTickTimings(tickStartedAt: number): Promise<void> {
+    const totalMs = Date.now() - tickStartedAt;
+    const steps = this.tickStepTimings;
+    if (totalMs < FleetManager.TICK_WARN_MS) return;
+    const top = [...steps].sort((a, b) => b.ms - a.ms).slice(0, 5).map((s) => `${s.name}=${s.ms}ms`).join(", ");
+    this.log(`tick: SLOW pass — ${totalMs}ms total, top steps: ${top || "(none measured)"}`);
+    if (!this.tenantId) return;
+    try {
+      await this.store?.recordSlowTick(this.tenantId, { startedAt: new Date(tickStartedAt).toISOString(), totalMs, steps });
+    } catch (err) {
+      this.log(`tick: failed to record slow-tick timing: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /**
    * Stop working a tenant whose token a server reset has retired.
    *
@@ -6387,109 +6449,117 @@ export class FleetManager {
 
   async tick(): Promise<void> {
     if (this.haltedByDeadToken()) return;
-    if (this.paused) {
-      // Halt stops *automation*, not *recovery*. Rescue is the one thing that
-      // must keep running: a halted fleet still has ships sitting at 0 fuel,
-      // and previously pausing switched off the only mechanism that recovers
-      // them while leaving every ship loop running — so a Halt actively made
-      // stranding more likely. With a scheduler, nextRescueTask() (priority 0,
-      // admitted by Scheduler.runOnce() even while paused) already covers
-      // this — calling it directly here too would just run it twice. Without
-      // one, this direct call is still what makes rescue halt-proof.
-      if (!this.scheduler) await this.rescueStranded();
-      await this.syncShipStates();
-      await this.syncShipManifests();
-      await this.syncShipClaims();
-      this.syncSchedulerTasks();
-      this.logFleetStatus();
-    this.checkFleetLiveness();
-      return;
-    }
-    await this.refreshCredits();
-    await this.chartOccupiedSystems();
-    await this.maybeRefreshGateConstruction();
-    if (this.contracts) {
-      await this.contracts.fulfillCompleted();
-      await this.contracts.acceptBest();
-      await this.maybeNegotiateContract();
-    }
-    // Centralized route dispatch: recompute distinct per-trader assignments.
-    const routes = await this.computeDispatchRoutes();
-    const [warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets] = await Promise.all([
-      this.computeWarehouseTargets(routes),
-      this.computeHaulTargets(),
-      this.computeMissionBuyTargets(),
-      this.computeContractBuyTargets(),
-    ]);
-    await this.releaseFulfilledManualContractBuys(contractBuyTargets);
-    const traders = this.dispatcherTraders();
-    // Precomputed once per tick, not inside reachable()'s hot per-item loop:
-    // dispatcher.recompute() itself stays synchronous (it's called from many
-    // places that can't await it), but fuelStops() is a store read. Only the
-    // systems idle traders actually sit in matter — reachable()'s relay
-    // check never looks outside a trader's own system anyway.
-    const traderSystems = new Set(traders.map((t) => t.system).filter((s): s is string => s !== undefined));
-    const fuelStopsBySystem = new Map<string, Set<string>>();
-    await Promise.all([...traderSystems].map(async (sys) => { fuelStopsBySystem.set(sys, await this.fuelStops(sys)); }));
-    this.dispatcher.recompute(
-      routes,
-      traders,
-      warehouseTargets,
-      haulTargets,
-      missionBuyTargets,
-      contractBuyTargets,
-      (from, to) => this.galaxy.canJump(from, to),
-      (a, b) => this.estimatedFuelBetween(a, b),
-      (m) => this.log(m),
-      (system, from, to, capacity) => {
-        const stops = fuelStopsBySystem.get(system);
-        if (!stops) return false;
-        for (const stop of stops) {
-          if (stop === from || stop === to) continue;
-          const d1 = this.estimatedFuelBetween(from, stop);
-          const d2 = this.estimatedFuelBetween(stop, to);
-          if (Number.isFinite(d1) && Number.isFinite(d2) && d1 <= capacity && d2 <= capacity) return true;
+    const tickStartedAt = Date.now();
+    this.tickStepTimings = [];
+    try {
+      if (this.paused) {
+        // Halt stops *automation*, not *recovery*. Rescue is the one thing that
+        // must keep running: a halted fleet still has ships sitting at 0 fuel,
+        // and previously pausing switched off the only mechanism that recovers
+        // them while leaving every ship loop running — so a Halt actively made
+        // stranding more likely. With a scheduler, nextRescueTask() (priority 0,
+        // admitted by Scheduler.runOnce() even while paused) already covers
+        // this — calling it directly here too would just run it twice. Without
+        // one, this direct call is still what makes rescue halt-proof.
+        if (!this.scheduler) await this.timed("rescueStranded", () => this.rescueStranded());
+        await this.timed("syncShipStates", () => this.syncShipStates());
+        await this.timed("syncShipManifests", () => this.syncShipManifests());
+        await this.timed("syncShipClaims", () => this.syncShipClaims());
+        this.timedSync("syncSchedulerTasks", () => this.syncSchedulerTasks());
+        this.timedSync("logFleetStatus", () => this.logFleetStatus());
+        this.checkFleetLiveness();
+        return;
+      }
+      await this.timed("refreshCredits", () => this.refreshCredits());
+      await this.timed("chartOccupiedSystems", () => this.chartOccupiedSystems());
+      await this.timed("maybeRefreshGateConstruction", () => this.maybeRefreshGateConstruction());
+      if (this.contracts) {
+        await this.timed("contracts.fulfillCompleted", () => this.contracts!.fulfillCompleted());
+        await this.timed("contracts.acceptBest", () => this.contracts!.acceptBest());
+        await this.timed("maybeNegotiateContract", () => this.maybeNegotiateContract());
+      }
+      // Centralized route dispatch: recompute distinct per-trader assignments.
+      const routes = await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes());
+      const [warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets] = await this.timed("computeTargets", () => Promise.all([
+        this.computeWarehouseTargets(routes),
+        this.computeHaulTargets(),
+        this.computeMissionBuyTargets(),
+        this.computeContractBuyTargets(),
+      ]));
+      await this.timed("releaseFulfilledManualContractBuys", () => this.releaseFulfilledManualContractBuys(contractBuyTargets));
+      const traders = this.dispatcherTraders();
+      // Precomputed once per tick, not inside reachable()'s hot per-item loop:
+      // dispatcher.recompute() itself stays synchronous (it's called from many
+      // places that can't await it), but fuelStops() is a store read. Only the
+      // systems idle traders actually sit in matter — reachable()'s relay
+      // check never looks outside a trader's own system anyway.
+      const traderSystems = new Set(traders.map((t) => t.system).filter((s): s is string => s !== undefined));
+      const fuelStopsBySystem = new Map<string, Set<string>>();
+      await this.timed("fuelStopsBySystem", () => Promise.all([...traderSystems].map(async (sys) => { fuelStopsBySystem.set(sys, await this.fuelStops(sys)); })));
+      this.timedSync("dispatcher.recompute", () => this.dispatcher.recompute(
+        routes,
+        traders,
+        warehouseTargets,
+        haulTargets,
+        missionBuyTargets,
+        contractBuyTargets,
+        (from, to) => this.galaxy.canJump(from, to),
+        (a, b) => this.estimatedFuelBetween(a, b),
+        (m) => this.log(m),
+        (system, from, to, capacity) => {
+          const stops = fuelStopsBySystem.get(system);
+          if (!stops) return false;
+          for (const stop of stops) {
+            if (stop === from || stop === to) continue;
+            const d1 = this.estimatedFuelBetween(from, stop);
+            const d2 = this.estimatedFuelBetween(stop, to);
+            if (Number.isFinite(d1) && Number.isFinite(d2) && d1 <= capacity && d2 <= capacity) return true;
+          }
+          return false;
+        },
+      ));
+      // First, so that its priority-0 proposal wins the tie against rescue's
+      // own priority-0 hold — ties go to the first proposal, and an operator
+      // who took a hull off the board outranks every automatic controller.
+      // Same precedence ShipRegistry already enforces (operator > rescue).
+      this.timedSync("proposeOperatorHolds", () => this.proposeOperatorHolds());
+      this.timedSync("proposeScrapGoals", () => this.proposeScrapGoals());
+      await this.timed("maybeAssignKeepers", () => this.maybeAssignKeepers());
+      await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
+      // Resolve this pass's proposals to one intent per ship. Purely local: no
+      // API calls, no awaiting a ship. A busy ship keeps an earning goal unless
+      // something strictly more urgent preempts it — see intent.ts.
+      this.timedSync("intents.commit", () => {
+        for (const change of this.intents.commit({ busy: (sym) => (this.shipFor(sym)?.cargo.units ?? 0) > 0 })) {
+          const from = change.from ? `${change.from.goal.kind} (v${change.from.version})` : "nothing";
+          this.log(`${change.ship}: ${from} → ${change.to.goal.kind} (v${change.to.version}) — ${change.to.reason}`);
         }
-        return false;
-      },
-    );
-    // First, so that its priority-0 proposal wins the tie against rescue's
-    // own priority-0 hold — ties go to the first proposal, and an operator
-    // who took a hull off the board outranks every automatic controller.
-    // Same precedence ShipRegistry already enforces (operator > rescue).
-    this.proposeOperatorHolds();
-    this.proposeScrapGoals();
-    await this.maybeAssignKeepers();
-    await this.maybeRepairFleet();
-    // Resolve this pass's proposals to one intent per ship. Purely local: no
-    // API calls, no awaiting a ship. A busy ship keeps an earning goal unless
-    // something strictly more urgent preempts it — see intent.ts.
-    for (const change of this.intents.commit({ busy: (sym) => (this.shipFor(sym)?.cargo.units ?? 0) > 0 })) {
-      const from = change.from ? `${change.from.goal.kind} (v${change.from.version})` : "nothing";
-      this.log(`${change.ship}: ${from} → ${change.to.goal.kind} (v${change.to.version}) — ${change.to.reason}`);
+      });
+      await this.timed("maybeGrowExplorers", () => this.maybeGrowExplorers());
+      await this.timed("maybeBuyShip", () => this.maybeBuyShip());
+      await this.timed("resolvePendingKeeperProbeApproval:buyKeeperProbe", () => this.resolvePendingKeeperProbeApproval("buyKeeperProbe"));
+      await this.timed("resolvePendingKeeperProbeApproval:buyKeeperProbeForMarket", () => this.resolvePendingKeeperProbeApproval("buyKeeperProbeForMarket"));
+      await this.timed("advanceKeeperMarketQueue", () => this.advanceKeeperMarketQueue());
+      await this.timed("maybeBuyScout", () => this.maybeBuyScout());
+      await this.timed("maybeBuySiphoner", () => this.maybeBuySiphoner());
+      await this.timed("maybeInstallScanner", () => this.maybeInstallScanner());
+      await this.timed("autoExplore", () => this.autoExplore());
+      // Cutover: with a scheduler, nextRescueTask() (enqueued once from
+      // syncSchedulerTasks(), self-chained every ~2s) already covers this —
+      // see the halted branch above for why calling it here too would double
+      // it up. Without one, this direct call is unchanged from before.
+      if (!this.scheduler) await this.timed("rescueStranded", () => this.rescueStranded());
+      await this.timed("missions.tick", () => this.missions.tick());
+      await this.timed("feeds.tick", () => this.feeds.tick());
+      await this.timed("syncShipStates", () => this.syncShipStates());
+      await this.timed("syncShipManifests", () => this.syncShipManifests());
+      await this.timed("syncShipClaims", () => this.syncShipClaims());
+      this.timedSync("syncSchedulerTasks", () => this.syncSchedulerTasks());
+      this.timedSync("logFleetStatus", () => this.logFleetStatus());
+      await this.timed("logEarnings", () => this.logEarnings());
+    } finally {
+      await this.flushTickTimings(tickStartedAt);
     }
-    await this.maybeGrowExplorers();
-    await this.maybeBuyShip();
-    await this.resolvePendingKeeperProbeApproval("buyKeeperProbe");
-    await this.resolvePendingKeeperProbeApproval("buyKeeperProbeForMarket");
-    await this.advanceKeeperMarketQueue();
-    await this.maybeBuyScout();
-    await this.maybeBuySiphoner();
-    await this.maybeInstallScanner();
-    await this.autoExplore();
-    // Cutover: with a scheduler, nextRescueTask() (enqueued once from
-    // syncSchedulerTasks(), self-chained every ~2s) already covers this —
-    // see the halted branch above for why calling it here too would double
-    // it up. Without one, this direct call is unchanged from before.
-    if (!this.scheduler) await this.rescueStranded();
-    await this.missions.tick();
-    await this.feeds.tick();
-    await this.syncShipStates();
-    await this.syncShipManifests();
-    await this.syncShipClaims();
-    this.syncSchedulerTasks();
-    this.logFleetStatus();
-    await this.logEarnings();
   }
 
   /**

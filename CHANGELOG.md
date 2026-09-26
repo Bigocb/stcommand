@@ -11,6 +11,33 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Full per-step timing instrumentation for the coordinator's tick() pass,
+  after the feed heartbeat itself proved the stall wasn't feed-side.**
+  The previous entry's heartbeat (logs at most once a minute,
+  unconditionally, at the top of `FeedManager.step()`) went quiet for
+  5-10 minutes at a time on its own — proving the problem isn't inside
+  `feed.ts` at all, since that log sits upstream of every feed-specific
+  code path. `feeds.tick()` is one call in a long serial chain inside
+  `FleetManager.tick()` (`refreshCredits → ... → missions.tick() →
+  feeds.tick() → ...`), so something *earlier* in that same chain
+  occasionally blocking for minutes would stall everything after it in
+  that pass — invisible everywhere else, since the ship-level Scheduler
+  that drives mining/trading/etc. is a separate loop and stayed healthy
+  throughout.
+  Every step of `tick()` (both the paused/halted early-return and the
+  full pass — every `await`, plus the synchronous calls like
+  `dispatcher.recompute()`/`proposeOperatorHolds()`) is now wrapped in a
+  new `timed()`/`timedSync()` helper that measures its own duration: any
+  single step ≥1s (`STEP_WARN_MS`) logs immediately by name; if the whole
+  pass totals ≥3s (`TICK_WARN_MS`), the full per-step breakdown — every
+  step's name and ms, not just the slow one — is persisted to a new
+  `tick_step_timings` table (migration 031) via `Store.recordSlowTick()`.
+  Only slow passes are recorded (a tick fires every ~2s; logging all of
+  them would be ~30 rows/minute/tenant of noise while healthy) — read
+  back via `Store.recentSlowTicks()` or the new diagnostic
+  `GET /api/tick-timings`. Root cause of the original stall still
+  unconfirmed — this is what makes the next occurrence provable instead
+  of inferred.
 - **Feeder tiers: heartbeat + arrival logging, after an unexplained silent
   gap.** Live incident: a freshly-recreated H56 IRON_ORE feed sat at 0/3
   crew for ~9 minutes with zero log output — not even

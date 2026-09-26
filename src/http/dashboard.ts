@@ -319,6 +319,16 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json({ activity: await w.store.recentActivity(w.tenantId, 100) });
   });
 
+  /** Recent coordinator tick() passes that ran slowly enough to be
+   *  recorded — see migrations/031_tick_step_timings.sql and
+   *  FleetManager.TICK_WARN_MS for what "slow" means and why only slow
+   *  passes are kept. Diagnostic-only, no write side. */
+  router.get("/tick-timings", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ ticks: await w.store.recentSlowTicks(w.tenantId, 50) });
+  });
+
   /* ── Bridge ──────────────────────────────────────────────────
      Everything the operating view needs in one call: the earning rate, the
      triage queue ranked by cost of inaction, and per-ship earnings. */

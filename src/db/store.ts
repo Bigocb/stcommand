@@ -2267,6 +2267,33 @@ export class Store {
     );
   }
 
+  // ── Tick step timings ──────────────────────────────────────
+  // See migrations/031_tick_step_timings.sql's comment — FleetManager.tick()
+  // records here only when a pass runs unusually slowly (FleetManager's own
+  // TICK_WARN_MS), with a full per-step breakdown, to catch which step in
+  // the long serial chain (refreshCredits → ... → feeds.tick() → ...) is
+  // occasionally the one blocking every step after it in the same pass.
+
+  async recordSlowTick(tenantId: string, tick: { startedAt: string; totalMs: number; steps: { name: string; ms: number }[] }): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO tick_step_timings (tenant_id, started_at, total_ms, steps) VALUES ($1, $2, $3, $4)`,
+        [tenantId, tick.startedAt, tick.totalMs, JSON.stringify(tick.steps)],
+      ),
+    );
+  }
+
+  /** Most recent slow ticks, newest first — for an operator diagnosing a stall. */
+  async recentSlowTicks(tenantId: string, limit = 50): Promise<{ startedAt: string; totalMs: number; steps: { name: string; ms: number }[] }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ started_at: Date; total_ms: number; steps: { name: string; ms: number }[] }>(
+        `SELECT started_at, total_ms, steps FROM tick_step_timings ORDER BY started_at DESC LIMIT $1`,
+        [limit],
+      );
+      return res.rows.map((r) => ({ startedAt: r.started_at.toISOString(), totalMs: r.total_ms, steps: r.steps }));
+    });
+  }
+
   /**
    * Net credits per ship over a window. SELL is income; PURCHASE, REFUEL and
    * ship purchases are spend. Scrapping is recorded as type SHIP but returns
