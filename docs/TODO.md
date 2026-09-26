@@ -7,6 +7,34 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **H56 IRON_ORE feed vs. trader buying pressure — live crew-size test,
+  in progress 2026-09-26.** Context: H56 is a refinery market — it
+  *imports* IRON_ORE (buys from the mine feed's miners) and *exports*
+  IRON (sells to arbitrage traders like THEO-6/THEO-8, who resell it
+  elsewhere, e.g. THEO-8 bought 80u IRON @ 83-86c and sold it at F52 for
+  171c). When a trader buys IRON out faster than miners feed IRON_ORE in,
+  H56's IRON price spikes and its supply rating degrades (SCARCE/LIMITED)
+  — confirmed 9/25: IRON purchase price ran 90c→317c over ~4h under a
+  thin, unbiased 3-ship crew. Two related fixes landed the same day:
+  auto-wiring miner preference (`setMinerPreference`) so `mine` feeds bias
+  survey/extraction toward the feed's own good, and changing `mine` feeds
+  to top off the hold before selling (`stepCarrier()`'s `holdFreeSpace`
+  check) instead of delivering on every small extraction batch. Since
+  then IRON's price has fallen every hour, back down to 87c/ABUNDANT by
+  9/26 20:00 as crew size grew 3→6→8. Operator is now running 10 miners +
+  6 dedicated surveyors feeding H56, against one trader currently buying
+  IRON there, and reports the price looks "balanced" — i.e. holding in
+  the MODERATE-or-better supply band (operator's stated target) rather
+  than sliding back to LIMITED/SCARCE. Not yet closed out: no formal
+  before/after numbers captured at the 10-miner/6-surveyor crew size
+  specifically (the falling-price numbers above predate this exact
+  configuration), and no read yet on whether a *second* trader buying
+  concurrently would still be absorbed. **Follow-up idea raised by
+  operator**: once real price/supply bands are established for a route
+  under buying pressure, feed the observed thresholds into the
+  margin-gate/`force` logic so a feed could auto-react (e.g. bias crew
+  size or throttle a chain's buy leg) instead of needing a human watching
+  the dashboard.
 - [ ] **Port `v2.js`–`v5.js`/`deck.js`'s Construction missions panels to
   `assignedShips`/multi-carrier.** `Mission.assignedShip` (singular) was
   replaced by `assignedShips`/`carrierTarget` (see CHANGELOG's
