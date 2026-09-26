@@ -654,11 +654,24 @@ export class FeedManager {
     }
   }
 
-  /** Free the hold of anything that isn't `keep` or FUEL — sells for real
-   *  credits where possible, jettisons only what genuinely can't be sold. */
+  /** Free the hold of anything that isn't `keep` — sells for real credits
+   *  where possible, jettisons only what genuinely can't be sold.
+   *
+   *  Used to also skip a "FUEL" item unconditionally, on the apparent
+   *  theory that this might be the ship's fuel *tank* — it never is:
+   *  `inventory` here is always `cargo.inventory` (the hold), and tank
+   *  fuel (`ship.fuel.current`) is a completely separate field that never
+   *  appears in it. "FUEL" in cargo.inventory is refined fuel bought as
+   *  tradeable cargo (see trader.ts's own arbitrage routes, which buy and
+   *  sell it exactly like any other good). Confirmed live: THEO-2E ran an
+   *  arbitrage FUEL buy immediately before being claimed as a feed
+   *  carrier, filling its hold with 15u FUEL cargo; every subsequent
+   *  `stepCarrier()` call saw held(IRON_ORE)=0, freeSpace<=0, and called
+   *  this to clear the hold — which skipped the FUEL and cleared nothing,
+   *  permanently blocking that ship from ever mining for the feed. */
   private async clearUnrelatedCargo(shipSymbol: string, keep: string, inventory: { symbol: string; units: number }[]): Promise<void> {
     for (const item of inventory) {
-      if (item.symbol === keep || item.symbol === "FUEL" || item.units <= 0) continue;
+      if (item.symbol === keep || item.units <= 0) continue;
       try {
         await this.sellCargo?.(shipSymbol, item.symbol, item.units);
       } catch {

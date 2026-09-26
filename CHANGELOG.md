@@ -11,6 +11,24 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a feed carrier holding refined FUEL as cargo (bought via its own
+  arbitrage trade) could never be cleared to make room for the feed's own
+  good, permanently blocking it from ever doing feed work.** Found live
+  while growing the H56 IRON_ORE crew from 3 to 6 miners: THEO-2E ran an
+  arbitrage FUEL buy right before being claimed as carrier #5/6, filling
+  its 15-unit hold with FUEL cargo. Every following `stepCarrier()` call
+  saw `held(IRON_ORE)=0`, `freeSpace<=0`, and called `clearUnrelatedCargo()`
+  to free the hold — which unconditionally skipped any item named "FUEL",
+  on the apparent assumption that might be the ship's fuel *tank*. It
+  never is: `cargo.inventory` (what this method clears) and
+  `ship.fuel.current` (the tank) are separate fields; "FUEL" showing up
+  in cargo is refined fuel bought as tradeable cargo, sold like any other
+  good (see trader.ts's own arbitrage routes). THEO-2E sat fully loaded
+  at H56, doing nothing, for 11+ minutes with zero feed log output,
+  while its five crewmates cycled normally. `clearUnrelatedCargo()` no
+  longer special-cases "FUEL" — it clears (sells, or jettisons on sale
+  failure) anything that isn't the feed's own good.
+
 - **Fix: a feeder tier's mining crew ran a full mine-to-cargo-full cycle
   synchronously inside a single `feeds.tick()` call, blocking the whole
   fleet coordinator (not just that feed) for as long as one ship's cycle
