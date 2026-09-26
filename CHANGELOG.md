@@ -39,6 +39,22 @@ be useful context; not a complete project history — see `git log` for that.
   target right away instead of waiting for a full hold that, with an
   unbiased survey, could take many cycles to reach.
 
+- **Fix (follow-up to the above, deployed minutes later): the proactive
+  junk-clearing check used the wrong cargo snapshot, and got stuck
+  retrying a sell that could never succeed.** `stepCarrier()` fetches
+  cargo two different ways — `ship` (from `getShip()`, at the top of the
+  call) and a separately-fetched, fresher `cargo` (from
+  `getShipCargo()`), and `held` is deliberately computed from the
+  fresher one. The new junk check read `ship.cargo.inventory` instead.
+  Confirmed live within minutes of deploying: THEO-27 extracted 4u
+  ICE_WATER, and every following pass logged `THEO-27 step error: THEO-27
+  has no ICE_WATER in cargo` — `clearUnrelatedCargo()`'s own `sellCargo()`
+  does its own fresh `getShip()` fetch and found none, while this check
+  kept reading the stale snapshot and retrying the same doomed sell
+  forever, never reaching `mineOnce()` again. Now reads `cargo.inventory`
+  (the same fetch `held` already trusts) for both the check and the
+  clear call.
+
 - **Fix: a feed carrier holding refined FUEL as cargo (bought via its own
   arbitrage trade) could never be cleared to make room for the feed's own
   good, permanently blocking it from ever doing feed work.** Found live

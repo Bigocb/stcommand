@@ -800,9 +800,19 @@ export class FeedManager {
       // mix of deposits, so waiting for "full" here would spend most of a
       // mining cycle carrying dead weight that's already blocking room the
       // feed's own good could be using.
-      const junk = ship.cargo.inventory.filter((i) => i.symbol !== feed.good && i.units > 0);
+      //
+      // Uses `cargo` (getShipCargo(), the same fetch `held` above already
+      // trusts), not `ship.cargo` (getShip(), fetched earlier in this same
+      // call) — confirmed live those two disagree: THEO-27 extracted
+      // ICE_WATER, then every following pass logged "step error: THEO-27
+      // has no ICE_WATER in cargo" from inside clearUnrelatedCargo()'s
+      // sellCargo() call, which does its own fresh getShip() fetch and
+      // found none — while this check, reading the stale `ship.cargo` from
+      // the top of this call, kept seeing 4u and retrying forever. Never
+      // reached mineOnce() again for the rest of that call's lifetime.
+      const junk = cargo.inventory.filter((i) => i.symbol !== feed.good && i.units > 0);
       if (junk.length > 0) {
-        await this.clearUnrelatedCargo(ship.symbol, feed.good, ship.cargo.inventory);
+        await this.clearUnrelatedCargo(ship.symbol, feed.good, cargo.inventory);
         return;
       }
       // mineOnce() runs schedulerDriven, so a real extraction cooldown throws
