@@ -1903,6 +1903,21 @@ export class ShipAgent {
         // not just the old runLoop()'s while condition.
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
+        // Checked before touching schedulerDriven, not left to tick()'s own
+        // early suspended-return: this task chain keeps firing every ~30s
+        // even while a feed/mission/rescue owns this ship directly (suspend()
+        // doesn't remove the scheduled task, it just makes tick() a no-op).
+        // schedulerDriven is one shared flag on the proxy, and FleetManager's
+        // serial tick() loop doesn't prevent THIS scheduler-driven chain from
+        // running concurrently with a feed's own direct mineOnce() call on
+        // the same ship — so setting schedulerDriven=true here and clearing
+        // it in this call's own finally, for a no-op that's about to return
+        // immediately anyway, can clobber it back to false out from under
+        // that concurrent call's still-in-flight extraction. Confirmed live:
+        // this raced FeedManager.stepCarrier()'s mineOnce() call (see that
+        // method's own comment) and defeated its schedulerDriven fix —
+        // waitCooldown() slept out the real cooldown instead of throwing.
+        if (this.suspended) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
         // See TraderAgent.nextTask()'s comment: inFlight was only ever set by

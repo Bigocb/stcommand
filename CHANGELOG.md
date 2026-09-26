@@ -39,6 +39,32 @@ be useful context; not a complete project history — see `git log` for that.
   now drives one extraction per `mineOnce()` call and yields, instead of
   running its crew's entire mining cycle inline.
 
+- **Fix (follow-up to the above, same day): the `mineOnce()` fix alone
+  didn't hold — a second race on the same shared `schedulerDriven` flag
+  defeated it.** Verified the deploy live and still saw
+  `waitCooldown()`'s real 69s sleep (its "cooldown Ns" log, which only
+  fires on the non-scheduler-driven branch) instead of `CooldownPending`
+  being thrown. Root cause: a suspended ship's own `nextTask()`-family
+  scheduled chain (e.g. `THEO-27-mine`) keeps re-firing every ~30s the
+  whole time a feed/mission/rescue owns it directly — `suspend()` never
+  removes the scheduled task, it only makes `tick()` a same-tick no-op.
+  But every `nextTask()`-family `run()` set `schedulerDriven = true`
+  *before* that no-op check, and cleared it in its own `finally`
+  regardless. `FleetManager.tick()`'s serial loop doesn't prevent the
+  *Scheduler*'s independent task loop from running concurrently with it —
+  so this no-op chain's `schedulerDriven = true` → (near-instant no-op) →
+  `schedulerDriven = false` could interleave with a concurrent
+  `FeedManager.stepCarrier()` → `mineOnce()` call still mid-extraction on
+  the exact same `ShipAgent`/`ShipProxy` instance, clobbering the flag
+  back to `false` out from under it right as it reached its own
+  `waitCooldown()`. Fixed by checking `this.suspended` in each
+  `nextTask()`-family `run()` *before* touching `schedulerDriven` at all,
+  in `ShipAgent.nextTask()` (agent.ts, miners — where this was actually
+  observed live), `TraderAgent.nextTask()` (trader.ts) and
+  `SiphonerAgent.nextTask()` (siphoner.ts) — the three classes a
+  feed/mission/rescue can suspend today. A no-op that's about to return
+  immediately now never touches the shared flag.
+
 - **Fix: galaxy crawl's agent-directory pass hammered SpaceTraders' real
   rate limit on every single attempt, continuously, for at least two
   days.** Found chasing an unrelated mystery — the new per-feed

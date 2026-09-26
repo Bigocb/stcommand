@@ -2268,6 +2268,15 @@ export class TraderAgent {
         if (this.halted()) {
           return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         }
+        // Checked before touching schedulerDriven, not left to tick()'s own
+        // early suspended-return — see ShipAgent.nextTask()'s own comment
+        // (agent.ts) for the race this avoids: this chain keeps firing every
+        // ~30s while a feed/mission/rescue owns this ship directly, and
+        // schedulerDriven is one shared flag on the proxy that a concurrent
+        // direct call (e.g. a feed's own buy/sell step) could be relying on
+        // mid-flight. A no-op that's about to return immediately anyway has
+        // no reason to touch it at all.
+        if (this.suspended) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
         // Real measured count (Client.getCallCount() delta), not the fixed
         // `estimatedCalls: 3` heuristic above — the estimate is still a
         // guess made before the work runs (needed for the scheduler's

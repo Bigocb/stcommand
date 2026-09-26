@@ -532,6 +532,9 @@ export class SiphonerAgent {
       run: async (): Promise<TaskResult> => {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
+        // Checked before touching schedulerDriven — see ShipAgent.nextTask()'s
+        // comment (agent.ts) for the race this avoids.
+        if (this.suspended) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
         // See TraderAgent.nextTask()'s comment on inFlight.
