@@ -562,13 +562,33 @@ export class TraderAgent {
         await this.refuelFromCargo();
       }
     }
+    // A leg beyond the tank's single-hop range routes through nextHopToward()
+    // — the same multi-hop stepping-stone search contract/mission delivery
+    // already uses (see viableRoute()'s own comment) — rather than handing
+    // the far waypoint straight to ShipProxy.navigateTo(). ShipProxy's own
+    // findFuelStop() only accepts a stop that reaches the FINAL destination
+    // in one more hop (i.e. exactly two legs total); a route needing three
+    // or more hops has no such stop and falls all the way back to a single
+    // DRIFT leg covering the whole distance. Confirmed live 2026-09-27:
+    // several 300-capacity traders sent to X1-SJ91-J70 (a ~750-800 unit haul
+    // reachable via a chain of closer stepping-stone markets, each well
+    // under 300) sat in hours-long DRIFT instead of the handful of ordinary
+    // CRUISE hops nextHopToward() already knew how to find — the exact
+    // capability this route was accepted as "viable" for in the first
+    // place, just never actually used to fly it.
+    let target = waypoint;
+    if (this.ship.nav.status !== "IN_TRANSIT" && this.ship.fuel.capacity > 0 &&
+        this.distBetween(this.ship.nav.waypointSymbol, waypoint) > this.ship.fuel.capacity) {
+      const hop = this.nextHopToward(waypoint);
+      if (hop) target = hop;
+    }
     // Everything from here is the shared in-system primitive: the post-orbit
     // re-check, the flight-mode decision, the navigate call and the
     // already-there recovery all live in ShipProxy now, because this file and
     // the other three each carried a copy that had drifted apart. What stays
-    // here is what is genuinely this class's own: the jump branch above and
-    // the pre-departure refuel.
-    await this.proxy.navigateTo(waypoint);
+    // here is what is genuinely this class's own: the jump branch above, the
+    // pre-departure refuel, and the multi-hop stepping-stone redirect.
+    await this.proxy.navigateTo(target);
   }
 
   private async waitCooldown(): Promise<void> {

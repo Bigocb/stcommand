@@ -11,6 +11,31 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Traders now actually fly multi-hop fuel-stop routes instead of a
+  single hours-long DRIFT leg.** `viableRoute()` (`src/engine/trader.ts`)
+  has accepted a route whose distance exceeds the ship's tank as long as
+  `nextHopToward()` — a stepping-stone search proven out for contract and
+  mission cargo delivery — found *some* multi-hop path, since 2026-09-21.
+  But the leg was then actually flown through the trader's own
+  `navigateTo()` wrapper straight to `ShipProxy.navigateTo()`, whose
+  `findFuelStop()` only accepts a single intermediate stop that reaches
+  the *final* destination in one more hop — exactly two legs, no more.
+  A route needing three or more hops has no such stop, so the executor
+  fell all the way back to one continuous DRIFT leg covering the whole
+  distance, the opposite of what "viable via a multi-hop path" was
+  supposed to mean. Confirmed live 2026-09-27: several 300-capacity
+  traders sent toward `X1-SJ91-J70` (a ~750-800 unit haul, reachable via
+  a chain of closer stepping-stone markets each well under 300) sat in
+  hour-plus DRIFT instead of the ordinary CRUISE hops `nextHopToward()`
+  already knew existed. Fixed by having the trader's `navigateTo()`
+  itself redirect through `nextHopToward()` whenever the direct distance
+  exceeds the tank, before ever handing the leg to `ShipProxy` — the same
+  redirect contract delivery already does, now applied to ordinary
+  buy/sell/haul legs too (every trader role routes through this one
+  wrapper). No changes to `ShipProxy`/`FleetManager.findFuelStop()`
+  itself, and no changes to non-trader roles (miners/siphoners/tour
+  ships), which don't run cross-market arbitrage legs long enough for
+  this gap to matter the same way.
 - **Feed/Feeder-chain forms: market and good pickers are dropdowns, not free text (v6, Deck, Tower).**
   Confirmed live 2026-09-27, twice in one session: a typo'd target
   waypoint (a wrong system symbol, then a same-system near-miss —
