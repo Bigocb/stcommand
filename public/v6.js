@@ -402,7 +402,7 @@ function loadViewData(name) {
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
   // Same staleness gap this comment's "fleet" branch fixes: the Automation
   // panel's trader rows read dispatchAssignments too, via describeAutomation().
-  if (name === "ops") { loadProgramme(); loadDispatch(); loadNotes(); }
+  if (name === "ops") { loadProgramme(); loadDispatch(); loadNotes(); loadGoods(); }
   if (name === "galaxy") { loadGalaxy(); loadMarketDynamics(); }
 }
 
@@ -6083,6 +6083,7 @@ function loadMobilePanels() {
   loadWarehouse();
   loadProgramme();
   loadDoctrine();
+  loadGoods();
 }
 mobileMQ.addEventListener("change", (e) => { if (e.matches && authed) loadMobilePanels(); });
 
@@ -6608,8 +6609,8 @@ function renderMissions(list) {
 function chainTierRowHtml(n, isFirst) {
   return `<div class="chain-tier-row">
     <span class="tier-n">${n}</span>
-    <input type="text" class="tier-good" placeholder="good, e.g. IRON_ORE" />
-    <input type="text" class="tier-market" placeholder="sell into, e.g. X1-SN30-H56" />
+    <select class="tier-good"><option value="">Good…</option></select>
+    <select class="tier-market"><option value="">Sell into…</option></select>
     <label class="checkline"><input type="checkbox" class="tier-mine" /> mine</label>
     <span class="tier-hint">${isFirst ? "" : "buys where the tier above sold"}</span>
     <button class="btn ghost tier-remove" type="button">&times;</button>
@@ -6621,9 +6622,52 @@ function renumberChainTierRows() {
     row.querySelector(".tier-hint").textContent = i === 0 ? "" : "buys where the tier above sold";
   });
 }
+
+/** Good/market pickers for the Feed and Feeder-chain forms — dropdowns
+ *  sourced from the server-authoritative priceGoods/priceWaypointsByGood
+ *  (see loadGoods()), not free text. Confirmed live 2026-09-27: a typo'd
+ *  target waypoint (a system-symbol slip, then a same-system near-miss
+ *  like F63 vs H63) left a feed with 0 reachable markets and a full crew
+ *  never joining — a dropdown restricted to markets that actually exist
+ *  and actually trade the chosen good makes that typo class impossible.
+ */
+function populateGoodSelect(sel) {
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Good…</option>' + priceGoods.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
+  if (priceGoods.includes(current)) sel.value = current;
+}
+function populateWaypointSelectForGood(sel, good) {
+  if (!sel) return;
+  const current = sel.value;
+  const options = good ? (priceWaypointsByGood[good] ?? []) : [];
+  sel.innerHTML = `<option value="">${good ? "Market…" : "Pick a good first…"}</option>` + options.map((wp) => `<option value="${escapeAttr(wp)}">${escapeHtml(wp)}</option>`).join("");
+  if (options.includes(current)) sel.value = current;
+}
+function refreshFeedFormSelects() {
+  populateGoodSelect($("feed-good"));
+  populateWaypointSelectForGood($("feed-waypoint"), $("feed-good").value);
+  populateGoodSelect($("mobile-feed-good"));
+  populateWaypointSelectForGood($("mobile-feed-waypoint"), $("mobile-feed-good").value);
+  [...$("chain-tier-rows").children].forEach((row) => {
+    populateGoodSelect(row.querySelector(".tier-good"));
+    populateWaypointSelectForGood(row.querySelector(".tier-market"), row.querySelector(".tier-good").value);
+  });
+}
+$("feed-good").addEventListener("change", () => populateWaypointSelectForGood($("feed-waypoint"), $("feed-good").value));
+$("mobile-feed-good").addEventListener("change", () => populateWaypointSelectForGood($("mobile-feed-waypoint"), $("mobile-feed-good").value));
+$("chain-tier-rows").addEventListener("change", (e) => {
+  const sel = e.target.closest("select.tier-good");
+  if (!sel) return;
+  populateWaypointSelectForGood(sel.closest(".chain-tier-row").querySelector(".tier-market"), sel.value);
+});
+
 function addChainTierRow() {
   const container = $("chain-tier-rows");
   container.insertAdjacentHTML("beforeend", chainTierRowHtml(container.children.length + 1, container.children.length === 0));
+  const row = container.lastElementChild;
+  populateGoodSelect(row.querySelector(".tier-good"));
+  populateWaypointSelectForGood(row.querySelector(".tier-market"), "");
 }
 $("chain-add-tier").addEventListener("click", addChainTierRow);
 $("chain-tier-rows").addEventListener("click", (e) => {
@@ -7280,6 +7324,7 @@ subscribe("replay", renderScrubTrack);
 subscribe("prices", () => {
   renderPriceGoods();
   if (pricePoints.length) renderPriceChart(pricePoints, "price-chart");
+  refreshFeedFormSelects();
 });
 subscribe("programme", () => { renderContracts(contracts); renderMissions(missions); renderChains(feedChains); renderFeeds(feeds); });
 subscribe("approvals", () => { renderApprovalsBanner(); renderApprovals(); });

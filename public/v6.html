@@ -365,8 +365,8 @@
         <div class="pane-h"><span class="dot"></span>Feeder tiers<span class="count">keep an upstream market's price down</span></div>
         <div class="pane-b">
           <div class="dispatch-toolbar">
-            <input type="text" id="feed-waypoint" placeholder="market to feed, e.g. X1-SN30-D40" aria-label="Market to feed" />
-            <input type="text" id="feed-good" placeholder="good, e.g. ELECTRONICS" aria-label="Good to feed" style="max-width:160px" />
+            <select id="feed-good" aria-label="Good to feed" style="max-width:180px"><option value="">Good…</option></select>
+            <select id="feed-waypoint" aria-label="Market to feed"><option value="">Market to feed…</option></select>
             <input type="number" id="feed-crew" min="1" value="1" aria-label="Initial crew size" style="max-width:70px" />
             <label class="checkline"><input type="checkbox" id="feed-mine" /> mine instead of buy</label>
             <label class="checkline" title="Buy every cycle regardless of margin against the destination's sell price"><input type="checkbox" id="feed-force" /> force (ignore margin)</label>
@@ -487,8 +487,8 @@
             <div class="pane-h"><span class="dot"></span>Feeder tiers<span class="count">keep an upstream market's price down</span></div>
             <div class="pane-b">
               <div class="dispatch-toolbar">
-                <input type="text" id="mobile-feed-waypoint" placeholder="market to feed" aria-label="Market to feed" />
-                <input type="text" id="mobile-feed-good" placeholder="good" aria-label="Good to feed" style="max-width:120px" />
+                <select id="mobile-feed-good" aria-label="Good to feed" style="max-width:120px"><option value="">Good…</option></select>
+                <select id="mobile-feed-waypoint" aria-label="Market to feed"><option value="">Market…</option></select>
                 <input type="number" id="mobile-feed-crew" min="1" value="1" aria-label="Initial crew size" style="max-width:60px" />
                 <label class="checkline"><input type="checkbox" id="mobile-feed-mine" /> mine</label>
                 <label class="checkline" title="Buy every cycle regardless of margin"><input type="checkbox" id="mobile-feed-force" /> force</label>

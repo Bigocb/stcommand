@@ -81,7 +81,7 @@ function setTab(name) {
   if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
-  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); renderMore(); }
+  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadGoods(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -1232,6 +1232,7 @@ $("price-timeframe-seg").addEventListener("click", (e) => {
   loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
 });
 subscribe("prices", () => {
+  refreshFeedFormSelects();
   if (!marketsTabActive() || mktSeg !== "prices") return;
   // priceGoods just arriving (first visit, before any good was chosen) is
   // the one case this needs to trigger its own fetch — everything else
@@ -1509,6 +1510,32 @@ $("more-missions").addEventListener("click", async (e) => {
   } catch (err) { alert(err.message); }
   renderMoreMissions();
 });
+
+/** Good/market pickers for the feed-start form — dropdowns sourced from
+ *  priceGoods/priceWaypointsByGood (see loadGoods()), not free text.
+ *  Confirmed live 2026-09-27: a typo'd target waypoint (a wrong system
+ *  symbol, then a same-system near-miss) left a feed with 0 reachable
+ *  markets and a full crew never joining — restricting the picker to
+ *  markets that actually exist and actually trade the chosen good makes
+ *  that typo class impossible. */
+function populateGoodSelect(sel) {
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Good…</option>' + priceGoods.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
+  if (priceGoods.includes(current)) sel.value = current;
+}
+function populateWaypointSelectForGood(sel, good) {
+  if (!sel) return;
+  const current = sel.value;
+  const options = good ? (priceWaypointsByGood[good] ?? []) : [];
+  sel.innerHTML = `<option value="">${good ? "Market…" : "Pick a good first…"}</option>` + options.map((wp) => `<option value="${escapeAttr(wp)}">${escapeHtml(wp)}</option>`).join("");
+  if (options.includes(current)) sel.value = current;
+}
+function refreshFeedFormSelects() {
+  populateGoodSelect($("feed-good-input"));
+  populateWaypointSelectForGood($("feed-wp-input"), $("feed-good-input").value);
+}
+$("feed-good-input").addEventListener("change", () => populateWaypointSelectForGood($("feed-wp-input"), $("feed-good-input").value));
 
 $("feed-start-btn").addEventListener("click", async () => {
   const wpInput = $("feed-wp-input");

@@ -11,6 +11,28 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Feed/Feeder-chain forms: market and good pickers are dropdowns, not free text (v6, Deck, Tower).**
+  Confirmed live 2026-09-27, twice in one session: a typo'd target
+  waypoint (a wrong system symbol, then a same-system near-miss —
+  `X1-SJ91-F63` for the intended `X1-SJ91-H63`) left a feed with a full
+  crew target and zero reachable ships, since the typo'd waypoint either
+  didn't exist in the charted galaxy or didn't trade the feed's own good.
+  The "Start feed" good/waypoint inputs and the Feeder-chain tier
+  good/market inputs are now `<select>`s sourced from the same
+  server-authoritative `priceGoods`/`priceWaypointsByGood` the price
+  chart's own pickers use (`GET /api/goods`): picking a good filters the
+  market list to only markets that actually trade it, so this typo class
+  is no longer possible to enter. No backend changes.
+- **Deck: fixed the Keeper tab bleeding through under every other Markets
+  tab.** An inline `style="display:flex"` on the Keeper panel's own
+  hidden `<div>` outranked the browser's default `[hidden]{display:none}`
+  (inline author styles win regardless of the `hidden` attribute), so the
+  panel never actually hid — its Cover-full-list toggle and station list
+  showed underneath Routes/Yards/Prices too, stacked below whatever the
+  selected tab's own content was. Moved the flex layout into a
+  `.mk-keeper-body` class with an explicit higher-specificity
+  `[hidden]` override, the same pattern `.content[hidden]` already uses
+  elsewhere in this file.
 - **Removed "Manipulation Routes" (buy-side price-manipulation finder) everywhere — superseded by Feeder tiers/chains.**
   Feeder tiers/chains now do the same job — build a counter-pressure crew
   against a buyer driving a market's price up — as a live, running system
