@@ -11,6 +11,26 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Removed "Manipulation Routes" (buy-side price-manipulation finder) everywhere — superseded by Feeder tiers/chains.**
+  Feeder tiers/chains now do the same job — build a counter-pressure crew
+  against a buyer driving a market's price up — as a live, running system
+  instead of a one-shot suggestion list, making Manipulation Routes
+  redundant. Removed in full: `FleetManager.findManipulationRoutes()`/
+  `getManipulationHistory()` and their supporting `DEPOSIT_TRAIT_HINTS`/
+  `needsRefining()`/`fleetCanRefine()` helpers (`src/engine/fleet.ts`),
+  the `GET /api/manipulation-routes` and `GET /api/manipulation-routes/
+  history` routes (`src/http/dashboard.ts`), the `manipulationRoutes`
+  store state and `loadManipulationRoutes()` (`public/shared/store.js`),
+  and every UI copy of the panel — v6's Ops pane (desktop + mobile),
+  Tower's More tab, and Deck's Ops screen — plus their now-orphaned
+  `tests/fleet.test.ts` cases. No replacement endpoint; use a Feeds
+  screen chain instead.
+- **Deck Markets screen reorganized from three stacked rows to two** —
+  folded the always-visible Keeper stations panel into the Routes/Yards/
+  Prices segmented control as a fourth "Keeper" tab (same ids, so
+  `renderKeepers()` needed no changes) instead of it sitting below as its
+  own full-width row. Row 1 is now the segmented panel (Routes/Yards/
+  Prices/Keeper), row 2 is Warehouse next to Dispatch+Miner preference.
 - **Deck feature-parity pass: closed the gap from a week of v6-only
   features — Feeder tiers/chains, Automation panel, Notes, Fleet ETA
   column, per-ship miner preference, the "Matched" P&L tile, and a
@@ -31,8 +51,7 @@ be useful context; not a complete project history — see `git log` for that.
   - Ops screen gained an Automation panel (every ship's current wants/
     doing, from `fleetStatusSummary()`) and a Notes panel (the operator's
     own persisted scratchpad, same `/api/notes` endpoint Tower and v6
-    just got) alongside the existing Contracts/Missions/Manipulation
-    Routes.
+    just got) alongside the existing Contracts/Missions.
   - Markets' Routes and Yards panels became a segmented Routes/Yards/
     Prices control (matching Tower's own Markets tab shape) — Prices adds
     the good/marketplace pickers, timeframe buttons, an SVG price line

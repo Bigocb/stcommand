@@ -834,40 +834,6 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json({ missions: await w.fleet.getMissions() });
   });
 
-  /** Buy-side price-manipulation route finder — see FleetManager.
-   *  findManipulationRoutes()'s own comment. `?goods=FAB_MATS,ADVANCED_CIRCUITRY`
-   *  (comma-separated), defaults to just FAB_MATS — the one confirmed live. */
-  router.get("/manipulation-routes", async (req, res) => {
-    const w = worker(req);
-    if (!w) return res.status(503).json({ error: "engine not ready" });
-    const goodsParam = typeof req.query.goods === "string" ? req.query.goods : "FAB_MATS,ADVANCED_CIRCUITRY";
-    const goods = goodsParam.split(",").map((g) => g.trim()).filter(Boolean);
-    try {
-      res.json({ routes: await w.fleet.findManipulationRoutes(goods) });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
-  /** Price-history + sell-log evidence for one manipulation route — see
-   *  FleetManager.getManipulationHistory()'s own comment.
-   *  `?waypoint=X1-SN30-F50&good=FAB_MATS&inputs=IRON,QUARTZ_SAND` */
-  router.get("/manipulation-routes/history", async (req, res) => {
-    const w = worker(req);
-    if (!w) return res.status(503).json({ error: "engine not ready" });
-    const { waypoint, good } = req.query;
-    const inputsParam = typeof req.query.inputs === "string" ? req.query.inputs : "";
-    if (typeof waypoint !== "string" || typeof good !== "string") {
-      return res.status(400).json({ error: "waypoint and good query params required" });
-    }
-    const inputGoods = inputsParam.split(",").map((g) => g.trim()).filter(Boolean);
-    try {
-      res.json(await w.fleet.getManipulationHistory(waypoint, good, inputGoods));
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
   router.get("/contracts", async (req, res) => {
     const w = worker(req);
     if (!w?.contracts) return res.status(503).json({ error: "contracts not ready" });

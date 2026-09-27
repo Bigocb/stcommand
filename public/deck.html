@@ -120,6 +120,7 @@
                   <button class="on" data-seg="routes">Routes</button>
                   <button data-seg="yards">Yards</button>
                   <button data-seg="prices">Prices</button>
+                  <button data-seg="keeper">Keeper</button>
                 </div>
                 <span class="count" id="mk-mkt-seg-count">top 5</span>
               </div>
@@ -138,6 +139,20 @@
                 <div class="chart" id="mk-price-chart-room" style="height:180px;margin:10px 0"></div>
                 <div class="ops-sub" style="padding:0 0 4px">Selling here</div>
                 <div id="mk-price-market-list"></div>
+              </div>
+              <div class="panel-b" id="mk-keeper" hidden style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <button class="sw" id="mk-keeper-cover" aria-pressed="false" aria-label="Cover full list"><i></i></button>
+                  <div style="flex:1">
+                    <div style="font-size:11px">Cover full list</div>
+                    <div style="font-size:10px;color:var(--dim2)">Station every listed market, ignoring the Keeper count cap</div>
+                  </div>
+                  <span class="count" id="mk-keeper-count" style="white-space:nowrap"></span>
+                  <button class="btn" id="mk-keeper-save">Save list</button>
+                  <button class="btn" id="mk-keeper-reset">Default</button>
+                </div>
+                <textarea id="mk-keeper-markets" rows="4" spellcheck="false" class="field-input" placeholder="One waypoint symbol per line"></textarea>
+                <div id="mk-keeper-stations"></div>
               </div>
             </div>
             <!-- Warehouse panel -->
@@ -185,23 +200,6 @@
                 <button class="btn" id="mk-miner-pref-clear">Clear</button>
               </div>
               <div class="panel-b" id="mk-miner-pref-list"></div>
-            </div>
-            <!-- Keeper stations panel -->
-            <div class="panel" id="mk-keeper-panel">
-              <div class="panel-h"><span class="dot"></span><span class="title">Keeper stations</span><span class="count" id="mk-keeper-count"></span></div>
-              <div class="panel-b" style="display:flex;flex-direction:column;gap:8px">
-                <div style="display:flex;align-items:center;gap:8px">
-                  <button class="sw" id="mk-keeper-cover" aria-pressed="false" aria-label="Cover full list"><i></i></button>
-                  <div style="flex:1">
-                    <div style="font-size:11px">Cover full list</div>
-                    <div style="font-size:10px;color:var(--dim2)">Station every listed market, ignoring the Keeper count cap</div>
-                  </div>
-                  <button class="btn" id="mk-keeper-save">Save list</button>
-                  <button class="btn" id="mk-keeper-reset">Default</button>
-                </div>
-                <textarea id="mk-keeper-markets" rows="4" spellcheck="false" class="field-input" placeholder="One waypoint symbol per line"></textarea>
-                <div id="mk-keeper-stations"></div>
-              </div>
             </div>
           </div>
         </div>
@@ -257,10 +255,6 @@
                 <div id="notes" style="overflow:auto;flex:1"></div>
               </div>
             </div>
-          </div>
-          <div class="panel" style="flex:1;min-height:0;display:flex;flex-direction:column;margin-top:14px">
-            <div class="panel-h"><span class="dot"></span><span class="title">Manipulation Routes</span><span class="count" style="margin-left:auto;color:var(--dim2);font-size:10px">suggested, not confirmed — see asteroid trait hints</span></div>
-            <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-manipulation-routes"></div>
           </div>
         </div>
         <!-- Feeds screen — feeder tiers + chains, counter-pressure crews

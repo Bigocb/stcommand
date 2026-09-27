@@ -219,11 +219,11 @@ tr.sel td{background:var(--amber-dim)}
 .detail-row .d{color:var(--dim); font-size:9.5px}
 .detail-row .btn{padding:5px 10px; font-size:9px; min-height:auto; flex:0 0 auto}
 
-/* Markets screen (pass 3). Pass B added two write toolbars and a keeper
-   panel to the original 2×2 grid, so the grid now scrolls and the keeper
-   panel spans both columns rather than being squeezed into a half-cell. */
+/* Markets screen (pass 3). Two rows: a full-width Routes/Yards/Prices/Keeper
+   segmented panel, then Warehouse | Dispatch+Miner preference below it —
+   Keeper folded into the segmented tabs (was its own always-visible panel,
+   which pushed the grid to three rows) rather than stacked as a third row. */
 .mgrid{flex:1;display:grid;grid-template-columns:1.3fr 1fr;gap:14px;min-height:0;overflow:auto;grid-auto-rows:minmax(240px,auto)}
-#mk-keeper-panel{grid-column:1 / -1}
 .mk-toolbar{display:flex;gap:6px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--hair);flex-wrap:wrap;flex:0 0 auto}
 .mk-toolbar .field-select,.mk-toolbar .field-input{flex:1;min-width:90px}
 /* toggle switch — same control Tower's doctrine rows use (m.css) */

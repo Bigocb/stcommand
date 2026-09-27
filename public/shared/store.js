@@ -92,7 +92,6 @@ export let contracts = [];
 export let missions = [];
 export let feeds = [];
 export let feedChains = [];
-export let manipulationRoutes = [];
 
 export let approvals = [];
 
@@ -403,22 +402,6 @@ export async function loadProgramme() {
     feeds = fres.ok ? (await fres.json()).feeds ?? [] : [];
     feedChains = chres.ok ? (await chres.json()).chains ?? [] : [];
     notify("programme");
-  } catch (e) { console.error(e); }
-}
-
-/** Buy-side price-manipulation route candidates — see FleetManager.
- *  findManipulationRoutes()'s own comment. `goods` defaults to FAB_MATS
- *  (confirmed live 2026-09-20) plus ADVANCED_CIRCUITRY — its own direct
- *  inputs (ELECTRONICS, MICROPROCESSORS) are manufactured goods, not raw
- *  ore, so the finder (one level of inputs deep, no recursive lookup)
- *  will likely show no candidate asteroids for it; still worth surfacing
- *  in case a market importing those exists nearby. Fetch-on-demand, same
- *  shape as loadProgramme() — not polled. */
-export async function loadManipulationRoutes(goods = "FAB_MATS,ADVANCED_CIRCUITRY") {
-  try {
-    const res = await fetch(`/api/manipulation-routes?goods=${encodeURIComponent(goods)}`);
-    manipulationRoutes = res.ok ? (await res.json()).routes ?? [] : [];
-    notify("manipulationRoutes");
   } catch (e) { console.error(e); }
 }
 
