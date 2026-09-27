@@ -224,6 +224,14 @@ tr.sel td{background:var(--amber-dim)}
    Keeper folded into the segmented tabs (was its own always-visible panel,
    which pushed the grid to three rows) rather than stacked as a third row. */
 .mgrid{flex:1;display:grid;grid-template-columns:1.3fr 1fr;gap:14px;min-height:0;overflow:auto;grid-auto-rows:minmax(240px,auto)}
+/* Confirmed live 2026-09-27: an inline style="display:flex" on the Keeper
+   tab's own hidden div beat the browser's default [hidden]{display:none}
+   (inline author styles outrank it regardless of the hidden attribute),
+   so the panel never actually hid and bled through under every other
+   Markets tab. Fixed the same way .content[hidden] already does above —
+   an explicit, higher-specificity [hidden] override wins the tie. */
+.mk-keeper-body{display:flex;flex-direction:column;gap:8px}
+.mk-keeper-body[hidden]{display:none}
 .mk-toolbar{display:flex;gap:6px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--hair);flex-wrap:wrap;flex:0 0 auto}
 .mk-toolbar .field-select,.mk-toolbar .field-input{flex:1;min-width:90px}
 /* toggle switch — same control Tower's doctrine rows use (m.css) */
