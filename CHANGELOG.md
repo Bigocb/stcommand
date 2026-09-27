@@ -35,6 +35,16 @@ be useful context; not a complete project history — see `git log` for that.
   unaffected — there's no real ambiguity to defer for those. Restart-time
   role restoration (`assignRole()` in `init()`) is also unaffected — this
   only changes what happens the moment a *new* hull is purchased.
+- **Fixed a same-day regression in the above: a manual role assignment
+  from the Fleet tab could get silently undone seconds later.** Confirmed
+  live: an operator manually set a pending ship's role from the Fleet tab
+  while its `assignShipRole` approval was still sitting unanswered; when
+  that now-moot approval was later denied, `maybeResolveNewShipRoles()`
+  didn't know the ship already had a real role and shoved it back into
+  idle, undoing the manual assignment. It now checks `manualRoleShips`
+  before acting on a late-arriving decision — the approval row still
+  resolves normally (so it clears out of the Approvals panel), but once a
+  ship has a real manual role, the decision is a no-op either way.
 - **Traders now actually fly multi-hop fuel-stop routes instead of a
   single hours-long DRIFT leg.** `viableRoute()` (`src/engine/trader.ts`)
   has accepted a route whose distance exceeds the ship's tank as long as

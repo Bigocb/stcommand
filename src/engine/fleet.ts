@@ -1928,6 +1928,17 @@ export class FleetManager {
       });
       if (approved === undefined) continue;
       this.pendingRoleShips.delete(shipSymbol);
+      // The operator can assign a role manually from the Fleet tab at any
+      // time while this approval is still sitting unanswered — confirmed
+      // live 2026-09-27: THEO-2F got manually set to "tour" via the Fleet
+      // tab, then a stale deny (decided on the now-moot prompt afterward)
+      // shoved it back into idleShips seconds later, silently undoing the
+      // operator's own choice. Let the approval row still resolve normally
+      // (so it clears out of the Approvals panel instead of lingering
+      // forever), but once a real manual role exists, don't act on the
+      // decision at all — neither reinstalling the suggestion nor
+      // demoting an already-assigned ship back to idle.
+      if (this.manualRoleShips.has(shipSymbol)) continue;
       if (approved) {
         try {
           await this.setShipRole(shipSymbol, pending.suggestedRole);
