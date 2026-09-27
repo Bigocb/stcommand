@@ -96,6 +96,9 @@ export let manipulationRoutes = [];
 
 export let approvals = [];
 
+/** Operator's own persisted scratchpad — {id, body, createdAt}[], newest first. */
+export let notes = [];
+
 export let leaderboard = [];
 export let factions = [];
 /** Other agents headquartered in this tenant's own home system, sorted by
@@ -429,6 +432,18 @@ export async function loadApprovals() {
     const res = await fetch("/api/approvals");
     approvals = res.ok ? (await res.json()).approvals ?? [] : [];
     notify("approvals");
+  } catch (e) { console.error(e); }
+}
+
+/** Operator's own persisted scratchpad — log lines/notes-to-self, nothing
+ *  the engine reads. Loaded on demand (whichever screen shows it), not
+ *  polled globally like approvals — this is a scratchpad, not a signal an
+ *  operator needs to notice unprompted. */
+export async function loadNotes() {
+  try {
+    const res = await fetch("/api/notes");
+    notes = res.ok ? (await res.json()).notes ?? [] : [];
+    notify("notes");
   } catch (e) { console.error(e); }
 }
 

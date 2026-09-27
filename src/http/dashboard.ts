@@ -183,6 +183,43 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  /**
+   * Operator's own persisted scratchpad — log lines/notes-to-self, nothing
+   * the engine reads. Deliberately dumb: no editing, just append/list/
+   * delete, newest first.
+   */
+  router.get("/notes", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ notes: await w.store.listOperatorNotes(w.tenantId) });
+  });
+
+  router.post("/notes", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+    if (!body) return res.status(400).json({ error: "body is required" });
+    try {
+      await w.store.addOperatorNote(w.tenantId, body);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[dashboard] notes add error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.delete("/notes/:id", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      await w.store.deleteOperatorNote(w.tenantId, req.params.id);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[dashboard] notes delete error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/systems", (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

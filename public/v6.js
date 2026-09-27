@@ -24,8 +24,8 @@ import {
   dispatchRoutes, dispatchAssignments, minerPreferences, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, priceWaypointsByGood, pricePoints, contracts,
   missions, feeds, feedChains, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
-  approvals, manipulationRoutes, marketDynamics, marketDynamicsBySystemType,
-  loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods,
+  approvals, manipulationRoutes, marketDynamics, marketDynamicsBySystemType, notes,
+  loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods, loadNotes,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
   loadApprovals, loadManipulationRoutes, loadMarketDynamics,
 } from "/shared/store.js";
@@ -402,7 +402,7 @@ function loadViewData(name) {
   if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
   // Same staleness gap this comment's "fleet" branch fixes: the Automation
   // panel's trader rows read dispatchAssignments too, via describeAutomation().
-  if (name === "ops") { loadProgramme(); loadManipulationRoutes(); loadDispatch(); }
+  if (name === "ops") { loadProgramme(); loadManipulationRoutes(); loadDispatch(); loadNotes(); }
   if (name === "galaxy") { loadGalaxy(); loadMarketDynamics(); }
 }
 
@@ -6888,6 +6888,52 @@ function renderManipulationRoutes() {
     if (manipulationRoutes.length) wireManipulationRoutesEvents(el);
   }
 }
+
+/* ── Notes (Ops) ──────────────────────────────
+ * Operator's own persisted scratchpad — a log line or a note to self.
+ * Deliberately dumb: append/list/delete, nothing the engine reads or acts
+ * on, unlike everything else on this tab.
+ */
+function renderNotes() {
+  const el = $("notes");
+  if (!el) return;
+  el.innerHTML = notes.length
+    ? notes.map((n) => `<div class="ops-card">
+        <div class="ops-head">
+          <span class="ops-sub">${escapeHtml(fmtTime(n.createdAt))}</span>
+          <span class="fill"></span>
+          <button class="btn ghost" data-act="delete-note" data-id="${escapeAttr(n.id)}">Delete</button>
+        </div>
+        <div style="margin-top:4px; white-space:pre-wrap">${escapeHtml(n.body)}</div>
+      </div>`).join("")
+    : '<div class="empty">No notes yet.</div>';
+}
+
+async function addNote() {
+  const input = $("note-input");
+  const body = input.value.trim();
+  if (!body) return;
+  const btn = $("note-add");
+  btn.disabled = true;
+  try {
+    await api("POST", "/api/notes", { body });
+    input.value = "";
+    await loadNotes();
+  } catch (err) { showToastGlobal(err.message, true); }
+  finally { btn.disabled = false; }
+}
+$("note-add").addEventListener("click", addNote);
+$("note-input").addEventListener("keydown", (e) => { if (e.key === "Enter") addNote(); });
+$("notes").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act='delete-note']");
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await api("DELETE", `/api/notes/${b.dataset.id}`);
+    await loadNotes();
+  } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+});
+subscribe("notes", renderNotes);
 
 /** Fetches and renders one route's price-history + input-sell-log —
  *  fetch-on-click, not polled, since this is a diagnostic the operator

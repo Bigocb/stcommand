@@ -180,6 +180,26 @@ function toOperatorActionRow(r: OperatorActionDbRow): OperatorActionRow {
   return { id: r.id, kind: r.kind, shipSymbol: r.ship_symbol, detail: r.detail, meta: r.meta, createdAt: r.created_at.toISOString() };
 }
 
+/** The operator's own persisted scratchpad entry — a log line or a note to
+ *  self, nothing the engine reads or acts on (see migrations/032_
+ *  operator_notes.sql's own comment on why it's excluded from
+ *  Store.TENANT_GAME_TABLES). */
+export interface OperatorNoteRow {
+  id: string;
+  body: string;
+  createdAt: string;
+}
+
+interface OperatorNoteDbRow {
+  id: string;
+  body: string;
+  created_at: Date;
+}
+
+function toOperatorNoteRow(r: OperatorNoteDbRow): OperatorNoteRow {
+  return { id: r.id, body: r.body, createdAt: r.created_at.toISOString() };
+}
+
 export interface PendingApprovalRow {
   id: string;
   kind: string;
@@ -2611,6 +2631,32 @@ export class Store {
       );
       return res.rows.map(toOperatorActionRow);
     });
+  }
+
+  /** Add one entry to the operator's own persisted log/notes-to-self. */
+  async addOperatorNote(tenantId: string, body: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(`INSERT INTO operator_notes (tenant_id, body) VALUES ($1, $2)`, [tenantId, body]),
+    );
+  }
+
+  /** Most recent notes for this tenant, newest first. */
+  async listOperatorNotes(tenantId: string, limit = 200): Promise<OperatorNoteRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<OperatorNoteDbRow>(
+        `SELECT * FROM operator_notes WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [tenantId, limit],
+      );
+      return res.rows.map(toOperatorNoteRow);
+    });
+  }
+
+  /** Delete one note — scoped by tenant AND id, same convention as
+   *  decideApproval()'s own scoping comment. */
+  async deleteOperatorNote(tenantId: string, id: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(`DELETE FROM operator_notes WHERE tenant_id = $1 AND id = $2`, [tenantId, id]),
+    );
   }
 
   /** Snapshot one ship's position — periodic sample the replay scrubber plays back. */
