@@ -11,6 +11,50 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Deck feature-parity pass: closed the gap from a week of v6-only
+  features — Feeder tiers/chains, Automation panel, Notes, Fleet ETA
+  column, per-ship miner preference, the "Matched" P&L tile, and a
+  per-good price chart.** Deck (`/deck`) had fallen behind v6 across
+  everything shipped since Feeder tiers first landed: the whole feed-
+  management system was entirely absent, along with the Automation panel
+  (per-ship live decision feed), the just-added operator Notes log, the
+  Fleet table's ETA column, the per-ship miner-preference control, the
+  realized-P&L "Matched" KPI tile, and v6's per-good price chart with
+  marketplace/timeframe pickers and the keeper-priority badge. All ported
+  this pass, reorganized rather than just squeezed into the existing
+  layout:
+  - New **Feeds** nav item (own screen, not folded into Ops) — Feeder
+    chains (build/toggle a connected tier chain) and Feeder tiers (crew
+    management: assign/remove carriers, set crew size, sell gap, force,
+    on/off) side by side, ported from v6.js's `renderChains()`/
+    `renderFeeds()`/`onFeedClick()` verbatim.
+  - Ops screen gained an Automation panel (every ship's current wants/
+    doing, from `fleetStatusSummary()`) and a Notes panel (the operator's
+    own persisted scratchpad, same `/api/notes` endpoint Tower and v6
+    just got) alongside the existing Contracts/Missions/Manipulation
+    Routes.
+  - Markets' Routes and Yards panels became a segmented Routes/Yards/
+    Prices control (matching Tower's own Markets tab shape) — Prices adds
+    the good/marketplace pickers, timeframe buttons, an SVG price line
+    (buy dashed green, sell solid amber), and the per-market list with
+    the tap-to-toggle keeper-priority badge. The Dispatch panel also
+    gained the miner-preference mini-form (bias a miner's surveys toward
+    a specific good) it was missing.
+  - Fleet's ship table gained an ETA column (`nav.route.arrival`,
+    teal/live only while actually IN_TRANSIT) and its `jobFor()` was
+    upgraded to the same feed/chain/mission-claim-aware version v6 has
+    (was trader-only before — a real, separate gap this pass also
+    closed, since the new Automation panel depends on it for a
+    non-trader ship's job to read correctly).
+  - Overview's KPI row gained a 6th tile, "Matched": realized P&L from
+    completed round trips only (from `bridge.matchedNet`/
+    `matchedTrades`), reading "—" rather than 0 when nothing's closed in
+    the window rather than looking like a zero-profit fleet.
+  - No backend changes — every one of these reads state the shared
+    `store.js` already fetches (or, for Matched/ETA, fields the API
+    responses already carried); this was purely catching Deck's own
+    HTML/CSS/JS up to what v6 and Tower already have.
+
 - **Fix: a "mine" feed's crew was never told which good to actually mine —
   extraction defaulted to "whatever refines to a metal," with no bias
   toward the feed's own target.** `ShipAgent.surveyPredicate()` only

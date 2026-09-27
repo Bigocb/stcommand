@@ -35,6 +35,7 @@
       <button class="item" data-view="markets"><div class="ic">₡</div>Markets</button>
       <button class="item" data-view="map"><div class="ic">✦</div>Map</button>
       <button class="item" data-view="ops"><div class="ic">☰</div>Ops</button>
+      <button class="item" data-view="feeds"><div class="ic">⇄</div>Feeds</button>
       <button class="item" data-view="doctrine"><div class="ic">§</div>Doctrine</button>
     </div>
     <div class="main">
@@ -90,6 +91,7 @@
                     <th>Fuel %</th>
                     <th>Cargo</th>
                     <th>Loc</th>
+                    <th>ETA</th>
                   </tr>
                   <tbody id="fleet-table-rows"></tbody>
                 </table>
@@ -107,15 +109,36 @@
         <!-- Markets screen (pass 3) -->
         <div class="content" id="view-markets" hidden>
           <div class="mgrid">
-            <!-- Routes panel -->
-            <div class="panel">
-              <div class="panel-h"><span class="dot"></span><span class="title">Routes</span><span class="count">top 5</span></div>
+            <!-- Routes / Yards / Prices panel — segmented like Tower's own
+                 Markets tab, since all three are "what's the market doing"
+                 reads rather than write tools (Warehouse/Dispatch/Keeper
+                 below stay as separate always-visible panels). -->
+            <div class="panel" style="grid-column:1 / -1">
+              <div class="panel-h">
+                <span class="dot"></span>
+                <div class="seg" id="mk-mkt-seg">
+                  <button class="on" data-seg="routes">Routes</button>
+                  <button data-seg="yards">Yards</button>
+                  <button data-seg="prices">Prices</button>
+                </div>
+                <span class="count" id="mk-mkt-seg-count">top 5</span>
+              </div>
               <div class="panel-b" id="mk-routes"></div>
-            </div>
-            <!-- Yards & outfitting panel -->
-            <div class="panel">
-              <div class="panel-h"><span class="dot"></span><span class="title">Yards & Outfitting</span><span class="count">top 5</span></div>
-              <div class="panel-b" id="mk-yards"></div>
+              <div class="panel-b" id="mk-yards" hidden></div>
+              <div class="panel-b" id="mk-prices" hidden>
+                <div class="mk-toolbar">
+                  <select class="field-select" id="mk-price-good-sel" aria-label="Good"></select>
+                  <select class="field-select" id="mk-price-wp-sel" aria-label="Marketplace"><option value="">All markets</option></select>
+                  <div class="seg" id="mk-price-timeframe-seg">
+                    <button data-span="3600000">1h</button>
+                    <button data-span="21600000">6h</button>
+                    <button class="on" data-span="86400000">24h</button>
+                  </div>
+                </div>
+                <div class="chart" id="mk-price-chart-room" style="height:180px;margin:10px 0"></div>
+                <div class="ops-sub" style="padding:0 0 4px">Selling here</div>
+                <div id="mk-price-market-list"></div>
+              </div>
             </div>
             <!-- Warehouse panel -->
             <div class="panel">
@@ -154,6 +177,14 @@
                 <button class="btn" id="mk-dispatch-auto">Auto</button>
               </div>
               <div class="panel-b" id="mk-dispatch"></div>
+              <div class="panel-h" style="border-top:1px solid var(--hair)"><span class="dot"></span><span class="title">Miner preference</span><span class="count">bias a miner's surveys toward this good</span></div>
+              <div class="mk-toolbar">
+                <select class="field-select" id="mk-miner-pref-ship" aria-label="Miner ship"></select>
+                <input class="field-input" id="mk-miner-pref-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+                <button class="btn pri" id="mk-miner-pref-save">Save</button>
+                <button class="btn" id="mk-miner-pref-clear">Clear</button>
+              </div>
+              <div class="panel-b" id="mk-miner-pref-list"></div>
             </div>
             <!-- Keeper stations panel -->
             <div class="panel" id="mk-keeper-panel">
@@ -211,9 +242,68 @@
               <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-missions"></div>
             </div>
           </div>
+          <div class="cols2" style="flex:0 0 auto;height:220px;margin-top:14px">
+            <div class="panel" style="min-height:0;display:flex;flex-direction:column">
+              <div class="panel-h"><span class="dot"></span><span class="title">Automation</span><span class="count" id="automation-count">—</span></div>
+              <div class="panel-b" style="overflow:auto;flex:1" id="automation-feed"></div>
+            </div>
+            <div class="panel" style="min-height:0;display:flex;flex-direction:column">
+              <div class="panel-h"><span class="dot"></span><span class="title">Notes</span><span class="count">operator's own log/scratchpad, not read by the engine</span></div>
+              <div class="panel-b" style="overflow:auto;flex:1;display:flex;flex-direction:column">
+                <div class="mk-toolbar" style="padding:0 0 8px;border-bottom:none">
+                  <input class="field-input" type="text" id="note-input" placeholder="log a note to self…" aria-label="New note" style="flex:1" />
+                  <button class="btn pri" id="note-add">Add</button>
+                </div>
+                <div id="notes" style="overflow:auto;flex:1"></div>
+              </div>
+            </div>
+          </div>
           <div class="panel" style="flex:1;min-height:0;display:flex;flex-direction:column;margin-top:14px">
             <div class="panel-h"><span class="dot"></span><span class="title">Manipulation Routes</span><span class="count" style="margin-left:auto;color:var(--dim2);font-size:10px">suggested, not confirmed — see asteroid trait hints</span></div>
             <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-manipulation-routes"></div>
+          </div>
+        </div>
+        <!-- Feeds screen — feeder tiers + chains, counter-pressure crews
+             against a buyer driving an upstream market's price up. Own grid
+             (not .cols2, which is a fixed-height row) so a feed/chain list
+             can grow past a couple of entries without clipping — same
+             overflow:auto-on-the-grid-itself pattern .mgrid (Markets) already
+             uses, not per-panel internal scroll (v6's own .view-ops needed
+             grid-auto-rows for exactly this; matching .mgrid's shape here
+             sidesteps that class of bug instead of re-fixing it). -->
+        <div class="content" id="view-feeds" hidden>
+          <div class="mgrid" style="grid-template-columns:1fr 1fr">
+            <div class="panel">
+              <div class="panel-h"><span class="dot"></span><span class="title">Feeder chains</span><span class="count">connected tiers — each buys where the last one sold</span></div>
+              <div class="panel-b">
+                <div class="mk-toolbar">
+                  <input class="field-input" type="text" id="chain-name" placeholder="chain name, e.g. ADVANCED_CIRCUITRY" aria-label="Chain name" style="flex:1" />
+                </div>
+                <div id="chain-tier-rows"></div>
+                <div class="mk-toolbar">
+                  <button class="btn ghost" id="chain-add-tier" type="button">+ Add tier</button>
+                  <button class="btn pri" id="chain-start" type="button">Start chain</button>
+                </div>
+                <div id="chains"></div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-h"><span class="dot"></span><span class="title">Feeder tiers</span><span class="count">keep an upstream market's price down</span></div>
+              <div class="panel-b">
+                <div class="mk-toolbar">
+                  <input class="field-input" type="text" id="feed-waypoint" placeholder="market to feed, e.g. X1-SN30-D40" aria-label="Market to feed" style="flex:1" />
+                  <input class="field-input" type="text" id="feed-good" placeholder="good, e.g. ELECTRONICS" aria-label="Good to feed" style="max-width:150px;text-transform:uppercase" />
+                  <input class="field-input" type="number" id="feed-crew" min="1" value="1" aria-label="Initial crew size" style="max-width:60px" />
+                </div>
+                <div class="mk-toolbar">
+                  <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--dim);white-space:nowrap"><input type="checkbox" id="feed-mine" /> mine instead of buy</label>
+                  <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--dim);white-space:nowrap" title="Buy every cycle regardless of margin against the destination's sell price"><input type="checkbox" id="feed-force" /> force (ignore margin)</label>
+                  <input class="field-input" type="number" id="feed-sell-gap" min="0" placeholder="gap min" title="Minimum minutes between sells into this market, shared across the crew (blank = default)" aria-label="Sell gap minutes" style="max-width:70px" />
+                  <button class="btn pri" id="feed-start">Start feed</button>
+                </div>
+                <div id="feeds"></div>
+              </div>
+            </div>
           </div>
         </div>
         <!-- Doctrine screen (pass 6) -->

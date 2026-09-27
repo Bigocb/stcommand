@@ -10,13 +10,14 @@ import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, activity,
   marketRoutes, intel, warehouseState,
   systems, marketSnapshots, leaderboard, factions, systemAgents, systemAgentsHistory,
-  contracts, missions, manipulationRoutes,
+  contracts, missions, manipulationRoutes, feeds, feedChains, minerPreferences, notes,
+  priceGoods, priceWaypointsByGood, pricePoints,
   doctrineRules, doctrineFires, doctrineFireShips,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
-  loadMarkets, loadGoods, loadWarehouse, loadGalaxy, loadProgramme, loadManipulationRoutes,
-  loadDoctrine, loadDoctrineFireShips, loadKeepers,
+  loadMarkets, loadGoods, loadPrices, loadWarehouse, loadGalaxy, loadProgramme, loadManipulationRoutes,
+  loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
@@ -71,7 +72,13 @@ function setView(name) {
   if (name === "ops") {
     loadProgramme();
     loadManipulationRoutes();
+    loadNotes();
     renderOps();
+  }
+  if (name === "feeds") {
+    loadProgramme();
+    renderFeeds();
+    renderChains();
   }
   if (name === "doctrine") {
     loadDoctrine();
@@ -188,6 +195,21 @@ function renderKPIs() {
       sub: bestRoute ? bestRoute.good : "none",
       cls: "amber",
     },
+    // Realized P&L from completed buy/sell round trips only, over the same
+    // window the topbar's smoothed Rate averages — excludes cargo still in
+    // transit, fuel, and repairs. Reads "—" rather than 0 when nothing has
+    // closed yet in the window, so an idle fleet doesn't look like a
+    // zero-profit one. Ported from v6.js's own "Matched" tile.
+    (() => {
+      const trades = bridge.matchedTrades ?? 0;
+      const net = bridge.matchedNet ?? 0;
+      return {
+        k: "Matched",
+        v: trades ? signed(net) : "—",
+        sub: trades ? `${trades} trade${trades === 1 ? "" : "s"} · ${bridge.matchedWindowHours ?? 3}h window` : "no completed trades yet",
+        cls: trades ? (net > 0 ? "good" : net < 0 ? "bad" : null) : null,
+      };
+    })(),
   ];
 
   $("ov-kpis").innerHTML = kpis.map((kpi) => `
@@ -355,17 +377,134 @@ function renderActivity() {
 /* ── Fleet screen (pass 2) ──────────────────
  * System-scope chip row, ship table, and detail panel.
  */
-function jobFor(shipSymbol, role) {
-  if (role !== "trader") return "—";
-  const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
-  if (!a) return "unassigned";
-  if (a.role === "direct") return `route: ${a.good}`;
-  if (a.role === "contractBuy") return `contract: ${a.good}`;
-  if (a.role === "haul") return `mission: ${a.good}`;
-  if (a.role === "buy") return a.missionBuy ? `mission: ${a.good}` : `warehouse buy: ${a.good}`;
-  if (a.role === "sell") return `warehouse sell: ${a.good}`;
-  return a.good;
+/** Priority: feed/chain claim, then mission claim (both apply to any role —
+ *  a feed's crew is very often a miner, not a trader), then the trader-only
+ *  dispatch assignment, then — lowest priority, informational only — cargo
+ *  the ship happens to be holding that an active contract still wants.
+ *  Ported from v6.js's own jobFor(), which takes the full ship object
+ *  rather than just its symbol, so cargo/contract matching works too. */
+function jobFor(ship, role) {
+  const shipSymbol = ship.symbol;
+  const feed = (feeds ?? []).find((f) => f.assignedShips?.includes(shipSymbol));
+  if (feed) {
+    const label = feed.chainName ? `chain: ${escapeHtml(feed.chainName)}` : `feed: ${escapeHtml(feed.good)}`;
+    return `${label} → ${escapeHtml(feed.targetWaypoint)}`;
+  }
+  const mission = (missions ?? []).find((m) => m.assignedShips?.includes(shipSymbol));
+  if (mission) {
+    const outstanding = (mission.materials ?? []).find((mm) => mm.fulfilled < mm.required);
+    return `mission: ${escapeHtml(outstanding?.tradeSymbol ?? "supplying")} @ ${escapeHtml(mission.targetWaypoint)}`;
+  }
+  if (role === "trader") {
+    const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
+    if (a) {
+      const good = escapeHtml(a.good);
+      if (a.role === "direct") return `route: ${good}`;
+      if (a.role === "contractBuy") return `contract: ${good}`;
+      if (a.role === "haul") return `mission: ${good}`;
+      if (a.role === "buy") return a.missionBuy ? `mission: ${good}` : `warehouse buy: ${good}`;
+      if (a.role === "sell") return `warehouse sell: ${good}`;
+      return good;
+    }
+  }
+  const held = new Set((ship.cargo?.inventory ?? []).map((i) => i.symbol));
+  const wanted = (contracts ?? []).find((c) => c.accepted && !c.fulfilled && !c.abandoned && c.deliver.some((d) => held.has(d.tradeSymbol) && d.unitsFulfilled < d.unitsRequired));
+  if (wanted) {
+    const d = wanted.deliver.find((x) => held.has(x.tradeSymbol));
+    return `contract: ${escapeHtml(d.tradeSymbol)} → ${escapeHtml(d.destinationSymbol)}`;
+  }
+  return role === "trader" ? "unassigned" : "—";
 }
+
+/** The honest, role-appropriate fallback for a ship with no live intent —
+ *  "autonomous" alone reads as if automation stalled fleet-wide. Ported
+ *  from v6.js's own describeAutomation(). */
+function describeAutomation(r) {
+  const status = (fleetStatus.ships ?? []).find((s) => s.symbol === r.symbol);
+  const ship = (state?.ships ?? []).find((s) => s.symbol === r.symbol) ?? { symbol: r.symbol };
+  const claim = jobFor(ship, r.role);
+  if (r.role === "trader") {
+    return claim === "unassigned" ? "unassigned — no viable route right now" : claim;
+  }
+  if (claim !== "—") return claim;
+  if ((r.role === "miner" || r.role === "surveyor") && status?.pinnedField) return `pinned to mine at ${shortWp(status.pinnedField)}`;
+  if (r.role === "miner") return "autonomous — picks its own field each cycle";
+  if (r.role === "surveyor") return "autonomous — surveying for the fleet's miners";
+  if (r.role === "tour" && status?.tourDestination) return `touring toward ${shortWp(status.tourDestination)}`;
+  if (r.role === "tour") return "autonomous — touring known markets";
+  if (r.role === "keeper") return "stationed, keeping its market fresh";
+  if (r.role === "siphoner") return "autonomous — siphoning its assigned target";
+  if (r.role === "scout") return "autonomous — scouting connected systems";
+  if (r.role === "warehouse") return "designated warehouse ship";
+  if (r.role === "idle") return "idle — no role assigned";
+  return "autonomous";
+}
+
+/** Every ship's current automated decision, from fleetStatusSummary()'s own
+ *  wants/wantsReason/wantsSource. Ported from v6.js's renderAutomationFeed(). */
+function renderAutomationFeed() {
+  const el = $("automation-feed");
+  const countEl = $("automation-count");
+  if (!el) return;
+  const rows = [...(fleetStatus.summary ?? [])].sort((a, b) => a.symbol.localeCompare(b.symbol));
+  if (countEl) countEl.textContent = `${rows.length} ships`;
+  if (!rows.length) { el.innerHTML = '<div class="empty">No ships in the register.</div>'; return; }
+  el.innerHTML = rows.map((r) => {
+    const cls = r.doing === "stranded" ? "warn" : r.wantsSource === "operator" ? "hold" : "";
+    const wants = r.wants
+      ? `<b>${escapeHtml(r.wants)}</b>${r.wantsSource ? ` <span class="src">${escapeHtml(r.wantsSource)}</span>` : ""}`
+      : `<span class="ops-sub">${describeAutomation(r)}</span>`;
+    return `<div class="automation-row ${cls}">
+      <span class="ship"><b>${escapeHtml(shortWp(r.symbol))}</b><span class="role">${escapeHtml(r.role)}</span></span>
+      <span class="doing">${escapeHtml(r.doing)}</span>
+      <span class="wants">${wants}${r.wantsReason ? ` <span class="why">— ${escapeHtml(r.wantsReason)}</span>` : ""}</span>
+    </div>`;
+  }).join("");
+}
+
+/* ── Notes (Ops) ──────────────────────────────
+ * Operator's own persisted scratchpad — a log line or a note to self.
+ * Ported from v6.js's own Notes pane (append/list/delete only, nothing
+ * the engine reads or acts on).
+ */
+function renderNotes() {
+  const el = $("notes");
+  if (!el) return;
+  el.innerHTML = (notes ?? []).length
+    ? notes.map((n) => `<div class="ops-card">
+        <div class="ops-head">
+          <span class="ops-sub">${escapeHtml(fmtTime(n.createdAt))}</span>
+          <span class="fill"></span>
+          <button class="btn ghost" data-act="delete-note" data-id="${escapeAttr(n.id)}">Delete</button>
+        </div>
+        <div style="margin-top:4px; white-space:pre-wrap">${escapeHtml(n.body)}</div>
+      </div>`).join("")
+    : '<div class="empty">No notes yet.</div>';
+}
+async function addNote() {
+  const input = $("note-input");
+  const body = input.value.trim();
+  if (!body) return;
+  const btn = $("note-add");
+  btn.disabled = true;
+  try {
+    await api("POST", "/api/notes", { body });
+    input.value = "";
+    await loadNotes();
+  } catch (err) { alert(err.message); }
+  finally { btn.disabled = false; }
+}
+$("note-add").addEventListener("click", addNote);
+$("note-input").addEventListener("keydown", (e) => { if (e.key === "Enter") addNote(); });
+$("notes").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act='delete-note']");
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await api("DELETE", `/api/notes/${b.dataset.id}`);
+    await loadNotes();
+  } catch (err) { alert(err.message); b.disabled = false; }
+});
 
 function fleetRows() {
   const ships = state?.ships ?? [];
@@ -375,12 +514,16 @@ function fleetRows() {
     return {
       symbol: s.symbol,
       role: st?.role ?? "—",
-      job: jobFor(s.symbol, st?.role),
+      job: jobFor(s, st?.role),
       stranded: strandedBy.has(s.symbol),
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
       goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
       at: s.nav?.waypointSymbol ?? "",
+      // route.arrival is the game's own committed ETA — only meaningful
+      // while actually IN_TRANSIT, since the API leaves it holding the last
+      // flight's arrival time once a ship has landed. Ported from v6.js.
+      eta: s.nav?.status === "IN_TRANSIT" ? s.nav?.route?.arrival : undefined,
       frame: s.frame?.symbol ?? "",
       cargoInventory: s.cargo?.inventory ?? [],
     };
@@ -389,6 +532,19 @@ function fleetRows() {
 
 let selectedFleetShip = null;
 let selectedFleetSystem = "All systems";
+
+/** Time remaining until a ship's `nav.route.arrival`, as "Xh Ym" / "Ym" /
+ *  "<1m". Already arrived or no active transit both read as "—" rather
+ *  than a negative duration. Ported from v6.js's own fmtEta(). */
+function fmtEta(iso) {
+  if (!iso) return "—";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return "<1m";
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 function renderFleet() {
   const rows = fleetRows();
@@ -447,6 +603,7 @@ function renderFleet() {
         <td class="mono">${fuelPct}%</td>
         <td class="mono">${row.cargo}/${row.cargoCap}</td>
         <td class="mono">${escapeHtml(row.at)}</td>
+        <td class="mono eta${fmtEta(row.eta) !== "—" ? " live" : ""}">${escapeHtml(fmtEta(row.eta))}</td>
       </tr>
     `;
   }).join("");
@@ -893,6 +1050,7 @@ function renderMarkets() {
   const traders = (fleetStatus.ships ?? []).filter((s) => s.role === "trader");
   setSelectOptions($("mk-dispatch-ship"), traders.map((s) => s.symbol));
   setSelectOptions($("mk-dispatch-good"), [...new Set(dispatchRoutes.map((r) => r.good))]);
+  renderMinerPreferences();
   const whCandidates = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 20);
   setSelectOptions($("mk-warehouse-ship"), whCandidates.map((s) => s.symbol));
   // Adjust good list: whatever's already held, plus anything currently
@@ -904,7 +1062,153 @@ function renderMarkets() {
   // Keeper panel (optional Pass B) — static textarea, so re-rendering must
   // not clobber what the operator is midway through typing.
   renderKeepers();
+  renderMktPricePickers();
+  renderMktPriceChart();
+  renderMktPriceMarketList();
 }
+
+/* ── Markets: Routes/Yards/Prices segment ────
+ * Ported from Tower's own Prices tab (m.js) — good/marketplace pickers,
+ * timeframe buttons, a compact SVG price line, and the per-market list with
+ * the keeper-priority badge.
+ */
+let mktSeg = "routes";
+let priceGood = "";
+let priceWaypoint = "";
+let priceTimeframeMs = 86_400_000;
+
+$("mk-mkt-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-seg]");
+  if (!b) return;
+  mktSeg = b.dataset.seg;
+  $("mk-mkt-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  $("mk-routes").hidden = mktSeg !== "routes";
+  $("mk-yards").hidden = mktSeg !== "yards";
+  $("mk-prices").hidden = mktSeg !== "prices";
+  $("mk-mkt-seg-count").textContent = mktSeg === "prices" ? "" : "top 5";
+});
+
+/** Covered/pending/unflagged indicator for one market waypoint — ported
+ *  from Tower's own keeperBadge() (m.js), same three states and the same
+ *  tap-to-toggle /api/keeper/markets call. */
+function keeperBadge(wp) {
+  const covered = keeperStationsCfg.some((s) => s.market === wp);
+  const pending = !covered && keeperMarketsCfg.includes(wp);
+  if (covered) return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
+  if (pending) return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — click to remove">◐ pending</span>`;
+  return `<span class="keeper-badge none" data-wp="${escapeAttr(wp)}" role="button" title="Not on the keeper priority list — click to add">+ keeper</span>`;
+}
+async function toggleKeeperPriority(wp) {
+  const next = keeperMarketsCfg.includes(wp) ? keeperMarketsCfg.filter((m) => m !== wp) : [...keeperMarketsCfg, wp];
+  try {
+    await api("POST", "/api/keeper/markets", { markets: next });
+    await loadKeepers();
+  } catch (err) { alert(err.message); }
+}
+
+function renderMktPriceMarketList() {
+  const el = $("mk-price-market-list");
+  if (!el) return;
+  const waypoints = priceWaypointsByGood[priceGood] ?? [];
+  if (!waypoints.length) { el.innerHTML = '<div class="empty">No snapshots for this good yet.</div>'; return; }
+  const byWp = new Map(marketSnapshots.filter((s) => s.goodSymbol === priceGood).map((s) => [s.waypointSymbol, s]));
+  el.innerHTML = waypoints.map((wp) => {
+    const snap = byWp.get(wp);
+    return `<div class="goodrow"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${
+      snap ? `buy ${fmt(snap.purchasePrice)} · sell ${fmt(snap.sellPrice)}` : "no recent snapshot"
+    }</span></div>`;
+  }).join("");
+}
+$("mk-price-market-list").addEventListener("click", (e) => {
+  const b = e.target.closest(".keeper-badge[data-wp]");
+  if (b) toggleKeeperPriority(b.dataset.wp);
+});
+
+/** Compact SVG price line — amber sell, dashed green buy. Ported from
+ *  Tower's own renderPriceChart() (m.js). */
+function renderMktPriceChart() {
+  const el = $("mk-price-chart-room");
+  if (!el) return;
+  if (!pricePoints.length) { el.innerHTML = '<div class="empty">No price history for this good yet.</div>'; return; }
+  const W = Math.max(120, el.clientWidth || 320), H = Math.max(80, el.clientHeight || 160), P = 12;
+  const sellVals = pricePoints.map((p) => Number(p.avg));
+  const buyVals = pricePoints.map((p) => (p.buyAvg == null ? NaN : Number(p.buyAvg)));
+  const hasBuy = buyVals.some((v) => Number.isFinite(v));
+  const allVals = hasBuy ? [...sellVals, ...buyVals.filter(Number.isFinite)] : sellVals;
+  let min = Math.min(...allVals), max = Math.max(...allVals);
+  if (min === max) { min -= 1; max += 1; }
+  const span = max - min;
+  const x = (i) => P + (i / (pricePoints.length - 1 || 1)) * (W - P * 2);
+  const y = (v) => H - P - ((v - min) / span) * (H - P * 2);
+  const toLine = (vals) => vals.map((v, i) => (Number.isFinite(v) ? `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}` : "")).join(" ");
+  const sellLine = toLine(sellVals);
+  const buyLine = hasBuy ? toLine(buyVals) : "";
+  const lastIdx = pricePoints.length - 1;
+  const lastBuy = buyVals[lastIdx];
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    ${[0.25, 0.5, 0.75].map((f) => `<line x1="${P}" x2="${W - P}" y1="${y(min + span * f)}" y2="${y(min + span * f)}" stroke="var(--hair)" stroke-width="1"/>`).join("")}
+    <path d="${sellLine}" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="${x(lastIdx)}" cy="${y(sellVals[lastIdx])}" r="2.5" fill="var(--amber)"/>
+    ${hasBuy ? `<path d="${buyLine}" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="3,2"/>` : ""}
+    ${hasBuy && Number.isFinite(lastBuy) ? `<circle cx="${x(lastIdx)}" cy="${y(lastBuy)}" r="2.5" fill="var(--green)"/>` : ""}
+    <text x="${P}" y="${y(max)}" font-size="8" fill="var(--dim)">${Math.round(max)}</text>
+    <text x="${P}" y="${y(min)}" font-size="8" fill="var(--dim)">${Math.round(min)}</text>
+    ${hasBuy ? `<g transform="translate(${W - P - 66},${P - 4})" font-size="8">
+      <line x1="0" y1="0" x2="9" y2="0" stroke="var(--amber)" stroke-width="1.5"/><text x="12" y="3" fill="var(--dim)">sell</text>
+      <line x1="34" y1="0" x2="43" y2="0" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="3,2"/><text x="46" y="3" fill="var(--dim)">buy</text>
+    </g>` : ""}
+  </svg>`;
+}
+
+/** Rebuilds the good/marketplace <select> lists. Returns true when
+ *  `priceGood` itself changed (priceGoods just arrived) so the caller
+ *  knows to fetch. Ported from Tower's own renderPricePickers() (m.js). */
+function renderMktPricePickers() {
+  let goodChanged = false;
+  const goodSel = $("mk-price-good-sel");
+  if (goodSel && document.activeElement !== goodSel) {
+    if (!priceGoods.includes(priceGood)) {
+      const next = priceGoods[0] ?? "";
+      goodChanged = next !== priceGood;
+      priceGood = next;
+    }
+    goodSel.innerHTML = priceGoods.map((g) => `<option value="${escapeAttr(g)}"${g === priceGood ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
+  }
+  const wpSel = $("mk-price-wp-sel");
+  if (wpSel && document.activeElement !== wpSel) {
+    const waypoints = priceWaypointsByGood[priceGood] ?? [];
+    if (priceWaypoint && !waypoints.includes(priceWaypoint)) priceWaypoint = "";
+    wpSel.innerHTML = `<option value="">All markets</option>` + waypoints.map((wp) => `<option value="${escapeAttr(wp)}"${wp === priceWaypoint ? " selected" : ""}>${escapeHtml(wp)}</option>`).join("");
+  }
+  return goodChanged;
+}
+
+function renderMktPrices() {
+  const goodChanged = renderMktPricePickers();
+  renderMktPriceChart();
+  renderMktPriceMarketList();
+  if (goodChanged && priceGood) loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+}
+
+$("mk-price-good-sel").addEventListener("change", (e) => {
+  priceGood = e.target.value;
+  priceWaypoint = "";
+  renderMktPricePickers();
+  renderMktPriceChart();
+  renderMktPriceMarketList();
+  if (priceGood) loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
+$("mk-price-wp-sel").addEventListener("change", (e) => {
+  priceWaypoint = e.target.value;
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
+$("mk-price-timeframe-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-span]");
+  if (!b) return;
+  priceTimeframeMs = Number(b.dataset.span);
+  $("mk-price-timeframe-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+});
 
 function renderKeepers() {
   const countEl = $("mk-keeper-count");
@@ -961,6 +1265,46 @@ $("mk-dispatch-auto").addEventListener("click", async () => {
   if (!ship) return;
   try {
     await api("POST", "/api/dispatch", { shipSymbol: ship, clear: true });
+    await loadDispatch();
+  } catch (err) { alert(err.message); }
+});
+
+/** Ported from v6.js's own miner-preference mini-form — a separate control
+ *  from the trader-only Dispatch panel above it, since a miner never gets a
+ *  dispatcher assignment at all. */
+function renderMinerPreferences() {
+  const miners = (bridge.shipStatus ?? []).filter((s) => s.role === "miner");
+  const sel = $("mk-miner-pref-ship");
+  if (sel) {
+    const current = sel.value;
+    sel.innerHTML = miners.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
+    if (miners.some((m) => m.symbol === current)) sel.value = current;
+  }
+  const list = $("mk-miner-pref-list");
+  if (!list) return;
+  list.innerHTML = !(minerPreferences ?? []).length
+    ? '<div class="empty">No miner preferences set — every miner surveys for whatever refines to a metal.</div>'
+    : minerPreferences.map((p) => `
+      <div class="goodrow">
+        <div class="name">${escapeHtml(p.shipSymbol)}</div>
+        <div class="route">${escapeHtml(p.good)}</div>
+      </div>`).join("");
+}
+$("mk-miner-pref-save").addEventListener("click", async () => {
+  const ship = $("mk-miner-pref-ship").value;
+  const good = $("mk-miner-pref-good").value.trim().toUpperCase();
+  if (!ship || !good) return;
+  try {
+    await api("POST", "/api/miner-preference", { shipSymbol: ship, good });
+    $("mk-miner-pref-good").value = "";
+    await loadDispatch();
+  } catch (err) { alert(err.message); }
+});
+$("mk-miner-pref-clear").addEventListener("click", async () => {
+  const ship = $("mk-miner-pref-ship").value;
+  if (!ship) return;
+  try {
+    await api("POST", "/api/miner-preference", { shipSymbol: ship, clear: true });
     await loadDispatch();
   } catch (err) { alert(err.message); }
 });
@@ -1131,6 +1475,9 @@ function renderOps() {
   })();
   const missionsEl = $("ops-missions");
   if (missionsEl) missionsEl.innerHTML = missionsHtml;
+
+  renderAutomationFeed();
+  renderNotes();
 }
 
 /* ── Manipulation routes (Ops) ──────────────
@@ -1269,6 +1616,240 @@ async function loadAndRenderManipulationHistory(btn) {
     target.innerHTML = '<div style="padding:8px 14px;color:var(--red);font-size:10.5px">Failed to load history.</div>';
   }
 }
+
+/* ── Feeder chains (Feeds) ────────────────────
+ * A chain is an ordered set of feeder tiers where each tier's buy market is
+ * pinned to the previous tier's own sell market, instead of each tier
+ * independently re-deriving "cheapest known market" — e.g. ore→H56→F50→D40.
+ * Under the hood a chain is just several Feeds sharing a chainId
+ * (FeedManager.startChain()), so a chain's own tiers also show up in the
+ * plain Feeder tiers panel with full crew controls — this panel is only for
+ * building/toggling the chain as a whole. Ported verbatim from v6.js.
+ */
+function chainTierRowHtml(n, isFirst) {
+  return `<div class="chain-tier-row">
+    <span class="tier-n">${n}</span>
+    <input type="text" class="tier-good" placeholder="good, e.g. IRON_ORE" />
+    <input type="text" class="tier-market" placeholder="sell into, e.g. X1-SN30-H56" />
+    <label style="display:flex;align-items:center;gap:4px;font-size:9px;color:var(--dim);white-space:nowrap"><input type="checkbox" class="tier-mine" /> mine</label>
+    <span class="tier-hint">${isFirst ? "" : "buys where the tier above sold"}</span>
+    <button class="btn ghost tier-remove" type="button">&times;</button>
+  </div>`;
+}
+function renumberChainTierRows() {
+  [...$("chain-tier-rows").children].forEach((row, i) => {
+    row.querySelector(".tier-n").textContent = i + 1;
+    row.querySelector(".tier-hint").textContent = i === 0 ? "" : "buys where the tier above sold";
+  });
+}
+function addChainTierRow() {
+  const container = $("chain-tier-rows");
+  container.insertAdjacentHTML("beforeend", chainTierRowHtml(container.children.length + 1, container.children.length === 0));
+}
+$("chain-add-tier").addEventListener("click", addChainTierRow);
+$("chain-tier-rows").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tier-remove");
+  if (!btn) return;
+  btn.closest(".chain-tier-row").remove();
+  renumberChainTierRows();
+});
+addChainTierRow();
+addChainTierRow();
+
+$("chain-start").addEventListener("click", async () => {
+  const name = $("chain-name").value.trim();
+  const rows = [...$("chain-tier-rows").children];
+  const tiers = rows.map((row) => ({
+    good: row.querySelector(".tier-good").value.trim().toUpperCase(),
+    sellAt: row.querySelector(".tier-market").value.trim(),
+    mine: row.querySelector(".tier-mine").checked,
+  }));
+  if (!name || tiers.length === 0 || tiers.some((t) => !t.good || !t.sellAt)) {
+    alert("Enter a chain name and fill in every tier");
+    return;
+  }
+  try {
+    await api("POST", "/api/feed-chains/start", { name, tiers });
+    $("chain-name").value = "";
+    $("chain-tier-rows").innerHTML = "";
+    addChainTierRow();
+    addChainTierRow();
+    loadProgramme();
+  } catch (err) { alert(err.message); }
+});
+
+function renderChains() {
+  const el = $("chains");
+  if (!el) return;
+  const items = feedChains ?? [];
+  if (!items.length) { el.innerHTML = ""; return; }
+  el.innerHTML = items.map((c) => {
+    const off = c.tiers.every((t) => t.paused);
+    const tierRows = c.tiers.map((t, i) => {
+      const crew = t.assignedShips ?? [];
+      const target = t.carrierTarget ?? 1;
+      return `<div class="ops-row">
+        <span class="ops-title">${i + 1}. ${escapeHtml(t.good)} → ${escapeHtml(t.targetWaypoint)}</span>
+        <span class="fill"></span>
+        <span class="ops-sub">${t.mine ? "mined" : t.buyAt ? `buy @ ${escapeHtml(shortWp(t.buyAt))}` : "buy (cheapest)"} · crew ${crew.length}/${target}</span>
+      </div>`;
+    }).join("");
+    return `<div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">${escapeHtml(c.name)}</span>
+        <span class="tag ${off ? "paused" : "done"}">${off ? "off" : "on"}</span>
+        <span class="fill"></span>
+        <span class="ops-sub">${c.tiers.length} tier${c.tiers.length === 1 ? "" : "s"}</span>
+      </div>
+      ${tierRows}
+      <div class="ops-head" style="margin-top:6px">
+        ${off
+          ? `<button class="btn pri" data-act="chain-on" data-chain="${escapeAttr(c.chainId)}">Turn on</button>`
+          : `<button class="btn" data-act="chain-off" data-chain="${escapeAttr(c.chainId)}">Turn off</button>`}
+        <button class="btn ghost" data-act="chain-remove" data-chain="${escapeAttr(c.chainId)}">Remove chain</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+$("chains").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, chain } = btn.dataset;
+  try {
+    if (act === "chain-on") {
+      await api("POST", "/api/feed-chains/resume", { chainId: chain });
+    } else if (act === "chain-off") {
+      await api("POST", "/api/feed-chains/pause", { chainId: chain });
+    } else if (act === "chain-remove") {
+      if (!confirm("Remove this whole chain? Every tier's crew is released; this isn't just a pause.")) return;
+      await api("POST", "/api/feed-chains/remove", { chainId: chain });
+    }
+    loadProgramme();
+  } catch (err) { alert(err.message); }
+});
+
+/* ── Feeder tiers (Feeds) ─────────────────────
+ * A feeder tier is a crew that continuously buys a good cheap and sells it
+ * into one specific upstream market — the counter-pressure to a buyer's own
+ * repeated purchasing driving that market's price up (FeedManager,
+ * src/engine/feed.ts). Ported verbatim from v6.js's renderFeeds()/
+ * feedStart()/onFeedClick().
+ */
+function renderFeeds() {
+  const el = $("feeds");
+  if (!el) return;
+  const items = feeds ?? [];
+  if (!items.length) {
+    el.innerHTML = '<div class="empty">No feeder tiers. Enter the market to feed and the good, then Start feed.</div>';
+    return;
+  }
+  const committedElsewhere = new Set([
+    ...(missions ?? []).flatMap((m) => m.assignedShips ?? []),
+    ...items.flatMap((f) => f.assignedShips ?? []),
+  ]);
+  const carrierCandidates = (fleetStatus.ships ?? []).filter((s) =>
+    (s.role === "miner" || s.role === "trader") && !committedElsewhere.has(s.symbol)
+  );
+  el.innerHTML = items.map((f) => {
+    const crew = f.assignedShips ?? [];
+    const target = f.carrierTarget ?? 1;
+    const options = carrierCandidates
+      .concat(crew.filter((s) => !carrierCandidates.some((c) => c.symbol === s)).map((s) => ({ symbol: s })))
+      .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
+      .join("");
+    const crewChips = crew.length
+      ? crew.map((s) => `<span class="tag">${escapeHtml(s)} <button class="chip-x" data-act="remove-carrier" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-ship="${escapeAttr(s)}" aria-label="Remove ${escapeHtml(s)}">&times;</button></span>`).join(" ")
+      : '<span class="ops-sub">no crew yet</span>';
+    return `<div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
+        <span class="tag">${f.mine ? "mine" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "buy"}</span>
+        ${f.chainName ? `<span class="tag">chain: ${escapeHtml(f.chainName)}</span>` : ""}
+        ${f.force ? `<span class="tag" title="Buying every cycle regardless of margin">forced</span>` : ""}
+        <span class="tag" title="Minimum gap between sells into this market, shared across the crew">gap ${f.sellGapMs ? `${Math.round(f.sellGapMs / 60_000)}m` : "default"}</span>
+        <span class="tag ${f.paused ? "paused" : "done"}">${f.paused ? "off" : "on"}</span>
+        <span class="fill"></span>
+        <span class="ops-sub">crew ${crew.length}/${target}</span>
+      </div>
+      <div class="ops-head" style="margin-top:6px">${crewChips}</div>
+      <div class="ops-head" style="margin-top:6px">
+        <select class="assign-carrier" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" aria-label="Carrier ship">
+          <option value="">add ship…</option>
+          ${options}
+        </select>
+        <button class="btn" data-act="assign" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Add</button>
+      </div>
+      <div class="ops-head" style="margin-top:6px">
+        <input type="number" class="carrier-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
+        <button class="btn" data-act="set-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Set crew size</button>
+        <input type="number" class="sell-gap-min" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" min="0" placeholder="min" value="${f.sellGapMs ? Math.round(f.sellGapMs / 60_000) : ""}" style="width:56px" title="Minimum minutes between sells into this market (blank = default)" aria-label="Sell gap minutes">
+        <button class="btn" data-act="set-sell-gap" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Set sell gap</button>
+        <span class="fill"></span>
+        ${f.paused
+          ? `<button class="btn pri" data-act="on" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn on</button>`
+          : `<button class="btn" data-act="off" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn off</button>`}
+        <button class="btn ghost" data-act="${f.force ? "unforce" : "force"}" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">${f.force ? "Unforce" : "Force"}</button>
+        <button class="btn ghost" data-act="remove" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function onFeedClick(e) {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, wp, good, ship } = btn.dataset;
+  try {
+    if (act === "assign") {
+      const select = btn.closest(".ops-head").querySelector(".assign-carrier");
+      const shipSymbol = select?.value;
+      if (!shipSymbol) { alert("Pick a ship first"); return; }
+      await api("POST", "/api/feeds/assign", { waypoint: wp, good, shipSymbol });
+    } else if (act === "remove-carrier") {
+      await api("POST", "/api/feeds/remove-carrier", { waypoint: wp, good, shipSymbol: ship });
+    } else if (act === "set-target") {
+      const input = btn.closest(".ops-head").querySelector(".carrier-target");
+      const count = Number(input?.value);
+      if (!Number.isFinite(count) || count < 0) { alert("Enter a valid crew size"); return; }
+      await api("POST", "/api/feeds/carrier-target", { waypoint: wp, good, count });
+    } else if (act === "on") {
+      await api("POST", "/api/feeds/resume", { waypoint: wp, good });
+    } else if (act === "off") {
+      await api("POST", "/api/feeds/pause", { waypoint: wp, good });
+    } else if (act === "remove") {
+      if (!confirm(`Remove the feed ${good} → ${wp}? Its crew is released; this isn't just a pause.`)) return;
+      await api("POST", "/api/feeds/remove", { waypoint: wp, good });
+    } else if (act === "force" || act === "unforce") {
+      await api("POST", "/api/feeds/force", { waypoint: wp, good, force: act === "force" });
+    } else if (act === "set-sell-gap") {
+      const input = btn.closest(".ops-head").querySelector(".sell-gap-min");
+      const sellGapMin = input?.value?.trim() ?? "";
+      await api("POST", "/api/feeds/sell-gap", { waypoint: wp, good, sellGapMin: sellGapMin === "" ? null : Number(sellGapMin) });
+    }
+    loadProgramme();
+  } catch (err) { alert(err.message); }
+}
+$("feeds").addEventListener("click", onFeedClick);
+
+async function feedStart() {
+  const waypoint = $("feed-waypoint").value.trim();
+  const good = $("feed-good").value.trim().toUpperCase();
+  const crew = Number($("feed-crew").value) || 1;
+  const mine = $("feed-mine").checked;
+  const force = $("feed-force").checked;
+  const sellGapMinRaw = $("feed-sell-gap").value.trim();
+  if (!waypoint || !good) { alert("Enter both a market waypoint and a good"); return; }
+  try {
+    await api("POST", "/api/feeds/start", {
+      waypoint, good, carrierTarget: crew, mine, force,
+      sellGapMin: sellGapMinRaw === "" ? undefined : Number(sellGapMinRaw),
+    });
+    $("feed-waypoint").value = ""; $("feed-good").value = ""; $("feed-crew").value = "1";
+    $("feed-mine").checked = false; $("feed-force").checked = false; $("feed-sell-gap").value = "";
+    loadProgramme();
+  } catch (err) { alert(err.message); }
+}
+$("feed-start").addEventListener("click", feedStart);
 
 /* ── Doctrine screen (pass 6) ────────────────
  * Standing orders and recent activity. Pass D wires the enable/disable
@@ -1636,6 +2217,7 @@ subscribe("state", () => {
 subscribe("bridge", () => {
   renderTopbar();
   renderKPIs();
+  if (!$("view-ops").hidden) renderAutomationFeed();
 });
 subscribe("approvals", () => {
   renderApprovals();
@@ -1654,6 +2236,10 @@ subscribe("warehouse", () => {
 });
 subscribe("keepers", () => {
   renderKeepers();
+  if (!$("view-markets").hidden) renderMktPriceMarketList();
+});
+subscribe("prices", () => {
+  if (!$("view-markets").hidden) renderMktPrices();
 });
 subscribe("activity", () => {
   renderActivity();
@@ -1667,12 +2253,16 @@ subscribe("galaxy", () => {
 });
 subscribe("programme", () => {
   if (!$("view-ops").hidden) renderOps();
+  if (!$("view-feeds").hidden) { renderFeeds(); renderChains(); }
 });
 subscribe("doctrine", () => {
   if (!$("view-doctrine").hidden) renderDoctrine();
 });
 subscribe("manipulationRoutes", () => {
   if (!$("view-ops").hidden) renderManipulationRoutes();
+});
+subscribe("notes", () => {
+  if (!$("view-ops").hidden) renderNotes();
 });
 subscribeConnection(() => {
   renderTopbar();

@@ -68,15 +68,21 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   to its own ADVANCED_CIRCUITRY export) — can be set up manually with
   three `/api/feeds/start` calls today; the proposer would do that in one
   step for any future system.
-- [ ] **Verify Deck (`/deck`) live — Overview pass only.** Built
-  2026-09-19: `/deck` route, shell, Overview screen (KPI row, Wants-vs-Doing
-  triage table, live Approvals/Activity rail) all wired to real data via
-  `loadState`/`loadBridge`/`loadApprovals`/`loadDispatch`/`loadActivity`
-  polling. Fleet/Markets/Map/Ops/Doctrine nav items exist and show inert
-  "coming soon" placeholders. The ⌘K hint renders but does nothing. Same
-  pattern Tower's own first pass followed: all 5 screens (Home, Fleet, Map,
-  Markets, More) existed as inert placeholders before any of them had real
-  content, verified live only after landing. Once live verification is
+- [ ] **Verify Deck (`/deck`) live — feature-parity pass, 2026-09-27, not
+  yet manually verified in a browser.** Overview/Fleet/Markets/Map/Ops/
+  Doctrine all have real content now (passes A-D of
+  `docs/deck-remaining-build-plan.md`, built 2026-09-20), plus a new
+  **Feeds** screen and this pass's additions (see CHANGELOG's "Deck
+  feature-parity pass" entry): Feeder tiers/chains, Ops' Automation +
+  Notes panels, Markets' segmented Routes/Yards/Prices control + the
+  miner-preference mini-form, Fleet's ETA column, and Overview's
+  "Matched" P&L tile. `npx tsc --noEmit` and `node --check public/deck.js`
+  are clean and the HTML's div/id balance was checked mechanically, but
+  none of it has actually been clicked through live — verify each new
+  panel renders against real fleet data (a running feed, a ship
+  IN_TRANSIT for the ETA column, at least one closed trade for Matched to
+  show a number instead of "—") before calling this pass done. The ⌘K
+  hint still renders but does nothing. Once live verification is
   complete: Fleet pass follows the same spec-then-build pattern, once
   Overview's approach is proven and its live-ops needs are understood.
 - [ ] **Hosted MCP server (`docs/mcp-server-plan.md`) — first pass shipped

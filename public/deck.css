@@ -139,6 +139,8 @@ th{text-align:left;font-family:var(--chrome);font-size:9px;letter-spacing:.1em;t
 td{padding:7px 8px;border-bottom:1px solid rgba(255,199,120,.06);vertical-align:middle}
 tr:hover td{background:var(--raised)}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mono.eta{color:var(--dim)}
+.mono.eta.live{color:var(--ice);font-weight:600}
 .shipsym{font-family:var(--mono);color:var(--bone);font-weight:600}
 .mismatch{display:flex;flex-direction:column;gap:2px}
 .mismatch .w{color:var(--ice);font-size:10.5px}
@@ -234,6 +236,55 @@ tr.sel td{background:var(--amber-dim)}
 .goodrow .name{font-family:var(--mono);color:var(--bone)}
 .goodrow .route{font-size:10px;color:var(--dim)}
 .profit{font-family:var(--mono);font-weight:600;color:var(--green)}
+
+/* Feeds screen (feeder tiers + chains) and Ops' Automation/Notes panels —
+   card/row shapes ported from v6.css's .ops-card family, restyled onto
+   Deck's tokens. */
+.ops-card{border:1px solid var(--hair);border-radius:5px;background:var(--raised);padding:8px 10px;margin-bottom:8px;font-size:11px}
+.ops-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ops-title{font-weight:600;color:var(--bone)}
+.ops-sub{color:var(--dim);font-size:10px}
+.ops-card .fill{flex:1}
+.ops-card .tag{font-family:var(--chrome);font-size:9px;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:9px;background:var(--sunken);color:var(--dim);border:1px solid var(--hair)}
+.ops-card .tag.done{background:var(--green-dim);color:var(--green);border-color:rgba(88,214,141,.3)}
+.ops-card .tag.paused{background:var(--amber-dim);color:var(--amber);border-color:var(--amber-glow)}
+.ops-card .btn{padding:6px 10px;font-size:9px;min-height:auto}
+.ops-card .assign-carrier,.ops-card .carrier-target,.ops-card .sell-gap-min{background:var(--sunken);border:1px solid var(--hair);border-radius:4px;color:var(--bone);font-family:var(--mono);font-size:10px;padding:5px 6px}
+.ops-card .tag button.chip-x{background:none;border:none;color:inherit;font-size:11px;line-height:1;cursor:pointer;padding:0 0 0 4px}
+.ops-card .tag button.chip-x:hover{color:var(--amber)}
+.automation-row{display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--hair);font-size:11px}
+.automation-row:last-child{border-bottom:none}
+.automation-row.warn{color:var(--red)}
+.automation-row.hold{color:var(--amber)}
+.automation-row .ship{font-family:var(--mono);flex:0 0 90px}
+.automation-row .ship .role{display:block;font-size:9px;color:var(--dim);text-transform:uppercase}
+.automation-row .doing{flex:0 0 110px;color:var(--dim)}
+.automation-row .wants{flex:1;color:var(--bone)}
+.automation-row .wants .src{font-size:9px;color:var(--dim);margin-left:4px}
+.automation-row .wants .why{color:var(--dim)}
+.chain-tier-row{display:flex;align-items:center;gap:6px;padding:5px 0}
+.chain-tier-row .tier-n{font-family:var(--mono);font-size:10px;color:var(--dim);width:14px;flex:0 0 auto;text-align:center}
+.chain-tier-row .tier-good,.chain-tier-row .tier-market{flex:1;min-width:0;background:var(--sunken);border:1px solid var(--hair);border-radius:4px;color:var(--bone);font-family:var(--mono);font-size:10.5px;padding:6px 8px}
+.chain-tier-row .tier-good{text-transform:uppercase}
+.chain-tier-row .tier-hint{font-size:9px;color:var(--dim);flex:0 0 auto;white-space:nowrap}
+.chain-tier-row .tier-remove{flex:0 0 auto;min-height:auto;padding:4px 8px}
+.ops-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:10.5px}
+
+/* Segmented control — Markets' Routes/Yards/Prices, Prices' own timeframe
+   picker. Same shape as Tower's own .seg (m.css), restyled onto Deck's
+   tokens; .panel-h's flex row already handles alignment. */
+.seg{display:flex;gap:5px}
+.panel-h .seg{flex:1}
+.seg button{flex:1;font-family:var(--chrome);font-weight:600;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:6px 0;border-radius:3px;border:1px solid var(--hair-hi);background:transparent;color:var(--dim);cursor:pointer}
+.seg button.on{background:var(--amber);border-color:var(--amber);color:#1a1204}
+#mk-price-timeframe-seg{flex:0 0 auto;width:150px}
+
+/* Keeper-priority badge — ported from Tower's own keeperBadge() (m.css),
+   same three states and the same tap-to-toggle /api/keeper/markets call. */
+.keeper-badge{font-family:var(--chrome);font-size:8px;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:8px;margin-left:4px;white-space:nowrap;cursor:pointer}
+.keeper-badge.covered{color:var(--green);background:var(--green-dim)}
+.keeper-badge.pending{color:var(--amber);background:var(--amber-dim)}
+.keeper-badge.none{color:var(--dim);border:1px solid var(--hair-hi)}
 
 /* auth gate — same mechanism Tower's own gate uses (POST /api/gate/login);
    a tenant already signed in on desktop is already signed in here too. */
