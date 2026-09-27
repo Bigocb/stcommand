@@ -249,6 +249,10 @@ export class FleetManager {
    *  init()/restorePersistedManualRoles(). */
   private manualRoleShips = new Set<string>();
   private idleShips = new Map<string, Ship>();
+  /** New purchases awaiting an operator role decision — see
+   *  registerNewShip()'s own comment for why these bypass assignRole()'s
+   *  immediate hull-based classification. */
+  private pendingRoleShips = new Map<string, { ship: Ship; suggestedRole: ManualRole }>();
   /**
    * The warehouse ship (docs/warehousing-plan.md §2): one designated hull,
    * held permanently at a chosen waypoint via the ordinary manual-dispatch
@@ -1848,6 +1852,97 @@ export class FleetManager {
   }
 
   /**
+   * Pure hull-shape guess at what assignRole() would land a ship on — no
+   * side effects, no agent construction, no Map mutation. Used only to
+   * suggest a default when a new purchase's role isn't yet confirmed by
+   * the operator (registerNewShip()); assignRole() itself still does the
+   * real, immediate classification for every ship restored at boot, which
+   * must never wait on an approval. Mirrors assignRole()'s own conditions
+   * exactly (miner > surveyor > siphoner > shuttle-tour > cargo-trader >
+   * scout) minus the SATELLITE/FRAME_PROBE branch, which registerNewShip()
+   * handles separately since a 0-fuel probe has no meaningful role choice
+   * to make.
+   */
+  private guessDefaultRole(ship: Ship): ManualRole {
+    const hasMining = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_MINING_LASER"));
+    const hasSurveyor = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_SURVEYOR"));
+    const hasGasSiphon = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_GAS_SIPHON"));
+    const hasCargo = ship.cargo.capacity >= 15;
+    if (hasMining && hasCargo) return "miner";
+    if (hasSurveyor) return "surveyor";
+    if (hasGasSiphon) return "siphoner";
+    if (ship.frame?.symbol === "FRAME_SHUTTLE") return "tour";
+    if (hasCargo) return "trader";
+    return "scout";
+  }
+
+  /**
+   * Entry point for a brand-new purchase whose eventual role is ambiguous
+   * from its hull alone (a plain shipyard buy, or maybeBuyShip()'s generic
+   * scored pick with no attempt.wantRole) — ledger/activity-feed/Discord
+   * posting for the purchase itself already happened by the time this
+   * runs; only the role decision is deferred.
+   *
+   * Confirmed live 2026-09-27: assignRole()'s immediate hull classification
+   * put a freshly-bought FRAME_SHUTTLE straight into "tour", which starts
+   * touring right away — by the time the operator noticed and called
+   * setShipRole() to make it a trader instead, the ship was already
+   * minutes into an unrelated, hours-long DRIFT leg with no way back
+   * (SpaceTraders has no "cancel this navigate" call, so a role switch
+   * mid-flight can redirect the *next* leg but never recall the one
+   * already under way). Holding the ship genuinely idle — no role agent,
+   * nothing dispatches it — until the operator confirms a role, or 10
+   * minutes pass with nobody watching (same default every other
+   * ApprovalGate consumer in this file uses), closes that race entirely.
+   *
+   * Satellites/probes with no reachable keeper market are exempted: 0 fuel
+   * means they can't do anything under any role, so there's no meaningful
+   * choice to defer — assignRole() already parks those in idleShips
+   * permanently, and this just does that immediately instead of raising a
+   * pointless prompt.
+   */
+  private async registerNewShip(ship: Ship): Promise<void> {
+    const isDeadSatellite = (ship.registration.role === "SATELLITE" || ship.frame?.symbol === "FRAME_PROBE") && !this.keeperMarketFor(ship);
+    if (isDeadSatellite) { await this.assignRole(ship); return; }
+    const suggestedRole = this.guessDefaultRole(ship);
+    this.pendingRoleShips.set(ship.symbol, { ship, suggestedRole });
+    this.log(`${ship.symbol}: new ship awaiting a role decision (suggested: ${suggestedRole}) — approve to accept it, or assign one from the Fleet tab`);
+  }
+
+  /**
+   * Runs every tick: resolves any pending role decision from
+   * registerNewShip() the moment the operator approves/denies it on the
+   * dashboard, or after the timeout — same DB-polled ApprovalGate shape
+   * every other consumer in this file uses. Keyed per ship symbol (not one
+   * shared "assignShipRole" kind) since more than one new purchase can be
+   * awaiting a decision at once, and ApprovalGate only tracks one pending
+   * row per kind.
+   */
+  private async maybeResolveNewShipRoles(): Promise<void> {
+    for (const [shipSymbol, pending] of [...this.pendingRoleShips]) {
+      const approved = await this.approvals.request(`assignShipRole:${shipSymbol}`, {
+        shipSymbol,
+        detail: `${shipSymbol} needs a role — suggested ${pending.suggestedRole}. Approve to use it, deny to assign one yourself from the Fleet tab.`,
+        timeoutMs: 10 * 60_000,
+        onTimeout: "approve",
+      });
+      if (approved === undefined) continue;
+      this.pendingRoleShips.delete(shipSymbol);
+      if (approved) {
+        try {
+          await this.setShipRole(shipSymbol, pending.suggestedRole);
+        } catch (err) {
+          this.log(`${shipSymbol}: failed to auto-assign ${pending.suggestedRole}, leaving idle: ${err instanceof Error ? err.message : String(err)}`);
+          this.idleShips.set(shipSymbol, pending.ship);
+        }
+      } else {
+        this.log(`${shipSymbol}: left idle — operator will assign a role manually`);
+        this.idleShips.set(shipSymbol, pending.ship);
+      }
+    }
+  }
+
+  /**
    * Resurrect any ship whose persisted `fleet_state` role disagrees with
    * what `assignRole()` just derived for it from mounts/frame — a runtime
    * decision (maybeAssignKeepers() converting a miner/shuttle) or an
@@ -2305,7 +2400,7 @@ export class FleetManager {
       detail: purchaseDetail,
       credits: -res.transaction.price,
     });
-    await this.assignRole(res.ship);
+    await this.registerNewShip(res.ship);
     return res.ship;
   }
 
@@ -2656,7 +2751,11 @@ export class FleetManager {
           // purchase was actually made for instead.
           await this.setShipRole(res.ship.symbol, attempt.wantRole);
         } else {
-          await this.assignRole(res.ship);
+          // No specific role targeted this purchase (a generic scored
+          // pick) — its hull is just as ambiguous as a manual buyShip()
+          // call, so defer to the operator the same way. See
+          // registerNewShip()'s own comment for why.
+          await this.registerNewShip(res.ship);
         }
         return;
       } catch (err) {
@@ -4946,7 +5045,7 @@ export class FleetManager {
     for (const a of this.explorers.values()) if (a.symbol === shipSymbol) return a.getShip();
     for (const a of this.tours.values()) if (a.symbol === shipSymbol) return a.getShip();
     for (const a of this.keepers.values()) if (a.symbol === shipSymbol) return a.getShip();
-    return this.idleShips.get(shipSymbol);
+    return this.idleShips.get(shipSymbol) ?? this.pendingRoleShips.get(shipSymbol)?.ship;
   }
 
   /**
@@ -5522,6 +5621,7 @@ export class FleetManager {
       ...[...this.scouts.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.siphoners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "siphoner", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.idleShips.keys()].filter(notWarehouse).map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
+      ...[...this.pendingRoleShips.entries()].filter(([s]) => notWarehouse(s)).map(([s, p]) => ({ symbol: s, role: "unassigned", status: p.ship.nav.status, paused: false })),
     ];
     if (warehouseSymbol) {
       const agent = this.controlledAgent(warehouseSymbol);
@@ -5743,10 +5843,10 @@ export class FleetManager {
     );
   }
 
-  /** A ship's full current object, whichever role map (or idleShips) actually holds it. */
+  /** A ship's full current object, whichever role map (or idleShips/pendingRoleShips) actually holds it. */
   private shipFor(shipSymbol: string): Ship | undefined {
     const agent = this.controlledAgent(shipSymbol);
-    return agent ? agent.getShip() : this.idleShips.get(shipSymbol);
+    return agent ? agent.getShip() : (this.idleShips.get(shipSymbol) ?? this.pendingRoleShips.get(shipSymbol)?.ship);
   }
 
   /**
@@ -6395,6 +6495,7 @@ export class FleetManager {
       });
       await this.timed("maybeGrowExplorers", () => this.maybeGrowExplorers());
       await this.timed("maybeBuyShip", () => this.maybeBuyShip());
+      await this.timed("maybeResolveNewShipRoles", () => this.maybeResolveNewShipRoles());
       await this.timed("resolvePendingKeeperProbeApproval:buyKeeperProbe", () => this.resolvePendingKeeperProbeApproval("buyKeeperProbe"));
       await this.timed("resolvePendingKeeperProbeApproval:buyKeeperProbeForMarket", () => this.resolvePendingKeeperProbeApproval("buyKeeperProbeForMarket"));
       await this.timed("advanceKeeperMarketQueue", () => this.advanceKeeperMarketQueue());

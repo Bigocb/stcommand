@@ -11,6 +11,30 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **A newly-bought ship whose hull is role-ambiguous now waits for the
+  operator instead of auto-launching into a guessed role.** Confirmed
+  live 2026-09-27: buying a shuttle auto-classified it as "tour" and
+  launched it immediately; by the time the operator noticed and switched
+  it to trader, the ship was already several minutes into an unrelated,
+  hours-long DRIFT leg with no way to recall it (SpaceTraders has no
+  "cancel this navigate" call — a role switch only redirects the *next*
+  leg). `FleetManager.buyShip()` (the manual dashboard purchase) and
+  `maybeBuyShip()`'s generic scored-pick fallback (no specific
+  `attempt.wantRole`) now call a new `registerNewShip()` instead of
+  hull-classifying immediately via `assignRole()`: the ship sits genuinely
+  idle — no role agent, nothing dispatches it — while a new
+  `assignShipRole:<ship>` entry appears in the existing Approvals panel
+  (every UI version already renders any approval kind generically, so no
+  frontend changes were needed) naming the suggested role. Approve to
+  accept the suggestion, deny to leave it idle and assign a role yourself
+  from the Fleet tab, or ignore it — auto-approves after 10 minutes, the
+  same "don't strand a fleet nobody's watching" default every other
+  `ApprovalGate` consumer uses. Purchases with an unambiguous hull
+  (`buyScout`'s SHIP_SURVEYOR, `buySiphoner`'s SHIP_SIPHON_DRONE, and
+  `maybeBuyShip()` calls with an explicit `attempt.wantRole`) are
+  unaffected — there's no real ambiguity to defer for those. Restart-time
+  role restoration (`assignRole()` in `init()`) is also unaffected — this
+  only changes what happens the moment a *new* hull is purchased.
 - **Traders now actually fly multi-hop fuel-stop routes instead of a
   single hours-long DRIFT leg.** `viableRoute()` (`src/engine/trader.ts`)
   has accepted a route whose distance exceeds the ship's tank as long as
