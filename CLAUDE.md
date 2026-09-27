@@ -4,6 +4,25 @@ Durable, repo-level knowledge that should survive any one session. See
 `docs/architecture-overview.md` for the system-by-system design breakdown
 and `docs/TODO.md`/`CHANGELOG.md` for what's in flight or already shipped.
 
+## This week's starting fleet layout
+
+Set by the operator 2026-09-27, right after that week's server reset
+(fresh tenant `7e1ea899`, home system X1-SJ91). The baseline to return to
+or compare against for the rest of the week, absent a newer note here
+superseding it:
+
+- **Command ship**: starts as tour, converts to trader once the tour role
+  has done its job (system-mapping/market intel), same pattern as prior
+  weeks.
+- **2 miners** on an IRON_ORE feed (mine-sourced, feeding the local H63
+  market/refinery — see the H56-equivalent IRON_ORE-vs-trader-buying-
+  pressure test from last week for the general dynamic to expect here
+  too, once a buyer shows up against this system's own refinery).
+- **1 tour ship**.
+
+Update this section (don't just leave it stale) once the operator states
+a new starting layout for a following week.
+
 ## Operating the fleet via the stcommand MCP server
 
 The `stcommand` MCP server's own `initialize` response carries operating
