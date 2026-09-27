@@ -13,9 +13,10 @@ import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
   marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, warehouseState, doctrineRules, activity, manipulationRoutes,
   marketDynamics, marketDynamicsBySystemType, priceGoods, priceWaypointsByGood, pricePoints,
+  keeperMarketsCfg, keeperStationsCfg,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity, loadManipulationRoutes,
-  loadMarketDynamics, loadGoods, loadPrices,
+  loadMarketDynamics, loadGoods, loadPrices, loadKeepers,
 } from "/shared/store.js";
 import { fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
 
@@ -79,7 +80,7 @@ function setTab(name) {
   // no claim at all on a fresh Fleet-tab visit.
   if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
   if (name === "map") { loadMarkets(); renderScope(); }
-  if (name === "markets") { loadMarkets(); loadGoods(); renderMarkets(); }
+  if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
   if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadManipulationRoutes(); loadMarketDynamics(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
@@ -1096,6 +1097,26 @@ function renderMarketYards() {
   el.innerHTML = html;
 }
 
+/** Covered / priority-but-uncovered / unflagged indicator for one market
+ *  waypoint, ported from v6.js's own keeperBadge() (same three states, same
+ *  /api/keeper/markets endpoint) — the operator's ask was to get this same
+ *  at-a-glance-plus-tap-to-toggle affordance onto Tower, not just desktop. */
+function keeperBadge(wp) {
+  const covered = keeperStationsCfg.some((s) => s.market === wp);
+  const pending = !covered && keeperMarketsCfg.includes(wp);
+  if (covered) return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
+  if (pending) return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — tap to remove">◐ pending</span>`;
+  return `<span class="keeper-badge none" data-wp="${escapeAttr(wp)}" role="button" title="Not on the keeper priority list — tap to add">+ keeper</span>`;
+}
+
+async function toggleKeeperPriority(wp) {
+  const next = keeperMarketsCfg.includes(wp) ? keeperMarketsCfg.filter((m) => m !== wp) : [...keeperMarketsCfg, wp];
+  try {
+    await api("POST", "/api/keeper/markets", { markets: next });
+    await loadKeepers();
+  } catch (err) { alert(err.message); }
+}
+
 /** Every waypoint this fleet has snapshotted selling `good`, each row's
  *  most recent buy/sell price where a snapshot exists — same source
  *  (priceWaypointsByGood, server-authoritative) desktop's price-waypoint
@@ -1110,11 +1131,16 @@ function renderPriceMarketList() {
   const byWp = new Map(marketSnapshots.filter((s) => s.goodSymbol === priceGood).map((s) => [s.waypointSymbol, s]));
   el.innerHTML = waypoints.map((wp) => {
     const snap = byWp.get(wp);
-    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))}</span><span class="d">${
+    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${
       snap ? `buy ${fmt(snap.purchasePrice)} · sell ${fmt(snap.sellPrice)}` : "no recent snapshot"
     }</span></div>`;
   }).join("");
 }
+$("price-market-list").addEventListener("click", (e) => {
+  const b = e.target.closest(".keeper-badge[data-wp]");
+  if (b) toggleKeeperPriority(b.dataset.wp);
+});
+subscribe("keepers", () => { if (marketsTabActive() && mktSeg === "prices") renderPriceMarketList(); });
 
 /** Compact SVG price line, same shape as desktop's renderPriceChart() (see
  *  v6.js) but in Tower's own palette (amber sell / green buy) — a

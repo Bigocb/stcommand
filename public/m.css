@@ -277,6 +277,16 @@ body {
 .detail-row .d { color: var(--dim); font-size: 9.5px; }
 .detail-row .btn { padding: 5px 10px; font-size: 9px; flex: 0 0 auto; }
 
+/* ── keeper-priority badge — ported from v6.js's own keeperBadge(), same
+ * three states and same tap-to-toggle /api/keeper/markets call. */
+.keeper-badge {
+  font-family: var(--chrome); font-size: 8px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 8px; margin-left: 4px; white-space: nowrap;
+}
+.keeper-badge.covered { color: var(--green); background: rgba(88, 214, 141, 0.12); }
+.keeper-badge.pending { color: var(--amber); background: var(--amber-dim); }
+.keeper-badge.none { color: var(--dim); border: 1px solid var(--hair-hi); }
+
 /* ── More: Activity stream — trades, missions, repairs and the like, with
  * mining extraction and market/shipyard scan noise filtered out client-
  * side (see m.js's ACTIVITY_HIDDEN_KINDS) so it reads as "what happened"
