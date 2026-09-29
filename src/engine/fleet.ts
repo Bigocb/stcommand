@@ -5613,15 +5613,56 @@ export class FleetManager {
    * crowding, while 37 other iron-bearing asteroids in the same system
    * have never been touched.
    */
+  /**
+   * Whether `capacity` fuel is enough to reach `to` from `from` without ever
+   * needing DRIFT — either directly, or via a chain of known fuel-selling
+   * markets each within one CRUISE hop of the last, mirroring
+   * `ShipAgent.nextHopToward()`'s own stepping-stone search (BFS here since
+   * this only needs a yes/no, not which stop to use first). Confirmed live
+   * 2026-09-29: this is genuinely field-dependent, not just "far = bad" — of
+   * the ~20 fields field-spreading assigned that exceeded direct range, all
+   * but 2 turned out reachable via ordinary CRUISE hops once agent.ts got
+   * its own multi-hop redirect. Only those 2 had no viable stepping stone at
+   * all. A raw distance cutoff would have penalized all ~20 for the sins of
+   * the 2 that actually needed it.
+   */
+  private reachableWithoutDrift(from: string, to: string, capacity: number): boolean {
+    if (!Number.isFinite(capacity) || capacity <= 0) return true; // nothing to reason about; don't block on it
+    if (this.registry.distance(from, to) <= capacity) return true;
+    const fuelMarkets = this.registry
+      .marketEndpoints(this.registry.systemOf(from))
+      .filter((m) => (this.registry.market(m.symbol)?.tradeGoods["FUEL"]?.purchasePrice ?? 0) > 0)
+      .map((m) => m.symbol);
+    const visited = new Set<string>([from]);
+    let frontier = [from];
+    for (let hop = 0; hop < 6 && frontier.length > 0; hop++) {
+      const next: string[] = [];
+      for (const wp of frontier) {
+        for (const m of fuelMarkets) {
+          if (visited.has(m) || this.registry.distance(wp, m) > capacity) continue;
+          if (this.registry.distance(m, to) <= capacity) return true;
+          visited.add(m);
+          next.push(m);
+        }
+      }
+      frontier = next;
+    }
+    return false;
+  }
+
   private pickFieldAssignment(shipSymbol: string): string | undefined {
     const occupancy = this.fieldOccupancy();
     if (occupancy.size === 0) return undefined;
     const cap = this.doctrine.value("maxCrewPerField", 5);
     const avoidStripped = this.doctrine.isEnabledOr("avoidStrippedFields", true);
+    const avoidDrift = this.doctrine.isEnabledOr("avoidDriftFields", true);
     const ship = this.cachedShip(shipSymbol);
     const scoreOf = (info: { stripped: boolean; count: number }, symbol: string): number => {
       const dist = ship ? this.registry.distance(ship.nav.waypointSymbol, symbol) : 0;
-      return info.count * 1_000 + (avoidStripped && info.stripped ? 5_000 : 0) + (Number.isFinite(dist) ? dist : 100_000);
+      const needsDrift = avoidDrift && ship !== undefined &&
+        !this.reachableWithoutDrift(ship.nav.waypointSymbol, symbol, ship.fuel.capacity);
+      return info.count * 1_000 + (avoidStripped && info.stripped ? 5_000 : 0) + (needsDrift ? 50_000 : 0) +
+        (Number.isFinite(dist) ? dist : 100_000);
     };
     let best: string | undefined;
     let bestScore = Infinity;

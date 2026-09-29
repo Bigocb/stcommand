@@ -11,6 +11,30 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Field-spreading now avoids assigning a miner/surveyor a field it can
+  only reach via DRIFT, when a comparably-good field it can reach on
+  ordinary CRUISE hops exists.** Confirmed live 2026-09-29 right after the
+  multi-hop routing fix (below) shipped: it cut DRIFT incidents on the
+  initial field-relocation from "every ship" (22/22) to 2 stragglers, but
+  every one of those 22 ships still had to fly its *original* DRIFT leg to
+  completion — SpaceTraders has no "cancel this transit" call, so a fix
+  landing mid-flight can't shorten a leg a ship already committed to.
+  Several 80-fuel-capacity mining drones sat in 1.5-2 hour single-leg
+  DRIFTs as a result, which is what the multi-hop fix alone couldn't
+  prevent — it only helps dispatches issued *after* it ships. Added
+  `FleetManager.reachableWithoutDrift()`, a BFS over known fuel-selling
+  markets (mirrors `ShipAgent.nextHopToward()`'s own stepping-stone
+  search, since a raw distance cutoff would incorrectly penalize a field
+  that's actually fine via a couple of CRUISE hops — of the 22 fields
+  assigned beyond direct range, only 2 genuinely had no viable multi-hop
+  path at all). `pickFieldAssignment()` now heavily deprioritizes (not
+  bans) a field this specific ship can't reach without DRIFT, same
+  pattern as the existing STRIPPED deprioritization. New doctrine control:
+  `avoidDriftFields` (on by default). **Not yet verified against a live
+  fleet** — typechecked clean, remote test Postgres unreachable again this
+  session; the effect (no new drone gets a multi-hour single-DRIFT
+  relocation going forward) is only visible the next time an unpinned
+  miner/surveyor needs an initial field assignment.
 - **Miners and surveyors now route through intermediate fuel stops for a
   multi-hop leg, instead of one long DRIFT covering the whole distance.**
   `ShipAgent.navigateTo()` (`src/engine/agent.ts`, shared by both roles)

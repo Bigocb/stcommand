@@ -115,6 +115,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
+    key: "avoidDriftFields",
+    name: "Avoid drift-only fields",
+    description: "Heavily deprioritize (not outright ban) an asteroid field the auto field-assigner can't reach on this ship's own tank without at least one DRIFT leg — checked properly against known fuel-selling markets as stepping stones, not just raw distance, so a field reachable via a couple of ordinary CRUISE hops is never penalized just for being far. Confirmed live 2026-09-29: field-spreading sent every low-fuel mining drone (80-capacity tank) on a single-leg DRIFT to its new field, each running well over an hour, because the picker only weighed crowding/STRIPPED/distance and had no idea some fields are only reachable at all via DRIFT for a given ship's tank size.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "promoteAtMiners",
     name: "Trader promotion",
     description: "Promote the biggest-hold miner to trader once this many miners exist.",
