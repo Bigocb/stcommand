@@ -57,14 +57,17 @@ be useful context; not a complete project history — see `git log` for that.
   (default 5), `avoidStrippedFields` (on), `fieldSpreadEnabled` (on) — all
   render automatically in the existing Doctrine tab on every UI version,
   no frontend changes needed. **Verified live 2026-09-29, ~1hr post-deploy**,
-  directly against production Postgres: 25 distinct miners/surveyors
-  (10+2 tracked in `fleet_state` plus 13 more whose role predates that
-  table — see the `fleet_state` coverage gap noted in `docs/TODO.md`),
-  25 distinct asteroid pins, zero collisions. The remaining new unit tests
-  (`describe("FleetManager field spreading...")` in `tests/fleet.test.ts`)
-  still haven't run — remote test Postgres was unreachable (connection
-  timeout) every attempt this session — but live production behavior is
-  now confirmed independently of them.
+  directly against production Postgres: 25 distinct miners/surveyors, 25
+  distinct asteroid pins, zero collisions. (`fleet_state` only shows 12 of
+  those 25 — it's a sparse table of manual role overrides, not a full
+  roster, so most auto-classified miners never get a row there; the other
+  13 were cross-checked via `ship_state`'s live position/target instead.
+  Not a bug — `fleet_state` working as designed just briefly looked like
+  one from a raw SQL query that assumed it was authoritative.) The
+  remaining new unit tests (`describe("FleetManager field spreading...")`
+  in `tests/fleet.test.ts`) still haven't run — remote test Postgres was
+  unreachable (connection timeout) every attempt this session — but live
+  production behavior is now confirmed independently of them.
 - **A newly-bought ship whose hull is role-ambiguous now waits for the
   operator instead of auto-launching into a guessed role.** Confirmed
   live 2026-09-27: buying a shuttle auto-classified it as "tour" and
