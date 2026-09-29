@@ -11,6 +11,37 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **The mission price baseline (below) now persists on the mission's own
+  record, not in memory, and backfills from real market history instead
+  of the live price at the moment it's first set.** Operator-requested
+  follow-up to the same-day price-gate fix: the first version stored
+  `firstSeenPrice` on the in-memory `TaskState`, which a redeploy wipes —
+  this app redeploys often, so the very next restart would have silently
+  re-baselined to whatever the live (possibly still-inflated) price
+  happened to be at that moment, quietly weakening the gate it was built
+  to strengthen. Moved it onto `MissionMaterial.firstSeenPrice`
+  (`src/engine/mission.ts`), persisted via the same `materials` JSONB
+  column the mission already round-trips through `Store.recordMission()`/
+  `latestMissions()` — no schema change needed. It's also no longer seeded
+  from the live price at all: added `Store.cheapestKnownPrice()`
+  (`src/db/store.ts`), a plain `MIN(purchase_price)` over the append-only
+  `market_snapshots` history, and the baseline now prefers that real
+  historical low, falling back to the live price only if this good/
+  waypoint pair has no recorded history at all.
+
+  The FAB_MATS baseline already set by the first version's brief window
+  live (from ~2868c, not the true ~1051-1084c historical low visible in
+  `market_snapshots`) needs an explicit one-time reset to pick up the
+  corrected value — added `MissionManager.resetMaterialBaseline()` /
+  `FleetManager.resetMissionMaterialBaseline()` and a new
+  `POST /missions/reset-material-baseline` dashboard endpoint for it, same
+  pattern as the existing pause/resume/carrier-target mission controls.
+  **Not yet fired against the live tenant** — this session has no write
+  path to the production database (the query tool available is read-only
+  by design, deliberately not bypassed) and the stcommand MCP server
+  (which would call this through a proper authenticated tool) has been
+  disconnected all session; call it once either is available, or trigger
+  it from the dashboard directly.
 - **Mission material buying now catches a runaway price building up in
   small steps, not just a single big jump.** Confirmed live 2026-09-29:
   after the operator resumed the FAB_MATS→I67 SUPPLY_CONSTRUCTION mission,

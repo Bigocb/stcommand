@@ -4883,6 +4883,13 @@ export class FleetManager {
     await this.missions.setCarrierTarget(waypointSymbol, count);
   }
 
+  /** Reset a mission material's price baseline so the next buy re-seeds it
+   *  from the historical low instead of chasing whatever it drifted to —
+   *  see MissionManager.resetMaterialBaseline()'s own comment. */
+  async resetMissionMaterialBaseline(waypointSymbol: string, tradeSymbol: string): Promise<void> {
+    await this.missions.resetMaterialBaseline(waypointSymbol, tradeSymbol);
+  }
+
   /** Active feeder tiers for the dashboard. */
   async getFeeds() {
     return (await this.feeds.list()).map((f) => ({ ...f, paused: this.feeds.isPaused(f.targetWaypoint, f.good) }));

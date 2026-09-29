@@ -1191,6 +1191,26 @@ export class Store {
   }
 
   /**
+   * The lowest purchase price ever recorded for one good at one waypoint —
+   * a plain MIN() over the append-only `market_snapshots` history, for
+   * anchoring a "what has this actually cost when not run up by our own
+   * buying" baseline. Simpler and more robust than picking the earliest-by-
+   * time snapshot: that would still be wrong if recording happened to start
+   * mid-spike, where the historical minimum is well-defined regardless of
+   * when it occurred. Returns undefined only if this good/waypoint pair has
+   * no recorded snapshots at all.
+   */
+  async cheapestKnownPrice(waypointSymbol: string, goodSymbol: string): Promise<number | undefined> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ min: number | null }>(
+        `SELECT MIN(purchase_price) FROM market_snapshots WHERE waypoint_symbol = $1 AND good_symbol = $2`,
+        [waypointSymbol, goodSymbol],
+      );
+      return res.rows[0]?.min ?? undefined;
+    });
+  }
+
+  /**
    * Return the most recent market snapshot per waypoint per good — a plain
    * read of the market_latest projection (Greenfield Phase 1), not a
    * PARTITION BY scan of the whole append-only history table.

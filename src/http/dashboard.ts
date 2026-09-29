@@ -1015,6 +1015,20 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  router.post("/missions/reset-material-baseline", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const tradeSymbol = String(req.body?.tradeSymbol ?? "");
+    if (!waypoint || !tradeSymbol) return res.status(400).json({ error: "waypoint and tradeSymbol required" });
+    try {
+      await w.fleet.resetMissionMaterialBaseline(waypoint, tradeSymbol);
+      res.json({ ok: true, missions: await w.fleet.getMissions() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/missions/carrier-target", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
