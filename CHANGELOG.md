@@ -11,6 +11,33 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Miners and surveyors now spread across the system's known asteroid
+  fields instead of all converging on whichever is nearest.** Confirmed
+  live 2026-09-29: `pickMiningTarget()`/`pickSurveyTarget()`
+  (`src/engine/agent.ts`) both did pure nearest-distance selection among
+  every `ASTEROID`/`ASTEROID_FIELD`/`ENGINEERED_ASTEROID` waypoint, with
+  no idea any other ship existed — every miner and surveyor bought over
+  weeks ended up on the single field nearest the shipyards (`X1-SJ91-
+  EB5B`), which is now `STRIPPED` from the crowding, while 37 other
+  iron-bearing asteroids in the same system sat untouched. Also found:
+  `pickSurveyTarget()` never even read the existing `pinnedMiningTarget`
+  an operator's `mineAt()` sets — miners and surveyors share the same
+  `ShipAgent` class and pin field, but only the miner picker honored it.
+  Fixed with a new `FleetManager.pickFieldAssignment()` scorer (crowding
+  first, `STRIPPED` heavily deprioritized — not banned — distance a
+  tiebreak) and `maybeAssignFields()`, which runs every tick and pins any
+  miner/surveyor that doesn't already have one via the existing `mineAt()`
+  — including, as a one-time side effect, every ship bought before this
+  shipped, since none of them had a pin yet either. An operator's own
+  `mineAt()` pin is never touched. Three new doctrine controls: `maxCrewPerField`
+  (default 5), `avoidStrippedFields` (on), `fieldSpreadEnabled` (on) — all
+  render automatically in the existing Doctrine tab on every UI version,
+  no frontend changes needed. **Not yet verified against a live fleet** —
+  typechecked clean and one DB-independent unit test passed, but the
+  remaining new tests need the remote test Postgres, which was
+  unreachable (connection timeout) when this shipped; verify the new
+  `describe("FleetManager field spreading...")` block in
+  `tests/fleet.test.ts` passes once it's back.
 - **A newly-bought ship whose hull is role-ambiguous now waits for the
   operator instead of auto-launching into a guessed role.** Confirmed
   live 2026-09-27: buying a shuttle auto-classified it as "tour" and

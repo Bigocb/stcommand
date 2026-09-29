@@ -1006,6 +1006,100 @@ describe("FleetManager restart persistence", () => {
   });
 });
 
+describe("FleetManager field spreading: fieldOccupancy/pickFieldAssignment/maybeAssignFields", () => {
+  function setupFields(fleet: FleetManager) {
+    (fleet as any).systemSymbol = "X1-A";
+    (fleet as any).galaxy.systems.set("X1-A", {
+      symbol: "X1-A",
+      waypoints: [
+        { symbol: "X1-A-STRIPPED1", x: 0, y: 0, type: "ENGINEERED_ASTEROID", traits: [{ symbol: "STRIPPED" }, { symbol: "COMMON_METAL_DEPOSITS" }] },
+        { symbol: "X1-A-FRESH1", x: 5, y: 0, type: "ASTEROID", traits: [{ symbol: "COMMON_METAL_DEPOSITS" }] },
+        { symbol: "X1-A-FRESH2", x: 50, y: 0, type: "ASTEROID", traits: [{ symbol: "COMMON_METAL_DEPOSITS" }] },
+        { symbol: "X1-A-A1", x: 0, y: 1, type: "PLANET", traits: [{ symbol: "MARKETPLACE" }] },
+      ],
+      jumpGates: [], markets: [], shipyards: [],
+    });
+  }
+
+  it("fieldOccupancy counts each miner/surveyor once, at its pin if set else its current position", () => {
+    const fleet = makeFleet([]);
+    setupFields(fleet);
+    const pinned = makeFakeAgent("SHIP-1", "X1-A-A1");
+    pinned.mineAt("X1-A-FRESH1");
+    const unpinned = makeFakeAgent("SHIP-2", "X1-A-STRIPPED1");
+    (fleet as any).miners.set("SHIP-1", pinned);
+    (fleet as any).surveyors.set("SHIP-2", unpinned);
+
+    const occ = (fleet as any).fieldOccupancy() as Map<string, { stripped: boolean; count: number }>;
+    assert.equal(occ.get("X1-A-FRESH1")?.count, 1, "the pinned ship counts at its pin, not its current position");
+    assert.equal(occ.get("X1-A-STRIPPED1")?.count, 1, "the unpinned ship counts at wherever it currently is");
+    assert.equal(occ.get("X1-A-STRIPPED1")?.stripped, true);
+    assert.equal(occ.get("X1-A-FRESH2")?.count, 0);
+  });
+
+  it("pickFieldAssignment avoids a STRIPPED field in favor of an unstripped one, even though it's closer", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    setupFields(fleet);
+    const ship = makeFakeAgent("SHIP-1", "X1-A-A1"); // right next to STRIPPED1 (dist 1) vs FRESH1 (dist ~5.1)
+    (fleet as any).miners.set("SHIP-1", ship);
+
+    const field = (fleet as any).pickFieldAssignment("SHIP-1");
+    assert.equal(field, "X1-A-FRESH1", "an empty, unstripped field beats a closer but stripped one");
+  });
+
+  it("pickFieldAssignment spills over to the next field once maxCrewPerField is hit", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    setupFields(fleet);
+    await fleet.doctrine.set("maxCrewPerField", { value: 1, enabled: true });
+    const already = makeFakeAgent("SHIP-1", "X1-A-A1");
+    already.mineAt("X1-A-FRESH1");
+    (fleet as any).miners.set("SHIP-1", already);
+    const newcomer = makeFakeAgent("SHIP-2", "X1-A-A1");
+    (fleet as any).miners.set("SHIP-2", newcomer);
+
+    const field = (fleet as any).pickFieldAssignment("SHIP-2");
+    assert.equal(field, "X1-A-FRESH2", "FRESH1 is at cap (1/1), so the newcomer spills over to the next-best unstripped field");
+  });
+
+  it("maybeAssignFields pins every unpinned miner/surveyor and leaves an already-pinned one alone", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    setupFields(fleet);
+    const alreadyPinned = makeFakeAgent("SHIP-1", "X1-A-A1");
+    alreadyPinned.mineAt("X1-A-STRIPPED1"); // an operator's own explicit choice — must survive untouched
+    const unpinnedMiner = makeFakeAgent("SHIP-2", "X1-A-A1");
+    const unpinnedSurveyor = makeFakeAgent("SHIP-3", "X1-A-A1");
+    (fleet as any).miners.set("SHIP-1", alreadyPinned);
+    (fleet as any).miners.set("SHIP-2", unpinnedMiner);
+    (fleet as any).surveyors.set("SHIP-3", unpinnedSurveyor);
+
+    await (fleet as any).maybeAssignFields();
+
+    assert.equal(alreadyPinned.pinnedField(), "X1-A-STRIPPED1", "an existing pin — operator or prior auto-assignment — is never overwritten");
+    assert.equal(unpinnedMiner.pinnedField(), "X1-A-FRESH1", "first unpinned ship gets the best (closest, unstripped, empty) field");
+    assert.equal(unpinnedSurveyor.pinnedField(), "X1-A-FRESH2", "second unpinned ship spreads to the next field rather than doubling up on the first");
+  });
+
+  it("fieldSpreadEnabled=off reverts to a no-op, leaving ships to their own nearest-field picker", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    setupFields(fleet);
+    await fleet.doctrine.set("fieldSpreadEnabled", { value: 0, enabled: false });
+    const unpinned = makeFakeAgent("SHIP-1", "X1-A-A1");
+    (fleet as any).miners.set("SHIP-1", unpinned);
+
+    await (fleet as any).maybeAssignFields();
+
+    assert.equal(unpinned.pinnedField(), undefined, "the master switch off must leave every ship unpinned");
+  });
+});
+
 const sampleRoutes = [
   { good: "IRON", buyAt: "X1-A-A1", buySystem: "X1-A", buyPrice: 10, sellAt: "X1-A-A2", sellSystem: "X1-A", sellPrice: 20, volume: 20, distance: 1, fuelUnits: 1, fuelCost: 1, profitPerTrip: 100, ageMinutes: 1 },
   { good: "GOLD", buyAt: "X1-A-A1", buySystem: "X1-A", buyPrice: 5, sellAt: "X1-A-A2", sellSystem: "X1-A", sellPrice: 15, volume: 20, distance: 1, fuelUnits: 1, fuelCost: 1, profitPerTrip: 50, ageMinutes: 1 },

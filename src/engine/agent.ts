@@ -1625,11 +1625,22 @@ export class ShipAgent {
     return true;
   }
 
-  /** Nearest unreviewed asteroid field, rotating once all are covered. */
+  /** Nearest unreviewed asteroid field, rotating once all are covered.
+   *  An operator (or the fleet's own auto field-assigner) pin via mineAt()
+   *  wins outright — this shares `pinnedMiningTarget` with the miner's own
+   *  pickMiningTarget(), since ShipAgent drives both roles through the same
+   *  class. Confirmed live 2026-09-29: this function never even looked at
+   *  the pin, so every surveyor kept re-picking nearest-field on its own
+   *  and ignored an assignment fleet.ts had just made for it. */
   private pickSurveyTarget(): WaypointPos | undefined {
     const fields = this.registry.waypointsIn(this.ship.nav.systemSymbol).filter(
       (wp) => wp.type === "ASTEROID_FIELD" || wp.type === "ASTEROID" || wp.type === "ENGINEERED_ASTEROID",
     );
+    if (this.pinnedMiningTarget) {
+      const pinned = this.registry.position(this.pinnedMiningTarget);
+      if (pinned) return pinned;
+      this.log(`pinned field ${this.pinnedMiningTarget} is not in the atlas; picking the nearest instead`);
+    }
     if (fields.length > 0 && fields.every((f) => this.surveyedFields.has(f.symbol))) {
       // Full pass complete: start a fresh rotation so fields get re-surveyed as surveys expire.
       this.surveyedFields.clear();

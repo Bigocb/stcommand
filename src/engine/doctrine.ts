@@ -94,6 +94,27 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
+    key: "maxCrewPerField",
+    name: "Max crew per field",
+    description: "Cap on how many miners+surveyors the auto field-assigner will stack onto one asteroid field before it spills over to the next-best field. Confirmed live 2026-09-29: every miner and surveyor bought over weeks all converged on the same (already-stripped) field, since the old per-ship picker just chose whichever field was nearest with no idea any other ship existed. Only applies to ships without an explicit operator pin (mineAt()) — a manual pin always wins.",
+    value: 5, min: 1, max: 20, step: 1, unit: "",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
+    key: "avoidStrippedFields",
+    name: "Avoid stripped fields",
+    description: "Heavily deprioritize (not outright ban) an asteroid field already tagged STRIPPED when the auto field-assigner picks a new home for a miner or surveyor — an unstripped field within reasonable range wins even if it isn't the very closest.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
+    key: "fieldSpreadEnabled",
+    name: "Spread crew across fields",
+    description: "Master switch for auto field assignment (see Max crew per field / Avoid stripped fields). Off reverts every unpinned miner/surveyor to the old nearest-field-wins picker.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "promoteAtMiners",
     name: "Trader promotion",
     description: "Promote the biggest-hold miner to trader once this many miners exist.",

@@ -5574,6 +5574,98 @@ export class FleetManager {
     this.log(`${shipSymbol} hopping ${start} -> ${next} to refuel (${res.fuel.current}/${res.fuel.capacity} fuel)`);
   }
 
+  /**
+   * Every known asteroid (ASTEROID/ASTEROID_FIELD/ENGINEERED_ASTEROID) in the
+   * home system, with its STRIPPED status and current miner+surveyor
+   * occupancy — the shared input `pickFieldAssignment()` scores against.
+   * Occupancy is read live from each agent's own pin (falling back to its
+   * current position for a ship that hasn't been assigned yet), not a
+   * separate persisted count, so it can never drift from reality.
+   */
+  private fieldOccupancy(): Map<string, { stripped: boolean; count: number }> {
+    const out = new Map<string, { stripped: boolean; count: number }>();
+    const home = this.galaxy.getSystem(this.systemSymbol);
+    for (const w of home?.waypoints ?? []) {
+      if (w.type !== "ASTEROID" && w.type !== "ASTEROID_FIELD" && w.type !== "ENGINEERED_ASTEROID") continue;
+      out.set(w.symbol, { stripped: w.traits.some((t) => t.symbol === "STRIPPED"), count: 0 });
+    }
+    for (const agent of [...this.miners.values(), ...this.surveyors.values()]) {
+      const field = agent.pinnedField() ?? agent.getShip().nav.waypointSymbol;
+      const entry = out.get(field);
+      if (entry) entry.count += 1;
+    }
+    return out;
+  }
+
+  /**
+   * Picks the best home-system asteroid for a miner/surveyor that doesn't
+   * have a pin yet: least-crowded first (capped at `maxCrewPerField`,
+   * spilling over to the next-best field once hit), STRIPPED fields heavily
+   * deprioritized (not banned — still better than nothing if every
+   * unstripped field is already at cap), distance a tiebreak rather than
+   * the primary key. Returns undefined only if the system has no charted
+   * asteroid at all.
+   *
+   * Confirmed live 2026-09-29: every miner and surveyor bought over weeks
+   * independently converged on the single field nearest the shipyards
+   * (EB5B) via the old picker's pure nearest-distance logic, which had no
+   * idea any other ship existed — that field is now STRIPPED from the
+   * crowding, while 37 other iron-bearing asteroids in the same system
+   * have never been touched.
+   */
+  private pickFieldAssignment(shipSymbol: string): string | undefined {
+    const occupancy = this.fieldOccupancy();
+    if (occupancy.size === 0) return undefined;
+    const cap = this.doctrine.value("maxCrewPerField", 5);
+    const avoidStripped = this.doctrine.isEnabledOr("avoidStrippedFields", true);
+    const ship = this.cachedShip(shipSymbol);
+    const scoreOf = (info: { stripped: boolean; count: number }, symbol: string): number => {
+      const dist = ship ? this.registry.distance(ship.nav.waypointSymbol, symbol) : 0;
+      return info.count * 1_000 + (avoidStripped && info.stripped ? 5_000 : 0) + (Number.isFinite(dist) ? dist : 100_000);
+    };
+    let best: string | undefined;
+    let bestScore = Infinity;
+    for (const [symbol, info] of occupancy) {
+      if (info.count >= cap) continue;
+      const score = scoreOf(info, symbol);
+      if (score < bestScore) { bestScore = score; best = symbol; }
+    }
+    if (best) return best;
+    // Every field is at cap: fall back to least-bad rather than leaving the
+    // ship unassigned — the cap is a spread preference, not a hard limit.
+    for (const [symbol, info] of occupancy) {
+      const score = scoreOf(info, symbol);
+      if (score < bestScore) { bestScore = score; best = symbol; }
+    }
+    return best;
+  }
+
+  /**
+   * Give any miner/surveyor that doesn't already have a field pin one,
+   * spread across the system's known asteroids via pickFieldAssignment()
+   * instead of letting each ship's own picker converge on whichever is
+   * nearest. Runs every tick but is a no-op past the first pass for any
+   * given ship — once mineAt() pins it (here or by the operator), this
+   * skips it for good; unpinMining() hands it back to this pass. Covers a
+   * brand-new purchase's first assignment and, just as importantly, a
+   * one-time migration of every miner/surveyor bought before this existed
+   * (none of them have a pin yet, so they all get spread out the first
+   * tick after this ships).
+   */
+  private async maybeAssignFields(): Promise<void> {
+    if (!this.doctrine.isEnabledOr("fieldSpreadEnabled", true)) return;
+    for (const [shipSymbol, agent] of [...this.miners.entries(), ...this.surveyors.entries()]) {
+      if (agent.pinnedField()) continue;
+      const field = this.pickFieldAssignment(shipSymbol);
+      if (!field) continue;
+      try {
+        await this.mineAt(shipSymbol, field);
+      } catch (err) {
+        this.log(`field auto-assign ${shipSymbol} -> ${field} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
   /** Release a ship from manual dispatch back to autonomous operation. */
   /**
    * Pin a mining ship to one asteroid field. Unlike `dispatchShip`, this leaves
@@ -6507,6 +6599,7 @@ export class FleetManager {
       await this.timed("maybeGrowExplorers", () => this.maybeGrowExplorers());
       await this.timed("maybeBuyShip", () => this.maybeBuyShip());
       await this.timed("maybeResolveNewShipRoles", () => this.maybeResolveNewShipRoles());
+      await this.timed("maybeAssignFields", () => this.maybeAssignFields());
       await this.timed("resolvePendingKeeperProbeApproval:buyKeeperProbe", () => this.resolvePendingKeeperProbeApproval("buyKeeperProbe"));
       await this.timed("resolvePendingKeeperProbeApproval:buyKeeperProbeForMarket", () => this.resolvePendingKeeperProbeApproval("buyKeeperProbeForMarket"));
       await this.timed("advanceKeeperMarketQueue", () => this.advanceKeeperMarketQueue());
