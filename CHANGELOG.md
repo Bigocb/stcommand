@@ -11,6 +11,38 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **A trader mid-arbitrage now has a real claim on itself, closing the gap
+  that let a mission/feed auto-pick grab it out from under an in-progress
+  trade.** Confirmed live 2026-09-29: right after resuming the FAB_MATS
+  mission, its carrier auto-pick grabbed THEO-1 mid-route — 40u
+  ASSAULT_RIFLES just bought at E55 (~134,160c) for resale at J70 (the
+  only other market in-system that trades them, at 4419c/u; the mission's
+  own market doesn't trade them at all). `availableFor("mission")` only
+  answers "who's claimed" — a plain trader running its own ordinary
+  buy-fly-sell loop was never claimed by anything, the same "auto" bucket
+  as a genuinely idle, empty ship, so it looked identical to one. First
+  pass patched `pickMissionCarrier()`/`pickFeedCarrier()` directly with a
+  same-hold-must-be-empty check; reverted in favor of the real fix once
+  it was clear every other owner (rescue/repair/mission/feed/keeper)
+  already has its own claim and this was the one role that didn't — a
+  per-picker cargo check would leave the identical gap in every other
+  `availableFor()` caller (`auto`-promotion included) and in any future
+  one. Added a new `"trading"` claim owner (`src/engine/shipRegistry.ts`),
+  ranked above mission/feed/warehouse/keeper (an operator's committed
+  trade capital shouldn't be interruptible by a fleet subsystem's own
+  pick) but below rescue/repair (a stranded or critically damaged ship is
+  still more urgent). `FleetManager.syncShipClaims()` now derives it for
+  any `role === "trader"` ship currently holding cargo — deliberately
+  `trader`-only, not miners, since ore in a miner's hold is its ordinary
+  working state and exactly the pool a "mine" feed drafts carriers from;
+  claiming that too would starve mine-feed crew picking. Unlike
+  mission/feed/rescue/repair, a "trading" claim does NOT suspend the
+  ship's own agent — it's still running its normal tick(), not being
+  driven by a subsystem via raw API calls, so nothing about its own
+  autonomous operation changes; the claim only makes it invisible to
+  every *other* subsystem's carrier picker until its hold empties out
+  again. **Not yet verified against a live fleet or the test suite** —
+  typechecked clean, remote test Postgres unreachable again this session.
 - **The mission price baseline (below) now persists on the mission's own
   record, not in memory, and backfills from real market history instead
   of the live price at the moment it's first set.** Operator-requested

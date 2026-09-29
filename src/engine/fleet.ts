@@ -3886,7 +3886,10 @@ export class FleetManager {
     // warehouse/keeper/auto, so a ship claimed by any of those is still
     // available to a mission; only operator beats it) — same result as the
     // old notBusy() + notClaimedAgainstMission() combination, minus the
-    // duplicate logic.
+    // duplicate logic. A trader actively mid-trade (cargo bought for a
+    // specific destination) is excluded too, but via the registry itself —
+    // syncShipClaims() now claims such a ship "trading" (see shipRegistry.ts's
+    // own comment), which outranks "mission" — not a bespoke check here.
     const available = this.availableFor("mission");
     const candidates: { sym: string; cargo: number; fuelCap: number }[] = [];
     for (const [s, a] of this.miners) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
@@ -6194,7 +6197,16 @@ export class FleetManager {
                   ? "feed"
                   : s.role === "keeper"
                     ? "keeper"
-                    : "auto";
+                    // A plain trader mid-arbitrage (cargo already bought for
+                    // a specific destination) gets its own claim rather than
+                    // falling to "auto" — see shipRegistry.ts's own comment
+                    // on "trading" for the live incident this closes.
+                    // Deliberately role === "trader" only, not miners: ore
+                    // in a miner's hold is its ordinary working state, and
+                    // exactly the pool a "mine" feed drafts carriers from.
+                    : s.role === "trader" && (this.cachedShip(s.symbol)?.cargo.units ?? 0) > 0
+                      ? "trading"
+                      : "auto";
       // Phase 4 (docs/ship-control-state-audit.md), the "smaller alternative":
       // a full rewrite of every agent's run-loop gating onto a registry read
       // was judged too risky to do blind (no live-game test coverage). This

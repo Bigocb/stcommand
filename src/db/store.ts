@@ -269,7 +269,7 @@ export interface ManifestRow {
 }
 
 /** Greenfield Phase 4: mirrors src/engine/shipRegistry.ts's `Claim` shape — see that file for the ownership model this persists. */
-export type ShipOwner = "operator" | "rescue" | "repair" | "mission" | "feed" | "warehouse" | "keeper" | "auto";
+export type ShipOwner = "operator" | "rescue" | "repair" | "trading" | "mission" | "feed" | "warehouse" | "keeper" | "auto";
 
 export interface ClaimRow {
   shipSymbol: string;

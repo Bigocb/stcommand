@@ -68,7 +68,26 @@ import type { Store } from "../db/store.js";
 // already exclude each other's committedShips() before ever attempting a
 // claim, so this ordering shouldn't matter in practice — it exists so the
 // registry itself still enforces exclusivity if that ever doesn't hold.
-export type Owner = "operator" | "rescue" | "repair" | "mission" | "feed" | "warehouse" | "keeper" | "auto";
+// "trading" added 2026-09-29: a trader mid-arbitrage (cargo already bought
+// for a specific destination) was never a fleet subsystem driving it via raw
+// API calls the way rescue/repair/mission/feed are, so it had no claim of its
+// own — syncShipClaims() fell through to "auto" for it, the same bucket as a
+// genuinely idle, empty ship. Confirmed live: a mission's carrier auto-pick
+// grabbed a trader that had just spent ~134,160c on 40u ASSAULT_RIFLES at
+// E55 for resale at J70 (the only other market in-system that even trades
+// them), mid-route — the mission's own market doesn't buy rifles at all, so
+// clearUnrelatedCargo() would have sold at a steep loss or outright
+// jettisoned them, "available" having answered a question that was never
+// actually "is this ship busy" in the first place. Deliberately narrower
+// than "any cargo": a miner holding ore mid-cycle is its ordinary working
+// state (and exactly the pool "mine" feeds draft carriers from), not a
+// committed trade with a specific destination — see fleet.ts's
+// syncShipClaims(), which only derives "trading" for role === "trader".
+// Ranked above mission/feed/warehouse/keeper (an operator's committed trade
+// capital shouldn't be interruptible by a fleet subsystem's own carrier
+// pick) but below rescue/repair (a stranded or critically damaged ship is
+// still a bigger emergency than delaying a trade's delivery).
+export type Owner = "operator" | "rescue" | "repair" | "trading" | "mission" | "feed" | "warehouse" | "keeper" | "auto";
 export type ShipRole = "miner" | "trader" | "surveyor" | "tour" | "keeper" | "scout" | "siphoner" | "explorer" | "warehouse" | "idle";
 
 export interface Claim {
@@ -79,7 +98,7 @@ export interface Claim {
   since: string; // ISO
 }
 
-const PRECEDENCE: Record<Owner, number> = { operator: 0, rescue: 1, repair: 2, mission: 3, feed: 4, warehouse: 5, keeper: 6, auto: 7 };
+const PRECEDENCE: Record<Owner, number> = { operator: 0, rescue: 1, repair: 2, trading: 3, mission: 4, feed: 5, warehouse: 6, keeper: 7, auto: 8 };
 
 export class ShipRegistry {
   private claims = new Map<string, Claim>();
