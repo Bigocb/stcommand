@@ -11,6 +11,33 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Field-spreading was silently dropping committed miners out of their
+  feed's crew — fixed.** Confirmed live 2026-09-29: over a dozen ships
+  (THEO-3, 7, 12, C, 27, 28, 29, 32, 34, 35, 39, 2A, 2C, ...) got kicked
+  from the IRON_ORE→H63 feed the moment they arrived at their newly
+  spread-out field, each logged by `feed.ts`'s `stepCarrier()` as "cannot
+  reach target (no viable route); releasing". Root cause:
+  `pickFieldAssignment()` had no idea a feed commitment even existed — it
+  only weighed crowding/STRIPPED/drift-reachability *to* the field, never
+  reachability *back* from the field to whatever market the ship was
+  already committed to buying for. A field can be perfectly fine to reach
+  and still leave the ship unable to get its cargo to the feed's target
+  market, which is exactly what `stepCarrier()`'s own separate
+  reachability check (correctly) then treats as a release. Fixed two ways:
+  `FeedManager.feedTargetFor()`/`targetForMineGood()` (`src/engine/feed.ts`)
+  expose a ship's feed commitment (the latter survives even after a
+  release, since `setMinerPreference()` is never cleared by
+  `stepCarrier()`'s unreachability release — only a deliberate crew-size
+  change, pause, or removal clears it); `pickFieldAssignment()` now heavily
+  deprioritizes a candidate field that would strand a feed-committed ship,
+  and a new `reconcileStrandedFeedFields()` (`src/engine/fleet.ts`, run at
+  the top of every `maybeAssignFields()` pass) unpins any *already*-pinned
+  miner/surveyor whose current field strands it from a feed its surviving
+  preference says it should still be reachable to, handing it straight to
+  the corrected picker for reassignment. **Not yet verified against a live
+  fleet or the test suite** — typechecked clean, remote test Postgres
+  unreachable again this session; watch for the released ships rejoining
+  their feed's crew and the "cannot reach target" log line stopping.
 - **Field-spreading now avoids assigning a miner/surveyor a field it can
   only reach via DRIFT, when a comparably-good field it can reach on
   ordinary CRUISE hops exists.** Confirmed live 2026-09-29 right after the
