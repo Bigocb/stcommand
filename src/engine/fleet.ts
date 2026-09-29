@@ -5564,7 +5564,20 @@ export class FleetManager {
     stops.sort((a, b) => this.estimatedFuelBetween(a, waypointSymbol) - this.estimatedFuelBetween(b, waypointSymbol));
     const next = stops.find((s) => this.estimatedFuelBetween(start, s) <= budget);
     if (!next) {
-      this.log(`${shipSymbol} cannot hop toward ${waypointSymbol} from ${start} (no reachable fuel stop)`);
+      // No CRUISE-reachable stepping stone — but DRIFT reaches any same-
+      // system distance for a small flat fuel cost regardless of budget
+      // (confirmed live: an 80-fuel ship drifted 334 units and landed with
+      // 79/80 remaining — see canReachTarget()'s own comment for the same
+      // finding). Giving up here used to strand a feed carrier with a full
+      // hold indefinitely: confirmed live 2026-09-29, THEO-2D (and 14 other
+      // ships) sat retrying this exact log line every ~3 minutes for hours,
+      // never once trying DRIFT, because this function's own reachability
+      // math never got the fix canReachTarget() did.
+      this.log(`${shipSymbol} no CRUISE stepping stone toward ${waypointSymbol} from ${start}; drifting there directly`);
+      if (status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);
+      await this.api.patchShipNav(shipSymbol, "DRIFT");
+      const res = await this.api.navigateShip(shipSymbol, waypointSymbol);
+      this.log(`${shipSymbol} drifting ${start} -> ${waypointSymbol} (${res.fuel.current}/${res.fuel.capacity} fuel)`);
       return;
     }
     if (status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);

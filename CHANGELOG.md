@@ -11,6 +11,28 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fixed the second CRUISE-only reachability bug that kept feed carriers
+  stranded with a full hold, indefinitely — `dispatchShipHop()` had its
+  own separate, unfixed copy of the same wrong fuel model
+  `canReachTarget()`'s fix (below) already addressed.** Even after that
+  fix let the IRON_ORE feed's crew climb back to 20/24, checking actual
+  throughput found the same underlying bug one layer deeper: 15 of the 20
+  crew ships had gone completely silent for 2-7+ hours each, despite
+  hundreds of extractions fleet-wide. Root cause: `dispatchShipHop()`
+  (`src/engine/fleet.ts`, used by both feed and mission dispatch) is a
+  *separate* function from `canReachTarget()` — it decides how to actually
+  move a ship once eligibility already passed, and it still searched only
+  for a CRUISE-reachable stepping-stone fuel market, giving up and
+  retrying every ~3 minutes forever when none existed within the tank's
+  CRUISE budget. Confirmed live: THEO-2D logged "cannot hop toward
+  X1-SJ91-H63 from X1-SJ91-B26 (no reachable fuel stop)" roughly every 3
+  minutes for hours, cargo full, never moving an inch, since DRIFT was
+  never attempted. Fixed the same way as `canReachTarget()`: when no
+  CRUISE stepping stone exists, switch to DRIFT and navigate directly to
+  the real destination instead of giving up. **Not yet verified against a
+  live fleet** — typechecked clean, remote test Postgres still
+  unreachable; watch for the stalled ships' IRON_ORE deliveries resuming
+  and the "cannot hop toward" log line stopping for good.
 - **Fixed the real cause of miners getting silently kicked from their
   feed's crew after field-spreading moved them — `canReachTarget()`'s
   fuel model was simply wrong.** Confirmed live 2026-09-29: over a dozen
