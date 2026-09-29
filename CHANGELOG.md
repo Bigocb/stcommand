@@ -11,6 +11,27 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Mission material buying now catches a runaway price building up in
+  small steps, not just a single big jump.** Confirmed live 2026-09-29:
+  after the operator resumed the FAB_MATS→I67 SUPPLY_CONSTRUCTION mission,
+  THEO-1's buy price climbed 1618c → 1609c → 1747c → 1736c → 1902c →
+  2054c → 2231c → 2436c → 2675c — a 65% cumulative rise over 7 cycles,
+  ~591,000c spent with zero revenue (SUPPLY_CONSTRUCTION has no cash
+  payout at all; that's how the mechanic works). The existing
+  `MAX_MISSION_BUY_INFLATION` gate (`src/engine/mission.ts`, added
+  2026-09-11 after an almost identical incident cost 3.7M credits) only
+  compares against the price at the *previous* re-shop, so it never
+  caught this: every individual hike was 6-10%, well under its 25%
+  threshold, even though they compounded to 65%. Added
+  `TaskState.firstSeenPrice` — recorded once per material, the first time
+  this mission ever buys it, and deliberately never reset by
+  `blockMaterial()`'s re-shop (unlike `t.basePrice`, which resets every
+  cycle) — and a new `MAX_MISSION_BUY_INFLATION_CUMULATIVE` (40%) check
+  against it, with a 30-minute cooldown rather than the usual 5-minute
+  re-shop retry, since a cumulative breach means the material itself has
+  run away, not just this one market visit. **Not yet verified against a
+  live fleet or the test suite** — typechecked clean, remote test
+  Postgres still unreachable this session.
 - **Fixed the second CRUISE-only reachability bug that kept feed carriers
   stranded with a full hold, indefinitely — `dispatchShipHop()` had its
   own separate, unfixed copy of the same wrong fuel model

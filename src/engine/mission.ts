@@ -616,6 +616,7 @@ export class MissionManager {
       }
       t.market = buyers[0]!.waypoint;
       t.basePrice = buyers[0]!.purchasePrice;
+      (t.firstSeenPrice ??= {})[t.currentMaterial] ??= buyers[0]!.purchasePrice;
     }
 
     const material = t.currentMaterial;
@@ -674,6 +675,25 @@ export class MissionManager {
         const credits = (await this.getCredits?.()) ?? 0;
         const buyer = (await this.listBuyers?.(material, mission.targetSystem))?.find((b) => b.waypoint === market);
         const price = buyer?.purchasePrice ?? 0;
+        // MAX_MISSION_BUY_INFLATION below only compares against the previous
+        // re-shop's price, so a run of individually-small hikes evades it —
+        // see MAX_MISSION_BUY_INFLATION_CUMULATIVE's own comment for the live
+        // incident (591,000c spent, 65% cumulative price rise, no single hike
+        // over 10%) this check exists for. A cumulative breach means the
+        // material itself has genuinely run away, not just this one market
+        // visit — 30 minutes instead of the usual 5m re-shop cooldown, so this
+        // doesn't just spam the same wall every few minutes while the price
+        // has no real reason to have moved yet.
+        const firstSeen = t.firstSeenPrice?.[material];
+        if (firstSeen !== undefined && price > firstSeen * (1 + MAX_MISSION_BUY_INFLATION_CUMULATIVE)) {
+          (t.blockedUntil ??= {})[material] = Date.now() + 30 * 60_000;
+          t.currentMaterial = undefined;
+          t.market = undefined;
+          t.basePrice = undefined;
+          t.retryAt = Date.now() + 15_000;
+          this.log(`mission ${mission.targetWaypoint}: ${material} price at ${market} has risen ${Math.round((price / firstSeen - 1) * 100)}% above its first-seen ${firstSeen}c (now ${price}c) — pausing this material for 30m instead of chasing it further`);
+          return;
+        }
         // This market's own repeated buying can inflate its own price far
         // past what made it worth choosing in the first place — see
         // MAX_MISSION_BUY_INFLATION's doc comment for the live incident this
@@ -806,8 +826,16 @@ interface TaskState {
   currentMaterial?: string;
   market?: string;
   /** The purchase price seen when `market` was chosen for `currentMaterial` —
-   *  see MAX_MISSION_BUY_INFLATION's own comment for why this exists. */
+   *  see MAX_MISSION_BUY_INFLATION's own comment for why this exists.
+   *  Reset on every re-shop (blockMaterial()), unlike firstSeenPrice below. */
   basePrice?: number;
+  /** tradeSymbol -> the first purchase price ever observed for it on this
+   *  mission, set once and never overwritten — see
+   *  MAX_MISSION_BUY_INFLATION_CUMULATIVE's own comment for why this exists
+   *  separately from basePrice. Deliberately NOT cleared by blockMaterial():
+   *  the whole point is to survive every re-shop so a series of individually-
+   *  small hikes can't add up to a runaway price unnoticed. */
+  firstSeenPrice?: Record<string, number>;
   retryAt: number;
   /** tradeSymbol -> timestamp before which material-selection should skip it
    *  in favor of a different outstanding material. See blockMaterial(). */
@@ -830,3 +858,24 @@ interface TaskState {
  * market being run dry by repeat visits.
  */
 const MAX_MISSION_BUY_INFLATION = 0.25;
+
+/**
+ * How far a mission buy's live price may drift above `t.firstSeenPrice`
+ * (the price recorded the very first time this mission ever bought this
+ * material, never reset by a re-shop) before refusing to buy at all.
+ * MAX_MISSION_BUY_INFLATION alone doesn't catch this: it only compares
+ * against the *previous* re-shop's price, so a series of hikes each under
+ * 25% sail through indefinitely — exactly what happened live 2026-09-29:
+ * THEO-1's FAB_MATS buys climbed 1618c -> 1609c -> 1747c -> 1736c -> 1902c
+ * -> 2054c -> 2231c -> 2436c -> 2675c, a 65% cumulative rise over 7 cycles
+ * (each individual jump 6-10%, well under the 25% per-cycle gate), costing
+ * ~591,000c with zero revenue since SUPPLY_CONSTRUCTION missions have no
+ * cash payout at all — this is exactly the same class of loss
+ * MAX_MISSION_BUY_INFLATION was built to prevent, just spread across more,
+ * smaller steps instead of one big one. 40% is looser than the per-cycle
+ * 25% on purpose — genuine multi-hour price drift on a long mission
+ * shouldn't trip this on its own — but it puts a real ceiling on how far a
+ * single material can run away before this stops paying up and waits for
+ * the market (or the operator) instead.
+ */
+const MAX_MISSION_BUY_INFLATION_CUMULATIVE = 0.4;
