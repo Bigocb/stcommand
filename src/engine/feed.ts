@@ -476,30 +476,6 @@ export class FeedManager {
     return out;
   }
 
-  /** The target waypoint of whichever feed `shipSymbol` is currently
-   *  assigned to, if any — so a caller relocating that ship (e.g. field
-   *  assignment) can check it won't strand a feed commitment the ship
-   *  already has, rather than finding out only after `stepCarrier()`'s own
-   *  reachability check releases it. */
-  feedTargetFor(shipSymbol: string): string | undefined {
-    for (const f of this.active.values()) {
-      if (f.assignedShips.includes(shipSymbol)) return f.targetWaypoint;
-    }
-    return undefined;
-  }
-
-  /** The target waypoint of the first active "mine" feed sourcing `good`, if
-   *  any. Unlike feedTargetFor(), this doesn't require the ship to still be
-   *  assigned — setMinerPreference() is never cleared by stepCarrier()'s own
-   *  unreachability release (only by a deliberate crew-size/pause/remove
-   *  change), so a ship's surviving preference is exactly the signal needed
-   *  to reconcile it back onto a field that keeps it feed-reachable. */
-  targetForMineGood(good: string): string | undefined {
-    for (const f of this.active.values()) {
-      if (f.mine && f.good === good) return f.targetWaypoint;
-    }
-    return undefined;
-  }
 
   async assignCarrier(targetWaypoint: string, good: string, shipSymbol: string): Promise<void> {
     const key = this.key(targetWaypoint, good);

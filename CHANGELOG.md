@@ -11,33 +11,41 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
-- **Field-spreading was silently dropping committed miners out of their
-  feed's crew — fixed.** Confirmed live 2026-09-29: over a dozen ships
-  (THEO-3, 7, 12, C, 27, 28, 29, 32, 34, 35, 39, 2A, 2C, ...) got kicked
-  from the IRON_ORE→H63 feed the moment they arrived at their newly
-  spread-out field, each logged by `feed.ts`'s `stepCarrier()` as "cannot
-  reach target (no viable route); releasing". Root cause:
-  `pickFieldAssignment()` had no idea a feed commitment even existed — it
-  only weighed crowding/STRIPPED/drift-reachability *to* the field, never
-  reachability *back* from the field to whatever market the ship was
-  already committed to buying for. A field can be perfectly fine to reach
-  and still leave the ship unable to get its cargo to the feed's target
-  market, which is exactly what `stepCarrier()`'s own separate
-  reachability check (correctly) then treats as a release. Fixed two ways:
-  `FeedManager.feedTargetFor()`/`targetForMineGood()` (`src/engine/feed.ts`)
-  expose a ship's feed commitment (the latter survives even after a
-  release, since `setMinerPreference()` is never cleared by
-  `stepCarrier()`'s unreachability release — only a deliberate crew-size
-  change, pause, or removal clears it); `pickFieldAssignment()` now heavily
-  deprioritizes a candidate field that would strand a feed-committed ship,
-  and a new `reconcileStrandedFeedFields()` (`src/engine/fleet.ts`, run at
-  the top of every `maybeAssignFields()` pass) unpins any *already*-pinned
-  miner/surveyor whose current field strands it from a feed its surviving
-  preference says it should still be reachable to, handing it straight to
-  the corrected picker for reassignment. **Not yet verified against a live
-  fleet or the test suite** — typechecked clean, remote test Postgres
-  unreachable again this session; watch for the released ships rejoining
-  their feed's crew and the "cannot reach target" log line stopping.
+- **Fixed the real cause of miners getting silently kicked from their
+  feed's crew after field-spreading moved them — `canReachTarget()`'s
+  fuel model was simply wrong.** Confirmed live 2026-09-29: over a dozen
+  ships (THEO-3, 7, 12, C, 27, 28, 29, 32, 34, 35, 39, 2A, 2C, ...) got
+  released from the IRON_ORE→H63 feed the moment they arrived at their new
+  field, each logged by `feed.ts`'s `stepCarrier()` as "cannot reach
+  target (no viable route); releasing". `canReachTarget()`
+  (`src/engine/fleet.ts`) treated a leg needing more fuel than the tank
+  holds *at CRUISE* as unreachable — wrong, because DRIFT doesn't scale
+  fuel with distance the way CRUISE does. Verified directly against
+  production: THEO-31 departed at 80/80 fuel, needed 334 at CRUISE for a
+  same-system leg, flew it on DRIFT, and landed at 79/80 — one fuel unit
+  for the whole leg. A same-system destination is essentially always
+  reachable this way; the old distance-based BFS was rejecting legs that
+  the ship could fly for pocket change in fuel, just slowly.
+  `canReachTarget()` now simply checks same-system-ness (plus a non-zero
+  tank) instead of doing fuel-budget arithmetic that assumed CRUISE-only
+  travel.
+
+  This shipped after two earlier attempts in the same session that treated
+  the symptom instead of the cause and are now reverted: a
+  `pickFieldAssignment()` penalty for a field that couldn't reach the
+  feed's target "without drift," and a `reconcileStrandedFeedFields()` pass
+  that re-picked a field every tick for any ship still failing that check.
+  Since DRIFT is actually cheap, *no* field within a realistic distance of
+  H63 passed that check, so `reconcileStrandedFeedFields()` unpinned and
+  reassigned the same ~18 ships every tick forever — a live infinite loop,
+  caught and reverted within minutes of deploying by watching the app
+  logs repeat identical unpin messages every ~20 seconds. Removed both;
+  the actual fix needed to live in `canReachTarget()`, not in avoiding
+  distance. **Not yet verified against a live fleet or the test suite**
+  (remote test Postgres still unreachable this session) beyond the fact
+  that the reverted infinite loop has stopped — watch for the affected
+  ships rejoining the feed crew and the "cannot reach target" log line
+  disappearing entirely.
 - **Field-spreading now avoids assigning a miner/surveyor a field it can
   only reach via DRIFT, when a comparably-good field it can reach on
   ordinary CRUISE hops exists.** Confirmed live 2026-09-29 right after the

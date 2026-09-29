@@ -4626,6 +4626,26 @@ export class FleetManager {
    * chain of fuel stops where each hop fits in a full tank. Falls back to the
    * direct-tank check when positions are unknown.
    */
+  /**
+   * Same-system is always reachable, full stop — DRIFT costs a small flat
+   * amount of fuel regardless of distance, not a distance-scaled amount, so
+   * "CRUISE would need more fuel than the tank holds" says nothing about
+   * whether the leg is actually flyable. Confirmed live 2026-09-29: THEO-31
+   * departed at 80/80 fuel, needed 334 at CRUISE for a same-system leg, flew
+   * it on DRIFT, and arrived at 79/80 — one fuel unit for the whole leg.
+   *
+   * This function used to reject exactly that leg (the old distance-vs-
+   * capacity BFS below, now removed), which is what caused feed.ts's
+   * stepCarrier() to release over a dozen ships from the IRON_ORE feed the
+   * moment field-spreading sent them somewhere CRUISE alone couldn't reach —
+   * despite every one of them actually being able to drift there and back
+   * for pocket change in fuel. The real cost of a long leg is time, not
+   * fuel; this function only answers "can it get there at all," which for a
+   * same-system leg with any fuel in the tank is always yes.
+   *
+   * Only a cross-system leg is genuinely unreachable here — this function
+   * has never handled jump-gate routing, and still doesn't.
+   */
   private async canReachTarget(shipSymbol: string, targetWaypoint: string): Promise<boolean> {
     const ship = this.cachedShip(shipSymbol);
     const cap = ship?.fuel.capacity ?? 0;
@@ -4633,29 +4653,7 @@ export class FleetManager {
     const start = this.shipWaypoint(shipSymbol);
     if (!start) return false;
     if (targetWaypoint === start) return true;
-    const direct = this.estimatedFuelBetween(start, targetWaypoint);
-    if (direct <= cap) return true;
-    if (!Number.isFinite(direct)) return false;
-
-    const systemSymbol = targetWaypoint.slice(0, targetWaypoint.lastIndexOf("-"));
-    const stops = await this.fuelStops(systemSymbol);
-    stops.add(start);
-    stops.add(targetWaypoint);
-    const seen = new Set<string>();
-    const queue = [start];
-    while (queue.length > 0) {
-      const cur = queue.shift()!;
-      if (seen.has(cur)) continue;
-      seen.add(cur);
-      for (const next of stops) {
-        if (seen.has(next)) continue;
-        if (this.estimatedFuelBetween(cur, next) <= cap) {
-          if (next === targetWaypoint) return true;
-          queue.push(next);
-        }
-      }
-    }
-    return false;
+    return this.registry.systemOf(start) === this.registry.systemOf(targetWaypoint);
   }
 
   private async suspendAgent(symbol: string): Promise<void> {
@@ -5650,17 +5648,6 @@ export class FleetManager {
     return false;
   }
 
-  /**
-   * Assigning a field this session found the hard way that a field's own
-   * reachability isn't the whole picture: a "mine" feed's crew member has to
-   * stay reachable FROM the field back TO the feed's target market too, or
-   * `feed.ts`'s own `stepCarrier()` releases it on the very next step it
-   * evaluates ("cannot reach target (no viable route); releasing"). Confirmed
-   * live 2026-09-29: field-spreading silently dropped over a dozen ships from
-   * the IRON_ORE→H63 feed's crew this way — it had no idea a feed commitment
-   * even existed, so it happily spread committed miners to fields the feed
-   * itself would immediately reject them from.
-   */
   private pickFieldAssignment(shipSymbol: string): string | undefined {
     const occupancy = this.fieldOccupancy();
     if (occupancy.size === 0) return undefined;
@@ -5668,15 +5655,12 @@ export class FleetManager {
     const avoidStripped = this.doctrine.isEnabledOr("avoidStrippedFields", true);
     const avoidDrift = this.doctrine.isEnabledOr("avoidDriftFields", true);
     const ship = this.cachedShip(shipSymbol);
-    const feedTarget = this.feeds.feedTargetFor(shipSymbol);
     const scoreOf = (info: { stripped: boolean; count: number }, symbol: string): number => {
       const dist = ship ? this.registry.distance(ship.nav.waypointSymbol, symbol) : 0;
       const needsDrift = avoidDrift && ship !== undefined &&
         !this.reachableWithoutDrift(ship.nav.waypointSymbol, symbol, ship.fuel.capacity);
-      const strandsFeed = ship !== undefined && feedTarget !== undefined &&
-        !this.reachableWithoutDrift(symbol, feedTarget, ship.fuel.capacity);
       return info.count * 1_000 + (avoidStripped && info.stripped ? 5_000 : 0) + (needsDrift ? 50_000 : 0) +
-        (strandsFeed ? 200_000 : 0) + (Number.isFinite(dist) ? dist : 100_000);
+        (Number.isFinite(dist) ? dist : 100_000);
     };
     let best: string | undefined;
     let bestScore = Infinity;
@@ -5709,7 +5693,6 @@ export class FleetManager {
    */
   private async maybeAssignFields(): Promise<void> {
     if (!this.doctrine.isEnabledOr("fieldSpreadEnabled", true)) return;
-    await this.reconcileStrandedFeedFields();
     for (const [shipSymbol, agent] of [...this.miners.entries(), ...this.surveyors.entries()]) {
       if (agent.pinnedField()) continue;
       const field = this.pickFieldAssignment(shipSymbol);
@@ -5719,40 +5702,6 @@ export class FleetManager {
       } catch (err) {
         this.log(`field auto-assign ${shipSymbol} -> ${field} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
-  }
-
-  /**
-   * Undo the one thing pickFieldAssignment()'s own feed-reachability check
-   * (see its comment) can't reach on its own: a ship pinned to a field
-   * *before* that check existed can already be stuck somewhere that strands
-   * it from a feed it's meant to be sourcing for. Confirmed live 2026-09-29:
-   * field-spreading's initial rollout silently dropped over a dozen ships
-   * from the IRON_ORE→H63 feed's crew this exact way, each logged by
-   * feed.ts's stepCarrier() as "cannot reach target (no viable route);
-   * releasing" the moment it arrived at its new field.
-   *
-   * setMinerPreference() survives that release (only a deliberate crew-size
-   * change, pause, or removal clears it — see feed.ts), so a ship's
-   * surviving preference is exactly the signal that it's *supposed* to be
-   * feed-reachable even though nothing here still lists it as assigned.
-   * Unpinning it hands the ship straight to this same pass's own
-   * maybeAssignFields() loop below, which now scores feed-reachability
-   * correctly and won't send it right back to the same dead end.
-   */
-  private async reconcileStrandedFeedFields(): Promise<void> {
-    for (const [shipSymbol, agent] of [...this.miners.entries(), ...this.surveyors.entries()]) {
-      const field = agent.pinnedField();
-      if (!field) continue;
-      const good = this.minerPreferences.get(shipSymbol);
-      if (!good) continue;
-      const target = this.feeds.targetForMineGood(good);
-      if (!target) continue;
-      const ship = this.cachedShip(shipSymbol);
-      if (!ship) continue;
-      if (this.reachableWithoutDrift(field, target, ship.fuel.capacity)) continue;
-      this.log(`${shipSymbol}: field ${field} strands it from its feed (${good} → ${target}); unpinning for reassignment`);
-      await this.unpinMining(shipSymbol);
     }
   }
 
