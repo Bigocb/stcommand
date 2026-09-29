@@ -11,6 +11,30 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Miners and surveyors now route through intermediate fuel stops for a
+  multi-hop leg, instead of one long DRIFT covering the whole distance.**
+  `ShipAgent.navigateTo()` (`src/engine/agent.ts`, shared by both roles)
+  handed every destination straight to `ShipProxy.navigateTo()`, whose own
+  `findFuelStop()` only accepts a stop that reaches the *final* destination
+  in one more hop — a leg needing three or more hops has no such stop and
+  falls all the way back to a single DRIFT. `trader.ts` hit this exact gap
+  and got its own `nextHopToward()` stepping-stone redirect on 2026-09-27;
+  `agent.ts` never got the equivalent. Confirmed live 2026-09-29: right
+  after field-spreading (below) started sending miners/surveyors to
+  asteroids well outside the old crowded-near-the-shipyard range, every one
+  of them dropped into hours-long DRIFT for legs a couple of ordinary
+  CRUISE hops would have covered — field-spreading didn't cause this bug,
+  it just made every ship hit it at once instead of it lurking unnoticed.
+  Fixed with `ShipAgent.nextHopToward()`, mirroring trader.ts's version
+  against the shared `Registry` (`marketEndpoints()`/`fuelFor()`) instead
+  of trader's own `priceTable`: `navigateTo()` now redirects through the
+  nearest known fuel-selling market that makes progress toward the real
+  destination whenever the direct leg exceeds the tank. **Not yet verified
+  against a live fleet or the test suite** — typechecked clean, but the
+  remote test Postgres has been unreachable all session (see the
+  field-spreading entry below for the same, still-open gap); watch live
+  miner/surveyor ETAs after this deploys to confirm CRUISE hops replace the
+  DRIFT legs.
 - **Miners and surveyors now spread across the system's known asteroid
   fields instead of all converging on whichever is nearest.** Confirmed
   live 2026-09-29: `pickMiningTarget()`/`pickSurveyTarget()`
@@ -32,12 +56,15 @@ be useful context; not a complete project history — see `git log` for that.
   `mineAt()` pin is never touched. Three new doctrine controls: `maxCrewPerField`
   (default 5), `avoidStrippedFields` (on), `fieldSpreadEnabled` (on) — all
   render automatically in the existing Doctrine tab on every UI version,
-  no frontend changes needed. **Not yet verified against a live fleet** —
-  typechecked clean and one DB-independent unit test passed, but the
-  remaining new tests need the remote test Postgres, which was
-  unreachable (connection timeout) when this shipped; verify the new
-  `describe("FleetManager field spreading...")` block in
-  `tests/fleet.test.ts` passes once it's back.
+  no frontend changes needed. **Verified live 2026-09-29, ~1hr post-deploy**,
+  directly against production Postgres: 25 distinct miners/surveyors
+  (10+2 tracked in `fleet_state` plus 13 more whose role predates that
+  table — see the `fleet_state` coverage gap noted in `docs/TODO.md`),
+  25 distinct asteroid pins, zero collisions. The remaining new unit tests
+  (`describe("FleetManager field spreading...")` in `tests/fleet.test.ts`)
+  still haven't run — remote test Postgres was unreachable (connection
+  timeout) every attempt this session — but live production behavior is
+  now confirmed independently of them.
 - **A newly-bought ship whose hull is role-ambiguous now waits for the
   operator instead of auto-launching into a guessed role.** Confirmed
   live 2026-09-27: buying a shuttle auto-classified it as "tour" and

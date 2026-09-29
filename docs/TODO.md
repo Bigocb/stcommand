@@ -7,6 +7,25 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **`fleet_state` (role assignment) undercounts the real fleet — found
+  2026-09-29 while verifying field-spreading.** Live tenant `7e1ea899` has
+  60 ships in `ship_state` (matches the Fleet tab's own "60 hulls"), but
+  only 44 have a row in `fleet_state`. The other 16 (THEO-3, 6, 7, 12, 14,
+  26, 27, 28, 29, 2A, 2B, 2C, 2D, A, B, C) are genuinely live — `ship_state`
+  shows them actively travelling/returning to asteroid targets seconds
+  before this was checked — they're just invisible to whatever reads
+  `fleet_state` for role summaries, which is exactly why an earlier live
+  headcount in this session under-reported "10 miners" when the operator's
+  own count (closer to 20+) was right. 13 of the 16 have a `minePin` in the
+  `shipManualState` blob (`fleet_flags`) predating this week's
+  field-spreading work, each matching its ship's current live target
+  exactly — so these are old miners that lost their `fleet_state` row at
+  some point without losing their role in practice. Needs root-causing:
+  find what stopped writing/kept a `fleet_state` row for these 16 (a
+  migration that never backfilled older ships? a code path that deletes
+  the row without also stopping the ship?) and fix whatever reads
+  `fleet_state` for fleet-wide role counts (the Fleet tab, `getShipStatuses()`
+  callers) to not silently under-report when this happens again.
 - [ ] **H56 IRON_ORE feed vs. trader buying pressure — live crew-size test,
   in progress 2026-09-26.** Context: H56 is a refinery market — it
   *imports* IRON_ORE (buys from the mine feed's miners) and *exports*

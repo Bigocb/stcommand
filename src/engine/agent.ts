@@ -413,8 +413,41 @@ export class ShipAgent {
     return this.proxy.waitForArrival();
   }
 
+  /** Nearest known fuel-selling market (same system, reachable on a full tank
+   *  from here) that makes real progress toward `destination` — mirrors
+   *  trader.ts's own nextHopToward(), same reasoning: ShipProxy.navigateTo()'s
+   *  findFuelStop() only accepts a stop that reaches the FINAL destination in
+   *  one more hop, so a leg needing three or more hops falls back to a single
+   *  DRIFT covering the whole distance instead of the ordinary CRUISE hops
+   *  that were available. Confirmed live 2026-09-29: field-spreading (see
+   *  pickFieldAssignment() in fleet.ts) started sending miners/surveyors to
+   *  asteroids well outside the old crowded-near-the-shipyard range, and
+   *  every one of them dropped into hours-long DRIFT for it — this class of
+   *  gap already existed, field-spreading just made every ship hit it. */
+  private nextHopToward(destination: string): string | undefined {
+    const here = this.ship.nav.waypointSymbol;
+    const budget = this.ship.fuel.capacity;
+    const stops = this.registry
+      .marketEndpoints(this.registry.systemOf(here))
+      .filter((m) => m.symbol !== here && m.symbol !== destination)
+      .filter((m) => (this.registry.market(m.symbol)?.tradeGoods["FUEL"]?.purchasePrice ?? 0) > 0)
+      .filter((m) => this.registry.fuelFor(here, m.symbol) <= budget);
+    stops.sort((a, b) => this.registry.fuelFor(a.symbol, destination) - this.registry.fuelFor(b.symbol, destination));
+    return stops[0]?.symbol;
+  }
+
   private async navigateTo(waypoint: string): Promise<void> {
-    return this.proxy.navigateTo(waypoint);
+    // A leg beyond the tank's single-hop range routes through nextHopToward()
+    // rather than straight to ShipProxy.navigateTo() — see that method's own
+    // comment for why a direct hand-off falls back to one long DRIFT instead
+    // of the CRUISE hops that exist.
+    let target = waypoint;
+    if (this.ship.nav.status !== "IN_TRANSIT" && this.ship.fuel.capacity > 0 &&
+        this.registry.fuelFor(this.ship.nav.waypointSymbol, waypoint) > this.ship.fuel.capacity) {
+      const hop = this.nextHopToward(waypoint);
+      if (hop) target = hop;
+    }
+    return this.proxy.navigateTo(target);
   }
 
   private cargoFree(): number {
