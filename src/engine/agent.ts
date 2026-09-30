@@ -1148,7 +1148,20 @@ export class ShipAgent {
       if (survey) this.log(`using shared survey at ${this.ship.nav.waypointSymbol}`);
     }
     this.rememberSurvey(survey);
-    while (safety < 60 && this.running) {
+    // Deliberately no `&& this.running` here (unlike the scheduler-tick loops
+    // in nextTask() etc.) — `running` is the ordinary tick-chain lifecycle
+    // flag, false for any ship a fleet subsystem (feed/mission/rescue/repair)
+    // has claimed and suspended so it can drive the ship directly instead.
+    // FeedManager's mineOnce() (see its own comment) is exactly that: it
+    // calls this method on a suspended ship, `running` is already false, and
+    // this condition used to make the loop body never execute a single
+    // iteration — silently, no log, cargo untouched. Confirmed live
+    // 2026-09-29/30: every feed miner with a refine module (routed here
+    // instead of extractUntilFull(), which has no such check and was
+    // unaffected) sat mining nothing for 5.5+ hours, cycling
+    // navigate→orbit→silent-return on every retry. safety<60 is the only
+    // loop guard this needs, same as extractUntilFull()'s safety<40.
+    while (safety < 60) {
       safety += 1;
       // Refine a full batch of ore first (frees room), then mine to refill.
       const target = this.ship.cargo.inventory.find((i) => (REFINE_RECIPES[i.symbol] ?? "") && i.units >= 10);
