@@ -1071,16 +1071,10 @@ export class ShipAgent {
     this.log(`mining at ${target.symbol}`);
     await this.navigateTo(target.symbol);
     await this.ensureInOrbit();
-    // Temporary diagnostic (2026-09-30): see mineOnce()'s own comment.
-    this.log(`mineStep: canRefine=${this.canRefine()} hasSurveyor=${this.hasSurveyor()} cargoFree=${this.cargoFree()} status=${this.ship.nav.status}`);
     if (this.canRefine() && (this.hasSurveyor() || this.refineProfitable())) {
-      this.log("mineStep: routing to mineAndRefine()");
       await this.mineAndRefine();
-      this.log("mineStep: mineAndRefine() returned");
     } else {
-      this.log("mineStep: routing to extractUntilFull()");
       await this.extractUntilFull();
-      this.log("mineStep: extractUntilFull() returned");
     }
     await this.refresh();
     return true;
@@ -1113,29 +1107,10 @@ export class ShipAgent {
    * scheduler-driven nextTask() chain does.
    */
   async mineOnce(): Promise<boolean> {
-    // Temporary diagnostic (2026-09-30): every feed-driven miner has been
-    // silently producing zero extractions for hours with no error/cooldown/
-    // success log anywhere in mineStep()'s own logging, across two separate
-    // live incidents. That silence is itself the mystery — this traces
-    // mineOnce()'s own boundaries (including refresh(), which had no
-    // try/catch of its own) so the next stall shows exactly which call
-    // never returns/throws, instead of another guess. Remove once resolved.
-    this.log("mineOnce: refresh()");
-    try {
-      await this.refresh();
-    } catch (err) {
-      this.log(`mineOnce: refresh() threw: ${err instanceof Error ? err.message : String(err)}`);
-      throw err;
-    }
-    this.log("mineOnce: refresh() done, calling mineStep()");
+    await this.refresh();
     this.schedulerDriven = true;
     try {
-      const result = await this.mineStep();
-      this.log(`mineOnce: mineStep() returned ${result}`);
-      return result;
-    } catch (err) {
-      this.log(`mineOnce: mineStep() threw: ${err instanceof Error ? err.message : String(err)} (Pending=${err instanceof Pending})`);
-      throw err;
+      return await this.mineStep();
     } finally {
       this.schedulerDriven = false;
     }
@@ -1753,11 +1728,8 @@ export class ShipAgent {
       (this.hasSurveyor() ? await this.createAndPickSurvey() : undefined);
     this.rememberSurvey(survey);
     if (survey) this.log(`using survey at ${this.ship.nav.waypointSymbol}`);
-    // Temporary diagnostic (2026-09-30): see mineOnce()'s own comment.
-    this.log(`extractUntilFull: entering loop, cargoFree=${this.cargoFree()}, survey=${Boolean(survey)}`);
     while (this.cargoFree() > 0 && safety < 40) {
       safety += 1;
-      this.log(`extractUntilFull: attempt ${safety}, calling ${survey ? "extractWithSurvey" : "extract"}`);
       try {
         this.currentStep = { kind: "transacting", action: "extract" };
         const res = survey
