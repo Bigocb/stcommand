@@ -104,7 +104,7 @@ every tenant:
   (`Store.TENANT_GAME_TABLES`): ship-keyed state (`fleet_state`,
   `fleet_flags`, `ship_state`, `ship_claims`, `ship_log`,
   `ship_manifest`, `ship_persona`, `ship_position_history`,
-  `held_route`), contracts/missions (`missions`, `pending_approvals`),
+  `held_route`), contracts/missions/feeds (`missions`, `feed_missions`, `pending_approvals`),
   warehouse (`warehouse`, `warehouse_ledger`, `warehouse_targets`), and
   financial/activity history (`ledger`, `bucket_ledger`, `buckets`,
   `activity`, `state_snapshot`). Deliberately **not** included:
