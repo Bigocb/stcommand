@@ -10,15 +10,19 @@ export interface MissionMaterial {
   tradeSymbol: string;
   required: number;
   fulfilled: number;
-  /** The first purchase price ever observed for this material on this
-   *  mission — set once, persisted immediately, and never overwritten
-   *  afterward. See MAX_MISSION_BUY_INFLATION_CUMULATIVE's own comment for
-   *  why this lives on the mission's own persisted record rather than an
-   *  in-memory TaskState: the goal is a baseline that survives a restart,
-   *  since this app redeploys often enough that an in-memory-only version
-   *  would silently re-baseline to whatever the (possibly already
-   *  inflated) price happens to be at that moment. */
-  firstSeenPrice?: number;
+  /** Baseline purchase price for this material, keyed by source market
+   *  waypoint — each market's own historical low, set once the first time
+   *  the mission shops there, persisted immediately, and never overwritten
+   *  afterward. Keyed per market because markets price the same good very
+   *  differently: one baseline taken at market A would wrongly block (or
+   *  wrongly allow) a purchase at market B once the carrier re-shops. See
+   *  MAX_MISSION_BUY_INFLATION_CUMULATIVE's own comment for why this lives
+   *  on the mission's own persisted record rather than an in-memory
+   *  TaskState: the goal is a baseline that survives a restart, since this
+   *  app redeploys often enough that an in-memory-only version would
+   *  silently re-baseline to whatever the (possibly already inflated) price
+   *  happens to be at that moment. */
+  firstSeenPrices?: Record<string, number>;
 }
 
 export type MissionKind = "SUPPLY_CONSTRUCTION";
@@ -439,8 +443,8 @@ export class MissionManager {
   }
 
   /**
-   * Clear a material's persisted `firstSeenPrice`, so the next buy cycle
-   * re-seeds it — preferring the real historical low over whatever the live
+   * Clear a material's persisted per-market `firstSeenPrices`, so the next
+   * buy cycle re-seeds them — preferring the real historical low over whatever the live
    * price happens to be at that moment (see stepCarrier()'s own comment).
    * For an operator to use once they believe a price has genuinely reset
    * (a market recovering, a supply shift) rather than still being run away
@@ -456,7 +460,7 @@ export class MissionManager {
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
     const material = mission.materials.find((m) => m.tradeSymbol === tradeSymbol);
     if (!material) throw new Error(`${waypointSymbol} has no material ${tradeSymbol}`);
-    material.firstSeenPrice = undefined;
+    material.firstSeenPrices = undefined;
     for (const t of this.tasks.get(waypointSymbol)?.values() ?? []) {
       if (t.blockedUntil) delete t.blockedUntil[tradeSymbol];
       if (t.currentMaterial === tradeSymbol) {
@@ -662,7 +666,7 @@ export class MissionManager {
       // material's price finally recovers. Written immediately, not batched
       // into the next reconcile()/persist() pass, so a crash right after
       // this doesn't lose the one observation that mattered.
-      if (need.firstSeenPrice === undefined) {
+      if (need.firstSeenPrices?.[t.market] === undefined) {
         // Prefer the real historical low over "whatever the live price
         // happens to be right now" — this only runs once per material per
         // mission, but that one moment could easily be mid-runaway (exactly
@@ -670,7 +674,8 @@ export class MissionManager {
         // cumulative gate from an already-inflated number and defeat the
         // point. market_snapshots is the append-only price history every
         // recordMarkets() call already writes to regardless of this.
-        need.firstSeenPrice = await this.store?.cheapestKnownPrice(t.market, t.currentMaterial) ?? buyers[0]!.purchasePrice;
+        (need.firstSeenPrices ??= {})[t.market] =
+          await this.store?.cheapestKnownPrice(t.market, t.currentMaterial) ?? buyers[0]!.purchasePrice;
         await this.persist(mission);
       }
     }
@@ -731,6 +736,16 @@ export class MissionManager {
         const credits = (await this.getCredits?.()) ?? 0;
         const buyer = (await this.listBuyers?.(material, mission.targetSystem))?.find((b) => b.waypoint === market);
         const price = buyer?.purchasePrice ?? 0;
+        // No live quote for this market (stale intel, listing dropped) —
+        // both inflation gates below compare against `price`, so a missing
+        // one (0) would sail through them and size the purchase as if the
+        // good were free. Re-shop instead of buying blind.
+        if (!buyer || price <= 0) {
+          t.retryAt = Date.now() + 15_000;
+          this.blockMaterial(t, material);
+          this.log(`mission ${mission.targetWaypoint}: no live price for ${material} at ${market} — re-shopping instead of buying blind`);
+          return;
+        }
         // MAX_MISSION_BUY_INFLATION below only compares against the previous
         // re-shop's price, so a run of individually-small hikes evades it —
         // see MAX_MISSION_BUY_INFLATION_CUMULATIVE's own comment for the live
@@ -740,7 +755,7 @@ export class MissionManager {
         // visit — 30 minutes instead of the usual 5m re-shop cooldown, so this
         // doesn't just spam the same wall every few minutes while the price
         // has no real reason to have moved yet.
-        const firstSeen = need.firstSeenPrice;
+        const firstSeen = need.firstSeenPrices?.[market];
         if (firstSeen !== undefined && price > firstSeen * (1 + MAX_MISSION_BUY_INFLATION_CUMULATIVE)) {
           (t.blockedUntil ??= {})[material] = Date.now() + 30 * 60_000;
           t.currentMaterial = undefined;
@@ -883,7 +898,7 @@ interface TaskState {
   market?: string;
   /** The purchase price seen when `market` was chosen for `currentMaterial` —
    *  see MAX_MISSION_BUY_INFLATION's own comment for why this exists. Reset
-   *  on every re-shop (blockMaterial()), unlike MissionMaterial.firstSeenPrice
+   *  on every re-shop (blockMaterial()), unlike MissionMaterial.firstSeenPrices
    *  (persisted on the mission itself, not here — see its own comment). */
   basePrice?: number;
   retryAt: number;
@@ -911,8 +926,9 @@ const MAX_MISSION_BUY_INFLATION = 0.25;
 
 /**
  * How far a mission buy's live price may drift above
- * `MissionMaterial.firstSeenPrice` (the historical low price recorded the
- * first time this mission ever bought this material, persisted on the
+ * `MissionMaterial.firstSeenPrices[market]` (that market's historical low
+ * price, recorded the first time this mission shops there for this
+ * material, persisted on the
  * mission itself and never reset by a re-shop) before refusing to buy at
  * all. MAX_MISSION_BUY_INFLATION alone doesn't catch this: it only compares
  * against the *previous* re-shop's price, so a series of hikes each under

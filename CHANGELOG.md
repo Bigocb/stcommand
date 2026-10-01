@@ -11,6 +11,23 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Mission price baselines are now per source market, and a missing live
+  price no longer lets a mission buy blind.** Two gaps in the cumulative
+  price gate, found re-reading it on 2026-10-01. (1) `MissionMaterial.
+  firstSeenPrice` was one number per material, seeded from whichever
+  market was picked first — if the carrier later re-shopped to a different
+  market for the same material, that market's price was judged against the
+  first market's historical low, wrongly blocking a fair price or wrongly
+  allowing a high one. Now `firstSeenPrices` is keyed by market waypoint,
+  each seeded from that market's own `cheapestKnownPrice()` the first time
+  the mission shops there. Existing persisted `firstSeenPrice` values are
+  ignored and re-seeded per market from the same history on the next buy
+  (no migration needed — same JSONB column). (2) If `listBuyers()` had no
+  row for the chosen market, `price` was 0, which skipped both inflation
+  gates and sized the purchase as if the good were free. A missing or
+  non-positive quote now triggers a re-shop instead of a buy. Typechecked
+  clean; not run against a live fleet.
+
 - **A trader mid-arbitrage now has a real claim on itself, closing the gap
   that let a mission/feed auto-pick grab it out from under an in-progress
   trade.** Confirmed live 2026-09-29: right after resuming the FAB_MATS
