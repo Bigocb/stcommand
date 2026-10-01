@@ -11,6 +11,30 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Server-reset cleanup now wipes `feed_missions`, and the mission price
+  baseline is a trailing 24h low instead of the all-time minimum.**
+  (1) `feed_missions` wasn't in `Store.TENANT_GAME_TABLES`, so a reset left
+  feeds pointing at dead-universe waypoints with `assigned_ships` symbols
+  (`THEO-N`) that get reused every reset — a surviving feed would have
+  claimed new-universe ships it was never configured for. Nothing stale
+  existed for the 2026-09-27 reset (all feeds were created after it), so
+  this closes the gap before the next one. Same RLS policy as `missions`;
+  the reset endpoint stops the in-memory worker before wiping, so feeds
+  can't write themselves back. (2) The cumulative price gate seeded from
+  `MIN(purchase_price)` over all of `market_snapshots`, but a fresh post-
+  reset market opens at its cheapest: FAB_MATS' baseline was 1020c against
+  a 1020-4555c weekly range, so the 40% ceiling (~1428c) sat permanently
+  below anything the market would offer and the mission refused it.
+  `cheapestKnownPrice()` now takes a `sinceMs` window (and ignores
+  non-positive prices), `MissionMaterial.firstSeenPrices` became
+  `priceBaselines` (`{ price, seededAt }` per market), and a baseline
+  re-seeds once it's older than 24h — still long enough to reach back
+  before a same-day runaway like the 1618c -> 2675c climb. The old
+  persisted `firstSeenPrice(s)` keys are ignored, so the live FAB_MATS and
+  ADVANCED_CIRCUITRY baselines re-seed on their next buy with no operator
+  reset. Typechecked clean; not run against a live fleet (mission tests
+  need a local Postgres).
+
 - **Mission price baselines are now per source market, and a missing live
   price no longer lets a mission buy blind.** Two gaps in the cumulative
   price gate, found re-reading it on 2026-10-01. (1) `MissionMaterial.

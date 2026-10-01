@@ -1191,20 +1191,21 @@ export class Store {
   }
 
   /**
-   * The lowest purchase price ever recorded for one good at one waypoint —
-   * a plain MIN() over the append-only `market_snapshots` history, for
-   * anchoring a "what has this actually cost when not run up by our own
-   * buying" baseline. Simpler and more robust than picking the earliest-by-
-   * time snapshot: that would still be wrong if recording happened to start
-   * mid-spike, where the historical minimum is well-defined regardless of
-   * when it occurred. Returns undefined only if this good/waypoint pair has
-   * no recorded snapshots at all.
+   * The lowest positive purchase price recorded for one good at one
+   * waypoint since `sinceMs` (epoch ms) — a plain MIN() over the append-
+   * only `market_snapshots` history, for anchoring a "what has this
+   * actually cost when not run up by our own buying" baseline. Windowed
+   * rather than all-time on purpose: a fresh post-reset market opens at its
+   * cheapest and only drifts up from there, so an all-time minimum pins the
+   * baseline to a price the market may never offer again. Returns undefined
+   * if there are no snapshots in the window.
    */
-  async cheapestKnownPrice(waypointSymbol: string, goodSymbol: string): Promise<number | undefined> {
+  async cheapestKnownPrice(waypointSymbol: string, goodSymbol: string, sinceMs: number): Promise<number | undefined> {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{ min: number | null }>(
-        `SELECT MIN(purchase_price) FROM market_snapshots WHERE waypoint_symbol = $1 AND good_symbol = $2`,
-        [waypointSymbol, goodSymbol],
+        `SELECT MIN(purchase_price) FROM market_snapshots
+         WHERE waypoint_symbol = $1 AND good_symbol = $2 AND purchase_price > 0 AND timestamp >= $3`,
+        [waypointSymbol, goodSymbol, new Date(sinceMs).toISOString()],
       );
       return res.rows[0]?.min ?? undefined;
     });
@@ -2774,6 +2775,11 @@ export class Store {
    * symbol from the dead universe or is otherwise meaningless without one.
    */
   private static readonly TENANT_GAME_TABLES = [
+    // feed_missions names a target waypoint and assigned ship symbols from
+    // the dead universe — the agent name (and so every THEO-N symbol) is
+    // reused across resets, so a surviving feed would claim new-universe
+    // ships it was never configured for.
+    "feed_missions",
     "activity", "bucket_ledger", "buckets", "fleet_flags", "fleet_state",
     "held_route", "ledger", "missions", "pending_approvals", "ship_claims",
     "ship_log", "ship_manifest", "ship_persona", "ship_position_history",
