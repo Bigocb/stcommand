@@ -11,6 +11,16 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Stop re-scanning unrecorded shipyards on every tick.** `scanLoadouts()`
+  (called by `maybeBuyShip()` each pass) live-fetched every shipyard with no
+  recorded inventory, every time. `getShipyard()` only lists stock while one
+  of our ships is docked there and an empty answer is never recorded, so those
+  yards stayed "unrecorded" and cost an API call per tick: confirmed live
+  2026-10-02, `maybeBuyShip` took ~88s of each ~92s fleet tick, starving
+  every step after it (keeper-purchase resolution among them — an approved
+  surveyor purchase sat unconsumed with a ship docked at the yard). Each such
+  yard is now tried at most once per 30 min, and at most 3 per pass.
+
 - **Dispatcher can assign far same-system routes (multi-stop fuel chains).**
   `reachable()`'s fuel-stop check allowed ONE relay stop, capping a reachable
   leg at 2x the tank, while the trader's own executor (`nextHopToward()`)

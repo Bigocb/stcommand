@@ -47,6 +47,9 @@ const CREDITS_TTL_MS = 30_000;
  */
 export const DEFAULT_KEEPER_MARKETS: string[] = [];
 
+const YARD_SCAN_RETRY_MS = 30 * 60_000;
+const MAX_LIVE_YARD_SCANS = 3;
+
 /**
  * Whether a ship with `capacity` fuel can get from `from` to `to` by hopping
  * through any chain of `stops` (fuel-selling waypoints), each hop within one
@@ -2337,6 +2340,9 @@ export class FleetManager {
     await this.buyAndInstallComponent(scout[0], "MOUNT_SENSOR_ARRAY_I", seller.waypointSymbol);
   }
 
+  /** When each unrecorded shipyard was last scanned live (see scanLoadouts()). */
+  private readonly yardScanAttempts = new Map<string, number>();
+
   /** Scan local shipyards and score available ships by utility per credit. */
   async scanLoadouts(): Promise<ShipScore[]> {
     const agent = await this.api.getMyAgent();
@@ -2361,6 +2367,7 @@ export class FleetManager {
       });
       recorded.set(r.waypointSymbol, list);
     }
+    let liveScans = 0;
     for (const yard of allYards) {
       const cached = recorded.get(yard.symbol);
       if (cached && cached.length > 0) {
@@ -2380,6 +2387,18 @@ export class FleetManager {
         }
         continue;
       }
+      // A yard with no recorded inventory used to be re-fetched live on EVERY
+      // pass. getShipyard() only lists stock while one of our ships is docked
+      // there, and an empty answer is never recorded, so such a yard stayed
+      // "unrecorded" forever and cost one API call per tick. Confirmed live
+      // 2026-10-02: maybeBuyShip() took ~88s of every ~92s tick, which starved
+      // everything after it in tick() (keeper purchase resolution included).
+      // Try each unrecorded yard at most once per YARD_SCAN_RETRY_MS, and at
+      // most MAX_LIVE_YARD_SCANS per pass.
+      const lastTried = this.yardScanAttempts.get(yard.symbol) ?? 0;
+      if (Date.now() - lastTried < YARD_SCAN_RETRY_MS || liveScans >= MAX_LIVE_YARD_SCANS) continue;
+      this.yardScanAttempts.set(yard.symbol, Date.now());
+      liveScans++;
       try {
         const shipyard = await this.api.getShipyard(yard.systemSymbol, yard.symbol);
         for (const ship of shipyard.ships ?? []) {
