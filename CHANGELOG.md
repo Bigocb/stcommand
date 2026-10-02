@@ -11,6 +11,30 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **A tour ship low on fuel away from a market no longer holds forever; it
+  heads for the nearest market (drifting if it has to).** Confirmed live
+  2026-10-02: THEO-2F sat at X1-VU66-B30 (an asteroid, no fuel) with
+  34/300 for ~25 minutes, logging "holding ... not enough fuel for
+  X1-VU66-B7 and nowhere to refuel" every few minutes. Three things lined
+  up. (1) `tourScout()` treated *any* refuel failure as "stand down",
+  though `navigateTo()` can fall back to DRIFT for far less fuel —
+  `scout.ts` already had that fix (its THEO-A incident) and the tour path
+  never got it; it now only holds at 0 fuel. (2) The reachable-target
+  filter budgeted against the full tank even away from a market, where
+  it can't be topped off, so the ship kept picking legs away from the only
+  fuel; away from a market it now budgets against the fuel it has. (3) The
+  fuel-tender rescue only flags a ship at <=10% fuel, and 34/300 is 11%, so
+  nothing came for it. With nothing reachable and fuel between 10% and 50%,
+  both the tour and scout now navigate to the nearest market (drift
+  fallback) and refuel there; at <=10% they still mark themselves stranded
+  for a tender. Deliberately NOT changed for the scout: its chart-target
+  filter still budgets against capacity, because scoutSelfTarget.test.ts
+  encodes the opposite design — a scout with fuel left attempts the leg and
+  lets DRIFT cover it, rather than holding (THEO-A, 6 hours). Tests added to
+  tourScout.test.ts; the existing "stands down" test now accepts "no
+  reachable target", since an empty tank away from a market falls out of the
+  budget before reaching the hold message.
+
 - **Server-reset cleanup now wipes `feed_missions`, and the mission price
   baseline is a trailing 24h low instead of the all-time minimum.**
   (1) `feed_missions` wasn't in `Store.TENANT_GAME_TABLES`, so a reset left

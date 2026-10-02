@@ -1576,6 +1576,13 @@ export class ShipAgent {
     if (this.registry.position(here) === undefined) {
       await this.ensureSystemCharted?.(this.ship.nav.systemSymbol);
     }
+    // At a market the tank can be topped off before leaving, so capacity is
+    // the right budget. Anywhere else it can't — an asteroid or empty
+    // waypoint has no fuel — so what's left in the tank is all there is.
+    // Budgeting against capacity unconditionally let a tour/scout ship hop
+    // away from the only market, leg after leg, until it sat at 34/300 with
+    // the nearest market 150 away (THEO-2F, X1-VU66-B30, 2026-10-02).
+    const fuelBudget = this.atMarketHere() ? this.ship.fuel.capacity : this.ship.fuel.current;
     const reachable = targets
       .filter((t) => t !== here)
       // Same system only. Waypoint coordinates are per-system, so the distance
@@ -1593,7 +1600,7 @@ export class ShipAgent {
       // reachable target" from then on. fuelNeededRoundTrip() is the same
       // check refuelIfNeeded() already makes — it was just being made after
       // the target was chosen instead of while choosing it.
-      .filter((x) => x.dist <= this.ship.fuel.capacity && this.fuelNeededRoundTrip(x.t) <= this.ship.fuel.capacity)
+      .filter((x) => x.dist <= fuelBudget && this.fuelNeededRoundTrip(x.t) <= fuelBudget)
       .sort((a, b) => Number(b.stale) - Number(a.stale) || a.dist - b.dist);
     const target = reachable[0]?.t;
     if (!target) {
@@ -1612,6 +1619,24 @@ export class ShipAgent {
         if (this.ship.fuel.current > before) {
           this.clearStranded();
           this.log(`tour scout: refuelled at ${here} (${before} → ${this.ship.fuel.current}); re-evaluating next tick`);
+          return true;
+        }
+      }
+      // Away from any market with a tank too low for every target: head for
+      // the nearest market. Navigating falls back to DRIFT when the cruise
+      // cost is out of reach, which needs far less fuel for the same
+      // distance — so this works even when nothing is "reachable" by cruise.
+      // Without it a ship at 34/300 sat holding forever: not low enough
+      // (<=10%) to be flagged stranded for a fuel tender, and every target
+      // priced beyond the tank. Arrival is handled by the standing-at-a-
+      // market branch at the top of the next tick, which docks and refuels.
+      // Critically low (<=10%) still goes to markStranded() below so a fuel
+      // tender comes — a drift attempt at that level can fail outright.
+      if (this.ship.fuel.capacity > 0 && !this.atMarketHere() && this.ship.fuel.current < this.ship.fuel.capacity * 0.5 && this.ship.fuel.current > this.ship.fuel.capacity * 0.1) {
+        const refuelAt = this.nearestMarketTo(here);
+        if (refuelAt && refuelAt !== here) {
+          this.log(`tour scout: low on fuel (${this.ship.fuel.current}/${this.ship.fuel.capacity}) away from a market — heading to ${refuelAt} to refuel`);
+          await this.navigateTo(refuelAt);
           return true;
         }
       }
@@ -1653,13 +1678,16 @@ export class ShipAgent {
       return false;
     }
     this.clearStranded();
-    // Honour the refuel result. This used to be a bare await: refuelIfNeeded()
-    // would log "WARN: stranded (0/300 fuel...) and no reachable market",
-    // return false, and the navigate went ahead regardless — failing with
-    // "requires 1 more fuel for navigation" and repeating the whole sequence
-    // every tick, forever. A ship that cannot pay for the leg stands down and
-    // waits to be rescued instead of hammering the API.
-    if (!(await this.refuelIfNeeded(5, target))) {
+    // Honour the refuel result, but only as far as there is genuinely nothing
+    // to fly with. This used to be a bare await: refuelIfNeeded() would log
+    // "WARN: stranded (0/300 fuel...) and no reachable market", return false,
+    // and the navigate went ahead regardless — failing with "requires 1 more
+    // fuel for navigation" and repeating the whole sequence every tick,
+    // forever. Standing down on *any* refuel failure overcorrected: a ship
+    // with fuel left but out of cruise range for this leg held forever too
+    // (THEO-2F, 34/300), when navigateTo() can still fall back to DRIFT —
+    // the same reasoning scout.ts's tick() already documents.
+    if (!(await this.refuelIfNeeded(5, target)) && this.ship.fuel.capacity > 0 && this.ship.fuel.current <= 0) {
       this.log(`tour scout: holding at ${here} — not enough fuel for ${target} and nowhere to refuel`);
       return false;
     }

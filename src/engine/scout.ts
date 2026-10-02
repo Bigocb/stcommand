@@ -342,6 +342,12 @@ export class ScoutAgent {
     // Scoped to this system: a waypoint in another one needs a jump, not a
     // navigate, and registry.distance() reports Infinity across the boundary
     // anyway. Filtering here says so directly instead of relying on that.
+    //
+    // Budgeted against the full tank on purpose, not the fuel left: a scout
+    // with fuel remaining attempts the leg and lets navigateTo() fall back to
+    // DRIFT rather than holding (see tick()'s own comment on THEO-A holding
+    // for six hours). The low-fuel case is handled by heading to a market
+    // when there is nothing left to chart — see tick().
     const candidates = this.registry
       .waypointsIn(this.ship.nav.systemSymbol)
       .filter((w) => !this.charted.has(w.symbol))
@@ -349,6 +355,11 @@ export class ScoutAgent {
     if (candidates.length === 0) return undefined;
     candidates.sort((a, b) => this.distanceTo(a) - this.distanceTo(b));
     return candidates[0];
+  }
+
+  private atMarketHere(): boolean {
+    const here = this.ship.nav.waypointSymbol;
+    return this.registry.isMarket(here) || this.registry.market(here) !== undefined;
   }
 
   /** Can this scout run sensor scans right now? Needs a mounted array + interval/cooldown window. */
@@ -413,6 +424,20 @@ export class ScoutAgent {
     await this.refresh();
     const target = this.manualGoal ?? this.pickChartTarget()?.symbol;
     if (!target) {
+      // Away from any market with a low tank and nothing affordable to chart:
+      // head for the nearest market to refuel. navigateTo() falls back to
+      // DRIFT when the cruise cost is out of reach, so this works even when
+      // no chart target is "reachable" by cruise. Critically low (<=10%) is
+      // left alone — a fuel tender is safer there than a drift attempt.
+      const fuel = this.ship.fuel;
+      if (fuel.capacity > 0 && !this.atMarketHere() && fuel.current < fuel.capacity * 0.5 && fuel.current > fuel.capacity * 0.1) {
+        const refuelAt = this.nearestMarketTo(this.ship.nav.waypointSymbol);
+        if (refuelAt && refuelAt !== this.ship.nav.waypointSymbol) {
+          this.log(`scout: low on fuel (${fuel.current}/${fuel.capacity}) away from a market — heading to ${refuelAt} to refuel`);
+          await this.navigateTo(refuelAt);
+          return true;
+        }
+      }
       if (await this.canScan()) {
         try {
           await this.sensorScan();

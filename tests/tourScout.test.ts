@@ -130,7 +130,69 @@ describe("ShipAgent.tourScout: repairing a position cache that predates the curr
 
     assert.equal(worked, false);
     assert.deepEqual(navigated, [], "must not attempt a leg it cannot fuel");
-    assert.ok(logs.some((l) => l.includes("holding at X1-REMOTE-A1")));
+    // Away from a market with an empty tank nothing is within budget, so it
+    // reports no reachable target (and flags itself stranded for a tender)
+    // rather than reaching the old "holding" message — either way it stands
+    // down without navigating, which is the point of this test.
+    assert.ok(logs.some((l) => l.includes("holding at X1-REMOTE-A1") || l.includes("no reachable target")));
+  });
+
+  it("heads for the nearest market to refuel when low on fuel away from one, instead of holding", async () => {
+    // Live: THEO-2F sat at X1-VU66-B30 (an asteroid) with 34/300, the nearest
+    // market ~150 away, holding forever — above the 10% line that flags a
+    // ship stranded for a tender, below any cruise leg's cost.
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 100, capacity: 300 });
+    const logs: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => ["X1-REMOTE-C3"],
+    });
+    agent.withWorld(
+      [
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+        { symbol: "X1-REMOTE-B2", x: 150, y: 0, traits: [{ symbol: "MARKETPLACE" }] },
+        { symbol: "X1-REMOTE-C3", x: 400, y: 0 },
+      ] as any,
+      [],
+    );
+    const navigated: string[] = [];
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+
+    const worked = await (agent as any).tourScout();
+
+    assert.equal(worked, true);
+    assert.deepEqual(navigated, ["X1-REMOTE-B2"]);
+    assert.ok(logs.some((l) => l.includes("heading to X1-REMOTE-B2 to refuel")));
+  });
+
+  it("still attempts a leg when refuelling fails but fuel remains, leaving DRIFT to navigateTo()", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 100, capacity: 300 });
+    const logs: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => ["X1-REMOTE-B2"],
+    });
+    agent.withWorld(
+      [
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] },
+        { symbol: "X1-REMOTE-B2", x: 10, y: 0, traits: [{ symbol: "MARKETPLACE" }] },
+      ] as any,
+      [],
+    );
+    const navigated: string[] = [];
+    (agent as any).refuelIfNeeded = async () => false; // this market sells no fuel
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+    (agent as any).ensureDocked = async () => {};
+
+    const worked = await (agent as any).tourScout();
+
+    assert.equal(worked, true);
+    assert.deepEqual(navigated, ["X1-REMOTE-B2"]);
+    assert.ok(!logs.some((l) => l.includes("holding at")));
   });
 
   it("never picks a refuel stop in another system", async () => {
