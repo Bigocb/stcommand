@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: loaded traders were invisible to the dispatcher (shown "unassigned")
+A trader holding cargo is claimed "trading" in the ship registry, which outranks "auto", so `dispatcherTraders()` (which filtered on `availableFor("auto")`) dropped every loaded ship from the dispatcher's list. The "busy" carry-forward never saw them, their assignment was discarded each cycle, and the fleet page listed them as unassigned (THEO-28, 2E, 45, 46); it also meant their trips never counted toward the per-market buyer cap. `dispatcherTraders()` now also includes traders claimed "trading", so loaded ships keep (or get rebuilt from their held-route pin) an assignment that stays until delivery.
+
 ## Loaded traders no longer show "unassigned" after a restart
 The dispatcher's assignments live in memory, so after every deploy a trader mid-haul had none on record and the fleet page listed it as unassigned (THEO-28 carrying lab instruments, THEO-2E carrying drugs), even though the ship kept flying the trip from its own held-route pin. `recompute()` now rebuilds a loaded trader's assignment from that pin (the `inFlight` list), so it shows its route, is committed until delivery, and reserves its sell market.
 

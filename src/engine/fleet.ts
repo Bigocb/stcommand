@@ -1113,9 +1113,15 @@ export class FleetManager {
     // ship's claim already excludes it here) but kept as cheap defense-in-
     // depth rather than trusting that alone.
     const available = this.availableFor("auto");
+    // A trader holding cargo is claimed "trading", which outranks "auto", so
+    // availableFor("auto") drops it. It still has to be in the list: the
+    // dispatcher carries a loaded trader's assignment forward (and counts its
+    // trip against the per-market cap) only for traders it can see. Without
+    // this every loaded ship lost its assignment each cycle and the fleet page
+    // showed it as unassigned.
     return [...this.traders.entries()]
       .filter(([sym]) => sym !== this.warehouseShip?.shipSymbol)
-      .filter(([sym]) => available.has(sym))
+      .filter(([sym]) => available.has(sym) || this.shipRegistry.ownerOf(sym)?.owner === "trading")
       .map(([sym, a]) => ({
         shipSymbol: sym,
         capacity: a.getShip().cargo?.capacity ?? 0,
