@@ -11,6 +11,11 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tower: "Tour another system" on a tour ship's sheet.** Opens a picker of
+  charted systems (from `/api/galaxy/overview`, labeled with yard/markets),
+  and Send posts the same `/api/fleet/tour-dispatch` desktop uses — the ship
+  walks the gate graph one hop per tick, then tours the destination.
+
 - **Fix: turning on "Auto cross-system routes" stalled the fleet loop.** The
   gate-cache warm-up for the home/trader neighborhoods was awaited inside
   `tick()`; it is dozens of rate-limited API calls per system, so with the

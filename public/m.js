@@ -248,7 +248,10 @@ let minerPrefFormOpen = false;
 
 /** Every one of the sheet's mutually-exclusive inline forms/pickers, closed
  *  together — a toggle opens exactly one of these at a time. */
+let tourFormOpen = false;
+let tourSystems = [];
 function closeSheetForms() {
+  tourFormOpen = false;
   sendFormOpen = false;
   routePickerOpen = false;
   roleFormOpen = false;
@@ -489,6 +492,19 @@ function renderSheet(row) {
   if (sendFormOpen) {
     extra += `<div class="sheet-inline-form"><input id="send-wp-input" placeholder="Waypoint, e.g. X1-A-B2" /><button class="btn pri" data-act="send-go">Go</button></div>`;
   }
+  if (tourFormOpen) {
+    const here = (state?.ships ?? []).find((x) => x.symbol === row.symbol)?.nav?.systemSymbol;
+    const opts = tourSystems
+      .filter((x) => x.symbol !== here)
+      .sort((a, b) => a.symbol.localeCompare(b.symbol))
+      .map((x) => `<option value="${escapeAttr(x.symbol)}">${escapeHtml(x.symbol)}${x.hasShipyard ? " · yard" : ""}${x.hasMarket ? " · markets" : ""}</option>`)
+      .join("");
+    extra += `<div class="sheet-inline-form">${
+      opts
+        ? `<select id="tour-system-sel" class="role-select" aria-label="System to tour">${opts}</select><button class="btn pri" data-act="tour-go">Send</button>`
+        : '<div class="empty">No other charted systems yet.</div>'
+    }</div><div class="detail">Walks the gate graph to that system, then tours its markets. Each jump costs about 5k.</div>`;
+  }
   if (routePickerOpen) {
     const top = [...dispatchRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 4);
     extra += `<div class="route-pick">${
@@ -556,6 +572,7 @@ function renderSheet(row) {
     ${row.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
     ${manualRoute ? `<button class="btn pri full" data-act="custom-route-clear">Release to auto — ${escapeHtml(manualRoute.good)} ${escapeHtml(shortWp(manualRoute.buyAt))} → ${escapeHtml(shortWp(manualRoute.sellAt))}</button>` : ""}
     ${row.role === "miner" ? `<button class="btn" data-act="miner-pref-toggle">Mining preference</button>` : ""}
+    ${row.role === "tour" ? `<button class="btn" data-act="tour-toggle">Tour another system</button>` : ""}
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
     <button class="btn ghost full" data-act="role-toggle">${roleFormOpen ? "Close" : `Change role (${escapeHtml(row.role)})`}</button>
@@ -615,6 +632,30 @@ $("sheet-actions").addEventListener("click", async (e) => {
 
   if (act === "send-toggle") { const next = !sendFormOpen; closeSheetForms(); sendFormOpen = next; return renderFleetView(); }
   if (act === "route-toggle") { const next = !routePickerOpen; closeSheetForms(); routePickerOpen = next; return renderFleetView(); }
+  if (act === "tour-toggle") {
+    const next = !tourFormOpen;
+    closeSheetForms();
+    tourFormOpen = next;
+    if (next) {
+      // Charted systems only (same list desktop's tour-dispatch picker offers):
+      // a system this tenant has never seen isn't a real target.
+      try { tourSystems = (await api("GET", "/api/galaxy/overview")).systems ?? []; }
+      catch (err) { alert(err.message); tourFormOpen = false; }
+    }
+    return renderFleetView();
+  }
+  if (act === "tour-go") {
+    const target = $("tour-system-sel")?.value;
+    if (!target) return;
+    b.disabled = true;
+    try {
+      await api("POST", "/api/fleet/tour-dispatch", { shipSymbol: ship, targetSystem: target });
+      tourFormOpen = false;
+      await loadBridge();
+      await loadState();
+    } catch (err) { alert(err.message); }
+    return renderFleetView();
+  }
   if (act === "role-toggle") { const next = !roleFormOpen; closeSheetForms(); roleFormOpen = next; return renderFleetView(); }
   if (act === "details-toggle") { const next = !detailsOpen; closeSheetForms(); detailsOpen = next; return renderFleetView(); }
   if (act === "custom-route-toggle") { const next = !customRouteFormOpen; closeSheetForms(); customRouteFormOpen = next; return renderFleetView(); }
