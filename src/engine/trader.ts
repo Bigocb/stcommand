@@ -622,6 +622,18 @@ export class TraderAgent {
     return [...out];
   }
 
+  /** Legs this ship holds cargo for right now, from its persisted held-route
+   *  pins — what the dispatcher counts as already in flight. */
+  inFlightLegs(): { good: string; buyAt: string; sellAt: string; units: number }[] {
+    const out: { good: string; buyAt: string; sellAt: string; units: number }[] = [];
+    for (const item of this.ship.cargo?.inventory ?? []) {
+      if (item.units <= 0) continue;
+      const leg = this.heldRoute.get(item.symbol);
+      if (leg) out.push({ good: item.symbol, buyAt: leg.buyAt, sellAt: leg.sellAt, units: item.units });
+    }
+    return out;
+  }
+
   private async navigateTo(waypoint: string): Promise<void> {
     if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") return;
     const targetSystem = this.systemOf(waypoint);

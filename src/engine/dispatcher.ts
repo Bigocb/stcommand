@@ -528,6 +528,14 @@ export class RouteDispatcher {
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
     tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number },
+    // Legs traders are already flying with cargo aboard (from each agent's own
+    // held-route pin), whether or not that ship is in `traders` — a hull
+    // committed to a run drops out of the dispatcher's list, and after a
+    // restart `assignments` is empty, so neither carry-forward nor the sell-
+    // market check can see it. They still count against the per-market buyer
+    // cap and reserve their sell market, so a good already on its way somewhere
+    // is not handed to yet another trader.
+    inFlight?: { shipSymbol: string; good: string; buyAt?: string; sellAt: string; units: number }[],
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -618,6 +626,23 @@ export class RouteDispatcher {
       if (current.role === "direct" && current.sellAt) {
         (sellMarketsInUse.get(current.good) ?? sellMarketsInUse.set(current.good, new Set()).get(current.good)!).add(current.sellAt);
       }
+    }
+
+    // Legs already in flight, from every trader's own pin. Reserve their sell
+    // market and remember them for the per-market buyer count below. Falls back
+    // to the carried-forward assignment for a busy ship with no pin.
+    const inFlightLegs: { good: string; buyAt?: string; units: number }[] = [];
+    const inFlightShips = new Set<string>();
+    for (const f of inFlight ?? []) {
+      inFlightShips.add(f.shipSymbol);
+      inFlightLegs.push({ good: f.good, buyAt: f.buyAt, units: f.units });
+      (sellMarketsInUse.get(f.good) ?? sellMarketsInUse.set(f.good, new Set()).get(f.good)!).add(f.sellAt);
+      usedKeys.add(`${f.good}@${f.sellAt}`);
+    }
+    for (const [ship, a] of next) {
+      if (inFlightShips.has(ship) || a.role !== "direct" || !a.buyAt) continue;
+      const t = sorted.find((x) => x.shipSymbol === ship);
+      if (t?.busy) inFlightLegs.push({ good: a.good, buyAt: a.buyAt, units: t.capacity });
     }
 
     // Build this cycle's work list: one item per good with no warehouse
@@ -783,6 +808,12 @@ export class RouteDispatcher {
     const pendingUnits = new Map<string, number>();
     const pendingTraders = new Map<string, number>();
     const buyKey = (w: { buyAt?: string; good?: string }) => (w.buyAt && w.good ? `${w.buyAt}|${w.good}` : undefined);
+    for (const f of inFlightLegs) {
+      const k = buyKey(f);
+      if (!k) continue;
+      pendingUnits.set(k, (pendingUnits.get(k) ?? 0) + f.units);
+      pendingTraders.set(k, (pendingTraders.get(k) ?? 0) + 1);
+    }
     // Extra cost of this trader's units given what is already promised there,
     // or undefined when the extra buyer should not be sent at all.
     const impactCost = (w: { buyAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number }): number | undefined => {

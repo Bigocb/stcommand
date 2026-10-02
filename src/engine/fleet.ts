@@ -6808,6 +6808,7 @@ export class FleetManager {
           homeReserve: 1,
         },
         { marginFloor: this.doctrine.value("marginFloor", 0) },
+        [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
       // First, so that its priority-0 proposal wins the tie against rescue's
       // own priority-0 hold — ties go to the first proposal, and an operator

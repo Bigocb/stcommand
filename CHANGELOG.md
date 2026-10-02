@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Per-market buyer cap now counts traders already in flight
+Six traders ended up hauling CLOTHING from the same VU66 market. The cap of 3 buyers (and the sell-market de-dup) only saw traders assigned in the current pass; a ship committed to a run drops out of the dispatcher's trader list, and after a restart the in-memory assignments are empty, so ships already holding the good were invisible. `recompute()` now takes an `inFlight` list built from every trader's held-route pins (`TraderAgent.inFlightLegs()`): those legs reserve their sell market and count toward the per-market buyer cap and price-impact estimate.
+
 ## Trader fuel stepping stones use every known fuel market, chained
 Traders' multi-hop legs only considered fuel markets in their own price table and picked one greedy stop, so a gate 470+ units from the destination (VU66-I55 on a 300 tank) fell back to a multi-hour drift, and arriving at an unpriced fuel stop skipped the refuel. `nextHopToward()` now unions registry-snapshotted fuel markets with the price table and searches the shortest chain of fuel stops that reaches the destination; the pre-leg top-off also recognises registry-known fuel markets.
 

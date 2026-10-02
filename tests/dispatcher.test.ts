@@ -629,6 +629,20 @@ describe("RouteDispatcher: several buyers at one market", () => {
     assert.equal(count(d), 5);
   });
 
+  it("traders already in flight with that good count against the per-market cap", () => {
+    const d = new RouteDispatcher();
+    const inFlight = ["F1", "F2", "F3"].map((shipSymbol, i) => ({ shipSymbol, good: "CIRC", buyAt: "X1-A-BUY", sellAt: `X1-A-S${i + 1}`, units: 40 }));
+    d.recompute(routes(2000), traders, [], [], [], [], undefined, undefined, undefined, undefined, undefined, undefined, inFlight);
+    assert.equal(count(d), 0, "three ships already hauling CIRC from the same market: no fourth buyer");
+  });
+
+  it("an in-flight leg reserves its sell market even when its ship is not in the trader list", () => {
+    const d = new RouteDispatcher();
+    d.recompute([mk("X1-A-S1", 2000)], traders, [], [], [], [], undefined, undefined, undefined, undefined, undefined, undefined,
+      [{ shipSymbol: "GONE", good: "CIRC", buyAt: "X1-A-BUY", sellAt: "X1-A-S1", units: 40 }]);
+    assert.equal(d.assignmentFor("T1")?.sellAt === "X1-A-S1", false);
+  });
+
   it("traders spread to a different buy market when it is the better marginal buy", () => {
     const other = { ...mk("X1-A-S9", 1600), buyAt: "X1-A-OTHER", good: "OTHERGOOD" };
     const d = run([...routes(2000), other]);
