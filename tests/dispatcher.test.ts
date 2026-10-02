@@ -589,3 +589,50 @@ describe("RouteDispatcher: multi-hop cross-system assignment", () => {
     assert.equal(off.assignmentFor("T1"), undefined);
   });
 });
+
+describe("RouteDispatcher: several buyers at one market", () => {
+  // Same good bought at one market, sold at different markets (so the existing
+  // per-sell-market de-dup lets several traders through).
+  const mk = (sellAt: string, sellPrice: number) => ({
+    good: "CIRC", buyAt: "X1-A-BUY", buySystem: "X1-A", buyPrice: 1000,
+    sellAt, sellSystem: "X1-A", sellPrice, volume: 40, lotSize: 20,
+    distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: (sellPrice - 1000) * 40, ageMinutes: 1,
+  });
+  const traders = ["T1", "T2", "T3", "T4", "T5"].map((s) => ({ shipSymbol: s, capacity: 40 }));
+  const count = (d: RouteDispatcher) => traders.filter((t) => d.assignmentFor(t.shipSymbol)).length;
+  const run = (routes: ReturnType<typeof mk>[], tuning?: any) => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, traders, [], [], [], [], undefined, undefined, undefined, undefined, undefined, tuning);
+    return d;
+  };
+  const routes = (sell: number) => ["S1", "S2", "S3", "S4", "S5"].map((s) => mk(`X1-A-${s}`, sell));
+
+  it("a fat margin supports several buyers, but never more than the hard cap", () => {
+    const d = run(routes(2000));
+    assert.equal(count(d), 3, "5 traders, 5 sell markets, margin 1000/u -> capped at 3 buyers");
+  });
+
+  it("a thin margin stops extra buyers: the predicted ask climbs past the sell price", () => {
+    // sell 1100: after one 40u batch the ask is 1000*1.0025^40 ~= 1105 > 1100.
+    const d = run(routes(1100));
+    assert.equal(count(d), 1);
+  });
+
+  it("the margin floor is respected for the extra buyer", () => {
+    // sell 1250: 2nd buyer ask ~1105 -> margin 145 (ok at floor 100); 3rd ask ~1221 -> margin 29 (<100, refused).
+    const d = run(routes(1250), { marginFloor: 100 });
+    assert.equal(count(d), 2);
+  });
+
+  it("the cap is tunable", () => {
+    const d = run(routes(2000), { maxTradersPerBuyMarket: 5 });
+    assert.equal(count(d), 5);
+  });
+
+  it("traders spread to a different buy market when it is the better marginal buy", () => {
+    const other = { ...mk("X1-A-S9", 1600), buyAt: "X1-A-OTHER", good: "OTHERGOOD" };
+    const d = run([...routes(2000), other]);
+    const goods = traders.map((t) => d.assignmentFor(t.shipSymbol)?.good);
+    assert.ok(goods.includes("OTHERGOOD"), "a 4th/5th trader should take the other market once CIRC is capped");
+  });
+});

@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Dispatcher: impact-aware assignment when several traders want the same
+  buy market.** The route list prices each route at the ask RIGHT NOW, and the
+  dispatcher only de-duplicated sell markets, so three traders were sent to
+  buy ADVANCED_CIRCUITRY at X1-SJ91-D54 in one recompute, each scored as the
+  only buyer (live 2026-10-02: ask 3,469 -> 3,783 -> 4,259 -> 4,656 across
+  batches of 40/40/28, ~0.25% per unit, recovering ~1-2% in 10 min). Now, within
+  a recompute, each extra buyer at the same (buy market, good) is scored net of
+  the ask rise its predecessors cause (`BUY_IMPACT_PER_UNIT = 0.0025`), is
+  refused if that predicted ask leaves less than the doctrine `marginFloor` per
+  unit (or the score goes non-positive), and no more than
+  `MAX_TRADERS_PER_BUY_MARKET = 3` buyers go to one market whatever the margin
+  says. The number of traders therefore follows the margin; traders that don't
+  fit take the next-best route. Single buyers are unaffected. Impact is a fixed
+  placeholder, to be learned per market from snapshots later; sell-side impact
+  (~0.04%/unit) is not modelled.
+
 - **Scouts can be dispatched to a system (they keep the scout role).**
   `dispatchTourShip()` used to flip any ship to the tour role, and
   `ScoutAgent` never read a pinned destination, so "send this scout to X"

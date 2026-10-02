@@ -39,6 +39,21 @@ export interface DispatchRoute {
 export const CROSS_SYSTEM_JUMP_COST_ESTIMATE = 5_000;
 
 /**
+ * How much one unit bought pushes a market's ask up, as a fraction. Measured
+ * live 2026-10-02 at X1-SJ91-D54 (ADVANCED_CIRCUITRY, trade volume 20/lot): the
+ * ask went 3,469 -> 3,783 -> 4,259 -> 4,656 across batches of 40, 40 and 28
+ * units, i.e. ~9-12% per 40 units, ~0.25% per unit, and recovered only ~1-2% in
+ * the ten minutes after. A placeholder until it is learned per market from the
+ * snapshots; sells barely move a price by comparison (~0.04%/unit) so sell-side
+ * impact is not modelled.
+ */
+export const BUY_IMPACT_PER_UNIT = 0.0025;
+
+/** Hard backstop: no more than this many traders are sent to buy the same good
+ *  at the same market in one dispatch cycle, whatever the margin says. */
+export const MAX_TRADERS_PER_BUY_MARKET = 3;
+
+/**
  * How many of a market's own per-transaction lots a single trip is assumed
  * able to move at that market's flat buy/sell price, in both the ranking
  * model (fleet.ts's computeDispatchRoutes()) and the trader's own live
@@ -508,6 +523,11 @@ export class RouteDispatcher {
       /** Traders that must stay in the home system. */
       homeReserve?: number;
     },
+    // Buyers-at-one-market handling (see BUY_IMPACT_PER_UNIT). All optional;
+    // the defaults are the exported constants, and `marginFloor` (credits per
+    // unit, the existing doctrine value) is the least predicted margin an extra
+    // buyer at an already-chosen market must still clear.
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number },
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -623,7 +643,7 @@ export class RouteDispatcher {
     // `sellAt`, only set for a `direct` item: the one case that needs the
     // *whole* round trip to fit a fuel tank, not just the leg to buyAt — see
     // reachable()'s own comment below for the live case this closes.
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string }[] = [];
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -651,7 +671,7 @@ export class RouteDispatcher {
         // undoing the whole point of resorting `routes` above. toAssignment()
         // below still builds the displayed TraderAssignment from the route's
         // real profitPerTrip — only this ranking figure is adjusted.
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt });
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance > target.target) {
@@ -695,7 +715,7 @@ export class RouteDispatcher {
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
       // Decayed score here too — see the primary-loop push's own comment.
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt });
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
@@ -754,6 +774,27 @@ export class RouteDispatcher {
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
     let leavingHome = 0;
+    // Units already promised to each (buy market, good) THIS cycle. The ask in
+    // the route list is the price right now, so a second and third trader sent
+    // to the same market would otherwise each be scored as the only buyer.
+    const impact = tuning?.buyImpactPerUnit ?? BUY_IMPACT_PER_UNIT;
+    const cap = tuning?.maxTradersPerBuyMarket ?? MAX_TRADERS_PER_BUY_MARKET;
+    const marginFloorPerUnit = tuning?.marginFloor ?? 0;
+    const pendingUnits = new Map<string, number>();
+    const pendingTraders = new Map<string, number>();
+    const buyKey = (w: { buyAt?: string; good?: string }) => (w.buyAt && w.good ? `${w.buyAt}|${w.good}` : undefined);
+    // Extra cost of this trader's units given what is already promised there,
+    // or undefined when the extra buyer should not be sent at all.
+    const impactCost = (w: { buyAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number }): number | undefined => {
+      const k = buyKey(w);
+      if (!k || w.buyPrice === undefined || w.volume === undefined) return 0;
+      const traders = pendingTraders.get(k) ?? 0;
+      if (traders === 0) return 0;
+      if (traders >= cap) return undefined;
+      const ask = w.buyPrice * (1 + impact) ** (pendingUnits.get(k) ?? 0);
+      if (w.sellPrice !== undefined && w.sellPrice - ask < marginFloorPerUnit) return undefined;
+      return w.volume * (ask - w.buyPrice);
+    };
     for (const t of sorted) {
       const manual = this.manual.get(t.shipSymbol);
       if (manual) {
@@ -860,7 +901,10 @@ export class RouteDispatcher {
       let bestScore = -Infinity;
       for (const w of work) {
         if (usedKeys.has(w.key) || !reachable(w)) continue;
-        let score = w.profitPerTrip;
+        const extra = impactCost(w);
+        if (extra === undefined) continue; // an extra buyer here is not worth it / over the cap
+        let score = w.profitPerTrip - extra;
+        if (score <= 0) continue;
         if (crossSystem?.enabled && w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system && !canJump(t.system, w.buySystem)) {
           const path = crossSystem.path(t.system, w.buySystem);
           if (path) score -= pathCost(path) / 3;
@@ -898,6 +942,11 @@ export class RouteDispatcher {
       }
       usedKeys.add(item.key);
       next.set(t.shipSymbol, item.make(t.shipSymbol));
+      const bk = buyKey(item);
+      if (bk && item.volume !== undefined) {
+        pendingUnits.set(bk, (pendingUnits.get(bk) ?? 0) + item.volume);
+        pendingTraders.set(bk, (pendingTraders.get(bk) ?? 0) + 1);
+      }
     }
     this.assignments = next;
 
