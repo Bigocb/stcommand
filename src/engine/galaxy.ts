@@ -2,6 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import { APIError } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
+import { findJumpPath, MAX_POSITIONING_HOPS } from "./jumpGraph.js";
 
 export type Waypoint = components["schemas"]["Waypoint"];
 export type JumpGate = components["schemas"]["JumpGate"];
@@ -253,6 +254,96 @@ export class GalaxyAtlas {
    *  newly-discovered gate; this method itself never makes a network call. */
   canJump(fromSystem: string, toSystem: string): boolean {
     return this.gatesTo(fromSystem, toSystem).some((g) => this.gateConstruction.get(g) === true);
+  }
+
+  /**
+   * True if one jump from `a` to `b` is usable right now: a's gate toward b is
+   * cached complete AND b's own gate is cached complete (a jump needs both
+   * ends built). An unloaded b can't be verified, so reads false until
+   * warmJumpPath() has loaded and checked it. Never makes a network call.
+   */
+  edgeUsable(a: string, b: string): boolean {
+    if (!this.canJump(a, b)) return false;
+    const far = this.systems.get(b);
+    if (!far) return false;
+    const farGates = far.waypoints.filter((w) => w.type === "JUMP_GATE");
+    if (farGates.length === 0) return false;
+    return farGates.some((w) => this.gateConstruction.get(w.symbol) === true);
+  }
+
+  /** Systems one usable jump from `system` right now (synchronous, cache-only). */
+  usableNeighbors(system: string): string[] {
+    return this.connectedSystems(system).filter((n) => this.edgeUsable(system, n));
+  }
+
+  /**
+   * Shortest chain of systems from `from` to `to` (both included) over usable
+   * edges, at most MAX_POSITIONING_HOPS jumps, or undefined. Synchronous and
+   * cache-only: call warmJumpPath() first to populate the cache.
+   */
+  jumpPath(from: string, to: string): string[] | undefined {
+    return findJumpPath(from, to, (s) => this.usableNeighbors(s), MAX_POSITIONING_HOPS);
+  }
+
+  /**
+   * Make jumpPath(from, to) answerable: breadth-first, scan each frontier
+   * system's gates (cache-aware, so already-known systems cost nothing) and
+   * check construction status of the gates it finds, to at most
+   * MAX_POSITIONING_HOPS levels and MAX_WARM_SYSTEMS systems — bounded so a
+   * stray request can't turn into an API flood. Returns the path, if any.
+   */
+  async warmJumpPath(from: string, to: string): Promise<string[] | undefined> {
+    const existing = this.jumpPath(from, to);
+    if (existing) return existing;
+    const MAX_WARM_SYSTEMS = 25;
+    const visited = new Set<string>([from]);
+    let frontier = [from];
+    let budget = MAX_WARM_SYSTEMS;
+    for (let depth = 0; depth < MAX_POSITIONING_HOPS && frontier.length > 0 && budget > 0; depth++) {
+      const next: string[] = [];
+      for (const sys of frontier) {
+        if (budget-- <= 0) break;
+        try {
+          await this.scanJumpGates(sys);
+        } catch {
+          continue;
+        }
+        const known = this.systems.get(sys);
+        if (known) {
+          await Promise.allSettled(
+            known.jumpGates
+              .filter((jg) => this.gateConstruction.get(jg.symbol) !== true)
+              .map((jg) => this.refreshGateConstruction(sys, jg.symbol)),
+          );
+        }
+        for (const n of this.connectedSystems(sys)) {
+          if (visited.has(n)) continue;
+          visited.add(n);
+          next.push(n);
+        }
+      }
+      // Load + check the next layer's own gates too, so their edges verify.
+      for (const sys of next) {
+        if (budget <= 0) break;
+        try {
+          await this.scanJumpGates(sys);
+          const known = this.systems.get(sys);
+          if (known) {
+            await Promise.allSettled(
+              known.jumpGates
+                .filter((jg) => this.gateConstruction.get(jg.symbol) !== true)
+                .map((jg) => this.refreshGateConstruction(sys, jg.symbol)),
+            );
+          }
+        } catch {
+          /* unverifiable system: its edges simply stay unusable */
+        }
+      }
+      const found = this.jumpPath(from, to);
+      if (found) return found;
+      frontier = next;
+    }
+    return this.jumpPath(from, to);
   }
 
   /**

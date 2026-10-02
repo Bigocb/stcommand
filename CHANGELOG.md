@@ -11,6 +11,24 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Cross-system trading, phase 1: a trader can now fly a route that starts up
+  to 3 gate hops away.** Previously `viableRoute()` and `navigateTo()` assumed
+  the route's start system was at most ONE jump from the ship, so a manual
+  assignment two systems out (confirmed live 2026-10-02: THEO-2E, SHIP_PARTS
+  VU66-D39 -> VU66-H52) was rejected and the ship silently fell back to a poor
+  local lane. New `src/engine/jumpGraph.ts` holds the pure BFS and the
+  `MAX_POSITIONING_HOPS = 3` cap (a code constant, deliberately not a
+  setting). `GalaxyAtlas` gains `jumpPath()` (cache-only; an edge needs the
+  gate cached complete at BOTH ends), `warmJumpPath()` (bounded scan that
+  loads/checks the gates in between) and `usableNeighbors()`. The trader
+  re-plans from its live position and takes one hop per `navigateTo()` call,
+  stopping on each intermediate system's gate; a live "under construction"
+  jump rejection now closes the gate in the atlas and retires the route. Only
+  hand-assigned (manual) routes trigger the warm-up; the buy->sell leg stays
+  single-hop. Dispatcher auto-assignment of cross-system routes (phase 2,
+  default off, freshness window as a doctrine setting) is not built yet. See
+  the "Cross-System Trading: PRD and Design" doc.
+
 - **Tower: Markets → Systems view.** Pick a system, see every market with
   a snapshot in it (goods count, age) and tap its keeper badge to add or
   remove it from the keeper list — the phone equivalent of desktop's

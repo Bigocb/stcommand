@@ -1082,3 +1082,73 @@ describe("TraderAgent.navigateTo: tops off at a fuel market before departing, no
     assert.equal(burnedFromCargo, true, "but a genuinely low tank with no market here still falls back to cargo fuel");
   });
 });
+
+describe("TraderAgent: multi-hop positioning (<= 3 hops)", () => {
+  function setup(opts: { path: string[] | undefined; canJumpDirect?: boolean; jumpError?: string }) {
+    const ship = makeShip();
+    ship.nav = { status: "IN_ORBIT", waypointSymbol: "X1-A-GATE", systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: 400, capacity: 400 } as any;
+    const jumps: string[] = [];
+    const notComplete: string[] = [];
+    const atlas = {
+      gatesTo: (from: string, to: string) => [`${from}-GATE`],
+      canJump: () => opts.canJumpDirect === true,
+      jumpPath: () => opts.path,
+      loadSystem: async (sys: string) => ({ symbol: sys, waypoints: [{ symbol: `${sys}-GATE`, type: "JUMP_GATE" }], jumpGates: [], markets: [], shipyards: [] }),
+      recordJumpCost: () => {},
+      recordGateNotComplete: (g: string) => { notComplete.push(g); },
+    };
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        jumpShip: async (_s: string, wp: string) => {
+          if (opts.jumpError) throw new Error(opts.jumpError);
+          jumps.push(wp);
+          ship.nav = { status: "IN_ORBIT", waypointSymbol: wp, systemSymbol: wp.slice(0, wp.lastIndexOf("-")) } as any;
+          return { nav: ship.nav, cooldown: { remainingSeconds: 0 }, transaction: { totalPrice: 5000 }, agent: {} } as any;
+        },
+        orbitShip: async () => ({ nav: ship.nav } as any),
+      } as any,
+      atlas: atlas as any,
+    });
+    return { trader, ship, jumps, notComplete };
+  }
+
+  it("a route starting two systems away is viable when the graph has a path", () => {
+    const { trader } = setup({ path: ["X1-A", "X1-B", "X1-C"] });
+    (trader as any).priceTable.set("X1-C-M1", new Map([["IRON", { buy: 10, sell: 12, volume: 40 }]]));
+    (trader as any).priceTable.set("X1-C-M2", new Map([["IRON", { buy: 8, sell: 200, volume: 40 }]]));
+    trader.withWorld([{ symbol: "X1-A-GATE", x: 0, y: 0 }, { symbol: "X1-C-M1", x: 0, y: 0 }, { symbol: "X1-C-M2", x: 1, y: 0 }] as any);
+    const route = (trader as any).viableRoute({ good: "IRON", buyAt: "X1-C-M1", sellAt: "X1-C-M2" }, true);
+    assert.ok(route);
+  });
+
+  it("is not viable with no verified path", () => {
+    const { trader } = setup({ path: undefined });
+    (trader as any).priceTable.set("X1-C-M1", new Map([["IRON", { buy: 10, sell: 12, volume: 40 }]]));
+    (trader as any).priceTable.set("X1-C-M2", new Map([["IRON", { buy: 8, sell: 200, volume: 40 }]]));
+    const route = (trader as any).viableRoute({ good: "IRON", buyAt: "X1-C-M1", sellAt: "X1-C-M2" }, true);
+    assert.equal(route, undefined);
+    assert.match((trader as any).whyNotViable({ good: "IRON", buyAt: "X1-C-M1", sellAt: "X1-C-M2" }, true), /no verified gate path/);
+  });
+
+  it("navigateTo() takes ONE hop toward a farther target, stopping on the intermediate gate", async () => {
+    const { trader, jumps, ship } = setup({ path: ["X1-A", "X1-B", "X1-C"] });
+    await (trader as any).navigateTo("X1-C-M1");
+    assert.deepEqual(jumps, ["X1-B-GATE"], "one hop only");
+    assert.equal(ship.nav.systemSymbol, "X1-B");
+  });
+
+  it("navigateTo() with no path throws instead of wandering", async () => {
+    const { trader, jumps } = setup({ path: undefined });
+    await assert.rejects(() => (trader as any).navigateTo("X1-C-M1"), /no verified gate path/);
+    assert.deepEqual(jumps, []);
+  });
+
+  it("a live 'under construction' rejection closes the gate in the atlas", async () => {
+    const { trader, notComplete } = setup({ path: ["X1-A", "X1-B", "X1-C"], jumpError: "Jump gate is under construction" });
+    await assert.rejects(() => (trader as any).navigateTo("X1-C-M1"));
+    assert.deepEqual(notComplete, ["X1-A-GATE"]);
+  });
+});
