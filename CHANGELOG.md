@@ -11,6 +11,16 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: a multi-hop trader no longer jumps out of home on a nearly empty
+  tank.** `jumpToSystem()` flew to the departure gate with `navigateTo()`, which
+  returns immediately when the ship is already there and so skips its own
+  top-off. X1-SJ91-I67 is both the home gate and a fuel market, so THEO-2E
+  jumped with 80/300 fuel and, after two jumps, needed 467 at cruise to reach
+  VU66-A4 and drifted for ~2 hours (live 2026-10-02). The trader now tops up
+  (`topOffHere()`, market-only, never detours) at the departure gate before
+  jumping and at each arrival gate after landing — the gap I had flagged as
+  "no fuel check before the first leg".
+
 - **Dispatcher: impact-aware assignment when several traders want the same
   buy market.** The route list prices each route at the ask RIGHT NOW, and the
   dispatcher only de-duplicated sell markets, so three traders were sent to

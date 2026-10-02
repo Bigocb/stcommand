@@ -651,6 +651,17 @@ export class TraderAgent {
     await this.proxy.navigateTo(target);
   }
 
+  /** Top the tank up to ~95% if this waypoint is a market (the trait or a
+   *  recorded snapshot says so). Never detours: away from a market it does
+   *  nothing, unlike ShipProxy.refuelIfNeeded()'s own search for another one. */
+  private async topOffHere(): Promise<void> {
+    if (this.ship.fuel.capacity <= 0 || this.ship.nav.status === "IN_TRANSIT") return;
+    if (this.ship.fuel.current >= this.ship.fuel.capacity * 0.95) return;
+    const here = this.ship.nav.waypointSymbol;
+    if (!(this.registry.isMarket(here) || this.registry.market(here) !== undefined)) return;
+    await this.proxy.refuelIfNeeded({ belowFraction: 0.95 });
+  }
+
   private async waitCooldown(): Promise<void> {
     return this.proxy.waitCooldown();
   }
@@ -755,6 +766,11 @@ export class TraderAgent {
       throw new Error(`${targetSystem} has no jump gate waypoint`);
     }
     await this.navigateTo(gate);
+    // navigateTo() returns early when the ship is already at `gate`, which
+    // skips its own top-off, so a gate that is also a fuel market (X1-SJ91-I67)
+    // let 2E jump out with 80/300 and then DRIFT ~2h across VU66 (live
+    // 2026-10-02). Fill up here, before leaving, whenever the gate sells fuel.
+    await this.topOffHere();
     await this.ensureInOrbit();
     this.log(`jumping ${fromSystem} -> ${targetSystem} via ${gate}`);
     let res;
@@ -779,6 +795,8 @@ export class TraderAgent {
     this.atlas?.recordJumpCost(gate, targetSystem, res.transaction.totalPrice);
     await this.refresh();
     if (this.recordMarket) await this.recordMarket(this.ship.nav.waypointSymbol);
+    // Same for the arrival gate: the next leg starts here, and the next jump too.
+    await this.topOffHere();
     // The jump only gets us to the gate — if the real destination is
     // somewhere else in the target system, cover that last leg too.
     if (!hopOnly && destination !== remoteGate) await this.navigateTo(destination);

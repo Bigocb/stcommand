@@ -1189,3 +1189,37 @@ describe("TraderAgent: buy->sell up to 3 hops", () => {
     assert.equal((trader as any).tripCost("X1-A-A2", "X1-C-M1"), 10_400);
   });
 });
+
+describe("TraderAgent.jumpToSystem: tops off at a fuel-selling gate before and after the jump", () => {
+  it("refuels at the departure gate when it is a market, before jumping", async () => {
+    const ship = makeShip();
+    ship.nav = { status: "DOCKED", waypointSymbol: "X1-A-GATE", systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: 80, capacity: 300 } as any;
+    const order: string[] = [];
+    const atlas = {
+      gatesTo: () => ["X1-A-GATE"],
+      loadSystem: async () => ({ symbol: "X1-B", waypoints: [{ symbol: "X1-B-GATE", type: "JUMP_GATE" }], jumpGates: [], markets: [], shipyards: [] }),
+      recordJumpCost: () => {},
+      recordGateNotComplete: () => {},
+    };
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        refuelShip: async () => { order.push("refuel"); ship.fuel = { current: 300, capacity: 300 } as any; return { fuel: ship.fuel, transaction: { totalPrice: 100 } } as any; },
+        dockShip: async () => ({ nav: ship.nav } as any),
+        orbitShip: async () => ({ nav: ship.nav } as any),
+        jumpShip: async (_s: string, wp: string) => {
+          order.push("jump");
+          ship.nav = { status: "IN_ORBIT", waypointSymbol: wp, systemSymbol: "X1-B" } as any;
+          return { nav: ship.nav, cooldown: { remainingSeconds: 0 }, transaction: { totalPrice: 5000 }, agent: {} } as any;
+        },
+      } as any,
+      atlas: atlas as any,
+    });
+    trader.withWorld([{ symbol: "X1-A-GATE", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] }, { symbol: "X1-B-GATE", x: 0, y: 0 }] as any);
+    (trader as any).navigateTo = async () => {};
+    await (trader as any).jumpToSystem("X1-B", "X1-B-GATE", true);
+    assert.deepEqual(order, ["refuel", "jump"], "must fill up at the gate market first");
+  });
+});
