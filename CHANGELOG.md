@@ -11,6 +11,13 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tower: "Cancel sale" button for a ship with a pending scrap order.** The
+  ship sheet's Release button only appears for a HELD ship, so a ship flying
+  off to be scrapped (THEO-A) had no Release to tap, despite my earlier
+  instruction. A ship whose status `wants` begins "scrap" now shows an amber
+  "Cancel sale" button that calls `/api/fleet/release`, which cancels the sale
+  order (see `releaseShip()`).
+
 - **Cross-system trading: the buy->sell leg can now span up to 3 gate hops.**
   `viableRoute()`/`whyNotViable()` accepted a route only when its buy and sell
   systems were ONE jump apart, so a good bought at home and sold two systems

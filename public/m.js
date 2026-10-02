@@ -306,10 +306,14 @@ function fleetRows() {
     const st = statusBy.get(s.symbol);
     const assignment = dispatchAssignments.find((a) => a.shipSymbol === s.symbol);
     const claim = claimFor(s);
+    // fleetStatusSummary()'s `wants` reads "scrap <yard>" while a sale order is
+    // pending; that outranks the role, so surface it (and a way to cancel it).
+    const wants = (fleetStatus.summary ?? []).find((x) => x.symbol === s.symbol)?.wants ?? "";
     return {
       symbol: s.symbol,
       role: st?.role ?? "—",
       manual: !!st?.paused,
+      selling: wants.startsWith("scrap"),
       job: claim ?? (st?.role === "trader" ? (jobLabel(assignment) ?? "unassigned") : null),
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
@@ -469,6 +473,11 @@ function renderSheet(row) {
   const holdBtn = row.manual
     ? `<button class="btn" data-act="release">Release</button>`
     : `<button class="btn" data-act="hold">Hold</button>`;
+  // A ship with a pending sale order flies to a shipyard to be scrapped no
+  // matter its role. Release (server side) now cancels that order.
+  const cancelSaleBtn = row.selling
+    ? `<button class="btn pri full" data-act="release">Cancel sale — stop flying to be scrapped</button>`
+    : "";
   // Same /api/fleet/dock toggle endpoint desktop's .dock-toggle already
   // uses — Tower's sheet just never had a button wired to it. Disabled
   // (not hidden) mid-transit, matching the endpoint's own guard, so the
@@ -542,6 +551,7 @@ function renderSheet(row) {
     <button class="btn" data-act="send-toggle">Send to waypoint</button>
     ${holdBtn}
     ${dockBtn}
+    ${cancelSaleBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
     ${row.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
     ${manualRoute ? `<button class="btn pri full" data-act="custom-route-clear">Release to auto — ${escapeHtml(manualRoute.good)} ${escapeHtml(shortWp(manualRoute.buyAt))} → ${escapeHtml(shortWp(manualRoute.sellAt))}</button>` : ""}
