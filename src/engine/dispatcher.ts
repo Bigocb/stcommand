@@ -661,6 +661,20 @@ export class RouteDispatcher {
       }
     }
 
+    // A loaded trader with no assignment on record (the in-memory map is empty
+    // after a restart or deploy) is still flying the trip its own held-route pin
+    // describes. Rebuild its assignment from that pin so the fleet page shows
+    // it, and so the trip is carried forward and reserved like any other.
+    for (const f of inFlight ?? []) {
+      if (next.has(f.shipSymbol) || this.manual.has(f.shipSymbol)) continue;
+      const t = sorted.find((x) => x.shipSymbol === f.shipSymbol);
+      if (!t?.busy) continue;
+      next.set(f.shipSymbol, {
+        shipSymbol: f.shipSymbol, good: f.good, role: "direct", buyAt: f.buyAt, sellAt: f.sellAt,
+        profitPerTrip: 0, source: "auto",
+      });
+      this.committed.set(f.shipSymbol, { at: nowMs, hadCargo: true });
+    }
     // Legs already in flight, from every trader's own pin. Reserve their sell
     // market and remember them for the per-market buyer count below. Falls back
     // to the carried-forward assignment for a busy ship with no pin.

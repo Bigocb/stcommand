@@ -714,3 +714,16 @@ describe("RouteDispatcher: a trip stays with its trader until delivered", () => 
     assert.equal(d.assignmentFor("T1")?.good, "GOLD");
   });
 });
+
+describe("RouteDispatcher: loaded traders after a restart", () => {
+  it("rebuilds the assignment from the ship's held-route pin so it is not shown as unassigned", () => {
+    const d = new RouteDispatcher();
+    d.recompute([], [{ shipSymbol: "T1", capacity: 40, busy: true }], [], [], [], [],
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      [{ shipSymbol: "T1", good: "DRUGS", buyAt: "X1-A-B1", sellAt: "X1-A-S1", units: 40 }]);
+    const a = d.assignmentFor("T1");
+    assert.equal(a?.good, "DRUGS");
+    assert.equal(a?.sellAt, "X1-A-S1");
+    assert.equal(a?.role, "direct");
+  });
+});

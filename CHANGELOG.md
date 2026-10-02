@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Loaded traders no longer show "unassigned" after a restart
+The dispatcher's assignments live in memory, so after every deploy a trader mid-haul had none on record and the fleet page listed it as unassigned (THEO-28 carrying lab instruments, THEO-2E carrying drugs), even though the ship kept flying the trip from its own held-route pin. `recompute()` now rebuilds a loaded trader's assignment from that pin (the `inFlight` list), so it shows its route, is committed until delivery, and reserves its sell market.
+
 ## A trader's trip stays assigned until the delivery is done
 The dispatcher only carried an assignment forward while the ship's hold was loaded, so an empty trader already heading to (or jumping toward) its buy market was re-ranked every minute and turned around mid-route (2E: TN82 -> VU66 -> back out through KN46, ~5k per wasted jump). An auto "direct" trip is now committed to its trader from assignment until the hold has been seen loaded and then emptied. It lapses if no cargo has been bought within `COMMIT_GRACE_MS` (3 h, covers positioning + buying), or if the ship is standing at the buy waypoint with an empty hold and the route has left the ranked list — never mid-flight to the buy waypoint. A manual override clears the commitment. Committed legs also count toward the per-market buyer cap and reserve their sell market.
 
