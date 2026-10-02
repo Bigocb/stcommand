@@ -15,6 +15,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** How often a halted agent re-checks whether the fleet has resumed. */
 const HALT_POLL_MS = 1_000;
 
+/** Farthest leg (fuel units) a tour/scout ship will DRIFT when nothing is within
+ *  cruise range: a drift is hours per leg, so beyond this the target is not
+ *  worth it. Chosen to cover the 150-450 unit market spacing seen in X1-FC23 and
+ *  X1-YM56 while still treating a ~900-unit hop as out of range. */
+export const TOUR_DRIFT_MAX_UNITS = 500;
+
 export interface AgentOptions {
   /** Repair this ship where it stands; forwarded to the shared executor. */
   repairHere?: (shipSymbol: string) => Promise<void>;
@@ -1672,6 +1678,28 @@ export class ShipAgent {
           return true;
         } catch (err) {
           this.log(`tour scout: waypoint re-fetch for ${this.ship.nav.systemSymbol} failed, will report as before: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      // Nothing is reachable at CRUISE, but that rule exists to keep a ship
+      // from being marooned between markets — and DRIFT costs a flat ~1 fuel
+      // per leg whatever the distance, so a ship standing on a market with a
+      // usable tank can always drift to the next one (and refuel there). A
+      // small-tank hull (THEO-A, 80 fuel) in a system whose markets sit
+      // 200+ units apart (X1-FC23, X1-YM56) otherwise tours nothing, ever.
+      // Slow (hours per leg) but it does the job this role exists for.
+      // Round-trip fuel is deliberately NOT required here; one fuel is.
+      if (this.atMarketHere() && this.ship.fuel.capacity > 0 && this.ship.fuel.current >= Math.max(10, this.ship.fuel.capacity * 0.1)) {
+        const drift = inSystem
+          .map((t) => ({ t, dist: this.registry.fuelFor(here, t), stale: stale.has(t) }))
+          .filter((x) => Number.isFinite(x.dist) && x.dist <= TOUR_DRIFT_MAX_UNITS)
+          .sort((a, b) => Number(b.stale) - Number(a.stale) || a.dist - b.dist)[0];
+        if (drift) {
+          this.log(`tour scout: nothing within a tank's cruise range of ${here}; drifting to ${drift.t} (${Math.round(drift.dist)} units)`);
+          await this.navigateTo(drift.t);
+          await this.ensureDocked();
+          if (this.recordMarket) await this.recordMarket(drift.t);
+          if (this.recordShipyard) await this.recordShipyard(drift.t);
+          return true;
         }
       }
       this.log(`tour scout: no reachable target from ${here} (${targets.length} known, ${inSystem.length} in ${this.ship.nav.systemSymbol}, atMarketHere=${this.atMarketHere()})`);

@@ -782,3 +782,57 @@ describe("ShipAgent.tourScout: tops off fuel at every market, not just when runn
     await (agent as any).tourScout();
   });
 });
+
+describe("ShipAgent.tourScout: drift fallback for a small-tank ship", () => {
+  it("drifts to the nearest market when nothing is within cruise range but one is within the drift limit", async () => {
+    // THEO-A in X1-YM56: 80-fuel tank, nearest other market 219 away.
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 78, capacity: 80 });
+    const navigated: string[] = [];
+    const logs: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => ["X1-REMOTE-B2", "X1-REMOTE-C3"],
+    });
+    agent.withWorld(
+      [
+        { symbol: "X1-REMOTE-A1", x: 0, y: 0 },
+        { symbol: "X1-REMOTE-B2", x: 219, y: 0 },
+        { symbol: "X1-REMOTE-C3", x: 415, y: 0 },
+      ].map((w) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }] })) as any,
+      [],
+    );
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).atMarketHere = () => true;
+    (agent as any).ensureDocked = async () => {};
+    (agent as any).navigateTo = async (wp: string) => { navigated.push(wp); };
+
+    const worked = await (agent as any).tourScout();
+
+    assert.equal(worked, true);
+    assert.deepEqual(navigated, ["X1-REMOTE-B2"], "the nearer market, by drift");
+    assert.ok(logs.some((l) => l.includes("drifting to X1-REMOTE-B2")));
+  });
+
+  it("does not drift when the tank is nearly empty", async () => {
+    const ship = makeShip("X1-REMOTE-A1", "X1-REMOTE");
+    Object.assign(ship.fuel, { current: 5, capacity: 80 });
+    const navigated: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      marketTourTargets: async () => ["X1-REMOTE-B2"],
+    });
+    agent.withWorld(
+      [{ symbol: "X1-REMOTE-A1", x: 0, y: 0 }, { symbol: "X1-REMOTE-B2", x: 219, y: 0 }].map((w) => ({ ...w, traits: [{ symbol: "MARKETPLACE" }] })) as any,
+      [],
+    );
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).atMarketHere = () => true;
+    (agent as any).ensureDocked = async () => {};
+    (agent as any).navigateTo = async (wp: string) => { navigated.push(wp); };
+    await (agent as any).tourScout();
+    assert.deepEqual(navigated, []);
+  });
+});

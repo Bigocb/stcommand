@@ -11,6 +11,17 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tour ships drift to a market when nothing is within cruise range.** The
+  tour target filter requires the round trip to fit the tank, which exists to
+  stop a ship being marooned between markets; but DRIFT costs ~1 fuel per leg
+  whatever the distance, so a ship standing on a market with a usable tank
+  (>= 10 fuel and >= 10% of capacity) can always drift to the next one and
+  refuel there. THEO-A (80-fuel tank) sat "no reachable target" in X1-FC23 and
+  X1-YM56, whose markets are 150-450 units apart. The tour now drifts to the
+  nearest (stale-first) in-system market within `TOUR_DRIFT_MAX_UNITS` (500),
+  logging "drifting to <market>". Slow (hours per leg) but it gets the
+  snapshots. A ~900-unit hop is still treated as out of range.
+
 - **Fix: a multi-hop trader no longer jumps out of home on a nearly empty
   tank.** `jumpToSystem()` flew to the departure gate with `navigateTo()`, which
   returns immediately when the ship is already there and so skips its own
