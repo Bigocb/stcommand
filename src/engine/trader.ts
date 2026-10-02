@@ -508,7 +508,19 @@ export class TraderAgent {
    *  stays single-hop (systemsConnected). */
   private positioningPath(fromSystem: string, toSystem: string): string[] | undefined {
     if (fromSystem === toSystem) return [fromSystem];
-    return this.atlas?.jumpPath(fromSystem, toSystem);
+    // A directly connected pair keeps the long-standing one-hop rule (source
+    // gate cached complete); only a farther pair needs the verified-both-ends
+    // multi-hop search.
+    if (this.atlas?.canJump(fromSystem, toSystem)) return [fromSystem, toSystem];
+    return this.atlas?.jumpPath?.(fromSystem, toSystem);
+  }
+
+  /** Cost of ONE jump from `a` to adjacent `b`: the learned per-gate average
+   *  where a real jump was ever paid for, else the flat placeholder. */
+  private hopCost(a: string, b: string): number {
+    const gate = this.atlas?.gatesTo(a, b)[0];
+    const learned = gate ? this.atlas?.learnedJumpCost(gate, b) : undefined;
+    return learned ?? CROSS_SYSTEM_JUMP_COST_ESTIMATE;
   }
 
   private positioningLastWarm = new Map<string, number>();
@@ -516,8 +528,8 @@ export class TraderAgent {
   /** Populate the atlas's gate caches for a multi-hop positioning leg that
    *  isn't answerable yet (the systems in between were never loaded or their
    *  gates never checked). Rate-limited per from->to pair. */
-  private async warmPositioning(toSystem: string): Promise<void> {
-    const here = this.ship.nav.systemSymbol;
+  private async warmPositioning(toSystem: string, fromSystem: string = this.ship.nav.systemSymbol): Promise<void> {
+    const here = fromSystem;
     if (!this.atlas || here === toSystem || this.positioningPath(here, toSystem)) return;
     const key = `${here}->${toSystem}`;
     const last = this.positioningLastWarm.get(key) ?? 0;
@@ -1014,7 +1026,7 @@ export class TraderAgent {
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
     const crossSystem = buySystem !== sellSystem;
-    if (!this.systemsConnected(buySystem, sellSystem)) return `systems not connected ${buySystem} <-> ${sellSystem}`;
+    if (!this.positioningPath(buySystem, sellSystem)) return `no verified gate path (<= ${MAX_POSITIONING_HOPS} hops) between buy system ${buySystem} and sell system ${sellSystem}`;
     if (!this.positioningPath(this.systemOf(this.ship.nav.waypointSymbol), buySystem))
       return `no verified gate path (<= ${MAX_POSITIONING_HOPS} hops) to buy system ${buySystem} from ${this.ship.nav.systemSymbol}`;
     if (this.ship.fuel.capacity > 0) {
@@ -1065,7 +1077,9 @@ export class TraderAgent {
     // GalaxyAtlas.canJump() is the one place that answers that, backed by a
     // cache FleetManager.tick() refreshes on a slow interval rather than a
     // live call from this hot scoring path.
-    if (!this.systemsConnected(buySystem, sellSystem)) return undefined;
+    // Up to MAX_POSITIONING_HOPS gate hops between the two markets (the
+    // executor steps one hop per navigateTo(), carrying the cargo along).
+    if (!this.positioningPath(buySystem, sellSystem)) return undefined;
     // ...and that this ship can reach the *start* of the leg.
     //
     // The check above, and the dispatcher's matching one, validate buy↔sell:
@@ -1223,9 +1237,14 @@ export class TraderAgent {
     const buySystem = this.systemOf(buyAt);
     const sellSystem = this.systemOf(sellAt);
     if (buySystem !== sellSystem) {
-      const gate = this.atlas?.gatesTo(buySystem, sellSystem)[0];
-      const learned = gate ? this.atlas?.learnedJumpCost(gate, sellSystem) : undefined;
-      return learned ?? CROSS_SYSTEM_JUMP_COST_ESTIMATE;
+      // Every hop between the two systems is a paid jump.
+      const path = this.positioningPath(buySystem, sellSystem);
+      if (path && path.length > 2) {
+        let total = 0;
+        for (let i = 0; i + 1 < path.length; i++) total += this.hopCost(path[i]!, path[i + 1]!);
+        return total;
+      }
+      return this.hopCost(buySystem, sellSystem);
     }
     const fuelPrice = this.priceTable.get(buyAt)?.get("FUEL")?.buy ?? 72;
     return this.distBetween(buyAt, sellAt) * fuelPrice;
@@ -1696,7 +1715,10 @@ export class TraderAgent {
     // can only be judged once the atlas has loaded the gates in between.
     const assignment = this.assignedRoute?.();
     const assignedLeg = assignment?.source === "manual" ? this.asDirectLeg(assignment) : undefined;
-    if (assignedLeg) await this.warmPositioning(this.systemOf(assignedLeg.buyAt));
+    if (assignedLeg) {
+      await this.warmPositioning(this.systemOf(assignedLeg.buyAt));
+      await this.warmPositioning(this.systemOf(assignedLeg.sellAt), this.systemOf(assignedLeg.buyAt));
+    }
     for (;;) {
       const route = this.findRoute();
       if (!route) break;

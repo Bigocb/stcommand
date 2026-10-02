@@ -81,7 +81,7 @@ function setTab(name) {
   if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
-  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); }
+  if (name === "more") { loadBridge(); loadProgramme(); loadWarehouse(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -1563,7 +1563,55 @@ $("more-keeper-reset").addEventListener("click", () => postKeepers({ reset: true
 $("more-keeper-cover").addEventListener("click", () => postKeepers({ coverList: !keeperCoverList }));
 subscribe("keepers", () => { if (moreTabActive()) renderMoreKeepers(); });
 
+/** Bulk scrap: a role filter plus a checkbox per ship; Scrap posts the same
+ *  /api/fleet/sell-ship call the per-ship Sell button uses, one ship at a time. */
+let bulkRole = "miner";
+const bulkPicked = new Set();
+function renderBulkScrap() {
+  const ships = fleetStatus.ships ?? [];
+  const roles = [...new Set(ships.map((s) => s.role))].sort();
+  const sel = $("bulk-role");
+  if (document.activeElement !== sel) {
+    if (!roles.includes(bulkRole)) bulkRole = roles[0] ?? "";
+    sel.innerHTML = roles.map((r) => `<option value="${escapeAttr(r)}" ${r === bulkRole ? "selected" : ""}>${escapeHtml(r)} (${ships.filter((s) => s.role === r).length})</option>`).join("");
+  }
+  const rows = ships.filter((s) => s.role === bulkRole).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  $("bulk-list").innerHTML = rows.map((s) => `<label class="checkline" style="display:flex;padding:6px 0">
+      <input type="checkbox" data-ship="${escapeAttr(s.symbol)}" ${bulkPicked.has(s.symbol) ? "checked" : ""} />
+      <span style="flex:1">${escapeHtml(s.symbol)}</span>
+      <span class="d">${escapeHtml(s.doing ?? s.nav ?? "")}${s.fuelCap ? ` · fuel ${s.fuel}/${s.fuelCap}` : ""}</span>
+    </label>`).join("") || '<div class="empty">No ships with this role.</div>';
+  $("more-bulk-count").textContent = `${bulkPicked.size} selected`;
+}
+$("bulk-role").addEventListener("change", (e) => { bulkRole = e.target.value; renderBulkScrap(); });
+$("bulk-all").addEventListener("click", () => { for (const s of fleetStatus.ships ?? []) if (s.role === bulkRole) bulkPicked.add(s.symbol); renderBulkScrap(); });
+$("bulk-none").addEventListener("click", () => { bulkPicked.clear(); renderBulkScrap(); });
+$("bulk-list").addEventListener("change", (e) => {
+  const cb = e.target.closest("input[data-ship]");
+  if (!cb) return;
+  if (cb.checked) bulkPicked.add(cb.dataset.ship); else bulkPicked.delete(cb.dataset.ship);
+  $("more-bulk-count").textContent = `${bulkPicked.size} selected`;
+});
+$("bulk-go").addEventListener("click", async () => {
+  const picked = [...bulkPicked];
+  if (!picked.length) return;
+  if (!confirm(`Scrap ${picked.length} ship${picked.length === 1 ? "" : "s"} permanently?\n\n${picked.join(", ")}\n\nEach flies to the nearest shipyard and is scrapped there. This cannot be undone.`)) return;
+  const btn = $("bulk-go");
+  btn.disabled = true;
+  const failed = [];
+  for (const sym of picked) {
+    try { await api("POST", "/api/fleet/sell-ship", { shipSymbol: sym }); bulkPicked.delete(sym); }
+    catch (err) { failed.push(`${sym}: ${err.message}`); }
+  }
+  btn.disabled = false;
+  await loadState();
+  renderBulkScrap();
+  if (failed.length) alert(`${failed.length} could not be sold:\n${failed.join("\n")}`);
+});
+subscribe("bridge", () => { if (moreTabActive()) renderBulkScrap(); });
+
 function renderMore() {
+  renderBulkScrap();
   renderMoreKeepers();
   renderMoreContracts();
   renderMoreMissions();

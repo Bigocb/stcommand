@@ -1152,3 +1152,40 @@ describe("TraderAgent: multi-hop positioning (<= 3 hops)", () => {
     assert.deepEqual(notComplete, ["X1-A-GATE"]);
   });
 });
+
+describe("TraderAgent: buy->sell up to 3 hops", () => {
+  function makeTrader(path: string[] | undefined, learned: Record<string, number> = {}) {
+    const ship = makeShip();
+    ship.nav = { status: "DOCKED", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: 400, capacity: 400 } as any;
+    const atlas = {
+      gatesTo: (a: string) => [`${a}-GATE`],
+      canJump: () => false,
+      jumpPath: (from: string, to: string) => (from === "X1-A" && to === "X1-C" ? path : undefined),
+      learnedJumpCost: (gate: string, sys: string) => learned[`${gate}->${sys}`],
+    };
+    const trader = new TraderAgent(ship, { api: { getCallCount: () => 0, getShip: async () => ship } as any, atlas: atlas as any });
+    trader.withWorld([{ symbol: "X1-A-A1", x: 0, y: 0 }, { symbol: "X1-A-A2", x: 5, y: 0 }] as any);
+    (trader as any).priceTable.set("X1-A-A2", new Map([["CIRC", { buy: 3500, sell: 1700, volume: 20 }]]));
+    (trader as any).priceTable.set("X1-C-M1", new Map([["CIRC", { buy: 14000, sell: 7200, volume: 80 }]]));
+    return trader;
+  }
+  const leg = { good: "CIRC", buyAt: "X1-A-A2", sellAt: "X1-C-M1" };
+
+  it("is viable when the graph has a 2-hop path between the buy and sell systems", () => {
+    const trader = makeTrader(["X1-A", "X1-B", "X1-C"]);
+    assert.ok((trader as any).viableRoute(leg, true));
+  });
+
+  it("is not viable with no path, and says why", () => {
+    const trader = makeTrader(undefined);
+    assert.equal((trader as any).viableRoute(leg, true), undefined);
+    assert.match((trader as any).whyNotViable(leg, true), /no verified gate path .* between buy system X1-A and sell system X1-C/);
+  });
+
+  it("charges every hop in the trip cost (learned where known, flat estimate otherwise)", () => {
+    const trader = makeTrader(["X1-A", "X1-B", "X1-C"], { "X1-A-GATE->X1-B": 5400 });
+    // hop A->B learned 5,400; hop B->C unknown -> CROSS_SYSTEM_JUMP_COST_ESTIMATE (5,000)
+    assert.equal((trader as any).tripCost("X1-A-A2", "X1-C-M1"), 10_400);
+  });
+});

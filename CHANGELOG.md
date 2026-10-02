@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Cross-system trading: the buy->sell leg can now span up to 3 gate hops.**
+  `viableRoute()`/`whyNotViable()` accepted a route only when its buy and sell
+  systems were ONE jump apart, so a good bought at home and sold two systems
+  away (confirmed 2026-10-02: ADVANCED_CIRCUITRY, D54 3,522 -> VU66-A4 7,259)
+  was rejected even when assigned by hand. They now ask `positioningPath()` for
+  a verified path of at most `MAX_POSITIONING_HOPS` (3), `tripCost()` charges
+  every hop (learned per-gate average, else the flat estimate), and a manual
+  route also warms the gate caches buy-side -> sell-side. The executor already
+  steps one hop per `navigateTo()` call, carrying the cargo. The dispatcher's
+  AUTOMATIC assignment is still single-hop for buy->sell (phase 2, gated on the
+  doctrine switch); this makes a hand-assigned multi-hop trade work. A directly
+  connected pair keeps the old one-hop rule.
+- **Tower: bulk scrap.** More tab -> "Bulk scrap": pick a role, tick ships (All /
+  None), Scrap selected. Posts the same `/api/fleet/sell-ship` the per-ship Sell
+  button uses, one ship at a time, with one confirmation listing every hull.
+
 - **A pending sale no longer survives a role change or Release.** A scrap order
   (`shipManualState.scrapAt` -> `scrapTargets` -> a priority-0 "scrap" intent)
   outranks every role, and nothing cleared it when the operator re-roled the
