@@ -1432,7 +1432,15 @@ export class Store {
   async recordShipyardInventory(
     systemSymbol: string,
     waypointSymbol: string,
-    ships: { type: string; name: string; purchasePrice: number; frame?: { fuelCapacity?: number; cargoCapacity?: number; moduleSlots?: number; mountingPoints?: number; symbol?: string } }[],
+    ships: {
+      type: string; name: string; purchasePrice: number;
+      frame?: { fuelCapacity?: number; cargoCapacity?: number; moduleSlots?: number; mountingPoints?: number; symbol?: string };
+      engine?: { speed?: number };
+      reactor?: { powerOutput?: number };
+      crew?: { required?: number; capacity?: number };
+      modules?: { symbol: string; name?: string; capacity?: number; range?: number }[];
+      mounts?: { symbol: string; name?: string; strength?: number }[];
+    }[],
   ): Promise<void> {
     if (ships.length === 0) return;
     await withPool(this.pool, async (c) => {
@@ -1443,12 +1451,19 @@ export class Store {
       for (const s of ships) {
         const frame = s.frame ?? {};
         await c.query(
-          `INSERT INTO shipyard_inventory (timestamp, system_symbol, waypoint_symbol, ship_type, ship_type_name, purchase_price, fuel_capacity, cargo_capacity, module_slots, mounting_points, frame_symbol, unique_key)
-           VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          `INSERT INTO shipyard_inventory (timestamp, system_symbol, waypoint_symbol, ship_type, ship_type_name, purchase_price, fuel_capacity, cargo_capacity, module_slots, mounting_points, frame_symbol, unique_key,
+                                           engine_speed, reactor_power, crew_required, crew_capacity, modules, mounts)
+           VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
            ON CONFLICT (unique_key) DO UPDATE SET
              timestamp = excluded.timestamp, purchase_price = excluded.purchase_price, fuel_capacity = excluded.fuel_capacity,
              cargo_capacity = excluded.cargo_capacity, module_slots = excluded.module_slots, mounting_points = excluded.mounting_points,
-             frame_symbol = excluded.frame_symbol`,
+             frame_symbol = excluded.frame_symbol,
+             engine_speed = COALESCE(excluded.engine_speed, shipyard_inventory.engine_speed),
+             reactor_power = COALESCE(excluded.reactor_power, shipyard_inventory.reactor_power),
+             crew_required = COALESCE(excluded.crew_required, shipyard_inventory.crew_required),
+             crew_capacity = COALESCE(excluded.crew_capacity, shipyard_inventory.crew_capacity),
+             modules = COALESCE(excluded.modules, shipyard_inventory.modules),
+             mounts = COALESCE(excluded.mounts, shipyard_inventory.mounts)`,
           [
             systemSymbol,
             waypointSymbol,
@@ -1461,6 +1476,12 @@ export class Store {
             frame.mountingPoints ?? 0,
             frame.symbol ?? null,
             `${waypointSymbol}:${s.type}`,
+            s.engine?.speed ?? null,
+            s.reactor?.powerOutput ?? null,
+            s.crew?.required ?? null,
+            s.crew?.capacity ?? null,
+            s.modules ? JSON.stringify(s.modules.map((m) => ({ symbol: m.symbol, name: m.name, capacity: m.capacity, range: m.range }))) : null,
+            s.mounts ? JSON.stringify(s.mounts.map((m) => ({ symbol: m.symbol, name: m.name, strength: m.strength }))) : null,
           ],
         );
       }
@@ -1481,10 +1502,22 @@ export class Store {
       mountingPoints: number;
       frameSymbol: string;
       timestamp: string;
+      engineSpeed: number | null;
+      reactorPower: number | null;
+      crewRequired: number | null;
+      crewCapacity: number | null;
+      modules: { symbol: string; name?: string; capacity?: number; range?: number }[] | null;
+      mounts: { symbol: string; name?: string; strength?: number }[] | null;
     }[]
   > {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{
+        engine_speed: number | null;
+        reactor_power: number | null;
+        crew_required: number | null;
+        crew_capacity: number | null;
+        modules: { symbol: string; name?: string; capacity?: number; range?: number }[] | null;
+        mounts: { symbol: string; name?: string; strength?: number }[] | null;
         system_symbol: string;
         waypoint_symbol: string;
         ship_type: string;
@@ -1498,7 +1531,8 @@ export class Store {
         timestamp: Date;
       }>(
         `WITH ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY unique_key ORDER BY timestamp DESC, id DESC) AS rn FROM shipyard_inventory)
-         SELECT system_symbol, waypoint_symbol, ship_type, ship_type_name, purchase_price, fuel_capacity, cargo_capacity, module_slots, mounting_points, frame_symbol, timestamp
+         SELECT system_symbol, waypoint_symbol, ship_type, ship_type_name, purchase_price, fuel_capacity, cargo_capacity, module_slots, mounting_points, frame_symbol, timestamp,
+                engine_speed, reactor_power, crew_required, crew_capacity, modules, mounts
          FROM ranked WHERE rn = 1 ORDER BY system_symbol, waypoint_symbol, purchase_price`,
       );
       return res.rows.map((r) => ({
@@ -1513,6 +1547,12 @@ export class Store {
         mountingPoints: r.mounting_points,
         frameSymbol: r.frame_symbol,
         timestamp: r.timestamp.toISOString(),
+        engineSpeed: r.engine_speed,
+        reactorPower: r.reactor_power,
+        crewRequired: r.crew_required,
+        crewCapacity: r.crew_capacity,
+        modules: r.modules,
+        mounts: r.mounts,
       }));
     });
   }

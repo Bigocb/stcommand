@@ -1051,6 +1051,24 @@ function renderMarketRoutes() {
   }).join("");
 }
 
+/** One-line stat summary for a shipyard listing. Cargo comes from the cargo-hold
+ *  modules the ship is sold with (the frame itself lists none); speed/crew/
+ *  modules appear once a ship of ours has docked at that yard since the stats
+ *  started being saved — until then those read "—". */
+function shipStatsLine(y) {
+  const cargo = (y.modules ?? []).filter((m) => (m.symbol ?? "").startsWith("MODULE_CARGO_HOLD")).reduce((n, m) => n + (m.capacity ?? 0), 0);
+  const known = Array.isArray(y.modules);
+  const bits = [
+    `fuel ${fmt(y.fuelCapacity)}`,
+    known ? `cargo ${fmt(cargo)}` : "cargo —",
+    y.engineSpeed != null ? `speed ${y.engineSpeed}` : "speed —",
+    y.crewRequired != null ? `crew ${y.crewRequired}${y.crewCapacity != null ? `/${y.crewCapacity}` : ""}` : "crew —",
+    `slots ${y.moduleSlots}`,
+    `mounts ${y.mountingPoints}`,
+  ];
+  return bits.join(" · ");
+}
+
 function renderMarketYards() {
   const el = $("mkt-yards");
   const yards = intel.shipyards ?? [], mods = intel.modules ?? [];
@@ -1078,7 +1096,8 @@ function renderMarketYards() {
         <span class="yn">${escapeHtml(best.shipTypeName)}<br><button class="rr-legs yline-toggle" data-act="yard-toggle" data-group="${escapeHtml(groupKey)}" style="background:none;border:none;padding:0;color:inherit;font:inherit;text-decoration:underline;cursor:pointer">${escapeHtml(shortWp(best.waypointSymbol))}${others.length ? ` · also ${others.map((o) => shortWp(o.waypointSymbol)).join(", ")}` : ""}${rows.length > 1 ? (isOpen ? " (close)" : " (choose)") : ""}</button></span>
         <span class="yp">${fmt(best.purchasePrice)}c</span>
         <button class="btn pri" data-buy-ship="${escapeHtml(best.shipType)}" data-yard="${escapeHtml(best.waypointSymbol)}">Buy</button>
-      </div>`;
+      </div>
+      <div class="detail" style="margin:-4px 0 8px">${escapeHtml(shipStatsLine(best))}</div>`;
       if (isOpen) {
         html += `<div class="ship-pick">${rows.map((r) => `<button data-buy-ship="${escapeHtml(r.shipType)}" data-yard="${escapeHtml(r.waypointSymbol)}"><span>${escapeHtml(shortWp(r.waypointSymbol))}</span><span>${fmt(r.purchasePrice)}c</span></button>`).join("")}</div>`;
       }

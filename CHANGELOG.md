@@ -11,6 +11,16 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Shipyard listings now keep (and Tower shows) each ship's real stats.**
+  The Yards view showed only name and price; the scan threw away engine speed,
+  reactor power, crew and the modules/mounts a ship is sold with, and the
+  frame's `cargoCapacity` is always 0 (cargo comes from cargo-hold modules).
+  Migration 033 adds the columns; `recordShipyardInventory()` saves them and
+  `shipyardInventory()` returns them; Tower's Markets -> Yards shows a stats
+  line (fuel, cargo from modules, speed, crew, slots, mounts) under each ship.
+  Existing rows show "—" for the new fields until a ship of ours docks at that
+  yard again (the listing only carries stock while one is there).
+
 - **Releasing an operator hold (or changing the ship's role) now clears its
   committed "hold" intent.** `IntentBoard.commit()` only revisits ships that
   have a proposal in the current pass, so after `holdWaypoint` was cleared and
