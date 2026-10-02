@@ -535,12 +535,16 @@ function renderSheet(row) {
   if (detailsOpen) {
     extra += renderShipDetails(row.symbol);
   }
+  // A hand-assigned route (Assign route / Custom route) pins the trader to it
+  // until cleared; surface the way back to dispatcher control right here.
+  const manualRoute = dispatchAssignments.find((a) => a.shipSymbol === row.symbol && a.source === "manual");
   $("sheet-actions").innerHTML = `
     <button class="btn" data-act="send-toggle">Send to waypoint</button>
     ${holdBtn}
     ${dockBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
     ${row.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
+    ${manualRoute ? `<button class="btn pri full" data-act="custom-route-clear">Release to auto — ${escapeHtml(manualRoute.good)} ${escapeHtml(shortWp(manualRoute.buyAt))} → ${escapeHtml(shortWp(manualRoute.sellAt))}</button>` : ""}
     ${row.role === "miner" ? `<button class="btn" data-act="miner-pref-toggle">Mining preference</button>` : ""}
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>

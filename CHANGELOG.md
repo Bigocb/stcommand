@@ -11,6 +11,13 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tower: "Release to auto" button for a hand-assigned route.** A trader
+  pinned by Assign route / Custom route now shows a prominent button on its
+  ship sheet naming the route; tapping it clears the manual assignment
+  (same `POST /api/dispatch {clear:true}` the old Auto button used, which
+  was only visible inside the Custom route form) and hands the ship back
+  to the dispatcher.
+
 - **Tower (`/m`) can edit the keeper priority list.** The More tab has a
   new "Keeper stations" section: the full-list textarea, Save, Default,
   the cover-whole-list switch and the current stations — the same
