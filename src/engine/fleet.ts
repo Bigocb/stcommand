@@ -47,6 +47,23 @@ const CREDITS_TTL_MS = 30_000;
  */
 export const DEFAULT_KEEPER_MARKETS: string[] = [];
 
+/** Hulls a keeper can be bought as, best first. A probe is ideal; where a
+ *  yard doesn't sell one, a surveyor and then a mining drone stand in. */
+export const KEEPER_HULL_PREFERENCE = ["SHIP_PROBE", "SHIP_SURVEYOR", "SHIP_MINING_DRONE"];
+
+/** The best keeper hull a yard's stock offers, or undefined if none qualify. */
+export function pickKeeperHull(stock: { type: string; price: number }[]): { type: string; price: number } | undefined {
+  for (const type of KEEPER_HULL_PREFERENCE) {
+    const hit = stock.find((s) => s.type === type);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+export function keeperHullLabel(type: string): string {
+  return type === "SHIP_PROBE" ? "probe" : type === "SHIP_SURVEYOR" ? "surveyor" : type === "SHIP_MINING_DRONE" ? "mining drone" : type;
+}
+
 /** Roles assignable via setShipRole() — every real role except the two that aren't a ship-agent type (`warehouse` is a designation on top of whatever role a ship already has; `idle` just means no agent claims it). */
 type ManualRole = Exclude<ShipClaimRole, "warehouse" | "idle">;
 const MANUAL_ROLES: ReadonlySet<ManualRole> = new Set<ManualRole>(["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"]);
@@ -4250,9 +4267,9 @@ export class FleetManager {
     this.keeperPriorityMarketsCache = await this.keeperPriorityMarkets();
     const target = this.nearestUncoveredKeeperMarket(waypointSymbol);
     if (!target) return; // nothing on the priority list needs covering from here
-    const probe = ships.find((s) => s.type === "SHIP_PROBE");
-    if (!probe) return; // this yard doesn't stock one right now
-    if (!this.canAfford(probe.purchasePrice)) return;
+    const probe = pickKeeperHull(ships.map((s) => ({ type: s.type, price: s.purchasePrice })));
+    if (!probe) return; // this yard stocks no usable keeper hull right now
+    if (!this.canAfford(probe.price)) return;
 
     // One request at a time fleet-wide (kind is a single fixed string), same
     // pattern maybeBuyShip()'s "buyShip" already uses — avoids flooding the
@@ -4262,13 +4279,14 @@ export class FleetManager {
     // has no generic payload column (see 016_pending_approvals.sql), and this
     // is the one field free to repurpose the same way it already was before
     // this change (it held just the shipyard waypoint, alone).
+    const hullLabel = keeperHullLabel(probe.type);
     const detail = target === waypointSymbol
-      ? `probe at ${waypointSymbol} for ${probe.purchasePrice}c — no keeper stationed there yet`
-      : `probe at ${waypointSymbol} for ${probe.purchasePrice}c, will drift to ${target} — no keeper stationed there yet`;
+      ? `${hullLabel} at ${waypointSymbol} for ${probe.price}c — no keeper stationed there yet`
+      : `${hullLabel} at ${waypointSymbol} for ${probe.price}c, will drift to ${target} — no keeper stationed there yet`;
     const approved = await this.approvals.request("buyKeeperProbe", {
-      shipSymbol: `${waypointSymbol}|${target}`,
+      shipSymbol: `${waypointSymbol}|${target}|${probe.type}`,
       detail,
-      cost: probe.purchasePrice,
+      cost: probe.price,
       timeoutMs: 2 * 60 * 60_000,
       onTimeout: "approve",
     });
@@ -4280,7 +4298,7 @@ export class FleetManager {
       this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
       return;
     }
-    await this.purchaseKeeperProbe(waypointSymbol, target, probe.purchasePrice);
+    await this.purchaseKeeperProbe(waypointSymbol, target, probe.price, probe.type);
   }
 
   /**
@@ -4343,22 +4361,26 @@ export class FleetManager {
     const positions = new Map(this.galaxy.allPositions().map((p) => [p.symbol, p]));
     const marketPos = positions.get(marketWaypoint);
     const yards = (await this.store?.shipyardInventory()) ?? [];
-    let best: { waypointSymbol: string; price: number; dist: number } | undefined;
+    let best: { waypointSymbol: string; price: number; dist: number; hull: string; rank: number } | undefined;
     for (const row of yards) {
       if (row.systemSymbol !== marketSystem) continue;
-      if (row.shipType !== "SHIP_PROBE") continue;
+      const rank = KEEPER_HULL_PREFERENCE.indexOf(row.shipType);
+      if (rank < 0) continue; // not a keeper-capable hull
       const yardPos = positions.get(row.waypointSymbol);
       // Same fallback convention as nearestUncoveredKeeperMarket(): the
       // shipyard itself as a candidate (dist 0) when it coincides with the
       // market, otherwise unreachable-until-proven-otherwise if we have no
       // charted position for it yet.
       const dist = yardPos && marketPos ? Math.hypot(yardPos.x - marketPos.x, yardPos.y - marketPos.y) : row.waypointSymbol === marketWaypoint ? 0 : Infinity;
-      if (!best || dist < best.dist) best = { waypointSymbol: row.waypointSymbol, price: row.purchasePrice, dist };
+      // Prefer the better hull first (probe > surveyor > mining drone), then the nearer yard.
+      if (!best || rank < best.rank || (rank === best.rank && dist < best.dist)) {
+        best = { waypointSymbol: row.waypointSymbol, price: row.purchasePrice, dist, hull: row.shipType, rank };
+      }
     }
-    if (!best) return; // no shipyard in this system has a cached probe in stock right now
+    if (!best) return; // no shipyard in this system has a cached keeper hull in stock right now
     if (!this.canAfford(best.price)) return;
 
-    const shipSymbol = `${best.waypointSymbol}|${marketWaypoint}`;
+    const shipSymbol = `${best.waypointSymbol}|${marketWaypoint}|${best.hull}`;
     // Live bug, 2026-09-21: ApprovalGate.request() dedups by KIND only — it
     // has no idea a decided row it finds might belong to a different
     // market's proposal than the one this call is about. With this kind now
@@ -4386,7 +4408,7 @@ export class FleetManager {
       // actual coverage target this request is about. Led with "to" after
       // an operator read "at A2" as "covering A2 again" — A2 already had a
       // keeper.
-      detail: `probe to ${marketWaypoint} (${goodsCount} goods${recommended ? ", recommended" : `, below the ${minGoods}-good recommended threshold`}) — buying at ${best.waypointSymbol} for ${best.price}c, no keeper stationed at ${marketWaypoint} yet`,
+      detail: `${keeperHullLabel(best.hull)} to ${marketWaypoint} (${goodsCount} goods${recommended ? ", recommended" : `, below the ${minGoods}-good recommended threshold`}) — buying at ${best.waypointSymbol} for ${best.price}c, no keeper stationed at ${marketWaypoint} yet`,
       cost: best.price,
       timeoutMs: 2 * 60 * 60_000,
       onTimeout: "approve",
@@ -4399,7 +4421,7 @@ export class FleetManager {
       this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) denied by operator`);
       return;
     }
-    await this.purchaseKeeperProbe(best.waypointSymbol, marketWaypoint, best.price);
+    await this.purchaseKeeperProbe(best.waypointSymbol, marketWaypoint, best.price, best.hull);
   }
 
   /**
@@ -4473,12 +4495,12 @@ export class FleetManager {
    * "purchasing SHIP_PROBE" log line at all, ~12 minutes after approval,
    * for exactly this reason.
    */
-  private async purchaseKeeperProbe(waypointSymbol: string, targetMarket: string, price: number): Promise<void> {
+  private async purchaseKeeperProbe(waypointSymbol: string, targetMarket: string, price: number, hull: string = "SHIP_PROBE"): Promise<void> {
     try {
-      this.log(`purchasing SHIP_PROBE at ${waypointSymbol} for ${price} credits (destined for ${targetMarket})`);
+      this.log(`purchasing ${hull} at ${waypointSymbol} for ${price} credits (destined for ${targetMarket})`);
       let res;
       try {
-        res = await this.api.purchaseShip("SHIP_PROBE", waypointSymbol);
+        res = await this.api.purchaseShip(hull as Parameters<typeof this.api.purchaseShip>[0], waypointSymbol);
       } catch (err) {
         // Same rewrite buyShip() applies — see its own comment. This path
         // doesn't go through buyShip() (it purchases directly, since it
@@ -4496,7 +4518,7 @@ export class FleetManager {
         shipSymbol: res.ship.symbol,
         waypointSymbol,
         type: "SHIP",
-        tradeSymbol: "SHIP_PROBE",
+        tradeSymbol: hull,
         total: res.transaction.price,
       });
       await this.discord?.postActivity({
@@ -4504,8 +4526,8 @@ export class FleetManager {
         shipSymbol: "fleet",
         kind: "ship",
         detail: targetMarket === waypointSymbol
-          ? `purchased keeper probe ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c`
-          : `purchased keeper probe ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c, drifting to ${targetMarket}`,
+          ? `purchased keeper ${keeperHullLabel(hull)} ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c`
+          : `purchased keeper ${keeperHullLabel(hull)} ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c, drifting to ${targetMarket}`,
         credits: -res.transaction.price,
       });
       // Pin the keeper role to targetMarket, not the purchase waypoint —
@@ -4554,8 +4576,11 @@ export class FleetManager {
     // bare waypoint with no "|", which still parses correctly here
     // (targetRaw falls back to the shipyard itself, exactly today's old
     // behavior).
-    const [waypointSymbol, targetRaw] = row.shipSymbol.split("|");
+    // Third part (added with the surveyor/miner fallback) is the hull to buy;
+    // older rows without it were always probes.
+    const [waypointSymbol, targetRaw, hullRaw] = row.shipSymbol.split("|");
     if (!waypointSymbol) return;
+    const hull = hullRaw && KEEPER_HULL_PREFERENCE.includes(hullRaw) ? hullRaw : "SHIP_PROBE";
     const targetMarket = targetRaw ?? waypointSymbol;
     // Purchasing a ship at a SpaceTraders shipyard requires one of the
     // agent's own ships to already be docked there — a guarantee
@@ -4621,7 +4646,7 @@ export class FleetManager {
       this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
       return;
     }
-    await this.purchaseKeeperProbe(waypointSymbol, targetMarket, row.cost);
+    await this.purchaseKeeperProbe(waypointSymbol, targetMarket, row.cost, hull);
   }
 
   /**

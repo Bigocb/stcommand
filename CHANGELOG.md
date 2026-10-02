@@ -11,6 +11,17 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Keeper purchases fall back to a surveyor, then a mining drone, when a
+  yard sells no probe.** Keeper requests (both the shipyard-triggered and
+  market-triggered paths in `fleet.ts`) only ever considered `SHIP_PROBE`,
+  so a system whose yards don't stock probes (confirmed live 2026-10-02,
+  X1-VU66: yards sell explorer/ore hound/surveyor/mining drone, no probe)
+  never produced a keeper request at all. `pickKeeperHull()` now picks the
+  best hull a yard has (probe > surveyor > mining drone); the approval
+  detail names the hull and the third `|` field of the approval's packed
+  `shipSymbol` carries it (older rows without it still mean a probe). The
+  market path's keeper-priority-list gate is unchanged.
+
 - **A scout now re-fetches a newly entered system's waypoint traits and tops
   off on any market it's standing on.** Confirmed live 2026-10-02: THEO-1
   (scout) jumped into X1-Y84 with 9/400 fuel, stood on two FUEL_STATIONs
