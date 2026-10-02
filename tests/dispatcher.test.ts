@@ -502,3 +502,24 @@ describe("RouteDispatcher: recordSale() decays a market's ranking, not just a fl
     assert.equal(d.list().length, 1, "no trader sits idle just because the only route is fatigued");
   });
 });
+
+describe("RouteDispatcher: releasing a manual override", () => {
+  const manual = {
+    shipSymbol: "SHIP-1", good: "IRON_ORE", role: "direct" as const,
+    buyAt: "X1-A-M1", sellAt: "X1-A-M2", profitPerTrip: 50, source: "manual" as const,
+  };
+
+  it("drops the manual route even when the trader is busy at the next recompute", () => {
+    const d = new RouteDispatcher();
+    d.setManual("SHIP-1", manual);
+    // First recompute copies the override into the assignments map.
+    d.recompute([], [{ shipSymbol: "SHIP-1", capacity: 40, busy: true }], [], [], [], []);
+    assert.equal(d.assignmentFor("SHIP-1")?.source, "manual");
+
+    d.setManual("SHIP-1", undefined);
+    assert.equal(d.assignmentFor("SHIP-1"), undefined, "release must take effect immediately");
+
+    d.recompute([], [{ shipSymbol: "SHIP-1", capacity: 40, busy: true }], [], [], [], []);
+    assert.equal(d.assignmentFor("SHIP-1"), undefined, "a busy trader must not carry the released route forward");
+  });
+});

@@ -11,6 +11,15 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Releasing a manual route actually releases it.** `RouteDispatcher.recompute()`
+  copies a manual override into its `assignments` map, so after the operator
+  cleared one (Tower's new "Release to auto", desktop's Auto) the stale copy
+  stayed there and the busy-trader carry-forward kept handing it back until
+  the ship went idle — confirmed live 2026-10-02 on THEO-8, whose stored
+  flag was gone but whose old route kept being logged as assigned.
+  `setManual(undefined)` now drops the copy, and carry-forward skips any
+  `source: "manual"` assignment with no live override behind it.
+
 - **Tower: "Release to auto" button for a hand-assigned route.** A trader
   pinned by Assign route / Custom route now shows a prominent button on its
   ship sheet naming the route; tapping it clears the manual assignment

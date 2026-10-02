@@ -280,6 +280,12 @@ export class RouteDispatcher {
       this.manual.set(shipSymbol, { ...assignment, source: "manual" });
     } else {
       this.manual.delete(shipSymbol);
+      // recompute() copies a manual override into `assignments`, so without
+      // this the released route lingers there (and busy-trader carry-forward
+      // keeps handing it back) until the ship goes idle. Confirmed live
+      // 2026-10-02, THEO-8: "Release to auto" cleared the stored flag but the
+      // dispatcher kept logging its old manual ANTIMATTER route as assigned.
+      if (this.assignments.get(shipSymbol)?.source === "manual") this.assignments.delete(shipSymbol);
     }
   }
 
@@ -546,6 +552,8 @@ export class RouteDispatcher {
       if (!t.busy || this.manual.has(t.shipSymbol)) continue;
       const current = this.assignments.get(t.shipSymbol);
       if (!current) continue;
+      // A leftover copy of an override the operator has since released.
+      if (current.source === "manual") continue;
       // Key on the whole leg, not just the good.
       //
       // keyFor() collapses a direct assignment to its good alone, so two busy
