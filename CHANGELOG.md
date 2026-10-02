@@ -11,6 +11,14 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Scouts can be dispatched to a system (they keep the scout role).**
+  `dispatchTourShip()` used to flip any ship to the tour role, and
+  `ScoutAgent` never read a pinned destination, so "send this scout to X"
+  either converted it or did nothing. `ScoutAgent.tick()` now takes the
+  dispatched hop first (`advanceTourDestination`, same primitive tour ships
+  use); `dispatchTourShip()` leaves a scout's role alone. Tower's ship sheet
+  shows "Send to system" on scouts (and "Tour another system" on tours).
+
 - **Tower: "Tour another system" on a tour ship's sheet.** Opens a picker of
   charted systems (from `/api/galaxy/overview`, labeled with yard/markets),
   and Send posts the same `/api/fleet/tour-dispatch` desktop uses — the ship

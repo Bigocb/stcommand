@@ -94,3 +94,37 @@ describe("ScoutAgent.tick: learning a newly entered system's markets", () => {
     assert.equal(refuelled, 0);
   });
 });
+
+describe("ScoutAgent.tick: operator-dispatched destination", () => {
+  it("takes the dispatched hop first and does nothing else that tick", async () => {
+    const ship = makeShip("X1-Y84-C30X", "IN_ORBIT", 400);
+    let advanced = 0;
+    const refreshed: string[] = [];
+    const agent = new ScoutAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      advanceTourDestination: async () => { advanced += 1; return true; },
+      refreshSystemMarkets: async (s) => { refreshed.push(s); },
+    });
+    agent.withWorld([{ symbol: "X1-Y84-C30X", x: 0, y: 0 }] as any, []);
+    const did = await agent.tick();
+    assert.equal(did, true);
+    assert.equal(advanced, 1);
+    assert.deepEqual(refreshed, [], "no per-system work while mid-dispatch");
+  });
+
+  it("scouts as usual once the dispatch has nothing left to do (returns false)", async () => {
+    const ship = makeShip("X1-Y84-C30X", "IN_ORBIT", 400);
+    const refreshed: string[] = [];
+    const agent = new ScoutAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: () => {},
+      advanceTourDestination: async () => false,
+      refreshSystemMarkets: async (s) => { refreshed.push(s); },
+    });
+    agent.withWorld([{ symbol: "X1-Y84-C30X", x: 0, y: 0 }] as any, []);
+    agent.withCharted(["X1-Y84-C30X"]);
+    await agent.tick();
+    assert.deepEqual(refreshed, ["X1-Y84"]);
+  });
+});

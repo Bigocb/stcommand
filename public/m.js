@@ -503,7 +503,7 @@ function renderSheet(row) {
       opts
         ? `<select id="tour-system-sel" class="role-select" aria-label="System to tour">${opts}</select><button class="btn pri" data-act="tour-go">Send</button>`
         : '<div class="empty">No other charted systems yet.</div>'
-    }</div><div class="detail">Walks the gate graph to that system, then tours its markets. Each jump costs about 5k.</div>`;
+    }</div><div class="detail">Walks the gate graph to that system, then works it (tour: its markets; scout: its uncharted waypoints). Each jump costs about 5k.</div>`;
   }
   if (routePickerOpen) {
     const top = [...dispatchRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 4);
@@ -572,7 +572,7 @@ function renderSheet(row) {
     ${row.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
     ${manualRoute ? `<button class="btn pri full" data-act="custom-route-clear">Release to auto — ${escapeHtml(manualRoute.good)} ${escapeHtml(shortWp(manualRoute.buyAt))} → ${escapeHtml(shortWp(manualRoute.sellAt))}</button>` : ""}
     ${row.role === "miner" ? `<button class="btn" data-act="miner-pref-toggle">Mining preference</button>` : ""}
-    ${row.role === "tour" ? `<button class="btn" data-act="tour-toggle">Tour another system</button>` : ""}
+    ${row.role === "tour" || row.role === "scout" ? `<button class="btn" data-act="tour-toggle">${row.role === "scout" ? "Send to system" : "Tour another system"}</button>` : ""}
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
     <button class="btn ghost full" data-act="role-toggle">${roleFormOpen ? "Close" : `Change role (${escapeHtml(row.role)})`}</button>

@@ -30,6 +30,10 @@ export interface ScoutOptions {
    *  already in flight) exactly like jumpTo/exploreNext — must propagate
    *  untouched, not be caught here. */
   jumpToUnchartedSystem?: (shipSymbol: string) => Promise<boolean>;
+  /** Advance one hop toward an operator-pinned destination system (the same
+   *  dispatch a tour ship takes). True means a hop was taken or is in flight,
+   *  so this tick does nothing else; false means no destination / arrived. */
+  advanceTourDestination?: () => Promise<boolean>;
   /** Force a live re-fetch of a system's waypoint traits. A system the crawler
    *  cached before its markets were charted stays trait-less — so a scout
    *  parked on a fuel station doesn't know it's one and can't refuel there
@@ -97,6 +101,7 @@ export class ScoutAgent {
   private readonly recordMarket: ScoutOptions["recordMarket"];
   private readonly onScan: ScoutOptions["onScan"];
   private readonly jumpToUnchartedSystem: ScoutOptions["jumpToUnchartedSystem"];
+  private readonly advanceTourDestination: ScoutOptions["advanceTourDestination"];
   private readonly refreshSystemMarkets: ScoutOptions["refreshSystemMarkets"];
   private readonly triedMarketRefresh = new Set<string>();
   private readonly scanIntervalMs: number;
@@ -159,6 +164,7 @@ export class ScoutAgent {
     this.shouldRun = opts.shouldRun;
     this.onScan = opts.onScan;
     this.jumpToUnchartedSystem = opts.jumpToUnchartedSystem;
+    this.advanceTourDestination = opts.advanceTourDestination;
     this.refreshSystemMarkets = opts.refreshSystemMarkets;
     this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
     this.systemSymbol = ship.nav.systemSymbol;
@@ -430,6 +436,9 @@ export class ScoutAgent {
       this.log("scout: suspended, holding");
       return false;
     }
+    // An operator-dispatched destination system outranks charting: walk the
+    // gate graph there first, then scout it normally on arrival.
+    if (this.advanceTourDestination && (await this.advanceTourDestination())) return true;
     await this.refresh();
     // First tick in a system: re-fetch its waypoint traits once. A system the
     // crawler cached before its markets were charted stays trait-less in the

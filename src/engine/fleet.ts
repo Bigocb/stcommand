@@ -2290,6 +2290,7 @@ export class FleetManager {
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
         jumpTo: (sym, wp) => this.jumpToward(sym, wp),
         jumpToUnchartedSystem: (sym) => this.scoutJumpToUnchartedSystem(sym),
+        advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
         refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
         galaxy: this.galaxy,
         store: this.store,
@@ -3059,7 +3060,8 @@ export class FleetManager {
    * nothing further to pin beyond "get it there".
    */
   async dispatchTourShip(shipSymbol: string, targetSystem: string): Promise<void> {
-    if (this.roleOf(shipSymbol) !== "tour") {
+    // A scout keeps its role: it walks to the system, then scouts it.
+    if (this.roleOf(shipSymbol) !== "tour" && this.roleOf(shipSymbol) !== "scout") {
       await this.setShipRole(shipSymbol, "tour");
     }
     const ship = await this.api.getShip(shipSymbol);
