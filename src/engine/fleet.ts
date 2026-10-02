@@ -5438,7 +5438,17 @@ export class FleetManager {
       const next = { ...(all[shipSymbol] ?? {}) };
       if ("holdWaypoint" in patch) {
         if (patch.holdWaypoint) { next.holdWaypoint = patch.holdWaypoint; this.operatorHolds.set(shipSymbol, patch.holdWaypoint); }
-        else { delete next.holdWaypoint; this.operatorHolds.delete(shipSymbol); }
+        else {
+          delete next.holdWaypoint;
+          this.operatorHolds.delete(shipSymbol);
+          // IntentBoard.commit() only revisits ships that have a proposal this
+          // pass, so once proposeOperatorHolds() stops proposing, the committed
+          // "hold" intent would live on and keep the hull standing down (see
+          // standDownReason()) until the next restart. Confirmed live
+          // 2026-10-02: THEO-2F, switched to trader and "docked", still showed
+          // "want: hold X1-VU66-H52" and never traded.
+          if (this.intents.current(shipSymbol)?.goal.kind === "hold") this.intents.forget(shipSymbol);
+        }
       }
       if ("minePin" in patch) {
         if (patch.minePin) next.minePin = patch.minePin;

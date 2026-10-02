@@ -11,6 +11,14 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Releasing an operator hold (or changing the ship's role) now clears its
+  committed "hold" intent.** `IntentBoard.commit()` only revisits ships that
+  have a proposal in the current pass, so after `holdWaypoint` was cleared and
+  `proposeOperatorHolds()` stopped proposing, the old hold intent stayed
+  committed and the agent kept standing down on it until a restart. Confirmed
+  live 2026-10-02: THEO-2F, set to trader after being sent to X1-VU66-H52,
+  sat docked with `want: hold X1-VU66-H52` and never traded.
+
 - **Stop re-scanning unrecorded shipyards on every tick.** `scanLoadouts()`
   (called by `maybeBuyShip()` each pass) live-fetched every shipyard with no
   recorded inventory, every time. `getShipyard()` only lists stock while one
