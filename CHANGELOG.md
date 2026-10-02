@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A trader's trip stays assigned until the delivery is done
+The dispatcher only carried an assignment forward while the ship's hold was loaded, so an empty trader already heading to (or jumping toward) its buy market was re-ranked every minute and turned around mid-route (2E: TN82 -> VU66 -> back out through KN46, ~5k per wasted jump). An auto "direct" trip is now committed to its trader from assignment until the hold has been seen loaded and then emptied. It lapses early if the route disappears from the ranked list, or if no cargo has been bought within `COMMIT_GRACE_MS` (90 min, covers positioning + buying). A manual override clears the commitment. Committed legs also count toward the per-market buyer cap and reserve their sell market.
+
 ## Scouts now snapshot shipyards
 A scout docking at a SHIPYARD waypoint recorded the market but never the yard's stock (only tour/keeper ships did), so a scouted system showed no shipyard inventory (NM66: three yards, none scanned). `ShipProxy` takes an optional `recordShipyard` and calls it on docking at a shipyard; the scout wiring passes `recordShipyardSnapshot`.
 

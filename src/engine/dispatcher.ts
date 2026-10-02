@@ -53,6 +53,10 @@ export const BUY_IMPACT_PER_UNIT = 0.0025;
  *  at the same market in one dispatch cycle, whatever the margin says. */
 export const MAX_TRADERS_PER_BUY_MARKET = 3;
 
+/** How long an assigned trip may sit without its cargo ever being bought
+ *  (positioning jumps included) before the trader is released for new work. */
+export const COMMIT_GRACE_MS = 90 * 60_000;
+
 /**
  * How many of a market's own per-transaction lots a single trip is assumed
  * able to move at that market's flat buy/sell price, in both the ranking
@@ -216,6 +220,10 @@ const VOLUME_WINDOW_MS = 30 * 60_000;
 export class RouteDispatcher {
   private assignments = new Map<string, TraderAssignment>();
   private manual = new Map<string, TraderAssignment>();
+  /** Auto "direct" trips a trader is committed to until the delivery is done.
+   *  `hadCargo` flips once the hold has been seen loaded, so an empty hold
+   *  afterwards means the sale completed. */
+  private committed = new Map<string, { at: number; hadCargo: boolean }>();
   /** The ranked route list from the last recompute, used to serve live claims. */
   private routes: DispatchRoute[] = [];
   private lastComputed = 0;
@@ -291,6 +299,7 @@ export class RouteDispatcher {
 
   /** Assign a specific route to a trader. Pass undefined to clear an override. */
   setManual(shipSymbol: string, assignment: TraderAssignment | undefined): void {
+    this.committed.delete(shipSymbol);
     if (assignment) {
       this.manual.set(shipSymbol, { ...assignment, source: "manual" });
     } else {
@@ -599,8 +608,27 @@ export class RouteDispatcher {
     // collide and nothing stopped a second trader from being freshly
     // assigned the exact route the first was already flying.
     const sellMarketsInUse = new Map<string, Set<string>>();
+    // A trip stays with its trader until the delivery is done, not just while
+    // the hold is loaded: an empty trader already flying to its buy market (or
+    // jumping toward it) kept being handed fresh work every cycle and turned
+    // around mid-route, burning jumps. Track loaded -> empty to see completion,
+    // and let a commitment lapse if its route has gone from the list or no
+    // cargo has been bought within COMMIT_GRACE_MS (positioning + buying).
+    const nowMs = Date.now();
+    const routeStillListed = (a: TraderAssignment): boolean =>
+      routes.some((r) => r.good === a.good && r.buyAt === a.buyAt && r.sellAt === a.sellAt);
     for (const t of sorted) {
-      if (!t.busy || this.manual.has(t.shipSymbol)) continue;
+      const c = this.committed.get(t.shipSymbol);
+      if (!c) continue;
+      if (t.busy) c.hadCargo = true;
+      else if (c.hadCargo) { this.committed.delete(t.shipSymbol); continue; }
+      const a = this.assignments.get(t.shipSymbol);
+      const lapsed = !a || a.source === "manual" || a.role !== "direct"
+        || (!c.hadCargo && (nowMs - c.at > COMMIT_GRACE_MS || !routeStillListed(a)));
+      if (lapsed) this.committed.delete(t.shipSymbol);
+    }
+    for (const t of sorted) {
+      if (!(t.busy || this.committed.has(t.shipSymbol)) || this.manual.has(t.shipSymbol)) continue;
       const current = this.assignments.get(t.shipSymbol);
       if (!current) continue;
       // A leftover copy of an override the operator has since released.
@@ -642,7 +670,7 @@ export class RouteDispatcher {
     for (const [ship, a] of next) {
       if (inFlightShips.has(ship) || a.role !== "direct" || !a.buyAt) continue;
       const t = sorted.find((x) => x.shipSymbol === ship);
-      if (t?.busy) inFlightLegs.push({ good: a.good, buyAt: a.buyAt, units: t.capacity });
+      if (t && (t.busy || this.committed.has(ship))) inFlightLegs.push({ good: a.good, buyAt: a.buyAt, units: t.capacity });
     }
 
     // Build this cycle's work list: one item per good with no warehouse
@@ -972,7 +1000,11 @@ export class RouteDispatcher {
         continue;
       }
       usedKeys.add(item.key);
-      next.set(t.shipSymbol, item.make(t.shipSymbol));
+      const made = item.make(t.shipSymbol);
+      next.set(t.shipSymbol, made);
+      if (made.role === "direct" && made.source === "auto" && made.buyAt && made.sellAt) {
+        this.committed.set(t.shipSymbol, { at: nowMs, hadCargo: false });
+      }
       const bk = buyKey(item);
       if (bk && item.volume !== undefined) {
         pendingUnits.set(bk, (pendingUnits.get(bk) ?? 0) + item.volume);

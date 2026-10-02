@@ -650,3 +650,58 @@ describe("RouteDispatcher: several buyers at one market", () => {
     assert.ok(goods.includes("OTHERGOOD"), "a 4th/5th trader should take the other market once CIRC is capped");
   });
 });
+
+describe("RouteDispatcher: a trip stays with its trader until delivered", () => {
+  const route = (good: string, profit: number) => ({
+    good, buyAt: "X1-A-B1", buySystem: "X1-A", buyPrice: 100,
+    sellAt: "X1-A-S1", sellSystem: "X1-A", sellPrice: 300, volume: 40, lotSize: 20,
+    distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: profit, ageMinutes: 1,
+  });
+  const run = (d: RouteDispatcher, routes: ReturnType<typeof route>[], busy: boolean) =>
+    d.recompute(routes, [{ shipSymbol: "T1", capacity: 40, busy }], [], [], [], []);
+
+  it("an empty trader keeps its trip while positioning, even when a better route appears", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, [route("CIRC", 5000)], false);
+    assert.equal(d.assignmentFor("T1")?.good, "CIRC");
+    t.mock.timers.tick(60_001);
+    run(d, [route("GOLD", 9000), route("CIRC", 5000)], false);
+    assert.equal(d.assignmentFor("T1")?.good, "CIRC", "not turned around mid-route");
+  });
+
+  it("is released once the cargo has been loaded and then sold", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, [route("CIRC", 5000)], false);
+    t.mock.timers.tick(60_001);
+    run(d, [route("GOLD", 9000), route("CIRC", 5000)], true); // bought
+    t.mock.timers.tick(60_001);
+    run(d, [route("GOLD", 9000), route("CIRC", 5000)], false); // sold
+    t.mock.timers.tick(60_001);
+    run(d, [route("GOLD", 9000), route("CIRC", 5000)], false);
+    assert.equal(d.assignmentFor("T1")?.good, "GOLD");
+  });
+
+  it("lapses when the route leaves the list, or no cargo is bought within the grace period", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, [route("CIRC", 5000)], false);
+    t.mock.timers.tick(60_001);
+    run(d, [route("GOLD", 9000)], false);
+    assert.equal(d.assignmentFor("T1")?.good, "GOLD", "route no longer listed -> free");
+    t.mock.timers.tick(91 * 60_000);
+    run(d, [route("GOLD", 9000), route("CIRC", 9500)], false);
+    assert.equal(d.assignmentFor("T1")?.good, "CIRC", "grace period expired -> re-ranked");
+  });
+
+  it("a manual override clears the commitment", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, [route("CIRC", 5000)], false);
+    d.setManual("T1", undefined);
+    t.mock.timers.tick(60_001);
+    run(d, [route("GOLD", 9000), route("CIRC", 5000)], false);
+    assert.equal(d.assignmentFor("T1")?.good, "GOLD");
+  });
+});
