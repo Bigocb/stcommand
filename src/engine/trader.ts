@@ -565,13 +565,61 @@ export class TraderAgent {
     const here = from ?? this.ship.nav.waypointSymbol;
     const system = this.systemOf(here);
     const budget = this.ship.fuel.capacity;
-    const stops = [...this.priceTable.entries()]
-      .filter(([wp, goods]) => wp !== here && wp !== destination && this.systemOf(wp) === system && (goods.get("FUEL")?.buy ?? 0) > 0)
-      .map(([wp]) => wp)
-      .filter((wp) => this.distBetween(here, wp) <= budget);
+    const stops = this.fuelStopsIn(system).filter((wp) => wp !== here && wp !== destination);
     if (stops.length === 0) return undefined;
-    stops.sort((a, b) => this.distBetween(a, destination) - this.distBetween(b, destination));
-    return stops[0];
+    const within = (a: string, b: string) => {
+      const d = this.distBetween(a, b);
+      return Number.isFinite(d) && d <= budget;
+    };
+    // Shortest chain of fuel stops that actually reaches the destination, so a
+    // leg needing three or more hops (e.g. a gate 470 units from the market on
+    // a 300 tank) is flown as cruise hops instead of one drift. Returns the
+    // chain's first stop.
+    const first = new Map<string, string>();
+    let frontier: string[] = [];
+    for (const stop of stops) {
+      if (!within(here, stop)) continue;
+      first.set(stop, stop);
+      frontier.push(stop);
+    }
+    const seen = new Set<string>(frontier);
+    while (frontier.length > 0) {
+      const reaching = frontier.filter((s) => within(s, destination));
+      if (reaching.length > 0) {
+        reaching.sort((a, b) => this.distBetween(a, destination) - this.distBetween(b, destination));
+        return first.get(reaching[0]!);
+      }
+      const next: string[] = [];
+      for (const cur of frontier) {
+        for (const stop of stops) {
+          if (seen.has(stop) || !within(cur, stop)) continue;
+          seen.add(stop);
+          first.set(stop, first.get(cur)!);
+          next.push(stop);
+        }
+      }
+      frontier = next;
+    }
+    // No complete chain known: fall back to the stop that gets closest.
+    const reachable = stops.filter((wp) => within(here, wp));
+    if (reachable.length === 0) return undefined;
+    reachable.sort((a, b) => this.distBetween(a, destination) - this.distBetween(b, destination));
+    return reachable[0];
+  }
+
+  /** Waypoints in a system known to sell fuel: this agent's own price table
+   *  plus every snapshot the registry holds, so a stepping stone we never
+   *  traded at still counts. */
+  private fuelStopsIn(system: string): string[] {
+    const out = new Set<string>();
+    for (const [wp, goods] of this.priceTable) {
+      if (this.systemOf(wp) === system && (goods.get("FUEL")?.buy ?? 0) > 0) out.add(wp);
+    }
+    for (const m of this.registry.markets(system)) {
+      const f = m.tradeGoods?.FUEL;
+      if ((f && (f.purchasePrice ?? 0) > 0) || m.exports?.includes("FUEL") || m.exchange?.includes("FUEL")) out.add(m.symbol);
+    }
+    return [...out];
   }
 
   private async navigateTo(waypoint: string): Promise<void> {
@@ -615,7 +663,7 @@ export class TraderAgent {
     // like an asteroid — stays gated to genuinely low, not "not full".
     if (this.ship.nav.status !== "IN_TRANSIT") {
       const here = this.ship.nav.waypointSymbol;
-      const isFuelMarket = this.priceTable.get(here)?.has("FUEL");
+      const isFuelMarket = this.priceTable.get(here)?.has("FUEL") || this.fuelStopsIn(this.systemOf(here)).includes(here);
       if (isFuelMarket) {
         if (this.ship.fuel.current < this.ship.fuel.capacity * 0.95) await this.refuelAt(here);
       } else if (this.ship.fuel.current < this.ship.fuel.capacity * 0.5) {

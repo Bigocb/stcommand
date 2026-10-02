@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Trader fuel stepping stones use every known fuel market, chained
+Traders' multi-hop legs only considered fuel markets in their own price table and picked one greedy stop, so a gate 470+ units from the destination (VU66-I55 on a 300 tank) fell back to a multi-hour drift, and arriving at an unpriced fuel stop skipped the refuel. `nextHopToward()` now unions registry-snapshotted fuel markets with the price table and searches the shortest chain of fuel stops that reaches the destination; the pre-leg top-off also recognises registry-known fuel markets.
+
 ## Unreleased
 
 - **Tour ships drift to a market when nothing is within cruise range.** The

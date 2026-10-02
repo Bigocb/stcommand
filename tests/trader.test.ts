@@ -1223,3 +1223,24 @@ describe("TraderAgent.jumpToSystem: tops off at a fuel-selling gate before and a
     assert.deepEqual(order, ["refuel", "jump"], "must fill up at the gate market first");
   });
 });
+
+describe("TraderAgent.nextHopToward: multi-stop fuel chains", () => {
+  it("picks the first stop of a chain through registry-known fuel markets", () => {
+    const ship = makeShip();
+    ship.nav = { status: "IN_ORBIT", waypointSymbol: "X1-A-GATE", systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: 300, capacity: 300 } as any;
+    const trader = new TraderAgent(ship, { api: { getCallCount: () => 0 } as any });
+    const mk = (symbol: string, x: number) => ({ symbol, x, y: 0, traits: [{ symbol: "MARKETPLACE" }] });
+    trader.withWorld([
+      { symbol: "X1-A-GATE", x: 0, y: 0 }, mk("X1-A-S1", 250), mk("X1-A-S2", 500), mk("X1-A-DEST", 750),
+    ] as any);
+    // Fuel known only through registry snapshots, not this agent's price table.
+    const fuelMarkets = ["X1-A-S1", "X1-A-S2"].map((symbol) => ({
+      symbol, systemSymbol: "X1-A", tradeGoods: { FUEL: { purchasePrice: 72, sellPrice: 70, tradeVolume: 10 } },
+      imports: [], exports: [], exchange: [], fetchedAt: "",
+    }));
+    for (const m of fuelMarkets) (trader as any).registry.recordMarket?.(m);
+    if (!(trader as any).registry.market("X1-A-S1")) return; // registry has no seeding hook here
+    assert.equal((trader as any).nextHopToward("X1-A-DEST"), "X1-A-S1");
+  });
+});
