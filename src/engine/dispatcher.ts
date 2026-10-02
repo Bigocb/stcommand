@@ -55,7 +55,7 @@ export const MAX_TRADERS_PER_BUY_MARKET = 3;
 
 /** How long an assigned trip may sit without its cargo ever being bought
  *  (positioning jumps included) before the trader is released for new work. */
-export const COMMIT_GRACE_MS = 90 * 60_000;
+export const COMMIT_GRACE_MS = 3 * 60 * 60_000;
 
 /**
  * How many of a market's own per-transaction lots a single trip is assumed
@@ -612,8 +612,9 @@ export class RouteDispatcher {
     // the hold is loaded: an empty trader already flying to its buy market (or
     // jumping toward it) kept being handed fresh work every cycle and turned
     // around mid-route, burning jumps. Track loaded -> empty to see completion,
-    // and let a commitment lapse if its route has gone from the list or no
-    // cargo has been bought within COMMIT_GRACE_MS (positioning + buying).
+    // and let a commitment lapse if no cargo has been bought within
+    // COMMIT_GRACE_MS, or if the ship is at the buy waypoint and the route has
+    // left the list.
     const nowMs = Date.now();
     const routeStillListed = (a: TraderAssignment): boolean =>
       routes.some((r) => r.good === a.good && r.buyAt === a.buyAt && r.sellAt === a.sellAt);
@@ -623,8 +624,12 @@ export class RouteDispatcher {
       if (t.busy) c.hadCargo = true;
       else if (c.hadCargo) { this.committed.delete(t.shipSymbol); continue; }
       const a = this.assignments.get(t.shipSymbol);
+      // Mid-flight to the buy waypoint the trip is never revoked for a changed
+      // list; once the ship is standing at the buy waypoint with an empty hold
+      // it may be re-ranked if the route is no longer listed.
+      const atBuy = !!a && a.buyAt !== undefined && t.waypoint === a.buyAt;
       const lapsed = !a || a.source === "manual" || a.role !== "direct"
-        || (!c.hadCargo && (nowMs - c.at > COMMIT_GRACE_MS || !routeStillListed(a)));
+        || (!c.hadCargo && (nowMs - c.at > COMMIT_GRACE_MS || (atBuy && !routeStillListed(a))));
       if (lapsed) this.committed.delete(t.shipSymbol);
     }
     for (const t of sorted) {

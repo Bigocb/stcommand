@@ -657,8 +657,8 @@ describe("RouteDispatcher: a trip stays with its trader until delivered", () => 
     sellAt: "X1-A-S1", sellSystem: "X1-A", sellPrice: 300, volume: 40, lotSize: 20,
     distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: profit, ageMinutes: 1,
   });
-  const run = (d: RouteDispatcher, routes: ReturnType<typeof route>[], busy: boolean) =>
-    d.recompute(routes, [{ shipSymbol: "T1", capacity: 40, busy }], [], [], [], []);
+  const run = (d: RouteDispatcher, routes: ReturnType<typeof route>[], busy: boolean, waypoint?: string) =>
+    d.recompute(routes, [{ shipSymbol: "T1", capacity: 40, busy, waypoint }], [], [], [], []);
 
   it("an empty trader keeps its trip while positioning, even when a better route appears", (t) => {
     t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
@@ -683,16 +683,25 @@ describe("RouteDispatcher: a trip stays with its trader until delivered", () => 
     assert.equal(d.assignmentFor("T1")?.good, "GOLD");
   });
 
-  it("lapses when the route leaves the list, or no cargo is bought within the grace period", (t) => {
+  it("keeps the trip mid-flight when its route leaves the list, frees it at the buy waypoint", (t) => {
     t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
     const d = new RouteDispatcher();
-    run(d, [route("CIRC", 5000)], false);
+    run(d, [route("CIRC", 5000)], false, "X1-A-ELSEWHERE");
     t.mock.timers.tick(60_001);
-    run(d, [route("GOLD", 9000)], false);
-    assert.equal(d.assignmentFor("T1")?.good, "GOLD", "route no longer listed -> free");
-    t.mock.timers.tick(91 * 60_000);
-    run(d, [route("GOLD", 9000), route("CIRC", 9500)], false);
-    assert.equal(d.assignmentFor("T1")?.good, "CIRC", "grace period expired -> re-ranked");
+    run(d, [route("GOLD", 9000)], false, "X1-A-ELSEWHERE");
+    assert.equal(d.assignmentFor("T1")?.good, "CIRC", "still flying to the buy waypoint");
+    t.mock.timers.tick(60_001);
+    run(d, [route("GOLD", 9000)], false, "X1-A-B1");
+    assert.equal(d.assignmentFor("T1")?.good, "GOLD", "at the buy waypoint and no longer listed -> re-ranked");
+  });
+
+  it("lapses after the grace period without a purchase", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, [route("CIRC", 5000)], false, "X1-A-ELSEWHERE");
+    t.mock.timers.tick(3 * 60 * 60_000 + 1);
+    run(d, [route("GOLD", 9000), route("CIRC", 5000)], false, "X1-A-ELSEWHERE");
+    assert.equal(d.assignmentFor("T1")?.good, "GOLD");
   });
 
   it("a manual override clears the commitment", (t) => {
