@@ -6611,24 +6611,36 @@ export class FleetManager {
    * this call themselves.
    */
   private lastNeighborhoodWarm = 0;
+  private neighborhoodWarmInFlight = false;
   /** While auto cross-system routes are switched on, keep the gate caches warm
    *  for the neighborhood (<= 3 hops) of the home system and of every system a
    *  trader is standing in, so the dispatcher's synchronous path lookups can
-   *  answer. Slow cadence; each call is cache-aware and bounded. */
-  private async maybeWarmJumpNeighborhoods(): Promise<void> {
+   *  answer. Runs in the BACKGROUND, never awaited by tick(): scanning a
+   *  neighborhood is dozens of rate-limited API calls and, awaited inline, it
+   *  stalled the whole fleet loop for 10+ minutes the moment the switch was
+   *  turned on (confirmed live 2026-10-02: no dispatch recompute for 12 min).
+   *  Slow cadence; each call is cache-aware and bounded. */
+  private maybeWarmJumpNeighborhoods(): void {
     if (!this.doctrine.isEnabledOr("autoCrossSystemRoutes", false)) return;
-    if (Date.now() - this.lastNeighborhoodWarm < 20 * 60_000) return;
+    if (this.neighborhoodWarmInFlight || Date.now() - this.lastNeighborhoodWarm < 20 * 60_000) return;
     this.lastNeighborhoodWarm = Date.now();
+    this.neighborhoodWarmInFlight = true;
     const systems = new Set<string>([this.systemSymbol]);
     for (const t of this.dispatcherTraders()) if (t.system) systems.add(t.system);
-    for (const sys of systems) {
+    void (async () => {
       try {
-        const looked = await this.galaxy.warmNeighborhood(sys);
-        this.log(`cross-system: warmed gate caches around ${sys} (${looked} systems checked)`);
-      } catch (err) {
-        this.log(`cross-system: warming ${sys} failed: ${err instanceof Error ? err.message : String(err)}`);
+        for (const sys of systems) {
+          try {
+            const looked = await this.galaxy.warmNeighborhood(sys);
+            this.log(`cross-system: warmed gate caches around ${sys} (${looked} systems checked)`);
+          } catch (err) {
+            this.log(`cross-system: warming ${sys} failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      } finally {
+        this.neighborhoodWarmInFlight = false;
       }
-    }
+    })();
   }
 
   private async maybeRefreshGateConstruction(): Promise<void> {
@@ -6747,7 +6759,7 @@ export class FleetManager {
       await this.timed("refreshCredits", () => this.refreshCredits());
       await this.timed("chartOccupiedSystems", () => this.chartOccupiedSystems());
       await this.timed("maybeRefreshGateConstruction", () => this.maybeRefreshGateConstruction());
-      await this.timed("maybeWarmJumpNeighborhoods", () => this.maybeWarmJumpNeighborhoods());
+      this.maybeWarmJumpNeighborhoods();
       if (this.contracts) {
         await this.timed("contracts.fulfillCompleted", () => this.contracts!.fulfillCompleted());
         await this.timed("contracts.acceptBest", () => this.contracts!.acceptBest());

@@ -11,6 +11,13 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Fix: turning on "Auto cross-system routes" stalled the fleet loop.** The
+  gate-cache warm-up for the home/trader neighborhoods was awaited inside
+  `tick()`; it is dozens of rate-limited API calls per system, so with the
+  switch on no dispatch recompute ran for 12+ minutes (every trader idled).
+  It now runs in the background (`maybeWarmJumpNeighborhoods()` is fire-and-
+  forget with an in-flight guard) and tick() never waits on it.
+
 - **Cross-system trading, phase 2: the dispatcher can assign multi-hop routes
   (doctrine switch "Auto cross-system routes", OFF by default).** With the
   switch on, `RouteDispatcher.recompute()` accepts (a) a route whose buy and
