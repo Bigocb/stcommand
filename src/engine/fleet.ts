@@ -3640,7 +3640,12 @@ export class FleetManager {
     // they kept re-holding themselves with no operator action. An explicit
     // role assignment is itself an explicit operator decision and must
     // supersede a stale hold, same as releaseTo() clearing it on handback.
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: null });
+    // Same for a pending sale: a scrap order outranks every role (the intent
+    // board stands the agent down on it and jumpToward() flies it, jumps and
+    // all, to the yard), so without clearing it a ship the operator then
+    // re-roled kept hopping across systems to be scrapped. Confirmed live
+    // 2026-10-02: THEO-A, switched scout -> tour, kept jumping for ~1.5h.
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, scrapAt: null });
     this.clearRoleMaps(shipSymbol);
     const resolvedKeeperMarket = this.installRoleAgent(ship, role, keeperMarket);
     this.manualRoleShips.add(shipSymbol);
@@ -5456,7 +5461,13 @@ export class FleetManager {
       }
       if ("scrapAt" in patch) {
         if (patch.scrapAt) { next.scrapAt = patch.scrapAt; this.scrapTargets.set(shipSymbol, patch.scrapAt); }
-        else { delete next.scrapAt; this.scrapTargets.delete(shipSymbol); }
+        else {
+          delete next.scrapAt;
+          this.scrapTargets.delete(shipSymbol);
+          // Level-triggered proposals stop, but the committed intent would
+          // linger (IntentBoard.commit() only revisits ships with a proposal).
+          if (this.intents.current(shipSymbol)?.goal.kind === "scrap") this.intents.forget(shipSymbol);
+        }
       }
       if ("tourDestination" in patch) {
         if (patch.tourDestination) { next.tourDestination = patch.tourDestination; this.tourDestinations.set(shipSymbol, patch.tourDestination); }
@@ -5865,6 +5876,11 @@ export class FleetManager {
   async releaseShip(shipSymbol: string): Promise<void> {
     if (!this.controlledAgent(shipSymbol)) throw new Error(`ship ${shipSymbol} is not under fleet control`);
     await this.releaseTo(shipSymbol, "operator");
+    // An operator "Release" is also the way to call off a pending sale.
+    if (this.scrapTargets.has(shipSymbol)) {
+      await this.updateShipManualState(shipSymbol, { scrapAt: null });
+      this.log(`${shipSymbol}: pending sale cancelled by release`);
+    }
   }
 
   getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string; tourDestination?: string }[] {

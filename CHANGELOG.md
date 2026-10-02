@@ -11,6 +11,17 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **A pending sale no longer survives a role change or Release.** A scrap order
+  (`shipManualState.scrapAt` -> `scrapTargets` -> a priority-0 "scrap" intent)
+  outranks every role, and nothing cleared it when the operator re-roled the
+  ship, so THEO-A ("sold by the operator, flying to X1-SJ91-A2 to be
+  scrapped") kept jumping system to system toward the yard for ~1.5h after
+  being switched to scout and then tour — ~43k of jumps in 2h, ignoring the
+  credit-floor doctrine (which only gates explorers and chart scouts, not an
+  operator-ordered trip). `setShipRole()` now clears `scrapAt` alongside the
+  hold, `releaseShip()` cancels a pending sale, and clearing `scrapAt` forgets
+  the stale committed scrap intent.
+
 - **Shipyard listings now keep (and Tower shows) each ship's real stats.**
   The Yards view showed only name and price; the scan threw away engine speed,
   reactor power, crew and the modules/mounts a ship is sold with, and the
