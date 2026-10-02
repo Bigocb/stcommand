@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: loaded traders bouncing between two fuel stops
+When no chain of fuel stops reached a far destination, `nextHopToward()` fell back to "the closest reachable stop" without checking it was closer than the ship's current position. Two stops that were each other's best answer sent loaded traders (2E, 2F, 9, 8 in VU66, E46 <-> E42) back and forth indefinitely. The fallback now only returns a stop strictly nearer the destination; otherwise it returns undefined and the ship uses the ordinary single-leg/drift navigation.
+
 ## Per-market buyer cap now counts traders already in flight
 Six traders ended up hauling CLOTHING from the same VU66 market. The cap of 3 buyers (and the sell-market de-dup) only saw traders assigned in the current pass; a ship committed to a run drops out of the dispatcher's trader list, and after a restart the in-memory assignments are empty, so ships already holding the good were invisible. `recompute()` now takes an `inFlight` list built from every trader's held-route pins (`TraderAgent.inFlightLegs()`): those legs reserve their sell market and count toward the per-market buyer cap and price-impact estimate.
 

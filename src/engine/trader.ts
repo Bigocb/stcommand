@@ -600,8 +600,11 @@ export class TraderAgent {
       }
       frontier = next;
     }
-    // No complete chain known: fall back to the stop that gets closest.
-    const reachable = stops.filter((wp) => within(here, wp));
+    // No complete chain known: fall back to the stop that gets closest, but only
+    // one strictly nearer the destination than we already are. Without that, two
+    // fuel stops that are each the other's best answer bounce a loaded ship
+    // between them forever (live: four traders E46 <-> E42 in VU66).
+    const reachable = stops.filter((wp) => within(here, wp) && this.distBetween(wp, destination) < this.distBetween(here, destination));
     if (reachable.length === 0) return undefined;
     reachable.sort((a, b) => this.distBetween(a, destination) - this.distBetween(b, destination));
     return reachable[0];

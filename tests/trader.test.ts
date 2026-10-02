@@ -1244,3 +1244,22 @@ describe("TraderAgent.nextHopToward: multi-stop fuel chains", () => {
     assert.equal((trader as any).nextHopToward("X1-A-DEST"), "X1-A-S1");
   });
 });
+
+describe("TraderAgent.nextHopToward: no ping-pong between fuel stops", () => {
+  it("returns undefined rather than a stop that is no closer to the destination", () => {
+    const ship = makeShip();
+    ship.nav = { status: "IN_ORBIT", waypointSymbol: "X1-A-S1", systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: 300, capacity: 300 } as any;
+    const trader = new TraderAgent(ship, { api: { getCallCount: () => 0 } as any });
+    const mk = (symbol: string, x: number) => ({ symbol, x, y: 0, traits: [{ symbol: "MARKETPLACE" }] });
+    // Two fuel stops 20 apart, destination 900 away: no chain reaches it.
+    trader.withWorld([{ symbol: "X1-A-GATE", x: 900, y: 0 }, mk("X1-A-S1", 0), mk("X1-A-S2", 20)] as any);
+    for (const m of ["X1-A-S1", "X1-A-S2"]) (trader as any).registry.recordMarket({
+      symbol: m, systemSymbol: "X1-A", tradeGoods: { FUEL: { purchasePrice: 72, sellPrice: 70, tradeVolume: 10 } },
+      imports: [], exports: [], exchange: [], fetchedAt: "",
+    });
+    // From S1 the only nearer stop is S2; from S2 nothing is nearer than S2 itself.
+    assert.equal((trader as any).nextHopToward("X1-A-GATE", "X1-A-S1"), "X1-A-S2");
+    assert.equal((trader as any).nextHopToward("X1-A-GATE", "X1-A-S2"), undefined);
+  });
+});
