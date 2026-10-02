@@ -99,8 +99,16 @@
           <button class="on" data-seg="routes">Routes</button>
           <button data-seg="yards">Yards</button>
           <button data-seg="prices">Prices</button>
+          <button data-seg="systems">Systems</button>
         </div>
         <div id="mkt-routes"></div>
+        <div id="mkt-systems" hidden>
+          <div class="price-picker">
+            <select id="sys-sel" aria-label="System"></select>
+          </div>
+          <div class="detail">Tap a badge to add or remove a market from the keeper list.</div>
+          <div id="sys-market-list"></div>
+        </div>
         <div id="mkt-yards" hidden></div>
         <div id="mkt-prices" hidden>
           <div class="price-picker">

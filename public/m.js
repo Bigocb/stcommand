@@ -1144,7 +1144,46 @@ $("price-market-list").addEventListener("click", (e) => {
   const b = e.target.closest(".keeper-badge[data-wp]");
   if (b) toggleKeeperPriority(b.dataset.wp);
 });
-subscribe("keepers", () => { if (marketsTabActive() && mktSeg === "prices") renderPriceMarketList(); });
+subscribe("keepers", () => {
+  if (!marketsTabActive()) return;
+  if (mktSeg === "prices") renderPriceMarketList();
+  if (mktSeg === "systems") renderSystemMarkets();
+});
+
+/** Systems segment: every market this fleet has a snapshot for, grouped by
+ *  system, each with the same keeper badge as the Prices list — the phone
+ *  equivalent of desktop's Prices & snapshots list. */
+let sysPick = "";
+function renderSystemMarkets() {
+  const sel = $("sys-sel");
+  const sysOf = (wp) => wp.slice(0, wp.lastIndexOf("-"));
+  const byWp = new Map();
+  for (const s of marketSnapshots) {
+    if (!byWp.has(s.waypointSymbol)) byWp.set(s.waypointSymbol, []);
+    byWp.get(s.waypointSymbol).push(s);
+  }
+  const counts = new Map();
+  for (const wp of byWp.keys()) counts.set(sysOf(wp), (counts.get(sysOf(wp)) ?? 0) + 1);
+  const systems = [...counts.keys()].sort();
+  if (!systems.length) { $("sys-market-list").innerHTML = '<div class="empty">No market snapshots yet.</div>'; sel.innerHTML = ""; return; }
+  if (!systems.includes(sysPick)) sysPick = systems[0];
+  // Don't rebuild the picker while it is open (15s poll).
+  if (document.activeElement !== sel) {
+    sel.innerHTML = systems.map((s) => `<option value="${escapeAttr(s)}" ${s === sysPick ? "selected" : ""}>${escapeHtml(s)} (${counts.get(s)})</option>`).join("");
+  }
+  const rows = [...byWp.keys()].filter((wp) => sysOf(wp) === sysPick).sort();
+  $("sys-market-list").innerHTML = rows.map((wp) => {
+    const goods = byWp.get(wp);
+    const stamp = goods.reduce((m, g) => (g.timestamp > m ? g.timestamp : m), "");
+    const mins = stamp ? Math.round((Date.now() - new Date(stamp).getTime()) / 60000) : null;
+    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${goods.length} goods${mins === null ? "" : ` · ${mins < 90 ? `${mins}m` : `${Math.round(mins / 60)}h`} old`}</span></div>`;
+  }).join("");
+}
+$("sys-sel").addEventListener("change", (e) => { sysPick = e.target.value; renderSystemMarkets(); });
+$("sys-market-list").addEventListener("click", (e) => {
+  const b = e.target.closest(".keeper-badge[data-wp]");
+  if (b) toggleKeeperPriority(b.dataset.wp);
+});
 
 /** Compact SVG price line, same shape as desktop's renderPriceChart() (see
  *  v6.js) but in Tower's own palette (amber sell / green buy) — a
@@ -1252,7 +1291,9 @@ function renderMarkets() {
   $("mkt-routes").hidden = mktSeg !== "routes";
   $("mkt-yards").hidden = mktSeg !== "yards";
   $("mkt-prices").hidden = mktSeg !== "prices";
+  $("mkt-systems").hidden = mktSeg !== "systems";
   if (mktSeg === "prices") renderPrices();
+  if (mktSeg === "systems") renderSystemMarkets();
   // Skipped while a picker is open, not just re-rendered around it — this is
   // called from the 15s poll subscription (loadMarkets() → subscribe()), and
   // rebuilding the list mid-tap replaces the exact buttons the operator is

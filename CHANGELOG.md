@@ -11,6 +11,12 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tower: Markets → Systems view.** Pick a system, see every market with
+  a snapshot in it (goods count, age) and tap its keeper badge to add or
+  remove it from the keeper list — the phone equivalent of desktop's
+  Prices & snapshots list. Before this Tower could only reach a market's
+  badge by picking a specific good first.
+
 - **Releasing a manual route actually releases it.** `RouteDispatcher.recompute()`
   copies a manual override into its `assignments` map, so after the operator
   cleared one (Tower's new "Release to auto", desktop's Auto) the stale copy
