@@ -11,6 +11,17 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Dispatcher can assign far same-system routes (multi-stop fuel chains).**
+  `reachable()`'s fuel-stop check allowed ONE relay stop, capping a reachable
+  leg at 2x the tank, while the trader's own executor (`nextHopToward()`)
+  flies longer legs in several hops. So any route touching X1-SJ91-J70 (~660
+  units from the rest of home, 300-unit tanks) was never assigned: confirmed
+  live 2026-10-02, DRUGS 35k / ASSAULT_RIFLES 23k / FIREARMS 13k sat on the
+  work list with idle traders while MICROPROCESSORS 10k and FERTILIZERS 2k
+  were handed out. `fuelChainReaches()` (fleet.ts) now BFS-es over the
+  system's fuel stops, each hop within one tank. Time cost is real (several
+  legs), which the route's profit estimate already prices via fuel/trip cost.
+
 - **Cross-system trading, phase 1: a trader can now fly a route that starts up
   to 3 gate hops away.** Previously `viableRoute()` and `navigateTo()` assumed
   the route's start system was at most ONE jump from the ship, so a manual
