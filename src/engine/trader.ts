@@ -639,6 +639,14 @@ export class TraderAgent {
 
   private async navigateTo(waypoint: string): Promise<void> {
     if (this.ship.nav.waypointSymbol === waypoint && this.ship.nav.status !== "IN_TRANSIT") return;
+    // Leaving a market under 95%: fill up first, whatever the leg is. The
+    // cross-system branch below returns before the in-system top-off further
+    // down, and a stepping-stone fuel stop isn't always in the price table, so
+    // ships left markets at 60-120 of 300 and drifted (live: 45 left D54 at
+    // 66/600; 2E/2F/9/8 passed I56 at ~120/300). Never detours.
+    try { await this.topOffHere(); } catch (err) {
+      this.log(`top-off at ${this.ship.nav.waypointSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
     const targetSystem = this.systemOf(waypoint);
     if (targetSystem !== this.ship.nav.systemSymbol) {
       // One gate hop per call. A target more than one jump away is walked a hop

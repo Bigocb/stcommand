@@ -1263,3 +1263,26 @@ describe("TraderAgent.nextHopToward: no ping-pong between fuel stops", () => {
     assert.equal((trader as any).nextHopToward("X1-A-GATE", "X1-A-S2"), undefined);
   });
 });
+
+describe("TraderAgent.navigateTo: tops off before a cross-system departure", () => {
+  it("refuels at the market it is leaving even when the leg is cross-system", async () => {
+    const ship = makeShip();
+    ship.nav = { status: "DOCKED", waypointSymbol: "X1-A-MKT", systemSymbol: "X1-A" } as any;
+    ship.fuel = { current: 66, capacity: 600 } as any;
+    let refueled = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        refuelShip: async () => { refueled = true; ship.fuel = { current: 600, capacity: 600 } as any; return { fuel: ship.fuel, transaction: { totalPrice: 100 } } as any; },
+        dockShip: async () => ({ nav: ship.nav } as any),
+        orbitShip: async () => ({ nav: ship.nav } as any),
+      } as any,
+      atlas: { canJump: () => true } as any,
+    });
+    trader.withWorld([{ symbol: "X1-A-MKT", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }] }] as any);
+    (trader as any).jumpToSystem = async () => {};
+    await (trader as any).navigateTo("X1-B-GATE");
+    assert.equal(refueled, true);
+  });
+});

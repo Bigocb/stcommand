@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: traders leaving markets half-empty and drifting
+`TraderAgent.navigateTo()` now tops the tank up to ~95% at the start of every call when the ship is at a market, before the cross-system branch. Previously a cross-system departure skipped the in-system top-off, and a stepping-stone fuel stop missing from the price table was never refuelled at, so ships left D54 at 66/600 and VU66-I56 at ~120/300 and fell back to DRIFT legs.
+
 ## Fix: loaded traders bouncing between two fuel stops
 When no chain of fuel stops reached a far destination, `nextHopToward()` fell back to "the closest reachable stop" without checking it was closer than the ship's current position. Two stops that were each other's best answer sent loaded traders (2E, 2F, 9, 8 in VU66, E46 <-> E42) back and forth indefinitely. The fallback now only returns a stop strictly nearer the destination; otherwise it returns undefined and the ship uses the ordinary single-leg/drift navigation.
 
