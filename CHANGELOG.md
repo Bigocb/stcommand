@@ -11,6 +11,22 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **A scout now re-fetches a newly entered system's waypoint traits and tops
+  off on any market it's standing on.** Confirmed live 2026-10-02: THEO-1
+  (scout) jumped into X1-Y84 with 9/400 fuel, stood on two FUEL_STATIONs
+  (F39A at 5 fuel, EZ7D at 4) logging "cannot refuel ... no reachable
+  market", and drifted on (1 fuel a leg) until it hit 0/400 at C30X.
+  The atlas had cached X1-Y84 trait-less, so neither station read as a
+  market — the gap `GalaxyAtlas.refreshWaypointTraits()` documents; tour
+  agents already call it on arrival, scouts never had it wired. `ScoutAgent`
+  takes a `refreshSystemMarkets` option (once per system per lifetime,
+  failures logged and ignored), wired in `registerScout()`, and a scout on a
+  market with under half a tank refuels immediately instead of only when
+  budgeting a specific leg. Does NOT rescue THEO-1: the fuel tender is
+  same-system only (`makeRescuePlan()`), nothing else is in Y84, and at 0
+  fuel not even drift can move a ship. A cross-system tender is a separate
+  feature. Tests in scoutTraitRefresh.test.ts.
+
 - **A tour ship low on fuel away from a market no longer holds forever; it
   heads for the nearest market (drifting if it has to).** Confirmed live
   2026-10-02: THEO-2F sat at X1-VU66-B30 (an asteroid, no fuel) with

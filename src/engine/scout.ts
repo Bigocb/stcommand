@@ -30,6 +30,12 @@ export interface ScoutOptions {
    *  already in flight) exactly like jumpTo/exploreNext — must propagate
    *  untouched, not be caught here. */
   jumpToUnchartedSystem?: (shipSymbol: string) => Promise<boolean>;
+  /** Force a live re-fetch of a system's waypoint traits. A system the crawler
+   *  cached before its markets were charted stays trait-less — so a scout
+   *  parked on a fuel station doesn't know it's one and can't refuel there
+   *  (THEO-1 drifted past two in X1-Y84 down to 0 fuel). Called once per
+   *  system per agent lifetime, on first arrival. */
+  refreshSystemMarkets?: (systemSymbol: string) => Promise<void>;
   findFuelStop?: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) => Promise<string | undefined>;
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
@@ -91,6 +97,8 @@ export class ScoutAgent {
   private readonly recordMarket: ScoutOptions["recordMarket"];
   private readonly onScan: ScoutOptions["onScan"];
   private readonly jumpToUnchartedSystem: ScoutOptions["jumpToUnchartedSystem"];
+  private readonly refreshSystemMarkets: ScoutOptions["refreshSystemMarkets"];
+  private readonly triedMarketRefresh = new Set<string>();
   private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
   private readonly intentFor?: ScoutOptions["intentFor"];
@@ -151,6 +159,7 @@ export class ScoutAgent {
     this.shouldRun = opts.shouldRun;
     this.onScan = opts.onScan;
     this.jumpToUnchartedSystem = opts.jumpToUnchartedSystem;
+    this.refreshSystemMarkets = opts.refreshSystemMarkets;
     this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
     this.systemSymbol = ship.nav.systemSymbol;
     // Built last: it owns the ship state every `this.ship` accessor above
@@ -422,6 +431,29 @@ export class ScoutAgent {
       return false;
     }
     await this.refresh();
+    // First tick in a system: re-fetch its waypoint traits once. A system the
+    // crawler cached before its markets were charted stays trait-less in the
+    // atlas, so the fuel stations in it read as plain waypoints — confirmed
+    // live: THEO-1 stood on X1-Y84-F39A and X1-Y84-EZ7D (both fuel stations)
+    // at 5 and 4 fuel, logged "cannot refuel ... no reachable market", and
+    // drifted on until it hit 0/400 with no tender able to reach it. The tour
+    // path has done this since X1-B48 (see GalaxyAtlas.refreshWaypointTraits()).
+    const here = this.ship.nav.systemSymbol;
+    if (this.refreshSystemMarkets && !this.triedMarketRefresh.has(here)) {
+      this.triedMarketRefresh.add(here);
+      try {
+        await this.refreshSystemMarkets(here);
+        this.log(`scout: re-fetched ${here}'s waypoint traits on arrival`);
+      } catch (err) {
+        this.log(`scout: waypoint re-fetch for ${here} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    // Standing on a market with a half-empty tank: top off now, rather than
+    // only when about to leave for a specific leg (which budgets for that leg
+    // alone and can leave the tank low for the one after).
+    if (this.ship.fuel.capacity > 0 && this.ship.fuel.current < this.ship.fuel.capacity * 0.5 && this.atMarketHere()) {
+      await this.proxy.refuelIfNeeded({ belowFraction: 0.95 });
+    }
     const target = this.manualGoal ?? this.pickChartTarget()?.symbol;
     if (!target) {
       // Away from any market with a low tank and nothing affordable to chart:

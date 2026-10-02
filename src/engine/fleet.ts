@@ -2220,6 +2220,7 @@ export class FleetManager {
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
         jumpTo: (sym, wp) => this.jumpToward(sym, wp),
         jumpToUnchartedSystem: (sym) => this.scoutJumpToUnchartedSystem(sym),
+        refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
         galaxy: this.galaxy,
         store: this.store,
         done: () => this.forgetIntent(ship.symbol),
