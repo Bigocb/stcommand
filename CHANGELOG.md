@@ -11,6 +11,21 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Cross-system trading, phase 2: the dispatcher can assign multi-hop routes
+  (doctrine switch "Auto cross-system routes", OFF by default).** With the
+  switch on, `RouteDispatcher.recompute()` accepts (a) a route whose buy and
+  sell systems are up to 3 verified gate hops apart and (b) hands an idle trader
+  a route that starts up to 3 hops away. Guards: the trader's hold is empty
+  (busy traders never reach this code), the FIRST trip must out-earn the
+  positioning cost, one trader always stays in the home system, and candidates
+  are ranked net of a third of the positioning cost. Per-hop cost is the learned
+  per-gate average else the flat 5,000c estimate; `computeDispatchRoutes()` now
+  prices a multi-hop buy->sell leg per hop. While the switch is on the fleet
+  warms the gate caches around the home system and each trader's system every
+  20 min (`GalaxyAtlas.warmNeighborhood()`, bounded). With the switch off, the
+  dispatcher behaves exactly as before (tested). "Cross-system intel freshness"
+  now defaults to 120 min (was 360).
+
 - **Tower: "Cancel sale" button for a ship with a pending scrap order.** The
   ship sheet's Release button only appears for a HELD ship, so a ship flying
   off to be scrapped (THEO-A) had no Release to tap, despite my earlier

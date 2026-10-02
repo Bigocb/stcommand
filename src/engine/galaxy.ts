@@ -286,6 +286,49 @@ export class GalaxyAtlas {
   }
 
   /**
+   * Load and verify every gate within MAX_POSITIONING_HOPS of `from`, so that
+   * jumpPath() can answer for any destination in that neighborhood (what the
+   * dispatcher needs to consider multi-hop routes without a per-route warm-up).
+   * Bounded like warmJumpPath(): MAX_WARM_SYSTEMS systems per call, and cache-
+   * aware, so a neighborhood already known costs no API calls. Returns how many
+   * systems it looked at.
+   */
+  async warmNeighborhood(from: string): Promise<number> {
+    const MAX_WARM_SYSTEMS = 30;
+    const visited = new Set<string>([from]);
+    let frontier = [from];
+    let looked = 0;
+    for (let depth = 0; depth <= MAX_POSITIONING_HOPS && frontier.length > 0 && looked < MAX_WARM_SYSTEMS; depth++) {
+      const next: string[] = [];
+      for (const sys of frontier) {
+        if (looked >= MAX_WARM_SYSTEMS) break;
+        looked++;
+        try {
+          await this.scanJumpGates(sys);
+        } catch {
+          continue;
+        }
+        const known = this.systems.get(sys);
+        if (known) {
+          await Promise.allSettled(
+            known.jumpGates
+              .filter((jg) => this.gateConstruction.get(jg.symbol) !== true)
+              .map((jg) => this.refreshGateConstruction(sys, jg.symbol)),
+          );
+        }
+        if (depth === MAX_POSITIONING_HOPS) continue;
+        for (const n of this.connectedSystems(sys)) {
+          if (visited.has(n)) continue;
+          visited.add(n);
+          next.push(n);
+        }
+      }
+      frontier = next;
+    }
+    return looked;
+  }
+
+  /**
    * Make jumpPath(from, to) answerable: breadth-first, scan each frontier
    * system's gates (cache-aware, so already-known systems cost nothing) and
    * check construction status of the gates it finds, to at most

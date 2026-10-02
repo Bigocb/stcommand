@@ -523,3 +523,69 @@ describe("RouteDispatcher: releasing a manual override", () => {
     assert.equal(d.assignmentFor("SHIP-1"), undefined, "a busy trader must not carry the released route forward");
   });
 });
+
+describe("RouteDispatcher: multi-hop cross-system assignment", () => {
+  // A - B - C line. The route buys and sells inside C; traders start in A.
+  const route = (profit: number) => ({
+    good: "CIRC", buyAt: "X1-C-M1", buySystem: "X1-C", buyPrice: 3500,
+    sellAt: "X1-C-M2", sellSystem: "X1-C", sellPrice: 7200, volume: 40, lotSize: 20,
+    distance: 5, fuelUnits: 5, fuelCost: 0, profitPerTrip: profit, ageMinutes: 1,
+  });
+  const lineNeighbors: Record<string, string[]> = { "X1-A": ["X1-B"], "X1-B": ["X1-A", "X1-C"], "X1-C": ["X1-B"] };
+  const path = (a: string, b: string): string[] | undefined => {
+    if (a === b) return [a];
+    const order = ["X1-A", "X1-B", "X1-C"];
+    const i = order.indexOf(a), j = order.indexOf(b);
+    if (i < 0 || j < 0) return undefined;
+    return i < j ? order.slice(i, j + 1) : order.slice(j, i + 1).reverse();
+  };
+  const canJump = (a: string, b: string) => (lineNeighbors[a] ?? []).includes(b);
+  const cs = (over: Partial<NonNullable<Parameters<RouteDispatcher["recompute"]>[9]>> = {}) => ({
+    enabled: true, path, hopCost: () => 5_000, homeSystem: "X1-A", homeReserve: 1, ...over,
+  });
+  const run = (traders: { shipSymbol: string; capacity: number; system: string }[], profit: number, crossSystem: any) => {
+    const d = new RouteDispatcher();
+    d.recompute([route(profit)], traders, [], [], [], [], canJump, undefined, undefined, undefined, crossSystem);
+    return d;
+  };
+  const two = [
+    { shipSymbol: "T1", capacity: 40, system: "X1-A" },
+    { shipSymbol: "T2", capacity: 40, system: "X1-A" },
+  ];
+
+  it("does not assign a 2-hop-away route when the switch is off", () => {
+    const d = run(two, 100_000, cs({ enabled: false }));
+    assert.equal(d.assignmentFor("T1"), undefined);
+  });
+
+  it("assigns it when on and the first trip out-earns the positioning cost", () => {
+    const d = run(two, 100_000, cs());
+    assert.equal(d.assignmentFor("T1")?.good, "CIRC");
+  });
+
+  it("refuses when the first trip would not cover the 2 hops (10,000c)", () => {
+    const d = run(two, 9_000, cs());
+    assert.equal(d.assignmentFor("T1"), undefined);
+  });
+
+  it("keeps one trader in the home system: with a single home trader, nothing leaves", () => {
+    const d = run([two[0]!], 100_000, cs());
+    assert.equal(d.assignmentFor("T1"), undefined);
+  });
+
+  it("with two home traders only one leaves (the reserve stays)", () => {
+    const d = run(two, 100_000, cs());
+    const assigned = [d.assignmentFor("T1"), d.assignmentFor("T2")].filter(Boolean);
+    assert.equal(assigned.length, 1);
+  });
+
+  it("allows a buy->sell leg that spans 2 hops when on, but not when off", () => {
+    const farLeg = { ...route(100_000), buyAt: "X1-A-M1", buySystem: "X1-A", sellAt: "X1-C-M2", sellSystem: "X1-C" };
+    const on = new RouteDispatcher();
+    on.recompute([farLeg], [two[0]!, two[1]!], [], [], [], [], canJump, undefined, undefined, undefined, cs());
+    assert.ok(on.assignmentFor("T1") || on.assignmentFor("T2"));
+    const off = new RouteDispatcher();
+    off.recompute([farLeg], [two[0]!, two[1]!], [], [], [], [], canJump, undefined, undefined, undefined, cs({ enabled: false }));
+    assert.equal(off.assignmentFor("T1"), undefined);
+  });
+});

@@ -494,6 +494,20 @@ export class RouteDispatcher {
     // same reasoning every other optional param here uses — a caller that
     // doesn't pass one gets the old, single-hop-only behavior.
     hasFuelStop?: (system: string, from: string, to: string, capacity: number) => boolean,
+    // Multi-hop cross-system assignment (phase 2 of the cross-system design).
+    // Only consulted when `enabled`; otherwise every cross-system check below
+    // is the long-standing single-hop `canJump` one. `path` returns the
+    // systems crossed (both ends included, <= MAX_POSITIONING_HOPS jumps over
+    // gates verified at both ends) or undefined; `hopCost` prices ONE jump.
+    crossSystem?: {
+      enabled: boolean;
+      path: (from: string, to: string) => string[] | undefined;
+      hopCost: (from: string, to: string) => number;
+      /** The system whose traders the home reserve protects. */
+      homeSystem?: string;
+      /** Traders that must stay in the home system. */
+      homeReserve?: number;
+    },
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -517,6 +531,15 @@ export class RouteDispatcher {
 
     const sorted = [...traders].sort((a, b) => b.capacity - a.capacity);
     const usedKeys = new Set<string>();
+    // Is a buy->sell leg flyable? Same system, one open gate, or (when the
+    // operator has enabled it) a verified multi-hop path within the cap.
+    const legConnected = (a: string, b: string): boolean =>
+      a === b || canJump(a, b) || (crossSystem?.enabled === true && crossSystem.path(a, b) !== undefined);
+    const pathCost = (path: string[]): number => {
+      let total = 0;
+      for (let i = 0; i + 1 < path.length; i++) total += crossSystem!.hopCost(path[i]!, path[i + 1]!);
+      return total;
+    };
     const next = new Map<string, TraderAssignment>();
 
     /** Direct reserves the whole good; buy/sell/haul/contractBuy reserve
@@ -614,7 +637,7 @@ export class RouteDispatcher {
         // open yet: otherwise this burns the good's assignment slot for a
         // full minute on a route no trader could actually take, while the
         // dashboard shows it as "assigned" and profitable.
-        if (route.buySystem !== route.sellSystem && !canJump(route.buySystem, route.sellSystem)) continue;
+        if (!legConnected(route.buySystem, route.sellSystem)) continue;
         // A busy trader already flying this exact good into this exact
         // market: don't hand a second trader the same leg. The secondary
         // "different market" loop below still gets a chance at this good —
@@ -663,7 +686,7 @@ export class RouteDispatcher {
     for (const route of routes) {
       if (targetsByGood.has(route.good)) continue; // warehousing owns this good's split
       if (firstSeen.get(route.good) === route) continue; // already considered above
-      if (route.buySystem !== route.sellSystem && !canJump(route.buySystem, route.sellSystem)) continue;
+      if (!legConnected(route.buySystem, route.sellSystem)) continue;
       const key = `${route.good}@${route.sellAt}`;
       if (emittedKeys.has(key)) continue;
       if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) continue; // a busy trader already owns this market
@@ -730,6 +753,7 @@ export class RouteDispatcher {
     }
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
+    let leavingHome = 0;
     for (const t of sorted) {
       const manual = this.manual.get(t.shipSymbol);
       if (manual) {
@@ -783,9 +807,29 @@ export class RouteDispatcher {
       // real profit on the board for many minutes at a stretch). No
       // hasFuelStop wired in still means "reject beyond single-hop range",
       // same as before — this is additive, not a loosened default.
-      const reachable = (w: { buySystem?: string; buyAt?: string; sellAt?: string }): boolean => {
+      // Positioning a trader more than one jump away is the expensive case, so
+      // it carries extra guards: the doctrine switch, a verified path within
+      // the cap, the hold being empty (busy traders never get here), the FIRST
+      // trip alone covering the positioning cost, and at least `homeReserve`
+      // traders staying behind in the home system.
+      const multiHopOk = (w: { buySystem?: string; profitPerTrip?: number }, from: string): boolean => {
+        if (!crossSystem?.enabled || w.buySystem === undefined) return false;
+        const path = crossSystem.path(from, w.buySystem);
+        if (!path || path.length < 3) return false; // 1 hop is handled by canJump above
+        if ((w.profitPerTrip ?? 0) <= pathCost(path)) return false; // first trip must net positive
+        if (crossSystem.homeSystem !== undefined && from === crossSystem.homeSystem) {
+          const reserve = crossSystem.homeReserve ?? 1;
+          const stayingHome = traders.filter((x) => x.system === crossSystem.homeSystem).length - 1 - leavingHome;
+          if (stayingHome < reserve) return false;
+        }
+        return true;
+      };
+      const reachable = (w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): boolean => {
         if (w.buySystem === undefined || t.system === undefined) return true;
-        if (w.buySystem !== t.system) return canJump(t.system, w.buySystem);
+        if (w.buySystem !== t.system) {
+          if (canJump(t.system, w.buySystem)) return true;
+          return multiHopOk(w, t.system);
+        }
         if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return true;
         if (distanceBetween(t.waypoint, w.buyAt) > t.fuelCapacity &&
             !(hasFuelStop?.(t.system, t.waypoint, w.buyAt, t.fuelCapacity) ?? false)) return false;
@@ -807,7 +851,25 @@ export class RouteDispatcher {
         if (distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity) return true;
         return hasFuelStop?.(w.buySystem, w.buyAt, w.sellAt, t.fuelCapacity) ?? false;
       };
-      const item = work.find((w) => !usedKeys.has(w.key) && reachable(w));
+      // Best REACHABLE item by score. A multi-hop positioning trip is scored
+      // net of a third of its positioning cost (the trader will usually run
+      // that lane a few times once it is there); everything else keeps its
+      // plain profit, so with the switch off this is exactly the old
+      // first-reachable-in-ranked-order pick.
+      let item: (typeof work)[number] | undefined;
+      let bestScore = -Infinity;
+      for (const w of work) {
+        if (usedKeys.has(w.key) || !reachable(w)) continue;
+        let score = w.profitPerTrip;
+        if (crossSystem?.enabled && w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system && !canJump(t.system, w.buySystem)) {
+          const path = crossSystem.path(t.system, w.buySystem);
+          if (path) score -= pathCost(path) / 3;
+        }
+        if (score > bestScore) { bestScore = score; item = w; }
+      }
+      if (item && crossSystem?.enabled && crossSystem.homeSystem !== undefined && t.system === crossSystem.homeSystem && item.buySystem !== undefined && item.buySystem !== t.system) {
+        leavingHome += 1;
+      }
       if (!item) {
         // Extends the temporary diagnostic below (docs: "why are idle
         // traders not getting assigned when profitable routes exist",

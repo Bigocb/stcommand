@@ -146,7 +146,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     key: "crossSystemMaxAgeMin",
     name: "Cross-system intel freshness",
     description: "A longer freshness window for routes that cross a jump gate. A foreign market is expensive to revisit, so holding it to the same window as a local one means cross-system routes almost never appear at all — both ends have to be fresh at the same moment, and only a keeper can guarantee that.",
-    value: 360, min: 15, max: 10080, step: 30, unit: "m",
+    value: 120, min: 15, max: 10080, step: 15, unit: "m",
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
@@ -190,6 +190,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     description: "Grow the fleet until this many ships are dedicated explorers — unlike an occasional tour-ship borrow, a dedicated explorer does nothing but keep jumping to unvisited connected systems. 0 by default: buys none until raised.",
     value: 0, min: 0, max: 10, step: 1, unit: "",
     enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
+    key: "autoCrossSystemRoutes",
+    name: "Auto cross-system routes",
+    description: "Let the dispatcher hand idle traders routes that START more than one gate jump away (up to 3 hops, over gates verified complete at both ends). Off by default: positioning costs real jumps (~5k each) before the first sale. Guards even when on: the hold must be empty, the first trip must out-earn the positioning cost, one trader always stays in the home system, and routes are ranked net of a third of the positioning cost. Manual routes need no switch. The data-freshness window is 'Cross-system intel freshness'. This value isn't used — only the clause toggle matters.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
     key: "exploringEnabled",

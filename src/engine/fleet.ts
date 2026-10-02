@@ -1384,6 +1384,17 @@ export class FleetManager {
    *  one exists, or the flat placeholder for a pair never actually jumped
    *  yet. See GalaxyAtlas.recordJumpCost()'s and
    *  CROSS_SYSTEM_JUMP_COST_ESTIMATE's own comments. */
+  /** Jump cost of a whole buy->sell leg: every hop of a verified multi-hop
+   *  path, or the single gate's cost for an adjacent pair. */
+  private crossSystemTripCost(buySystem: string, sellSystem: string): number {
+    if (this.galaxy.canJump(buySystem, sellSystem)) return this.crossSystemLegCost(buySystem, sellSystem);
+    const path = this.galaxy.jumpPath(buySystem, sellSystem);
+    if (!path || path.length < 3) return this.crossSystemLegCost(buySystem, sellSystem);
+    let total = 0;
+    for (let i = 0; i + 1 < path.length; i++) total += this.crossSystemLegCost(path[i]!, path[i + 1]!);
+    return total;
+  }
+
   private crossSystemLegCost(buySystem: string, sellSystem: string): number {
     const gate = this.galaxy.gatesTo(buySystem, sellSystem)[0];
     const learned = gate ? this.galaxy.learnedJumpCost(gate, sellSystem) : undefined;
@@ -1455,7 +1466,7 @@ export class FleetManager {
         // return leg is the next buy run, not a cost of this trip.
         const fuelUnits = dist === null ? null : dist;
         const fuelCost = crossSystem
-          ? this.crossSystemLegCost(l.buySystem, l.sellSystem)
+          ? this.crossSystemTripCost(l.buySystem, l.sellSystem)
           : fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
         const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
         // Real depth beyond a market's own advertised trade volume is not
@@ -6599,6 +6610,27 @@ export class FleetManager {
    * runHaul) only ever read the cache this populates; none of them make
    * this call themselves.
    */
+  private lastNeighborhoodWarm = 0;
+  /** While auto cross-system routes are switched on, keep the gate caches warm
+   *  for the neighborhood (<= 3 hops) of the home system and of every system a
+   *  trader is standing in, so the dispatcher's synchronous path lookups can
+   *  answer. Slow cadence; each call is cache-aware and bounded. */
+  private async maybeWarmJumpNeighborhoods(): Promise<void> {
+    if (!this.doctrine.isEnabledOr("autoCrossSystemRoutes", false)) return;
+    if (Date.now() - this.lastNeighborhoodWarm < 20 * 60_000) return;
+    this.lastNeighborhoodWarm = Date.now();
+    const systems = new Set<string>([this.systemSymbol]);
+    for (const t of this.dispatcherTraders()) if (t.system) systems.add(t.system);
+    for (const sys of systems) {
+      try {
+        const looked = await this.galaxy.warmNeighborhood(sys);
+        this.log(`cross-system: warmed gate caches around ${sys} (${looked} systems checked)`);
+      } catch (err) {
+        this.log(`cross-system: warming ${sys} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
   private async maybeRefreshGateConstruction(): Promise<void> {
     if (Date.now() - this.lastGateConstructionRefresh < 5 * 60_000) return;
     this.lastGateConstructionRefresh = Date.now();
@@ -6715,6 +6747,7 @@ export class FleetManager {
       await this.timed("refreshCredits", () => this.refreshCredits());
       await this.timed("chartOccupiedSystems", () => this.chartOccupiedSystems());
       await this.timed("maybeRefreshGateConstruction", () => this.maybeRefreshGateConstruction());
+      await this.timed("maybeWarmJumpNeighborhoods", () => this.maybeWarmJumpNeighborhoods());
       if (this.contracts) {
         await this.timed("contracts.fulfillCompleted", () => this.contracts!.fulfillCompleted());
         await this.timed("contracts.acceptBest", () => this.contracts!.acceptBest());
@@ -6752,6 +6785,13 @@ export class FleetManager {
           const stops = fuelStopsBySystem.get(system);
           if (!stops) return false;
           return fuelChainReaches(from, to, [...stops], capacity, (a, b) => this.estimatedFuelBetween(a, b));
+        },
+        {
+          enabled: this.doctrine.isEnabledOr("autoCrossSystemRoutes", false),
+          path: (a, b) => (this.galaxy.canJump(a, b) ? [a, b] : this.galaxy.jumpPath(a, b)),
+          hopCost: (a, b) => this.crossSystemLegCost(a, b),
+          homeSystem: this.systemSymbol,
+          homeReserve: 1,
         },
       ));
       // First, so that its priority-0 proposal wins the tie against rescue's
