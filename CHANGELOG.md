@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Scouts now snapshot shipyards
+A scout docking at a SHIPYARD waypoint recorded the market but never the yard's stock (only tour/keeper ships did), so a scouted system showed no shipyard inventory (NM66: three yards, none scanned). `ShipProxy` takes an optional `recordShipyard` and calls it on docking at a shipyard; the scout wiring passes `recordShipyardSnapshot`.
+
 ## Fix: traders leaving markets half-empty and drifting
 `TraderAgent.navigateTo()` now tops the tank up to ~95% at the start of every call when the ship is at a market, before the cross-system branch. Previously a cross-system departure skipped the in-system top-off, and a stepping-stone fuel stop missing from the price table was never refuelled at, so ships left D54 at 66/600 and VU66-I56 at ~120/300 and fell back to DRIFT legs.
 

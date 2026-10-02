@@ -2286,6 +2286,7 @@ export class FleetManager {
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
+        recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
         jumpTo: (sym, wp) => this.jumpToward(sym, wp),

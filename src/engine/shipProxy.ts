@@ -37,6 +37,8 @@ export interface ShipProxyOptions {
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
+  /** Snapshot a shipyard's stock, called on docking at a waypoint with the SHIPYARD trait. */
+  recordShipyard?: (waypointSymbol: string) => Promise<void>;
   /** Repair this ship where it now stands; wired to FleetManager.repairShip(). */
   repairHere?: (shipSymbol: string) => Promise<void>;
   /** Scrap this ship where it now stands (must be a shipyard); wired to FleetManager.scrapShip(). */
@@ -150,6 +152,7 @@ export class ShipProxy {
   private readonly log: (msg: string) => void;
   private readonly onActivity?: ShipProxyOptions["onActivity"];
   private readonly recordMarket?: ShipProxyOptions["recordMarket"];
+  private readonly recordShipyard?: ShipProxyOptions["recordShipyard"];
   private readonly repairHere?: ShipProxyOptions["repairHere"];
   private readonly scrapHere?: ShipProxyOptions["scrapHere"];
   private readonly findFuelStop?: ShipProxyOptions["findFuelStop"];
@@ -192,6 +195,7 @@ export class ShipProxy {
     this.log = opts.log ?? (() => {});
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.recordShipyard = opts.recordShipyard;
     this.repairHere = opts.repairHere;
     this.scrapHere = opts.scrapHere;
     this.findFuelStop = opts.findFuelStop;
@@ -289,6 +293,11 @@ export class ShipProxy {
       // this is the one moment they can be captured. Recording here rather
       // than at each call site is why a dock anywhere refreshes the world.
       if (this.recordMarket) await this.recordMarket(this.ship.nav.waypointSymbol);
+      if (this.recordShipyard && this.registry.isShipyard(this.ship.nav.waypointSymbol)) {
+        try { await this.recordShipyard(this.ship.nav.waypointSymbol); } catch (err) {
+          this.log(`shipyard snapshot at ${this.ship.nav.waypointSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     }
   }
 

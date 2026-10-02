@@ -59,6 +59,8 @@ export interface ScoutOptions {
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
+  /** Snapshot a shipyard's stock when the scout docks at one. */
+  recordShipyard?: (waypointSymbol: string) => Promise<void>;
   /** Whether a waypoint carries the MARKETPLACE trait, from the galaxy atlas.
    *  `markets` only lists waypoints already snapshotted and is never refreshed
    *  after construction, so a ship can sit on a fuel station it does not know
@@ -176,6 +178,7 @@ export class ScoutAgent {
       log: this.log,
       onActivity: opts.onActivity,
       recordMarket: opts.recordMarket,
+      recordShipyard: opts.recordShipyard,
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
       scrapHere: opts.scrapHere,
