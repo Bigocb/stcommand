@@ -13,7 +13,7 @@ import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
   marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, warehouseState, doctrineRules, activity,
   priceGoods, priceWaypointsByGood, pricePoints,
-  keeperMarketsCfg, keeperStationsCfg,
+  keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity,
   loadGoods, loadPrices, loadKeepers,
@@ -81,7 +81,7 @@ function setTab(name) {
   if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
-  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadGoods(); renderMore(); }
+  if (name === "more") { loadProgramme(); loadWarehouse(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -1467,7 +1467,40 @@ function renderMoreDoctrine() {
     </div>`).join("");
 }
 
+function renderMoreKeepers() {
+  $("more-keeper-count").textContent = `${keeperStationsCfg.length} stationed · ${keeperMarketsCfg.length} listed`;
+  $("more-keeper-cover").setAttribute("aria-pressed", String(keeperCoverList));
+  const ta = $("more-keeper-markets");
+  // Don't clobber an edit in progress.
+  if (document.activeElement !== ta) ta.value = keeperMarketsCfg.join("\n");
+  const el = $("more-keeper-stations");
+  const rows = [
+    ...keeperMarketsCfg.map((m) => ({ market: m, ship: keeperStationsCfg.find((s) => s.market === m)?.shipSymbol })),
+    ...keeperStationsCfg.filter((s) => !keeperMarketsCfg.includes(s.market)).map((s) => ({ market: s.market, ship: s.shipSymbol })),
+  ];
+  el.innerHTML = rows.length
+    ? rows.map((r) => `<div class="detail-row"><span>${escapeHtml(shortWp(r.market))}</span><span class="d">${r.ship ? `● ${escapeHtml(r.ship)}` : "◐ no keeper yet"}</span></div>`).join("")
+    : '<div class="empty">No keeper markets listed.</div>';
+}
+
+async function postKeepers(body, doneMsg) {
+  try {
+    await api("POST", "/api/keeper/markets", body);
+    // loadKeepers() reassigns store.js's own bindings; an importing module can't.
+    await loadKeepers();
+    if (doneMsg) alert(doneMsg);
+  } catch (err) { alert(err.message); }
+}
+$("more-keeper-save").addEventListener("click", () => {
+  const lines = $("more-keeper-markets").value.split("\n").map((l) => l.trim().toUpperCase()).filter((l) => l.length);
+  postKeepers({ markets: lines });
+});
+$("more-keeper-reset").addEventListener("click", () => postKeepers({ reset: true }));
+$("more-keeper-cover").addEventListener("click", () => postKeepers({ coverList: !keeperCoverList }));
+subscribe("keepers", () => { if (moreTabActive()) renderMoreKeepers(); });
+
 function renderMore() {
+  renderMoreKeepers();
   renderMoreContracts();
   renderMoreMissions();
   renderMoreChains();

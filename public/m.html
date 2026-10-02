@@ -142,6 +142,18 @@
         <div id="more-feeds"></div>
         <div class="sec-h">Warehouse</div>
         <div id="more-warehouse"></div>
+        <div class="sec-h">Keeper stations <span class="n" id="more-keeper-count">0</span></div>
+        <div class="detail">Markets that get a stationed keeper, one waypoint per line. Only listed markets ask for a keeper when a ship docks there.</div>
+        <div class="doc-row">
+          <span class="dn">Cover whole list (ignore keeper count cap)</span>
+          <button class="sw" id="more-keeper-cover" aria-pressed="false" aria-label="Cover full list"><i></i></button>
+        </div>
+        <textarea id="more-keeper-markets" class="keeper-text" rows="6" spellcheck="false" autocapitalize="characters" placeholder="X1-BY69-D46&#10;X1-BY69-E48"></textarea>
+        <div class="mission-start-row">
+          <button class="btn pri" id="more-keeper-save">Save list</button>
+          <button class="btn ghost" id="more-keeper-reset">Default</button>
+        </div>
+        <div id="more-keeper-stations"></div>
         <div class="sec-h">Doctrine <span class="n" id="more-doctrine-count">0</span></div>
         <div id="more-doctrine"></div>
       </div>

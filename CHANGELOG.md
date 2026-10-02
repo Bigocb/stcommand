@@ -11,6 +11,12 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Unreleased
 
+- **Tower (`/m`) can edit the keeper priority list.** The More tab has a
+  new "Keeper stations" section: the full-list textarea, Save, Default,
+  the cover-whole-list switch and the current stations — the same
+  `/api/keeper/markets` calls the desktop Book uses. Before this Tower
+  could only toggle one market at a time from a price-list badge.
+
 - **Keeper purchases fall back to a surveyor, then a mining drone, when a
   yard sells no probe.** Keeper requests (both the shipyard-triggered and
   market-triggered paths in `fleet.ts`) only ever considered `SHIP_PROBE`,

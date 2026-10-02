@@ -441,6 +441,11 @@ body {
   flex: 1; background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
   font-size: 12px; padding: 8px 10px; border-radius: 3px;
 }
+.keeper-text {
+  width: 100%; box-sizing: border-box; margin: 6px 0; resize: vertical; background: #04070a; border: 1px solid var(--hair-hi);
+  color: var(--bone); font-family: var(--mono); font-size: 12px; padding: 8px 10px; border-radius: 3px;
+}
+.mission-start-row .btn { flex: 1; }
 .card .acts .btn { flex: 1; }
 .checkline { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); white-space: nowrap; }
 .prog-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 10.5px; }
