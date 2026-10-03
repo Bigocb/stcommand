@@ -697,6 +697,21 @@ $("sheet-actions").addEventListener("click", async (e) => {
   if (act === "send-go") {
     const wp = $("send-wp-input")?.value.trim();
     if (!wp) return;
+    // A waypoint in another system can't be flown to directly. Offer the gate
+    // path (tour dispatch) instead of failing with a fuel error.
+    const targetSystem = wp.slice(0, wp.lastIndexOf("-"));
+    const shipSystem = (state?.ships ?? []).find((s) => s.symbol === ship)?.nav?.systemSymbol;
+    if (shipSystem && targetSystem && shipSystem !== targetSystem) {
+      if (!confirm(`${wp} is in ${targetSystem}, not ${shipSystem}. Send ${ship} there by the gate path (tour dispatch)?\n\nIt walks the gates to ${targetSystem} (about 5k a jump) and its role becomes tour — change it back when it arrives.`)) return;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/tour-dispatch", { shipSymbol: ship, targetSystem });
+        sendFormOpen = false;
+        await loadBridge();
+        await loadState();
+      } catch (err) { alert(err.message); }
+      return renderFleetView();
+    }
     b.disabled = true;
     try {
       await api("POST", "/api/fleet/dispatch", { shipSymbol: ship, waypointSymbol: wp });

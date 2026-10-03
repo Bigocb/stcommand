@@ -1437,6 +1437,15 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     try {
       const api = w.fleet.getApi();
       const ship = await api.getShip(shipSymbol);
+      // Waypoint coordinates are per system, so a fuel estimate across systems
+      // is meaningless (it came back as "Infinity"). This control only moves a
+      // ship inside its own system; say so rather than reporting a fuel error.
+      const targetSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
+      if (ship.nav.systemSymbol !== targetSystem) {
+        return res.status(400).json({
+          error: `${waypointSymbol} is in ${targetSystem}, but ${shipSymbol} is in ${ship.nav.systemSymbol}. This only moves a ship within its own system — use tour dispatch to send it to another system, or give a trader a route that starts there.`,
+        });
+      }
       const need = w.fleet.estimatedFuelTo(shipSymbol, waypointSymbol);
       if (ship.fuel.capacity > 0 && ship.fuel.current < need) {
         return res.status(400).json({

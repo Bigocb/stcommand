@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Tower "send to waypoint" handles a target in another system
+Typing a waypoint from a different system into the Fleet sheet's send box failed with "needs Infinity fuel to reach …": the fuel pre-check measured a cross-system distance (always Infinity). `POST /api/fleet/dispatch` now rejects a cross-system target with a plain message, and Tower checks first and offers to send the ship by the gate path through tour dispatch instead (the role becomes tour; change it back on arrival).
+
 ## Tower Systems list shows every market ever priced, with its age
 The Systems segment was built from the freshness-filtered snapshot cache (`snapshotMaxAgeMin`, 90 min), so a market whose price had aged out vanished from the list, which is exactly the one that wants a keeper (NM66: 8 of 17 markets hidden, including DA6E, the buy side of the EQUIPMENT route). New `GET /api/markets/known` returns every priced market in the tenant's charted systems with its goods count and newest snapshot time, no cutoff; Systems uses it and shows age in minutes/hours/days. Trading and the routes list keep the freshness cutoff.
 
