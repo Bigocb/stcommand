@@ -442,6 +442,29 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  /* Every market this fleet has ever priced, with how old its newest snapshot
+     is — no freshness cutoff. The keeper picker needs the stale ones too: a
+     market whose data has aged out of the trading window is exactly the one
+     that wants a keeper. */
+  router.get("/markets/known", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      const charted = new Set(w.fleet.getChartedSystems());
+      const rows = (await w.store.freshMarketSnapshots(5_256_000)).filter((r) => charted.has(r.systemSymbol));
+      const byWp = new Map<string, { waypointSymbol: string; systemSymbol: string; goods: number; timestamp: string }>();
+      for (const r of rows) {
+        const cur = byWp.get(r.waypointSymbol);
+        const ts = String(r.timestamp);
+        if (!cur) byWp.set(r.waypointSymbol, { waypointSymbol: r.waypointSymbol, systemSymbol: r.systemSymbol, goods: 1, timestamp: ts });
+        else { cur.goods += 1; if (ts > cur.timestamp) cur.timestamp = ts; }
+      }
+      res.json({ markets: [...byWp.values()].sort((a, b) => a.waypointSymbol.localeCompare(b.waypointSymbol)) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /* ── Markets ─────────────────────────────────────────────────
      Routes ranked by profit per round trip net of fuel, not margin %. */
   router.get("/markets", async (req, res) => {

@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Tower Systems list shows every market ever priced, with its age
+The Systems segment was built from the freshness-filtered snapshot cache (`snapshotMaxAgeMin`, 90 min), so a market whose price had aged out vanished from the list, which is exactly the one that wants a keeper (NM66: 8 of 17 markets hidden, including DA6E, the buy side of the EQUIPMENT route). New `GET /api/markets/known` returns every priced market in the tenant's charted systems with its goods count and newest snapshot time, no cutoff; Systems uses it and shows age in minutes/hours/days. Trading and the routes list keep the freshness cutoff.
+
 ## Fix: loaded traders were invisible to the dispatcher (shown "unassigned")
 A trader holding cargo is claimed "trading" in the ship registry, which outranks "auto", so `dispatcherTraders()` (which filtered on `availableFor("auto")`) dropped every loaded ship from the dispatcher's list. The "busy" carry-forward never saw them, their assignment was discarded each cycle, and the fleet page listed them as unassigned (THEO-28, 2E, 45, 46); it also meant their trips never counted toward the per-market buyer cap. `dispatcherTraders()` now also includes traders claimed "trading", so loaded ships keep (or get rebuilt from their held-route pin) an assignment that stays until delivery.
 

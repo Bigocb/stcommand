@@ -1224,13 +1224,29 @@ subscribe("keepers", () => {
  *  system, each with the same keeper badge as the Prices list — the phone
  *  equivalent of desktop's Prices & snapshots list. */
 let sysPick = "";
+/** Every market ever priced, any age (GET /api/markets/known) — the Systems list
+ *  must include stale ones, since those are the markets that need a keeper. */
+let knownMarkets = [];
+async function loadKnownMarkets() {
+  try {
+    const d = await api("GET", "/api/markets/known");
+    knownMarkets = d.markets ?? [];
+    if (marketsTabActive() && mktSeg === "systems") renderSystemMarkets();
+  } catch { /* keep the last list */ }
+}
 function renderSystemMarkets() {
   const sel = $("sys-sel");
   const sysOf = (wp) => wp.slice(0, wp.lastIndexOf("-"));
+  // Known (any age) first; fall back to the fresh snapshots until it has loaded.
   const byWp = new Map();
-  for (const s of marketSnapshots) {
-    if (!byWp.has(s.waypointSymbol)) byWp.set(s.waypointSymbol, []);
-    byWp.get(s.waypointSymbol).push(s);
+  for (const m of knownMarkets) byWp.set(m.waypointSymbol, { goods: m.goods, stamp: m.timestamp });
+  if (!byWp.size) {
+    for (const s of marketSnapshots) {
+      const cur = byWp.get(s.waypointSymbol) ?? { goods: 0, stamp: "" };
+      cur.goods += 1;
+      if (s.timestamp > cur.stamp) cur.stamp = s.timestamp;
+      byWp.set(s.waypointSymbol, cur);
+    }
   }
   const counts = new Map();
   for (const wp of byWp.keys()) counts.set(sysOf(wp), (counts.get(sysOf(wp)) ?? 0) + 1);
@@ -1243,10 +1259,10 @@ function renderSystemMarkets() {
   }
   const rows = [...byWp.keys()].filter((wp) => sysOf(wp) === sysPick).sort();
   $("sys-market-list").innerHTML = rows.map((wp) => {
-    const goods = byWp.get(wp);
-    const stamp = goods.reduce((m, g) => (g.timestamp > m ? g.timestamp : m), "");
+    const { goods, stamp } = byWp.get(wp);
     const mins = stamp ? Math.round((Date.now() - new Date(stamp).getTime()) / 60000) : null;
-    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${goods.length} goods${mins === null ? "" : ` · ${mins < 90 ? `${mins}m` : `${Math.round(mins / 60)}h`} old`}</span></div>`;
+    const age = mins === null ? "" : mins < 90 ? `${mins}m` : mins < 2880 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`;
+    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${goods} goods${age ? ` · ${age} old` : ""}</span></div>`;
   }).join("");
 }
 $("sys-sel").addEventListener("change", (e) => { sysPick = e.target.value; renderSystemMarkets(); });
@@ -1363,7 +1379,7 @@ function renderMarkets() {
   $("mkt-prices").hidden = mktSeg !== "prices";
   $("mkt-systems").hidden = mktSeg !== "systems";
   if (mktSeg === "prices") renderPrices();
-  if (mktSeg === "systems") renderSystemMarkets();
+  if (mktSeg === "systems") { renderSystemMarkets(); loadKnownMarkets(); }
   // Skipped while a picker is open, not just re-rendered around it — this is
   // called from the 15s poll subscription (loadMarkets() → subscribe()), and
   // rebuilding the list mid-tap replaces the exact buttons the operator is
