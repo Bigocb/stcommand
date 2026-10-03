@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { rateLimitMonitor, INSTANCE_ID } from "../core/rateLimitMonitor.js";
 import type pg from "pg";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
 import { buildTriage } from "../engine/triage.js";
@@ -130,6 +131,22 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  /**
+   * Rate-limit indicator feed for Tower/Deck: how many SpaceTraders 429s this
+   * process absorbed in the last minute, plus any OTHER server instance that
+   * is alive right now (deploy overlap — the usual cause of a storm). Process-
+   * wide on purpose: the limit is per-IP, not per-tenant.
+   */
+  router.get("/rate-limit", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    let others: { instanceId: string; startedAt: string }[] = [];
+    try {
+      others = await w.store.otherLiveInstances(INSTANCE_ID, 40);
+    } catch { /* heartbeat table unavailable — report the counter alone */ }
+    res.json({ ...rateLimitMonitor.snapshot(), instance: INSTANCE_ID, otherInstances: others });
   });
 
   router.get("/state", (req, res) => {

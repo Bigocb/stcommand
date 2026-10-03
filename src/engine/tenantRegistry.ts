@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { Client, RateLimiter, SpaceTradersAPI } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
@@ -115,7 +116,10 @@ export class TenantRegistry {
           token,
           proxyUrl,
           ...(proxyUrl ? {} : { sharedLimiter: this.apiLimiter }),
-          onRateLimited: (sec, attempt) => this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`),
+          onRateLimited: (sec, attempt) => {
+            rateLimitMonitor.record();
+            this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`);
+          },
         }),
         token,
       );

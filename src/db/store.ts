@@ -321,6 +321,34 @@ export interface FeedRow {
 export class Store {
   constructor(private readonly pool: pg.Pool) {}
 
+  // ── Instance heartbeats ─────────────────────────────────────
+
+  /** Refresh this process's liveness row (see migration 034). */
+  async touchInstance(instanceId: string, startedAt: Date): Promise<void> {
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO instance_heartbeats (instance_id, started_at, last_seen) VALUES ($1, $2, now())
+         ON CONFLICT (instance_id) DO UPDATE SET last_seen = now()`,
+        [instanceId, startedAt.toISOString()],
+      ),
+    );
+  }
+
+  /** Instances other than `self` that checked in within the last `withinSec`
+   *  seconds — i.e. alive right now alongside this one. Also prunes rows
+   *  that have been silent for a day so the table stays tiny. */
+  async otherLiveInstances(self: string, withinSec: number): Promise<{ instanceId: string; startedAt: string }[]> {
+    return withPool(this.pool, async (c) => {
+      await c.query(`DELETE FROM instance_heartbeats WHERE last_seen < now() - interval '1 day'`);
+      const r = await c.query(
+        `SELECT instance_id, started_at FROM instance_heartbeats
+         WHERE instance_id <> $1 AND last_seen > now() - ($2 || ' seconds')::interval ORDER BY started_at`,
+        [self, String(withinSec)],
+      );
+      return r.rows.map((x: any) => ({ instanceId: x.instance_id, startedAt: new Date(x.started_at).toISOString() }));
+    });
+  }
+
   // ── Ledger ──────────────────────────────────────────────────
 
   async recordLedger(tenantId: string, entry: LedgerEntry): Promise<void> {

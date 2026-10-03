@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Rate-limit indicator in Tower and Deck, with deploy-overlap hint
+
+A small pulsing amber dot (next to the clock in Tower, next to the connection
+pill in Deck) appears while SpaceTraders is answering 429s, with a toast when
+it starts; tapping the dot re-shows it. The toast also says when another server
+instance is alive at the same moment — the usual cause of a storm (a deploy's
+old instance still ticking ships). Mechanics: `RateLimitMonitor`
+(`src/core/rateLimitMonitor.ts`) counts 429s over a rolling minute via the
+client's `onRateLimited` hook; each instance heartbeats into the new
+`instance_heartbeats` table (migration 034) every 10s; `GET /api/rate-limit`
+returns the count plus any other instance seen in the last 40s; the UI is
+`public/shared/rateLimit.js`. Silent when nothing is limited.
+
 ## Fix: a tender never reached its fuel market after a cross-system jump
 
 `ShipProxy.runTenderGoalStep()` never refreshed the ship, so a tender that

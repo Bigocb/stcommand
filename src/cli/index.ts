@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { INSTANCE_ID } from "../core/rateLimitMonitor.js";
 import express from "express";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,6 +88,15 @@ async function main(): Promise<void> {
     galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
   }, 5_000);
   galaxyCrawlInterval.unref?.();
+
+  // Heartbeat so any instance can tell whether another one is alive at the
+  // same time (deploy overlap — the usual 429-storm cause). See migration 034.
+  const heartbeatStore = new Store(pool);
+  const bootedAt = new Date();
+  const beat = () => heartbeatStore.touchInstance(INSTANCE_ID, bootedAt).catch(() => {});
+  void beat();
+  const heartbeatInterval = setInterval(beat, 10_000);
+  heartbeatInterval.unref?.();
 
   const app = express();
   app.use(express.json());

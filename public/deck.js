@@ -19,9 +19,11 @@ import {
   loadMarkets, loadGoods, loadPrices, loadWarehouse, loadGalaxy, loadProgramme,
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
 } from "/shared/store.js";
+import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
+startRateLimitIndicator($("tb-conn"));
 
 /* ── auth gate ─────────────────────────────
  * Same mechanism as Tower: session-cookie-based, existing tenants only.

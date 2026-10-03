@@ -18,6 +18,7 @@ import {
   loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity,
   loadGoods, loadPrices, loadKeepers,
 } from "/shared/store.js";
+import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
@@ -93,6 +94,7 @@ function renderStatusbar() {
   $("sb-time").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 setInterval(renderStatusbar, 30_000);
+startRateLimitIndicator($("sb-time"));
 
 /* ── home: cockpit tiles ──────────────────── */
 function unassignedTraders() {
