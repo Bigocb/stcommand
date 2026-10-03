@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fleet list: collapsible role groups and a cooldown bar (Tower + V6)
+
+The Fleet list is now grouped by role (traders, miners, …, keepers) with a
+header per group you can tap to collapse; the choice is remembered per browser
+and keepers start collapsed. A collapsed group still shows a red "N stranded"
+or amber "N unassigned" badge so collapsing can't hide trouble. Ships on a
+cooldown get a thin bar that drains from amber to green with a `m:ss`
+countdown beside it. It's computed from the cooldown's absolute `expiration`
+and updated in place once a second (no re-render, no extra polling), so it
+stays correct between the 15s state polls. Shared code:
+`public/shared/cooldown.js`. Not yet in Deck or Tower's ship detail sheet.
+
 ## Rate-limit indicator in Tower and Deck, with deploy-overlap hint
 
 A small pulsing amber dot (next to the clock in Tower, next to the connection

@@ -1256,3 +1256,12 @@
   }
 
   @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
+
+/* Fleet table role groups (collapsible) */
+#fleet-table tr.grp td { cursor:pointer; padding:7px 10px; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--text, #e8e4da); background:rgba(255,255,255,.04); border-top:1px solid rgba(255,255,255,.08); user-select:none; }
+#fleet-table tr.grp:hover td { background:rgba(255,255,255,.08); }
+#fleet-table tr.grp .chev { display:inline-block; width:12px; color:var(--accent, #ffb020); }
+#fleet-table tr.grp .g-n { color:var(--dim, #93897a); letter-spacing:0; margin-left:4px; }
+#fleet-table tr.grp .grp-badge { margin-left:10px; font-size:9px; letter-spacing:0; text-transform:none; padding:1px 6px; border-radius:8px; border:1px solid currentColor; }
+#fleet-table tr.grp .grp-badge.crit { color:var(--red, #ff6152); }
+#fleet-table tr.grp .grp-badge.warn { color:var(--accent, #ffb020); }

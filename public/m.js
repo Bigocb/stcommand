@@ -19,6 +19,7 @@ import {
   loadGoods, loadPrices, loadKeepers,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
+import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
@@ -95,6 +96,7 @@ function renderStatusbar() {
 }
 setInterval(renderStatusbar, 30_000);
 startRateLimitIndicator($("sb-time"));
+startCooldownTicker();
 
 /* ── home: cockpit tiles ──────────────────── */
 function unassignedTraders() {
@@ -326,6 +328,7 @@ function fleetRows() {
       waypoint: s.nav?.waypointSymbol ?? "",
       nav: s.nav?.status ?? "",
       stranded: strandedBy.has(s.symbol),
+      cooldown: cooldownHtml(s),
       // nav.route.arrival is the game's own committed ETA — only meaningful
       // while actually IN_TRANSIT (the API leaves it holding the last
       // flight's arrival time once a ship has landed). Same field/guard as
@@ -408,7 +411,14 @@ function renderRoster() {
   const rows = fleetRows();
   $("roster-hd").textContent = `${rows.length} hull${rows.length === 1 ? "" : "s"}`;
   if (!rows.length) { $("roster-scroll").innerHTML = '<div class="empty">No ships in the register.</div>'; return; }
-  $("roster-scroll").innerHTML = rows.map((r, i) => {
+  const collapsed = loadCollapsed();
+  const groups = new Map();
+  rows.forEach((r, i) => {
+    const g = groups.get(r.role) ?? [];
+    g.push({ r, i });
+    groups.set(r.role, g);
+  });
+  const rowHtml = ({ r, i }) => {
     const cls = r.stranded ? " crit" : r.job === "unassigned" ? " warn" : "";
     const jobTxt = r.job == null ? r.role : r.job;
     const jobCls = r.job === "unassigned" ? " unassigned" : "";
@@ -416,14 +426,27 @@ function renderRoster() {
     const etaTxt = fmtEta(r.eta);
     return `<button class="roster-row${cls}" data-idx="${i}">
       <span class="rr-id"><span class="sym">${escapeHtml(r.symbol)}</span><span class="role">${escapeHtml(r.role)}</span></span>
-      <span class="rr-job${jobCls}">${r.stranded ? "STRANDED · " : ""}${escapeHtml(jobTxt)}</span>
+      <span class="rr-job${jobCls}">${r.stranded ? "STRANDED · " : ""}${escapeHtml(jobTxt)} ${r.cooldown}</span>
       <span class="rr-stats">
         <span class="${fuelPct < 25 ? "lo" : ""}">F${fuelPct}</span>
         <span class="${r.condition < 50 ? "lo" : ""}">H${r.condition}</span>
         <span class="eta${etaTxt !== "—" ? " live" : ""}">${escapeHtml(etaTxt)}</span>
       </span>
     </button>`;
-  }).join("");
+  };
+  $("roster-scroll").innerHTML = [...groups.entries()]
+    .sort((a, b) => roleRank(a[0]) - roleRank(b[0]) || a[0].localeCompare(b[0]))
+    .map(([role, items]) => {
+      const isCollapsed = collapsed.has(role);
+      // A collapsed group must not hide trouble: count what needs attention.
+      const crit = items.filter(({ r }) => r.stranded).length;
+      const warn = items.filter(({ r }) => !r.stranded && r.job === "unassigned").length;
+      const badge = crit ? `<span class="grp-badge crit">${crit} stranded</span>` : warn ? `<span class="grp-badge warn">${warn} unassigned</span>` : "";
+      return `<button class="roster-grp" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}">
+        <span class="chev">${isCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(role)}</span><span class="g-n">${items.length}</span>${badge}
+      </button>${isCollapsed ? "" : items.map(rowHtml).join("")}`;
+    }).join("");
+  tickCooldowns($("roster-scroll"));
 }
 
 $("fleet-seg").addEventListener("click", (e) => {
@@ -438,6 +461,8 @@ $("fleet-seg").addEventListener("click", (e) => {
 });
 
 $("roster-scroll").addEventListener("click", (e) => {
+  const g = e.target.closest("button.roster-grp[data-grp]");
+  if (g) { toggleCollapsed(g.dataset.grp); renderRoster(); return; }
   const b = e.target.closest("button.roster-row[data-idx]");
   if (!b) return;
   fleetIndex = Number(b.dataset.idx);

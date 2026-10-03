@@ -35,6 +35,7 @@ import {
 } from "/shared/session.js";
 import { applyVersionPreference, mountSwitcher } from "/shared/switcher.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
+import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -1714,6 +1715,7 @@ function fleetRows() {
       job: jobFor(s, st?.role),
       manual: !!st?.paused,
       stranded: strandedBy.has(s.symbol),
+      cooldown: cooldownHtml(s),
       net: earnBy.get(s.symbol) ?? 0,
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
@@ -1946,9 +1948,21 @@ function renderFleetTable() {
   el.innerHTML = `
     <thead><tr>${FLEET_COLS.map((c) =>
       `<th class="${c.num ? "num " : ""}${key === c.key ? "sorted" : ""}" data-key="${c.key}">${c.label}${key === c.key ? (dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map((r) => `
+    <tbody>${(() => {
+      const collapsed = loadCollapsed();
+      const groups = new Map();
+      for (const r of rows) { const g = groups.get(r.role) ?? []; g.push(r); groups.set(r.role, g); }
+      return [...groups.entries()]
+        .sort((x, y) => roleRank(x[0]) - roleRank(y[0]) || x[0].localeCompare(y[0]))
+        .map(([role, items]) => {
+          const isCollapsed = collapsed.has(role);
+          const crit = items.filter((r) => r.stranded).length;
+          const warn = items.filter((r) => !r.stranded && r.job === "unassigned").length;
+          const badge = crit ? ` <span class="grp-badge crit">${crit} stranded</span>` : warn ? ` <span class="grp-badge warn">${warn} unassigned</span>` : "";
+          const head = `<tr class="grp" data-grp="${escapeAttr(role)}"><td colspan="${FLEET_COLS.length}"><span class="chev">${isCollapsed ? "▸" : "▾"}</span> ${escapeHtml(role)} <span class="g-n">${items.length}</span>${badge}</td></tr>`;
+          return head + (isCollapsed ? "" : items.map((r) => `
       <tr class="${r.stranded ? "warn " : ""}${fleetDetailShip === r.symbol ? "sel" : ""}" data-ship="${escapeAttr(r.symbol)}">
-        <td><span class="sym">${escapeHtml(shortWp(r.symbol))}</span></td>
+        <td><span class="sym">${escapeHtml(shortWp(r.symbol))}</span> ${r.cooldown}</td>
         <td>${escapeHtml(r.role)}${r.manual ? ' <span style="color:var(--accent)">·M</span>' : ""}</td>
         <td><span class="goal${r.job === "unassigned" ? " unassigned" : ""}">${r.job}</span></td>
         <td class="num ${r.net > 0 ? "rate-up" : r.net < 0 ? "rate-down" : "rate-zero"}">${r.net ? signed(r.net) : "0"}</td>
@@ -1959,14 +1973,18 @@ function renderFleetTable() {
         <td><span class="goal">${escapeHtml(r.goal)}${fmTag(r.flightMode)}</span></td>
         <td><span class="goal">${r.at ? escapeHtml(shortWp(r.at)) : "—"}</span></td>
         <td><span class="eta${fmtEta(r.eta) !== "—" ? " live" : ""}">${escapeHtml(fmtEta(r.eta))}</span></td>
-      </tr>`).join("")}</tbody>`;
+      </tr></tr>`).join(""));
+        }).join("");
+    })()}</tbody>`;
 
   el.querySelectorAll("th[data-key]").forEach((th) => th.addEventListener("click", () => {
     const k = th.dataset.key;
     fleetSort = { key: k, dir: fleetSort.key === k ? -fleetSort.dir : -1 };
     renderFleetTable();
   }));
-  el.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => openFleetShipDetail(tr.dataset.ship)));
+  el.querySelectorAll("tbody tr[data-ship]").forEach((tr) => tr.addEventListener("click", () => openFleetShipDetail(tr.dataset.ship)));
+  el.querySelectorAll("tbody tr.grp").forEach((tr) => tr.addEventListener("click", () => { toggleCollapsed(tr.dataset.grp); renderFleetTable(); }));
+  tickCooldowns(el);
   refreshFleetShipDetail();
 }
 
@@ -7412,3 +7430,4 @@ boot0();
 // Rate-limit dot + toast (shared with Tower/Deck) — see shared/rateLimit.js.
 const rlAnchor = document.getElementById("conn-status");
 if (rlAnchor) startRateLimitIndicator(rlAnchor);
+startCooldownTicker();
