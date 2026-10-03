@@ -9,6 +9,27 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Reverted: dispatcher buy-impact back to 0.25% per unit
+
+The 0.12% recalibration (earlier today) measured the price rise *within* one visit
+and ignored how slowly a market recovers. Live proof the same afternoon: a pinned
+ADVANCED_CIRCUITRY run repeated by one freighter, with three other hulls on the
+same good, drove TU85-E11E's ask from 4,178 to 7,992 in two hours — trips went
++450k, +134k, −69k, −105k. 0.25% is restored; the explanation is in the constant's
+doc comment. Revisit when recovery is modelled from snapshots.
+
+## Scripts and styles revalidate on every load instead of caching for 5 minutes
+
+JS/CSS (each UI version's, Tower's, Deck's, and `shared/*`) were served with
+`max-age=300`. After a deploy a phone kept the old `m.js` for up to five minutes
+(the new Yards cards "didn't change"), and, worse, an entry point and a shared
+module can expire independently, so a new `m.js` can import a name an older
+cached `shared/domain.js` lacks and blank the app. They now use `no-cache`: a
+conditional request that returns a tiny 304 when nothing changed and the new file
+the moment it does. HTML was already `no-cache`; fonts stay immutable. A `?v=`
+stamp on the entry file alone would not have fixed the shared-module case.
+`tests/uiVersions.test.ts` updated.
+
 ## Tower Yards tab: readable ship cards
 
 Each shipyard listing is now a card: ship name and price on one line with the Buy

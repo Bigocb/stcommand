@@ -119,20 +119,18 @@ describe("cacheHeaders()", () => {
     assert.match(h["Cache-Control"]!, /immutable/);
   });
 
-  it("caches shared modules only briefly, since they have no content hash", () => {
-    // shared/store.js is replaced in place by a deploy, so the window in
-    // which new HTML can pair with old modules has to stay small.
+  it("revalidates shared modules every load, since they have no content hash", () => {
+    // shared/store.js is replaced in place by a deploy. A 5-minute max-age let a
+    // phone keep stale code after a deploy, and let new entry points import
+    // names an older cached shared module did not export. no-cache = conditional
+    // request (304 when unchanged), never a stale copy.
     const h = cacheHeaders("/srv/public/shared/store.js")!;
-    assert.equal(h["Cache-Control"], "public, max-age=300");
+    assert.equal(h["Cache-Control"], "no-cache");
   });
 
-  it("caches each version's own CSS and JS — the whole point of extracting them", () => {
-    // These were inlined into the HTML until the split; leaving them
-    // uncached means a browser re-fetches ~250KB per load and the
-    // extraction bought nothing. Same short window as shared modules, and
-    // for the same reason: no content hash, replaced in place by a deploy.
-    for (const f of ["/srv/public/v6.css", "/srv/public/v6.js", "/srv/public/v5.js"]) {
-      assert.equal(cacheHeaders(f)!["Cache-Control"], "public, max-age=300", f);
+  it("revalidates each version's own CSS and JS (and Tower/Deck's) for the same reason", () => {
+    for (const f of ["/srv/public/v6.css", "/srv/public/v6.js", "/srv/public/v5.js", "/srv/public/m.js", "/srv/public/m.css", "/srv/public/deck.js"]) {
+      assert.equal(cacheHeaders(f)!["Cache-Control"], "no-cache", f);
     }
   });
 

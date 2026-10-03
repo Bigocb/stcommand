@@ -71,21 +71,34 @@ export function createUiVersionRouter(publicDir: string): Router {
  * place. Five minutes bounds how long a browser can pair new HTML with old
  * modules, which is the failure this ordering has to keep survivable.
  */
+/**
+ * Scripts and styles are revalidated on every load (ETag/Last-Modified → a tiny
+ * 304 when nothing changed) instead of cached for five minutes. The 5-minute
+ * window was the original compromise, but it fails badly in practice: after a
+ * deploy a phone kept the OLD m.js for up to five minutes (a visible redesign
+ * "didn't change"), and worse, entry points and shared modules expire
+ * independently, so new `m.js` can import a name that a cached old
+ * `shared/domain.js` doesn't export — a hard module-load error that blanks the
+ * app. No content hash is in the filenames, so revalidation is the safe default;
+ * fonts, which never change, stay immutable.
+ */
+const REVALIDATE = "no-cache";
+
 export function cacheHeaders(path: string): Record<string, string> | undefined {
   if (path.endsWith(".html")) return { "Cache-Control": "no-cache" };
   if (path.includes("/fonts/")) return { "Cache-Control": "public, max-age=31536000, immutable" };
-  if (path.includes("/shared/")) return { "Cache-Control": "public, max-age=300" };
+  if (path.includes("/shared/")) return { "Cache-Control": REVALIDATE };
   // Each version's own CSS and JS. Splitting them out of the HTML was done
   // so a browser could cache them instead of re-fetching ~250KB inline on
   // every load — which it will not do unless it is told to. Same short
   // window and same reason as the shared modules: no content hash in the
   // filename, so a deploy replaces v3.js in place and the gap where new
   // HTML can pair with old code has to stay small.
-  if (/\/v[2-9]\.(css|js)$/.test(path)) return { "Cache-Control": "public, max-age=300" };
+  if (/\/v[2-9]\.(css|js)$/.test(path)) return { "Cache-Control": REVALIDATE };
   // Tower (the /m mobile app) and Deck (the /deck desktop redesign) aren't
   // part of the v2-v9 version lineage above — same reasoning applies (their
   // CSS/JS get overwritten in place on deploy with no content hash), so they
   // get explicit matches rather than folding into that regex's character class.
-  if (/\/(m|deck)\.(css|js)$/.test(path)) return { "Cache-Control": "public, max-age=300" };
+  if (/\/(m|deck)\.(css|js)$/.test(path)) return { "Cache-Control": REVALIDATE };
   return undefined;
 }

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { RouteDispatcher, BUY_IMPACT_PER_UNIT, type ContractBuyTarget } from "../src/engine/dispatcher.js";
+import { RouteDispatcher, type ContractBuyTarget } from "../src/engine/dispatcher.js";
 
 /**
  * Covers the "contractBuy" role added to close the contract-sourcing gap:
@@ -624,13 +624,6 @@ describe("RouteDispatcher: several buyers at one market", () => {
     // sell 1250: 2nd buyer ask ~1105 -> margin 145 (ok at floor 100); 3rd ask ~1221 -> margin 29 (<100, refused).
     const d = run(routes(1250), { marginFloor: 100, buyImpactPerUnit: 0.0025 });
     assert.equal(count(d), 2);
-  });
-
-  it("the shipped default impact is the recalibrated, ledger-measured one — well under the old 0.25%", () => {
-    assert.ok(BUY_IMPACT_PER_UNIT > 0.0005 && BUY_IMPACT_PER_UNIT < 0.002, `got ${BUY_IMPACT_PER_UNIT}`);
-    // A 225-unit freighter second at a market: the old 0.25% priced the ask at
-    // 1.0025^150 ~= +45%; the default should leave a normal margin standing.
-    assert.ok(1.0 * (1 + BUY_IMPACT_PER_UNIT) ** 150 < 1.25);
   });
 
   it("the cap is tunable", () => {
