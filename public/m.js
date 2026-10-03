@@ -429,6 +429,7 @@ function renderRoster() {
       <span class="rr-id"><span class="sym">${escapeHtml(r.symbol)}</span><span class="role">${escapeHtml(r.role)}</span></span>
       <span class="rr-job${jobCls}">${r.stranded ? "STRANDED · " : ""}${escapeHtml(jobTxt)} ${r.cooldown}</span>
       <span class="rr-stats">
+        ${r.cargoCap ? `<span class="cg ${r.cargo <= 0 ? "empty" : r.cargo >= r.cargoCap ? "full" : "part"}" title="Cargo ${r.cargo}/${r.cargoCap}"><i style="height:${Math.round((r.cargo / r.cargoCap) * 100)}%"></i></span>` : `<span class="cg none"></span>`}
         <span class="${fuelPct < 25 ? "lo" : ""}">F${fuelPct}</span>
         <span class="${r.condition < 50 ? "lo" : ""}">H${r.condition}</span>
         <span class="eta${etaTxt !== "—" ? " live" : ""}">${escapeHtml(etaTxt)}</span>

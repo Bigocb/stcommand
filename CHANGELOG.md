@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Tower fleet list: cargo glyph on every row
+
+Each ship row in Tower's list now carries a tiny hold glyph before the
+fuel/hull stats: hollow and dim when empty, filled from the bottom in
+proportion to the load, glowing amber when full; hover shows `units/capacity`.
+Hull-less/zero-hold ships (keepers) leave the slot blank so the columns stay
+aligned.
+
 ## Fleet list: collapsible role groups and a cooldown bar (Tower + V6)
 
 The Fleet list is now grouped by role (traders, miners, …, keepers) with a
