@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP: stcommand_assign_route / stcommand_clear_route
+
+A connected agent could dispatch, hold, tour and re-role ships but had no way to
+pin a trader to a specific route — that lived only in the dashboard's "Assign
+route". Both tools now call the same `FleetManager.setManualDispatch()` the
+dashboard does (manual route overrides the dispatcher, persisted in the
+`dispatchManual` fleet flag, logged as an operator action). Added because the
+dispatcher's buyer-crowding discount (0.25%/unit at a shared buy market, cap 3)
+can leave a very profitable route to a lone hull — a new 150-unit freighter was
+sent to URANITE instead of 347k-a-trip ADVANCED_CIRCUITRY — and the operator
+wanted to override it and measure what really happens.
+
 ## Keeper badge stays "pending" until the keeper actually arrives
 
 The market badge (Tower, V6, Deck) said "● covered" the moment a keeper was

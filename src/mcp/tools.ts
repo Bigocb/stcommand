@@ -324,6 +324,56 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_assign_route",
+    {
+      title: "Manually assign a trader to a specific buy→sell route",
+      description: "Pin a trader to one direct route (buy a good at buyAt, sell it at sellAt — either may be in another system). Same as the dashboard's \"Assign route\": it overrides the dispatcher for this ship, reserves the good so no other trader is auto-sent on it, and sticks until cleared with stcommand_clear_route. Use it when the automatic dispatcher's crowding penalty is under-rating a route you want run. Prices are optional hints for display; the trader reads live prices when it buys.",
+      inputSchema: {
+        shipSymbol: z.string(),
+        good: z.string().describe("Exact TradeSymbol, e.g. ADVANCED_CIRCUITRY"),
+        buyAt: z.string().describe("Waypoint to buy at"),
+        sellAt: z.string().describe("Waypoint to sell at"),
+        buyPrice: z.number().optional(),
+        sellPrice: z.number().optional(),
+        profitPerTrip: z.number().optional(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol, good, buyAt, sellAt, buyPrice, sellPrice, profitPerTrip }) => {
+      try {
+        await w.fleet.setManualDispatch(shipSymbol, {
+          shipSymbol, good, role: "direct", buyAt, sellAt,
+          buyPrice: buyPrice ?? 0, sellPrice: sellPrice ?? 0, profitPerTrip: profitPerTrip ?? 0,
+          source: "manual",
+        });
+        await recordMcpAction(w, "route_assign", shipSymbol, `${shipSymbol}: ${good} ${buyAt} -> ${sellAt}`, { good, buyAt, sellAt });
+        return textResult({ ok: true, shipSymbol, good, buyAt, sellAt });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_clear_route",
+    {
+      title: "Clear a trader's manual route",
+      description: "Remove a manual route set with stcommand_assign_route (or the dashboard), returning the ship to the automatic dispatcher.",
+      inputSchema: { shipSymbol: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol }) => {
+      try {
+        await w.fleet.setManualDispatch(shipSymbol, undefined);
+        await recordMcpAction(w, "route_clear", shipSymbol, `${shipSymbol}: manual route cleared`);
+        return textResult({ ok: true, shipSymbol, cleared: true });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_dock_toggle",
     {
       description: "Toggle a ship between docked and orbiting at its current waypoint. Fails if the ship is in transit.",
