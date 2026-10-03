@@ -990,6 +990,15 @@ export class ShipProxy {
     const key = this.ship.symbol;
     let phase = this.tenderPhase.get(key) ?? TenderPhase.BUY;
 
+    // Re-derive position from the live ship every tick, like repair/scrap/hold
+    // do. Without this a tender that jumped systems kept its pre-jump snapshot:
+    // it still "was" in the old system, re-issued the same hop (a no-op once
+    // the live ship was already there) and never reached the BUY waypoint.
+    // Confirmed live: THEO-6B sat in X1-Y84 for minutes while the fleet log
+    // still reported it at X1-KN46-B22C.
+    await this.refresh();
+    await this.waitCooldown();
+
     if (supersedes(intent, currentIntent())) {
       this.tenderPhase.delete(key);
       this.log("tender: superseded, standing by for the new goal");

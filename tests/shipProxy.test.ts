@@ -560,6 +560,20 @@ describe("ShipProxy.runTenderGoal: the executor flies the hull", () => {
     assert.deepEqual(calls.navigate, [], "no same-system navigate across systems");
   });
 
+  it("BUY phase: a stale pre-jump snapshot is refreshed, so the tender heads for the market instead of re-hopping", async () => {
+    const stale = ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-B-Z1", systemSymbol: "X1-B", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } }, fuel: { current: 800, capacity: 800 } } as any);
+    // The live ship already completed the jump into the market's system.
+    const live = ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-GATE", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } }, fuel: { current: 800, capacity: 800 } } as any);
+    const { api, calls } = fakeFleetApi({ "SHIP-1": live });
+    let jumps = 0;
+    const proxy = new ShipProxy(stale, { api, registry: world(), done: () => {}, jumpTo: async () => { jumps++; } });
+    const intent = makeTenderIntent({ market: "X1-A-B2" });
+    const result = await proxy.runTenderGoal(intent, () => intent);
+    assert.equal(result, true);
+    assert.equal(jumps, 0, "no further hop once the live ship is in the right system");
+    assert.deepEqual(calls.navigate, ["X1-A-B2"], "heads for the fuel market");
+  });
+
   it("BUY phase: docks, refuels and buys FUEL once standing at the market", async () => {
     const ships = { "SHIP-1": ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-B2", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } }, fuel: { current: 200, capacity: 400 } } as any) };
     const { api, calls } = fakeFleetApi(ships);

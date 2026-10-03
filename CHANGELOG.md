@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: a tender never reached its fuel market after a cross-system jump
+
+`ShipProxy.runTenderGoalStep()` never refreshed the ship, so a tender that
+had just jumped into the stranded ship's system kept its pre-jump snapshot,
+re-issued the same (now no-op) hop every tick and never headed for the fuel
+market. Confirmed live with THEO-6B: it sat in X1-Y84 while the fleet log
+still said X1-KN46-B22C. The step now refreshes and waits out cooldown first,
+like the repair/scrap/hold goals. Test added in `tests/shipProxy.test.ts`.
+
 ## Fix: every fuel-tender rescue was cancelled the moment it was planned
 `tenderRescueStep()` created a plan (proposing the tender's intent, which is only committed later in the same tick) and then immediately checked the committed board for that intent. It was never there, so the same call deleted the plan, forgot the stranded ship's hold and released the tender ("dispatching fuel tender" followed one second later by "released to rescue"). No tender rescue could ever run, which is why THEO-1 stayed stranded. The creation pass now returns after storing the plan; the next pass finds the committed intent and leaves it alone.
 
