@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Dispatcher: buy-impact assumption lowered from 0.25% to 0.12% per unit
+
+`BUY_IMPACT_PER_UNIT` (how much each unit already promised at a buy market is
+assumed to raise the ask for the next trader) was 0.25%, measured at one market.
+The ledger over the prior 24h (87 multi-lot buys) shows a median of 0.13% per unit
+(mean 0.17%, p90 0.42%), and a 225-unit buy at TU85-E11E actually rose ~16% in
+total. At 0.25% the dispatcher charged ~284k against a 347k ADVANCED_CIRCUITRY
+route and chose a ~313k URANITE run for a new freighter; the manual override
+netted ~450k. Now 0.12%; the three-buyers-per-market cap is unchanged as the
+backstop. Watch whether more traders now share one good's buy market and whether
+realised margins hold.
+
 ## Fix: a trader/miner/siphoner drafted as a fuel tender never ran the tender
 
 A rescue `suspend()`s the tender hull, and `TraderAgent.nextTask()` (and the

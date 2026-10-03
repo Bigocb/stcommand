@@ -46,8 +46,17 @@ export const CROSS_SYSTEM_JUMP_COST_ESTIMATE = 5_000;
  * the ten minutes after. A placeholder until it is learned per market from the
  * snapshots; sells barely move a price by comparison (~0.04%/unit) so sell-side
  * impact is not modelled.
+ *
+ * Recalibrated 2026-10-03 from 87 multi-lot purchases in the prior 24h (the
+ * continuous per-unit rise across lots bought in one visit): median 0.13%,
+ * mean 0.17%, p90 0.42%, max 0.70% — and a 225-unit buy of ADVANCED_CIRCUITRY
+ * at TU85-E11E rose 16% in total (~0.09%/unit). 0.25% was a single bad market;
+ * at that rate the model charged ~284k against a 347k route that really netted
+ * ~450k for 225 units, and sent a freighter to a 313k alternative instead.
+ * Set to the median; the steepest markets are small-volume ones, and the
+ * MAX_TRADERS_PER_BUY_MARKET backstop below still bounds the downside.
  */
-export const BUY_IMPACT_PER_UNIT = 0.0025;
+export const BUY_IMPACT_PER_UNIT = 0.0012;
 
 /** Hard backstop: no more than this many traders are sent to buy the same good
  *  at the same market in one dispatch cycle, whatever the margin says. */
