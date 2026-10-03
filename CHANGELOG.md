@@ -9,18 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
-## Tower fleet list: cargo glyph on every row
+## Tower fleet list: cargo dot on every row
 
-Each ship row in Tower's list now carries a tiny hold glyph before the
-fuel/hull stats: hollow and dim when empty, filled from the bottom in
-proportion to the load, glowing amber when full; hover shows `units/capacity`.
-Hull-less/zero-hold ships (keepers) leave the slot blank so the columns stay
-aligned. The `F<n>`/`H<n>` text stats are gone from the row: fuel is now a
-small bar (green ≥50%, amber 25–50%, red + glow under 25%; hover for exact
-values) and hull condition is dropped from the list (still in the ship sheet
-and Deck card). The row's small label under the ship name is now the system
-the ship is in (e.g. `Y84`; hover for the full waypoint) instead of its role —
-the role is already the group header, so it was repeated on every row.
+Each ship row in Tower's list carries a small dot before the fuel bar: glowing
+amber when the hold has any cargo, a dim hollow ring when empty; hover shows
+`units/capacity`. Zero-hold ships (keepers) leave the slot blank so the
+columns stay aligned. (A first version drew a fill-level box; replaced by the
+simpler on/off dot.) The `F<n>`/`H<n>` text stats are gone from the row: fuel
+is now a small bar (green ≥50%, amber 25–50%, red + glow under 25%; hover for
+exact values) and hull condition is dropped from the list (still in the ship
+sheet and Deck card). The row's small label under the ship name is now the
+system the ship is in (e.g. `Y84`; hover for the full waypoint) instead of its
+role — the role is already the group header, so it was repeated on every row.
 
 ## Fleet list: collapsible role groups and a cooldown bar (Tower + V6)
 

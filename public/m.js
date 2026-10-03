@@ -435,7 +435,7 @@ function renderRoster() {
       <span class="rr-id"><span class="sym">${escapeHtml(r.symbol)}</span><span class="role sys" title="${escapeAttr(r.waypoint)}">${escapeHtml(sysShort(r.waypoint))}</span></span>
       <span class="rr-job${jobCls}">${r.stranded ? "STRANDED · " : ""}${escapeHtml(jobTxt)} ${r.cooldown}</span>
       <span class="rr-stats">
-        ${r.cargoCap ? `<span class="cg ${r.cargo <= 0 ? "empty" : r.cargo >= r.cargoCap ? "full" : "part"}" title="Cargo ${r.cargo}/${r.cargoCap}"><i style="height:${Math.round((r.cargo / r.cargoCap) * 100)}%"></i></span>` : `<span class="cg none"></span>`}
+        ${r.cargoCap ? `<span class="cg ${r.cargo > 0 ? "on" : "off"}" title="Cargo ${r.cargo}/${r.cargoCap}"></span>` : `<span class="cg none"></span>`}
         ${r.fuelCap ? `<span class="fg ${fuelPct < 25 ? "low" : fuelPct < 50 ? "mid" : "ok"}" title="Fuel ${r.fuel}/${r.fuelCap} (${fuelPct}%)"><i style="width:${fuelPct}%"></i></span>` : `<span class="fg none"></span>`}
         <span class="eta${etaTxt !== "—" ? " live" : ""}">${escapeHtml(etaTxt)}</span>
       </span>
