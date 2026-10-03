@@ -51,7 +51,7 @@ export interface TraderOptions {
     timestamp: string;
     shipSymbol: string;
     waypointSymbol: string;
-    type: "PURCHASE" | "SELL" | "REFUEL";
+    type: "PURCHASE" | "SELL" | "REFUEL" | "JUMP";
     tradeSymbol?: string;
     units?: number;
     pricePerUnit?: number;
@@ -859,6 +859,16 @@ export class TraderAgent {
       throw err;
     }
     this.ship = { ...this.ship, nav: res.nav };
+    // Jumps cost real credits (≈5–8k each) and were previously invisible in
+    // the ledger for traders — cross-system routes pay this every leg.
+    this.recordLedger?.({
+      timestamp: new Date().toISOString(),
+      shipSymbol: this.symbol,
+      waypointSymbol: remoteGate,
+      type: "JUMP",
+      units: 0,
+      total: res.transaction.totalPrice,
+    });
     this.onActivity?.("jump", `jumped to ${remoteGate}`, -res.transaction.totalPrice, this.symbol);
     // The only place a real jump cost is ever known — feeds tripCost()'s
     // learned-average estimate for future routes over this same gate/

@@ -972,6 +972,19 @@ describe("TraderAgent.jumpToSystem: jumps to the destination system's own gate, 
     assert.deepEqual(navigateCalls, ["X1-A-GATE", "X1-B-MARKET"], "reaches the local gate, jumps, then navigates on to the real destination");
   });
 
+  it("books the jump's credit cost to the ledger as type JUMP (not silently, not as REFUEL)", async () => {
+    const { trader } = makeTrader();
+    const rows: any[] = [];
+    (trader as any).recordLedger = (e: any) => rows.push(e);
+
+    await (trader as any).jumpToSystem("X1-B", "X1-B-GATE");
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].type, "JUMP");
+    assert.equal(rows[0].total, 1000, "the transaction's totalPrice");
+    assert.ok(rows[0].shipSymbol, "attributed to the jumping ship");
+  });
+
   it("skips the redundant local leg when the destination already is the remote gate", async () => {
     const { trader, jumpCalls, navigateCalls } = makeTrader();
 

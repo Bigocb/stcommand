@@ -149,7 +149,7 @@ export interface FleetOptions {
     timestamp: string;
     shipSymbol: string;
     waypointSymbol: string;
-    type: "SELL" | "REFUEL" | "PURCHASE" | "SHIP";
+    type: "SELL" | "REFUEL" | "JUMP" | "PURCHASE" | "SHIP";
     tradeSymbol?: string;
     units?: number;
     pricePerUnit?: number;
@@ -2907,7 +2907,7 @@ export class FleetManager {
       timestamp: new Date().toISOString(),
       shipSymbol,
       waypointSymbol,
-      type: "REFUEL",
+      type: "JUMP",
       units: 0,
       total: res.transaction.totalPrice,
     });
@@ -6023,7 +6023,7 @@ export class FleetManager {
         `earnings ${windowMin}m: net ${sign(r.net)}c (${sign(perHour)}c/hr) — ` +
         `sold +${Math.round(r.sells)} · contracts +${Math.round(r.contract)} · ` +
         `bought -${Math.round(r.purchases)} · ` +
-        `fuel -${Math.round(r.refuel)} · ships/repair -${Math.round(r.ship)} · ${r.trades} sales`,
+        `fuel -${Math.round(r.refuel)} · jumps -${Math.round(r.jump)} · ships/repair -${Math.round(r.ship)} · ${r.trades} sales`,
       );
     } catch (err) {
       this.log(`earnings readout failed: ${err instanceof Error ? err.message : String(err)}`);

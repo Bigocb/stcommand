@@ -45,7 +45,7 @@ export interface LedgerEntry {
   timestamp: string;
   shipSymbol: string;
   waypointSymbol: string;
-  type: "PURCHASE" | "SELL" | "REFUEL" | "SHIP" | "OTHER";
+  type: "PURCHASE" | "SELL" | "REFUEL" | "JUMP" | "SHIP" | "OTHER";
   tradeSymbol?: string;
   units?: number;
   pricePerUnit?: number;
@@ -2423,7 +2423,7 @@ export class Store {
    * fuel and repairs are real costs that a gross trading margin hides.
    */
   async ledgerSummary(tenantId: string, sinceIso: string): Promise<{
-    net: number; sells: number; purchases: number; refuel: number; ship: number; contract: number; trades: number;
+    net: number; sells: number; purchases: number; refuel: number; jump: number; ship: number; contract: number; trades: number;
   }> {
     return withTenant(this.pool, tenantId, async (c) => {
       // `total` is stored as a positive magnitude regardless of direction —
@@ -2438,6 +2438,7 @@ export class Store {
       const sells = amt("SELL");
       const purchases = amt("PURCHASE");
       const refuel = amt("REFUEL");
+      const jump = amt("JUMP");
       const ship = amt("SHIP");
       // Contract payouts are income, and leaving them out was not a rounding
       // error: buying contract goods was booked as cost while the payout that
@@ -2446,8 +2447,8 @@ export class Store {
       // to net would keep the same lie in a tidier shape.
       const contract = amt("CONTRACT");
       return {
-        net: sells + contract - purchases - refuel - ship,
-        sells, purchases, refuel, ship, contract,
+        net: sells + contract - purchases - refuel - jump - ship,
+        sells, purchases, refuel, jump, ship, contract,
         trades: by.get("SELL")?.n ?? 0,
       };
     });

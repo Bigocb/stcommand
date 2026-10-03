@@ -9,6 +9,22 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Ledger: jump costs are their own type, and trader jumps are finally recorded
+
+Jumps cost ≈5–8k credits each, and the books were wrong in two ways. A
+scout/tour/manual jump (`FleetManager.jumpShip()`) was written as
+`type='REFUEL', units=0` — indistinguishable from fuel except by that hack, so
+the fuel line in every summary quietly included gate tolls (about 0.60M of a
+0.96M "refuel" total over 24h). And a *trader's* jump
+(`TraderAgent.jumpToSystem()`) was not recorded at all, which matters more as
+cross-system routes multiply. Both now write `type='JUMP'`;
+`Store.ledgerSummary()` returns a separate `jump` figure, subtracts it from
+`net`, and the 15-minute earnings log line shows `jumps -N`. Migration 035
+relabels the old zero-unit REFUEL rows as JUMP, per tenant (the ledger is
+FORCE ROW LEVEL SECURITY, so a plain UPDATE would touch nothing). Trader jumps
+before this change stay unrecorded — there is nothing to rebuild them from.
+Test: `tests/trader.test.ts`.
+
 ## Fix: ships showed a finished construction mission as their current job
 
 The Fleet list/ship sheet (Tower, V6, Deck) labels a ship `mission: … @ <gate>`
