@@ -9,14 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
-## Reverted: dispatcher buy-impact back to 0.25% per unit
+## Dispatcher: buy-impact set to 0.2 per unit (operator decision) — effectively one buyer per market
 
 The 0.12% recalibration (earlier today) measured the price rise *within* one visit
 and ignored how slowly a market recovers. Live proof the same afternoon: a pinned
 ADVANCED_CIRCUITRY run repeated by one freighter, with three other hulls on the
 same good, drove TU85-E11E's ask from 4,178 to 7,992 in two hours — trips went
-+450k, +134k, −69k, −105k. 0.25% is restored; the explanation is in the constant's
-doc comment. Revisit when recovery is modelled from snapshots.
++450k, +134k, −69k, −105k. First reverted to 0.25%, then — on the operator's explicit
+instruction ("20% = 0.2") — set to 0.2. At 0.2 per unit, (1.2)^units makes a second
+buyer's predicted ask astronomically high, so the dispatcher sends ONE trader at a
+time per good per buy market (the three-buyer cap never binds). Deliberately blunt;
+lower it (0.0025 was the old value) to allow sharing again. Dispatcher tests pin
+0.0025 where they test sharing and one new test covers the default.
 
 ## Scripts and styles revalidate on every load instead of caching for 5 minutes
 

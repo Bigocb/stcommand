@@ -392,7 +392,9 @@ describe("RouteDispatcher: idle traders and sell-market spreading", () => {
     // work list emitted exactly one item per good, and a direct assignment
     // reserved the whole good.
     const d = new RouteDispatcher();
-    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700), route("IRON", "X1-A-M3", 500)], traders(3));
+    // Impact pinned to the measured 0.25%: the shipped default is 0.2 (operator
+    // decision, see BUY_IMPACT_PER_UNIT) which allows only one buyer per market.
+    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700), route("IRON", "X1-A-M3", 500)], traders(3), [], [], [], [], undefined, undefined, undefined, undefined, undefined, { buyImpactPerUnit: 0.0025 });
     const assigned = d.list();
     assert.equal(assigned.length, 3, "every trader gets work");
     assert.deepEqual([...new Set(assigned.map((a) => a.sellAt))].sort(), ["X1-A-M1", "X1-A-M2", "X1-A-M3"]);
@@ -608,7 +610,7 @@ describe("RouteDispatcher: several buyers at one market", () => {
   const routes = (sell: number) => ["S1", "S2", "S3", "S4", "S5"].map((s) => mk(`X1-A-${s}`, sell));
 
   it("a fat margin supports several buyers, but never more than the hard cap", () => {
-    const d = run(routes(2000));
+    const d = run(routes(2000), { buyImpactPerUnit: 0.0025 });
     assert.equal(count(d), 3, "5 traders, 5 sell markets, margin 1000/u -> capped at 3 buyers");
   });
 
@@ -626,8 +628,15 @@ describe("RouteDispatcher: several buyers at one market", () => {
     assert.equal(count(d), 2);
   });
 
+  it("at the shipped default (0.2 per unit) only one trader is sent to a buy market at a time", () => {
+    // Operator decision 2026-10-03: stop several hulls ratcheting one market.
+    // Five traders, five sell markets, a fat margin — still just one buyer.
+    const d = run(routes(2000));
+    assert.equal(count(d), 1);
+  });
+
   it("the cap is tunable", () => {
-    const d = run(routes(2000), { maxTradersPerBuyMarket: 5 });
+    const d = run(routes(2000), { maxTradersPerBuyMarket: 5, buyImpactPerUnit: 0.0025 });
     assert.equal(count(d), 5);
   });
 
