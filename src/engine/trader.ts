@@ -979,6 +979,21 @@ export class TraderAgent {
   }
 
   /**
+   * Whether a held lot is so small that the loss floor is not worth honouring:
+   * a ship holding cargo counts as busy, so the dispatcher gives it no route,
+   * and the leftover sweep returns "did work" every tick while it refuses the
+   * sale. Confirmed live 2026-10-03: THEO-80 kept 3u FUEL (~200c, bought at 85c,
+   * market 68c) for 1.5 hours, "unassigned" the whole time, because 68c < the
+   * 15% floor. Idling a hull for hours costs far more than the loss on
+   * a lot worth a couple of thousand credits at most, so those are sold at
+   * whatever the market pays.
+   */
+  static readonly DUST_LOT_CREDITS = 2_000;
+  private isDustLot(units: number, price: number): boolean {
+    return units * price <= TraderAgent.DUST_LOT_CREDITS;
+  }
+
+  /**
    * True when `good` is currently held for this ship's own manually-pinned
    * (custom-route) assignment — the same "operator picked this on purpose"
    * signal findRoute()'s ignoreProfitFloor already acts on, extended to the
@@ -1506,7 +1521,7 @@ export class TraderAgent {
     if (this.ship.nav.status !== "DOCKED") return undefined;
     try {
       const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
-      if (live !== undefined && !this.isManualLegFor(item.symbol) && (await this.exceedsLossFloor(item.symbol, live))) {
+      if (live !== undefined && !this.isManualLegFor(item.symbol) && !this.isDustLot(item.units, live) && (await this.exceedsLossFloor(item.symbol, live))) {
         this.recordDoctrineFire?.("maxLossPct");
         this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
         return true;
@@ -1731,7 +1746,7 @@ export class TraderAgent {
 
       await this.ensureDocked();
       const live = await this.liveSellPrice(leg.sellAt, item.symbol);
-      if (live !== undefined && !this.isManualLegFor(item.symbol) && (await this.exceedsLossFloor(item.symbol, live))) {
+      if (live !== undefined && !this.isManualLegFor(item.symbol) && !this.isDustLot(item.units, live) && (await this.exceedsLossFloor(item.symbol, live))) {
         this.recordDoctrineFire?.("maxLossPct");
         this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
         return true;

@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: a few-credit leftover froze a trader for hours (THEO-80)
+
+A ship holding cargo counts as busy, so the dispatcher assigns it nothing, and
+the leftover sweep reported "did work" every tick while refusing to sell a lot
+below the loss floor. THEO-80 kept 3u of FUEL (~200c; bought at 85c, market 68c,
+under the 15% floor) from 20:35 to 22:03 — about 1.5 hours "unassigned", logging
+"holding 3u FUEL: … below loss floor" every ~6 minutes. Lots worth ≤ 2,000
+credits (`TraderAgent.DUST_LOT_CREDITS`) now bypass the loss floor in both sweep
+paths and are sold at whatever the market pays: the loss is trivial, an idle
+hull is not. Valuable lots keep the floor. Tests in `tests/agentStep.test.ts`.
+
 ## Dispatcher: buy-impact assumption lowered from 0.25% to 0.12% per unit
 
 `BUY_IMPACT_PER_UNIT` (how much each unit already promised at a buy market is

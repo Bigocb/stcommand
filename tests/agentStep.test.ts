@@ -86,6 +86,31 @@ describe("TraderAgent step tracking", () => {
     assert.deepEqual(trader.getStep(), IDLE_STEP, "the finally block must clear the step regardless of success");
   });
 
+  it("clearLeftoverCargo() sells a dust-sized lot even when the live price is below the loss floor (a held lot freezes the ship)", async () => {
+    // Live 2026-10-03: THEO-80 held 3u FUEL (cost 85c, market 68c) for 1.5h,
+    // unassigned, because 68c < the 15% loss floor.
+    const ship = makeTraderShip();
+    (ship as any).cargo = { capacity: 40, units: 3, inventory: [{ symbol: "FUEL", units: 3 }] };
+    let sold = 0;
+    const trader = new TraderAgent(ship, { api: { sellCargo: async (_s: string, _g: string, lot: number) => { sold += lot; return { cargo: { capacity: 40, units: 0, inventory: [] }, transaction: { pricePerUnit: 68, totalPrice: 68 * lot } }; } } as any });
+    (trader as any).heldCost.set("FUEL", 85);
+    (trader as any).liveSellPrice = async () => 68;
+    await (trader as any).clearLeftoverCargo();
+    assert.equal(sold, 3, "the dust lot must be sold, not held");
+  });
+
+  it("clearLeftoverCargo() still holds a valuable lot below the loss floor", async () => {
+    const ship = makeTraderShip();
+    (ship as any).cargo = { capacity: 40, units: 40, inventory: [{ symbol: "IRON_ORE", units: 40 }] };
+    let sold = 0;
+    const trader = new TraderAgent(ship, { api: { sellCargo: async (_s: string, _g: string, lot: number) => { sold += lot; return { cargo: { capacity: 40, units: 0, inventory: [] }, transaction: { pricePerUnit: 50, totalPrice: 50 * lot } }; } } as any });
+    (trader as any).heldCost.set("IRON_ORE", 100);
+    (trader as any).liveSellPrice = async () => 50; // 40u * 50c = 2,000... bump above dust
+    (trader as any).liveSellPrice = async () => 60; // 40 * 60 = 2,400 > dust, and 60 < 85 floor
+    await (trader as any).clearLeftoverCargo();
+    assert.equal(sold, 0, "a lot above the dust threshold keeps the loss floor");
+  });
+
   it("clearLeftoverCargo() reports 'transacting: sell' during the sell call", async () => {
     const ship = makeTraderShip();
     (ship as any).cargo = { capacity: 40, units: 5, inventory: [{ symbol: "IRON_ORE", units: 5 }] };
