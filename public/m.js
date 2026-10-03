@@ -291,7 +291,7 @@ function claimFor(ship) {
     const label = feed.chainName ? `chain: ${feed.chainName}` : `feed: ${feed.good}`;
     return `${label} → ${feed.targetWaypoint}`;
   }
-  const mission = missions.find((m) => m.assignedShips?.includes(ship.symbol));
+  const mission = missions.find((m) => m.status !== "complete" && m.assignedShips?.includes(ship.symbol));
   if (mission) {
     const outstanding = (mission.materials ?? []).find((mm) => mm.fulfilled < mm.required);
     return `mission: ${outstanding?.tradeSymbol ?? "supplying"} @ ${mission.targetWaypoint}`;

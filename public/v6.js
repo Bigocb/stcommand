@@ -1677,7 +1677,7 @@ function jobFor(ship, role) {
     const label = feed.chainName ? `chain: ${escapeHtml(feed.chainName)}` : `feed: ${escapeHtml(feed.good)}`;
     return `${label} → ${escapeHtml(feed.targetWaypoint)}`;
   }
-  const mission = missions.find((m) => m.assignedShips?.includes(shipSymbol));
+  const mission = missions.find((m) => m.status !== "complete" && m.assignedShips?.includes(shipSymbol));
   if (mission) {
     const outstanding = (mission.materials ?? []).find((mm) => mm.fulfilled < mm.required);
     return `mission: ${escapeHtml(outstanding?.tradeSymbol ?? "supplying")} @ ${escapeHtml(mission.targetWaypoint)}`;

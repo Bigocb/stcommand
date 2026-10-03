@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: ships showed a finished construction mission as their current job
+
+The Fleet list/ship sheet (Tower, V6, Deck) labels a ship `mission: … @ <gate>`
+if any mission lists it in `assignedShips`, without looking at the mission's
+status. A completed SUPPLY_CONSTRUCTION mission keeps its crew list in the
+database (the engine releases the ship, but the row still names it), so THEO-1
+— a carrier on the finished home-gate mission — kept reading "supplying
+X1-SJ91-I67" long after it had been repurposed to tour. Completed missions are
+now ignored by that lookup. Display-only: the engine never treated the ship as
+on that mission.
+
 ## Tower fleet list: cargo dot on every row
 
 Each ship row in Tower's list carries a small dot before the fuel bar: glowing
