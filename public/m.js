@@ -362,7 +362,7 @@ function hullCard(row, extraClass) {
         <div class="gauge-row"><span class="g-k">Hold</span><div class="g-track"><div class="g-fill amber" style="width:${row.cargoCap ? (row.cargo / row.cargoCap) * 100 : 0}%"></div></div><span class="g-v">${row.cargoCap ? `${row.cargo}/${row.cargoCap}` : "—"}</span></div>
         <div class="gauge-row"><span class="g-k">Hull</span><div class="g-track"><div class="g-fill${row.condition < 50 ? " red" : ""}" style="width:${row.condition}%"></div></div><span class="g-v">${row.condition}%</span></div>
       </div>
-      <div class="at">${row.stranded ? "STRANDED · " : ""}${escapeHtml(shortWp(row.waypoint))} · ${escapeHtml((row.nav || "idle").replace(/_/g, " ").toLowerCase())}</div>
+      <div class="at">${row.stranded ? "STRANDED · " : ""}${escapeHtml(shortWp(row.waypoint))} · ${escapeHtml((row.nav || "idle").replace(/_/g, " ").toLowerCase())} ${row.cooldown ?? ""}</div>
     </div>`;
 }
 
@@ -389,6 +389,7 @@ function renderDeck() {
   // meant for scanning every ship at once defeats the point of that view.
   if (fleetView === "deck" || sheetOpen) renderSheet(rows[fleetIndex]);
   else $("fleet-sheet").hidden = true;
+  tickCooldowns($("deck-stack"));
 }
 
 /* ── Fleet: roster (list) view ───────────────
@@ -498,7 +499,8 @@ function renderSheet(row) {
   // transient popover over a scan view, so it gets the explicit close.
   $("sheet-close").hidden = fleetView !== "list";
   $("sheet-who").textContent = row.symbol;
-  $("sheet-sub").textContent = `${row.role} · ${(row.nav || "idle").replace(/_/g, " ").toLowerCase()} · ${shortWp(row.waypoint)}`;
+  $("sheet-sub").innerHTML = `${escapeHtml(row.role)} · ${escapeHtml((row.nav || "idle").replace(/_/g, " ").toLowerCase())} · ${escapeHtml(shortWp(row.waypoint))} ${row.cooldown ?? ""}`;
+  tickCooldowns($("sheet-sub"));
 
   const holdBtn = row.manual
     ? `<button class="btn" data-act="release">Release</button>`

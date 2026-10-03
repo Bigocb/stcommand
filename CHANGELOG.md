@@ -19,7 +19,7 @@ cooldown get a thin bar that drains from amber to green with a `m:ss`
 countdown beside it. It's computed from the cooldown's absolute `expiration`
 and updated in place once a second (no re-render, no extra polling), so it
 stays correct between the 15s state polls. Shared code:
-`public/shared/cooldown.js`. Not yet in Deck or Tower's ship detail sheet.
+`public/shared/cooldown.js`. Also shown in Tower's ship detail sheet and Deck card view.
 
 ## Rate-limit indicator in Tower and Deck, with deploy-overlap hint
 
