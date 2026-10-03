@@ -2447,6 +2447,44 @@ describe("FleetManager.makeRescuePlan: full-cargo tender exclusion", () => {
   });
 });
 
+describe("FleetManager.makeRescuePlan: cross-system tender", () => {
+  const setup = (agents: ReturnType<typeof makeFakeAgent>[], explorers: ReturnType<typeof makeFakeAgent>[] = []) => {
+    const fleet = makeFleet(agents);
+    for (const e of explorers) (fleet as any).explorers.set(e.symbol, e);
+    stubMarketSystem(fleet, "X1-A", { "X1-A-A1": { x: 0, y: 0 }, "X1-A-A2": { x: 100, y: 0 } });
+    (fleet as any).findSystemPath = (from: string, to: string) => (from === "X1-B" && to === "X1-A" ? ["X1-B", "X1-C", "X1-A"] : undefined);
+    return fleet;
+  };
+
+  it("sends an empty explorer from another system when nothing in the stranded ship's system can", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 400);
+    const explorer = makeFakeAgent("EXPLORER", "X1-B-Z1", 40, 0, 800, 800);
+    const fleet = setup([stranded], [explorer]);
+    const plan = await (fleet as any).makeRescuePlan({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 0 });
+    assert.equal(plan?.tenderSymbol, "EXPLORER");
+    assert.equal(plan?.market, "X1-A-A1", "loads at the market nearest the stranded ship");
+    assert.equal(plan?.strandedSymbol, "STRANDED");
+  });
+
+  it("does not send a loaded ship or one that is nearly out of fuel itself", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 400);
+    const loaded = makeFakeAgent("LOADED", "X1-B-Z1", 40, 10, 800, 800);
+    const low = makeFakeAgent("LOW", "X1-B-Z2", 40, 0, 100, 800);
+    const fleet = setup([stranded], [loaded, low]);
+    const plan = await (fleet as any).makeRescuePlan({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 0 });
+    assert.equal(plan, undefined);
+  });
+
+  it("prefers a same-system tender over a cross-system one", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 400);
+    const local = makeFakeAgent("LOCAL", "X1-A-A2", 40, 0, 300, 300);
+    const explorer = makeFakeAgent("EXPLORER", "X1-B-Z1", 40, 0, 800, 800);
+    const fleet = setup([stranded, local], [explorer]);
+    const plan = await (fleet as any).makeRescuePlan({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 0 });
+    assert.equal(plan?.tenderSymbol, "LOCAL");
+  });
+});
+
 describe("FleetManager.escapeByJump: fleeing a stranding that no tender could ever fix", () => {
   // Confirmed live: DRAGOM-C/DRAGOM-14 stranded at X1-UF20-Z28F — that
   // system's own jump gate — where the only other ships to ever visit were

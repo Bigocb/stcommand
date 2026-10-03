@@ -548,6 +548,18 @@ describe("ShipProxy.runTenderGoal: the executor flies the hull", () => {
     assert.deepEqual(calls.purchase, [], "and nothing bought yet");
   });
 
+  it("BUY phase: a tender in another system jumps toward it instead of navigating", async () => {
+    const ships = { "SHIP-1": ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-B-Z1", systemSymbol: "X1-B", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } }, fuel: { current: 800, capacity: 800 } } as any) };
+    const { api, calls } = fakeFleetApi(ships);
+    let jumped: [string, string] | undefined;
+    const proxy = new ShipProxy(ships["SHIP-1"], { api, registry: world(), done: () => {}, jumpTo: async (sym, wp) => { jumped = [sym, wp]; } });
+    const intent = makeTenderIntent({ market: "X1-A-B2" });
+    const result = await proxy.runTenderGoal(intent, () => intent);
+    assert.equal(result, true);
+    assert.deepEqual(jumped, ["SHIP-1", "X1-A-B2"]);
+    assert.deepEqual(calls.navigate, [], "no same-system navigate across systems");
+  });
+
   it("BUY phase: docks, refuels and buys FUEL once standing at the market", async () => {
     const ships = { "SHIP-1": ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-B2", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } }, fuel: { current: 200, capacity: 400 } } as any) };
     const { api, calls } = fakeFleetApi(ships);

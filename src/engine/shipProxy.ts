@@ -999,6 +999,16 @@ export class ShipProxy {
 
     // BUY — navigate to the fuel market, top off, and buy fuel units
     if (phase === TenderPhase.BUY) {
+      // A tender sent from another system walks the gate chain first, one hop
+      // per call (the scheduler re-enters this each tick), then carries on in
+      // the stranded ship's own system.
+      const marketSystem = intent.goal.market.slice(0, intent.goal.market.lastIndexOf("-"));
+      if (this.ship.nav.systemSymbol !== marketSystem) {
+        if (!this.jumpTo) throw new Error(`tender: ${intent.goal.market} is in ${marketSystem} and no jump capability is wired`);
+        this.log(`tender: heading to ${marketSystem} to reach ${intent.goal.strandedSymbol}`);
+        await this.jumpTo(this.symbol, intent.goal.market);
+        return true;
+      }
       if (this.ship.nav.waypointSymbol !== intent.goal.market) {
         await this.ensureInOrbit();
         this.log(`tender: heading to market ${intent.goal.market} to load fuel`);

@@ -7389,6 +7389,15 @@ export class FleetManager {
       market = nearest!;
       break;
     }
+    // Nothing in the stranded ship's own system can do it. Look for a ship in
+    // another system whose hold is empty and whose tank covers the market ->
+    // stranded leg; it walks the gate chain first (see ShipProxy's tender BUY
+    // phase). Idle hulls and the dedicated intel roles only, never a trader or
+    // miner (they are earning, and a trader's hold is usually loaded).
+    if (!tender || !market) {
+      const cross = this.pickCrossSystemTender(s, systemSymbol, markets, available);
+      if (cross) { tender = cross.tender; market = cross.market; }
+    }
     if (!tender || !market) {
       const reason = candidates.length === 0
         ? "no other ship free to tender (all are manual, in transit, at the same waypoint, or have no cargo hold)"
@@ -7473,6 +7482,50 @@ export class FleetManager {
     this.rescuePlans.delete(strandedSymbol);
     this.forgetIntent(strandedSymbol);
     await this.releaseTo(tenderSymbol, "rescue");
+  }
+
+  /**
+   * Cross-system fallback for makeRescuePlan(): the best ship in ANOTHER system
+   * that can ferry fuel to a stranded one. Same-system tenders are always
+   * preferred, so this only runs when none qualifies.
+   *
+   * Eligible: an idle hull, explorer, scout or tour ship (never a trader or
+   * miner); not in transit; empty hold with some capacity; a tank that covers
+   * the loaded leg (market -> stranded) and is at least 40% full; and a known
+   * gate path of at most MAX_TENDER_HOPS jumps. Fewest hops wins, then the
+   * biggest tank.
+   */
+  private pickCrossSystemTender(
+    s: { symbol: string; waypointSymbol: string },
+    systemSymbol: string,
+    markets: { sym: string; dist: number }[],
+    available: Set<string>,
+  ): { tender: { sym: string; ship: Ship }; market: { sym: string; dist: number } } | undefined {
+    const MAX_TENDER_HOPS = 5;
+    const market = markets.find((m) => Number.isFinite(m.dist));
+    if (!market) return undefined;
+    const pool: { sym: string; ship: Ship }[] = [
+      ...[...this.explorers.entries()].map(([sym, a]) => ({ sym, ship: a.getShip() as Ship })),
+      ...[...this.scouts.entries()].map(([sym, a]) => ({ sym, ship: a.getShip() as Ship })),
+      ...[...this.tours.entries()].map(([sym, a]) => ({ sym, ship: a.getShip() as Ship })),
+      ...[...this.idleShips.entries()].map(([sym, ship]) => ({ sym, ship })),
+    ];
+    const ranked: { sym: string; ship: Ship; hops: number }[] = [];
+    for (const c of pool) {
+      if (c.sym === s.symbol || !available.has(c.sym)) continue;
+      const ship = c.ship;
+      if (ship.nav.systemSymbol === systemSymbol || ship.nav.status === "IN_TRANSIT") continue;
+      if (ship.cargo.units > 0 || ship.cargo.capacity <= 0) continue;
+      if (ship.fuel.capacity <= 0 || ship.fuel.capacity < market.dist || ship.fuel.current < ship.fuel.capacity * 0.4) continue;
+      const path = this.findSystemPath(ship.nav.systemSymbol, systemSymbol);
+      if (!path || path.length - 1 > MAX_TENDER_HOPS) continue;
+      ranked.push({ ...c, hops: path.length - 1 });
+    }
+    ranked.sort((a, b) => a.hops - b.hops || b.ship.fuel.capacity - a.ship.fuel.capacity);
+    const best = ranked[0];
+    if (!best) return undefined;
+    this.log(`rescue: no tender in ${systemSymbol}; ${best.sym} is ${best.hops} jump(s) away with ${best.ship.fuel.current}/${best.ship.fuel.capacity} fuel — sending it`);
+    return { tender: { sym: best.sym, ship: best.ship }, market };
   }
 
   private async tenderRescueStep(s: { symbol: string; waypointSymbol: string; fuel: number }): Promise<void> {
