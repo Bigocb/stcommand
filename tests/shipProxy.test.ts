@@ -809,3 +809,24 @@ describe("ShipProxy.runHoldGoal: cross-system holds", () => {
     assert.deepEqual(calls.navigate, []);
   });
 });
+
+describe("ShipProxy.runHoldGoal: records a market or shipyard it parks at", () => {
+  it("docks once at a shipyard waypoint it is held at, and records the market and the yard", async () => {
+    const r = Registry.standalone();
+    r.seed([{ symbol: "X1-A-YARD", x: 0, y: 0, traits: [{ symbol: "MARKETPLACE" }, { symbol: "SHIPYARD" }] }] as any);
+    const s = ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-YARD", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } } } as any);
+    const { api } = fakeFleetApi({ "SHIP-1": s });
+    const recorded: string[] = [];
+    const proxy = new ShipProxy(s, {
+      api, registry: r, done: () => {},
+      recordMarket: async (wp) => { recorded.push(`market:${wp}`); },
+      recordShipyard: async (wp) => { recorded.push(`yard:${wp}`); },
+    });
+    const intent = makeHoldIntent("X1-A-YARD");
+    const result = await proxy.runHoldGoal(intent, () => intent);
+    assert.equal(result, false, "already parked: no further work");
+    assert.deepEqual(recorded, ["market:X1-A-YARD", "yard:X1-A-YARD"]);
+    await proxy.runHoldGoal(intent, () => intent);
+    assert.equal(recorded.length, 2, "throttled: not re-recorded on the next tick");
+  });
+});

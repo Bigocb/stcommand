@@ -180,6 +180,8 @@ export class ShipProxy {
   private exploreMarketIndex = new Map<string, number>();
   /** Phase for runTenderGoal, keyed by ship symbol. */
   private tenderPhase = new Map<string, TenderPhase>();
+  /** When a held ship last docked at its hold waypoint to record it, keyed by waypoint. */
+  private holdSnapshotAt = new Map<string, number>();
   /**
    * Consecutive runTenderGoal() failures for the ship's current rescue —
    * see that method's own comment. Reset on any successful step; the ship
@@ -763,6 +765,16 @@ export class ShipProxy {
       await this.refuelIfNeeded({ reserve: intent.policy.fuelReserve, target });
       await this.navigateTo(target);
       return true;
+    }
+    // Arrived and parked at a market or shipyard: dock once so its prices (and
+    // a yard's stock) get recorded. Without this a ship sent to a waypoint just
+    // sat in orbit and the stock was never scanned. Throttled per target.
+    const here = this.ship.nav.waypointSymbol;
+    if ((this.registry.isMarket(here) || this.registry.isShipyard(here)) && Date.now() - (this.holdSnapshotAt.get(here) ?? 0) > 15 * 60_000) {
+      this.holdSnapshotAt.set(here, Date.now());
+      try { await this.ensureDocked(); } catch (err) {
+        this.log(`hold: could not dock at ${here} to record it: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     // Already parked. Report no work rather than success: a held ship should
     // get the scheduler's idle backoff, not be re-polled as though it were

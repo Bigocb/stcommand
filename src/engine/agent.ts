@@ -345,6 +345,7 @@ export class ShipAgent {
       log: this.log,
       onActivity: opts.onActivity ? (k, d, c) => opts.onActivity!(k, d, c) : undefined,
       recordMarket: opts.recordMarket,
+      recordShipyard: opts.recordShipyard,
       recordLedger: opts.recordLedger,
       repairHere: opts.repairHere,
       scrapHere: opts.scrapHere,

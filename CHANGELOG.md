@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A ship sent to a market/shipyard now docks there and records it
+A ship dispatched to a waypoint is held there, but `runHoldGoal()` only navigated: it arrived in orbit and never docked, so nothing was snapshotted (a shipyard's stock was never scanned). Once parked at a MARKETPLACE or SHIPYARD waypoint it now docks once (throttled to every 15 min per waypoint), which records the market and, for a yard, its ships. Tour and keeper ships also now get `recordShipyard` on their shared proxy, so any dock at a yard records it.
+
 ## Tower "send to waypoint" handles a target in another system
 Typing a waypoint from a different system into the Fleet sheet's send box failed with "needs Infinity fuel to reach …": the fuel pre-check measured a cross-system distance (always Infinity). `POST /api/fleet/dispatch` now rejects a cross-system target with a plain message, and Tower checks first and offers to send the ship by the gate path through tour dispatch instead (the role becomes tour; change it back on arrival).
 
