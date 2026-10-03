@@ -12,7 +12,7 @@ be useful context; not a complete project history — see `git log` for that.
 ## Rate-limit indicator in Tower and Deck, with deploy-overlap hint
 
 A small pulsing amber dot (next to the clock in Tower, next to the connection
-pill in Deck) appears while SpaceTraders is answering 429s, with a toast when
+pill in Deck and V6) appears while SpaceTraders is answering 429s, with a toast when
 it starts; tapping the dot re-shows it. The toast also says when another server
 instance is alive at the same moment — the usual cause of a storm (a deploy's
 old instance still ticking ships). Mechanics: `RateLimitMonitor`

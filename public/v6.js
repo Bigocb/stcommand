@@ -34,6 +34,7 @@ import {
   probeSession, fetchOnboardingCatalog, completeOnboarding,
 } from "/shared/session.js";
 import { applyVersionPreference, mountSwitcher } from "/shared/switcher.js";
+import { startRateLimitIndicator } from "/shared/rateLimit.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -7408,3 +7409,6 @@ subscribe("doctrine", () => {
 
 boot0();
 
+// Rate-limit dot + toast (shared with Tower/Deck) — see shared/rateLimit.js.
+const rlAnchor = document.getElementById("conn-status");
+if (rlAnchor) startRateLimitIndicator(rlAnchor);
