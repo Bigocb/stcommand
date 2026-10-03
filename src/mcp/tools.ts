@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { registerOpsTools } from "../ops/mcp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TenantWorker } from "../engine/tenantRegistry.js";
 import type { ShipType } from "../engine/fleet.js";
@@ -48,6 +49,7 @@ function errorResult(err: unknown) {
 }
 
 export function registerTools(server: McpServer, w: TenantWorker): void {
+  registerOpsTools(server, w); // read-only investigation suite — src/ops/, docs/ops-layer-design.md
   // ── Read-only ──────────────────────────────────────────────────────
   // All readOnlyHint/idempotentHint: true, per docs/mcp-server-plan.md §4.
 

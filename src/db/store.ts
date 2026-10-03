@@ -321,6 +321,116 @@ export interface FeedRow {
 export class Store {
   constructor(private readonly pool: pg.Pool) {}
 
+  // ── Ops layer reads (src/ops/) ──────────────────────────────
+
+  async opsLedger(tenantId: string, f: { ship?: string; good?: string; type?: string; waypoint?: string; sinceIso: string; limit: number }): Promise<Record<string, unknown>[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const where = ["timestamp >= $1"];
+      const args: unknown[] = [f.sinceIso];
+      const add = (sql: string, v: unknown) => { args.push(v); where.push(sql.replace("?", `$${args.length}`)); };
+      if (f.ship) add("ship_symbol = ?", f.ship);
+      if (f.good) add("trade_symbol = ?", f.good);
+      if (f.type) add("type = ?", f.type.toUpperCase());
+      if (f.waypoint) add("waypoint_symbol = ?", f.waypoint);
+      args.push(f.limit);
+      const r = await c.query(
+        `SELECT timestamp, ship_symbol, type, trade_symbol, units, waypoint_symbol, price_per_unit, total, realized_pnl
+         FROM ledger WHERE ${where.join(" AND ")} ORDER BY timestamp DESC LIMIT $${args.length}`,
+        args,
+      );
+      return r.rows;
+    });
+  }
+
+  /** Ledger roll-ups for the ops `pnl` tool: by type, matched trading profit, per-ship leaders. */
+  async opsPnl(tenantId: string, sinceIso: string): Promise<{
+    byType: { type: string; n: number; total: number }[];
+    matched: { sells: number; pnl: number };
+    byShip: { shipSymbol: string; sells: number; pnl: number; revenue: number }[];
+  }> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const t = await c.query(`SELECT type, COUNT(*)::int AS n, COALESCE(SUM(total),0) AS total FROM ledger WHERE timestamp >= $1 GROUP BY type ORDER BY type`, [sinceIso]);
+      const m = await c.query(`SELECT COUNT(*)::int AS sells, COALESCE(SUM(realized_pnl),0) AS pnl FROM ledger WHERE timestamp >= $1 AND type = 'SELL' AND realized_pnl IS NOT NULL`, [sinceIso]);
+      const s = await c.query(
+        `SELECT ship_symbol, COUNT(*)::int AS sells, COALESCE(SUM(realized_pnl),0) AS pnl, COALESCE(SUM(total),0) AS revenue
+         FROM ledger WHERE timestamp >= $1 AND type = 'SELL' AND realized_pnl IS NOT NULL
+         GROUP BY ship_symbol ORDER BY pnl DESC LIMIT 15`,
+        [sinceIso],
+      );
+      return {
+        byType: t.rows.map((r: any) => ({ type: r.type, n: r.n, total: Math.round(Number(r.total)) })),
+        matched: { sells: m.rows[0]?.sells ?? 0, pnl: Math.round(Number(m.rows[0]?.pnl ?? 0)) },
+        byShip: s.rows.map((r: any) => ({ shipSymbol: r.ship_symbol, sells: r.sells, pnl: Math.round(Number(r.pnl)), revenue: Math.round(Number(r.revenue)) })),
+      };
+    });
+  }
+
+  /** Every charted system with its market/shipyard counts, priced-market stats and gate adjacency — one pass, for ops survey tools. */
+  async opsGalaxyGraph(): Promise<{
+    system: string; type: string; markets: number; shipyards: number; priced: number; newest: string | null;
+    gates: { gate: string; to: string[] }[];
+  }[]> {
+    return withPool(this.pool, async (c) => {
+      const g = await c.query(
+        `SELECT system_symbol, system_type, jump_gates::text AS gates,
+           (SELECT COUNT(*) FROM jsonb_array_elements(waypoints::jsonb) w WHERE w::text LIKE '%MARKETPLACE%')::int AS markets,
+           (SELECT COUNT(*) FROM jsonb_array_elements(waypoints::jsonb) w WHERE w::text LIKE '%SHIPYARD%')::int AS yards
+         FROM galaxy_systems`,
+      );
+      const p = await c.query(`SELECT system_symbol, COUNT(DISTINCT waypoint_symbol)::int AS priced, MAX(timestamp) AS newest FROM market_latest GROUP BY system_symbol`);
+      const pm = new Map(p.rows.map((r: any) => [r.system_symbol, r]));
+      return g.rows.map((r: any) => {
+        let gates: { gate: string; to: string[] }[] = [];
+        try {
+          gates = (JSON.parse(r.gates ?? "[]") as any[]).map((x) => ({ gate: x.symbol, to: (x.connections ?? []).map((c: string) => c.slice(0, c.lastIndexOf("-"))) }));
+        } catch { /* leave empty */ }
+        const pr: any = pm.get(r.system_symbol);
+        return { system: r.system_symbol, type: r.system_type, markets: r.markets, shipyards: r.yards, priced: pr?.priced ?? 0, newest: pr?.newest ? new Date(pr.newest).toISOString() : null, gates };
+      });
+    });
+  }
+
+  /** Gate construction status by gate waypoint (true = complete). */
+  async opsGateStatus(): Promise<Map<string, boolean>> {
+    return withPool(this.pool, async (c) => {
+      const r = await c.query(`SELECT gate_symbol, is_complete FROM galaxy_gate_construction`);
+      return new Map(r.rows.map((x: any) => [x.gate_symbol, !!x.is_complete]));
+    });
+  }
+
+  async opsMarketFreshness(systemSymbol: string): Promise<{ waypoint: string; goods: number; newest: string | null; ageMin: number | null }[]> {
+    return withPool(this.pool, async (c) => {
+      const w = await c.query(`SELECT waypoints::text AS wps FROM galaxy_systems WHERE system_symbol = $1`, [systemSymbol]);
+      let symbols: string[] = [];
+      try {
+        symbols = (JSON.parse(w.rows[0]?.wps ?? "[]") as any[]).filter((x) => JSON.stringify(x).includes("MARKETPLACE")).map((x) => x.symbol);
+      } catch { /* leave empty */ }
+      const m = await c.query(
+        `SELECT waypoint_symbol, COUNT(*)::int AS goods, MAX(timestamp) AS newest FROM market_latest WHERE system_symbol = $1 GROUP BY waypoint_symbol`,
+        [systemSymbol],
+      );
+      const by = new Map(m.rows.map((r: any) => [r.waypoint_symbol, r]));
+      const now = Date.now();
+      return symbols.map((wp) => {
+        const r: any = by.get(wp);
+        const newest = r?.newest ? new Date(r.newest).getTime() : undefined;
+        return { waypoint: wp, goods: r?.goods ?? 0, newest: newest ? new Date(newest).toISOString() : null, ageMin: newest ? Math.round((now - newest) / 60000) : null };
+      }).sort((a, b) => (a.ageMin ?? 1e9) - (b.ageMin ?? 1e9));
+    });
+  }
+
+  /** Recent server instances (heartbeat rows, newest first), for the ops `instances` tool. */
+  async opsInstances(withinHours: number): Promise<{ instanceId: string; startedAt: string; lastSeen: string; aliveNow: boolean }[]> {
+    return withPool(this.pool, async (c) => {
+      const r = await c.query(
+        `SELECT instance_id, started_at, last_seen, (last_seen > now() - interval '40 seconds') AS alive
+         FROM instance_heartbeats WHERE last_seen > now() - ($1 || ' hours')::interval ORDER BY started_at DESC`,
+        [String(withinHours)],
+      );
+      return r.rows.map((x: any) => ({ instanceId: x.instance_id, startedAt: new Date(x.started_at).toISOString(), lastSeen: new Date(x.last_seen).toISOString(), aliveNow: !!x.alive }));
+    });
+  }
+
   // ── Instance heartbeats ─────────────────────────────────────
 
   /** Refresh this process's liveness row (see migration 034). */

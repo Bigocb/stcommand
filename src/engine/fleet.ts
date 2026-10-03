@@ -5917,6 +5917,28 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Read-only per-ship debug view for the ops layer (src/ops/catalog.ts
+   * `ship_live`): everything the fleet "believes" about one ship that is not
+   * visible in fleetStatusSummary() — pins, intent, held/manual state, route
+   * assignment. No side effects.
+   */
+  opsShipDebug(shipSymbol: string): {
+    role: string; held: boolean; tourDestination?: string; keeperMarket?: string;
+    intent?: { goal: unknown; reason: string; source: string; version: number };
+    assignment?: unknown;
+  } {
+    const i = this.intents.current(shipSymbol);
+    return {
+      role: this.roleOf(shipSymbol),
+      held: this.isHeld(shipSymbol),
+      tourDestination: this.tourDestinations.get(shipSymbol),
+      keeperMarket: this.keeperMarkets.get(shipSymbol),
+      intent: i ? { goal: i.goal, reason: i.reason, source: i.source, version: i.version } : undefined,
+      assignment: this.dispatcher.list().find((a) => a.shipSymbol === shipSymbol),
+    };
+  }
+
   getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string; tourDestination?: string }[] {
     const warehouseSymbol = this.warehouseShip?.shipSymbol;
     const notWarehouse = (s: string) => s !== warehouseSymbol;

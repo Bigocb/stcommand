@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID } from "../core/rateLimitMonitor.js";
 import express from "express";
 import { resolve, dirname } from "node:path";
@@ -66,7 +67,10 @@ async function main(): Promise<void> {
   // every boot (not just once) is safe and cheap once caught up.
   await runMigrations(pool);
 
-  const registry = new TenantRegistry(pool, (tenantId, msg) => log(`[tenant ${tenantId.slice(0, 8)}] ${msg}`));
+  const registry = new TenantRegistry(pool, (tenantId, msg) => {
+    logBuffer.push(tenantId, msg); // ops `logs` tool — src/core/logBuffer.ts
+    log(`[tenant ${tenantId.slice(0, 8)}] ${msg}`);
+  });
 
   // Eager-boot every known tenant now, rather than leaving each one idle
   // until its first authenticated request arrives post-restart — see

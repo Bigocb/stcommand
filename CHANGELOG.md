@@ -9,6 +9,22 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Ops layer: a read-only monitoring & investigation suite (phase 1)
+
+A set of named, read-only tools for the questions live-ops keeps asking, exposed
+two ways from one catalog (`src/ops/catalog.ts`): MCP tools `stcommand_ops_*`
+for a connected agent and `GET /api/ops[/<name>]` behind the dashboard session.
+Phase 1: `logs` (in-memory ring buffer with the ~100-ship `fleet:` snapshot noise
+hidden by default), `ship_live` (live game state vs the agent's cached view, plus
+intent/pins/assignment/own log lines), `stuck`, `pnl` (matched trading net vs
+cash flow incl. jumps), `ledger`, `keepers` (covered/en-route/pending +
+duplicates), `instances` (deploy overlap + 429 rate), `survey_candidates`,
+`market_freshness`, `assignments`. Pure logic is in `src/ops/classify.ts`
+(tests: `tests/opsClassify.test.ts`); SQL is `Store.ops*`. Design, principles and
+the phase-2 plan (`dispatch_explain`, `route_board`, `trace_ship`, `deploy_check`,
+`fuel_plan`, `db_read`) are in `docs/ops-layer-design.md`. Not yet exercised
+against a live deploy.
+
 ## MCP: stcommand_assign_route / stcommand_clear_route
 
 A connected agent could dispatch, hold, tour and re-role ships but had no way to
