@@ -18,7 +18,9 @@ Hull-less/zero-hold ships (keepers) leave the slot blank so the columns stay
 aligned. The `F<n>`/`H<n>` text stats are gone from the row: fuel is now a
 small bar (green ≥50%, amber 25–50%, red + glow under 25%; hover for exact
 values) and hull condition is dropped from the list (still in the ship sheet
-and Deck card).
+and Deck card). The row's small label under the ship name is now the system
+the ship is in (e.g. `Y84`; hover for the full waypoint) instead of its role —
+the role is already the group header, so it was repeated on every row.
 
 ## Fleet list: collapsible role groups and a cooldown bar (Tower + V6)
 

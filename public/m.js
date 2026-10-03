@@ -305,6 +305,12 @@ function claimFor(ship) {
   return null;
 }
 
+/** "X1-Y84-AZ6F" → "Y84" — the system part of a waypoint, without the sector. */
+function sysShort(wp) {
+  const parts = String(wp || "").split("-");
+  return parts.length >= 2 ? parts[1] : "—";
+}
+
 function fleetRows() {
   const ships = state?.ships ?? [];
   const statusBy = new Map((fleetStatus.ships ?? []).map((s) => [s.symbol, s]));
@@ -426,7 +432,7 @@ function renderRoster() {
     const fuelPct = r.fuelCap ? Math.round((r.fuel / r.fuelCap) * 100) : 0;
     const etaTxt = fmtEta(r.eta);
     return `<button class="roster-row${cls}" data-idx="${i}">
-      <span class="rr-id"><span class="sym">${escapeHtml(r.symbol)}</span><span class="role">${escapeHtml(r.role)}</span></span>
+      <span class="rr-id"><span class="sym">${escapeHtml(r.symbol)}</span><span class="role sys" title="${escapeAttr(r.waypoint)}">${escapeHtml(sysShort(r.waypoint))}</span></span>
       <span class="rr-job${jobCls}">${r.stranded ? "STRANDED · " : ""}${escapeHtml(jobTxt)} ${r.cooldown}</span>
       <span class="rr-stats">
         ${r.cargoCap ? `<span class="cg ${r.cargo <= 0 ? "empty" : r.cargo >= r.cargoCap ? "full" : "part"}" title="Cargo ${r.cargo}/${r.cargoCap}"><i style="height:${Math.round((r.cargo / r.cargoCap) * 100)}%"></i></span>` : `<span class="cg none"></span>`}
