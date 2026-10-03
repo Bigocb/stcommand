@@ -56,15 +56,14 @@ export const CROSS_SYSTEM_JUMP_COST_ESTIMATE = 5_000;
  * two losing ones. A conservative per-unit figure is the cheap protection until
  * recovery is modelled from the snapshots.
  *
- * Operator decision, same day: set to 0.2 (20% per unit already promised). That
- * is deliberately extreme — (1.2)^units makes any second buyer's predicted ask
- * astronomically high, so in effect the dispatcher sends ONE trader at a time to
- * a given good at a given buy market and a second is only considered once the
- * first's units are no longer pending. It is a blunt way to stop several hulls
- * ratcheting one market; the MAX_TRADERS_PER_BUY_MARKET cap below never gets a
- * chance to matter. Lower it (0.0025 is the old measured value) to allow sharing.
+ * Operator decision, same day: 0.20% per unit (0.002 as a fraction; briefly
+ * mis-set to 0.2 = 20%/unit, which made any second buyer's predicted ask
+ * astronomical and so allowed only one trader per good per buy market). 0.002
+ * sits just under the measured 0.25%, so a second or third buyer is only sent
+ * while the predicted ask still leaves margin. MAX_TRADERS_PER_BUY_MARKET below
+ * is the hard backstop.
  */
-export const BUY_IMPACT_PER_UNIT = 0.2;
+export const BUY_IMPACT_PER_UNIT = 0.002;
 
 /** Hard backstop: no more than this many traders are sent to buy the same good
  *  at the same market in one dispatch cycle, whatever the margin says. */

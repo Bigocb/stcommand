@@ -392,8 +392,8 @@ describe("RouteDispatcher: idle traders and sell-market spreading", () => {
     // work list emitted exactly one item per good, and a direct assignment
     // reserved the whole good.
     const d = new RouteDispatcher();
-    // Impact pinned to the measured 0.25%: the shipped default is 0.2 (operator
-    // decision, see BUY_IMPACT_PER_UNIT) which allows only one buyer per market.
+    // Impact pinned to the measured 0.25% (the shipped default is 0.20%, see
+    // BUY_IMPACT_PER_UNIT) so the numbers below don't drift with retuning.
     d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700), route("IRON", "X1-A-M3", 500)], traders(3), [], [], [], [], undefined, undefined, undefined, undefined, undefined, { buyImpactPerUnit: 0.0025 });
     const assigned = d.list();
     assert.equal(assigned.length, 3, "every trader gets work");
@@ -628,10 +628,13 @@ describe("RouteDispatcher: several buyers at one market", () => {
     assert.equal(count(d), 2);
   });
 
-  it("at the shipped default (0.2 per unit) only one trader is sent to a buy market at a time", () => {
-    // Operator decision 2026-10-03: stop several hulls ratcheting one market.
-    // Five traders, five sell markets, a fat margin — still just one buyer.
+  it("at the shipped default (0.20% per unit) a fat margin shares a buy market up to the cap", () => {
     const d = run(routes(2000));
+    assert.equal(count(d), 3);
+  });
+
+  it("an extreme impact (0.2 per unit) allows only one trader per buy market", () => {
+    const d = run(routes(2000), { buyImpactPerUnit: 0.2 });
     assert.equal(count(d), 1);
   });
 

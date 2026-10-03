@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Dispatcher: buy-impact set to 0.20% per unit (0.002) — corrects the 0.2 mix-up
+
+The operator meant 0.20% per unit, i.e. `BUY_IMPACT_PER_UNIT = 0.002`; the
+previous entry's 0.2 was 20% per unit (percent vs fraction), which allowed one
+trader per good per buy market. At 0.002 a second/third buyer is sent only
+while the predicted ask still leaves margin, capped by
+`MAX_TRADERS_PER_BUY_MARKET`. Tests updated.
+
 ## Dispatcher: buy-impact set to 0.2 per unit (operator decision) — effectively one buyer per market
 
 The 0.12% recalibration (earlier today) measured the price rise *within* one visit
