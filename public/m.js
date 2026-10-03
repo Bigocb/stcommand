@@ -1170,6 +1170,23 @@ function shipStatsLine(y) {
   return bits.join(" · ");
 }
 
+/** Labelled stat chips for a shipyard listing, replacing the old one-line
+ *  "fuel 80 · cargo 15 · speed 9 · crew 0/0 · slots 3 · mounts 2" run, which wrapped
+ *  at phone width and padded every ship with zeros that mean "none" (a probe
+ *  has no fuel, cargo or crew). Zero/unknown values are left out. */
+function shipStatChips(y) {
+  const cargo = (y.modules ?? []).filter((m) => (m.symbol ?? "").startsWith("MODULE_CARGO_HOLD")).reduce((n, m) => n + (m.capacity ?? 0), 0);
+  const chip = (label, value) => `<span class="chip"><i>${label}</i>${value}</span>`;
+  const out = [];
+  if (y.fuelCapacity > 0) out.push(chip("FUEL", fmt(y.fuelCapacity)));
+  if (cargo > 0) out.push(chip("CARGO", fmt(cargo)));
+  if (y.engineSpeed != null) out.push(chip("SPEED", y.engineSpeed));
+  if (y.crewCapacity > 0) out.push(chip("CREW", `${y.crewRequired ?? 0}/${y.crewCapacity}`));
+  if (y.moduleSlots > 0) out.push(chip("SLOTS", y.moduleSlots));
+  if (y.mountingPoints > 0) out.push(chip("MOUNTS", y.mountingPoints));
+  return out.length ? `<div class="yc-stats">${out.join("")}</div>` : "";
+}
+
 function renderMarketYards() {
   const el = $("mkt-yards");
   const yards = intel.shipyards ?? [], mods = intel.modules ?? [];
@@ -1193,12 +1210,19 @@ function renderMarketYards() {
       // one. Tapping the location line now expands every candidate as its
       // own row with its own Buy button, same toggle pattern
       // openRouteGood already uses below for route assignment.
-      html += `<div class="yline">
-        <span class="yn">${escapeHtml(best.shipTypeName)}<br><button class="rr-legs yline-toggle" data-act="yard-toggle" data-group="${escapeHtml(groupKey)}" style="background:none;border:none;padding:0;color:inherit;font:inherit;text-decoration:underline;cursor:pointer">${escapeHtml(shortWp(best.waypointSymbol))}${others.length ? ` · also ${others.map((o) => shortWp(o.waypointSymbol)).join(", ")}` : ""}${rows.length > 1 ? (isOpen ? " (close)" : " (choose)") : ""}</button></span>
-        <span class="yp">${fmt(best.purchasePrice)}c</span>
-        <button class="btn pri" data-buy-ship="${escapeHtml(best.shipType)}" data-yard="${escapeHtml(best.waypointSymbol)}">Buy</button>
-      </div>
-      <div class="detail" style="margin:-4px 0 8px">${escapeHtml(shipStatsLine(best))}</div>`;
+      const more = rows.length - 1;
+      html += `<div class="ycard">
+        <div class="yc-top">
+          <span class="yc-name">${escapeHtml(best.shipTypeName)}</span>
+          <span class="yc-price">${fmt(best.purchasePrice)}<small>c</small></span>
+          <button class="btn pri" data-buy-ship="${escapeHtml(best.shipType)}" data-yard="${escapeHtml(best.waypointSymbol)}">Buy</button>
+        </div>
+        <div class="yc-where">
+          <span>${escapeHtml(shortWp(best.waypointSymbol))}</span>
+          ${more > 0 ? `<button class="yc-more${isOpen ? " open" : ""}" data-act="yard-toggle" data-group="${escapeHtml(groupKey)}">${isOpen ? "hide" : `+${more} more yard${more === 1 ? "" : "s"}`}</button>` : ""}
+        </div>
+        ${shipStatChips(best)}
+      </div>`;
       if (isOpen) {
         html += `<div class="ship-pick">${rows.map((r) => `<button data-buy-ship="${escapeHtml(r.shipType)}" data-yard="${escapeHtml(r.waypointSymbol)}"><span>${escapeHtml(shortWp(r.waypointSymbol))}</span><span>${fmt(r.purchasePrice)}c</span></button>`).join("")}</div>`;
       }

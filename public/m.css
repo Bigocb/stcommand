@@ -394,6 +394,20 @@ body {
 .yline .yn { font-family: var(--mono); font-size: 10.5px; }
 .yline .yp { font-family: var(--mono); font-size: 10px; color: var(--dim); flex: 1; text-align: right; }
 .yline .btn { padding: 6px 12px; }
+/* Shipyard cards (Tower → Markets → Yards) */
+.ycard { padding: 10px 0 9px; border-top: 1px solid var(--hair); }
+.ycard:first-of-type { border-top: none; }
+.yc-top { display: flex; align-items: center; gap: 10px; }
+.yc-name { flex: 1; min-width: 0; font-family: var(--chrome); font-weight: 600; font-size: 13px; }
+.yc-price { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--amber); font-variant-numeric: tabular-nums; }
+.yc-price small { color: var(--dim); font-weight: 400; }
+.ycard .btn { padding: 6px 12px; }
+.yc-where { display: flex; align-items: center; gap: 8px; margin-top: 3px; font-family: var(--mono); font-size: 10px; color: var(--ice); }
+.yc-more { background: none; border: 1px solid var(--hair-hi); border-radius: 9px; padding: 1px 8px; font-family: var(--mono); font-size: 9px; color: var(--dim); cursor: pointer; }
+.yc-more.open { color: var(--amber); border-color: var(--amber); }
+.yc-stats { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.yc-stats .chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 7px; border-radius: 4px; background: var(--raised); font-family: var(--mono); font-size: 10px; color: var(--bone); font-variant-numeric: tabular-nums; }
+.yc-stats .chip i { font-style: normal; font-size: 7.5px; letter-spacing: .08em; color: var(--dim); }
 
 /* ── Markets: Routes/Yards segmented ──────────
  * Both segments answer "where do I put money to make more" — a

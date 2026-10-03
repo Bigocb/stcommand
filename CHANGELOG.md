@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Tower Yards tab: readable ship cards
+
+Each shipyard listing is now a card: ship name and price on one line with the Buy
+button, the cheapest yard under it with a small "+N more yards" toggle (the old
+"also X, Y (choose)" underlined run of text), and a row of labelled stat chips
+(FUEL, CARGO, SPEED, CREW, SLOTS, MOUNTS) instead of one long wrapping
+"fuel 0 · cargo 0 · speed 9 · crew 0/0 …" line. Zero and unknown stats are left
+out, so a probe shows just its speed rather than five zeros.
+
 ## An operator redirect now re-pins cargo the ship is already carrying
 
 `deliverHeldCargo()` always finished the leg a cargo was bought for (the held-route
