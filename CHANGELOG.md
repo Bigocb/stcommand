@@ -16,7 +16,7 @@ amber when the hold has any cargo, a dim hollow ring when empty; hover shows
 `units/capacity`. Zero-hold ships (keepers) leave the slot blank so the
 columns stay aligned. (A first version drew a fill-level box; replaced by the
 simpler on/off dot.) The `F<n>`/`H<n>` text stats are gone from the row: fuel
-is now a small bar (green ≥50%, amber 25–50%, red + glow under 25%; hover for
+is now a small dot (green ≥50%, amber 25–50%, red + glow under 25%; hover for
 exact values) and hull condition is dropped from the list (still in the ship
 sheet and Deck card). The row's small label under the ship name is now the
 system the ship is in (e.g. `Y84`; hover for the full waypoint) instead of its
