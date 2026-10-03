@@ -1299,3 +1299,44 @@ describe("TraderAgent.navigateTo: tops off before a cross-system departure", () 
     assert.equal(refueled, true);
   });
 });
+
+describe("TraderAgent.deliverHeldCargo: an operator redirect re-pins the held leg", () => {
+  it("sells at the manually re-pointed market instead of the one the cargo was bought for", async () => {
+    // Live 2026-10-03: 80u bought for a 6,200 market sat pinned to it while a
+    // 6,900 market was in the same system; the operator re-pointed the route.
+    const ship = makeShip([{ symbol: "CIRC", units: 10 }]);
+    (ship as any).nav = { status: "DOCKED", waypointSymbol: "X1-A-NEW", systemSymbol: "X1-A" };
+    const soldAt: string[] = [];
+    const persisted: any[] = [];
+    const trader = new TraderAgent(ship, {
+      api: {
+        sellCargo: async () => { soldAt.push("sold"); return { cargo: { capacity: 40, units: 0, inventory: [] }, transaction: { pricePerUnit: 6900, totalPrice: 69_000 } }; },
+        getCallCount: () => 0,
+      } as any,
+      assignedRoute: () => ({ shipSymbol: "SHIP-1", good: "CIRC", role: "direct", buyAt: "X1-A-BUY", sellAt: "X1-A-NEW", buyPrice: 8000, sellPrice: 6900, profitPerTrip: 0, source: "manual" }) as any,
+      persistHeldRoute: async (_g: string, leg: any) => { persisted.push(leg); },
+    });
+    (trader as any).heldRoute.set("CIRC", { good: "CIRC", buyAt: "X1-A-BUY", sellAt: "X1-A-OLD", buyPrice: 8000, sellPrice: 6200, lotSize: 10 });
+    (trader as any).heldCost.set("CIRC", 8000);
+    (trader as any).liveSellPrice = async () => 6900;
+    await (trader as any).deliverHeldCargo();
+    assert.deepEqual(persisted.map((l) => l.sellAt), ["X1-A-NEW"], "the new destination is persisted");
+    assert.equal(soldAt.length, 1, "sold at the redirected market (the ship is docked there), not sent on to OLD");
+  });
+
+  it("does not redirect for a non-manual (auto) assignment", async () => {
+    const ship = makeShip([{ symbol: "CIRC", units: 10 }]);
+    (ship as any).nav = { status: "DOCKED", waypointSymbol: "X1-A-OLD", systemSymbol: "X1-A" };
+    const persisted: any[] = [];
+    const trader = new TraderAgent(ship, {
+      api: { sellCargo: async () => ({ cargo: { capacity: 40, units: 0, inventory: [] }, transaction: { pricePerUnit: 6900, totalPrice: 69_000 } }), getCallCount: () => 0 } as any,
+      assignedRoute: () => ({ shipSymbol: "SHIP-1", good: "CIRC", role: "direct", buyAt: "X1-A-BUY", sellAt: "X1-A-NEW", buyPrice: 8000, sellPrice: 6900, profitPerTrip: 0, source: "auto" }) as any,
+      persistHeldRoute: async (_g: string, leg: any) => { persisted.push(leg); },
+    });
+    (trader as any).heldRoute.set("CIRC", { good: "CIRC", buyAt: "X1-A-BUY", sellAt: "X1-A-OLD", buyPrice: 8000, sellPrice: 6200, lotSize: 10 });
+    (trader as any).heldCost.set("CIRC", 8000);
+    (trader as any).liveSellPrice = async () => 6900;
+    await (trader as any).deliverHeldCargo();
+    assert.deepEqual(persisted, [], "an auto assignment never overrides the pin the cargo was bought for");
+  });
+});

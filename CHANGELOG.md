@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## An operator redirect now re-pins cargo the ship is already carrying
+
+`deliverHeldCargo()` always finished the leg a cargo was bought for (the held-route
+pin), so re-pointing a ship's manual route at a different sell market had no
+effect on cargo already aboard — live, 80u of ADVANCED_CIRCUITRY bought at 7,992
+stayed pinned to a ~6,200 market while a ~6,900 one sat in the same system. A
+*manual* route for the same good with a different `sellAt` now updates the pin
+(persisted, logged "operator redirected delivery"); auto assignments never
+override a pin. Tests in `tests/trader.test.ts`. (A guard against manual routes
+buying at a negative margin was considered and deliberately not added: the
+2026-09-22 operator request lets a pinned route run regardless of margin.)
+
 ## Fix: a few-credit leftover froze a trader for hours (THEO-80)
 
 A ship holding cargo counts as busy, so the dispatcher assigns it nothing, and

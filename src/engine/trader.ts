@@ -1734,8 +1734,22 @@ export class TraderAgent {
       // The leg it was bought for, not the one the dispatcher wants now — see
       // heldRoute. Cargo with no pin is genuinely orphaned and belongs to the
       // sweep, not here.
-      const leg = this.heldRoute.get(item.symbol);
+      let leg = this.heldRoute.get(item.symbol);
       if (!leg) continue;
+
+      // An operator who re-points a ship's manual route at a different sell
+      // market while it is already carrying the good is redirecting the cargo —
+      // honour that instead of finishing the leg it was bought for (live:
+      // 80u bought at 7,992 pinned to a 6,200 market while a 6,900 one was
+      // sitting in the same system). Only a manual route for this same good.
+      const manual = this.assignedRoute?.();
+      if (manual?.source === "manual" && manual.role === "direct" && manual.good === item.symbol && manual.sellAt && manual.sellAt !== leg.sellAt) {
+        const redirected = { ...leg, sellAt: manual.sellAt, sellPrice: (manual.sellPrice ?? 0) > 0 ? manual.sellPrice! : leg.sellPrice };
+        leg = redirected;
+        this.heldRoute.set(item.symbol, redirected);
+        await this.persistHeldRoute?.(item.symbol, { buyAt: redirected.buyAt, sellAt: redirected.sellAt, buyPrice: redirected.buyPrice, sellPrice: redirected.sellPrice, lotSize: redirected.lotSize }, this.heldCost.get(item.symbol) ?? 0);
+        this.log(`held ${item.symbol}: operator redirected delivery to ${redirected.sellAt}`);
+      }
 
       if (this.ship.nav.waypointSymbol !== leg.sellAt) {
         await this.navigateTo(leg.sellAt);
