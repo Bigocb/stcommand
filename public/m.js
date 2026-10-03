@@ -20,7 +20,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
+import { keeperCoverage, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -1226,10 +1226,10 @@ function renderMarketYards() {
  *  /api/keeper/markets endpoint) — the operator's ask was to get this same
  *  at-a-glance-plus-tap-to-toggle affordance onto Tower, not just desktop. */
 function keeperBadge(wp) {
-  const covered = keeperStationsCfg.some((s) => s.market === wp);
-  const pending = !covered && keeperMarketsCfg.includes(wp);
-  if (covered) return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
-  if (pending) return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — tap to remove">◐ pending</span>`;
+  const cov = keeperCoverage(wp, keeperStationsCfg, keeperMarketsCfg, state?.ships);
+  if (cov === "covered") return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
+  if (cov === "enroute") return `<span class="keeper-badge pending" title="A keeper is on its way — this becomes covered when it arrives">◐ pending</span>`;
+  if (cov === "pending") return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — tap to remove">◐ pending</span>`;
   return `<span class="keeper-badge none" data-wp="${escapeAttr(wp)}" role="button" title="Not on the keeper priority list — tap to add">+ keeper</span>`;
 }
 

@@ -35,6 +35,7 @@ import {
 } from "/shared/session.js";
 import { applyVersionPreference, mountSwitcher } from "/shared/switcher.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
+import { keeperCoverage } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 
 const $ = (id) => document.getElementById(id);
@@ -2239,10 +2240,10 @@ function renderSnapshots() {
  *  see fleet.ts) — neither implies the other, since a keeper can be
  *  stationed manually without ever being added to the priority list. */
 function keeperBadge(wp) {
-  const covered = keeperStationsCfg.some((s) => s.market === wp);
-  const pending = !covered && keeperMarketsCfg.includes(wp);
-  if (covered) return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
-  if (pending) return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — click to remove from the list">◐ pending</span>`;
+  const cov = keeperCoverage(wp, keeperStationsCfg, keeperMarketsCfg, state?.ships);
+  if (cov === "covered") return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
+  if (cov === "enroute") return `<span class="keeper-badge pending" title="A keeper is on its way — this becomes covered when it arrives">◐ pending</span>`;
+  if (cov === "pending") return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — click to remove from the list">◐ pending</span>`;
   return `<span class="keeper-badge none" data-wp="${escapeAttr(wp)}" role="button" title="Not on the keeper priority list — click to add">+ cover</span>`;
 }
 

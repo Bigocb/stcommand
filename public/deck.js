@@ -20,6 +20,7 @@ import {
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
+import { keeperCoverage } from "/shared/domain.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
@@ -1095,10 +1096,10 @@ $("mk-mkt-seg").addEventListener("click", (e) => {
  *  from Tower's own keeperBadge() (m.js), same three states and the same
  *  tap-to-toggle /api/keeper/markets call. */
 function keeperBadge(wp) {
-  const covered = keeperStationsCfg.some((s) => s.market === wp);
-  const pending = !covered && keeperMarketsCfg.includes(wp);
-  if (covered) return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
-  if (pending) return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — click to remove">◐ pending</span>`;
+  const cov = keeperCoverage(wp, keeperStationsCfg, keeperMarketsCfg, state?.ships);
+  if (cov === "covered") return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
+  if (cov === "enroute") return `<span class="keeper-badge pending" title="A keeper is on its way — this becomes covered when it arrives">◐ pending</span>`;
+  if (cov === "pending") return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — click to remove">◐ pending</span>`;
   return `<span class="keeper-badge none" data-wp="${escapeAttr(wp)}" role="button" title="Not on the keeper priority list — click to add">+ keeper</span>`;
 }
 async function toggleKeeperPriority(wp) {

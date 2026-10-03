@@ -152,3 +152,26 @@ export const fmtAge = (iso) => {
   if (hrs < 24) return `${hrs}h ${mins % 60}m`;
   return `${Math.floor(hrs / 24)}d`;
 };
+
+/**
+ * Keeper coverage of one market waypoint, as the badge should show it:
+ *   "covered" — a keeper pinned here is actually AT the market (docked or in
+ *               orbit, not mid-flight);
+ *   "enroute" — a keeper is pinned here but hasn't arrived yet (a freshly
+ *               bought probe sits at its shipyard until its first tick, then
+ *               drifts slowly), so the market isn't really being kept yet;
+ *   "pending" — on the priority list, no keeper assigned;
+ *   "none"    — neither.
+ * `ships` is state.ships; a pinned ship missing from it counts as arrived
+ * rather than showing a false "pending". While IN_TRANSIT the game reports
+ * the destination as the ship's waypoint, so status is checked first.
+ */
+export function keeperCoverage(wp, stations, listed, ships) {
+  const pin = (stations ?? []).find((s) => s.market === wp);
+  if (pin) {
+    const ship = (ships ?? []).find((x) => x.symbol === pin.shipSymbol);
+    const arrived = !ship || (ship.nav?.status !== "IN_TRANSIT" && ship.nav?.waypointSymbol === wp);
+    return arrived ? "covered" : "enroute";
+  }
+  return (listed ?? []).includes(wp) ? "pending" : "none";
+}

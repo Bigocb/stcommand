@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Keeper badge stays "pending" until the keeper actually arrives
+
+The market badge (Tower, V6, Deck) said "● covered" the moment a keeper was
+*pinned* to a market — which for a freshly bought probe is the instant it is
+purchased, while it still sits at the shipyard waiting for its first tick and
+then drifts slowly. It now stays "◐ pending" (amber) until a pinned keeper is
+physically at the market and not mid-flight, and only then turns "● covered".
+Shared logic: `keeperCoverage()` in `public/shared/domain.js` (covered / enroute
+/ pending / none). The en-route variant isn't tap-to-remove, since removing the
+market from the priority list wouldn't recall the ship.
+
 ## Fix: duplicate keeper probes bought for a market that already had one
 
 Keeper-probe purchases run from a stored operator approval whose target market
