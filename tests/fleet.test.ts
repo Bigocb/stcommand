@@ -1736,6 +1736,16 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
     assert.deepEqual(calls.purchase, [], "already covered — must not buy another");
   });
 
+  it("skips a stored approval's purchase when its target market got a keeper in the meantime", async () => {
+    const { fleet, calls } = makeYardFleet([{ type: "SHIP_PROBE", purchasePrice: 5000 }]);
+    // An earlier approval already put a keeper on the target; this one is a duplicate.
+    (fleet as any).keeperMarkets.set("EXISTING-KEEPER", "X1-A-MARKET");
+
+    await (fleet as any).purchaseKeeperProbe("X1-A-YARD", "X1-A-MARKET", 5000, "SHIP_PROBE");
+
+    assert.deepEqual(calls.purchase, [], "must not spend credits on a probe for an already-covered market");
+  });
+
   it("does not attempt a purchase when the shipyard has no probe in stock", async () => {
     const { fleet, calls } = makeYardFleet([{ type: "SHIP_LIGHT_HAULER", purchasePrice: 150_000 }]);
 

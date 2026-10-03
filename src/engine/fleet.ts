@@ -4579,6 +4579,20 @@ export class FleetManager {
    * for exactly this reason.
    */
   private async purchaseKeeperProbe(waypointSymbol: string, targetMarket: string, price: number, hull: string = "SHIP_PROBE"): Promise<void> {
+    // Re-check coverage at the moment of purchase. The target was chosen when
+    // the approval was *requested*, possibly minutes earlier, and two request
+    // paths (shipyard-triggered and market-triggered) run side by side — so
+    // two approvals could both name the same uncovered market and the second
+    // would buy a redundant probe. Confirmed live 2026-10-03 at X1-TU85: two
+    // probes bought five seconds apart for X1-TU85-A15C and again for
+    // X1-TU85-D18C (~57k credits for keepers that duplicated a pin). The
+    // first probe is pinned (keeperMarkets) before this one runs, so the check
+    // is reliable. Skip rather than retarget: the operator approved *this*
+    // market, and the queue will propose the next uncovered one on its own.
+    if ([...this.keeperMarkets.values()].includes(targetMarket)) {
+      this.log(`keeper probe for ${targetMarket} skipped at purchase time: that market already has a keeper (approval was for a duplicate)`);
+      return;
+    }
     try {
       this.log(`purchasing ${hull} at ${waypointSymbol} for ${price} credits (destined for ${targetMarket})`);
       let res;

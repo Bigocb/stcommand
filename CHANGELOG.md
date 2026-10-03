@@ -9,6 +9,21 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: duplicate keeper probes bought for a market that already had one
+
+Keeper-probe purchases run from a stored operator approval whose target market
+was picked when the approval was *requested*; two request paths
+(`buyKeeperProbe`, shipyard-triggered, and `buyKeeperProbeForMarket`) run side
+by side, so two approvals could name the same uncovered market and the second
+bought a redundant probe. Live at X1-TU85 on 2026-10-03: THEO-84/85 both pinned
+to A15C and THEO-88/8A both to D18C, bought five seconds apart (~57k credits).
+`purchaseKeeperProbe()` now re-checks `keeperMarkets` at the moment of purchase
+and skips (with a log line) if the target is already covered; the request-time
+check alone could not see a probe still pending purchase. Test in
+`tests/fleet.test.ts` (needs the Postgres test schema to run).
+Separately, a new keeper waits for its first ~10-minute keeper tick before it
+starts flying to its pinned market — that part is by design, not stuck.
+
 ## Ledger: jump costs are their own type, and trader jumps are finally recorded
 
 Jumps cost ≈5–8k credits each, and the books were wrong in two ways. A
