@@ -5,7 +5,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
-import { standDownReason } from "./intent.js";
+import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -534,7 +534,7 @@ export class SiphonerAgent {
         if (this.halted()) return { actualCalls: 0, next: this.nextTask(Date.now() + HALT_POLL_MS) };
         // Checked before touching schedulerDriven — see ShipAgent.nextTask()'s
         // comment (agent.ts) for the race this avoids.
-        if (this.suspended) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
+        if (this.suspended && !isTenderGoal(this.intentFor?.())) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
         // See TraderAgent.nextTask()'s comment on inFlight.

@@ -9,6 +9,22 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: a trader/miner/siphoner drafted as a fuel tender never ran the tender
+
+A rescue `suspend()`s the tender hull, and `TraderAgent.nextTask()` (and the
+identical chains in `ShipAgent.nextTask()` and `SiphonerAgent.nextTask()`)
+returned early on `suspended` — before `tick()` could reach `runTenderGoal()`.
+Since tender execution moved into the ship itself, that left the tender idle
+forever: THEO-82, the 2,300-fuel freighter, sat in orbit for 17 minutes with a
+tender intent while THEO-80 waited at 0 fuel. (Explorer/scout/tour tenders were
+unaffected, which is why the cross-system rescue earlier today worked.) The gate
+now lets a suspended agent through when its intent is a tender
+(`isTenderGoal()` in `intent.ts`); everything else suspended still no-ops.
+Deliberately tender-only — a critical repair also suspends the agent but is flown
+directly by the fleet. Tests in `tests/traderNextTask.test.ts`. (Note: one older
+test in that file, "ETA-scheduled resume … a resumed tick()", fails with and
+without this change.)
+
 ## Ops layer: a read-only monitoring & investigation suite (phase 1)
 
 A set of named, read-only tools for the questions live-ops keeps asking, exposed

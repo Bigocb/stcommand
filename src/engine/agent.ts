@@ -5,7 +5,7 @@ import type { SurveyPool } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
-import { standDownReason } from "./intent.js";
+import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -2031,7 +2031,7 @@ export class ShipAgent {
         // this raced FeedManager.stepCarrier()'s mineOnce() call (see that
         // method's own comment) and defeated its schedulerDriven fix —
         // waitCooldown() slept out the real cooldown instead of throwing.
-        if (this.suspended) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
+        if (this.suspended && !isTenderGoal(this.intentFor?.())) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
         // See TraderAgent.nextTask()'s comment: inFlight was only ever set by

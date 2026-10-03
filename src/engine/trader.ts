@@ -6,7 +6,7 @@ import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type TraderAssignme
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
-import { standDownReason } from "./intent.js";
+import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 import { MAX_POSITIONING_HOPS } from "./jumpGraph.js";
 
@@ -2483,7 +2483,7 @@ export class TraderAgent {
         // direct call (e.g. a feed's own buy/sell step) could be relying on
         // mid-flight. A no-op that's about to return immediately anyway has
         // no reason to touch it at all.
-        if (this.suspended) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
+        if (this.suspended && !isTenderGoal(this.intentFor?.())) return { actualCalls: 0, next: this.nextTask(Date.now() + 30_000) };
         // Real measured count (Client.getCallCount() delta), not the fixed
         // `estimatedCalls: 3` heuristic above — the estimate is still a
         // guess made before the work runs (needed for the scheduler's

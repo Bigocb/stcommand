@@ -312,3 +312,32 @@ describe("TraderAgent.nextTask(): inFlight tracking under the scheduler", () => 
     assert.equal(suspendResolved, true, "suspend() must resolve once the in-flight tick() actually finishes");
   });
 });
+
+describe("TraderAgent.nextTask(): a suspended fuel tender must still run its tender goal", () => {
+  // Live bug 2026-10-03: a rescue suspends the tender hull, and the task chain
+  // bailed out on `suspended` before tick() could reach runTenderGoal(), so a
+  // trader drafted as a tender sat idle (THEO-82, 17 minutes). Tender goals are
+  // executed by the agent itself now, so suspended must not block them.
+  const tenderIntent: any = { goal: { kind: "tender", market: "X1-A-M", to: "X1-A-B", strandedSymbol: "S2", fuelUnits: 7 }, reason: "ferry", source: "rescue", version: 1 };
+
+  it("calls tick() for a suspended trader whose intent is a tender", async () => {
+    let ticks = 0;
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any, intentFor: () => tenderIntent });
+    (trader as any).tick = async () => { ticks++; return true; };
+    trader.running = true;
+    await trader.suspend();
+    await trader.nextTask().run();
+    assert.equal(ticks, 1, "the tender step must run even though the agent is suspended");
+  });
+
+  it("still skips tick() for a suspended trader with no tender goal (feeds/repairs drive those directly)", async () => {
+    let ticks = 0;
+    const trader = new TraderAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
+    (trader as any).tick = async () => { ticks++; return true; };
+    trader.running = true;
+    await trader.suspend();
+    const result = await trader.nextTask().run();
+    assert.equal(ticks, 0);
+    assert.ok(result.next, "chain keeps polling");
+  });
+});

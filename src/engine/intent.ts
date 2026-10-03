@@ -174,6 +174,24 @@ export function standDownReason(intent: ShipIntent | undefined): string | undefi
   return `${intent.goal.kind}${target} (${intent.source}): ${intent.reason}`;
 }
 
+/**
+ * True when `intent` is a fuel-tender goal. Rescue plans `suspend()` the tender
+ * hull, and the agent's task chain used to treat "suspended" as "a subsystem
+ * is driving this ship with raw API calls, do nothing" — but since execution
+ * moved into the ship (ShipProxy.runTenderGoal) the tender is driven BY the
+ * agent's own tick, so a suspended tender must keep ticking. Confirmed live
+ * 2026-10-03: THEO-82 (a trader) sat suspended with a tender intent for 17
+ * minutes, never buying the fuel, because TraderAgent.nextTask() returned
+ * early on `suspended` before tick() could reach runTenderGoal(). (Explorers
+ * were unaffected — their task chain has no such gate — which is why the
+ * earlier cross-system tender worked.) Deliberately tender-only: a critical
+ * repair also suspends the agent but is flown directly by the fleet, and
+ * running both would double-drive the hull.
+ */
+export function isTenderGoal(intent: ShipIntent | undefined): boolean {
+  return intent?.goal.kind === "tender";
+}
+
 /** Goals a ship should be allowed to finish rather than be switched off mid-way. */
 function isEarning(goal: Goal): boolean {
   return goal.kind === "trade" || goal.kind === "mine" || goal.kind === "siphon";
