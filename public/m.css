@@ -202,6 +202,12 @@ body {
 .roster-row .rr-stats .cg.part { border-color:var(--amber); }
 .roster-row .rr-stats .cg.full { border-color:var(--amber); box-shadow:0 0 5px var(--amber-glow); }
 .roster-row .rr-stats .cg.none { visibility:hidden; }
+.roster-row .rr-stats .fg { position:relative; flex:0 0 auto; width:30px; height:5px; align-self:center; border-radius:3px; background:rgba(255,255,255,.12); overflow:hidden; }
+.roster-row .rr-stats .fg i { position:absolute; left:0; top:0; bottom:0; border-radius:3px; background:var(--green); }
+.roster-row .rr-stats .fg.mid i { background:var(--amber); }
+.roster-row .rr-stats .fg.low i { background:var(--red); }
+.roster-row .rr-stats .fg.low { box-shadow:0 0 5px rgba(255,97,82,.55); }
+.roster-row .rr-stats .fg.none { visibility:hidden; }
 .roster-row .rr-stats .lo { color: var(--red); }
 /* ETA — dim "—" for a docked/idle ship, amber (Tower's own in-transit
    color, same as the map's ship blip) with tabular-nums only while a ship
