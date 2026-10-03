@@ -7,6 +7,22 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Discuss: should a tender wait out a jump cooldown before flying
+  to its fuel market? (raised 2026-10-03, operator wants to talk it
+  through before anything changes — do NOT change it unprompted.)**
+  `ShipProxy.runTenderGoalStep()` now calls `refresh()` + `waitCooldown()`
+  at the top of every step (added with the stale-position fix, f4f92cb;
+  same pattern repair/scrap/hold use). After a gate jump the ship carries
+  a ~10 min cooldown, so THEO-6B sat in X1-Y84 for ~4–5 min before
+  heading to the fuel market. Unverified belief: SpaceTraders only blocks
+  jump/scan/survey/extract during a cooldown, not plain navigation, so the
+  wait may be unnecessary for the non-jump steps (fly to market, buy,
+  fly to the stranded ship) and could be limited to the jump hop. Trade-off:
+  saves minutes per cross-system rescue vs. changing behaviour that works.
+  Open questions: confirm navigation really isn't cooldown-gated (a
+  one-off live test), and whether repair/scrap/hold would want the same
+  relaxation or only tenders. Current decision: leave as is.
+
 - [ ] **H56 IRON_ORE feed vs. trader buying pressure — live crew-size test,
   in progress 2026-09-26.** Context: H56 is a refinery market — it
   *imports* IRON_ORE (buys from the mine feed's miners) and *exports*
