@@ -7533,7 +7533,13 @@ export class FleetManager {
     if (!plan) {
       plan = await this.makeRescuePlan(s);
       if (plan) this.rescuePlans.set(s.symbol, plan);
-      if (!plan) return;
+      // Return either way. The plan's tender intent was only proposed a moment
+      // ago and is committed later in this tick, so checking for it below on
+      // the creation pass always found nothing: the plan was deleted, the
+      // stranded ship's hold forgotten and the tender released the instant it
+      // was dispatched ("released to rescue" one second after "dispatching
+      // fuel tender"). Every tender rescue was cancelled at birth until now.
+      return;
     }
     // If the tender intent is no longer on the board, the tender finished
     // (runTenderGoal called done()) — clear the rescue plan and the stranded

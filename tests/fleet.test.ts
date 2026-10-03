@@ -2589,6 +2589,21 @@ describe("FleetManager.tenderRescueStep: plan lifecycle now that the ship flies 
     return { ship: shipSymbol, priority: 0 as const, goal: { kind: "tender" as const, to: "X1-A-A1", fuelUnits: 10, market: "X1-A-A2", strandedSymbol }, reason: "test", source: "rescue" };
   }
 
+  it("does not cancel a plan on the very pass that created it (its intent is only proposed, not committed yet)", async () => {
+    const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
+    const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);
+    const fleet = makeFleet([stranded, tender]);
+    const plan = { strandedSymbol: "STRANDED", strandedWaypoint: "X1-A-A1", tenderSymbol: "TENDER", market: "X1-A-A2", fuelUnits: 10 };
+    let released = false;
+    (fleet as any).makeRescuePlan = async () => { fleet.intents.propose(tenderIntentFor("TENDER", "STRANDED")); return plan; };
+    (fleet as any).releaseTo = async () => { released = true; };
+
+    await (fleet as any).tenderRescueStep({ symbol: "STRANDED", waypointSymbol: "X1-A-A1", fuel: 10 });
+
+    assert.equal((fleet as any).rescuePlans.has("STRANDED"), true, "plan kept");
+    assert.equal(released, false, "tender not released the moment it was dispatched");
+  });
+
   it("leaves an in-progress plan alone while its tender intent is still live", async () => {
     const stranded = makeFakeAgent("STRANDED", "X1-A-A1", 40, 0, 0, 100);
     const tender = makeFakeAgent("TENDER", "X1-A-A2", 40, 0, 100, 100);

@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fix: every fuel-tender rescue was cancelled the moment it was planned
+`tenderRescueStep()` created a plan (proposing the tender's intent, which is only committed later in the same tick) and then immediately checked the committed board for that intent. It was never there, so the same call deleted the plan, forgot the stranded ship's hold and released the tender ("dispatching fuel tender" followed one second later by "released to rescue"). No tender rescue could ever run, which is why THEO-1 stayed stranded. The creation pass now returns after storing the plan; the next pass finds the committed intent and leaves it alone.
+
 ## Fuel rescue can send a tender from another system
 `makeRescuePlan()` only considered ships in the stranded ship's own system, so THEO-1 (0/400 at Y84-C30X) sat unrescued for days while an 800-fuel explorer was two jumps away (the planner even tried it and failed on an "Infinity fuel" cross-system distance). New `pickCrossSystemTender()` is a fallback used only when no same-system tender qualifies: an idle hull, explorer, scout or tour ship (never a trader or miner) with an empty hold, not in transit, a tank that covers the market -> stranded leg and is at least 40% full, and a known gate path of at most 5 jumps; fewest hops, then biggest tank. The tender goal's BUY phase now walks the gate chain first (`jumpTo`, one hop per tick) before navigating to the fuel market in the stranded ship's system.
 
