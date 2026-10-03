@@ -52,7 +52,9 @@ export function classifyShips(summary: SummaryShip[], stateShips: StateShip[], s
       const status = st?.nav?.status ?? s.nav;
       if (fuel === 0) {
         out.push({ ship: s.symbol, severity: status === "DOCKED" ? "warn" : "crit", kind: "out_of_fuel", detail: `fuel 0/${cap}, ${status.toLowerCase()} at ${st?.nav?.waypointSymbol ?? s.waypoint}` });
-      } else if (fuel / cap < 0.1) {
+      } else if (fuel / cap < 0.1 && s.role !== "keeper") {
+        // Keepers sit docked at a market for good; a low tank on a hull that
+        // never flies is noise (live: 11 of 12 warnings were parked keepers).
         out.push({ ship: s.symbol, severity: "warn", kind: "low_fuel", detail: `fuel ${fuel}/${cap} (${Math.round((fuel / cap) * 100)}%)` });
       }
     }

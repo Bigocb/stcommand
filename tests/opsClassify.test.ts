@@ -40,6 +40,11 @@ describe("classifyShips", () => {
     assert.equal(f[0]!.kind, "transit_overdue");
   });
 
+  it("does not warn about a low tank on a parked keeper, but still does for a trader", () => {
+    const f = classifyShips([ship({ symbol: "K", role: "keeper", fuel: 2, fuelCap: 80 }), ship({ symbol: "T", fuel: 2, fuelCap: 300 })], [], new Set(), now);
+    assert.deepEqual(f.map((x) => x.ship), ["T"]);
+  });
+
   it("warns on low fuel but only info-level noise for a healthy ship", () => {
     assert.equal(classifyShips([ship({ fuel: 5 })], [], new Set(), now)[0]!.kind, "low_fuel");
     assert.deepEqual(classifyShips([ship({})], [], new Set(), now), []);
