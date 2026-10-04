@@ -9,6 +9,8 @@ import { signSessionCookie } from "../auth/crypto.js";
 import { SESSION_COOKIE_NAME } from "./session.js";
 import { cookieOpts } from "./gate.js";
 import type { TenantWorker } from "../engine/tenantRegistry.js";
+import { resetWatcherStatus } from "../engine/resetWatcher.js";
+import { getCurrentResetDate } from "../core/universe.js";
 import { classifySystem, ARCHETYPE_LABELS, DOCTRINE_TEMPLATES, type SystemAttributes } from "../engine/systemClassifier.js";
 
 /** The home-system attributes both the checkpoint tool and the template
@@ -66,6 +68,20 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galax
     }
     next();
   });
+
+  router.use(createAdminRoutes(pool, registry, galaxyCrawler));
+  return router;
+}
+
+/**
+ * The admin route handlers with no authentication of their own. Mounted twice:
+ * behind the shared `x-admin-key` by createAdminRouter() above (the original
+ * /api/admin door, kept working), and behind the normal tenant session plus the
+ * operator flag by createOperatorRouter() (src/http/operator.ts, /api/operator —
+ * what Deck's Admin screens use). Never mount this bare.
+ */
+export function createAdminRoutes(pool: pg.Pool, registry: TenantRegistry, galaxyCrawler: GalaxyCrawler): Router {
+  const router = Router();
 
   router.get("/tenants", async (_req, res) => {
     try {
@@ -318,6 +334,55 @@ export function createAdminRouter(pool: pg.Pool, registry: TenantRegistry, galax
       res.json({ ok: true, tenantsWiped: wiped, tenantsKept: keepTenantIds });
     } catch (err) {
       console.error("[admin] reset cleanup error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // ── Read-only views added with the Deck admin rebuild ─────────────────
+
+  /** The post-reset recovery watcher: what it last saw and did (src/engine/resetWatcher.ts). */
+  router.get("/reset-watch", (_req, res) => {
+    res.json({
+      watcher: resetWatcherStatus() ?? null,
+      accountTokenConfigured: Boolean(process.env.ST_ACCOUNT_TOKEN),
+      recoveryEnabled: (process.env.AUTO_RESET_RECOVERY ?? "on").toLowerCase() !== "off",
+      universe: getCurrentResetDate(),
+    });
+  });
+
+  /** The weekly scoreboard (run_results), newest first, every agent. */
+  router.get("/run-results", async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+      res.json({ rows: await new Store(pool).listRunResults(limit) });
+    } catch (err) {
+      console.error("[admin] run-results error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * One agent's fleet timeline (fleet_events + operator_actions, time-ordered) and
+   * optionally the 15-minute cash/fleet samples. `agent` defaults to the first
+   * tenant; `resetDate` selects a past week.
+   */
+  router.get("/timeline", async (req, res) => {
+    try {
+      const store = new Store(pool);
+      const tenants = await listAllTenantsAdmin(pool);
+      const agent = typeof req.query.agent === "string" && req.query.agent ? req.query.agent : tenants[0]?.agentSymbol;
+      if (!agent) return res.json({ agent: null, events: [], samples: [] });
+      const sinceHours = Number(req.query.sinceHours);
+      const sinceIso = sinceHours > 0 ? new Date(Date.now() - sinceHours * 3_600_000).toISOString() : undefined;
+      const resetDate = typeof req.query.resetDate === "string" && req.query.resetDate ? req.query.resetDate : undefined;
+      const kinds = typeof req.query.kinds === "string" && req.query.kinds ? req.query.kinds.split(",").map((k) => k.trim()) : undefined;
+      const ship = typeof req.query.ship === "string" && req.query.ship ? req.query.ship : undefined;
+      const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 1000);
+      const events = await store.opsTimeline(agent, { sinceIso, resetDate, kinds, ship, limit });
+      const samples = req.query.samples === "true" ? await store.listRunTimeline(agent, { sinceIso, resetDate, limit: 700 }) : [];
+      res.json({ agent, events, samples });
+    } catch (err) {
+      console.error("[admin] timeline error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

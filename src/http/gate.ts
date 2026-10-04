@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type pg from "pg";
 import { Client, SpaceTradersAPI, API_BASE } from "../core/client.js";
+import { isOperator } from "./operatorFlag.js";
 import { findOrCreateTenant, createSession, deleteSession, resolveSession, needsOnboarding } from "../db/tenants.js";
 import { signSessionCookie, verifySessionCookie } from "../auth/crypto.js";
 import { parseCookies } from "./cookies.js";
@@ -79,6 +80,7 @@ export function createGateRouter(
       agentSymbol: tenant.agentSymbol,
       isNewTenant: tenant.isNewTenant,
       onboardingPending: await needsOnboarding(pool, tenant.id),
+      operator: isOperator(tenant.agentSymbol),
     });
   });
 
@@ -144,6 +146,7 @@ export function createGateRouter(
     res.json({
       agentSymbol: tenant.agentSymbol,
       onboardingPending: await needsOnboarding(pool, tenant.id),
+      operator: isOperator(tenant.agentSymbol),
     });
   });
 

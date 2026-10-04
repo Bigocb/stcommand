@@ -12,6 +12,7 @@ import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
 import { createUiVersionRouter, cacheHeaders } from "../http/uiVersions.js";
 import { createAdminRouter } from "../http/admin.js";
+import { createOperatorRouter } from "../http/operator.js";
 import { createCartographyRouter } from "../http/cartography.js";
 import { createMcpAuth } from "../http/mcpAuth.js";
 import { createMcpRouter } from "../mcp/server.js";
@@ -137,6 +138,9 @@ async function main(): Promise<void> {
   // resolveTenant, which would demand a tenant session for a request that
   // isn't scoped to any one tenant at all.
   app.use("/api/admin", createAdminRouter(pool, registry, galaxyCrawler));
+  // The same admin handlers behind the normal session + OPERATOR_AGENTS flag
+  // (Deck's Admin screens). Ahead of the /api engine-boot middleware on purpose.
+  app.use("/api/operator", createOperatorRouter(pool, registry, galaxyCrawler));
   if (!process.env.ADMIN_KEY) log("ADMIN_KEY is not set — /admin is disabled (every /api/admin/* request 503s)");
 
   // The hosted MCP server (docs/mcp-server-plan.md): its own per-tenant

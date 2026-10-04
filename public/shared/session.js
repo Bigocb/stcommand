@@ -57,7 +57,7 @@ export async function probeSession() {
     const res = await fetch("/api/gate/session");
     if (!res.ok) return { authenticated: false };
     const json = await res.json();
-    return { authenticated: true, agentSymbol: json.agentSymbol, onboardingPending: !!json.onboardingPending };
+    return { authenticated: true, agentSymbol: json.agentSymbol, onboardingPending: !!json.onboardingPending, operator: !!json.operator };
   } catch (_) {
     return { authenticated: false };
   }

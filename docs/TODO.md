@@ -7,8 +7,11 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-- [ ] **Rebuild the admin area from scratch (raised 2026-10-04, operator;
-  not started, no date).** `public/admin.html` + `src/http/admin.ts` predate
+- [~] **Rebuild the admin area from scratch (raised 2026-10-04, operator;
+  first pass SHIPPED 2026-10-04 as Deck's Admin tabs — see CHANGELOG; remaining:
+  confirm in use with `OPERATOR_AGENTS` set, then retire `public/admin.html`, the
+  `/admin` route and `ADMIN_KEY`; a watcher pause/run-now switch; per-agent
+  Health for non-operator tenants).** `public/admin.html` + `src/http/admin.ts` predate
   most of what now exists. A rebuild should surface, at minimum: the reset
   watcher (`reset_watch` status, next reset countdown, `ST_ACCOUNT_TOKEN`
   configured?, manual "run recovery now" / pause switch); the weekly

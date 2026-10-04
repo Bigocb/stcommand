@@ -473,3 +473,11 @@ Once Overview is live and the operator has actually looked at it (same
 sequencing Tower followed — Home first, then Fleet, then Map, then
 Markets+More), the next natural screen is Fleet (mockup screens 2, 6, 7) —
 but that's a separate pass with its own spec, not part of this one.
+
+## 10. Admin screens (2026-10-04)
+
+Deck now has an operator-only **Admin** rail item (`public/deck-admin.js`, markup in
+`deck.html` `#view-admin`, styles `.adm-*` in `deck.css`). Shown only when the session
+reports `operator: true` (`OPERATOR_AGENTS` env list). One panel with segmented tabs —
+Reset, Scoreboard, Timeline, Health, Tenants — never stacked sections. Data comes from
+`/api/operator/*` (admin handlers behind session + operator flag) and `/api/ops/*`.

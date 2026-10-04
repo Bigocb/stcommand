@@ -37,6 +37,7 @@
       <button class="item" data-view="ops"><div class="ic">☰</div>Ops</button>
       <button class="item" data-view="feeds"><div class="ic">⇄</div>Feeds</button>
       <button class="item" data-view="doctrine"><div class="ic">§</div>Doctrine</button>
+      <button class="item" data-view="admin" id="rail-admin" hidden><div class="ic">⚙</div>Admin</button>
     </div>
     <div class="main">
       <div class="topbar">
@@ -301,6 +302,15 @@
           </div>
         </div>
         <!-- Doctrine screen (pass 6) -->
+        <div class="content" id="view-admin" hidden>
+          <div class="panel adm-shell">
+            <div class="panel-h"><span class="dot"></span><span class="title">Admin</span>
+              <div class="seg" id="adm-seg"></div>
+              <span class="count" id="adm-count"></span>
+            </div>
+            <div class="panel-b adm-body" id="adm-body"></div>
+          </div>
+        </div>
         <div class="content" id="view-doctrine" hidden>
           <div class="cols2">
             <div class="panel" style="min-height:0;display:flex;flex-direction:column">

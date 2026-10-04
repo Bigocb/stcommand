@@ -20,6 +20,7 @@ import {
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
+import { enableAdmin, openAdmin, closeAdmin } from "/deck-admin.js";
 import { keeperCoverage } from "/shared/domain.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
@@ -50,8 +51,9 @@ $("auth-form").addEventListener("submit", async (e) => {
   const token = $("auth-token").value.trim();
   if (!token) return;
   try {
-    await login(token);
+    const who = await login(token);
     hideAuthGate();
+    if (who?.operator) enableAdmin();
     boot();
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
@@ -66,6 +68,8 @@ function setView(name) {
   document.querySelectorAll(".rail .item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
   const viewEl = $(`view-${name}`);
   if (viewEl) viewEl.hidden = false;
+  if (name !== "admin") closeAdmin();
+  if (name === "admin") openAdmin();
   if (name === "fleet") renderFleet();
   if (name === "markets") renderMarkets();
   if (name === "map") {
@@ -2234,7 +2238,8 @@ let cmdkSelected = 0;
 
 function cmdkItems(query) {
   const q = query.trim().toLowerCase();
-  const sections = CMDK_SECTIONS
+  const adminOn = document.getElementById("rail-admin")?.hidden === false;
+  const sections = [...CMDK_SECTIONS, ...(adminOn ? [{ key: "admin", label: "Admin" }] : [])]
     .filter((s) => !q || s.label.toLowerCase().includes(q) || s.key.includes(q))
     .map((s) => ({ tag: "section", label: s.label, run: () => setView(s.key) }));
   const ships = (state?.ships ?? [])
@@ -2313,5 +2318,6 @@ document.addEventListener("keydown", (e) => {
   const session = await probeSession();
   if (!session.authenticated) return showAuthGate();
   hideAuthGate();
+  if (session.operator) enableAdmin();
   boot();
 })();

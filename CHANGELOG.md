@@ -9,6 +9,24 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck Admin: operator-only screens on the normal session (replaces /admin's key login)
+
+Deck gets an **Admin** rail item, shown only when `/api/gate/session` (and the
+login response) say `operator: true` — i.e. the signed-in agent is listed in the
+`OPERATOR_AGENTS` env var (comma-separated; unset = nobody, fails closed). One
+page, one tab at a time: **Reset** (watcher state, countdown to the next reset,
+account-token/auto-recovery flags, per-agent progress), **Scoreboard**
+(`run_results`, click a week for roles/top ships/goods/spend/doctrine),
+**Timeline** (filterable fleet events + the 15-minute cash curve), **Health**
+(stuck ships, instances/rate limit, keeper coverage), **Tenants** (view as,
+play profile, delete, manual post-reset cleanup). Backend: the old admin
+handlers moved into `createAdminRoutes()` and are mounted twice — behind
+`x-admin-key` at `/api/admin` (unchanged, still works) and behind session +
+`requireOperator` at `/api/operator` (new, resolved ahead of the engine-boot
+middleware so it works when a tenant's engine is down). New read-only routes on
+both: `/reset-watch`, `/run-results`, `/timeline`. `public/admin.html` stays
+until the new screens are confirmed in use; then it and the key can go.
+
 ## Durable fleet timeline: `fleet_events` + `run_timeline`, and an ops `timeline` tool
 
 Until now a week's story was mostly lost: the ledger/activity feed are wiped at
