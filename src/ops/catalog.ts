@@ -166,6 +166,22 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "timeline",
+    title: "Fleet timeline: roles, purchases, approvals, operator actions",
+    description:
+      "The fleet's story in time order, merged from fleet_events (every role change incl. ones the engine made itself, every ship purchase, approval requested/decided) and operator_actions (everything you did). Survives the weekly reset. Filters: sinceHours, ship, kinds (comma list: role_change, ship_purchased, approval_requested, approval_decided, plus operator kinds like role_change/manual_buy/mcp_*), resetDate (a past week). Set samples=true to also return the 15-minute credits/ship-count/role-mix curve.",
+    input: { sinceHours: z.coerce.number().optional(), ship: z.string().optional(), kinds: z.string().optional(), resetDate: z.string().optional(), limit: num(200), samples: bool },
+    async run(ctx, a) {
+      const sinceIso = a.sinceHours ? iso(ctx.now() - a.sinceHours * 3_600_000) : undefined;
+      const kinds = a.kinds ? String(a.kinds).split(",").map((k: string) => k.trim()).filter(Boolean) : undefined;
+      const events = await ctx.w.store.opsTimeline(ctx.w.agentSymbol, { sinceIso, resetDate: a.resetDate, kinds, ship: a.ship, limit: a.limit });
+      const out: Record<string, unknown> = { asOf: iso(ctx.now()), count: events.length, events };
+      if (a.samples) out.samples = await ctx.w.store.listRunTimeline(ctx.w.agentSymbol, { sinceIso, resetDate: a.resetDate, limit: 700 });
+      return out;
+    },
+  },
+
+  {
     name: "reset_watch",
     title: "Server-reset recovery status",
     description:

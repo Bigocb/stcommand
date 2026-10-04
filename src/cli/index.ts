@@ -18,6 +18,7 @@ import { createMcpRouter } from "../mcp/server.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 import { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { createResetWatcher } from "../engine/resetWatcherLive.js";
+import { startRunTimeline } from "../engine/runTimeline.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = resolve(__dirname, "../../public");
@@ -98,6 +99,9 @@ async function main(): Promise<void> {
   // src/engine/resetWatcher.ts. Needs ST_ACCOUNT_TOKEN to register new agents;
   // AUTO_RESET_RECOVERY=off makes it detect-and-report only.
   createResetWatcher(pool, registry, galaxyCrawler, log).start();
+
+  // Cash/fleet sample every 15 min into run_timeline, for the weekly curve.
+  startRunTimeline(registry, log);
 
   // Heartbeat so any instance can tell whether another one is alive at the
   // same time (deploy overlap — the usual 429-storm cause). See migration 034.

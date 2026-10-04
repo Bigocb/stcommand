@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { withTenant, withPool } from "./pool.js";
+import { getCurrentResetDate } from "../core/universe.js";
 
 /**
  * Async, tenant-scoped port of straders' `Store` (src/engine/store.ts).
@@ -465,8 +466,8 @@ export class Store {
   // ── Ledger ──────────────────────────────────────────────────
 
   async recordLedger(tenantId: string, entry: LedgerEntry): Promise<void> {
-    await withTenant(this.pool, tenantId, (c) =>
-      c.query(
+    await withTenant(this.pool, tenantId, async (c) => {
+      await c.query(
         `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
@@ -481,8 +482,15 @@ export class Store {
           entry.total,
           entry.realizedPnl ?? null,
         ],
-      ),
-    );
+      );
+      if (entry.type === "SHIP") {
+        await this.logFleetEvent(
+          c, tenantId, "ship_purchased", entry.shipSymbol,
+          `bought ${entry.shipSymbol} (${entry.tradeSymbol ?? "?"}) at ${entry.waypointSymbol} for ${Math.round(entry.total)}c`,
+          { shipType: entry.tradeSymbol ?? null, yard: entry.waypointSymbol, price: Math.round(entry.total) },
+        );
+      }
+    });
   }
 
   /**
@@ -780,14 +788,49 @@ export class Store {
     });
   }
 
+  /**
+   * Appends one row to fleet_events (migration 037) on the caller's tenant
+   * connection. Wrapped in a savepoint so a failure here can never abort the
+   * transaction of the write it describes — history is best-effort, the action
+   * it records is not.
+   */
+  private async logFleetEvent(
+    c: pg.PoolClient,
+    tenantId: string,
+    kind: string,
+    shipSymbol: string | undefined,
+    detail: string,
+    meta?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await c.query("SAVEPOINT fleet_event");
+      await c.query(
+        `INSERT INTO fleet_events (agent_symbol, tenant_id, reset_date, kind, ship_symbol, detail, meta)
+         SELECT agent_symbol, id, $2, $3, $4, $5, $6 FROM tenants WHERE id = $1`,
+        [tenantId, getCurrentResetDate(), kind, shipSymbol ?? null, detail, meta ? JSON.stringify(meta) : null],
+      );
+      await c.query("RELEASE SAVEPOINT fleet_event");
+    } catch {
+      await c.query("ROLLBACK TO SAVEPOINT fleet_event").catch(() => {});
+    }
+  }
+
   async setFleetState(tenantId: string, shipSymbol: string, role: string, keeperMarket?: string): Promise<void> {
-    await withTenant(this.pool, tenantId, (c) =>
-      c.query(
+    await withTenant(this.pool, tenantId, async (c) => {
+      const prev = (await c.query<{ role: string }>(`SELECT role FROM fleet_state WHERE ship_symbol = $1`, [shipSymbol])).rows[0]?.role;
+      await c.query(
         `INSERT INTO fleet_state (tenant_id, ship_symbol, role, keeper_market, updated_at) VALUES ($1, $2, $3, $4, now())
          ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET role = excluded.role, keeper_market = excluded.keeper_market, updated_at = excluded.updated_at`,
         [tenantId, shipSymbol, role, keeperMarket ?? null],
-      ),
-    );
+      );
+      if (prev !== role) {
+        await this.logFleetEvent(c, tenantId, "role_change", shipSymbol, `${shipSymbol}: ${prev ?? "(new)"} → ${role}`, {
+          from: prev ?? null,
+          to: role,
+          keeperMarket: keeperMarket ?? null,
+        });
+      }
+    });
   }
 
   async removeFleetState(tenantId: string, shipSymbol: string): Promise<void> {
@@ -2733,6 +2776,7 @@ export class Store {
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
         [tenantId, kind, shipSymbol ?? null, detail, cost ?? null, expiresAtIso],
       );
+      await this.logFleetEvent(c, tenantId, "approval_requested", shipSymbol, `${kind}: ${detail}`, { kind, cost: cost ?? null });
       return toPendingApprovalRow(res.rows[0]!);
     });
   }
@@ -2790,12 +2834,23 @@ export class Store {
     status: "approved" | "denied" | "expired" | "auto_approved",
     consumed = false,
   ): Promise<void> {
-    await withTenant(this.pool, tenantId, (c) =>
-      c.query(
-        `UPDATE pending_approvals SET status = $3, consumed = $4, decided_at = now() WHERE tenant_id = $1 AND id = $2 AND status = 'pending'`,
+    await withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ kind: string; ship_symbol: string | null; detail: string; cost: number | null }>(
+        `UPDATE pending_approvals SET status = $3, consumed = $4, decided_at = now() WHERE tenant_id = $1 AND id = $2 AND status = 'pending'
+         RETURNING kind, ship_symbol, detail, cost`,
         [tenantId, id, status, consumed],
-      ),
-    );
+      );
+      const row = res.rows[0];
+      if (row) {
+        await this.logFleetEvent(c, tenantId, "approval_decided", row.ship_symbol ?? undefined, `${status}: ${row.kind} — ${row.detail}`, {
+          kind: row.kind,
+          status,
+          cost: row.cost,
+          // auto_approved/expired = ApprovalGate's own timeout policy, not a person
+          byTimeout: status === "auto_approved" || status === "expired",
+        });
+      }
+    });
   }
 
   /** Mark an already-decided approval as acted upon — the engine calls this
@@ -3073,6 +3128,70 @@ export class Store {
         ],
       );
       return (insert.rowCount ?? 0) > 0;
+    });
+  }
+
+  /** One cash/fleet sample for the weekly curve (migration 037). Best-effort. */
+  async recordRunTimeline(
+    tenantId: string,
+    sample: { credits: number | null; shipCount: number; roles: Record<string, number>; buys?: number; sells?: number },
+  ): Promise<void> {
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO run_timeline (agent_symbol, tenant_id, reset_date, credits, ship_count, roles, buys, sells)
+         SELECT agent_symbol, id, $2, $3, $4, $5, $6, $7 FROM tenants WHERE id = $1`,
+        [tenantId, getCurrentResetDate(), sample.credits, sample.shipCount, JSON.stringify(sample.roles), sample.buys ?? null, sample.sells ?? null],
+      ),
+    );
+  }
+
+  /**
+   * The fleet's story, oldest-to-newest within the window: fleet_events (roles,
+   * purchases, approvals) merged with operator_actions (everything an operator
+   * did, including manual routes and checkpoint notes). Both survive the weekly
+   * wipe. `agentSymbol` + optional `resetDate` select the week.
+   */
+  async opsTimeline(
+    agentSymbol: string,
+    opts: { sinceIso?: string; resetDate?: string; kinds?: string[]; ship?: string; limit: number },
+  ): Promise<{ ts: string; source: string; kind: string; ship: string | null; detail: string; meta: unknown }[]> {
+    return withPool(this.pool, async (c) => {
+      const events = await c.query(
+        `SELECT ts, 'event' AS source, kind, ship_symbol, detail, meta FROM fleet_events
+         WHERE agent_symbol = $1 AND ($2::text IS NULL OR reset_date = $2) AND ($3::timestamptz IS NULL OR ts >= $3)
+           AND ($4::text IS NULL OR ship_symbol = $4)`,
+        [agentSymbol, opts.resetDate ?? null, opts.sinceIso ?? null, opts.ship ?? null],
+      );
+      // operator_actions is row-level-secured; read it through the tenant of this agent.
+      const tenantId = (await c.query(`SELECT id FROM tenants WHERE agent_symbol = $1`, [agentSymbol])).rows[0]?.id as string | undefined;
+      let ops: any[] = [];
+      if (tenantId) {
+        ops = await withTenant(this.pool, tenantId, async (tc) =>
+          (await tc.query(
+            `SELECT created_at AS ts, 'operator' AS source, kind, ship_symbol, detail, meta FROM operator_actions
+             WHERE ($1::timestamptz IS NULL OR created_at >= $1) AND ($2::text IS NULL OR ship_symbol = $2)`,
+            [opts.sinceIso ?? null, opts.ship ?? null],
+          )).rows,
+        );
+      }
+      const rows = [...events.rows, ...ops]
+        .filter((r) => !opts.kinds?.length || opts.kinds.includes(r.kind))
+        .map((r) => ({ ts: new Date(r.ts).toISOString(), source: r.source as string, kind: r.kind as string, ship: (r.ship_symbol ?? null) as string | null, detail: r.detail as string, meta: r.meta }))
+        .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+      return rows.slice(-opts.limit);
+    });
+  }
+
+  /** The 15-minute cash/fleet samples for one agent, oldest first. */
+  async listRunTimeline(agentSymbol: string, opts: { sinceIso?: string; resetDate?: string; limit: number }): Promise<Record<string, unknown>[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query(
+        `SELECT ts, reset_date, credits, ship_count, roles FROM (
+           SELECT * FROM run_timeline WHERE agent_symbol = $1 AND ($2::text IS NULL OR reset_date = $2) AND ($3::timestamptz IS NULL OR ts >= $3)
+           ORDER BY ts DESC LIMIT $4) t ORDER BY ts ASC`,
+        [agentSymbol, opts.resetDate ?? null, opts.sinceIso ?? null, opts.limit],
+      );
+      return res.rows;
     });
   }
 

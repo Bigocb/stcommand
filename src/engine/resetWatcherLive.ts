@@ -6,6 +6,7 @@ import { Store } from "../db/store.js";
 import { findOrCreateTenant, getTenantToken, listAllTenants } from "../db/tenants.js";
 import type { TenantRegistry } from "./tenantRegistry.js";
 import type { GalaxyCrawler } from "./galaxyCrawler.js";
+import { setCurrentResetDate } from "../core/universe.js";
 import { ResetWatcher, setActiveResetWatcher, type ResetWatcherPorts, type TokenProbe } from "./resetWatcher.js";
 
 const CRAWL_KEY = "reset_watcher";
@@ -29,10 +30,13 @@ export function createResetWatcher(
       return { resetDate: json.resetDate, nextReset: json.serverResets?.next };
     },
     async getSeenResetDate() {
-      return (await store.getCrawlState<{ resetDate: string }>(CRAWL_KEY))?.resetDate;
+      const seen = (await store.getCrawlState<{ resetDate: string }>(CRAWL_KEY))?.resetDate;
+      if (seen) setCurrentResetDate(seen); // attributes fleet_events / run_timeline rows to this week
+      return seen;
     },
     async setSeenResetDate(resetDate) {
       await store.setCrawlState(CRAWL_KEY, { resetDate, handledAt: new Date().toISOString() });
+      setCurrentResetDate(resetDate);
     },
     listTenants: () => listAllTenants(pool),
     async probeTenant(t): Promise<TokenProbe> {
@@ -53,6 +57,7 @@ export function createResetWatcher(
     wipeTenantGameData: (id) => store.wipeTenantGameData(id),
     truncateSharedGalaxy: () => store.truncateSharedGalaxyTables(),
     resetCrawler: () => crawler.resetCrawlState(),
+    beginUniverse: (resetDate) => setCurrentResetDate(resetDate),
     async registerAndStore(symbol) {
       const reg = await registerAgent(symbol, faction);
       // Same agent_symbol => same tenant row, so its MCP key and doctrine survive.

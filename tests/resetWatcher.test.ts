@@ -30,6 +30,7 @@ function harness(opts: { seen?: string; apiReset: string; probe?: TokenProbe; ac
     wipeTenantGameData: async () => { calls.push("wipe"); },
     truncateSharedGalaxy: async () => { calls.push("truncate"); },
     resetCrawler: () => { calls.push("crawler"); },
+    beginUniverse: (d) => { calls.push(`universe:${d}`); },
     registerAndStore: async (symbol) => {
       if (st.registerFails > 0) { st.registerFails -= 1; throw new Error("api warming up"); }
       calls.push(`register:${symbol}`);
@@ -56,7 +57,7 @@ describe("ResetWatcher", () => {
   it("first run with dead tokens treats it as a reset it missed", async () => {
     const { w, calls, st } = harness({ apiReset: "2026-10-04" });
     await w.tick();
-    assert.deepEqual(calls, ["capture:unknown->2026-10-04", "stop", "wipe", "truncate", "crawler", "register:THEO", "boot", "seen:2026-10-04"]);
+    assert.deepEqual(calls, ["capture:unknown->2026-10-04", "stop", "wipe", "truncate", "crawler", "universe:2026-10-04", "register:THEO", "boot", "seen:2026-10-04"]);
     assert.equal(st.seen, "2026-10-04");
     assert.equal(w.status().state, "recovered");
   });
@@ -70,7 +71,7 @@ describe("ResetWatcher", () => {
   it("a changed resetDate clears stale data, registers, boots, then records it handled", async () => {
     const { w, calls } = harness({ seen: "2026-09-27", apiReset: "2026-10-04" });
     await w.tick();
-    assert.deepEqual(calls, ["capture:2026-09-27->2026-10-04", "stop", "wipe", "truncate", "crawler", "register:THEO", "boot", "seen:2026-10-04"]);
+    assert.deepEqual(calls, ["capture:2026-09-27->2026-10-04", "stop", "wipe", "truncate", "crawler", "universe:2026-10-04", "register:THEO", "boot", "seen:2026-10-04"]);
     // wipe happens strictly before the new agent exists
     assert.ok(calls.indexOf("wipe") < calls.indexOf("register:THEO"));
   });

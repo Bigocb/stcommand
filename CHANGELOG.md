@@ -9,6 +9,26 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Durable fleet timeline: `fleet_events` + `run_timeline`, and an ops `timeline` tool
+
+Until now a week's story was mostly lost: the ledger/activity feed are wiped at
+each reset, `fleet_state` keeps only a ship's *current* role, approvals are
+wiped, and role changes the engine made itself (e.g. THEO-1 → tour at boot)
+were never recorded anywhere. Migration 037 adds two tables that, like
+`run_results`, are not tenant-scoped and outlive the wipe:
+- `fleet_events` — append-only: `role_change` (from → to, from `setFleetState`),
+  `ship_purchased` (type, yard, price — from every `SHIP` ledger row, whoever
+  initiated it), `approval_requested` / `approval_decided` (incl. timeout
+  auto-decisions). Written from the three Store chokepoints inside the same
+  transaction behind a savepoint, so history can never fail the action it records.
+- `run_timeline` — credits, ship count, role mix and running buy/sell totals every
+  15 minutes per agent, for a cash/fleet curve.
+Each row carries the game universe (`reset_date`) so weeks can be separated;
+`core/universe.ts` holds the current one, set by the reset watcher (and flipped
+right after the post-reset wipe, before the new agent boots). The ops tool
+`timeline` merges `fleet_events` with `operator_actions` in time order
+(filters: sinceHours, ship, kinds, resetDate; `samples=true` adds the curve).
+
 ## Stopping a tenant now also stops its state-refresh timer
 
 Found during the first live auto-recovery (2026-10-04): `stopOne()` stopped a

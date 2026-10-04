@@ -52,6 +52,8 @@ export interface ResetWatcherPorts {
   wipeTenantGameData(tenantId: string): Promise<void>;
   truncateSharedGalaxy(): Promise<void>;
   resetCrawler(): void;
+  /** The new universe begins: durable history written from here on belongs to `resetDate`. Called after the wipe, before anything is registered or booted. */
+  beginUniverse(resetDate: string): void;
   /** Register a fresh agent and store its token on that tenant's row. Returns the tenant id now holding the new token. */
   registerAndStore(symbol: string): Promise<{ tenantId: string; agentSymbol: string }>;
   boot(tenantId: string, agentSymbol: string): Promise<void>;
@@ -225,6 +227,7 @@ export class ResetWatcher {
       await this.ports.truncateSharedGalaxy();
       this.ports.resetCrawler();
       this.cleanedFor = status.resetDate;
+      this.ports.beginUniverse(status.resetDate);
       this.log(`cleared stale data for ${dead.length} tenant(s) and shared galaxy tables`);
     }
 

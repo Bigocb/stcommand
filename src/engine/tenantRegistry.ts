@@ -229,6 +229,11 @@ export class TenantRegistry {
     return worker;
   }
 
+  /** Every booted worker (read-only iteration; never triggers a boot). */
+  workersSnapshot(): TenantWorker[] {
+    return [...this.workers.values()];
+  }
+
   /** Number of tenants currently running in this process. */
   size(): number {
     return this.workers.size;

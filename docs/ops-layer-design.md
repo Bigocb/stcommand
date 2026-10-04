@@ -51,6 +51,7 @@ documented tools so the answer is one call, not an investigation.
 | `survey_candidates` | Systems within N gate hops of a system ranked by unpriced markets: market count, shipyards, priced/fresh counts, gate-complete flags. ("Where should the scout go?") | 1 |
 | `market_freshness` | Every market in a system with goods count, newest snapshot age and keeper status. | 1 |
 | `assignments` | The dispatcher's current assignments incl. manual overrides. | 1 |
+| `timeline` | The fleet's story in time order: role changes (incl. engine-made), ship purchases, approvals, plus everything the operator did. Survives resets; `samples=true` adds the 15-min cash/fleet curve. | 1 |
 | `reset_watch` | Automatic post-reset recovery: the game's resetDate/next reset, the last one handled, per-tenant progress, `needs_account_token` if it cannot act. | 1 |
 | `run_results` | The weekly scoreboard (`run_results`): one row per agent per reset — final cash, wallet delta, trading net, ships, spend, top ships/goods. `captureNow=true` adds a mid-week preview row (the one tool that writes, only to that table). | 1 |
 | `dispatch_explain` | For a trader or good: the work list the dispatcher saw on its last cycle with raw profit, crowding penalty (`impactCost`), net score, and the reason each item was rejected for that ship (claimed / buyer cap / unreachable / below margin floor). Needs a small capture inside `recompute()`. | 2 |
