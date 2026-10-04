@@ -4038,7 +4038,12 @@ export class FleetManager {
     const available = this.availableFor("feed");
     const candidates: { sym: string; cargo: number; fuelCap: number }[] = [];
     for (const [s, a] of this.miners) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
-    if (!requireMiner) for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
+    // A trader holding cargo is mid-delivery: its registry "trading" claim can lag a
+    // tick or two behind the purchase, and a feed carrier clears any unrelated cargo by
+    // selling it wherever it happens to be — or jettisoning it if that fails. Seen live
+    // 2026-10-04: a feed claimed THEO-1 30s after it bought 18 SHIP_PLATING (~90k) for C41
+    // and headed for H55, which doesn't buy it. Leave loaded traders for the next pass.
+    if (!requireMiner) for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s) && (a.getShip().cargo.units ?? 0) === 0) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
     let reachable = candidates;
     if (targetWaypoint) {
       reachable = [];

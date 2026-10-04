@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Feeds no longer claim a trader that is holding cargo
+
+Live near-miss 2026-10-04: a newly created `IRON → F53` feed claimed THEO-1 thirty
+seconds after it bought 18 SHIP_PLATING (~90k) for a C41 delivery. The feed carrier
+skipped the sale at C41, refueled, and flew toward H55 (which does not buy plating),
+where its unrelated-cargo clear would have tried to sell and then jettisoned the
+load. The operator-visible fix was removing the feed before the carrier acted; the
+cause was the carrier picker (`pickFeedCarrier`) offering a loaded trader — the
+registry's "trading" claim, which should outrank a feed, lags a tick or two behind
+a purchase. The picker now skips traders with anything in the hold, so a feed waits
+for a genuinely free one. (A manual `assign_feed_carrier` is unchanged; the
+jettison fallback in `clearUnrelatedCargo` is untouched and worth revisiting.)
+
 ## MCP: `stcommand_mine_at` and `stcommand_set_doctrine`
 
 Found 2026-10-04: with `fieldSpreadEnabled` on, new miners are spread to whichever
