@@ -405,6 +405,88 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_get_feeds",
+    {
+      title: "List feeder tiers",
+      description: "Every active feed: a crew that sources a good (by mining or buying) and sells it into a target market. Shows the target waypoint, good, whether it mines, crew size wanted, and the ships assigned.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return textResult({ feeds: await w.fleet.getFeeds() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_start_feed",
+    {
+      title: "Start a feeder tier",
+      description: "Start a feed: a crew that sources `good` and sells it into `waypoint` (e.g. IRON_ORE into the refinery market H55). mine=true sources by mining (miners are claimed by the feed, so contracts/missions cannot take them, and their survey preference is wired to the good); mine=false buys it. carrierTarget is how many ships to staff. Same as the dashboard's Feeder tiers form.",
+      inputSchema: {
+        waypoint: z.string().describe("Market that receives the good"),
+        good: z.string().describe("Exact TradeSymbol, e.g. IRON_ORE"),
+        mine: z.boolean().optional().describe("Source by mining instead of buying"),
+        carrierTarget: z.number().int().positive().optional().describe("Crew size to staff (default 1)"),
+        buyAt: z.string().optional(),
+        sellGapMin: z.number().positive().optional().describe("Minutes between sells (optional pacing)"),
+        force: z.boolean().optional().describe("Override the margin gate"),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint, good, mine, carrierTarget, buyAt, sellGapMin, force }) => {
+      try {
+        await w.fleet.startFeed(waypoint, good.toUpperCase(), carrierTarget ?? 1, mine === true, buyAt, force === true, sellGapMin ? sellGapMin * 60_000 : undefined);
+        await recordMcpAction(w, "feed_start", undefined, `feed ${good.toUpperCase()} -> ${waypoint}${mine ? " (mine)" : ""} x${carrierTarget ?? 1}`, { waypoint, good, mine: mine === true, carrierTarget: carrierTarget ?? 1 });
+        return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_assign_feed_carrier",
+    {
+      title: "Add a specific ship to a feed's crew",
+      description: "Pin one ship (a miner for a mine feed, a trader otherwise) to an existing feed. It must not already be on another feed or mission.",
+      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint, good, shipSymbol }) => {
+      try {
+        await w.fleet.assignFeedCarrier(waypoint, good.toUpperCase(), shipSymbol);
+        await recordMcpAction(w, "feed_assign", shipSymbol, `${shipSymbol} -> feed ${good.toUpperCase()} @ ${waypoint}`, { waypoint, good });
+        return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_remove_feed",
+    {
+      title: "Stop and forget a feed",
+      description: "Remove a feed entirely (releases its crew back to automatic control).",
+      inputSchema: { waypoint: z.string(), good: z.string() },
+      annotations: { destructiveHint: true, idempotentHint: true },
+    },
+    async ({ waypoint, good }) => {
+      try {
+        await w.fleet.removeFeed(waypoint, good.toUpperCase());
+        await recordMcpAction(w, "feed_remove", undefined, `feed ${good.toUpperCase()} @ ${waypoint} removed`, { waypoint, good });
+        return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_dock_toggle",
     {
       description: "Toggle a ship between docked and orbiting at its current waypoint. Fails if the ship is in transit.",

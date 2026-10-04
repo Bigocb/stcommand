@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP: feeder-tier tools (`get_feeds`, `start_feed`, `assign_feed_carrier`, `remove_feed`)
+
+Starting a feed was dashboard-only. Reported 2026-10-04: new miners got pulled onto a
+procurement contract instead of mining for the ore feed. A feed claims its crew
+(`shipRegistry` owner "feed"), which is what keeps contracts/missions off them, so the
+fix for that is to run the ore as a feed — now possible over MCP.
+
 ## MCP: `stcommand_set_miner_preference`
 
 Set (or clear, or list) which good a miner's or surveyor's surveys favor, from the
