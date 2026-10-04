@@ -19,8 +19,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   as today. **Decided 2026-10-04:** auth moves to the normal tenant session
   plus an operator flag (retiring the shared `x-admin-key`), and Deck absorbs
   the admin pages (it is the desktop home; `public/admin.html` goes away).
-  Still open: how the operator flag is stored/granted (tenants column vs. env
-  list of agent symbols), and one page vs. sections inside Deck.
+  Also decided: the operator flag is an env list of agent symbols (e.g.
+  `OPERATOR_AGENTS=THEO`; can't lock the operator out), and the Deck layout is
+  tabs on one page or separate pages — NOT stacked sections.
 
 - [ ] **Discuss: should a tender wait out a jump cooldown before flying
   to its fuel market? (raised 2026-10-03, operator wants to talk it
