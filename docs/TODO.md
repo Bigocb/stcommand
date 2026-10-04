@@ -16,9 +16,11 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   profile per week); the fleet timeline and cash curve (`fleet_events`,
   `run_timeline`, the ops `timeline` tool); the ops tools as pages (stuck,
   instances/rate limit, keepers, pnl, logs); tenant list/cleanup/impersonate
-  as today. Open questions: keep the `x-admin-key` auth or move to the normal
-  session with an operator flag; one page vs. sections; whether Deck should
-  absorb it.
+  as today. **Decided 2026-10-04:** auth moves to the normal tenant session
+  plus an operator flag (retiring the shared `x-admin-key`), and Deck absorbs
+  the admin pages (it is the desktop home; `public/admin.html` goes away).
+  Still open: how the operator flag is stored/granted (tenants column vs. env
+  list of agent symbols), and one page vs. sections inside Deck.
 
 - [ ] **Discuss: should a tender wait out a jump cooldown before flying
   to its fuel market? (raised 2026-10-03, operator wants to talk it
