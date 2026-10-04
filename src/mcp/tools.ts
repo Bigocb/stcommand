@@ -487,6 +487,50 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_mine_at",
+    {
+      title: "Pin a miner or surveyor to one asteroid field (or release the pin)",
+      description: "Pin a mining/survey ship to a specific asteroid field. Unlike stcommand_dispatch_ship the ship keeps working — it keeps mining, hauling and selling on its own, it just stops choosing the field. Needed because the engine's field-spread default sends new miners to whichever field has the fewest ships, which can be hundreds of units from the market they sell into. Pass release=true to hand field choice back.",
+      inputSchema: { shipSymbol: z.string(), field: z.string().optional().describe("Asteroid waypoint, e.g. X1-JX83-CE5D"), release: z.boolean().optional() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol, field, release }) => {
+      try {
+        if (release) {
+          await w.fleet.unpinMining(shipSymbol);
+          await recordMcpAction(w, "mine_release", shipSymbol, `${shipSymbol}: field pin released`);
+          return textResult({ ok: true, shipSymbol, released: true });
+        }
+        if (!field) throw new Error("field is required unless release=true");
+        await w.fleet.mineAt(shipSymbol, field);
+        await recordMcpAction(w, "mine_at", shipSymbol, `${shipSymbol}: pinned to mine at ${field}`, { field });
+        return textResult({ ok: true, shipSymbol, field });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_set_doctrine",
+    {
+      title: "Change a standing-order (doctrine) rule",
+      description: "Set a doctrine rule's value and/or enabled flag by key (see stcommand_get_doctrine for keys), e.g. autoKeeperProbes enabled=false to stop automatic keeper-probe purchases, or fieldSpreadEnabled enabled=false. Same as the dashboard's Doctrine edit. Takes effect on the next tick.",
+      inputSchema: { key: z.string(), value: z.number().optional(), enabled: z.boolean().optional() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ key, value, enabled }) => {
+      try {
+        const rule = await w.fleet.doctrine.set(key, { value, enabled });
+        await recordMcpAction(w, "doctrine", undefined, `doctrine ${key}: ${value !== undefined ? `value=${value} ` : ""}${enabled !== undefined ? `enabled=${enabled}` : ""}`.trim(), { key, value, enabled });
+        return textResult({ ok: true, rule });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_dock_toggle",
     {
       description: "Toggle a ship between docked and orbiting at its current waypoint. Fails if the ship is in transit.",

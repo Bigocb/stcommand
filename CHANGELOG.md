@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP: `stcommand_mine_at` and `stcommand_set_doctrine`
+
+Found 2026-10-04: with `fieldSpreadEnabled` on, new miners are spread to whichever
+asteroid has the fewest ships. In X1-JX83 the only common-metal field near the refinery
+(H55) is CE5D (17 units); every other is 276-370 away, so two drones sent to B14/B12
+spent their time commuting and delivered almost nothing. `stcommand_mine_at` pins a
+miner/surveyor to a field (the ship keeps working; `release=true` undoes it) and
+`stcommand_set_doctrine` edits a doctrine rule (value/enabled) so rules like
+`autoKeeperProbes` can be changed without the dashboard.
+
 ## MCP: feeder-tier tools (`get_feeds`, `start_feed`, `assign_feed_carrier`, `remove_feed`)
 
 Starting a feed was dashboard-only. Reported 2026-10-04: new miners got pulled onto a
