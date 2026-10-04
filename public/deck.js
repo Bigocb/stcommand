@@ -422,6 +422,15 @@ function jobFor(ship, role) {
     const d = wanted.deliver.find((x) => held.has(x.tradeSymbol));
     return `contract: ${escapeHtml(d.tradeSymbol)} → ${escapeHtml(d.destinationSymbol)}`;
   }
+  // A trader with no dispatcher assignment but a loaded hold is mid-trade
+  // (bought, not yet sold), not idle: say what it is carrying instead of
+  // "unassigned" — the dispatcher assignment is lost on a restart/role flip
+  // while the cargo is still very much aboard.
+  const cargoUnits = ship.cargo?.units ?? 0;
+  if (role === "trader" && cargoUnits > 0) {
+    const top = [...(ship.cargo?.inventory ?? [])].sort((a, b) => b.units - a.units)[0];
+    return `carrying: ${top ? `${top.units} ${escapeHtml(top.symbol)}` : `${cargoUnits} units`}`;
+  }
   return role === "trader" ? "unassigned" : "—";
 }
 
