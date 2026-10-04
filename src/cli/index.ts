@@ -17,6 +17,7 @@ import { createMcpAuth } from "../http/mcpAuth.js";
 import { createMcpRouter } from "../mcp/server.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 import { GalaxyCrawler } from "../engine/galaxyCrawler.js";
+import { createResetWatcher } from "../engine/resetWatcherLive.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = resolve(__dirname, "../../public");
@@ -92,6 +93,11 @@ async function main(): Promise<void> {
     galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
   }, 5_000);
   galaxyCrawlInterval.unref?.();
+
+  // Recovers the fleet after the weekly server reset without the operator: see
+  // src/engine/resetWatcher.ts. Needs ST_ACCOUNT_TOKEN to register new agents;
+  // AUTO_RESET_RECOVERY=off makes it detect-and-report only.
+  createResetWatcher(pool, registry, galaxyCrawler, log).start();
 
   // Heartbeat so any instance can tell whether another one is alive at the
   // same time (deploy overlap — the usual 429-storm cause). See migration 034.

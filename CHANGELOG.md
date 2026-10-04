@@ -9,6 +9,22 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Automatic recovery after the weekly server reset (register + boot)
+
+`ResetWatcher` (started from the server, polls the unauthenticated game status
+endpoint every minute) notices a changed `resetDate`, then per tenant: saves the
+week's `run_results` row, stops the worker, wipes that tenant's stale game data
+and the shared galaxy tables, registers a fresh agent with the same symbol using
+`ST_ACCOUNT_TOKEN` (same tenant row, so the MCP key and doctrine survive), and
+boots the engine. Level-triggered: each tick re-derives what is left, so a
+failed step (API still warming up, registration or boot error) is retried and a
+second agent is never registered. First run records the current resetDate as a
+baseline and changes nothing; nothing is wiped unless the token is confirmed
+dead by a 401. Without `ST_ACCOUNT_TOKEN` (or with `AUTO_RESET_RECOVERY=off`) it
+only detects and reports. `RESET_FACTION` overrides the default `COSMIC`.
+Phase 2 (a defined starting layout) is not built: the new game just boots with
+the engine's defaults. Status: ops tool `reset_watch`.
+
 ## Weekly scoreboard: `run_results` table, saved just before a reset wipes the data
 
 One row per agent per server-reset period (migration 036): cash in hand at the

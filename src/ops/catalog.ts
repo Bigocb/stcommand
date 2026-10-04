@@ -2,6 +2,7 @@ import * as z from "zod";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
+import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import type { OpsTool } from "./types.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
@@ -160,6 +161,21 @@ export const OPS_TOOLS: OpsTool[] = [
         aliveCount: alive.length,
         overlap: alive.length > 1,
         instances,
+      };
+    },
+  },
+
+  {
+    name: "reset_watch",
+    title: "Server-reset recovery status",
+    description:
+      "State of the automatic post-reset recovery (save scoreboard, clear stale data, register a fresh agent, boot): the game's published resetDate and next scheduled reset, the last resetDate this server finished handling, and per-tenant progress. state needs_account_token = a reset was detected but ST_ACCOUNT_TOKEN is not set, so nothing was changed.",
+    input: {},
+    async run(ctx) {
+      return {
+        asOf: iso(ctx.now()),
+        watcher: resetWatcherStatus() ?? null,
+        accountTokenConfigured: Boolean(process.env.ST_ACCOUNT_TOKEN),
       };
     },
   },
