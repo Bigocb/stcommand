@@ -161,7 +161,7 @@ $("tb-modes").addEventListener("click", async (e) => {
 function unassignedTraders() {
   const roleBy = new Map((fleetStatus.ships ?? []).map((s) => [s.symbol, s.role]));
   return (state?.ships ?? []).filter(
-    (s) => roleBy.get(s.symbol) === "trader" && !dispatchAssignments.some((a) => a.shipSymbol === s.symbol),
+    (s) => roleBy.get(s.symbol) === "trader" && (s.cargo?.units ?? 0) === 0 && !dispatchAssignments.some((a) => a.shipSymbol === s.symbol),
   );
 }
 
