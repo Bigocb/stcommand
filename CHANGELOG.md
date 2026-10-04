@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Stopping a tenant now also stops its state-refresh timer
+
+Found during the first live auto-recovery (2026-10-04): `stopOne()` stopped a
+worker's fleet and scheduler but left its 20s `refreshState` interval running, so
+the replaced worker kept polling with its dead token and logging "state refresh
+error: agent token is from a previous server reset" forever. `TenantWorker` now
+exposes `stopRefresh()`, called by `stopOne()` and `stopAll()`.
+
 ## Automatic recovery after the weekly server reset (register + boot)
 
 `ResetWatcher` (started from the server, polls the unauthenticated game status

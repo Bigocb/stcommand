@@ -27,6 +27,10 @@ export interface TenantWorker {
   /** Always present — it decides internally whether an LLM is available and
    *  falls back to the templated log when one is not. */
   narrative: NarrativeWriter;
+  /** Stops the periodic state-refresh timer. stopOne()/stopAll() call it so a
+   *  stopped worker (e.g. replaced after a server reset) doesn't keep polling
+   *  with its dead token forever. Optional so test doubles need not provide it. */
+  stopRefresh?: () => void;
 }
 
 const STATE_REFRESH_MS = 20_000;
@@ -235,6 +239,7 @@ export class TenantRegistry {
     for (const worker of this.workers.values()) {
       worker.fleet.stop();
       worker.scheduler.stop();
+      worker.stopRefresh?.();
     }
   }
 
@@ -254,6 +259,7 @@ export class TenantRegistry {
     if (!worker) return;
     worker.fleet.stop();
     worker.scheduler.stop();
+    worker.stopRefresh?.();
     this.workers.delete(tenantId);
   }
 
@@ -545,9 +551,10 @@ export class TenantRegistry {
     // now, after the one initial refreshState() call, so that call keeps
     // the boost through its three live API calls too.
     api.setPriority?.(1);
-    setInterval(refreshState, STATE_REFRESH_MS).unref();
+    const refreshTimer = setInterval(refreshState, STATE_REFRESH_MS);
+    refreshTimer.unref();
 
-    return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative };
+    return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative, stopRefresh: () => clearInterval(refreshTimer) };
   }
 
   private async loadCachedMarkets(store: Store, systemSymbol: string): Promise<MarketSnapshot[]> {
