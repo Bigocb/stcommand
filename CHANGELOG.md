@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck: fleet table grouped by role (2026-10-04)
+
+Deck's Fleet screen was a flat 40-row table, with the 26 keepers burying everything else. It now groups
+rows by role exactly like Tower and V6 already did (`shared/cooldown.js` supplies the collapse state,
+role order and cooldown bar): a header row per role with the count, click to collapse, keepers collapsed
+by default. A collapsed group still shows an amber "N unassigned" or red "N stranded" badge so it can't
+hide trouble, and the Job column carries the live cooldown bar. Collapse state is shared with Tower/V6
+through the same localStorage key. Selection, system chips and the detail panel are unchanged.
+
 ## Three miner/feed bugs found in live ops (2026-10-04)
 
 1. **Field spread sent drones to unreachable asteroids.** In X1-JX83 the only field

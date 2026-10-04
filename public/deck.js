@@ -22,10 +22,12 @@ import {
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { keeperCoverage } from "/shared/domain.js";
+import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 startRateLimitIndicator($("tb-conn"));
+startCooldownTicker();
 
 /* ── auth gate ─────────────────────────────
  * Same mechanism as Tower: session-cookie-based, existing tenants only.
@@ -522,6 +524,7 @@ function fleetRows() {
       symbol: s.symbol,
       role: st?.role ?? "—",
       job: jobFor(s, st?.role),
+      cooldown: cooldownHtml(s),
       stranded: strandedBy.has(s.symbol),
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
@@ -594,8 +597,11 @@ function renderFleet() {
     return sys === selectedFleetSystem;
   });
 
-  // Render table
-  const tableHTML = displayRows.map((row) => {
+  // Render table: role groups (same grouping as Tower/V6), collapsible. A
+  // collapsed group must not hide trouble, so its header counts what needs
+  // attention.
+  const collapsed = loadCollapsed();
+  const rowHtml = (row) => {
     const fuelPct = row.fuelCap ? Math.round((row.fuel / row.fuelCap) * 100) : 0;
     let statusClass = "";
     if (row.goal === "stranded") statusClass = "bad";
@@ -605,7 +611,7 @@ function renderFleet() {
       <tr data-ship="${escapeAttr(row.symbol)}"${selectedFleetShip === row.symbol ? ' class="sel"' : ""}>
         <td><span class="shipsym">${escapeHtml(row.symbol)}</span></td>
         <td><span class="chip ${escapeHtml(row.role)}">${escapeHtml(row.role)}</span></td>
-        <td>${escapeHtml(row.job)}</td>
+        <td>${escapeHtml(row.job)} ${row.cooldown}</td>
         <td${statusClass ? ` class="${statusClass}"` : ""}>${escapeHtml(row.goal)}</td>
         <td class="mono">${fuelPct}%</td>
         <td class="mono">${row.cargo}/${row.cargoCap}</td>
@@ -613,11 +619,34 @@ function renderFleet() {
         <td class="mono eta${fmtEta(row.eta) !== "—" ? " live" : ""}">${escapeHtml(fmtEta(row.eta))}</td>
       </tr>
     `;
-  }).join("");
+  };
+  const roleGroups = new Map();
+  for (const row of displayRows) {
+    const g = roleGroups.get(row.role) ?? [];
+    g.push(row);
+    roleGroups.set(row.role, g);
+  }
+  const tableHTML = [...roleGroups.entries()]
+    .sort((a, b) => roleRank(a[0]) - roleRank(b[0]) || a[0].localeCompare(b[0]))
+    .map(([role, items]) => {
+      const isCollapsed = collapsed.has(role);
+      const crit = items.filter((r) => r.stranded).length;
+      const warn = items.filter((r) => !r.stranded && r.job === "unassigned").length;
+      const badge = crit ? `<span class="grp-badge crit">${crit} stranded</span>` : warn ? `<span class="grp-badge warn">${warn} unassigned</span>` : "";
+      return `<tr class="grp-row" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}"><td colspan="8">
+        <span class="chev">${isCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(role)}</span><span class="g-n">${items.length}</span>${badge}
+      </td></tr>${isCollapsed ? "" : items.map(rowHtml).join("")}`;
+    }).join("");
   $("fleet-table-rows").innerHTML = tableHTML;
+  tickCooldowns($("fleet-table-rows"));
+
+  // Wire group header clicks (collapse/expand)
+  $("fleet-table").querySelectorAll("tbody tr.grp-row").forEach((tr) => {
+    tr.addEventListener("click", () => { toggleCollapsed(tr.dataset.grp); renderFleet(); });
+  });
 
   // Wire table row clicks
-  $("fleet-table").querySelectorAll("tbody tr").forEach((tr) => {
+  $("fleet-table").querySelectorAll("tbody tr[data-ship]").forEach((tr) => {
     tr.addEventListener("click", () => {
       if (tr.dataset.ship !== selectedFleetShip) resetFleetActionForms();
       selectedFleetShip = tr.dataset.ship;

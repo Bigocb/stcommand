@@ -176,6 +176,14 @@ tr:hover td{background:var(--raised)}
 .meter i{display:block;height:100%;border-radius:3px;background:var(--amber-glow)}
 
 tr.sel td{background:var(--amber-dim)}
+tr.grp-row{cursor:pointer}
+tr.grp-row td{padding:9px 12px 6px;background:var(--sunken);border-bottom:1px solid var(--hair);font-family:var(--chrome);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--bone)}
+tr.grp-row:hover td{background:var(--amber-dim)}
+tr.grp-row .chev{display:inline-block;width:12px;color:var(--amber)}
+tr.grp-row .g-n{margin-left:8px;color:var(--dim);font-family:var(--mono);letter-spacing:0}
+tr.grp-row .grp-badge{margin-left:10px;font-family:var(--mono);font-size:9.5px;letter-spacing:0;text-transform:none;padding:1px 7px;border-radius:8px}
+tr.grp-row .grp-badge.crit{color:var(--red);border:1px solid var(--red)}
+tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 
 /* Fleet ship-action sheet (pass A) — ported from Tower's own sheet
    (public/m.css), restyled onto Deck's tokens. .field-select/.field-input

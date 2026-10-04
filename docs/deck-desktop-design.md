@@ -481,3 +481,9 @@ Deck now has an operator-only **Admin** rail item (`public/deck-admin.js`, marku
 reports `operator: true` (`OPERATOR_AGENTS` env list). One panel with segmented tabs —
 Reset, Scoreboard, Timeline, Health, Tenants — never stacked sections. Data comes from
 `/api/operator/*` (admin handlers behind session + operator flag) and `/api/ops/*`.
+
+## 11. Fleet role groups (2026-10-04)
+
+Fleet screen table groups rows by role (collapsible header rows with count + unassigned/stranded badge,
+cooldown bar in the Job column), matching Tower/V6. Uses `shared/cooldown.js` (`loadCollapsed`,
+`toggleCollapsed`, `roleRank`, `cooldownHtml`, `startCooldownTicker`). Styles: `tr.grp-row` in `deck.css`.
