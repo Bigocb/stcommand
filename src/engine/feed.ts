@@ -689,7 +689,8 @@ export class FeedManager {
    *  `stepCarrier()` call saw held(IRON_ORE)=0, freeSpace<=0, and called
    *  this to clear the hold — which skipped the FUEL and cleared nothing,
    *  permanently blocking that ship from ever mining for the feed. */
-  private async clearUnrelatedCargo(shipSymbol: string, keep: string, inventory: { symbol: string; units: number }[]): Promise<void> {
+  private async clearUnrelatedCargo(shipSymbol: string, keep: string, inventory: { symbol: string; units: number }[]): Promise<boolean> {
+    let cleared = true;
     for (const item of inventory) {
       if (item.symbol === keep || item.units <= 0) continue;
       try {
@@ -714,9 +715,11 @@ export class FeedManager {
           // functionally already cleared from this loop's perspective —
           // log and move on to the next item instead of blocking the ship.
           this.log(`feed: ${shipSymbol}: couldn't clear ${item.units}u ${item.symbol} (sell: ${err instanceof Error ? err.message : String(err)}; jettison: ${err2 instanceof Error ? err2.message : String(err2)})`);
+          cleared = false;
         }
       }
     }
+    return cleared;
   }
 
   /** Drive one carrier through the buy-cheap → sell-into-target loop. */
@@ -805,7 +808,7 @@ export class FeedManager {
       }
       t.market = undefined;
       const freshCargo = await this.api.getShipCargo(ship.symbol);
-      await this.clearUnrelatedCargo(ship.symbol, feed.good, freshCargo.inventory);
+      if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, freshCargo.inventory))) await this.releaseFailedCarrier(feed, ship.symbol, t);
       return;
     }
 
@@ -845,7 +848,7 @@ export class FeedManager {
       // reached mineOnce() again for the rest of that call's lifetime.
       const junk = cargo.inventory.filter((i) => i.symbol !== feed.good && i.units > 0);
       if (junk.length > 0) {
-        await this.clearUnrelatedCargo(ship.symbol, feed.good, cargo.inventory);
+        if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, cargo.inventory))) await this.releaseFailedCarrier(feed, ship.symbol, t);
         return;
       }
       // mineOnce() runs schedulerDriven, so a real extraction cooldown throws
@@ -906,7 +909,7 @@ export class FeedManager {
     if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
     const freeSpace = ship.cargo.capacity - ship.cargo.units;
     if (freeSpace <= 0) {
-      await this.clearUnrelatedCargo(ship.symbol, feed.good, ship.cargo.inventory);
+      if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, ship.cargo.inventory))) await this.releaseFailedCarrier(feed, ship.symbol, t);
       return;
     }
     const sourceMarket = t.market;

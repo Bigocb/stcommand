@@ -438,7 +438,13 @@ export class ShipAgent {
       .marketEndpoints(this.registry.systemOf(here))
       .filter((m) => m.symbol !== here && m.symbol !== destination)
       .filter((m) => (this.registry.market(m.symbol)?.tradeGoods["FUEL"]?.purchasePrice ?? 0) > 0)
-      .filter((m) => this.registry.fuelFor(here, m.symbol) <= budget);
+      .filter((m) => this.registry.fuelFor(here, m.symbol) <= budget)
+      // Only a stop strictly closer to the destination than where we already are is a
+      // stepping stone. Without this, two fuel stops that are each the "closest reachable"
+      // to a faraway field sent the ship D43 -> D44 -> D43 forever, refueling at every
+      // one (seen 2026-10-04 with a drone pinned 250+ units from any market); with no
+      // closer stop this returns undefined and the leg falls back to one DRIFT.
+      .filter((m) => this.registry.fuelFor(m.symbol, destination) < this.registry.fuelFor(here, destination));
     stops.sort((a, b) => this.registry.fuelFor(a.symbol, destination) - this.registry.fuelFor(b.symbol, destination));
     return stops[0]?.symbol;
   }

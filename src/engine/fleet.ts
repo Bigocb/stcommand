@@ -98,6 +98,35 @@ export function keeperRequestTargets(rowShipSymbol: string | null | undefined, t
   return rowShipSymbol?.split("|")[1] === target;
 }
 
+/** One asteroid field as the spread picker sees it. */
+export interface FieldCandidate { symbol: string; count: number; stripped: boolean; dist: number; needsDrift: boolean }
+
+/**
+ * Which field a miner/surveyor without a pin should get. Prefers the emptiest
+ * field (crew cap is a spread preference), steers off stripped fields, and — the
+ * 2026-10-04 fix — never picks a field that can only be reached by an hours-long
+ * drift while a reachable one exists. Previously the cap simply skipped the
+ * reachable field once it was full and the 50k drift penalty lost to "any field
+ * under the cap", so the sixth drone at X1-JX83-CE5D (the only field within
+ * fuel range of a market) was sent 250+ units away and looped on fuel stops.
+ * When every reachable field is full the ship stays on the least-crowded
+ * reachable one rather than overflowing to an unreachable one.
+ */
+export function selectField(fields: FieldCandidate[], opts: { cap: number; avoidStripped: boolean; avoidDrift: boolean }): string | undefined {
+  if (fields.length === 0) return undefined;
+  const reachable = opts.avoidDrift ? fields.filter((f) => !f.needsDrift) : fields;
+  const pool = reachable.length > 0 ? reachable : fields;
+  const score = (f: FieldCandidate): number =>
+    f.count * 1_000 + (opts.avoidStripped && f.stripped ? 5_000 : 0) + (f.needsDrift && opts.avoidDrift ? 50_000 : 0) +
+    (Number.isFinite(f.dist) ? f.dist : 100_000);
+  const pick = (list: FieldCandidate[]): string | undefined => {
+    let best: FieldCandidate | undefined;
+    for (const f of list) if (!best || score(f) < score(best)) best = f;
+    return best?.symbol;
+  };
+  return pick(pool.filter((f) => f.count < opts.cap)) ?? pick(pool);
+}
+
 /** The best keeper hull a yard's stock offers, or undefined if none qualify. */
 export function pickKeeperHull(stock: { type: string; price: number }[]): { type: string; price: number } | undefined {
   for (const type of KEEPER_HULL_PREFERENCE) {
@@ -483,7 +512,7 @@ export class FleetManager {
       sellPriceAt: (wp, good) => this.sellPriceAt(wp, good),
       getCredits: async () => this.spendableCredits(),
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
-      jettisonCargo: (s, g, u) => this.jettisonCargo(s, g, u),
+      jettisonCargo: (s, g, u) => this.jettisonCargoUnlessValuable(s, g, u),
       // A "mine" feed's crew are miners driven by their own ShipAgent's
       // extraction loop for one batch — see agent.ts's mineOnce() — rather
       // than FeedManager's own buy/sell primitives, which don't apply to a
@@ -3790,6 +3819,24 @@ export class FleetManager {
   }
 
   /** Dump cargo overboard — no market or dock required, unlike buy/sell. For an operator clearing out dead stock manually; nothing pays for this. */
+  /**
+   * Jettison guard for automated callers (feed carriers clearing unrelated cargo): refuse
+   * to destroy cargo worth more than a few thousand credits at the best price we know.
+   * Seen 2026-10-04: a feed claimed a trader holding ~90k of SHIP_PLATING and would have
+   * jettisoned it when the sale failed. Throwing makes the caller treat it as "couldn't
+   * clear", which now releases the carrier instead of destroying the load.
+   */
+  private async jettisonCargoUnlessValuable(shipSymbol: string, good: string, units: number): Promise<void> {
+    const MAX_DESTROYABLE_CREDITS = 2_000;
+    const rows = (await this.store?.latestMarketSnapshots()) ?? [];
+    const best = Math.max(0, ...rows.filter((r) => r.goodSymbol === good).map((r) => r.sellPrice ?? 0));
+    const value = best * units;
+    if (value > MAX_DESTROYABLE_CREDITS) {
+      throw new Error(`refusing to jettison ~${Math.round(value)}c of ${good} (limit ${MAX_DESTROYABLE_CREDITS}c)`);
+    }
+    await this.jettisonCargo(shipSymbol, good, units);
+  }
+
   async jettisonCargo(shipSymbol: string, good: string, units: number): Promise<void> {
     const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
     const held = ship.cargo.inventory?.find((i) => i.symbol === good);
@@ -5871,28 +5918,14 @@ export class FleetManager {
     const avoidStripped = this.doctrine.isEnabledOr("avoidStrippedFields", true);
     const avoidDrift = this.doctrine.isEnabledOr("avoidDriftFields", true);
     const ship = this.cachedShip(shipSymbol);
-    const scoreOf = (info: { stripped: boolean; count: number }, symbol: string): number => {
-      const dist = ship ? this.registry.distance(ship.nav.waypointSymbol, symbol) : 0;
-      const needsDrift = avoidDrift && ship !== undefined &&
-        !this.reachableWithoutDrift(ship.nav.waypointSymbol, symbol, ship.fuel.capacity);
-      return info.count * 1_000 + (avoidStripped && info.stripped ? 5_000 : 0) + (needsDrift ? 50_000 : 0) +
-        (Number.isFinite(dist) ? dist : 100_000);
-    };
-    let best: string | undefined;
-    let bestScore = Infinity;
-    for (const [symbol, info] of occupancy) {
-      if (info.count >= cap) continue;
-      const score = scoreOf(info, symbol);
-      if (score < bestScore) { bestScore = score; best = symbol; }
-    }
-    if (best) return best;
-    // Every field is at cap: fall back to least-bad rather than leaving the
-    // ship unassigned — the cap is a spread preference, not a hard limit.
-    for (const [symbol, info] of occupancy) {
-      const score = scoreOf(info, symbol);
-      if (score < bestScore) { bestScore = score; best = symbol; }
-    }
-    return best;
+    const fields: FieldCandidate[] = [...occupancy].map(([symbol, info]) => ({
+      symbol,
+      count: info.count,
+      stripped: info.stripped,
+      dist: ship ? this.registry.distance(ship.nav.waypointSymbol, symbol) : 0,
+      needsDrift: avoidDrift && ship !== undefined && !this.reachableWithoutDrift(ship.nav.waypointSymbol, symbol, ship.fuel.capacity),
+    }));
+    return selectField(fields, { cap, avoidStripped, avoidDrift });
   }
 
   /**

@@ -9,6 +9,29 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Three miner/feed bugs found in live ops (2026-10-04)
+
+1. **Field spread sent drones to unreachable asteroids.** In X1-JX83 the only field
+   within fuel range of a market is CE5D. `maxCrewPerField` (5) made the picker skip it
+   once full, and the +50k "needs drift" penalty then lost to *any* field under the cap,
+   so the sixth drone was pinned 250+ units away (B14/B12/B15) where it produced nothing.
+   Extracted `selectField()` (unit-tested): reachable fields are preferred outright; when
+   all reachable ones are full the ship stays on the least-crowded reachable field.
+2. **Miner fuel-stop ping-pong.** `ShipAgent.nextHopToward()` picked the reachable fuel
+   stop nearest the destination without checking it was closer than the current position,
+   so with two such stops (D43/D44) a ship refueled back and forth every minute, forever.
+   A stepping stone must now be strictly closer; otherwise the leg falls back to one DRIFT
+   (verified live: a drone drifting to B7 shows ETA ~2h36m at 79/80 fuel). `TraderAgent`'s
+   version already did a proper chain search and is unchanged.
+3. **Feed carriers could jettison valuable cargo.** The unrelated-cargo clear sold, then
+   jettisoned on failure. Jettison from a feed now refuses anything worth over ~2,000c at
+   the best known price, and a carrier that can't clear its hold is released from the feed
+   (`clearUnrelatedCargo` returns whether the hold was cleared).
+
+Not changed: a miner can still make an opportunistic arbitrage buy right before an
+operator hold lands (the 44k of SHIP_PLATING on THEO-14) — that was a race caused by
+unpinning and re-holding it in quick succession, not a standing bug.
+
 ## Feeds no longer claim a trader that is holding cargo
 
 Live near-miss 2026-10-04: a newly created `IRON → F53` feed claimed THEO-1 thirty
