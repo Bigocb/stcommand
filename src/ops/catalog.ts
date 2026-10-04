@@ -165,6 +165,21 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "run_results",
+    title: "Weekly scoreboard (one row per agent per reset)",
+    description:
+      "The run_results table: one row per agent per server-reset period with cash in hand at the end, wallet delta, matched trading net, ship count and roles, fuel/jump/ship spend, top ships and goods, doctrine in force and operator interventions. Rows are written automatically just before a reset wipes the data. Pass captureNow=true to also record a refreshable mid-week snapshot for the current universe (kind 'manual' — writes only this scoreboard table, never touches game state or the end-of-week row).",
+    input: { limit: num(10), captureNow: bool, resetDate: z.string().optional() },
+    async run(ctx, a) {
+      let captured: boolean | undefined;
+      if (a.captureNow) {
+        captured = await ctx.w.store.captureRunResult(ctx.w.tenantId, ctx.w.agentSymbol, a.resetDate ?? "current", { kind: "manual", notes: "manual mid-week capture" });
+      }
+      return { asOf: iso(ctx.now()), captured, rows: await ctx.w.store.listRunResults(a.limit) };
+    },
+  },
+
+  {
     name: "survey_candidates",
     title: "Where to send a scout/tour next",
     description:

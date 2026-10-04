@@ -48,6 +48,8 @@ export function createResetWatcher(
     },
     isBooted: (id) => registry.isBooted(id),
     stopWorker: (id) => registry.stopOne(id),
+    captureRunResult: (t, endedResetDate, newResetDate) =>
+      store.captureRunResult(t.id, t.agentSymbol, endedResetDate, { endedByReset: newResetDate }),
     wipeTenantGameData: (id) => store.wipeTenantGameData(id),
     truncateSharedGalaxy: () => store.truncateSharedGalaxyTables(),
     resetCrawler: () => crawler.resetCrawlState(),

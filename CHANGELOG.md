@@ -9,6 +9,22 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Weekly scoreboard: `run_results` table, saved just before a reset wipes the data
+
+One row per agent per server-reset period (migration 036): cash in hand at the
+end, wallet delta (final − the 175,000 registration grant), peak credits, ship
+count by app role and by game class, matched trading net and trade count, fuel /
+jump / ship-purchase spend, top 5 ships and goods by realized P&L, contracts by
+status, the doctrine in force and the number of operator interventions. It is
+not tenant-scoped and not part of the game-data wipe, so it survives both the
+weekly reset and tenant deletion. `Store.captureRunResult` reads only Postgres
+(last state snapshot, ledger, fleet roles), so it works after the game token has
+died; `ResetWatcher` calls it for each dead tenant *before* the wipe and holds
+the wipe for up to three ticks if the capture fails. Reset captures are
+write-once per (agent, universe). The ops tool `run_results` lists rows;
+`captureNow=true` records a refreshable mid-week 'manual' row to preview the
+numbers. The watcher itself is still not started by the server (separate step).
+
 ## Dispatcher: buy-impact set to 0.20% per unit (0.002) — corrects the 0.2 mix-up
 
 The operator meant 0.20% per unit, i.e. `BUY_IMPACT_PER_UNIT = 0.002`; the

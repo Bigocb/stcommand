@@ -318,6 +318,9 @@ export interface FeedRow {
   updatedAt: string;
 }
 
+/** What a freshly registered SpaceTraders agent starts with. */
+const STARTING_CREDITS = 175_000;
+
 export class Store {
   constructor(private readonly pool: pg.Pool) {}
 
@@ -2974,6 +2977,110 @@ export class Store {
   async wipeTenantGameData(tenantId: string): Promise<void> {
     await withTenant(this.pool, tenantId, async (c) => {
       for (const table of Store.TENANT_GAME_TABLES) await c.query(`DELETE FROM ${table}`);
+    });
+  }
+
+  /**
+   * Writes this tenant's scoreboard row for the universe described by
+   * `resetDate` (migrations/036_run_results.sql). Reads only what is already in
+   * Postgres — the last state snapshot, the ledger, fleet roles, doctrine — so
+   * it works after the game token has died, which is exactly when the reset
+   * watcher calls it (just before wiping that data). Idempotent: a second call
+   * for the same agent + resetDate keeps the first row (a retry after the wipe
+   * would otherwise overwrite real numbers with an empty week). Returns whether
+   * a row was written.
+   */
+  async captureRunResult(
+    tenantId: string,
+    agentSymbol: string,
+    resetDate: string,
+    opts: { endedByReset?: string; kind?: "reset" | "manual"; notes?: string } = {},
+  ): Promise<boolean> {
+    const n = (v: unknown): number => Math.round(Number(v ?? 0));
+    return withTenant(this.pool, tenantId, async (c) => {
+      const snapRow = (await c.query(`SELECT snapshot, updated_at FROM state_snapshot`)).rows[0];
+      const snap = (snapRow?.snapshot ?? {}) as {
+        agent?: { credits?: number; headquarters?: string };
+        ships?: { registration?: { role?: string } }[];
+        systemSymbol?: string;
+        totals?: { credits?: number };
+      };
+      const finalCredits = snap.agent?.credits ?? undefined;
+      const byClass: Record<string, number> = {};
+      for (const s of snap.ships ?? []) {
+        const r = s.registration?.role ?? "UNKNOWN";
+        byClass[r] = (byClass[r] ?? 0) + 1;
+      }
+
+      const roles: Record<string, number> = {};
+      for (const r of (await c.query(`SELECT role, COUNT(*)::int AS n FROM fleet_state GROUP BY role`)).rows) roles[r.role] = r.n;
+
+      const byType: Record<string, { n: number; total: number }> = {};
+      for (const r of (await c.query(`SELECT type, COUNT(*)::int AS n, COALESCE(SUM(total),0) AS total FROM ledger GROUP BY type`)).rows) {
+        byType[r.type] = { n: r.n, total: n(r.total) };
+      }
+      const matched = (await c.query(
+        `SELECT COUNT(*)::int AS trades, COALESCE(SUM(realized_pnl),0) AS pnl FROM ledger WHERE type = 'SELL' AND realized_pnl IS NOT NULL`,
+      )).rows[0];
+      const topShips = (await c.query(
+        `SELECT ship_symbol, COUNT(*)::int AS sells, COALESCE(SUM(realized_pnl),0) AS pnl FROM ledger
+         WHERE type = 'SELL' AND realized_pnl IS NOT NULL GROUP BY ship_symbol ORDER BY pnl DESC LIMIT 5`,
+      )).rows.map((r: any) => ({ ship: r.ship_symbol, sells: r.sells, pnl: n(r.pnl) }));
+      const topGoods = (await c.query(
+        `SELECT trade_symbol, COUNT(*)::int AS sells, COALESCE(SUM(realized_pnl),0) AS pnl FROM ledger
+         WHERE type = 'SELL' AND realized_pnl IS NOT NULL AND trade_symbol IS NOT NULL GROUP BY trade_symbol ORDER BY pnl DESC LIMIT 5`,
+      )).rows.map((r: any) => ({ good: r.trade_symbol, sells: r.sells, pnl: n(r.pnl) }));
+      const span = (await c.query(
+        `SELECT LEAST((SELECT MIN(timestamp) FROM ledger), (SELECT MIN(timestamp) FROM activity)) AS first_at`,
+      )).rows[0];
+
+      // Every SpaceTraders agent registers with the same grant; the earliest public
+      // credit snapshot is hours into the week (115k observed), so it cannot be
+      // used as the starting balance. Peak still comes from the hourly snapshots.
+      const peakRow = (await c.query(`SELECT MAX(credits) AS peak FROM agent_credit_snapshots WHERE agent_symbol = $1`, [agentSymbol])).rows[0];
+      const startingCredits = STARTING_CREDITS;
+      const peak = Math.max(n(peakRow?.peak), n(finalCredits));
+
+      const contracts: Record<string, number> = {};
+      for (const r of (await c.query(`SELECT status, COUNT(*)::int AS n FROM missions GROUP BY status`)).rows) contracts[r.status] = r.n;
+      const doctrine: Record<string, { value: number; enabled: boolean }> = {};
+      for (const r of (await c.query(`SELECT key, value, enabled FROM doctrine`)).rows) doctrine[r.key] = { value: Number(r.value), enabled: r.enabled };
+      const actions = (await c.query(`SELECT COUNT(*)::int AS n FROM operator_actions`)).rows[0]?.n ?? 0;
+      const profile = (await c.query(`SELECT play_profile FROM tenants WHERE id = $1`, [tenantId])).rows[0]?.play_profile ?? null;
+
+      // A manual capture is a refreshable mid-week peek, so it replaces its own
+      // earlier row; a reset capture is write-once (see the doc comment above).
+      if (opts.kind === "manual") await c.query(`DELETE FROM run_results WHERE agent_symbol = $1 AND reset_date = $2 AND capture_kind = 'manual'`, [agentSymbol, resetDate]);
+      const insert = await c.query(
+        `INSERT INTO run_results (
+           agent_symbol, tenant_id, reset_date, ended_by_reset, capture_kind, started_at, ended_at, home_system, headquarters, play_profile,
+           starting_credits, final_credits, peak_credits, wallet_delta, ship_count, ships_by_role, ships_by_class,
+           trading_net, trades, sell_revenue, purchase_cost, fuel_cost, jump_cost, jumps, ship_spend,
+           ledger_by_type, top_ships, top_goods, contracts, doctrine, operator_actions, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
+         ON CONFLICT (agent_symbol, reset_date, capture_kind) DO NOTHING`,
+        [
+          agentSymbol, tenantId, resetDate, opts.endedByReset ?? null, opts.kind ?? "reset",
+          span?.first_at ?? null, snapRow?.updated_at ?? null,
+          snap.systemSymbol || null, snap.agent?.headquarters ?? null, profile,
+          startingCredits, finalCredits ?? null, peak, finalCredits != null ? finalCredits - startingCredits : null,
+          (snap.ships ?? []).length, JSON.stringify(roles), JSON.stringify(byClass),
+          n(matched?.pnl), matched?.trades ?? 0,
+          byType.SELL?.total ?? 0, byType.PURCHASE?.total ?? 0, byType.REFUEL?.total ?? 0,
+          byType.JUMP?.total ?? 0, byType.JUMP?.n ?? 0, byType.SHIP?.total ?? 0,
+          JSON.stringify(byType), JSON.stringify(topShips), JSON.stringify(topGoods), JSON.stringify(contracts),
+          JSON.stringify(doctrine), actions, opts.notes ?? null,
+        ],
+      );
+      return (insert.rowCount ?? 0) > 0;
+    });
+  }
+
+  /** Newest first. Not tenant-scoped (see migration 036). */
+  async listRunResults(limit = 20): Promise<Record<string, unknown>[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query(`SELECT * FROM run_results ORDER BY captured_at DESC LIMIT $1`, [limit]);
+      return res.rows;
     });
   }
 }

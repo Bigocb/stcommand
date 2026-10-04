@@ -47,6 +47,8 @@ export interface ResetWatcherPorts {
   probeTenant(tenant: WatchedTenant): Promise<TokenProbe>;
   isBooted(tenantId: string): boolean;
   stopWorker(tenantId: string): void;
+  /** Save the finished week's scoreboard row (run_results). Must run before the wipe. Resolves true if a row was written, false if one already existed. */
+  captureRunResult(tenant: WatchedTenant, endedResetDate: string, newResetDate: string): Promise<boolean>;
   wipeTenantGameData(tenantId: string): Promise<void>;
   truncateSharedGalaxy(): Promise<void>;
   resetCrawler(): void;
@@ -81,12 +83,15 @@ export interface ResetWatcherOptions {
   now?: () => Date;
 }
 
+const MAX_CAPTURE_ATTEMPTS = 3;
+
 export class ResetWatcher {
   private readonly log: (msg: string) => void;
   private readonly now: () => Date;
   private readonly enabled: boolean;
   private readonly accountTokenConfigured: boolean;
   private cleanedFor: string | undefined;
+  private readonly captureFailures = new Map<string, number>();
   private warnedFor: string | undefined;
   private running = false;
   private timer: NodeJS.Timeout | undefined;
@@ -191,6 +196,27 @@ export class ResetWatcher {
     // Clear the dead universe first, once per reset: the shared tables lie, and
     // a tenant's old ship/ledger rows would otherwise be read by the new fleet.
     if (dead.length > 0 && this.cleanedFor !== status.resetDate) {
+      // Scoreboard first: the wipe below destroys the only copy of the week's
+      // numbers. A failed capture holds the wipe for a few ticks (a transient DB
+      // error shouldn't cost the data) but never blocks recovery forever.
+      const endedUniverse = this.current.handledResetDate ?? "unknown";
+      for (const t of dead) {
+        try {
+          const wrote = await this.ports.captureRunResult(t, endedUniverse, status.resetDate);
+          this.log(wrote ? `saved ${t.agentSymbol}'s results for the ${endedUniverse} universe` : `results for ${t.agentSymbol} / ${endedUniverse} already saved`);
+        } catch (err) {
+          const failures = (this.captureFailures.get(t.id) ?? 0) + 1;
+          this.captureFailures.set(t.id, failures);
+          const msg = err instanceof Error ? err.message : String(err);
+          if (failures < MAX_CAPTURE_ATTEMPTS) {
+            this.current.state = "error";
+            this.current.lastError = `capture results ${t.agentSymbol}: ${msg}`;
+            this.log(`saving ${t.agentSymbol}'s results failed (attempt ${failures}/${MAX_CAPTURE_ATTEMPTS}); holding the wipe: ${msg}`);
+            return;
+          }
+          this.log(`saving ${t.agentSymbol}'s results failed ${failures} times; continuing recovery WITHOUT them: ${msg}`);
+        }
+      }
       for (const t of dead) {
         this.ports.stopWorker(t.id);
         await this.ports.wipeTenantGameData(t.id);

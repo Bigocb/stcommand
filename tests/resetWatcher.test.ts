@@ -11,6 +11,7 @@ function harness(opts: { seen?: string; apiReset: string; probe?: TokenProbe; ac
     tokenState: (opts.probe ?? "dead") as TokenProbe,
     booted: false,
     registerFails: 0,
+    captureFails: 0,
     bootFails: 0,
   };
   const ports: ResetWatcherPorts = {
@@ -21,6 +22,11 @@ function harness(opts: { seen?: string; apiReset: string; probe?: TokenProbe; ac
     probeTenant: async () => st.tokenState,
     isBooted: () => st.booted,
     stopWorker: () => { calls.push("stop"); st.booted = false; },
+    captureRunResult: async (_t, ended, next) => {
+      if (st.captureFails > 0) { st.captureFails -= 1; throw new Error("db hiccup"); }
+      calls.push(`capture:${ended}->${next}`);
+      return true;
+    },
     wipeTenantGameData: async () => { calls.push("wipe"); },
     truncateSharedGalaxy: async () => { calls.push("truncate"); },
     resetCrawler: () => { calls.push("crawler"); },
@@ -50,7 +56,7 @@ describe("ResetWatcher", () => {
   it("first run with dead tokens treats it as a reset it missed", async () => {
     const { w, calls, st } = harness({ apiReset: "2026-10-04" });
     await w.tick();
-    assert.deepEqual(calls, ["stop", "wipe", "truncate", "crawler", "register:THEO", "boot", "seen:2026-10-04"]);
+    assert.deepEqual(calls, ["capture:unknown->2026-10-04", "stop", "wipe", "truncate", "crawler", "register:THEO", "boot", "seen:2026-10-04"]);
     assert.equal(st.seen, "2026-10-04");
     assert.equal(w.status().state, "recovered");
   });
@@ -64,7 +70,7 @@ describe("ResetWatcher", () => {
   it("a changed resetDate clears stale data, registers, boots, then records it handled", async () => {
     const { w, calls } = harness({ seen: "2026-09-27", apiReset: "2026-10-04" });
     await w.tick();
-    assert.deepEqual(calls, ["stop", "wipe", "truncate", "crawler", "register:THEO", "boot", "seen:2026-10-04"]);
+    assert.deepEqual(calls, ["capture:2026-09-27->2026-10-04", "stop", "wipe", "truncate", "crawler", "register:THEO", "boot", "seen:2026-10-04"]);
     // wipe happens strictly before the new agent exists
     assert.ok(calls.indexOf("wipe") < calls.indexOf("register:THEO"));
   });
@@ -118,5 +124,33 @@ describe("ResetWatcher", () => {
     st.booted = true;
     await w.tick();
     assert.deepEqual(calls, ["seen:2026-10-04"]);
+  });
+
+  it("saves the scoreboard before anything is wiped", async () => {
+    const { w, calls } = harness({ seen: "2026-09-27", apiReset: "2026-10-04" });
+    await w.tick();
+    assert.ok(calls.indexOf("capture:2026-09-27->2026-10-04") < calls.indexOf("wipe"));
+    assert.ok(calls.indexOf("capture:2026-09-27->2026-10-04") < calls.indexOf("truncate"));
+  });
+
+  it("a failed capture holds the wipe and is retried", async () => {
+    const { w, calls, st } = harness({ seen: "2026-09-27", apiReset: "2026-10-04" });
+    st.captureFails = 1;
+    await w.tick();
+    assert.equal(calls.length, 0, "nothing wiped while the week's numbers are unsaved");
+    await w.tick();
+    assert.equal(st.seen, "2026-10-04");
+    assert.ok(calls.includes("capture:2026-09-27->2026-10-04"));
+  });
+
+  it("a capture that keeps failing eventually stops blocking recovery", async () => {
+    const { w, calls, st } = harness({ seen: "2026-09-27", apiReset: "2026-10-04" });
+    st.captureFails = 99;
+    await w.tick();
+    await w.tick();
+    assert.equal(calls.length, 0);
+    await w.tick();
+    assert.equal(st.seen, "2026-10-04", "third failure: proceed without the results");
+    assert.ok(calls.includes("wipe"));
   });
 });
