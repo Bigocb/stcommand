@@ -9,6 +9,7 @@
  */
 import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
+import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
   marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, warehouseState, doctrineRules, activity,
@@ -53,8 +54,9 @@ $("auth-form").addEventListener("submit", async (e) => {
   const token = $("auth-token").value.trim();
   if (!token) return;
   try {
-    await login(token);
+    const who = await login(token);
     hideAuthGate();
+    if (who?.operator) enableAdmin($("tab-admin"));
     boot();
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
@@ -68,6 +70,8 @@ $("auth-form").addEventListener("submit", async (e) => {
  * (the ship-card deck) and Map (the radar scope) are built below.
  */
 function setTab(name) {
+  if (name !== "admin") closeAdmin();
+  if (name === "admin") openAdmin();
   document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.dataset.screen === name));
   document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   // loadMarkets() on "fleet" too: the sheet's Custom route form reads
@@ -1970,5 +1974,6 @@ document.addEventListener("visibilitychange", () => {
   const session = await probeSession();
   if (!session.authenticated) return showAuthGate();
   hideAuthGate();
+  if (session.operator) enableAdmin($("tab-admin"));
   boot();
 })();

@@ -524,3 +524,7 @@ body {
   font-size: 13px; padding: 10px 11px; border-radius: 3px;
 }
 .auth-card .err { color: var(--red); font-size: 10px; min-height: 12px; }
+
+/* Admin tab (operator-only) — content styles live in shared/admin.css. */
+#tabbar button[hidden] { display: none; }
+.more-scroll .adm-body { overflow: visible; padding: 0; }

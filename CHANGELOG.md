@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Tower Admin: the same operator screens on mobile (shared module)
+
+The Admin tabs now live in `public/shared/admin.js` + `shared/admin.css` and are
+mounted by both Deck (`#rail-admin`) and Tower (an **Admin** tab-bar button, shown
+only for operators — `OPERATOR_AGENTS`). Same five tabs (Reset, Scoreboard,
+Timeline, Health, Tenants); on a phone the tab row scrolls, tables scroll
+sideways, cards stack to one column and the timeline renders as stacked event
+cards. `deck-admin.js` was folded into the shared module.
+
 ## Deck Admin: operator-only screens on the normal session (replaces /admin's key login)
 
 Deck gets an **Admin** rail item, shown only when `/api/gate/session` (and the

@@ -20,7 +20,7 @@ import {
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
-import { enableAdmin, openAdmin, closeAdmin } from "/deck-admin.js";
+import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { keeperCoverage } from "/shared/domain.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
@@ -53,7 +53,7 @@ $("auth-form").addEventListener("submit", async (e) => {
   try {
     const who = await login(token);
     hideAuthGate();
-    if (who?.operator) enableAdmin();
+    if (who?.operator) enableAdmin($("rail-admin"));
     boot();
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
@@ -2318,6 +2318,6 @@ document.addEventListener("keydown", (e) => {
   const session = await probeSession();
   if (!session.authenticated) return showAuthGate();
   hideAuthGate();
-  if (session.operator) enableAdmin();
+  if (session.operator) enableAdmin($("rail-admin"));
   boot();
 })();

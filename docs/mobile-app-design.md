@@ -336,3 +336,8 @@ All five tabs (Home, Fleet, Map, Markets, More) are now built and wired to
 real data. Nothing left pending from this design doc except the "Open
 questions" section's already-resolved items and whatever surfaces from
 live use.
+
+
+## Admin tab (2026-10-04)
+
+Operator-only **Admin** tab (6th tab-bar button, hidden unless the session says `operator: true`, i.e. the agent is in `OPERATOR_AGENTS`). Content is the shared `public/shared/admin.js` module also used by Deck — Reset / Scoreboard / Timeline / Health / Tenants — styled by `shared/admin.css`.

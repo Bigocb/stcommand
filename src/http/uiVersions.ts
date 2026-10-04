@@ -99,6 +99,6 @@ export function cacheHeaders(path: string): Record<string, string> | undefined {
   // part of the v2-v9 version lineage above — same reasoning applies (their
   // CSS/JS get overwritten in place on deploy with no content hash), so they
   // get explicit matches rather than folding into that regex's character class.
-  if (/\/(m|deck|deck-admin)\.(css|js)$/.test(path)) return { "Cache-Control": REVALIDATE };
+  if (/\/(m|deck)\.(css|js)$/.test(path)) return { "Cache-Control": REVALIDATE };
   return undefined;
 }

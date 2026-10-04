@@ -1,5 +1,5 @@
 /**
- * Deck — Admin (operator-only). One page, one tab at a time — no stacked
+ * Admin screens (operator-only), shared by Deck (/deck) and Tower (/m). One page, one tab at a time — no stacked
  * sections. Auth is the normal tenant session plus the server's OPERATOR_AGENTS
  * flag (src/http/operatorFlag.ts); the Admin rail item only appears when
  * /api/gate/session says `operator: true`, and every call goes to
@@ -96,7 +96,7 @@ async function renderScoreboard() {
   const rows = d.rows ?? [];
   $("adm-count").textContent = `${rows.length} row${rows.length === 1 ? "" : "s"}`;
   if (!rows.length) { body().innerHTML = '<div class="adm-empty">No weeks recorded yet. A row is written for each agent just before a reset.</div>'; return; }
-  body().innerHTML = `<table class="adm-table"><thead><tr>
+  body().innerHTML = `<div class="adm-scroll"><table class="adm-table"><thead><tr>
       <th>Week</th><th>Agent</th><th class="r">Final cash</th><th class="r">Wallet Δ</th><th class="r">Trading net</th><th class="r">Ships</th><th class="r">Trades</th><th class="r">Ops</th></tr></thead><tbody>
     ${rows.map((r, i) => `<tr class="adm-row" data-i="${i}">
       <td>${escapeHtml(r.reset_date)} ${r.capture_kind === "manual" ? badge("mid-week", "warn") : ""}</td>
@@ -106,7 +106,7 @@ async function renderScoreboard() {
       <td class="r ${cls(r.trading_net)}">${signedN(r.trading_net)}</td>
       <td class="r">${n(r.ship_count)}</td><td class="r">${n(r.trades)}</td><td class="r">${n(r.operator_actions)}</td></tr>
       <tr class="adm-expand" data-i="${i}" hidden><td colspan="8">${scoreDetail(r)}</td></tr>`).join("")}
-    </tbody></table>`;
+    </tbody></table></div>`;
   body().querySelectorAll("tr.adm-row").forEach((tr) => tr.addEventListener("click", () => {
     const ex = body().querySelector(`tr.adm-expand[data-i="${tr.dataset.i}"]`);
     ex.hidden = !ex.hidden;
@@ -159,9 +159,11 @@ async function renderTimeline() {
       <button class="btn" id="tl-go">Refresh</button>
     </div>
     <div class="adm-card">${sparkline(d.samples ?? [])}</div>
-    <table class="adm-table"><thead><tr><th>Time</th><th>Source</th><th>Kind</th><th>Ship</th><th>What</th></tr></thead><tbody>
-      ${ev.length ? ev.map((e) => `<tr><td>${escapeHtml(when(e.ts))}</td><td>${badge(e.source === "operator" ? "you" : "engine", e.source === "operator" ? "warn" : "dim")}</td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.ship ?? "")}</td><td>${escapeHtml(e.detail)}</td></tr>`).join("") : '<tr><td colspan="5" class="adm-empty">No events in this window.</td></tr>'}
-    </tbody></table>`;
+    <div class="adm-evlist">
+      ${ev.length ? ev.map((e) => `<div class="adm-ev">
+        <div class="adm-ev-h"><span class="t">${escapeHtml(when(e.ts))}</span>${badge(e.source === "operator" ? "you" : "engine", e.source === "operator" ? "warn" : "dim")}<span class="kd">${escapeHtml(e.kind)}</span>${e.ship ? `<span class="sh">${escapeHtml(e.ship)}</span>` : ""}</div>
+        <div class="adm-ev-d">${escapeHtml(e.detail)}</div></div>`).join("") : '<div class="adm-empty">No events in this window.</div>'}
+    </div>`;
   const apply = () => {
     f.ship = $("tl-ship").value;
     f.hours = $("tl-hours").value;
@@ -209,7 +211,7 @@ async function renderTenants() {
   const list = d.tenants ?? [];
   $("adm-count").textContent = `${list.length} tenant${list.length === 1 ? "" : "s"}`;
   body().innerHTML = `
-    <table class="adm-table"><thead><tr><th>Agent</th><th>Last seen</th><th>Engine</th><th>Play profile</th><th></th></tr></thead><tbody>
+    <div class="adm-scroll"><table class="adm-table"><thead><tr><th>Agent</th><th>Last seen</th><th>Engine</th><th>Play profile</th><th></th></tr></thead><tbody>
     ${list.map((x) => `<tr>
       <td>${escapeHtml(x.agentSymbol)}${x.deadTokenReason ? " " + badge("reset-invalidated token", "bad") : ""}</td>
       <td>${escapeHtml(when(x.lastSeenAt))}</td>
@@ -217,7 +219,7 @@ async function renderTenants() {
       <td><input class="field-input adm-profile" data-id="${x.id}" value="${escapeHtml(x.playProfile ?? "")}" placeholder="e.g. baseline"></td>
       <td class="r"><button class="btn adm-sm" data-act="view" data-id="${x.id}">View as</button>
         <button class="btn deny adm-sm" data-act="delete" data-id="${x.id}" data-agent="${escapeHtml(x.agentSymbol)}">Delete</button></td></tr>`).join("")}
-    </tbody></table>
+    </tbody></table></div>
     <div class="adm-card" style="margin-top:12px">
       <h3>Manual post-reset cleanup</h3>
       <div class="adm-note">Only needed if automatic recovery could not run. Clears stale game data for the checked tenants and the shared galaxy tables.
@@ -268,21 +270,25 @@ function show(name) {
   if (tab === "reset" || tab === "health") refreshTimer = setInterval(() => { if (!document.hidden) RENDERERS[tab](); }, 10_000);
 }
 
-/** Called by deck.js when the session says this agent is an operator. */
-export function enableAdmin() {
-  $("rail-admin").hidden = false;
+let enabled = false;
+
+/** Called when the session says this agent is an operator: reveals `trigger` (the rail/tab button). Safe to call twice. */
+export function enableAdmin(trigger) {
+  if (trigger) trigger.hidden = false;
+  if (enabled) return;
+  enabled = true;
   $("adm-seg").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-tab]");
     if (b) show(b.dataset.tab);
   });
 }
 
-/** Called by deck.js each time the Admin view is opened. */
+/** Called each time the Admin view is opened. */
 export function openAdmin() {
   show(tab);
 }
 
-/** Called by deck.js when leaving the Admin view, so it stops polling. */
+/** Called when leaving the Admin view, so it stops polling. */
 export function closeAdmin() {
   clearInterval(refreshTimer);
 }

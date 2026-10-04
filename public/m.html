@@ -17,6 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
 <link rel="stylesheet" href="/m.css" />
+<link rel="stylesheet" href="/shared/admin.css" />
 </head>
 <body>
 
@@ -175,6 +176,12 @@
         <div id="more-doctrine"></div>
       </div>
     </div>
+    <div class="screen" data-screen="admin">
+      <div class="more-scroll">
+        <div class="adm-head"><div class="seg" id="adm-seg"></div><span class="adm-count" id="adm-count"></span></div>
+        <div class="adm-body" id="adm-body"></div>
+      </div>
+    </div>
   </main>
 
   <nav class="tabbar" id="tabbar">
@@ -183,6 +190,7 @@
     <button data-tab="map"><span class="dot"></span>Map</button>
     <button data-tab="markets"><span class="dot"></span>Markets</button>
     <button data-tab="more"><span class="dot"></span>More</button>
+    <button data-tab="admin" id="tab-admin" hidden><span class="dot"></span>Admin</button>
   </nav>
 </div>
 
