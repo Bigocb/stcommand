@@ -21,3 +21,18 @@ describe("pickKeeperHull: keeper purchase fallback", () => {
     assert.equal(pickKeeperHull([{ type: "SHIP_EXPLORER", price: 9 }, { type: "SHIP_ORE_HOUND", price: 5 }]), undefined);
   });
 });
+
+import { keeperRequestTargets } from "../src/engine/fleet.js";
+
+describe("keeperRequestTargets — cross-kind duplicate keeper requests", () => {
+  it("matches the target market packed as shipyard|target|hull", () => {
+    assert.equal(keeperRequestTargets("X1-A-H56|X1-A-A1|SHIP_SURVEYOR", "X1-A-A1"), true);
+  });
+  it("does not match a different target, or the shipyard half", () => {
+    assert.equal(keeperRequestTargets("X1-A-H56|X1-A-A1|SHIP_SURVEYOR", "X1-A-B2"), false);
+    assert.equal(keeperRequestTargets("X1-A-H56|X1-A-A1|SHIP_SURVEYOR", "X1-A-H56"), false);
+  });
+  it("is false when there is no open request", () => {
+    assert.equal(keeperRequestTargets(undefined, "X1-A-A1"), false);
+  });
+});

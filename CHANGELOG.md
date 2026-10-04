@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Duplicate keeper requests: the two request paths now see each other
+
+Operator report (2026-10-04): each uncovered market produced two approval cards at
+once — one `buyKeeperProbeForMarket` and one `buyKeeperProbe` (often the same
+surveyor hull, bought when no satellite is stocked). Cause: the shipyard-visit
+path (`maybeRequestKeeperProbe`) and the market path
+(`maybeRequestKeeperProbeForMarket`) each dedup only against their own approval
+kind, so both could ask for the same target market. Each path now checks the
+*other* kind's open request (pending or decided-but-unconsumed) for the same
+target, packed as `shipyard|target|hull`, and stays quiet if there is one
+(`otherKeeperKindTargets` / `keeperRequestTargets`). The earlier purchase-time
+coverage re-check still guards against a double purchase.
+
 ## Tower Admin: the same operator screens on mobile (shared module)
 
 The Admin tabs now live in `public/shared/admin.js` + `shared/admin.css` and are

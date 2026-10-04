@@ -93,6 +93,11 @@ export function fuelChainReaches(
  *  yard doesn't sell one, a surveyor and then a mining drone stand in. */
 export const KEEPER_HULL_PREFERENCE = ["SHIP_PROBE", "SHIP_SURVEYOR", "SHIP_MINING_DRONE"];
 
+/** Does a keeper-probe approval row (`shipSymbol` packed "shipyard|targetMarket|hull") aim at this target market? */
+export function keeperRequestTargets(rowShipSymbol: string | null | undefined, target: string): boolean {
+  return rowShipSymbol?.split("|")[1] === target;
+}
+
 /** The best keeper hull a yard's stock offers, or undefined if none qualify. */
 export function pickKeeperHull(stock: { type: string; price: number }[]): { type: string; price: number } | undefined {
   for (const type of KEEPER_HULL_PREFERENCE) {
@@ -4279,6 +4284,23 @@ export class FleetManager {
   }
 
   /**
+   * True when the OTHER keeper-probe approval kind already has an open request
+   * (pending, or decided but not yet acted on) aimed at this same target market.
+   * The two request paths — "buyKeeperProbe" (a ship visited a shipyard) and
+   * "buyKeeperProbeForMarket" (a ship docked at / the queue reached a market) —
+   * each dedup only against their own kind, so before this check both could ask
+   * to buy a probe for the same market at the same time (two cards in the
+   * approvals list for one market, often even the same surveyor hull). Each path
+   * calls this with the kind it is NOT, right before raising its own request.
+   * `shipSymbol` packs "shipyard|targetMarket|hull" on both kinds.
+   */
+  private async otherKeeperKindTargets(otherKind: "buyKeeperProbe" | "buyKeeperProbeForMarket", target: string): Promise<boolean> {
+    if (!this.store || !this.tenantId) return false;
+    const row = await this.store.getUnconsumedApproval(this.tenantId, otherKind);
+    return keeperRequestTargets(row?.shipSymbol, target);
+  }
+
+  /**
    * The nearest uncovered market a freshly-bought probe at `fromWaypoint`
    * (a shipyard) should drift to. `fromWaypoint` itself is always a valid
    * candidate — preserves the original, unconditional "any uncovered
@@ -4366,6 +4388,7 @@ export class FleetManager {
     const detail = target === waypointSymbol
       ? `${hullLabel} at ${waypointSymbol} for ${probe.price}c — no keeper stationed there yet`
       : `${hullLabel} at ${waypointSymbol} for ${probe.price}c, will drift to ${target} — no keeper stationed there yet`;
+    if (await this.otherKeeperKindTargets("buyKeeperProbeForMarket", target)) return; // the market path already asked for this one
     const approved = await this.approvals.request("buyKeeperProbe", {
       shipSymbol: `${waypointSymbol}|${target}|${probe.type}`,
       detail,
@@ -4483,6 +4506,7 @@ export class FleetManager {
       if (existing && existing.shipSymbol !== shipSymbol) return;
     }
 
+    if (await this.otherKeeperKindTargets("buyKeeperProbe", marketWaypoint)) return; // the shipyard path already asked for this one
     const approved = await this.approvals.request("buyKeeperProbeForMarket", {
       shipSymbol,
       // "at <yard>" is the purchase SOURCE (wherever cached stock exists —
