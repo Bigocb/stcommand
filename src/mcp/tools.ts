@@ -376,6 +376,35 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_set_miner_preference",
+    {
+      title: "Set (or clear) which good a miner's or surveyor's surveys favor",
+      description: "Bias a miner or surveyor toward a good (e.g. IRON_ORE, COPPER_ORE): the survey predicate prefers deposits that yield it. Same as the dashboard's miner preference. It biases, it never guarantees — the field must actually have that deposit. Omit `good` (or pass clear=true) to remove the preference. With no shipSymbol, just lists current preferences.",
+      inputSchema: {
+        shipSymbol: z.string().optional(),
+        good: z.string().optional().describe("Exact TradeSymbol, e.g. IRON_ORE"),
+        clear: z.boolean().optional(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol, good, clear }) => {
+      try {
+        if (!shipSymbol) return textResult({ minerPreferences: w.fleet.minerPreferenceList() });
+        if (clear || !good) {
+          await w.fleet.setMinerPreference(shipSymbol, undefined);
+          await recordMcpAction(w, "miner_preference", shipSymbol, `${shipSymbol}: preference cleared`, { good: null });
+        } else {
+          await w.fleet.setMinerPreference(shipSymbol, good.trim().toUpperCase());
+          await recordMcpAction(w, "miner_preference", shipSymbol, `${shipSymbol}: preference -> ${good.trim().toUpperCase()}`, { good: good.trim().toUpperCase() });
+        }
+        return textResult({ ok: true, minerPreferences: w.fleet.minerPreferenceList() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_dock_toggle",
     {
       description: "Toggle a ship between docked and orbiting at its current waypoint. Fails if the ship is in transit.",

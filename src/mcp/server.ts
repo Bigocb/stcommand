@@ -38,6 +38,7 @@ Every ship has exactly one role at a time, set by stcommand_set_ship_role — re
 - **stcommand_dispatch_ship** — send a ship to a waypoint in its *current* system and hold it there once it arrives.
 - **stcommand_jump_ship** — jump through a gate to a waypoint in an *adjacent* system (one hop only) and hold there.
 - **stcommand_dispatch_tour** — for a system *more than one jump away*: give it a system symbol (not a waypoint) and it walks the known jump-gate graph automatically, one hop per tick, however many jumps it takes. Use this, not jump_ship, for anything beyond one hop — a direct jump_ship call to a far system just fails.
+- **stcommand_set_miner_preference** — bias a miner's or surveyor's surveys toward a good (IRON_ORE, COPPER_ORE…); omit the good to clear, omit the ship to list. A bias, not a guarantee.
 - **stcommand_assign_route** / **stcommand_clear_route** — pin a trader to one specific buy→sell route (either end may be in another system), overriding the automatic dispatcher for that ship, or hand it back. The dispatcher discounts a route when other traders are already buying at the same market; a manual route skips that discount, so check the market is not already crowded.
 - **stcommand_hold_ship** / **stcommand_release_ship** — freeze a ship exactly where it is / hand it back to the fleet's own automatic controllers. A ship under any manual hold (dispatch/jump/hold) stays put until released or given a new instruction.
 

@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP: `stcommand_set_miner_preference`
+
+Set (or clear, or list) which good a miner's or surveyor's surveys favor, from the
+MCP tools — previously only the dashboard form and Tower's per-ship "Mining
+preference" button could. Logged as an operator action like the dashboard route.
+
 ## Duplicate keeper requests: the two request paths now see each other
 
 Operator report (2026-10-04): each uncovered market produced two approval cards at
