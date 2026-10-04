@@ -22,6 +22,13 @@ target, packed as `shipyard|target|hull`, and stays quiet if there is one
 (`otherKeeperKindTargets` / `keeperRequestTargets`). The earlier purchase-time
 coverage re-check still guards against a double purchase.
 
+Second cause found the same day (E45, which is a plain market, not a shipyard):
+during a deploy two instances run for about a minute, and the booting one's
+in-memory `keeperMarkets` can be seconds stale — a probe bought for X1-JX83-E45
+at 14:45:07 was followed by a fresh request for E45 from the new instance at
+14:45:17. Both request paths and the purchase-time check now also consult the
+durable `fleet_state` (`keeperTargetCovered`), not just memory.
+
 ## Tower Admin: the same operator screens on mobile (shared module)
 
 The Admin tabs now live in `public/shared/admin.js` + `shared/admin.css` and are

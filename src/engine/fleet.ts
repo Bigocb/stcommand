@@ -4301,6 +4301,29 @@ export class FleetManager {
   }
 
   /**
+   * Is a keeper already stationed (or bought and pinned) for this market — checking
+   * the durable fleet_state as well as this process's own memory. The in-memory
+   * `keeperMarkets` is only as fresh as this instance's last load, and during a
+   * deploy two instances run side by side for about a minute: one buys a keeper for
+   * a market and persists the pin while the booting one, which loaded its state a
+   * few seconds earlier, still sees the market uncovered and raises a brand-new
+   * request for it (seen live 2026-10-04: a probe bought for X1-JX83-E45 at 14:45:07,
+   * a fresh request for E45 from the new instance at 14:45:17). Called right before
+   * each request is raised and again at purchase time; a read failure counts as
+   * "not covered" so it can never block coverage.
+   */
+  private async keeperTargetCovered(target: string): Promise<boolean> {
+    if ([...this.keeperMarkets.values()].includes(target)) return true;
+    if (!this.store || !this.tenantId) return false;
+    try {
+      const rows = await this.store.getFleetState(this.tenantId);
+      return rows.some((r) => r.role === "keeper" && r.keeperMarket === target);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * The nearest uncovered market a freshly-bought probe at `fromWaypoint`
    * (a shipyard) should drift to. `fromWaypoint` itself is always a valid
    * candidate — preserves the original, unconditional "any uncovered
@@ -4389,6 +4412,7 @@ export class FleetManager {
       ? `${hullLabel} at ${waypointSymbol} for ${probe.price}c — no keeper stationed there yet`
       : `${hullLabel} at ${waypointSymbol} for ${probe.price}c, will drift to ${target} — no keeper stationed there yet`;
     if (await this.otherKeeperKindTargets("buyKeeperProbeForMarket", target)) return; // the market path already asked for this one
+    if (await this.keeperTargetCovered(target)) return; // already covered per the durable state (another instance may have just bought it)
     const approved = await this.approvals.request("buyKeeperProbe", {
       shipSymbol: `${waypointSymbol}|${target}|${probe.type}`,
       detail,
@@ -4507,6 +4531,7 @@ export class FleetManager {
     }
 
     if (await this.otherKeeperKindTargets("buyKeeperProbe", marketWaypoint)) return; // the shipyard path already asked for this one
+    if (await this.keeperTargetCovered(marketWaypoint)) return; // already covered per the durable state (another instance may have just bought it)
     const approved = await this.approvals.request("buyKeeperProbeForMarket", {
       shipSymbol,
       // "at <yard>" is the purchase SOURCE (wherever cached stock exists —
@@ -4613,7 +4638,7 @@ export class FleetManager {
     // first probe is pinned (keeperMarkets) before this one runs, so the check
     // is reliable. Skip rather than retarget: the operator approved *this*
     // market, and the queue will propose the next uncovered one on its own.
-    if ([...this.keeperMarkets.values()].includes(targetMarket)) {
+    if (await this.keeperTargetCovered(targetMarket)) {
       this.log(`keeper probe for ${targetMarket} skipped at purchase time: that market already has a keeper (approval was for a duplicate)`);
       return;
     }
