@@ -7,6 +7,19 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Rebuild the admin area from scratch (raised 2026-10-04, operator;
+  not started, no date).** `public/admin.html` + `src/http/admin.ts` predate
+  most of what now exists. A rebuild should surface, at minimum: the reset
+  watcher (`reset_watch` status, next reset countdown, `ST_ACCOUNT_TOKEN`
+  configured?, manual "run recovery now" / pause switch); the weekly
+  scoreboard (`run_results` — a table and week-over-week comparison, play
+  profile per week); the fleet timeline and cash curve (`fleet_events`,
+  `run_timeline`, the ops `timeline` tool); the ops tools as pages (stuck,
+  instances/rate limit, keepers, pnl, logs); tenant list/cleanup/impersonate
+  as today. Open questions: keep the `x-admin-key` auth or move to the normal
+  session with an operator flag; one page vs. sections; whether Deck should
+  absorb it.
+
 - [ ] **Discuss: should a tender wait out a jump cooldown before flying
   to its fuel market? (raised 2026-10-03, operator wants to talk it
   through before anything changes — do NOT change it unprompted.)**
