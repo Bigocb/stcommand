@@ -5835,10 +5835,12 @@ export class FleetManager {
     // Already there and not mid-flight: scrap it now rather than round-
     // tripping through the intent board for a trip that doesn't exist.
     if (ship.nav.waypointSymbol === yard && ship.nav.status !== "IN_TRANSIT") {
+      await this.releaseKeeperStationForSale(shipSymbol);
       await this.scrapShip(shipSymbol);
       return yard;
     }
 
+    await this.releaseKeeperStationForSale(shipSymbol);
     await this.updateShipManualState(shipSymbol, { scrapAt: yard });
     // A ship being sold stops trading, same reasoning as holdShip()'s own
     // dispatcher.release() call.
@@ -5846,6 +5848,24 @@ export class FleetManager {
     this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
     this.log(`${shipSymbol}: sold by the operator, flying to ${yard} to be scrapped`);
     return yard;
+  }
+
+  /**
+   * Selling a keeper means the operator no longer wants that market covered:
+   * take its station off the keeper priority list too. Otherwise the market
+   * stays "uncovered" and maybeAssignKeepers()/maybeRequestKeeperProbeForMarket()
+   * convert an idle miner or ask to buy a new probe to re-cover the very
+   * market whose keeper was just retired (2026-10-05: six probes scrapped,
+   * all six markets still on the list).
+   */
+  private async releaseKeeperStationForSale(shipSymbol: string): Promise<void> {
+    const station = this.keeperMarkets.get(shipSymbol);
+    if (!station) return;
+    const list = await this.keeperPriorityMarkets();
+    if (!list.includes(station)) return;
+    const clean = list.filter((m) => m !== station);
+    if (this.tenantId) await this.store?.setFleetFlag(this.tenantId, "keeperMarkets", JSON.stringify(clean));
+    this.log(`${shipSymbol}: sold — ${station} removed from the keeper priority list (${clean.length} markets remain)`);
   }
 
   /** Manual hold + mining-field pin, keyed by ship, as one `fleet_flags` JSON

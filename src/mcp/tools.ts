@@ -467,6 +467,42 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_get_keeper_markets",
+    {
+      title: "Keeper priority markets",
+      description: "The ordered list of markets the fleet wants a keeper (price-listener probe) stationed at, plus which ship currently covers each. Markets on this list with no keeper are what maybeAssignKeepers converts idle miners for and what triggers keeper-probe purchase requests.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return textResult({ markets: await w.fleet.keeperPriorityMarkets(), stations: w.fleet.keeperStations(), coverList: await w.fleet.keeperCoverList() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_set_keeper_markets",
+    {
+      title: "Replace the keeper priority market list",
+      description: "Replace the full keeper priority list (waypoint symbols). Markets removed stop being re-covered; a market added gets an immediate coverage check (which may request a probe purchase through the approvals gate). Pass the complete list you want, not a delta.",
+      inputSchema: { markets: z.array(z.string()).describe("Complete list of market waypoint symbols to keep covered") },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ markets }) => {
+      try {
+        const clean = await w.fleet.setKeeperPriorityMarkets(markets);
+        await recordMcpAction(w, "keeper_markets", undefined, `keeper priority list set to ${clean.length} markets`, { markets: clean });
+        return textResult({ ok: true, markets: clean, stations: w.fleet.keeperStations() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_chain_health",
     {
       title: "Gate supply chain health",

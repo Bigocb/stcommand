@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Selling a keeper drops its market from the priority list; keeper-market MCP tools (2026-10-05)
+
+Operator report: six keeper probes were scrapped but their six markets stayed on the keeper priority list, so the
+fleet would convert an idle miner or request a new probe to re-cover the very markets the operator had just given up
+on. `Fleet.sellShip()` now removes a sold keeper's station from the list before the hull leaves. Two MCP tools expose
+the list so an agent can read and prune it without the dashboard: `stcommand_get_keeper_markets` and
+`stcommand_set_keeper_markets` (replace the full list; new entries get the usual immediate coverage check).
+
 ## Reset opening playbook (2026-10-05)
 
 Review item 8: `docs/reset-opening-playbook.md` writes down the order of operations for the first hours of a reset,
