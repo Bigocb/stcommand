@@ -98,6 +98,8 @@ export interface MarketRow {
   purchasePrice: number;
   sellPrice: number;
   tradeVolume: number;
+  /** WEAK | GROWING | STRONG | RESTRICTED — production strength (export) / consumption strength (import). */
+  activity?: string;
   timestamp: string;
 }
 
@@ -1293,14 +1295,14 @@ export class Store {
         const latestValues: string[] = [];
         const params: unknown[] = [];
         chunk.forEach((m, idx) => {
-          const base = idx * 8;
-          const p = Array.from({ length: 8 }, (_, k) => `$${base + k + 1}`);
-          historyValues.push(`(${p[0]}, ${p[1]}, ${p[2]}, ${p[3]}, ${p[4]}, ${p[5]}, ${p[6]}, ${p[7]}, now())`);
-          latestValues.push(`(${p[0]}, ${p[1]}, ${p[2]}, ${p[3]}, ${p[4]}, ${p[5]}, ${p[6]}, ${p[7]}, now())`);
-          params.push(m.systemSymbol, m.waypointSymbol, m.goodSymbol, m.type, m.supply, m.purchasePrice, m.sellPrice, m.tradeVolume);
+          const base = idx * 9;
+          const p = Array.from({ length: 9 }, (_, k) => `$${base + k + 1}`);
+          historyValues.push(`(${p[0]}, ${p[1]}, ${p[2]}, ${p[3]}, ${p[4]}, ${p[5]}, ${p[6]}, ${p[7]}, ${p[8]}, now())`);
+          latestValues.push(`(${p[0]}, ${p[1]}, ${p[2]}, ${p[3]}, ${p[4]}, ${p[5]}, ${p[6]}, ${p[7]}, ${p[8]}, now())`);
+          params.push(m.systemSymbol, m.waypointSymbol, m.goodSymbol, m.type, m.supply, m.purchasePrice, m.sellPrice, m.tradeVolume, m.activity ?? null);
         });
         await c.query(
-          `INSERT INTO market_snapshots (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
+          `INSERT INTO market_snapshots (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, activity, timestamp)
            VALUES ${historyValues.join(", ")}`,
           params,
         );
@@ -1310,9 +1312,10 @@ export class Store {
         // waypoint+good directly instead of re-deriving it with a
         // ROW_NUMBER() OVER (PARTITION BY ...) scan of the whole history.
         await c.query(
-          `INSERT INTO market_latest (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, timestamp)
+          `INSERT INTO market_latest (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, activity, timestamp)
            VALUES ${latestValues.join(", ")}
            ON CONFLICT (waypoint_symbol, good_symbol) DO UPDATE SET
+             activity = excluded.activity,
              system_symbol = excluded.system_symbol,
              type = excluded.type,
              supply = excluded.supply,

@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Market snapshots now record the game's `activity` level (2026-10-05)
+
+Every market good the API returns carries `activity` (WEAK / GROWING / STRONG / RESTRICTED): for an export, how close
+production is to its maximum; for an import, how close consumption is. We had been discarding it. Price-impact
+experiments this session showed price is a function of stock (path-independent, reversible, ~4-5% per tradeVolume
+of units bought) and that FAB_MATS stock regenerates at only ~1% price per hour, far too slowly for the gate, so what
+sets the production rate is the open question and `activity` is the first candidate. Migration 038 adds nullable
+`activity` columns to `market_snapshots` and `market_latest`; `recordMarkets` writes it from every call site that
+builds a row from API trade goods. Older rows stay NULL.
+
 ## MCP: stcommand_trade_cargo for price-impact experiments (2026-10-05)
 
 There was no way to buy or sell goods through the MCP server, only the dashboard's session-auth route, which made

@@ -1572,6 +1572,7 @@ export class FleetManager {
           purchasePrice: g.purchasePrice,
           sellPrice: g.sellPrice,
           tradeVolume: g.tradeVolume,
+          activity: g.activity,
         });
       }
     }
@@ -1741,6 +1742,7 @@ export class FleetManager {
           purchasePrice: g.purchasePrice,
           sellPrice: g.sellPrice,
           tradeVolume: g.tradeVolume,
+          activity: g.activity,
         });
         if (g.symbol.startsWith("MODULE_")) {
           moduleGoods.push({ symbol: g.symbol, name: g.symbol, category: g.type, purchasePrice: g.purchasePrice });
@@ -5059,6 +5061,7 @@ export class FleetManager {
             purchasePrice: g.purchasePrice,
             sellPrice: g.sellPrice,
             tradeVolume: g.tradeVolume,
+          activity: g.activity,
           });
         }
         this.log(`mission discovery: surveyed ${waypoint} (${market.tradeGoods?.length ?? 0} goods)`);

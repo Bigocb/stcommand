@@ -345,6 +345,7 @@ export class ChatAgent {
                 purchasePrice: g.purchasePrice,
                 sellPrice: g.sellPrice,
                 tradeVolume: g.tradeVolume,
+          activity: g.activity,
               });
             }
           }
