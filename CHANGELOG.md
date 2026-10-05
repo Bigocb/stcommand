@@ -11,6 +11,11 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Deck and Tower: feed carriers and loaded traders no longer count as "unassigned" (2026-10-05)
 
+Follow-up, same day: that was not enough on its own. Deck never loaded feeds/missions/contracts at boot or on its 15 s
+poll (only when Ops, Feeds or Map was opened), so a feed carrier still read "unassigned" until one of those screens had
+been visited this session; Tower had the same gap for Home (it loaded them only on Fleet and More). Both now load
+them at boot and on every poll, and Deck re-renders Overview and Fleet when they arrive.
+
 The Overview/Home "Unassigned" count was every trader with no dispatcher assignment, which also caught ships working a
 feed (an iron or silicon carrier) or a mission, and any trader mid-trade with cargo aboard. THEO showed three unassigned
 traders that were in fact the iron and silicon feed carriers. Deck now uses `jobFor()` (feed, mission, contract and loaded

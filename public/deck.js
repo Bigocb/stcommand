@@ -2121,6 +2121,11 @@ subscribe("galaxy", () => {
   if (!$("view-map").hidden) renderSystemAgents();
 });
 subscribe("programme", () => {
+  // Feed/mission claims decide what the Fleet table and Overview call "unassigned" (jobFor), so
+  // they must refresh on every programme load, not only while Ops/Feeds is open.
+  renderKPIs();
+  renderFleet();
+  renderWantsDoing();
   if (!$("view-ops").hidden) renderOps();
   if (!$("view-feeds").hidden) { renderFeeds(); renderChains(); }
 });
@@ -2147,6 +2152,7 @@ function boot() {
   loadGoods();
   loadWarehouse();
   loadKeepers();
+  loadProgramme();
   renderTopbar();
   renderKPIs();
   renderMinimap();
@@ -2167,6 +2173,7 @@ function pollTick() {
   loadGoods();
   loadWarehouse();
   loadKeepers();
+  loadProgramme();
 }
 
 setInterval(() => {

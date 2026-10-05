@@ -1930,6 +1930,7 @@ function boot() {
   loadDispatch();
   loadMarkets();
   loadActivity();
+  loadProgramme(); // Home's unassigned count reads feed/mission claims (claimFor)
   renderStatusbar();
 }
 function pollTick() {
@@ -1938,15 +1939,18 @@ function pollTick() {
   // tab, see renderHomeActivity()'s comment) is on the one screen that's
   // always polling, not gated to a tab being open.
   loadState(); loadBridge(); loadApprovals(); loadDispatch(); loadActivity();
+  // Feed/mission claims drive the "unassigned" count on Home and every ship card's job, so they
+  // refresh on every tick, not only while Fleet or More is open (a feed carrier read "unassigned"
+  // until one of those tabs had been visited).
+  loadProgramme();
   if (mapTabActive() || marketsTabActive() || fleetTabActive()) loadMarkets();
   if (marketsTabActive()) loadGoods();
-  if (moreTabActive()) { loadProgramme(); loadWarehouse(); }
+  if (moreTabActive()) loadWarehouse();
   // fleetTabActive() gets its own, narrower loadProgramme() call — same
   // reason as setTab()'s own comment: a feed/mission claim made while
   // Fleet is already open (e.g. a new carrier assigned mid-session) needs
   // feeds/missions/contracts to stay fresh, not just on first opening the
   // tab — but Fleet has no use for warehouse, unlike More.
-  else if (fleetTabActive()) loadProgramme();
 }
 setInterval(() => {
   if (!authed || document.hidden) return;
