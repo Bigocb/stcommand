@@ -291,6 +291,8 @@ export interface MissionRow {
   carrierTarget: number;
   materials: { tradeSymbol: string; required: number; fulfilled: number }[];
   paused: boolean;
+  /** See MissionPacing in engine/mission.ts. */
+  pacing?: { buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -2382,15 +2384,16 @@ export class Store {
       carrierTarget: number;
       materials: { tradeSymbol: string; required: number; fulfilled: number }[];
       paused?: boolean;
+      pacing?: { buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number } | null;
     },
   ): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO missions (tenant_id, kind, target_system, target_waypoint, status, assigned_ships, carrier_target, materials, paused, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+        `INSERT INTO missions (tenant_id, kind, target_system, target_waypoint, status, assigned_ships, carrier_target, materials, paused, pacing, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
          ON CONFLICT (tenant_id, target_waypoint) DO UPDATE SET
            status = excluded.status, assigned_ships = excluded.assigned_ships, carrier_target = excluded.carrier_target,
-           materials = excluded.materials, paused = excluded.paused, updated_at = excluded.updated_at`,
+           materials = excluded.materials, paused = excluded.paused, pacing = excluded.pacing, updated_at = excluded.updated_at`,
         [
           tenantId,
           m.kind,
@@ -2401,6 +2404,7 @@ export class Store {
           m.carrierTarget,
           JSON.stringify(m.materials),
           m.paused ?? false,
+          m.pacing ? JSON.stringify(m.pacing) : null,
         ],
       ),
     );
@@ -2418,9 +2422,10 @@ export class Store {
         carrier_target: number;
         materials: { tradeSymbol: string; required: number; fulfilled: number }[];
         paused: boolean;
+        pacing: { buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number } | null;
         created_at: Date;
         updated_at: Date;
-      }>(`SELECT kind, target_system, target_waypoint, status, assigned_ships, carrier_target, materials, paused, created_at, updated_at
+      }>(`SELECT kind, target_system, target_waypoint, status, assigned_ships, carrier_target, materials, paused, pacing, created_at, updated_at
           FROM missions ORDER BY updated_at DESC`);
       return res.rows.map((r) => ({
         kind: r.kind as "SUPPLY_CONSTRUCTION",
@@ -2431,6 +2436,7 @@ export class Store {
         carrierTarget: r.carrier_target ?? 1,
         materials: r.materials,
         paused: r.paused,
+        pacing: r.pacing ?? null,
         createdAt: r.created_at.toISOString(),
         updatedAt: r.updated_at.toISOString(),
       }));

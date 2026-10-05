@@ -5166,6 +5166,14 @@ export class FleetManager {
     await this.missions.setCarrierTarget(waypointSymbol, count);
   }
 
+  /** Per-mission buy pacing (lot size, minimum gap, price ceiling) — see MissionPacing. */
+  async setMissionPacing(
+    waypointSymbol: string,
+    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null },
+  ) {
+    return this.missions.setPacing(waypointSymbol, patch);
+  }
+
   /** Reset a mission material's price baseline so the next buy re-seeds it
    *  from the historical low instead of chasing whatever it drifted to —
    *  see MissionManager.resetMaterialBaseline()'s own comment. */

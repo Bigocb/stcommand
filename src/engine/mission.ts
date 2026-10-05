@@ -41,6 +41,21 @@ export type MissionKind = "SUPPLY_CONSTRUCTION";
  * preserves today's single-carrier behavior for every mission that never
  * touches the new crew-size controls.
  */
+/**
+ * Per-mission buy pacing. Price depends on total units taken from the market (see the 2026-10-05
+ * impact probes), so the useful knob is how FAST a mission buys, not how it splits a purchase:
+ * a market that refills a few units an hour cannot absorb 60 an hour at a flat price. All keys are
+ * optional; a missing key means the built-in behaviour (market lot size, no gap, 40% ceiling).
+ */
+export interface MissionPacing {
+  /** Max units per purchase transaction (still capped by the market's own trade volume). */
+  buyLotUnits?: number;
+  /** Minimum minutes between purchases of the same material by this mission (all carriers). */
+  buyGapMin?: number;
+  /** Cumulative price ceiling, percent above the market's trailing-24h low (default 40). */
+  maxInflationPct?: number;
+}
+
 export interface Mission {
   kind: MissionKind;
   targetSystem: string;
@@ -51,6 +66,7 @@ export interface Mission {
   materials: MissionMaterial[];
   /** True while the operator has this mission held (no sourcing, no spending). */
   paused?: boolean;
+  pacing?: MissionPacing | null;
 }
 
 interface MissionOptions {
@@ -167,6 +183,9 @@ export class MissionManager {
   private lastReconcile = new Map<string, number>();
   /** Waypoints whose missions are paused (no sourcing/spending until resumed). */
   private paused = new Set<string>();
+  /** `${waypoint}|${material}` -> earliest time the next purchase is allowed (MissionPacing.buyGapMin). In memory:
+   *  a restart forgets it and allows one purchase straight away, which is harmless. */
+  private nextBuyAt = new Map<string, number>();
   /** Waypoint → next time step()'s pre-assignment discovery survey may run,
    *  for missions with no crew yet (so it's throttled the same way a real
    *  carrier's own maybeDiscover() call is, instead of firing every tick). */
@@ -209,6 +228,7 @@ export class MissionManager {
         materials: persisted.materials,
         assignedShips: [...persisted.assignedShips],
         carrierTarget: persisted.carrierTarget,
+        pacing: persisted.pacing ?? null,
       };
       this.active.set(waypointSymbol, mission);
       if (persisted.paused) {
@@ -256,6 +276,7 @@ export class MissionManager {
       carrierTarget: m.carrierTarget,
       materials: m.materials,
       paused: m.paused,
+      pacing: m.pacing ?? null,
     }));
     // this.paused is authoritative for anything already in this.active — the
     // operator can pause/resume between writes, and that in-memory Set is
@@ -390,6 +411,27 @@ export class MissionManager {
    * ramps up toward it one ship per tick; setting a lower target than the
    * current crew releases the excess immediately (most-recently-added first).
    */
+  /** Merge pacing settings into a mission. A key set to null (or 0 for the lot and gap) clears it
+   *  back to the default; keys not mentioned keep their value. */
+  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null }): Promise<MissionPacing | null> {
+    const mission = this.active.get(waypointSymbol);
+    if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
+    const next: MissionPacing = { ...(mission.pacing ?? {}) };
+    const apply = (key: keyof MissionPacing, v: number | null | undefined, min: number, max: number) => {
+      if (v === undefined) return;
+      if (v === null || v === 0) { delete next[key]; return; }
+      if (!Number.isFinite(v) || v < min || v > max) throw new Error(`${key} must be between ${min} and ${max} (or null to clear)`);
+      next[key] = Math.round(v);
+    };
+    apply("buyLotUnits", patch.buyLotUnits, 1, 1000);
+    apply("buyGapMin", patch.buyGapMin, 1, 24 * 60);
+    apply("maxInflationPct", patch.maxInflationPct, 1, 500);
+    mission.pacing = Object.keys(next).length ? next : null;
+    await this.persist(mission);
+    this.log(`mission ${waypointSymbol}: pacing ${mission.pacing ? JSON.stringify(mission.pacing) : "cleared (defaults)"}`);
+    return mission.pacing;
+  }
+
   async setCarrierTarget(waypointSymbol: string, count: number): Promise<void> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
@@ -759,8 +801,16 @@ export class MissionManager {
         // visit — 30 minutes instead of the usual 5m re-shop cooldown, so this
         // doesn't just spam the same wall every few minutes while the price
         // has no real reason to have moved yet.
+        // Pacing: wait out the minimum gap since this mission last bought this material.
+        const gapKey = `${mission.targetWaypoint}|${material}`;
+        const nextBuyAt = this.nextBuyAt.get(gapKey) ?? 0;
+        if (Date.now() < nextBuyAt) {
+          t.retryAt = nextBuyAt;
+          return;
+        }
+        const ceiling = (mission.pacing?.maxInflationPct ?? MAX_MISSION_BUY_INFLATION_CUMULATIVE * 100) / 100;
         const firstSeen = await this.baselineFor(mission, need, market, price);
-        if (price > firstSeen * (1 + MAX_MISSION_BUY_INFLATION_CUMULATIVE)) {
+        if (price > firstSeen * (1 + ceiling)) {
           (t.blockedUntil ??= {})[material] = Date.now() + 30 * 60_000;
           t.currentMaterial = undefined;
           t.market = undefined;
@@ -786,9 +836,11 @@ export class MissionManager {
         // Respect the market's per-transaction trade volume limit (e.g. FAB_MATS
         // caps at 20u/tx) — buying more than that fails the whole purchase.
         const volumeCap = buyer?.tradeVolume && buyer.tradeVolume > 0 ? buyer.tradeVolume : toBuy;
-        const units = Math.max(1, Math.min(toBuy, affordable, volumeCap));
+        const lotCap = mission.pacing?.buyLotUnits ?? Infinity;
+        const units = Math.max(1, Math.min(toBuy, affordable, volumeCap, lotCap));
         try {
           const res = await this.api.purchaseCargo(ship.symbol, material, units);
+          if (mission.pacing?.buyGapMin) this.nextBuyAt.set(gapKey, Date.now() + mission.pacing.buyGapMin * 60_000);
           this.recordLedger?.({
             timestamp: new Date().toISOString(),
             shipSymbol: ship.symbol,
@@ -892,6 +944,7 @@ export class MissionManager {
       carrierTarget: m.carrierTarget,
       materials: m.materials,
       paused: this.paused.has(m.targetWaypoint),
+      pacing: m.pacing ?? null,
     });
   }
 }

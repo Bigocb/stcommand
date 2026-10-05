@@ -60,6 +60,19 @@ transaction price plus the market listing before and after, so impact is read di
 keeper snapshot. `buyCargo`/`sellCargo` now return a `TradeResult` (optional re-read of the market after the trade);
 existing callers ignore it.
 
+## Construction missions: per-mission buy pacing and MCP tools (2026-10-05)
+
+Measured this week: a market's price depends on the total units taken from it (about +0.22% a unit), not on how a
+purchase is split, and FAB_MATS stock refills at only a few units an hour. A mission buying a 20-unit lot every cycle
+outruns that and runs into its price gates. `MissionPacing` (migration 039, a jsonb `pacing` column on `missions`) adds
+three optional per-mission knobs: `buyLotUnits` (units per purchase, still capped by the market lot), `buyGapMin`
+(minimum minutes between purchases of a material, shared by all carriers) and `maxInflationPct` (the existing cumulative
+ceiling over the market's trailing-24h low, previously a hard-coded 40%; the separate per-visit 25% gate is unchanged).
+Unset means the old behaviour. New `POST /api/missions/pacing` and MCP tools `stcommand_get_missions`,
+`stcommand_set_mission_pacing`, `stcommand_pause_mission`, `stcommand_resume_mission` (the MCP server had no mission
+tools). The gap is held in memory, so a restart allows one immediate purchase. Tests: `tests/missionPacing.test.ts`
+(no database). Not built yet: Deck/Tower form fields for these.
+
 ## Fix: route fuel cost was 100x too high, hiding almost every route (2026-10-05)
 
 `computeDispatchRoutes()`, `TraderAgent.tripCost()` and the miner's opportunistic arbitrage all charged a leg

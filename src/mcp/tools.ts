@@ -430,6 +430,85 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_get_missions",
+    {
+      title: "List construction missions",
+      description: "Every construction-supply mission (e.g. the jump gate): status, paused flag, crew, each material's required/fulfilled, and its buy pacing (lot size, minimum gap, price ceiling; null = defaults).",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return textResult({ missions: await w.fleet.getMissions() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_set_mission_pacing",
+    {
+      title: "Set a mission's buy pacing",
+      description: "Slow a construction mission's buying so it does not outrun the market's refill. Price depends on total units bought, not how they are split, so what matters is the RATE: buyLotUnits caps units per purchase, buyGapMin is the minimum minutes between purchases of a material, maxInflationPct is the price ceiling in percent above the market's trailing-24h low (default 40). A number sets a key, null clears it to the default, omitting it leaves it unchanged.",
+      inputSchema: {
+        waypoint: z.string().describe("The construction site, e.g. X1-JX83-I59"),
+        buyLotUnits: z.number().int().nullable().optional(),
+        buyGapMin: z.number().int().nullable().optional(),
+        maxInflationPct: z.number().int().nullable().optional(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint, buyLotUnits, buyGapMin, maxInflationPct }) => {
+      try {
+        const pacing = await w.fleet.setMissionPacing(waypoint, { buyLotUnits, buyGapMin, maxInflationPct });
+        await recordMcpAction(w, "mission_pacing", waypoint, `pacing ${pacing ? JSON.stringify(pacing) : "cleared"}`);
+        return textResult({ ok: true, waypoint, pacing });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_pause_mission",
+    {
+      title: "Pause a construction mission",
+      description: "Stop a mission sourcing and spending, and release its crew back to autonomy.",
+      inputSchema: { waypoint: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint }) => {
+      try {
+        await w.fleet.pauseMission(waypoint);
+        await recordMcpAction(w, "mission_pause", waypoint, `paused mission ${waypoint}`);
+        return textResult({ ok: true, waypoint, paused: true });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_resume_mission",
+    {
+      title: "Resume a construction mission",
+      description: "Resume a paused mission; it re-staffs toward its crew target and starts buying again, subject to its pacing.",
+      inputSchema: { waypoint: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint }) => {
+      try {
+        await w.fleet.resumeMission(waypoint);
+        await recordMcpAction(w, "mission_resume", waypoint, `resumed mission ${waypoint}`);
+        return textResult({ ok: true, waypoint, paused: false });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_feeds",
     {
       title: "List feeder tiers",

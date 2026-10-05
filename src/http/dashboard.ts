@@ -1058,6 +1058,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  router.post("/missions/pacing", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    if (!waypoint) return res.status(400).json({ error: "waypoint required" });
+    // Each key: a number sets it, null/0 clears it, absent leaves it alone.
+    const pick = (k: string): number | null | undefined => (req.body?.[k] === undefined ? undefined : req.body[k] === null ? null : Number(req.body[k]));
+    try {
+      await w.fleet.setMissionPacing(waypoint, { buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct") });
+      res.json({ ok: true, missions: await w.fleet.getMissions() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/missions/reset-material-baseline", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
