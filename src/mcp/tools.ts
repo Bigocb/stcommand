@@ -467,6 +467,30 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_set_mission_crew",
+    {
+      title: "Add or remove a mission carrier",
+      description: "Change which ships carry a construction mission. action=add staffs the named ship alongside the current crew (carrierTarget rises to fit); action=remove releases it (carrierTarget drops by one). Use add-then-remove to swap the command ship out for a shuttle without the mission auto-picking a replacement.",
+      inputSchema: {
+        waypoint: z.string().describe("The mission's construction site, e.g. X1-JX83-I59"),
+        shipSymbol: z.string(),
+        action: z.enum(["add", "remove"]),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint, shipSymbol, action }) => {
+      try {
+        if (action === "add") await w.fleet.assignMissionCarrier(waypoint, shipSymbol);
+        else await w.fleet.removeMissionCarrier(waypoint, shipSymbol);
+        await recordMcpAction(w, "mission_crew", shipSymbol, `mission ${waypoint}: ${action} ${shipSymbol}`, { waypoint, action });
+        return textResult({ ok: true, missions: await w.fleet.getMissions() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_keeper_markets",
     {
       title: "Keeper priority markets",

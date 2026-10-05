@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP: `stcommand_set_mission_crew` (2026-10-05)
+
+Mission crew changes (the dashboard's assign / remove-carrier) had no MCP equivalent, so a connected agent could not
+swap the command ship off the gate mission to use it as a miner. One tool with `action: add | remove`.
+
 ## Selling a keeper drops its market from the priority list; keeper-market MCP tools (2026-10-05)
 
 Operator report: six keeper probes were scrapped but their six markets stayed on the keeper priority list, so the
