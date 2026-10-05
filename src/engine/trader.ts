@@ -1361,7 +1361,8 @@ export class TraderAgent {
       return this.hopCost(buySystem, sellSystem);
     }
     const fuelPrice = this.priceTable.get(buyAt)?.get("FUEL")?.buy ?? 72;
-    return this.distBetween(buyAt, sellAt) * fuelPrice;
+    // FUEL is priced per 100 tank-fuel (see FUEL_UNIT_SIZE in fleet.ts); a leg burns ~1 tank-fuel per distance unit.
+    return (this.distBetween(buyAt, sellAt) * fuelPrice) / 100;
   }
 
   private routeProfit(r: Route): number {

@@ -60,6 +60,17 @@ transaction price plus the market listing before and after, so impact is read di
 keeper snapshot. `buyCargo`/`sellCargo` now return a `TradeResult` (optional re-read of the market after the trade);
 existing callers ignore it.
 
+## Fix: route fuel cost was 100x too high, hiding almost every route (2026-10-05)
+
+`computeDispatchRoutes()`, `TraderAgent.tripCost()` and the miner's opportunistic arbitrage all charged a leg
+`distance x FUEL price`. FUEL is sold in blocks of 100 tank-fuel (the ledger shows a 300-fuel top-up as two units at 72c),
+and a CRUISE leg burns about 1 tank-fuel per distance unit, so the real cost is `distance x price / 100`: a 100-unit hop
+is about 72c, not 7,200c. Every spread worth under a few thousand credits a trip was therefore priced as a loss, the route
+list went empty ("4 traders (4 idle) | work: (none)") once the big early gaps were arbitraged away, and income fell from
+about 60k to about 13k an hour overnight. Remaining same-system spreads at the time (PLASTICS G54>K87 +4.2k a trip,
+ALUMINUM H55>K87 +3.8k, AMMUNITION F52>E45 +6.4k, COPPER H55>F53 +2.6k) all read as losses of 1.3-6.8k and are now
+profitable. Added `FUEL_UNIT_SIZE` (100) in `fleet.ts`. Jump costs for cross-system legs are credits and were not affected.
+
 ## Warehousing parked: UI removed from Deck, v6 and Tower, doctrine locked off (2026-10-05)
 
 Operator decision: the warehouse was an early idea and is not helping the gate chase, so it is out of the way until

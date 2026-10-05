@@ -36,6 +36,9 @@ export interface TradeResult {
 export type ShipType = components["schemas"]["ShipType"];
 
 /** How long the cached agent credit balance stays good for. See `refreshCredits`. */
+/** Tank-fuel units bought per FUEL unit at a market (refuelShip() buys in blocks of 100). */
+export const FUEL_UNIT_SIZE = 100;
+
 const CREDITS_TTL_MS = 30_000;
 
 /**
@@ -1524,7 +1527,12 @@ export class FleetManager {
         const fuelUnits = dist === null ? null : dist;
         const fuelCost = crossSystem
           ? this.crossSystemTripCost(l.buySystem, l.sellSystem)
-          : fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
+          // FUEL is sold in units of 100 tank-fuel (a 300-fuel top-up shows as 2 units at 72c each in the
+          // ledger), and a CRUISE leg burns about 1 tank-fuel per distance unit, so a leg costs
+          // distance x price / 100. Without the /100 every leg was priced 100x too dear, a 100-unit
+          // hop at 72c read as 7,200c instead of ~72c, and every spread under a few thousand credits
+          // a trip vanished from the route list (seen 2026-10-05: 4 idle traders, "work: (none)").
+          : fuelUnits === null ? 0 : (fuelUnits * (fuelAt.get(l.buyAt) ?? 72)) / FUEL_UNIT_SIZE;
         const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
         // Real depth beyond a market's own advertised trade volume is not
         // unlimited: each successive lot draws down supply and moves the

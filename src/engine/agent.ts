@@ -857,7 +857,8 @@ export class ShipAgent {
         const affordable = credits > 0 && buy.purchasePrice > 0 ? Math.floor(credits / buy.purchasePrice) : Infinity;
         const units = Math.min(buy.tradeVolume, sell.tradeVolume, this.ship.cargo.capacity, affordable);
         if (units <= 0) continue;
-        const fuelCost = fuelToSell * (this.priceTableFuel(here) ?? 72);
+        // FUEL is priced per 100 tank-fuel (fleet.ts FUEL_UNIT_SIZE): cost = fuel burned x price / 100.
+        const fuelCost = (fuelToSell * (this.priceTableFuel(here) ?? 72)) / 100;
         const profit = margin * units - fuelCost;
         if (profit <= 50) continue;
         if (!best || profit > best.profit) {
