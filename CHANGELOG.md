@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Drone-plus-collector mining: feed `field` + `collector` (2026-10-05)
+
+Review item 6, the pattern other players use for far or crowded asteroids. A mine feed can now pin its drones to one
+asteroid (`field`) and name a shuttle (`collector`) that waits in orbit there. A drone that is full hands its hold to
+the collector through `POST /my/ships/{s}/transfer` (both in orbit) and goes straight back to mining; the collector
+flies to the target market when nearly full (or after a 20-minute part-load), sells under the feed's sell-gap rule,
+clears junk, and returns. Drones never make the 15-unit round trip, and an asteroid beyond a drone's tank becomes
+workable. Set with `POST /api/feeds/collector`, `stcommand_set_feed_collector`, or the Feeder-tier card in Deck
+(which also gained the loss-limit / stop-level controls from migration 040). The collector is suspended from the
+dispatcher while assigned and released on pause/remove. Migration 042. Not yet exercised live.
+
 ## MCP: stcommand_sell_ship (2026-10-05)
 
 Exposes `FleetManager.sellShip()` (fly to the nearest yard and scrap) over MCP with a required `confirm=true`, so an
@@ -56,7 +67,7 @@ accept, replacing the default 10% margin gate) and `stopAtSupply` (MODERATE/HIGH
 target's supply reaches it; loaded carriers still deliver). Stored in migration 040, set with
 `POST /api/feeds/limits` or the `stcommand_set_feed_limits` MCP tool. Aim for HIGH, not ABUNDANT: other players report
 that over-feeding an import makes its market "evolve" (trade volume 60 -> 165, consumption grows) and it then goes
-SCARCE when the feed can't keep up. No UI control yet (TODO).
+SCARCE when the feed can't keep up. Deck Feeder-tier cards gained the controls on 2026-10-05 (see the collector entry).
 
 ## Route profit now counts the whole round trip, price impact, and ranks by time (2026-10-05)
 

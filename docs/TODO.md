@@ -395,8 +395,8 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   sunk fuel. Needs a pair-of-legs search over the same price data (X: A->B, Y: B->A, or a triangle A->B->C->A) scored
   on combined net per hour, plus holding the hold-size / cash constraints across both purchases. Not scoped.
 
-- **Gate-chain follow-ups (2026-10-05).** (a) Deck/Tower/v6 controls for feed `maxLossPerUnit` / `stopAtSupply` (API and
-  MCP exist: `POST /api/feeds/limits`, `stcommand_set_feed_limits`). (b) A "chain health" Deck panel like the community
+- **Gate-chain follow-ups (2026-10-05).** (a) done in Deck 2026-10-05 (Tower shows tags only; v6 none). (b) done 2026-10-05 as the Ops "Gate supply chain" panel.
+  (b-old) A "chain health" Deck panel like the community
   supply-chain graph: each input's supply + import activity at the producer, the producer's export activity, supply and
   trade volume, weakest link coloured. (c) Durable per-market activity/trade-volume history that can be queried without a
   tenant session (the ledger/activity tables are row-locked per tenant, so the read-only SQL login sees none of it).

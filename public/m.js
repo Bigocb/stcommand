@@ -1653,7 +1653,7 @@ function renderMoreFeeds() {
         <span class="who">${escapeHtml(f.good)} → ${escapeHtml(f.targetWaypoint)}</span>
         <span class="amt">${f.paused ? "off" : "on"}</span>
       </div>
-      <div class="detail">${f.mine ? "mined" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "bought"}${f.chainName ? ` · chain: ${escapeHtml(f.chainName)}` : ""} · crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""} · gap ${f.sellGapMs ? `${Math.round(f.sellGapMs / 60_000)}m` : "default"}</div>
+      <div class="detail">${f.mine ? "mined" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "bought"}${f.chainName ? ` · chain: ${escapeHtml(f.chainName)}` : ""} · crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""} · gap ${f.sellGapMs ? `${Math.round(f.sellGapMs / 60_000)}m` : "default"}${f.stopAtSupply ? ` · stop at ${escapeHtml(f.stopAtSupply.toLowerCase())}` : ""}${f.maxLossPerUnit != null ? ` · loss ≤ ${f.maxLossPerUnit}c` : ""}${f.field ? ` · field ${escapeHtml(shortWp(f.field))}` : ""}${f.collector ? ` · collector ${escapeHtml(f.collector)}` : ""}</div>
       <div class="acts">
         <input type="number" class="carrier-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
         <button class="btn" data-act="set-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Set crew size</button>

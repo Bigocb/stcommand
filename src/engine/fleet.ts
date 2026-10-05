@@ -584,6 +584,12 @@ export class FleetManager {
       // good nothing sells.
       mineOnce: async (shipSymbol) => (await this.miners.get(shipSymbol)?.mineOnce()) ?? false,
       setMinerPreference: (shipSymbol, good) => this.setMinerPreference(shipSymbol, good),
+      // Drone-plus-collector mode (feed.ts Feed.field / Feed.collector): pin drones to the field, hand holds to
+      // the collector in orbit, and let the collector orbit while it waits.
+      pinMiner: (shipSymbol, field) => this.mineAt(shipSymbol, field),
+      unpinMiner: (shipSymbol) => this.unpinMining(shipSymbol),
+      transferCargo: (from, good, units, to) => this.api.transferCargo(from, good, units, to),
+      orbitShip: (shipSymbol) => this.api.orbitShip(shipSymbol),
     });
   }
 
@@ -5452,6 +5458,11 @@ export class FleetManager {
 
   /** Set (or clear) a feed's own sell-pacing gap override — see
    *  FeedManager.setSellGap()/DEFAULT_SELL_GAP_MS. */
+  /** Drone-plus-collector mining on a mine feed: the asteroid the drones are pinned to and the shuttle that collects. */
+  setFeedCollector(waypointSymbol: string, good: string, patch: { field?: string | null; collector?: string | null }): Promise<void> {
+    return this.feeds.setCollector(waypointSymbol, good, patch);
+  }
+
   /** Set or clear (null) a feed's loss tolerance (credits/unit above the target's pay) and supply stop rule. */
   setFeedLimits(waypointSymbol: string, good: string, patch: { maxLossPerUnit?: number | null; stopAtSupply?: string | null }): Promise<void> {
     return this.feeds.setLimits(waypointSymbol, good, patch);

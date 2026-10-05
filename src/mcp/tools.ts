@@ -615,6 +615,30 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_set_feed_collector",
+    {
+      title: "Drone-plus-collector mining on a mine feed",
+      description: "Pin a mine feed's drones to one asteroid (`field`) and name a shuttle (`collector`, a trader hull with a 40+ hold) that waits in orbit there, takes each drone's hold through the cargo-transfer endpoint and flies the full load to the feed's target market. The drones never leave the field, so a far asteroid (beyond a drone's tank) becomes workable and the 15-unit round trips go away. Also obeys the feed's stop rule. null clears either value; omitted leaves it unchanged. Use 2-4 drones per asteroid: ~8 extractions per 70 s makes one unstable.",
+      inputSchema: {
+        waypoint: z.string().describe("The feed's target market"),
+        good: z.string(),
+        field: z.string().nullable().optional().describe("Asteroid waypoint for the drones"),
+        collector: z.string().nullable().optional().describe("Shuttle symbol, not on any other feed"),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint, good, field, collector }) => {
+      try {
+        await w.fleet.setFeedCollector(waypoint, good.toUpperCase(), { field: field === undefined ? undefined : field, collector: collector === undefined ? undefined : collector });
+        await recordMcpAction(w, "feed_collector", collector ?? undefined, `feed ${good.toUpperCase()} -> ${waypoint}: field ${field ?? "unchanged"}, collector ${collector ?? "unchanged"}`, { waypoint, good, field, collector });
+        return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_assign_feed_carrier",
     {
       title: "Add a specific ship to a feed's crew",

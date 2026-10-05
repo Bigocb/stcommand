@@ -1630,6 +1630,10 @@ function renderFeeds() {
         ${f.chainName ? `<span class="tag">chain: ${escapeHtml(f.chainName)}</span>` : ""}
         ${f.force ? `<span class="tag" title="Buying every cycle regardless of margin">forced</span>` : ""}
         <span class="tag" title="Minimum gap between sells into this market, shared across the crew">gap ${f.sellGapMs ? `${Math.round(f.sellGapMs / 60_000)}m` : "default"}</span>
+        ${f.stopAtSupply ? `<span class="tag" title="Stops sourcing once the target's supply reaches this bucket">stop at ${escapeHtml(f.stopAtSupply.toLowerCase())}</span>` : ""}
+        ${f.maxLossPerUnit != null ? `<span class="tag" title="Accepts paying up to this many credits per unit above what the target pays">loss ≤ ${f.maxLossPerUnit}c</span>` : ""}
+        ${f.field ? `<span class="tag" title="Drones pinned to this asteroid">field ${escapeHtml(shortWp(f.field))}</span>` : ""}
+        ${f.collector ? `<span class="tag" title="Shuttle that collects the drones' holds in orbit and carries them to market">collector ${escapeHtml(f.collector)}</span>` : ""}
         <span class="tag ${f.paused ? "paused" : "done"}">${f.paused ? "off" : "on"}</span>
         <span class="fill"></span>
         <span class="ops-sub">crew ${crew.length}/${target}</span>
@@ -1653,6 +1657,20 @@ function renderFeeds() {
           : `<button class="btn" data-act="off" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn off</button>`}
         <button class="btn ghost" data-act="${f.force ? "unforce" : "force"}" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">${f.force ? "Unforce" : "Force"}</button>
         <button class="btn ghost" data-act="remove" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Remove</button>
+      </div>
+      <div class="ops-head" style="margin-top:6px">
+        <input type="number" class="feed-loss" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" min="0" placeholder="loss c/u" value="${f.maxLossPerUnit ?? ""}" style="width:70px" title="Accept paying up to this many credits per unit above what the target pays (blank = default margin gate)" aria-label="Max loss per unit">
+        <select class="feed-stop" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" title="Stop sourcing once the target's supply reaches this bucket" aria-label="Stop at supply">
+          ${["", "MODERATE", "HIGH", "ABUNDANT"].map((v) => `<option value="${v}"${(f.stopAtSupply ?? "") === v ? " selected" : ""}>${v ? `stop at ${v.toLowerCase()}` : "no stop"}</option>`).join("")}
+        </select>
+        <button class="btn" data-act="set-limits" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Set limits</button>
+        ${f.mine ? `
+        <input class="feed-field field-input" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" placeholder="asteroid, e.g. X1-JX83-B35" value="${escapeAttr(f.field ?? "")}" style="width:150px;padding:4px 6px" aria-label="Field">
+        <select class="feed-collector" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" aria-label="Collector shuttle">
+          <option value="">no collector</option>
+          ${(state?.ships ?? []).filter((sh) => (sh.cargo?.capacity ?? 0) >= 20 && !(sh.mounts ?? []).some((m) => /MINING_LASER|GAS_SIPHON/.test(m.symbol))).map((sh) => `<option value="${escapeAttr(sh.symbol)}"${f.collector === sh.symbol ? " selected" : ""}>${escapeHtml(sh.symbol)} (${sh.cargo?.capacity ?? 0})</option>`).join("")}
+        </select>
+        <button class="btn" data-act="set-collector" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" title="Drones stay on the field; the collector takes their holds in orbit and carries them to market">Set collector</button>` : ""}
       </div>
     </div>`;
   }).join("");
@@ -1684,6 +1702,16 @@ async function onFeedClick(e) {
       await api("POST", "/api/feeds/remove", { waypoint: wp, good });
     } else if (act === "force" || act === "unforce") {
       await api("POST", "/api/feeds/force", { waypoint: wp, good, force: act === "force" });
+    } else if (act === "set-limits") {
+      const card = btn.closest(".ops-card");
+      const loss = card.querySelector(".feed-loss").value.trim();
+      const stop = card.querySelector(".feed-stop").value;
+      await api("POST", "/api/feeds/limits", { waypoint: wp, good, maxLossPerUnit: loss === "" ? null : Number(loss), stopAtSupply: stop || null });
+    } else if (act === "set-collector") {
+      const card = btn.closest(".ops-card");
+      const field = card.querySelector(".feed-field").value.trim().toUpperCase();
+      const collector = card.querySelector(".feed-collector").value;
+      await api("POST", "/api/feeds/collector", { waypoint: wp, good, field: field || null, collector: collector || null });
     } else if (act === "set-sell-gap") {
       const input = btn.closest(".ops-head").querySelector(".sell-gap-min");
       const sellGapMin = input?.value?.trim() ?? "";

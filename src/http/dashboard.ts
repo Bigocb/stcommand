@@ -1243,6 +1243,22 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  /** Drone-plus-collector mining on a mine feed — see Feed.field / Feed.collector in feed.ts. */
+  router.post("/feeds/collector", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    const str = (v: unknown): string | null | undefined => (v === undefined ? undefined : v === null || v === "" ? null : String(v).toUpperCase());
+    try {
+      await w.fleet.setFeedCollector(waypoint, good, { field: str(req.body?.field), collector: str(req.body?.collector) });
+      res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/feeds/sell-gap", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
