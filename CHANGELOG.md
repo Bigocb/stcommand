@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP: stcommand_trade_cargo for price-impact experiments (2026-10-05)
+
+There was no way to buy or sell goods through the MCP server, only the dashboard's session-auth route, which made
+market-impact experiments (does a 1-unit buy move the price as much as a 20-unit one? does splitting a purchase into
+small lots help?) impossible to script. `stcommand_trade_cargo` wraps `Fleet.buyCargo`/`sellCargo` and returns the
+transaction price plus the market listing before and after, so impact is read directly instead of waiting for the next
+keeper snapshot. `buyCargo`/`sellCargo` now return a `TradeResult` (optional re-read of the market after the trade);
+existing callers ignore it.
+
 ## Deck: Map screen is now v6's 3D map (2026-10-05)
 
 Deck's Map screen was a flat 2D scatter of blips. It now runs v6's actual map engine: the orbit/pan/zoom

@@ -25,6 +25,14 @@ import { getSupplyChain } from "./supplyChain.js";
 import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
+export interface TradeResult {
+  units: number;
+  pricePerUnit: number;
+  totalPrice: number;
+  marketBefore?: { purchasePrice: number; sellPrice: number; supply?: string; tradeVolume?: number };
+  marketAfter?: { purchasePrice: number; sellPrice: number; supply?: string; tradeVolume?: number };
+}
+
 export type ShipType = components["schemas"]["ShipType"];
 
 /** How long the cached agent credit balance stays good for. See `refreshCredits`. */
@@ -3755,8 +3763,10 @@ export class FleetManager {
     return { ship, systemSymbol, waypointSymbol };
   }
 
-  /** Buy cargo for a ship at its current market. */
-  async buyCargo(shipSymbol: string, good: string, units: number): Promise<void> {
+  /** Buy cargo for a ship at its current market. `withMarketAfter` re-reads the market
+   *  right after the trade (one extra API call) so a caller measuring price impact gets
+   *  the post-trade listing instead of waiting for the next keeper snapshot. */
+  async buyCargo(shipSymbol: string, good: string, units: number, withMarketAfter = false): Promise<TradeResult> {
     const { ship, systemSymbol, waypointSymbol } = await this.ensureShipAtMarket(shipSymbol);
     const market = await this.api.getMarket(systemSymbol, waypointSymbol);
     const listing = market.tradeGoods?.find((g) => g.symbol === good);
@@ -3782,11 +3792,26 @@ export class FleetManager {
       total: res.transaction.totalPrice,
     });
     this.onActivity?.("buy", `${shipSymbol} bought ${units}u ${good} @ ${res.transaction.pricePerUnit}c`, -res.transaction.totalPrice, shipSymbol);
+    return {
+      units,
+      pricePerUnit: res.transaction.pricePerUnit,
+      totalPrice: res.transaction.totalPrice,
+      marketBefore: listing ? { purchasePrice: listing.purchasePrice, sellPrice: listing.sellPrice, supply: listing.supply, tradeVolume: listing.tradeVolume } : undefined,
+      marketAfter: withMarketAfter ? await this.listingAfterTrade(systemSymbol, waypointSymbol, good) : undefined,
+    };
+  }
+
+  private async listingAfterTrade(systemSymbol: string, waypointSymbol: string, good: string): Promise<TradeResult["marketAfter"]> {
+    try {
+      const m = await this.api.getMarket(systemSymbol, waypointSymbol);
+      const l = m.tradeGoods?.find((g) => g.symbol === good);
+      return l ? { purchasePrice: l.purchasePrice, sellPrice: l.sellPrice, supply: l.supply, tradeVolume: l.tradeVolume } : undefined;
+    } catch { return undefined; }
   }
 
   /** Sell cargo for a ship at its current market. */
-  async sellCargo(shipSymbol: string, good: string, units: number): Promise<void> {
-    const { ship, waypointSymbol } = await this.ensureShipAtMarket(shipSymbol);
+  async sellCargo(shipSymbol: string, good: string, units: number, withMarketAfter = false): Promise<TradeResult> {
+    const { ship, systemSymbol, waypointSymbol } = await this.ensureShipAtMarket(shipSymbol);
     const held = ship.cargo.inventory?.find((i) => i.symbol === good);
     if (!held || held.units <= 0) {
       throw new Error(`${shipSymbol} has no ${good} in cargo`);
@@ -3816,6 +3841,12 @@ export class FleetManager {
     // genuinely landed. An operator asking "where did my money go" could
     // find every other sale by grepping logs except this one.
     this.log(`${shipSymbol} sold ${toSell}u ${good} @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
+    return {
+      units: toSell,
+      pricePerUnit: res.transaction.pricePerUnit,
+      totalPrice: res.transaction.totalPrice,
+      marketAfter: withMarketAfter ? await this.listingAfterTrade(systemSymbol, waypointSymbol, good) : undefined,
+    };
   }
 
   /** Dump cargo overboard — no market or dock required, unlike buy/sell. For an operator clearing out dead stock manually; nothing pays for this. */

@@ -224,6 +224,31 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_trade_cargo",
+    {
+      description: "Buy or sell cargo for a ship at the market it is currently at (docks it if needed). One call = one game transaction, capped by the market's tradeVolume. Returns the transaction price and the market listing before/after, so price impact can be measured. Buying spends real credits and is subject to the cash floor. Interrupts nothing, but a ship that is part of a feed/route may keep acting on its own — hold it first (stcommand_hold_ship) when running experiments.",
+      inputSchema: {
+        shipSymbol: z.string(),
+        good: z.string().describe("Exact TradeSymbol, e.g. QUARTZ_SAND"),
+        units: z.number().int().positive(),
+        action: z.enum(["buy", "sell"]),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    async ({ shipSymbol, good, units, action }) => {
+      try {
+        const result = action === "buy"
+          ? await w.fleet.buyCargo(shipSymbol, good, units, true)
+          : await w.fleet.sellCargo(shipSymbol, good, units, true);
+        await recordMcpAction(w, "trade_cargo", shipSymbol, `${action} ${result.units}u ${good} @ ${result.pricePerUnit}c`);
+        return textResult({ ok: true, shipSymbol, good, action, ...result });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_hold_ship",
     {
       description: "Hold a ship exactly where it currently is — same effect as stcommand_dispatch_ship at the ship's own present waypoint.",
