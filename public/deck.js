@@ -991,12 +991,15 @@ function renderMarkets() {
             <div class="route">${escapeHtml(shortWp(best.waypointSymbol))}</div>
           </div>
           <div class="profit">${fmt(best.purchasePrice)}c</div>
+          <button class="btn pri" style="margin-left:10px" data-buy-ship="${escapeAttr(best.shipType)}" data-yard="${escapeAttr(best.waypointSymbol)}" title="Buy ${escapeAttr(best.shipTypeName)} at ${escapeAttr(best.waypointSymbol)}">Buy</button>
+          ${rows.slice(1).map((o) => `<button class="btn" style="margin-left:4px" data-buy-ship="${escapeAttr(o.shipType)}" data-yard="${escapeAttr(o.waypointSymbol)}" title="Buy at ${escapeAttr(o.waypointSymbol)}">${escapeHtml(shortWp(o.waypointSymbol))} ${fmt(o.purchasePrice)}c</button>`).join("")}
         </div>
       `;
     }).join('');
   })();
   const yardsEl = $("mk-yards");
   if (yardsEl) yardsEl.innerHTML = yardsHtml;
+
 
 
   // Dispatch panel
@@ -1731,7 +1734,9 @@ function renderDoctrine() {
           <span style="flex:1">
             <span style="font-weight:600;font-size:12px">${escapeHtml(r.name)}</span>
             <span class="chip" style="font-size:9px;padding:2px 6px;margin-left:8px">${enabledStatus}</span>
-            <div style="font-size:11px;color:var(--dim2);margin-top:4px">${escapeHtml(String(r.value))}</div>
+            <div style="font-size:11px;color:var(--dim2);margin-top:4px">${r.max > 1
+              ? `<input class="field-input doc-val" type="number" min="${r.min}" max="${r.max}" step="${r.step}" value="${escapeAttr(String(r.value))}" style="width:110px;padding:4px 6px" aria-label="${escapeAttr(r.name)} value" /> ${escapeHtml(r.unit ?? "")}`
+              : escapeHtml(String(r.value))}</div>
           </span>
           <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}"><i></i></button>
         </div>
@@ -1775,6 +1780,33 @@ function renderDoctrine() {
   const recentActivityEl = $("doctrine-recent-activity");
   if (recentActivityEl) recentActivityEl.innerHTML = recentActivityHtml;
 }
+
+$("mk-yards").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-buy-ship]");
+  if (!b) return;
+  const label = b.textContent;
+  if (!confirm(`Buy ${b.dataset.buyShip.replace(/^SHIP_/, "").replace(/_/g, " ").toLowerCase()} at ${b.dataset.yard}?`)) return;
+  b.disabled = true; b.textContent = "Buying…";
+  try {
+    await api("POST", "/api/fleet/buy", { shipType: b.dataset.buyShip, yardSymbol: b.dataset.yard });
+    await loadState();
+  } catch (err) { alert(err.message); }
+  b.disabled = false; b.textContent = label;
+});
+
+$("doctrine-standing-orders").addEventListener("change", async (e) => {
+  const inp = e.target.closest("input.doc-val");
+  if (!inp) return;
+  const key = inp.closest(".doc-row").dataset.key;
+  const value = Number(inp.value);
+  if (!Number.isFinite(value)) return;
+  inp.disabled = true;
+  try {
+    await api("POST", "/api/doctrine", { key, value });
+    await loadDoctrine();
+  } catch (err) { alert(err.message); await loadDoctrine(); }
+  renderDoctrine();
+});
 
 $("doctrine-standing-orders").addEventListener("click", async (e) => {
   const sw = e.target.closest("button.sw");

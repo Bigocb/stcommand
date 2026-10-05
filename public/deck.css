@@ -399,3 +399,10 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .fm-tag{font-size:8px;letter-spacing:.1em;text-transform:uppercase;border:1px solid rgba(255,255,255,.18);padding:1px 5px;margin-left:6px}
 .fm-tag.fm-drift{color:#ff5b5b;border-color:rgba(255,91,91,.4)}
 .fm-tag.fm-burn{color:#4fd1c5;border-color:rgba(79,209,197,.4)}
+
+/* Keeper tab: the panel body is a fixed-height scroller, so its flex children
+   were shrinking (textarea collapsed to one line). Don't let them shrink. */
+.mk-keeper-body > *{flex:0 0 auto}
+#mk-keeper-markets{min-height:96px}
+#mk-keeper-stations{flex:0 0 auto}
+.goodrow .btn{padding:4px 8px;font-size:10px}

@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck: ship buying in Yards, editable doctrine values, Keeper tab layout (2026-10-05)
+
+Three Deck gaps reported by the operator. Markets → Yards listed ship prices with no way to act on them; each type now
+has a Buy button for its cheapest yard (plus buttons for other yards), confirming first and posting to
+`/api/fleet/buy` like Tower and v6. Doctrine standing orders showed their value as plain text; numeric rules now have
+an inline number input (min/max/step from the rule) that saves via `POST /api/doctrine { key, value }` on change.
+The Keeper tab was squished because its flex children shrank inside the fixed-height panel (textarea collapsed to
+one line); children no longer shrink and the textarea has a minimum height.
+
 ## Restart no longer flips loaded traders into miners; Deck/Tower show a DRIFT tag (2026-10-05)
 
 THEO-1 (frigate, 40 JEWELRY aboard) was found crawling B7→A1 in DRIFT with 19/400 fuel. At each deploy, `init()` ran
