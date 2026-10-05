@@ -380,6 +380,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   and whether it's worth the held cargo space on a ship that might need
   it.
 
+- **Steady, spread-out input delivery with a large miner pool (operator idea, 2026-10-05).** Last week the fleet ran
+  ~30 miners on the iron source. Hypothesis: with a big pool split across a recipe's inputs and their deliveries
+  staggered, so inputs arrive at a constant rate instead of in bursts, a producer like F53 might stay out of
+  RESTRICTED/WEAK and its export price might actually fall. Context from 2026-10-05 tests: flooding sand took F53
+  sand SCARCE -> ABUNDANT in ~1h (needed ~400-500 units; the first 120 did nothing) and moved FAB_MATS from
+  RESTRICTED to WEAK, but iron push drained H55's source and lost money per trip. Do not test until the current
+  copper/silicon/FAB_MATS tests finish.
+
 ## Closed / resolved (kept here briefly for context, then delete)
 
 - [x] Yards & outfitting system filter + per-item pricing — confirmed
