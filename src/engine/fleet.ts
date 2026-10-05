@@ -590,6 +590,7 @@ export class FleetManager {
       unpinMiner: (shipSymbol) => this.unpinMining(shipSymbol),
       transferCargo: (from, good, units, to) => this.api.transferCargo(from, good, units, to),
       orbitShip: (shipSymbol) => this.api.orbitShip(shipSymbol),
+      refuelFromCargo: (shipSymbol) => this.api.refuelShip(shipSymbol, undefined, true),
     });
   }
 

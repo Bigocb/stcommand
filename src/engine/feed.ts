@@ -2,6 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { Store } from "../db/store.js";
 import { Pending } from "./agentStep.js";
+import { FUEL_UNIT_SIZE } from "./routeEconomics.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -196,6 +197,8 @@ interface FeedOptions {
   /** Hand `units` of `good` from one ship to another at the same waypoint (both in orbit, or both docked). */
   transferCargo?: (fromShip: string, good: string, units: number, toShip: string) => Promise<unknown>;
   orbitShip?: (shipSymbol: string) => Promise<unknown>;
+  /** Refuel a docked ship from FUEL units in its own cargo (works away from any market). */
+  refuelFromCargo?: (shipSymbol: string) => Promise<unknown>;
 }
 
 /** Minimum gross margin a feed buy must clear against the destination's
@@ -249,6 +252,21 @@ const STAGGER_MAX_SLOTS = 5;
  *  first tick after a long pause isn't treated as overdue. */
 const PAUSED_TOUCH_MS = 60_000;
 
+/**
+ * How many FUEL cargo units (each worth FUEL_UNIT_SIZE ship fuel) a collector
+ * must carry so the field round trip fits: outbound on a full tank, return on
+ * what's left plus the cargo fuel. 0 when the tank alone covers both legs.
+ * Capped at 5 slots so a mis-measured field can't turn the hold into a tanker.
+ * Confirmed live 2026-10-05: B14 is 276 from H55, a 300-tank shuttle arrived
+ * with 24 fuel and the only way home was a 77-minute drift.
+ */
+export function collectorFuelUnits(toField: number, toTarget: number, capacity: number): number {
+  if (!Number.isFinite(toField) || !Number.isFinite(toTarget) || capacity <= 0) return 0;
+  const need = Math.ceil((toField + toTarget) * 1.1);
+  if (need <= capacity) return 0;
+  return Math.min(5, Math.ceil((need - capacity) / FUEL_UNIT_SIZE));
+}
+
 export class FeedManager {
   private readonly api: SpaceTradersAPI;
   private readonly store?: Store;
@@ -277,6 +295,7 @@ export class FeedManager {
   private readonly unpinMiner?: FeedOptions["unpinMiner"];
   private readonly transferCargo?: FeedOptions["transferCargo"];
   private readonly orbitShip?: FeedOptions["orbitShip"];
+  private readonly refuelFromCargo?: FeedOptions["refuelFromCargo"];
   /** Collector bookkeeping per feed key: when its hold last grew, so a part-load still gets sold after a while. */
   private collectorGrewAt = new Map<string, number>();
   private collectorLogAt = new Map<string, number>();
@@ -331,6 +350,7 @@ export class FeedManager {
     this.unpinMiner = opts.unpinMiner;
     this.transferCargo = opts.transferCargo;
     this.orbitShip = opts.orbitShip;
+    this.refuelFromCargo = opts.refuelFromCargo;
     this.setMinerPreference = opts.setMinerPreference;
   }
 
@@ -814,10 +834,10 @@ export class FeedManager {
    *  `stepCarrier()` call saw held(IRON_ORE)=0, freeSpace<=0, and called
    *  this to clear the hold — which skipped the FUEL and cleared nothing,
    *  permanently blocking that ship from ever mining for the feed. */
-  private async clearUnrelatedCargo(shipSymbol: string, keep: string, inventory: { symbol: string; units: number }[]): Promise<boolean> {
+  private async clearUnrelatedCargo(shipSymbol: string, keep: string, inventory: { symbol: string; units: number }[], alsoKeep: string[] = []): Promise<boolean> {
     let cleared = true;
     for (const item of inventory) {
-      if (item.symbol === keep || item.units <= 0) continue;
+      if (item.symbol === keep || alsoKeep.includes(item.symbol) || item.units <= 0) continue;
       try {
         await this.sellCargo?.(shipSymbol, item.symbol, item.units);
       } catch (err) {
@@ -1155,6 +1175,7 @@ export class FeedManager {
     const atTarget = ship.nav.waypointSymbol === feed.targetWaypoint;
     if (nearlyFull || stale || (held > 0 && atTarget)) {
       if (!atTarget) {
+        await this.topUpFromCargo(feed, ship);
         await this.dispatchShip?.(sym, feed.targetWaypoint);
         return;
       }
@@ -1175,14 +1196,55 @@ export class FeedManager {
       }
       this.collectorGrewAt.delete(key);
       const fresh = await this.api.getShipCargo(sym);
-      await this.clearUnrelatedCargo(sym, feed.good, fresh.inventory);
+      await this.clearUnrelatedCargo(sym, feed.good, fresh.inventory, ["FUEL"]);
       return;
     }
     if (ship.nav.waypointSymbol !== field) {
+      if (atTarget) await this.stockCollectorFuel(feed, ship);
       await this.dispatchShip?.(sym, field);
       return;
     }
     if (ship.nav.status !== "IN_ORBIT") await this.orbitShip?.(sym);
+  }
+
+  /** Fuel the collector needs in cargo for one field round trip (0 when the tank covers it). */
+  private collectorFuelNeed(feed: Feed, capacity: number): number {
+    if (!this.estimatedFuelBetween || !feed.field) return 0;
+    return collectorFuelUnits(this.estimatedFuelBetween(feed.targetWaypoint, feed.field), this.estimatedFuelBetween(feed.field, feed.targetWaypoint), capacity);
+  }
+
+  /** At the target market before heading out: buy the FUEL cargo units the round trip needs. Failure is logged, not fatal — the trip then drifts home as before. */
+  private async stockCollectorFuel(feed: Feed, ship: Ship): Promise<void> {
+    const want = this.collectorFuelNeed(feed, ship.fuel.capacity);
+    if (want <= 0) return;
+    const have = ship.cargo.inventory?.find((i) => i.symbol === "FUEL")?.units ?? 0;
+    const room = ship.cargo.capacity - ship.cargo.units;
+    const buy = Math.min(want - have, room);
+    if (buy <= 0) return;
+    try {
+      if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
+      const res = await this.api.purchaseCargo(ship.symbol, "FUEL", buy);
+      this.recordLedger?.({ timestamp: new Date().toISOString(), shipSymbol: ship.symbol, waypointSymbol: feed.targetWaypoint, type: "PURCHASE", tradeSymbol: "FUEL", units: buy, pricePerUnit: res.transaction.pricePerUnit, total: res.transaction.totalPrice });
+      this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector ${ship.symbol} stocked ${buy}u FUEL cargo for the ${feed.field} round trip (${have + buy}/${want})`);
+    } catch (err) {
+      this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector ${ship.symbol} could not stock FUEL cargo: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** At the field before the return leg: if the tank won't make it, refuel from the FUEL units carried out. */
+  private async topUpFromCargo(feed: Feed, ship: Ship): Promise<void> {
+    if (!this.refuelFromCargo || !this.estimatedFuelBetween) return;
+    const carried = ship.cargo.inventory?.find((i) => i.symbol === "FUEL")?.units ?? 0;
+    if (carried <= 0) return;
+    const need = Math.ceil(this.estimatedFuelBetween(ship.nav.waypointSymbol, feed.targetWaypoint) * 1.05);
+    if (ship.fuel.current >= need) return;
+    try {
+      if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
+      await this.refuelFromCargo(ship.symbol);
+      this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector ${ship.symbol} refuelled from ${carried}u FUEL cargo at ${ship.nav.waypointSymbol} (had ${ship.fuel.current}/${ship.fuel.capacity}, leg needs ~${need})`);
+    } catch (err) {
+      this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector ${ship.symbol} refuel from cargo failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private async releaseFailedCarrier(feed: Feed, shipSymbol: string, t: FeedTaskState): Promise<void> {

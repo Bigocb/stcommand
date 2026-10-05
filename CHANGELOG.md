@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Feed collector carries FUEL cargo for long field round trips (2026-10-05)
+
+Live finding: every unstripped metal field in X1-JX83 is 276+ units from the H55 refinery, so a 300-tank shuttle
+collecting ore at B14 arrived with 24 fuel and the only way home was a 77-minute drift (~30 ore/h for a seven-ship
+crew). The collector now buys FUEL cargo units at the target before heading out (`collectorFuelUnits()`: enough to
+cover both legs with 10% margin, max 5 slots) and refuels from cargo at the field before the return leg
+(`refuelFromCargo`, the API's `fromCargo` refuel, which works away from any market). FUEL is kept out of the
+collector's junk-cargo clear. Failures are logged and the trip falls back to the old drift.
+
+Also noted: removing a feed releases its ships to the dispatcher immediately — re-pin a ship *before* removing the
+feed it is on, or the dispatcher will claim it (THEO-27 left B36 on a 265-unit drift 28 s after the sand feed was
+removed).
+
 ## MCP: `stcommand_set_mission_crew` (2026-10-05)
 
 Mission crew changes (the dashboard's assign / remove-carrier) had no MCP equivalent, so a connected agent could not

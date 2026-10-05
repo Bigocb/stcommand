@@ -55,3 +55,16 @@ describe("feed limits", () => {
     assert.ok(t.retryAt > Date.now(), "the carrier is told to wait before looking again");
   });
 });
+
+describe("collectorFuelUnits", () => {
+  it("is zero when the tank covers the round trip and sized in 100-fuel cargo units otherwise", async () => {
+    const { collectorFuelUnits } = await import("../src/engine/feed.js");
+    assert.equal(collectorFuelUnits(100, 100, 300), 0);
+    // B14 <-> H55: 276 each way on a 300 tank -> 608 needed with margin -> 4 units
+    assert.equal(collectorFuelUnits(276, 276, 300), 4);
+    assert.equal(collectorFuelUnits(276, 276, 400), 3);
+    assert.equal(collectorFuelUnits(2000, 2000, 300), 5);
+    assert.equal(collectorFuelUnits(NaN, 10, 300), 0);
+    assert.equal(collectorFuelUnits(10, 10, 0), 0);
+  });
+});
