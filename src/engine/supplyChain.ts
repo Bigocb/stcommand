@@ -41,26 +41,23 @@ export async function getSupplyChain(api: SpaceTradersAPI): Promise<SupplyChain>
 /**
  * Every good that goes into making any of `roots`, however many steps back:
  * the roots' inputs, those inputs' inputs, down to the raw ores. `map` is
- * exportToImportMap as the live API returns it: each KEY is an input and its
- * values are the goods it is used to make (e.g. IRON_ORE -> ["IRON", "EXPLOSIVES"],
- * QUARTZ_SAND -> ["FAB_MATS", "EXPLOSIVES"]). The roots themselves are not
+ * exportToImportMap as the live API returns it: each KEY is an exported good
+ * and its values are what that good's market IMPORTS to make it
+ * (FAB_MATS -> ["IRON", "QUARTZ_SAND"], ADVANCED_CIRCUITRY -> ["ELECTRONICS",
+ * "MICROPROCESSORS"], IRON -> ["IRON_ORE"]). The roots themselves are not
  * included unless something in the chain also needs one.
+ *
+ * EXPLOSIVES is skipped: every raw-ore extraction market "imports" it (IRON_ORE ->
+ * ["EXPLOSIVES"], QUARTZ_SAND -> ["EXPLOSIVES"]), which would drag the whole
+ * explosives chain into every gate's chain without being a real input to the gate.
  */
 export function transitiveInputs(roots: Iterable<string>, map: Record<string, string[]>): Set<string> {
-  const inputsOf = new Map<string, string[]>();
-  for (const [input, products] of Object.entries(map)) {
-    for (const product of products) {
-      const list = inputsOf.get(product);
-      if (list) list.push(input);
-      else inputsOf.set(product, [input]);
-    }
-  }
   const out = new Set<string>();
   const stack = [...roots];
   while (stack.length) {
     const g = stack.pop()!;
-    for (const input of inputsOf.get(g) ?? []) {
-      if (out.has(input)) continue;
+    for (const input of map[g] ?? []) {
+      if (input === "EXPLOSIVES" || out.has(input)) continue;
       out.add(input);
       stack.push(input);
     }

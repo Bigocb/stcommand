@@ -16,8 +16,8 @@ construction mission is unfinished (paused ones count), every good that goes int
 the raw ores (FAB_MATS <- IRON, QUARTZ_SAND; the circuitry chain <- ELECTRONICS, MICROPROCESSORS <- SILICON_CRYSTALS,
 COPPER, ...), is dropped from the dispatcher's route list so ordinary traders no longer resell it for margin and drain
 a producer's inputs (seen 2026-10-05: iron bought at H55 resold to F52 while F53's own iron was short). Feeds and manual
-routes are unaffected; the chain comes from `transitiveInputs()` over the live `/market/supply-chain` (which is keyed by
-INPUT, values are what it makes). (2) Feeds gain `maxLossPerUnit` (credits per unit above the target's pay the feed will
+routes are unaffected; the chain comes from `transitiveInputs()` over the live `/market/supply-chain` (keyed by the EXPORTED good, values are what
+its market imports; EXPLOSIVES is skipped because every raw-ore market imports it). (2) Feeds gain `maxLossPerUnit` (credits per unit above the target's pay the feed will
 accept, replacing the default 10% margin gate) and `stopAtSupply` (MODERATE/HIGH/ABUNDANT: stop sourcing once the
 target's supply reaches it; loaded carriers still deliver). Stored in migration 040, set with
 `POST /api/feeds/limits` or the `stcommand_set_feed_limits` MCP tool. Aim for HIGH, not ABUNDANT: other players report

@@ -199,7 +199,9 @@ Measured, not from the game docs; re-verify on a new reset. Raw evidence is in t
 - **Trade volume grows** with sustained heavy trading (ELECTRONICS at F53 20 -> 43 in steps ~30 min apart; a community
   chart shows an over-fed iron IMPORT going 60 -> 165, after which iron went SCARCE and FAB_MATS stopped). So don't
   over-feed an input past what you can sustain; aim for HIGH, not ABUNDANT.
-- **`/market/supply-chain`'s `exportToImportMap` is keyed by INPUT** (values are what it is used to make).
+- **`/market/supply-chain`'s `exportToImportMap` is keyed by the EXPORTED good** and lists what that good's market imports
+  to make it (`FAB_MATS -> [IRON, QUARTZ_SAND]`). Every raw-ore market also "imports" EXPLOSIVES; ignore that edge. (A first
+  version of the chain guard read it backwards and protected the wrong goods for ~40 minutes.)
 - The read-only Postgres login cannot see tenant tables (ledger, activity, ...): row-level security hides them.
 
 ## Dual-push convention
