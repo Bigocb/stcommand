@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## market_latest read memo (2026-10-05)
+
+Review item 7. `Store.latestMarketSnapshots()` ran a full `SELECT * FROM market_latest` from 16 call sites, including
+the feeds' price/supply lookups once per carrier per 2-second tick. It now memoises the result for 5 seconds and drops
+the memo on every market write and on reset cleanup, so a fresh read is visible on the next call. No behaviour change.
+
 ## Mission recovery gate, market transactions kept, block-aware refuelling (2026-10-05)
 
 From the project review (doc "stcommand Project Review"), items 2-4. (2) Mission pacing gains `recoverPct`: the

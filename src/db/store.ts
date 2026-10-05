@@ -1276,6 +1276,7 @@ export class Store {
   // for every tenant on the same server reset. See the class doc comment.
 
   async recordMarket(m: Omit<MarketRow, "timestamp">): Promise<void> {
+    this.dropLatestMemo();
     await this.recordMarkets([m]);
   }
 
@@ -1292,6 +1293,7 @@ export class Store {
    * ever gets if a much bigger system is ever scanned.
    */
   async recordMarkets(rows: Omit<MarketRow, "timestamp">[]): Promise<void> {
+    this.dropLatestMemo();
     if (rows.length === 0) return;
     const CHUNK = 200;
     await withPool(this.pool, async (c) => {
@@ -1429,11 +1431,26 @@ export class Store {
     );
   }
 
+  /** Short memo for latestMarketSnapshots(): 16 call sites (feeds' sellPriceAt/supplyAt per carrier per 2 s tick,
+   *  the route list, keepers) each did a full `SELECT * FROM market_latest`. Invalidated by every write below, so a
+   *  fresh market read is visible on the next call; otherwise reused for a few seconds. */
+  private latestMemo?: { at: number; rows: Promise<MarketRow[]> };
+  private static readonly LATEST_MEMO_MS = 5_000;
+
+  private dropLatestMemo(): void {
+    this.latestMemo = undefined;
+  }
+
   async latestMarketSnapshots(): Promise<MarketRow[]> {
-    return withPool(this.pool, async (c) => {
+    const now = Date.now();
+    if (this.latestMemo && now - this.latestMemo.at < Store.LATEST_MEMO_MS) return this.latestMemo.rows;
+    const rows = withPool(this.pool, async (c) => {
       const res = await c.query(`SELECT * FROM market_latest`);
       return res.rows.map(Store.mapMarketRow);
     });
+    this.latestMemo = { at: now, rows };
+    rows.catch(() => { if (this.latestMemo?.rows === rows) this.latestMemo = undefined; });
+    return rows;
   }
 
   /**
@@ -3047,6 +3064,7 @@ export class Store {
    *  reset-scoped fact. Table names are an internal constant, never request
    *  input, so string-interpolating them into the query is safe. */
   async truncateSharedGalaxyTables(): Promise<void> {
+    this.dropLatestMemo();
     await withPool(this.pool, (c) => c.query(`TRUNCATE ${Store.SHARED_GALAXY_TABLES.join(", ")}`));
   }
 
