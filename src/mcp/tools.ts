@@ -450,18 +450,19 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     "stcommand_set_mission_pacing",
     {
       title: "Set a mission's buy pacing",
-      description: "Slow a construction mission's buying so it does not outrun the market's refill. Price depends on total units bought, not how they are split, so what matters is the RATE: buyLotUnits caps units per purchase, buyGapMin is the minimum minutes between purchases of a material, maxInflationPct is the price ceiling in percent above the market's trailing-24h low (default 40). A number sets a key, null clears it to the default, omitting it leaves it unchanged.",
+      description: "Slow a construction mission's buying so it does not outrun the market's refill. Price depends on total units bought, not how they are split, so what matters is the RATE: buyLotUnits caps units per purchase, buyGapMin is the minimum minutes between purchases of a material, maxInflationPct is the price ceiling in percent above the market's trailing-24h low (default 40), recoverPct buys the next lot only once the ask is back within that percent of what it was before the previous lot (a sawtooth that follows the market's refill; 3-5 is a sensible start). A number sets a key, null clears it to the default, omitting it leaves it unchanged.",
       inputSchema: {
         waypoint: z.string().describe("The construction site, e.g. X1-JX83-I59"),
         buyLotUnits: z.number().int().nullable().optional(),
         buyGapMin: z.number().int().nullable().optional(),
         maxInflationPct: z.number().int().nullable().optional(),
+        recoverPct: z.number().int().nullable().optional(),
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ waypoint, buyLotUnits, buyGapMin, maxInflationPct }) => {
+    async ({ waypoint, buyLotUnits, buyGapMin, maxInflationPct, recoverPct }) => {
       try {
-        const pacing = await w.fleet.setMissionPacing(waypoint, { buyLotUnits, buyGapMin, maxInflationPct });
+        const pacing = await w.fleet.setMissionPacing(waypoint, { buyLotUnits, buyGapMin, maxInflationPct, recoverPct });
         await recordMcpAction(w, "mission_pacing", waypoint, `pacing ${pacing ? JSON.stringify(pacing) : "cleared"}`);
         return textResult({ ok: true, waypoint, pacing });
       } catch (err) {

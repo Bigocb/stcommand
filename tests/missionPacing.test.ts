@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { MissionManager } from "../src/engine/mission.js";
+import { MissionManager, withinRecovery } from "../src/engine/mission.js";
 
 // No database: pure state-machine tests of the per-mission buy pacing.
 function harness(opts: { price?: number; tradeVolume?: number } = {}) {
@@ -75,6 +75,13 @@ describe("MissionManager buy pacing", () => {
   it("buyLotUnits caps the purchase", async () => {
     const bought = await run({ buyLotUnits: 5 }, 1);
     assert.equal(bought[0], 5);
+  });
+
+  it("withinRecovery: first lot always allowed, then only within the band", () => {
+    assert.equal(withinRecovery(undefined, 5000, 3), true);
+    assert.equal(withinRecovery(1000, 1050, 3), false);
+    assert.equal(withinRecovery(1000, 1030, 3), true);
+    assert.equal(withinRecovery(1000, 1020, 3), true);
   });
 
   it("buyGapMin holds the next purchase back", async () => {

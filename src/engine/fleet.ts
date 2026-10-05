@@ -455,6 +455,18 @@ export class FleetManager {
     this.onActivity = opts.onActivity;
     this.minCashReserveDefault = opts.minCashReserve ?? 20_000;
     this.store = opts.store;
+    // Every market read carries the market's recent transactions (all agents' trades there). Keep them: they are
+    // the only direct view of other players and of real executed prices. See migrations/041.
+    if (this.store) {
+      const store = this.store;
+      this.api.onMarket((systemSymbol, market) => {
+        const rows = (market.transactions ?? []).map((t) => ({
+          waypointSymbol: t.waypointSymbol, shipSymbol: t.shipSymbol, tradeSymbol: t.tradeSymbol, type: t.type,
+          units: t.units, pricePerUnit: t.pricePerUnit, totalPrice: t.totalPrice, timestamp: t.timestamp,
+        }));
+        void store.recordMarketTransactions(systemSymbol, rows).catch((err) => this.log(`market transactions not saved: ${err instanceof Error ? err.message : String(err)}`));
+      });
+    }
     this.tenantId = opts.tenantId;
     this.approvals = new ApprovalGate(this.store, this.tenantId, this.log);
     this.discord = opts.discord;
@@ -5243,7 +5255,7 @@ export class FleetManager {
   /** Per-mission buy pacing (lot size, minimum gap, price ceiling) — see MissionPacing. */
   async setMissionPacing(
     waypointSymbol: string,
-    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null },
+    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null },
   ) {
     return this.missions.setPacing(waypointSymbol, patch);
   }

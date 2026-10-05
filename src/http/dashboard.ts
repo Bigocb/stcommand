@@ -1066,7 +1066,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     // Each key: a number sets it, null/0 clears it, absent leaves it alone.
     const pick = (k: string): number | null | undefined => (req.body?.[k] === undefined ? undefined : req.body[k] === null ? null : Number(req.body[k]));
     try {
-      await w.fleet.setMissionPacing(waypoint, { buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct") });
+      await w.fleet.setMissionPacing(waypoint, { buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct"), recoverPct: pick("recoverPct") });
       res.json({ ok: true, missions: await w.fleet.getMissions() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

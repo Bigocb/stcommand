@@ -47,6 +47,12 @@ export type MissionKind = "SUPPLY_CONSTRUCTION";
  * a market that refills a few units an hour cannot absorb 60 an hour at a flat price. All keys are
  * optional; a missing key means the built-in behaviour (market lot size, no gap, 40% ceiling).
  */
+/** MissionPacing.recoverPct: may the next lot go ahead? `before` is the ask seen just before the previous lot. */
+export function withinRecovery(before: number | undefined, price: number, pct: number): boolean {
+  if (before === undefined) return true;
+  return price <= before * (1 + pct / 100);
+}
+
 export interface MissionPacing {
   /** Max units per purchase transaction (still capped by the market's own trade volume). */
   buyLotUnits?: number;
@@ -54,6 +60,9 @@ export interface MissionPacing {
   buyGapMin?: number;
   /** Cumulative price ceiling, percent above the market's trailing-24h low (default 40). */
   maxInflationPct?: number;
+  /** Buy the next lot only once the ask has come back to within this percent of what it was before the previous
+   *  lot: a sawtooth that paces buying by the market's own refill rather than by the clock. Unset = no such gate. */
+  recoverPct?: number;
 }
 
 export interface Mission {
@@ -186,6 +195,10 @@ export class MissionManager {
   /** `${waypoint}|${material}` -> earliest time the next purchase is allowed (MissionPacing.buyGapMin). In memory:
    *  a restart forgets it and allows one purchase straight away, which is harmless. */
   private nextBuyAt = new Map<string, number>();
+  /** `${waypoint}|${material}` -> the ask just before this mission's last lot there (MissionPacing.recoverPct). In memory:
+   *  a restart simply allows the next lot. */
+  private preBuyPrice = new Map<string, number>();
+  private recoverLogAt = new Map<string, number>();
   /** Waypoint → next time step()'s pre-assignment discovery survey may run,
    *  for missions with no crew yet (so it's throttled the same way a real
    *  carrier's own maybeDiscover() call is, instead of firing every tick). */
@@ -425,7 +438,7 @@ export class MissionManager {
    */
   /** Merge pacing settings into a mission. A key set to null (or 0 for the lot and gap) clears it
    *  back to the default; keys not mentioned keep their value. */
-  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null }): Promise<MissionPacing | null> {
+  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null }): Promise<MissionPacing | null> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
     const next: MissionPacing = { ...(mission.pacing ?? {}) };
@@ -438,6 +451,7 @@ export class MissionManager {
     apply("buyLotUnits", patch.buyLotUnits, 1, 1000);
     apply("buyGapMin", patch.buyGapMin, 1, 24 * 60);
     apply("maxInflationPct", patch.maxInflationPct, 1, 500);
+    apply("recoverPct", patch.recoverPct, 1, 100);
     mission.pacing = Object.keys(next).length ? next : null;
     await this.persist(mission);
     this.log(`mission ${waypointSymbol}: pacing ${mission.pacing ? JSON.stringify(mission.pacing) : "cleared (defaults)"}`);
@@ -820,6 +834,21 @@ export class MissionManager {
           t.retryAt = nextBuyAt;
           return;
         }
+        // Pacing: recovery gate. After a lot the ask jumps (about 4-5% per trade-volume lot); wait until the market
+        // has absorbed it before the next one, so buying tracks refill instead of ratcheting the price up.
+        if (mission.pacing?.recoverPct) {
+          const before = this.preBuyPrice.get(gapKey);
+          const allowed = before !== undefined ? before * (1 + mission.pacing.recoverPct / 100) : Infinity;
+          if (!withinRecovery(before, price, mission.pacing.recoverPct)) {
+            t.retryAt = Date.now() + 5 * 60_000;
+            const last = this.recoverLogAt.get(gapKey) ?? 0;
+            if (Date.now() - last > 30 * 60_000) {
+              this.recoverLogAt.set(gapKey, Date.now());
+              this.log(`mission ${mission.targetWaypoint}: ${material} at ${market} is ${price}c, waiting for it to recover to ${Math.round(allowed)}c (was ${before}c before the last lot, +${mission.pacing.recoverPct}%)`);
+            }
+            return;
+          }
+        }
         const ceiling = (mission.pacing?.maxInflationPct ?? MAX_MISSION_BUY_INFLATION_CUMULATIVE * 100) / 100;
         const firstSeen = await this.baselineFor(mission, need, market, price);
         if (price > firstSeen * (1 + ceiling)) {
@@ -853,6 +882,7 @@ export class MissionManager {
         try {
           const res = await this.api.purchaseCargo(ship.symbol, material, units);
           if (mission.pacing?.buyGapMin) this.nextBuyAt.set(gapKey, Date.now() + mission.pacing.buyGapMin * 60_000);
+          if (mission.pacing?.recoverPct) this.preBuyPrice.set(gapKey, price);
           this.recordLedger?.({
             timestamp: new Date().toISOString(),
             shipSymbol: ship.symbol,

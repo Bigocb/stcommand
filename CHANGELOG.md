@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Mission recovery gate, market transactions kept, block-aware refuelling (2026-10-05)
+
+From the project review (doc "stcommand Project Review"), items 2-4. (2) Mission pacing gains `recoverPct`: the
+next lot is bought only once the ask is back within that percent of what it was before the previous lot, so buying
+follows the market's own refill (a sawtooth) instead of ratcheting the price up every 30 minutes; in memory, so a
+restart allows one lot. Settable in Deck/Tower mission cards, `POST /api/missions/pacing`, and the MCP tool. (3) Every
+market read now keeps the market's `transactions` (all agents' recent trades there, with ship symbol and executed
+price) in the new shared table `market_transactions` (migration 041), via one observer on `SpaceTradersAPI.getMarket()`
+rather than the dozen call sites. (4) Traders refuel only when at least a whole 100-unit FUEL block is missing or the
+tank is below half (`refuelWorthwhile()`); tanks under 100 keep topping up as before, since any refuel costs one block
+anyway. Observed before: 216c refuels for 188 burned, roughly a third of fuel spend lost to block rounding.
+
 ## Gate supply-chain guard, and feeds that accept a loss and stop themselves (2026-10-05)
 
 Two changes from the FAB_MATS price investigation. (1) New doctrine rule `protectChainGoods` (on by default): while any

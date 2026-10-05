@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { effectiveMarginFloor, fuelCredits, legTravel, slippageCredits, tripEconomics } from "../src/engine/routeEconomics.js";
+import { effectiveMarginFloor, fuelCredits, legTravel, refuelWorthwhile, slippageCredits, tripEconomics } from "../src/engine/routeEconomics.js";
 import { RouteDispatcher, type DispatchRoute } from "../src/engine/dispatcher.js";
 
 describe("routeEconomics", () => {
@@ -43,6 +43,16 @@ describe("routeEconomics", () => {
     const t = tripEconomics({ units: 40, distance: 94, fuelPrice: 72, fuelCapacity: 300, speed: 30, buyPrice: 1000, sellPrice: 1400, buyVolume: 60, sellVolume: 60 });
     assert.ok(t.net > 14000);
     assert.equal(t.fuelBurned, 376); // both legs, BURN doubled
+  });
+
+  it("refuels only when a 100-unit block is missing, except on small tanks", () => {
+    assert.equal(refuelWorthwhile(280, 300), false); // 20 missing: a block would be 80% waste
+    assert.equal(refuelWorthwhile(200, 300), true); // 100 missing
+    assert.equal(refuelWorthwhile(140, 300), true); // below half
+    assert.equal(refuelWorthwhile(300, 300), false);
+    assert.equal(refuelWorthwhile(70, 80), true); // 80-tank drone: any top-up costs one block anyway
+    assert.equal(refuelWorthwhile(78, 80), false);
+    assert.equal(refuelWorthwhile(0, 0), false);
   });
 
   it("the dispatcher ranks a short repeating route above a long one with the same profit per trip", () => {

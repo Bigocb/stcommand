@@ -1583,11 +1583,12 @@ function renderMoreMissions() {
       </div>
       <div class="detail">crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
       ${matRows}
-      <div class="detail">Buy pacing — slows buying so the price is not outrun. Blank = default. Lot = units per purchase, gap = minutes between purchases, ceiling = % over the 24h low.</div>
+      <div class="detail">Buy pacing — slows buying so the price is not outrun. Blank = default. Lot = units per purchase, gap = minutes between purchases, ceiling = % over the 24h low, recover = wait for the ask to fall back within this % of its pre-lot level.</div>
       <div class="acts mission-pacing">
         <span class="detail">lot</span><input type="number" class="mp-lot" min="1" placeholder="default" value="${m.pacing?.buyLotUnits ?? ""}" style="width:56px" aria-label="Units per purchase">
         <span class="detail">gap min</span><input type="number" class="mp-gap" min="1" placeholder="none" value="${m.pacing?.buyGapMin ?? ""}" style="width:72px" aria-label="Minutes between purchases">
         <span class="detail">ceiling %</span><input type="number" class="mp-cap" min="1" placeholder="40" value="${m.pacing?.maxInflationPct ?? ""}" style="width:68px" aria-label="Price ceiling percent">
+        <span class="detail" title="Buy the next lot only once the ask is back within this % of its level before the previous lot">recover %</span><input type="number" class="mp-rec" min="1" placeholder="off" value="${m.pacing?.recoverPct ?? ""}" style="width:60px" aria-label="Recovery percent">
         <button class="btn" data-act="save-pacing" data-wp="${escapeHtml(m.targetWaypoint)}">Save pacing</button>
       </div>
       <div class="acts">
@@ -1798,7 +1799,7 @@ $("more-missions").addEventListener("click", async (e) => {
     } else if (act === "save-pacing") {
       const row = b.closest(".mission-pacing");
       const val = (cls) => { const v = row.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
-      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap") });
+      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), recoverPct: val(".mp-rec") });
     } else {
       await api("POST", `/api/missions/${act}`, { waypoint: wp });
     }

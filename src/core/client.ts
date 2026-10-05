@@ -572,8 +572,19 @@ export class SpaceTradersAPI {
     return this.client.get<components["schemas"]["Waypoint"]>(`/systems/${systemSymbol}/waypoints/${waypointSymbol}`);
   }
 
-  getMarket(systemSymbol: string, waypointSymbol: string) {
-    return this.client.get<components["schemas"]["Market"]>(`/systems/${systemSymbol}/waypoints/${waypointSymbol}/market`);
+  /** Called with every market the client fetches (see onMarket()). */
+  private marketObserver?: (systemSymbol: string, market: components["schemas"]["Market"]) => void;
+
+  /** Observe every market read from one place instead of at each of the many getMarket() call sites. Errors in
+   *  the observer never fail the read. */
+  onMarket(fn: (systemSymbol: string, market: components["schemas"]["Market"]) => void): void {
+    this.marketObserver = fn;
+  }
+
+  async getMarket(systemSymbol: string, waypointSymbol: string) {
+    const market = await this.client.get<components["schemas"]["Market"]>(`/systems/${systemSymbol}/waypoints/${waypointSymbol}/market`);
+    try { this.marketObserver?.(systemSymbol, market); } catch { /* observers never break a read */ }
+    return market;
   }
 
   getShipyard(systemSymbol: string, waypointSymbol: string) {

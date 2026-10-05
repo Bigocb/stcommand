@@ -1409,6 +1409,26 @@ export class Store {
    * read of the market_latest projection (Greenfield Phase 1), not a
    * PARTITION BY scan of the whole append-only history table.
    */
+  /** Persist a market read's `transactions` (every agent's recent trades there). Duplicates are skipped, so
+   *  re-reading a market every few minutes is safe. Shared galaxy data: no tenant scoping. */
+  async recordMarketTransactions(systemSymbol: string, rows: { waypointSymbol: string; shipSymbol: string; tradeSymbol: string; type: string; units: number; pricePerUnit: number; totalPrice: number; timestamp: string }[]): Promise<void> {
+    if (!rows.length) return;
+    const values: string[] = [];
+    const params: unknown[] = [];
+    for (const r of rows) {
+      const i = params.length;
+      values.push(`($${i + 1}, $${i + 2}, $${i + 3}, $${i + 4}, $${i + 5}, $${i + 6}, $${i + 7}, $${i + 8}, $${i + 9})`);
+      params.push(systemSymbol, r.waypointSymbol, r.shipSymbol, r.tradeSymbol, r.type, r.units, r.pricePerUnit, r.totalPrice, r.timestamp);
+    }
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO market_transactions (system_symbol, waypoint_symbol, ship_symbol, trade_symbol, type, units, price_per_unit, total_price, timestamp)
+         VALUES ${values.join(", ")} ON CONFLICT DO NOTHING`,
+        params,
+      ),
+    );
+  }
+
   async latestMarketSnapshots(): Promise<MarketRow[]> {
     return withPool(this.pool, async (c) => {
       const res = await c.query(`SELECT * FROM market_latest`);
@@ -3018,7 +3038,7 @@ export class Store {
   private static readonly SHARED_GALAXY_TABLES = [
     "galaxy_systems", "galaxy_factions", "galaxy_crawl_state",
     "market_snapshots", "market_latest", "shipyard_inventory", "module_catalog",
-    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots",
+    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions",
   ];
 
   /** Wipes every shared galaxy-fact table — see SHARED_GALAXY_TABLES's own

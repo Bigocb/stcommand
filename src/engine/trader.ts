@@ -3,7 +3,7 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
 import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type TraderAssignment } from "./dispatcher.js";
-import { effectiveMarginFloor, slippageCredits, tripEconomics } from "./routeEconomics.js";
+import { effectiveMarginFloor, refuelWorthwhile, slippageCredits, tripEconomics } from "./routeEconomics.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
@@ -692,7 +692,10 @@ export class TraderAgent {
       const here = this.ship.nav.waypointSymbol;
       const isFuelMarket = this.priceTable.get(here)?.has("FUEL") || this.fuelStopsIn(this.systemOf(here)).includes(here);
       if (isFuelMarket) {
-        if (this.ship.fuel.current < this.ship.fuel.capacity * 0.95) await this.refuelAt(here);
+        // Refuel only when a whole 100-unit block is missing (or below half): FUEL is billed per block, and
+        // topping up every stop bought 100 for every 20 burned. The pre-leg fuel check still refuels for a leg
+        // the tank cannot cover.
+        if (refuelWorthwhile(this.ship.fuel.current, this.ship.fuel.capacity)) await this.refuelAt(here);
       } else if (this.ship.fuel.current < this.ship.fuel.capacity * 0.5) {
         await this.refuelFromCargo();
       }
@@ -731,10 +734,10 @@ export class TraderAgent {
    *  nothing, unlike ShipProxy.refuelIfNeeded()'s own search for another one. */
   private async topOffHere(): Promise<void> {
     if (this.ship.fuel.capacity <= 0 || this.ship.nav.status === "IN_TRANSIT") return;
-    if (this.ship.fuel.current >= this.ship.fuel.capacity * 0.95) return;
+    if (!refuelWorthwhile(this.ship.fuel.current, this.ship.fuel.capacity)) return; // whole 100-unit blocks only, see routeEconomics.ts
     const here = this.ship.nav.waypointSymbol;
     if (!(this.registry.isMarket(here) || this.registry.market(here) !== undefined)) return;
-    await this.proxy.refuelIfNeeded({ belowFraction: 0.95 });
+    await this.proxy.refuelIfNeeded({ belowFraction: 0.999 });
   }
 
   private async waitCooldown(): Promise<void> {

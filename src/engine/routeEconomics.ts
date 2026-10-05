@@ -112,3 +112,14 @@ export function tripEconomics(t: TripInput): TripEconomics {
     burn: leg.burn,
   };
 }
+
+/**
+ * Whether topping up now is worth a market stop. FUEL is billed per 100-unit block, so a 300-tank ship that is
+ * 20 short pays for 100; only refuel once at least a block is missing, or below half a tank. Tanks under 100 pay
+ * one block whatever they take, so they keep topping up whenever they are not nearly full.
+ */
+export function refuelWorthwhile(current: number, capacity: number): boolean {
+  if (capacity <= 0 || current >= capacity) return false;
+  if (capacity < FUEL_UNIT_SIZE) return current < capacity * 0.95;
+  return capacity - current >= FUEL_UNIT_SIZE || current < capacity * 0.5;
+}
