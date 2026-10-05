@@ -3165,6 +3165,14 @@ export function setDeckMapSystem(sym) {
   resetMapView();
   renderDeckMap();
 }
+/** Move the one shared map (a single WebGL scene) into `el` — Overview and the
+ *  Map screen are never visible together, so they take turns hosting it. */
+export function mountDeckMap(el) {
+  const wrap = document.getElementById("map-wrap");
+  if (!wrap || !el || wrap.parentElement === el) return;
+  el.appendChild(wrap);
+  requestAnimationFrame(() => onMapResize?.());
+}
 export function getDeckMapSystem() { return currentSystem; }
 export function setDeckMapSelectedShip(sym) { selectedShip = sym; }
 export function deckMapWaypoints() { return waypoints; }

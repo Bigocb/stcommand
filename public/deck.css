@@ -390,3 +390,8 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .map-legend i.sw-station{border-radius:2px}
 .gx-toolbar button{background:var(--raised);border:1px solid var(--hair-hi);color:var(--ice);font-family:var(--chrome);font-size:9px;letter-spacing:.08em;padding:6px 10px;border-radius:3px;cursor:pointer}
 .gx-toolbar button:hover{border-color:var(--amber);color:var(--amber)}
+/* the shared 3D map is hosted by either the Map screen's slot or Overview's panel */
+.map-slot{position:relative;min-height:0}
+.map-slot>.map-wrap,.minimap>.map-wrap{position:absolute;inset:0}
+.minimap{min-height:420px}
+.minimap>.map-wrap{border:0;border-radius:4px}

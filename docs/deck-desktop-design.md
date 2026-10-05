@@ -493,5 +493,5 @@ cooldown bar in the Job column), matching Tower/V6. Uses `shared/cooldown.js` (`
 `public/deck-map.js` is v6's map engine extracted (see CHANGELOG). Deck hooks: `initDeckMap({onShip,onWaypoint,
 onSystemChange})`, `renderDeckMap()`, `setDeckMapVisible()`, `setDeckMapSystem()`. `docs/deck-map-design.md`'s
 "do not port the Three.js scene" instruction is superseded. Pending: replay scrubber, trade panel, a ship-details
-modal equivalent, Overview minimap upgrade.
+modal equivalent. Overview's Home system panel hosts the same shared 3D scene (`mountDeckMap`).
 

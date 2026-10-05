@@ -58,12 +58,6 @@
             <div class="panel">
               <div class="panel-h"><span class="dot"></span><span class="title">Home system</span><span class="count" id="ov-map-count"></span></div>
               <div class="chart minimap" id="ov-minimap"></div>
-              <div class="legend">
-                <span><i style="background:var(--ice)"></i>Market</span>
-                <span><i class="sw-gate"></i>Gate</span>
-                <span><i class="sw-ship" style="border-bottom-color:var(--green)"></i>Ship</span>
-                <span><i style="background:var(--red)"></i>Stranded</span>
-              </div>
             </div>
             <div class="panel">
               <div class="panel-h"><span class="dot"></span><span class="title">Wants vs. Doing</span><span class="count">sorted by mismatch age</span></div>
@@ -210,6 +204,7 @@
         <div class="content" id="view-map" hidden>
           <div class="chiprow" id="map-chiprow"></div>
           <div class="mapstage">
+            <div class="map-slot" id="map-slot">
             <div class="map-wrap" id="map-wrap">
               <div class="map-hud" id="map-hud">Sector <b>—</b></div>
               <button class="map-fit-btn" id="map-fit" title="Fit whole system">⛶ Fit</button>
@@ -222,6 +217,7 @@
               <div id="galaxy-overview" class="galaxy-overview"></div>
               <div class="map-tip" id="map-tip"></div>
               <div class="map-legend" id="map-legend"></div>
+            </div>
             </div>
             <div class="panel" style="display:flex;flex-direction:column;min-height:0">
               <div class="panel-h"><span class="dot"></span><span class="title">Market</span></div>

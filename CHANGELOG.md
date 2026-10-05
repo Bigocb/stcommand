@@ -20,8 +20,9 @@ ship-details modal, system strip) are replaced by small hooks, each marked `DECK
 the system chip row, the market detail / leaderboard / factions / system-agents side panel, and a new ship
 card there (click a hull on the map; "Open in Fleet" jumps to its Fleet row). The render loop idles while
 another screen is showing. three.js and its bloom add-ons load as classic scripts in `deck.html`, same set as
-v6. Not ported: v6's replay scrubber, trade panel and ship-details modal. Overview's small home-system
-minimap is unchanged (still the 2D one).
+v6. Overview's "Home system" panel now hosts the same 3D map (always the home system): there is one shared
+WebGL scene and the two screens take turns hosting it (`mountDeckMap()` moves it between them), so nothing
+is duplicated. Not ported: v6's replay scrubber, trade panel and ship-details modal.
 
 ## Deck: fleet table grouped by role (2026-10-04)
 

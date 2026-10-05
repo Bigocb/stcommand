@@ -21,7 +21,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
-import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip } from "/deck-map.js";
+import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
@@ -75,8 +75,11 @@ function setView(name) {
   if (name === "admin") openAdmin();
   if (name === "fleet") renderFleet();
   if (name === "markets") renderMarkets();
-  setDeckMapVisible(name === "map");
+  // One shared 3D map: Overview hosts it (home system) or the Map screen does.
+  setDeckMapVisible(name === "map" || name === "overview");
+  if (name === "overview") renderMinimap();
   if (name === "map") {
+    mountDeckMap($("map-slot"));
     loadGalaxy();
     renderMap();
   }
@@ -237,52 +240,16 @@ function renderKPIs() {
  * Ships shown as stranded or in-transit.
  */
 function renderMinimap() {
+  // Overview's "Home system" panel now hosts the same 3D map as the Map screen.
+  if ($("view-overview").hidden) return;
   const homeSystem = state?.systemSymbol;
-  const systems = state?.systems ?? [];
-  const currentSys = systems.find((s) => s.symbol === homeSystem);
-  const waypoints = currentSys?.waypoints ?? [];
-  const ships = (state?.ships ?? []).filter((s) => s.nav?.systemSymbol === homeSystem);
-  const strandedSet = new Set((fleetStatus.stranded ?? []).map((s) => s.symbol));
-
-  if (!waypoints.length) {
-    $("ov-minimap").innerHTML = '<div class="empty" style="padding:20px">No waypoints charted yet.</div>';
-    $("ov-map-count").textContent = "";
-    return;
-  }
-
-  // Compute projection: center and scale waypoints to fit in the chart
-  const xs = waypoints.map((w) => w.x);
-  const ys = waypoints.map((w) => w.y);
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
-  const project = (w) => ({ x: 50 + ((w.x - cx) / span) * 80, y: 50 - ((w.y - cy) / span) * 80 });
-
-  // Build HTML. Classes go directly on .blip (same shape renderMap()
-  // emits and the same .blip.* rules deck.css defines) — this used to
-  // emit a nested <span class="mk ..."> that no stylesheet ever matched,
-  // so every marker rendered at zero size and the panel looked empty.
-  let html = "";
-  for (const w of waypoints) {
-    const p = project(w);
-    let cls = "market";
-    if (w.type === "JUMP_GATE") cls = "gate";
-    else if (!(w.traits ?? []).includes("MARKETPLACE")) cls = "planet";
-
-    html += `<div class="blip ${cls}" style="top:${p.y}%;left:${p.x}%"></div>`;
-  }
-
-  // Add ships
-  for (const s of ships) {
-    const wp = waypoints.find((w) => w.symbol === s.nav?.waypointSymbol);
-    if (!wp) continue;
-    const p = project(wp);
-    const isStranded = strandedSet.has(s.symbol);
-    html += `<div class="blip ship${isStranded ? "warn" : ""}" style="top:${p.y}%;left:${p.x}%"></div>`;
-  }
-
-  $("ov-minimap").innerHTML = html;
-  $("ov-map-count").textContent = `${waypoints.length} waypoints`;
+  if (!homeSystem) return;
+  mountDeckMap($("ov-minimap"));
+  setDeckMapVisible(true);
+  if (getDeckMapSystem() !== homeSystem) setDeckMapSystem(homeSystem);
+  else renderDeckMap();
+  const wps = (state?.systems ?? []).find((s) => s.symbol === homeSystem)?.waypoints ?? [];
+  $("ov-map-count").textContent = wps.length ? `${wps.length} waypoints` : "";
 }
 
 /* ── Wants vs. Doing table ──────────────────
