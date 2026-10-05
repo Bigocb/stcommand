@@ -9,6 +9,22 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Route profit now counts the whole round trip, price impact, and ranks by time (2026-10-05)
+
+A deep dive on `computeDispatchRoutes()`/`TraderAgent.routeProfit()` found the profit it showed for a route was
+`(sell - buy) x units - one-way fuel` at flat snapshot prices, and live tests proved it wrong on thin margins: a sand
+route listed +92/trip actually lost 130-170, iron 124->129 lost 350-1,270. Fixes, all in the new pure
+`src/engine/routeEconomics.ts` shared by the route list and the trader: (1) fuel is now the **round trip** (the ship
+flies back empty), BURN-aware (BURN burns 2x fuel for half the time, as the trader actually flies it) and priced per
+100-fuel block; (2) our own **price impact** is charged on both sides (~4.5% per tradeVolume lot, linear, average is
+half the move; per-side trade volumes now come from `tradeLegs()`); (3) the route list and the dispatcher rank by
+**profit per time** (scaled to a 10-minute reference trip, and the flight to the buy market is charged against it)
+instead of per trip, so a short repeating route beats a long one earning the same; (4) the margin floor is now
+`max(flat doctrine floor, 2% of buy price)`, so a 3,000c good needs more spread than a 22c one; (5) a same-system leg
+with unknown coordinates is no longer priced at zero fuel, it is dropped. Manual routes still bypass the profit and
+margin checks. Cross-system legs keep the jump-cost model (plus slippage). Not done: cash already committed to other
+assignments is still not subtracted when sizing each route. Backhaul idea parked in `docs/TODO.md`.
+
 ## Deck: ship buying in Yards, editable doctrine values, Keeper tab layout (2026-10-05)
 
 Three Deck gaps reported by the operator. Markets → Yards listed ship prices with no way to act on them; each type now

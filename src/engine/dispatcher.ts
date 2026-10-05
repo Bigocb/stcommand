@@ -14,9 +14,20 @@ export interface DispatchRoute {
    *  sides), for a buyer to chunk purchases against to actually reach
    *  `volume`. */
   lotSize: number;
+  /** Each market's own trade volume (lotSize is the smaller). Optional for callers that only know the minimum. */
+  buyVolume?: number;
+  sellVolume?: number;
   distance: number;
+  /** Tank-fuel burned over the round trip (both legs, BURN doubled). */
   fuelUnits: number;
+  /** Fuel credits for the round trip, or the jump cost for a cross-system leg. */
   fuelCost: number;
+  /** Our own price impact over the trip, both sides. */
+  slippage?: number;
+  /** Round-trip seconds (same-system only) and seconds per distance unit, for per-hour ranking and costing the positioning leg. */
+  tripSeconds?: number;
+  secPerDist?: number;
+  /** Net per trip: spread - round-trip fuel - slippage. */
   profitPerTrip: number;
   ageMinutes: number;
 }
@@ -94,6 +105,8 @@ export const COMMIT_GRACE_MS = 3 * 60 * 60_000;
  * once there's a basis for something better than "a few lots."
  */
 export const MAX_LOTS_PER_TRIP = 3;
+
+import { REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 
 /**
  * "direct"      — buy here, carry it yourself, sell there. One trader owns
@@ -293,9 +306,12 @@ export class RouteDispatcher {
    *  ranking order, not the number shown on the dashboard or handed to
    *  toAssignment(). */
   private scoreRoute(route: DispatchRoute): number {
+    // Profit per trip, scaled to a reference trip length when the route knows its round-trip time, so a
+    // short repeating route outranks a long one earning the same per trip.
+    const base = route.tripSeconds ? (route.profitPerTrip * REFERENCE_TRIP_SECONDS) / route.tripSeconds : route.profitPerTrip;
     const sold = this.recentVolume(route.good, route.sellAt);
-    if (sold <= 0) return route.profitPerTrip;
-    return route.profitPerTrip / (1 + sold / Math.max(route.volume, 1));
+    if (sold <= 0) return base;
+    return base / (1 + sold / Math.max(route.volume, 1));
   }
 
   /** Routes a single trader should fly, honoring a manual override if set. */
@@ -731,7 +747,7 @@ export class RouteDispatcher {
     // `sellAt`, only set for a `direct` item: the one case that needs the
     // *whole* round trip to fit a fuel tank, not just the leg to buyAt — see
     // reachable()'s own comment below for the live case this closes.
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number }[] = [];
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; tripSeconds?: number; secPerDist?: number }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -759,7 +775,7 @@ export class RouteDispatcher {
         // undoing the whole point of resorting `routes` above. toAssignment()
         // below still builds the displayed TraderAssignment from the route's
         // real profitPerTrip — only this ranking figure is adjusted.
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume });
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance > target.target) {
@@ -803,7 +819,7 @@ export class RouteDispatcher {
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
       // Decayed score here too — see the primary-loop push's own comment.
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume });
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
@@ -997,7 +1013,14 @@ export class RouteDispatcher {
         if (usedKeys.has(w.key) || !reachable(w)) continue;
         const extra = impactCost(w);
         if (extra === undefined) continue; // an extra buyer here is not worth it / over the cap
-        let score = w.profitPerTrip - extra;
+        // Direct routes carry a time-scaled score (see scoreRoute()); keep the extra buyers' impact cost on the
+        // same scale, and charge the flight from this trader to the buy market against the trip's own time.
+        const timeScale = w.tripSeconds ? REFERENCE_TRIP_SECONDS / w.tripSeconds : 1;
+        let score = w.profitPerTrip - extra * timeScale;
+        if (w.tripSeconds && w.secPerDist && w.buyAt && t.waypoint && t.system !== undefined && w.buySystem === t.system) {
+          const positioning = distanceBetween(t.waypoint, w.buyAt) * w.secPerDist;
+          score *= w.tripSeconds / (w.tripSeconds + positioning);
+        }
         if (score <= 0) continue;
         if (crossSystem?.enabled && w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system && !canJump(t.system, w.buySystem)) {
           const path = crossSystem.path(t.system, w.buySystem);

@@ -22,6 +22,7 @@ import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
 import { getSupplyChain } from "./supplyChain.js";
+import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -37,9 +38,14 @@ export type ShipType = components["schemas"]["ShipType"];
 
 /** How long the cached agent credit balance stays good for. See `refreshCredits`. */
 /** Tank-fuel units bought per FUEL unit at a market (refuelShip() buys in blocks of 100). */
-export const FUEL_UNIT_SIZE = 100;
+export { FUEL_UNIT_SIZE } from "./routeEconomics.js";
 
 const CREDITS_TTL_MS = 30_000;
+
+/** Ranking figure: profit per trip scaled to a reference trip length so a short repeating route beats a long one with the same profit. */
+function routePerHour(r: DispatchRoute): number {
+  return r.tripSeconds ? (r.profitPerTrip * REFERENCE_TRIP_SECONDS) / r.tripSeconds : r.profitPerTrip;
+}
 
 /**
  * Buy markets keepers are stationed at to keep prices fresh. Configurable via
@@ -1504,6 +1510,10 @@ export class FleetManager {
       15,
       ...[...this.traders.values(), ...this.tours.values(), ...this.explorers.values()].map((a) => a.getShip().cargo.capacity),
     );
+    // The fastest, biggest-tanked hull that could fly a trip sets the fuel/time model (see tripEconomics()).
+    const flyers = [...this.traders.values(), ...this.tours.values(), ...this.explorers.values()].map((a) => a.getShip());
+    const fleetFuelCapacity = Math.max(0, ...flyers.map((sh) => sh.fuel.capacity));
+    const fleetSpeed = Math.max(0, ...flyers.map((sh) => sh.engine?.speed ?? 0));
     const spendable = this.spendableCredits();
     // Deliberately NOT filtered by gate reachability here: a "buy" or
     // "sell" assignment only needs its own side of the leg (buyAt, or
@@ -1517,7 +1527,7 @@ export class FleetManager {
     // runHaul() check their own side against the warehouse ship's system
     // independently in trader.ts.
     return legs
-      .map((l) => {
+      .map((l): DispatchRoute | null => {
         const crossSystem = l.buySystem !== l.sellSystem;
         // Waypoint coordinates are per-system — Math.hypot() between a
         // buyAt in one system and a sellAt in another compares two
@@ -1531,34 +1541,47 @@ export class FleetManager {
         const a = crossSystem ? undefined : positions.get(l.buyAt);
         const b = crossSystem ? undefined : positions.get(l.sellAt);
         const dist = a && b ? Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y))) : null;
-        // Match the trader's own profitability model: one-way fuel cost. The
-        // return leg is the next buy run, not a cost of this trip.
-        const fuelUnits = dist === null ? null : dist;
-        const fuelCost = crossSystem
-          ? this.crossSystemTripCost(l.buySystem, l.sellSystem)
-          // FUEL is sold in units of 100 tank-fuel (a 300-fuel top-up shows as 2 units at 72c each in the
-          // ledger), and a CRUISE leg burns about 1 tank-fuel per distance unit, so a leg costs
-          // distance x price / 100. Without the /100 every leg was priced 100x too dear, a 100-unit
-          // hop at 72c read as 7,200c instead of ~72c, and every spread under a few thousand credits
-          // a trip vanished from the route list (seen 2026-10-05: 4 idle traders, "work: (none)").
-          : fuelUnits === null ? 0 : (fuelUnits * (fuelAt.get(l.buyAt) ?? 72)) / FUEL_UNIT_SIZE;
+        // A same-system leg with no known coordinates used to price its fuel at 0 and read as pure
+        // profit. Without a distance we cannot cost it, so don't offer it.
+        if (!crossSystem && dist === null) return null;
         const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
         // Real depth beyond a market's own advertised trade volume is not
         // unlimited: each successive lot draws down supply and moves the
-        // price further, which this leg's flat buyPrice/sellPrice cannot
-        // see. Confirmed live: sizing a trip to the full 80-unit hold on a
-        // 20u/tx market (4 lots) turned a route ranked profitable at the
-        // snapshot price into a real -40,540c loss once the later lots
-        // actually executed. Capped at a few multiples of the market's own
-        // lot size rather than the whole hold — enough to fix the original
-        // bug (a trip no longer stops at exactly one transaction) without
-        // assuming a depth of market real SpaceTraders markets don't have.
+        // price further. Capped at a few multiples of the market's own lot
+        // size rather than the whole hold — a trip no longer stops at exactly
+        // one transaction, without assuming a depth real markets don't have.
         // A placeholder ratio, same as CROSS_SYSTEM_JUMP_COST_ESTIMATE
-        // above: tune against real executed-trip totals once there's a
-        // basis for something better than "a few lots."
+        // above: tune against real executed-trip totals.
         const volume = Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * MAX_LOTS_PER_TRIP));
-        const gross = (l.sellPrice - l.buyPrice) * volume;
-        const profitPerTrip = Math.round(gross - fuelCost);
+        const buyVolume = l.buyVolume ?? l.volume;
+        const sellVolume = l.sellVolume ?? l.volume;
+        let fuelCost: number;
+        let slippage: number;
+        let profitPerTrip: number;
+        let fuelUnits = 0;
+        let tripSeconds: number | undefined;
+        let secPerDist: number | undefined;
+        if (crossSystem) {
+          // Jump costs are credits, not tank-fuel; slippage still applies on both sides.
+          fuelCost = this.crossSystemTripCost(l.buySystem, l.sellSystem);
+          const t = tripEconomics({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, units: volume, buyVolume, sellVolume, distance: 1, fuelPrice: 0, fuelCapacity: 0, speed: fleetSpeed });
+          slippage = t.slippage;
+          profitPerTrip = Math.round(t.gross - fuelCost - slippage);
+        } else {
+          // Round trip: the ship flies back to the buy market empty, and that fuel and time are real
+          // costs of every repeat. FUEL is sold per 100 tank-fuel and a CRUISE leg burns ~1 tank-fuel
+          // per distance unit (BURN twice that), so a leg is distance x price / 100 — see tripEconomics().
+          const t = tripEconomics({
+            buyPrice: l.buyPrice, sellPrice: l.sellPrice, units: volume, buyVolume, sellVolume,
+            distance: dist!, fuelPrice: fuelAt.get(l.buyAt) ?? 72, fuelCapacity: fleetFuelCapacity, speed: fleetSpeed,
+          });
+          fuelCost = t.fuelCost;
+          slippage = t.slippage;
+          fuelUnits = Math.round(t.fuelBurned);
+          profitPerTrip = Math.round(t.net);
+          tripSeconds = t.seconds;
+          secPerDist = t.secPerDist;
+        }
         return {
           good: l.goodSymbol,
           buyAt: l.buyAt,
@@ -1569,15 +1592,20 @@ export class FleetManager {
           sellPrice: l.sellPrice,
           volume,
           lotSize: l.volume,
+          buyVolume,
+          sellVolume,
           distance: dist ?? 0,
-          fuelUnits: fuelUnits ?? 0,
+          fuelUnits,
           fuelCost: Math.round(fuelCost),
+          slippage: Math.round(slippage),
+          tripSeconds,
+          secPerDist,
           profitPerTrip,
           ageMinutes: Math.round((Date.now() - new Date(l.stalestIso).getTime()) / 60_000),
         };
       })
-      .filter((r) => r.profitPerTrip > 0)
-      .sort((a, b) => b.profitPerTrip - a.profitPerTrip);
+      .filter((r): r is DispatchRoute => r !== null && r.profitPerTrip > 0)
+      .sort((a, b) => routePerHour(b) - routePerHour(a));
   }
 
   /** Refresh a system's waypoints, markets and shipyards (used after jumping/scouting). */

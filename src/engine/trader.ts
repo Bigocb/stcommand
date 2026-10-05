@@ -3,6 +3,7 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
 import { CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type TraderAssignment } from "./dispatcher.js";
+import { effectiveMarginFloor, slippageCredits, tripEconomics } from "./routeEconomics.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
@@ -34,6 +35,9 @@ interface Route extends DirectLeg {
   margin: number;
   volume: number;
   lotSize: number;
+  /** Each market's own trade volume, for slippage; lotSize is the smaller. */
+  buyVolume?: number;
+  sellVolume?: number;
 }
 
 export interface TraderOptions {
@@ -1168,13 +1172,14 @@ export class TraderAgent {
       return `missing prices buy=${buy?.buy ?? "?"} sell=${sell?.sell ?? "?"} (priceTable has ${this.priceTable.has(r.buyAt) ? r.buyAt : "no " + r.buyAt}${this.priceTable.has(r.sellAt) ? "/" + r.sellAt : "/no " + r.sellAt})`;
     }
     const margin = sell.sell - buy.buy;
-    if (!ignoreProfitFloor && margin <= this.marginFloor) return `margin ${margin}c <= floor ${this.marginFloor}c`;
+    const floor = effectiveMarginFloor(this.marginFloor, buy.buy);
+    if (!ignoreProfitFloor && margin <= floor) return `margin ${margin}c <= floor ${Math.round(floor)}c`;
     const credits = this.getCredits?.() ?? Infinity;
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
     const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
     const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
     if (volume <= 0 || lotSize <= 0) return `volume=${volume} lotSize=${lotSize} cargo=${this.ship.cargo.capacity} credits=${credits}`;
-    const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize };
+    const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize, buyVolume: buy.volume, sellVolume: sell.volume };
     const profit = this.routeProfit(route);
     if (!ignoreProfitFloor && profit <= 0) return `profit ${profit} <= 0 (trip cost ${this.tripCost(r.buyAt, r.sellAt)})`;
     return "viable";
@@ -1254,7 +1259,7 @@ export class TraderAgent {
     const sell = this.priceTable.get(r.sellAt)?.get(r.good);
     if (!buy || !sell || buy.buy <= 0) return undefined;
     const margin = sell.sell - buy.buy;
-    if (!ignoreProfitFloor && margin <= this.marginFloor) {
+    if (!ignoreProfitFloor && margin <= effectiveMarginFloor(this.marginFloor, buy.buy)) {
       this.recordDoctrineFire?.("marginFloor");
       return undefined;
     }
@@ -1276,7 +1281,7 @@ export class TraderAgent {
     // later lots actually executed.
     const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
     if (volume <= 0 || lotSize <= 0) return undefined;
-    const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize };
+    const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize, buyVolume: buy.volume, sellVolume: sell.volume };
     if (!ignoreProfitFloor && this.routeProfit(route) <= 0) return undefined;
     return route;
   }
@@ -1309,7 +1314,7 @@ export class TraderAgent {
       // making a live call from this scoring loop.
       if (!this.systemsConnected(buySystem, sellSystem)) continue;
       const margin = sell.sell - buy.buy;
-      if (margin <= this.marginFloor) {
+      if (margin <= effectiveMarginFloor(this.marginFloor, buy.buy)) {
         this.recordDoctrineFire?.("marginFloor");
         continue;
       }
@@ -1330,6 +1335,8 @@ export class TraderAgent {
         margin,
         volume,
         lotSize,
+        buyVolume: buy.volume,
+        sellVolume: sell.volume,
       };
       const profit = this.routeProfit(candidate);
       if (profit <= 0) continue;
@@ -1361,12 +1368,20 @@ export class TraderAgent {
       return this.hopCost(buySystem, sellSystem);
     }
     const fuelPrice = this.priceTable.get(buyAt)?.get("FUEL")?.buy ?? 72;
-    // FUEL is priced per 100 tank-fuel (see FUEL_UNIT_SIZE in fleet.ts); a leg burns ~1 tank-fuel per distance unit.
-    return (this.distBetween(buyAt, sellAt) * fuelPrice) / 100;
+    // Round trip, BURN-aware, per 100-fuel block — see routeEconomics.ts's tripEconomics().
+    return tripEconomics({
+      buyPrice: 0, sellPrice: 0, units: 0, buyVolume: 1, sellVolume: 1,
+      distance: this.distBetween(buyAt, sellAt), fuelPrice,
+      fuelCapacity: this.ship.fuel.capacity, speed: this.ship.engine?.speed ?? 0,
+    }).fuelCost;
   }
 
   private routeProfit(r: Route): number {
-    return (r.sellPrice - r.buyPrice) * r.volume - this.tripCost(r.buyAt, r.sellAt);
+    const gross = (r.sellPrice - r.buyPrice) * r.volume;
+    const slippage =
+      slippageCredits(r.volume, r.buyVolume ?? r.lotSize, r.buyPrice) +
+      slippageCredits(r.volume, r.sellVolume ?? r.lotSize, r.sellPrice);
+    return gross - slippage - this.tripCost(r.buyAt, r.sellAt);
   }
 
   private async refuelAt(waypoint: string): Promise<void> {
@@ -1877,7 +1892,7 @@ export class TraderAgent {
         // good/buyAt/sellAt is the ship's own manually-pinned direct route.
         const isManualRoute = assigned?.source === "manual" && assigned.role === "direct" &&
           assigned.good === route.good && assigned.buyAt === route.buyAt && assigned.sellAt === route.sellAt;
-        if (!isManualRoute && liveMargin < this.marginFloor) {
+        if (!isManualRoute && liveMargin < effectiveMarginFloor(this.marginFloor, liveBuy)) {
           this.recordDoctrineFire?.("marginFloor");
           this.log(
             `skipping buy: ${route.good} at ${route.buyAt} is now ${liveBuy}c (snapshot ${route.buyPrice}c), margin ${liveMargin}c below floor ${this.marginFloor}c`
@@ -1955,7 +1970,7 @@ export class TraderAgent {
         // over lot) past what still clears the margin floor against this
         // route's sell price — the same guard the pre-loop stale-snapshot
         // check already applied, now re-checked between lots too.
-        if (route.sellPrice - lastPrice < this.marginFloor) break;
+        if (route.sellPrice - lastPrice < effectiveMarginFloor(this.marginFloor, lastPrice)) break;
       }
       if (bought <= 0) return true;
       // Stop here. The sell is a separate reconciled step — deliverHeldCargo()

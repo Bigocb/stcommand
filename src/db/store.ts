@@ -1524,11 +1524,16 @@ export class Store {
       sellSystem: string;
       sellPrice: number;
       volume: number;
+      /** Each side's own trade volume; `volume` is the smaller of the two. */
+      buyVolume: number;
+      sellVolume: number;
       stalestIso: string;
     }[]
   > {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{
+        buy_volume: number;
+        sell_volume: number;
         good_symbol: string;
         buy_at: string;
         buy_system: string;
@@ -1555,6 +1560,8 @@ export class Store {
            s.system_symbol                       AS sell_system,
            s.sell_price                          AS sell_price,
            LEAST(b.trade_volume, s.trade_volume)  AS volume,
+           b.trade_volume                         AS buy_volume,
+           s.trade_volume                         AS sell_volume,
            LEAST(b.timestamp, s.timestamp)        AS stalest
          FROM latest b
          JOIN latest s
@@ -1583,6 +1590,8 @@ export class Store {
         sellSystem: r.sell_system,
         sellPrice: r.sell_price,
         volume: r.volume,
+        buyVolume: r.buy_volume,
+        sellVolume: r.sell_volume,
         stalestIso: r.stalest.toISOString(),
       }));
     });
