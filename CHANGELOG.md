@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP: stcommand_sell_ship (2026-10-05)
+
+Exposes `FleetManager.sellShip()` (fly to the nearest yard and scrap) over MCP with a required `confirm=true`, so an
+operator working through the MCP can retire hulls. First use: six keeper probes parked at fuel-only stations and the
+gate itself (B6, C42, CE5D, I59, I60, J61), from the project review's probe audit.
+
 ## Gate supply-chain panel in Deck and Tower, `GET /api/chain-health`, MCP `stcommand_get_chain_health` (2026-10-05)
 
 Review item 9. `FleetManager.chainHealth()` walks every material an unfinished mission still needs: each in-system

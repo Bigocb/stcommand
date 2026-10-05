@@ -447,6 +447,26 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_sell_ship",
+    {
+      title: "Sell (scrap) a ship",
+      description: "Retire a hull for credits: the ship stops its work, flies to the nearest known shipyard (same system or one gate hop) and is scrapped there; a ship already docked at a yard is scrapped at once. Irreversible, and scrap pays only part of the purchase price. Requires confirm=true.",
+      inputSchema: { shipSymbol: z.string(), confirm: z.boolean().describe("Must be true; this cannot be undone") },
+      annotations: { destructiveHint: true, idempotentHint: false },
+    },
+    async ({ shipSymbol, confirm }) => {
+      if (!confirm) return errorResult(new Error("confirm must be true to sell a ship"));
+      try {
+        const yard = await w.fleet.sellShip(shipSymbol);
+        await recordMcpAction(w, "ship_sell", shipSymbol, `${shipSymbol}: sold, scrapping at ${yard}`, { yard });
+        return textResult({ ok: true, shipSymbol, yard });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_chain_health",
     {
       title: "Gate supply chain health",
