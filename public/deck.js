@@ -977,8 +977,7 @@ function renderMarkets() {
     }
     const groups = [...byType.values()]
       .map((rows) => rows.slice().sort((a, b) => a.purchasePrice - b.purchasePrice))
-      .sort((a, b) => a[0].purchasePrice - b[0].purchasePrice)
-      .slice(0, 5);
+      .sort((a, b) => a[0].purchasePrice - b[0].purchasePrice);
     if (!groups.length) {
       return '<div class="empty">No shipyard intel yet.</div>';
     }
