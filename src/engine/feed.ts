@@ -663,13 +663,18 @@ export class FeedManager {
       }
     }
     if (patch.collector !== undefined) {
-      if (feed.collector && feed.collector !== patch.collector) this.resume?.(feed.collector);
-      feed.collector = patch.collector ?? undefined;
-      if (feed.collector) {
-        if (feed.assignedShips.includes(feed.collector)) throw new Error(`${feed.collector} is a drone on this feed, not a shuttle`);
-        if (this.committedShips().has(feed.collector)) throw new Error(`${feed.collector} is already on another feed`);
-        await this.suspend?.(feed.collector);
+      const next = patch.collector ?? undefined;
+      if (next) {
+        if (feed.assignedShips.includes(next)) throw new Error(`${next} is a drone on this feed, not a shuttle`);
+        // Checked before this feed's own collector field changes, and ignoring this feed's current collector
+        // (re-setting the same ship is a no-op, not a conflict).
+        const others = this.committedShips();
+        if (feed.collector) others.delete(feed.collector);
+        if (others.has(next)) throw new Error(`${next} is already on another feed`);
       }
+      if (feed.collector && feed.collector !== next) this.resume?.(feed.collector);
+      feed.collector = next;
+      if (next) await this.suspend?.(next);
       this.collectorGrewAt.delete(key);
     }
     await this.persist(feed);
