@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP: `stcommand_remove_feed_carrier` (2026-10-05)
+
+The dashboard could release one ship from a feed crew; MCP could only add. Needed to pull a third iron carrier back
+into dispatcher trading when cash got tight without removing the whole feed.
+
 ## Feed collector carries FUEL cargo for long field round trips (2026-10-05)
 
 Live finding: every unstripped metal field in X1-JX83 is 276+ units from the H55 refinery, so a 300-tank shuttle

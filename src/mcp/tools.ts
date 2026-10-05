@@ -491,6 +491,25 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_remove_feed_carrier",
+    {
+      title: "Release a ship from a feed's crew",
+      description: "Take one ship off a feed (the feed stays active with the rest of its crew, carrierTarget drops by one). The ship goes back to its normal role — a trader returns to the automatic dispatcher, a miner to free mining.",
+      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint, good, shipSymbol }) => {
+      try {
+        await w.fleet.removeFeedCarrier(waypoint, good.toUpperCase(), shipSymbol);
+        await recordMcpAction(w, "feed_remove_carrier", shipSymbol, `${shipSymbol} released from feed ${good.toUpperCase()} @ ${waypoint}`, { waypoint, good });
+        return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_keeper_markets",
     {
       title: "Keeper priority markets",
