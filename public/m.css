@@ -528,3 +528,7 @@ body {
 /* Admin tab (operator-only) — content styles live in shared/admin.css. */
 #tabbar button[hidden] { display: none; }
 .more-scroll .adm-body { overflow: visible; padding: 0; }
+
+.fm-tag{font-size:8px;letter-spacing:.1em;text-transform:uppercase;border:1px solid rgba(255,255,255,.18);padding:1px 5px;margin-left:6px}
+.fm-tag.fm-drift{color:#ff5b5b;border-color:rgba(255,91,91,.4)}
+.fm-tag.fm-burn{color:#4fd1c5;border-color:rgba(79,209,197,.4)}

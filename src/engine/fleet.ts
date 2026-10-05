@@ -644,6 +644,11 @@ export class FleetManager {
     const persistedRoleOverrides = new Set((persistedFleetState ?? []).map((r) => r.shipSymbol));
     for (const ship of ships) {
       if (ship.frame?.symbol) await this.doctrine.ensureShipTypeRule(ship.frame.symbol);
+      // A ship with a persisted manual role must not be hull-classified first:
+      // assignRole() would briefly start a miner/etc. agent on a loaded trader,
+      // which can fly it off and burn its fuel before the restore below lands.
+      const pm = (persistedFleetState ?? []).find((r) => r.shipSymbol === ship.symbol);
+      if (pm && MANUAL_ROLES.has(pm.role as ManualRole)) continue;
       await this.assignRole(ship);
     }
     // Restore converted/overridden roles immediately instead of re-crawling
@@ -652,6 +657,10 @@ export class FleetManager {
     // no-op here; this resurrects anything assignRole() couldn't reach on
     // its own (maybeAssignKeepers() conversions, setShipRole() overrides).
     await this.restorePersistedManualRoles(ships);
+    // Anything whose restore was skipped/failed still needs a derived role.
+    for (const ship of ships) {
+      if (this.roleOf(ship.symbol) === "idle") await this.assignRole(ship);
+    }
     // Promote the largest-cargo ship to trader if we have enough miners and no trader yet.
     if (this.miners.size >= 3 && this.traders.size === 0) {
       const best = ships

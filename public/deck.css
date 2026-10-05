@@ -395,3 +395,7 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .map-slot>.map-wrap,.minimap>.map-wrap{position:absolute;inset:0}
 .minimap{min-height:420px}
 .minimap>.map-wrap{border:0;border-radius:4px}
+
+.fm-tag{font-size:8px;letter-spacing:.1em;text-transform:uppercase;border:1px solid rgba(255,255,255,.18);padding:1px 5px;margin-left:6px}
+.fm-tag.fm-drift{color:#ff5b5b;border-color:rgba(255,91,91,.4)}
+.fm-tag.fm-burn{color:#4fd1c5;border-color:rgba(79,209,197,.4)}

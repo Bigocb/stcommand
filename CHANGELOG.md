@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Restart no longer flips loaded traders into miners; Deck/Tower show a DRIFT tag (2026-10-05)
+
+THEO-1 (frigate, 40 JEWELRY aboard) was found crawling B7→A1 in DRIFT with 19/400 fuel. At each deploy, `init()` ran
+`assignRole()` (hull classification) on every ship *before* re-applying persisted manual roles, so a trader was briefly
+started as a miner agent, flown to the nearest market with a full hold and drained of fuel before `restored role trader`
+landed. `init()` now skips hull classification for ships with a persisted manual role, restores those, then falls back
+to `assignRole()` only for ships still idle. Deck's fleet table/detail and Tower's roster also show a `drift`/`burn` tag
+next to the ETA (from `nav.flightMode`, only while in transit), as v6 already did.
+
 ## Deck and Tower: feed carriers and loaded traders no longer count as "unassigned" (2026-10-05)
 
 Follow-up, same day: that was not enough on its own. Deck never loaded feeds/missions/contracts at boot or on its 15 s

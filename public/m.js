@@ -23,6 +23,12 @@ import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { keeperCoverage, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
 
+function fmTag(flightMode) {
+  if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
+  if (flightMode === "BURN") return `<span class="fm-tag fm-burn">burn</span>`;
+  return "";
+}
+
 const $ = (id) => document.getElementById(id);
 
 /* ── auth gate ─────────────────────────────
@@ -346,6 +352,7 @@ function fleetRows() {
       // flight's arrival time once a ship has landed). Same field/guard as
       // desktop's Fleet tab ETA column (fleetRows() in v6.js).
       eta: s.nav?.status === "IN_TRANSIT" ? s.nav?.route?.arrival : undefined,
+      flightMode: s.nav?.status === "IN_TRANSIT" ? s.nav?.flightMode : undefined,
     };
   });
 }
@@ -443,7 +450,7 @@ function renderRoster() {
       <span class="rr-stats">
         ${r.cargoCap ? `<span class="cg ${r.cargo > 0 ? "on" : "off"}" title="Cargo ${r.cargo}/${r.cargoCap}"></span>` : `<span class="cg none"></span>`}
         ${r.fuelCap ? `<span class="fg ${fuelPct < 25 ? "low" : fuelPct < 50 ? "mid" : "ok"}" title="Fuel ${r.fuel}/${r.fuelCap} (${fuelPct}%)"></span>` : `<span class="fg none"></span>`}
-        <span class="eta${etaTxt !== "—" ? " live" : ""}">${escapeHtml(etaTxt)}</span>
+        <span class="eta${etaTxt !== "—" ? " live" : ""}">${escapeHtml(etaTxt)}${fmTag(r.flightMode)}</span>
       </span>
     </button>`;
   };

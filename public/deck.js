@@ -514,10 +514,17 @@ function fleetRows() {
       // while actually IN_TRANSIT, since the API leaves it holding the last
       // flight's arrival time once a ship has landed. Ported from v6.js.
       eta: s.nav?.status === "IN_TRANSIT" ? s.nav?.route?.arrival : undefined,
+      flightMode: s.nav?.status === "IN_TRANSIT" ? s.nav?.flightMode : undefined,
       frame: s.frame?.symbol ?? "",
       cargoInventory: s.cargo?.inventory ?? [],
     };
   });
+}
+
+function fmTag(flightMode) {
+  if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
+  if (flightMode === "BURN") return `<span class="fm-tag fm-burn">burn</span>`;
+  return "";
 }
 
 let selectedFleetShip = null;
@@ -596,7 +603,7 @@ function renderFleet() {
         <td class="mono">${fuelPct}%</td>
         <td class="mono">${row.cargo}/${row.cargoCap}</td>
         <td class="mono">${escapeHtml(row.at)}</td>
-        <td class="mono eta${fmtEta(row.eta) !== "—" ? " live" : ""}">${escapeHtml(fmtEta(row.eta))}</td>
+        <td class="mono eta${fmtEta(row.eta) !== "—" ? " live" : ""}">${escapeHtml(fmtEta(row.eta))}${fmTag(row.flightMode)}</td>
       </tr>
     `;
   };
@@ -1919,7 +1926,7 @@ function renderMapShipCard() {
     <div class="detail-row"><span>Fuel</span><span class="mono">${row.fuelCap ? Math.round((row.fuel / row.fuelCap) * 100) : 0}%</span></div>
     <div class="detail-row"><span>Cargo</span><span class="mono">${row.cargo}/${row.cargoCap}</span></div>
     <div class="detail-row"><span>At</span><span class="mono">${escapeHtml(row.at)}</span></div>
-    <div class="detail-row"><span>ETA</span><span class="mono">${escapeHtml(fmtEta(row.eta))}</span></div>
+    <div class="detail-row"><span>ETA</span><span class="mono">${escapeHtml(fmtEta(row.eta))}${fmTag(row.flightMode)}</span></div>
     <div style="padding:10px 14px"><button class="btn" id="map-open-fleet">Open in Fleet</button></div>`;
   $("map-open-fleet").addEventListener("click", () => {
     selectedFleetShip = row.symbol;
