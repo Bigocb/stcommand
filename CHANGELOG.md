@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Reset opening playbook (2026-10-05)
+
+Review item 8: `docs/reset-opening-playbook.md` writes down the order of operations for the first hours of a reset,
+from this week's evidence (feed the chains first, shuttles before probes, mission buys only when the producer is
+GROWING/STRONG and the recovery gate allows). CLAUDE.md's weekly-layout section now points at it.
+
 ## Drone-plus-collector mining: feed `field` + `collector` (2026-10-05)
 
 Review item 6, the pattern other players use for far or crowded asteroids. A mine feed can now pin its drones to one

@@ -4,24 +4,15 @@ Durable, repo-level knowledge that should survive any one session. See
 `docs/architecture-overview.md` for the system-by-system design breakdown
 and `docs/TODO.md`/`CHANGELOG.md` for what's in flight or already shipped.
 
-## This week's starting fleet layout
+## This week's fleet and the opening playbook
 
-Set by the operator 2026-09-27, right after that week's server reset
-(fresh tenant `7e1ea899`, home system X1-SJ91). The baseline to return to
-or compare against for the rest of the week, absent a newer note here
-superseding it:
-
-- **Command ship**: starts as tour, converts to trader once the tour role
-  has done its job (system-mapping/market intel), same pattern as prior
-  weeks.
-- **2 miners** on an IRON_ORE feed (mine-sourced, feeding the local H63
-  market/refinery — see the H56-equivalent IRON_ORE-vs-trader-buying-
-  pressure test from last week for the general dynamic to expect here
-  too, once a buyer shows up against this system's own refinery).
-- **1 tour ship**.
-
-Update this section (don't just leave it stale) once the operator states
-a new starting layout for a following week.
+Current week (reset 2026-10-04, tenant `7e1ea899`, home system X1-JX83, gate X1-JX83-I59 needing 1,600 FAB_MATS +
+400 ADVANCED_CIRCUITRY): the operator did not state a starting layout; what ran was 1 command frigate, 10 mining
+drones (all on one STRIPPED asteroid, CE5D), 6-7 shuttle traders, 1 surveyor and ~26 keeper probes (6 retired on
+2026-10-05). The lesson of the week is in `docs/reset-opening-playbook.md`: feed every input of the gate materials
+from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, and let the mission buy only when the
+producer's activity is GROWING or STRONG and the recovery gate (`recoverPct`) allows. Update this section when the
+operator states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server
 
