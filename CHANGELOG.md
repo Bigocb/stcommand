@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Route list no longer reads empty just because the fleet has no trader yet (2026-10-05)
+
+`computeDispatchRoutes()` sizes each trip to the largest cargo hold among *traders*, with a floor of 15 units. A fresh
+agent starts with its command ship on the tour role (the intended layout: map the system first, then convert it), so it
+has no trader, every leg was priced at a 15-unit hold, and the one-way fuel charge (distance x fuel price) pushed the long
+ones below zero. THEOREM showed zero routes with all 27 markets priced although the best legs paid 75-85%. The hold size
+now also counts tour and explorer hulls, the ones that become traders. A 40-unit command ship turns five of the six best
+THEOREM legs profitable (DRUGS J56>H49 about +48k a trip, LAB_INSTRUMENTS C38>A4 about +16k, CLOTHING K79>A1 about +10k).
+
 ## Setting a new ship's role clears its pending "needs a role" prompt (2026-10-05)
 
 A just-bought ship waits in `pendingRoleShips` for an operator decision. Assigning its role manually (Fleet tab or

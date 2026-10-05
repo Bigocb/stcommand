@@ -1482,7 +1482,16 @@ export class FleetManager {
     // hold it nets a solidly positive trip. The real ceiling on a trip's
     // volume is the largest hold in the fleet that could actually fly it,
     // and the credits on hand to fill it.
-    const maxTraderCargo = Math.max(15, ...[...this.traders.values()].map((a) => a.getShip().cargo.capacity));
+    // Size the trip to the biggest hold that could run it: traders, plus tour/explorer hulls, which
+    // are the ones that become traders once they have mapped the system (the command ship starts as
+    // a tour by design). With only traders counted, a fleet with no trader yet priced every route
+    // at a 15-unit hold, so any long leg looked unprofitable after fuel and the route list read
+    // empty even with plenty of margin (seen 2026-10-05: THEOREM, 27 markets priced, zero routes;
+    // at its 40-unit command ship five of the six best legs are profitable).
+    const maxTraderCargo = Math.max(
+      15,
+      ...[...this.traders.values(), ...this.tours.values(), ...this.explorers.values()].map((a) => a.getShip().cargo.capacity),
+    );
     const spendable = this.spendableCredits();
     // Deliberately NOT filtered by gate reachability here: a "buy" or
     // "sell" assignment only needs its own side of the leg (buyAt, or
