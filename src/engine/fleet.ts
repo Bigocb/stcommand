@@ -3691,6 +3691,11 @@ export class FleetManager {
     if (this.controlledAgent(shipSymbol)?.isSuspended()) {
       throw new Error(`${shipSymbol} is suspended (mission or rescue in progress) — can't change its role until that finishes`);
     }
+    // An explicit role makes any "needs a role" prompt for a just-bought ship moot. Left in
+    // pendingRoleShips it kept raising a fresh approval minutes later (seen 2026-10-05 with
+    // THEO-2B) — harmless once answered, since maybeResolveNewShipRoles() ignores it for a
+    // manually-roled ship, but a spurious request in the Approvals panel.
+    this.pendingRoleShips.delete(shipSymbol);
     const ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
     // The persisted `shipManualState.holdWaypoint` flag (set by holdShip(),
     // cleared by releaseShip()/releaseTo()) lives independently of role

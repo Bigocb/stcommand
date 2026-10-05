@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Setting a new ship's role clears its pending "needs a role" prompt (2026-10-05)
+
+A just-bought ship waits in `pendingRoleShips` for an operator decision. Assigning its role manually (Fleet tab or
+`stcommand_set_ship_role`) did not remove that entry, so minutes later the app raised a fresh "needs a role, suggested
+tour" approval for a ship that already had one (seen with THEO-2B, which was then correctly working as an iron-feed
+carrier). The stale prompt was harmless once answered (a manually-roled ship ignores it) but looked like the ship had no
+role. `setShipRole()` now drops the pending entry. Separately and by design: a ship that is a feed carrier or on a
+mission has a suspended agent, and `setShipRole()` refuses to change its role ("suspended") until it is removed from the
+feed or mission first.
+
 ## Market snapshots now record the game's `activity` level (2026-10-05)
 
 Every market good the API returns carries `activity` (WEAK / GROWING / STRONG / RESTRICTED): for an export, how close
