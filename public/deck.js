@@ -165,8 +165,10 @@ $("tb-modes").addEventListener("click", async (e) => {
  */
 function unassignedTraders() {
   const roleBy = new Map((fleetStatus.ships ?? []).map((s) => [s.symbol, s.role]));
+  // A feed/mission carrier is claimed work, not idle: jobFor() already resolves feed and mission
+  // claims (and loaded holds) before it falls back to "unassigned", so use it as the single test.
   return (state?.ships ?? []).filter(
-    (s) => roleBy.get(s.symbol) === "trader" && (s.cargo?.units ?? 0) === 0 && !dispatchAssignments.some((a) => a.shipSymbol === s.symbol),
+    (s) => roleBy.get(s.symbol) === "trader" && !dispatchAssignments.some((a) => a.shipSymbol === s.symbol) && jobFor(s, "trader") === "unassigned",
   );
 }
 

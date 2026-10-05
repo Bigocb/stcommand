@@ -105,8 +105,10 @@ startCooldownTicker();
 /* ── home: cockpit tiles ──────────────────── */
 function unassignedTraders() {
   const roleBy = new Map((fleetStatus.ships ?? []).map((s) => [s.symbol, s.role]));
+  // Not idle: a feed/mission carrier (claimFor), or a hold still carrying cargo mid-trade.
   return (state?.ships ?? []).filter(
-    (s) => roleBy.get(s.symbol) === "trader" && !dispatchAssignments.some((a) => a.shipSymbol === s.symbol),
+    (s) => roleBy.get(s.symbol) === "trader" && !dispatchAssignments.some((a) => a.shipSymbol === s.symbol)
+      && (s.cargo?.units ?? 0) === 0 && claimFor(s) == null,
   );
 }
 

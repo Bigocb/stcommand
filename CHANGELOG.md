@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck and Tower: feed carriers and loaded traders no longer count as "unassigned" (2026-10-05)
+
+The Overview/Home "Unassigned" count was every trader with no dispatcher assignment, which also caught ships working a
+feed (an iron or silicon carrier) or a mission, and any trader mid-trade with cargo aboard. THEO showed three unassigned
+traders that were in fact the iron and silicon feed carriers. Deck now uses `jobFor()` (feed, mission, contract and loaded
+hold claims resolved first) and Tower uses `claimFor()` plus a cargo check, so only a genuinely idle, empty, unclaimed
+trader counts.
+
 ## Route list no longer reads empty just because the fleet has no trader yet (2026-10-05)
 
 `computeDispatchRoutes()` sizes each trip to the largest cargo hold among *traders*, with a floor of 15 units. A fresh
