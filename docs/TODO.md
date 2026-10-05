@@ -395,6 +395,15 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   sunk fuel. Needs a pair-of-legs search over the same price data (X: A->B, Y: B->A, or a triangle A->B->C->A) scored
   on combined net per hour, plus holding the hold-size / cash constraints across both purchases. Not scoped.
 
+- **Gate-chain follow-ups (2026-10-05).** (a) Deck/Tower/v6 controls for feed `maxLossPerUnit` / `stopAtSupply` (API and
+  MCP exist: `POST /api/feeds/limits`, `stcommand_set_feed_limits`). (b) A "chain health" Deck panel like the community
+  supply-chain graph: each input's supply + import activity at the producer, the producer's export activity, supply and
+  trade volume, weakest link coloured. (c) Durable per-market activity/trade-volume history that can be queried without a
+  tenant session (the ledger/activity tables are row-locked per tenant, so the read-only SQL login sees none of it).
+  (d) Test hypotheses: export activity above WEAK needs ALL inputs' import activity STRONG (the community graph shows
+  FAB_MATS STRONG with iron and sand both STRONG); trade volume grows with sustained heavy trading of a good (ELECTRONICS
+  at F53 went 20 -> 43 over ~3h of heavy buying) and an import grows when over-delivered.
+
 ## Closed / resolved (kept here briefly for context, then delete)
 
 - [x] Yards & outfitting system filter + per-item pricing — confirmed

@@ -9,6 +9,21 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Gate supply-chain guard, and feeds that accept a loss and stop themselves (2026-10-05)
+
+Two changes from the FAB_MATS price investigation. (1) New doctrine rule `protectChainGoods` (on by default): while any
+construction mission is unfinished (paused ones count), every good that goes into its materials, transitively down to
+the raw ores (FAB_MATS <- IRON, QUARTZ_SAND; the circuitry chain <- ELECTRONICS, MICROPROCESSORS <- SILICON_CRYSTALS,
+COPPER, ...), is dropped from the dispatcher's route list so ordinary traders no longer resell it for margin and drain
+a producer's inputs (seen 2026-10-05: iron bought at H55 resold to F52 while F53's own iron was short). Feeds and manual
+routes are unaffected; the chain comes from `transitiveInputs()` over the live `/market/supply-chain` (which is keyed by
+INPUT, values are what it makes). (2) Feeds gain `maxLossPerUnit` (credits per unit above the target's pay the feed will
+accept, replacing the default 10% margin gate) and `stopAtSupply` (MODERATE/HIGH/ABUNDANT: stop sourcing once the
+target's supply reaches it; loaded carriers still deliver). Stored in migration 040, set with
+`POST /api/feeds/limits` or the `stcommand_set_feed_limits` MCP tool. Aim for HIGH, not ABUNDANT: other players report
+that over-feeding an import makes its market "evolve" (trade volume 60 -> 165, consumption grows) and it then goes
+SCARCE when the feed can't keep up. No UI control yet (TODO).
+
 ## Route profit now counts the whole round trip, price impact, and ranks by time (2026-10-05)
 
 A deep dive on `computeDispatchRoutes()`/`TraderAgent.routeProfit()` found the profit it showed for a route was

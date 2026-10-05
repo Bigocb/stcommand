@@ -122,6 +122,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
+    key: "protectChainGoods",
+    name: "Protect the gate's supply chain",
+    description: "While a construction mission is unfinished, keep every good that goes into its materials (e.g. iron and quartz sand for FAB_MATS, silicon and copper for the circuitry chain, down to the raw ores) out of ordinary margin trading, so the traders don't drain the inputs the producers need. Deliberate feeds and manual routes still move them. Added 2026-10-05: iron bought at H55 was being resold to another iron importer while the FAB_MATS market's own iron sat short.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "promoteAtMiners",
     name: "Trader promotion",
     description: "Promote the biggest-hold miner to trader once this many miners exist.",

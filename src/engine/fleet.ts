@@ -21,7 +21,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
-import { getSupplyChain } from "./supplyChain.js";
+import { getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
@@ -527,6 +527,7 @@ export class FleetManager {
       listBuyers: (good, sys) => this.materialBuyers(good, sys),
       discoverBuyers: (good, sys) => this.discoverMaterialBuyers(good, sys),
       sellPriceAt: (wp, good) => this.sellPriceAt(wp, good),
+      supplyAt: (wp, good) => this.supplyAt(wp, good),
       getCredits: async () => this.spendableCredits(),
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
       jettisonCargo: (s, g, u) => this.jettisonCargoUnlessValuable(s, g, u),
@@ -1467,6 +1468,31 @@ export class FleetManager {
     return learned ?? CROSS_SYSTEM_JUMP_COST_ESTIMATE;
   }
 
+  private lastChainGoodsLog = "";
+
+  /**
+   * Goods that go into the materials an unfinished construction mission still needs, transitively
+   * (FAB_MATS <- IRON, QUARTZ_SAND; ADVANCED_CIRCUITRY <- ELECTRONICS, MICROPROCESSORS <- SILICON_CRYSTALS, COPPER; ...
+   * down to the raw ores), minus the materials themselves, which are already protected. The route list drops
+   * these so no trader resells them for margin and drains a producer's inputs; feeds and manual routes are unaffected.
+   * Empty when the doctrine rule is off, no mission is open, or the supply-chain fetch fails.
+   */
+  private async gateChainGoods(): Promise<Set<string>> {
+    if (!this.doctrine.isEnabled("protectChainGoods")) return new Set();
+    const roots = this.missions.outstandingMaterials();
+    if (roots.size === 0) return new Set();
+    const chain = await getSupplyChain(this.api).catch(() => undefined);
+    if (!chain) return new Set();
+    const goods = transitiveInputs(roots, chain.exportToImportMap);
+    for (const r of roots) goods.delete(r);
+    const summary = [...goods].sort().join(",");
+    if (summary !== this.lastChainGoodsLog) {
+      this.lastChainGoodsLog = summary;
+      this.log(`gate supply chain protected from margin trading: ${summary || "(none)"}`);
+    }
+    return goods;
+  }
+
   async computeDispatchRoutes(): Promise<DispatchRoute[]> {
     const positions = new Map<string, { x: number; y: number }>();
     for (const p of this.galaxy.allPositions()) positions.set(p.symbol, { x: p.x, y: p.y });
@@ -1484,8 +1510,11 @@ export class FleetManager {
     // whose sell side sits in a system this tenant has never charted isn't
     // something it could ever actually complete.
     const charted = new Set(this.chartedSystems);
+    const chainGoods = await this.gateChainGoods();
     const legs = ((await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [])
-      .filter((l) => charted.has(l.buySystem) && charted.has(l.sellSystem));
+      .filter((l) => charted.has(l.buySystem) && charted.has(l.sellSystem))
+      // The gate's own supply chain is not for margin trading (see gateChainGoods()).
+      .filter((l) => !chainGoods.has(l.goodSymbol));
     // A single purchaseCargo() call is capped at the market's own advertised
     // trade volume — l.volume above, straight from tradeLegs()'s
     // LEAST(b.trade_volume, s.trade_volume) — but that is a per-*transaction*
@@ -5072,6 +5101,11 @@ export class FleetManager {
    *  destination — a different question from materialBuyers()'s "where can
    *  I buy this cheapest," which says nothing about any one market's sell
    *  side. */
+  private async supplyAt(waypointSymbol: string, tradeSymbol: string): Promise<string | undefined> {
+    const rows = (await this.store?.latestMarketSnapshots()) ?? [];
+    return rows.find((r) => r.waypointSymbol === waypointSymbol && r.goodSymbol === tradeSymbol)?.supply ?? undefined;
+  }
+
   private async sellPriceAt(waypointSymbol: string, tradeSymbol: string): Promise<number | undefined> {
     const rows = (await this.store?.latestMarketSnapshots()) ?? [];
     return rows.find((r) => r.waypointSymbol === waypointSymbol && r.goodSymbol === tradeSymbol)?.sellPrice;
@@ -5272,6 +5306,11 @@ export class FleetManager {
 
   /** Set (or clear) a feed's own sell-pacing gap override — see
    *  FeedManager.setSellGap()/DEFAULT_SELL_GAP_MS. */
+  /** Set or clear (null) a feed's loss tolerance (credits/unit above the target's pay) and supply stop rule. */
+  setFeedLimits(waypointSymbol: string, good: string, patch: { maxLossPerUnit?: number | null; stopAtSupply?: string | null }): Promise<void> {
+    return this.feeds.setLimits(waypointSymbol, good, patch);
+  }
+
   async setFeedSellGap(waypointSymbol: string, good: string, sellGapMs: number | undefined): Promise<void> {
     await this.feeds.setSellGap(waypointSymbol, good, sellGapMs);
   }

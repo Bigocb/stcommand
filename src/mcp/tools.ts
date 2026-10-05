@@ -553,6 +553,30 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_set_feed_limits",
+    {
+      title: "Set a feed's loss tolerance and stop rule",
+      description: "Make a feed deliberately subsidised and self-limiting. maxLossPerUnit: credits per unit the feed will pay ABOVE what the target market pays (replaces the default 10% margin gate; use to keep a producer's input healthy at a small loss). stopAtSupply: MODERATE, HIGH or ABUNDANT — stop sourcing once the target's supply for the good reaches that bucket (aim for HIGH: over-feeding an import makes its market's trade volume and consumption grow, after which it needs far more to stay supplied). A number/string sets, null clears, omitted leaves unchanged.",
+      inputSchema: {
+        waypoint: z.string().describe("The feed's target market"),
+        good: z.string(),
+        maxLossPerUnit: z.number().int().min(0).nullable().optional(),
+        stopAtSupply: z.enum(["MODERATE", "HIGH", "ABUNDANT"]).nullable().optional(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint, good, maxLossPerUnit, stopAtSupply }) => {
+      try {
+        await w.fleet.setFeedLimits(waypoint, good.toUpperCase(), { maxLossPerUnit, stopAtSupply });
+        await recordMcpAction(w, "feed_limits", undefined, `feed ${good.toUpperCase()} -> ${waypoint}: max loss ${maxLossPerUnit ?? "unchanged"}, stop at ${stopAtSupply ?? "unchanged"}`, { waypoint, good, maxLossPerUnit, stopAtSupply });
+        return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_assign_feed_carrier",
     {
       title: "Add a specific ship to a feed's crew",

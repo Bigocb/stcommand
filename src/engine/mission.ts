@@ -319,6 +319,18 @@ export class MissionManager {
     return out;
   }
 
+  /**
+   * Materials any unfinished construction mission still needs, INCLUDING paused ones: a pause stops
+   * sourcing but the gate is still being built, and its supply chain still has to be kept healthy.
+   */
+  outstandingMaterials(): Set<string> {
+    const out = new Set<string>();
+    for (const m of this.active.values()) {
+      for (const mat of m.materials) if (mat.fulfilled < mat.required) out.add(mat.tradeSymbol);
+    }
+    return out;
+  }
+
   /** Advance every active mission by one step. Call once per coordinator tick. */
   async tick(): Promise<void> {
     for (const mission of [...this.active.values()]) {

@@ -38,6 +38,36 @@ export async function getSupplyChain(api: SpaceTradersAPI): Promise<SupplyChain>
   return cached;
 }
 
+/**
+ * Every good that goes into making any of `roots`, however many steps back:
+ * the roots' inputs, those inputs' inputs, down to the raw ores. `map` is
+ * exportToImportMap as the live API returns it: each KEY is an input and its
+ * values are the goods it is used to make (e.g. IRON_ORE -> ["IRON", "EXPLOSIVES"],
+ * QUARTZ_SAND -> ["FAB_MATS", "EXPLOSIVES"]). The roots themselves are not
+ * included unless something in the chain also needs one.
+ */
+export function transitiveInputs(roots: Iterable<string>, map: Record<string, string[]>): Set<string> {
+  const inputsOf = new Map<string, string[]>();
+  for (const [input, products] of Object.entries(map)) {
+    for (const product of products) {
+      const list = inputsOf.get(product);
+      if (list) list.push(input);
+      else inputsOf.set(product, [input]);
+    }
+  }
+  const out = new Set<string>();
+  const stack = [...roots];
+  while (stack.length) {
+    const g = stack.pop()!;
+    for (const input of inputsOf.get(g) ?? []) {
+      if (out.has(input)) continue;
+      out.add(input);
+      stack.push(input);
+    }
+  }
+  return out;
+}
+
 /** Test-only: the module cache is process-wide by design, so tests need a way to reset it between runs. */
 export function resetSupplyChainCacheForTests(): void {
   cached = undefined;

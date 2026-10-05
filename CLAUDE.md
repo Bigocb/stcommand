@@ -183,6 +183,25 @@ Before flagging a ship as stuck, check Render logs for that ship's own
 against wall-clock time — that's the ground truth, not the polled
 snapshot fields above.
 
+## Market dynamics learned live (2026-10-05, THEO / F53 FAB_MATS)
+
+Measured, not from the game docs; re-verify on a new reset. Raw evidence is in the 2026-10-05 CHANGELOG entries.
+
+- **Price is a function of stock**, path-independent and reversible. Our own units move it ~4-5% per tradeVolume lot on
+  each side (FAB_MATS 20-unit lots +3.5-5.6%); markets update on a ~30 minute tick.
+- **`activity`** (RESTRICTED/WEAK/GROWING/STRONG): for an export it is production strength, for an import consumption
+  strength. An export is RESTRICTED while any input's supply is SCARCE; it reached WEAK once inputs were LIMITED or
+  better. What lifts it above WEAK is unproven; the community supply-chain graph shows FAB_MATS STRONG with iron AND
+  sand import activity both STRONG. Import activity climbs over hours of sustained delivery (iron WEAK -> STRONG over
+  ~12h of feeding).
+- **Refill is slow.** F53 FAB_MATS recovers only ~4-9c/hour (~3-4 units/hour) when WEAK/RESTRICTED, so a gate needing
+  ~1,500 units cannot be bought faster than the market makes it; buying at 5 units/30 min ratcheted the price up.
+- **Trade volume grows** with sustained heavy trading (ELECTRONICS at F53 20 -> 43 in steps ~30 min apart; a community
+  chart shows an over-fed iron IMPORT going 60 -> 165, after which iron went SCARCE and FAB_MATS stopped). So don't
+  over-feed an input past what you can sustain; aim for HIGH, not ABUNDANT.
+- **`/market/supply-chain`'s `exportToImportMap` is keyed by INPUT** (values are what it is used to make).
+- The read-only Postgres login cannot see tenant tables (ledger, activity, ...): row-level security hides them.
+
 ## Dual-push convention
 
 Render only auto-deploys from `main`, but this repo's actual working

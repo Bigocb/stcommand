@@ -1215,6 +1215,23 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json({ ok: true, feeds: await w.fleet.getFeeds() });
   });
 
+  /** Loss tolerance and supply stop rule for a feed — see Feed.maxLossPerUnit / Feed.stopAtSupply in feed.ts. */
+  router.post("/feeds/limits", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const good = String(req.body?.good ?? "").toUpperCase();
+    if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    const num = (v: unknown): number | null | undefined => (v === undefined ? undefined : v === null || v === "" ? null : Number(v));
+    const str = (v: unknown): string | null | undefined => (v === undefined ? undefined : v === null || v === "" ? null : String(v).toUpperCase());
+    try {
+      await w.fleet.setFeedLimits(waypoint, good, { maxLossPerUnit: num(req.body?.maxLossPerUnit), stopAtSupply: str(req.body?.stopAtSupply) });
+      res.json({ ok: true, feeds: await w.fleet.getFeeds() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/feeds/sell-gap", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { getSupplyChain, resetSupplyChainCacheForTests } from "../src/engine/supplyChain.js";
+import { getSupplyChain, resetSupplyChainCacheForTests, transitiveInputs } from "../src/engine/supplyChain.js";
 
 describe("getSupplyChain", () => {
   beforeEach(() => resetSupplyChainCacheForTests());
@@ -32,5 +32,33 @@ describe("getSupplyChain", () => {
     await getSupplyChain(api);
 
     assert.equal(calls, 1, "a cached, effectively-static response must not be re-fetched on every call");
+  });
+});
+
+describe("transitiveInputs", () => {
+  // The live API keys by INPUT: IRON_ORE -> goods it is used to make.
+  const map = {
+    IRON_ORE: ["IRON", "EXPLOSIVES"],
+    IRON: ["FAB_MATS", "MACHINERY"],
+    QUARTZ_SAND: ["FAB_MATS", "EXPLOSIVES"],
+    COPPER_ORE: ["COPPER"],
+    COPPER: ["ELECTRONICS", "MICROPROCESSORS"],
+    SILICON_CRYSTALS: ["ELECTRONICS", "MICROPROCESSORS"],
+    ELECTRONICS: ["ADVANCED_CIRCUITRY"],
+    MICROPROCESSORS: ["ADVANCED_CIRCUITRY"],
+  };
+
+  it("walks back from a material to every input and raw ore, without sideways goods", () => {
+    assert.deepEqual([...transitiveInputs(["FAB_MATS"], map)].sort(), ["IRON", "IRON_ORE", "QUARTZ_SAND"]);
+    assert.deepEqual(
+      [...transitiveInputs(["ADVANCED_CIRCUITRY"], map)].sort(),
+      ["COPPER", "COPPER_ORE", "ELECTRONICS", "MICROPROCESSORS", "SILICON_CRYSTALS"],
+    );
+  });
+
+  it("unions several roots and is empty for an unknown or raw good", () => {
+    assert.ok(transitiveInputs(["FAB_MATS", "ADVANCED_CIRCUITRY"], map).has("QUARTZ_SAND"));
+    assert.equal(transitiveInputs(["NOT_A_GOOD"], map).size, 0);
+    assert.equal(transitiveInputs(["IRON_ORE"], map).size, 0);
   });
 });

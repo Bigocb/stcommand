@@ -59,6 +59,22 @@ export interface Feed {
   chainName?: string;
   /** Position within the chain, bottom tier (closest to raw material) first. */
   chainOrder?: number;
+  /** A deliberately subsidised feed: buy even when the source costs up to this many credits per unit MORE than the
+   *  destination pays (keeping a producer's input healthy). Replaces the default 10% margin gate; `force` still
+   *  skips every gate. Undefined = default gate. */
+  maxLossPerUnit?: number;
+  /** Stop sourcing once the target market's supply for this good reaches this bucket (MODERATE | HIGH | ABUNDANT).
+   *  Carriers already loaded still deliver. Over-feeding an import makes its market evolve (trade volume and
+   *  consumption grow) and then it needs far more to stay supplied, so aim for HIGH, not ABUNDANT. */
+  stopAtSupply?: string;
+}
+
+const SUPPLY_RANK: Record<string, number> = { SCARCE: 0, LIMITED: 1, MODERATE: 2, HIGH: 3, ABUNDANT: 4 };
+/** True once `supply` is at or above the `stopAt` bucket (unknown names never stop a feed). */
+export function supplyReached(supply: string | undefined, stopAt: string | undefined): boolean {
+  if (!supply || !stopAt) return false;
+  const a = SUPPLY_RANK[supply], b = SUPPLY_RANK[stopAt];
+  return a !== undefined && b !== undefined && a >= b;
 }
 
 /** An ordered set of feeder tiers where each tier buys where the previous
@@ -84,6 +100,8 @@ export interface FeedStartOptions {
   chainId?: string;
   chainName?: string;
   chainOrder?: number;
+  maxLossPerUnit?: number;
+  stopAtSupply?: string;
 }
 
 interface FeedTaskState {
@@ -152,6 +170,9 @@ interface FeedOptions {
    *  distinct from listBuyers(), which only ever answers "where can I buy
    *  this," never "what does a specific market pay for it." */
   sellPriceAt?: (waypointSymbol: string, tradeSymbol: string) => Promise<number | undefined>;
+  /** The target market's current supply bucket for a good (SCARCE..ABUNDANT), undefined if never observed.
+   *  Backs Feed.stopAtSupply. */
+  supplyAt?: (waypointSymbol: string, tradeSymbol: string) => Promise<string | undefined>;
   getCredits?: () => Promise<number>;
   sellCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
   jettisonCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
@@ -231,6 +252,8 @@ export class FeedManager {
   private readonly listBuyers?: FeedOptions["listBuyers"];
   private readonly discoverBuyers?: FeedOptions["discoverBuyers"];
   private readonly sellPriceAt?: FeedOptions["sellPriceAt"];
+  private readonly supplyAt?: FeedOptions["supplyAt"];
+  private stoppedLogged = new Set<string>();
   private readonly getCredits?: FeedOptions["getCredits"];
   private readonly sellCargo?: FeedOptions["sellCargo"];
   private readonly jettisonCargo?: FeedOptions["jettisonCargo"];
@@ -278,6 +301,7 @@ export class FeedManager {
     this.listBuyers = opts.listBuyers;
     this.discoverBuyers = opts.discoverBuyers;
     this.sellPriceAt = opts.sellPriceAt;
+    this.supplyAt = opts.supplyAt;
     this.getCredits = opts.getCredits;
     this.sellCargo = opts.sellCargo;
     this.jettisonCargo = opts.jettisonCargo;
@@ -320,6 +344,8 @@ export class FeedManager {
         if (opts.mine !== undefined) existing.mine = opts.mine;
         if (opts.force !== undefined) existing.force = opts.force;
         if (opts.sellGapMs !== undefined) existing.sellGapMs = opts.sellGapMs;
+        if (opts.maxLossPerUnit !== undefined) existing.maxLossPerUnit = opts.maxLossPerUnit;
+        if (opts.stopAtSupply !== undefined) existing.stopAtSupply = opts.stopAtSupply;
         // Force the running carrier(s) to re-pick their source next tick —
         // they may already have locked onto a different market before
         // being adopted into this chain.
@@ -346,6 +372,8 @@ export class FeedManager {
         buyAt: opts.buyAt ?? persisted.buyAt ?? undefined,
         force: opts.force ?? persisted.force,
         sellGapMs: opts.sellGapMs ?? persisted.sellGapMs ?? undefined,
+        maxLossPerUnit: opts.maxLossPerUnit ?? persisted.maxLossPerUnit ?? undefined,
+        stopAtSupply: opts.stopAtSupply ?? persisted.stopAtSupply ?? undefined,
         chainId: opts.chainId ?? persisted.chainId ?? undefined,
         chainName: opts.chainId !== undefined ? opts.chainName : (persisted.chainName ?? undefined),
         chainOrder: opts.chainId !== undefined ? opts.chainOrder : (persisted.chainOrder ?? undefined),
@@ -376,6 +404,8 @@ export class FeedManager {
       buyAt: opts.buyAt,
       force: opts.force,
       sellGapMs: opts.sellGapMs,
+      maxLossPerUnit: opts.maxLossPerUnit,
+      stopAtSupply: opts.stopAtSupply,
       chainId: opts.chainId,
       chainName: opts.chainName,
       chainOrder: opts.chainOrder,
@@ -461,6 +491,8 @@ export class FeedManager {
       mine: f.mine,
       buyAt: f.buyAt ?? undefined,
       sellGapMs: f.sellGapMs ?? undefined,
+      maxLossPerUnit: f.maxLossPerUnit ?? undefined,
+      stopAtSupply: f.stopAtSupply ?? undefined,
       chainId: f.chainId ?? undefined,
       chainName: f.chainName ?? undefined,
       chainOrder: f.chainOrder ?? undefined,
@@ -575,6 +607,23 @@ export class FeedManager {
     feed.sellGapMs = sellGapMs;
     await this.persist(feed);
     this.log(`feed ${good} → ${targetWaypoint}: sell gap set to ${sellGapMs !== undefined ? `${Math.round(sellGapMs / 1000)}s` : "default"}`);
+  }
+
+  /** Set or clear (null) a feed's loss tolerance and supply stop rule — see Feed.maxLossPerUnit / Feed.stopAtSupply. */
+  async setLimits(targetWaypoint: string, good: string, patch: { maxLossPerUnit?: number | null; stopAtSupply?: string | null }): Promise<void> {
+    const feed = this.active.get(this.key(targetWaypoint, good));
+    if (!feed) throw new Error(`no active feed ${good} → ${targetWaypoint}`);
+    if (patch.maxLossPerUnit !== undefined) {
+      if (patch.maxLossPerUnit !== null && (!Number.isFinite(patch.maxLossPerUnit) || patch.maxLossPerUnit < 0 || patch.maxLossPerUnit > 100_000)) throw new Error("maxLossPerUnit must be 0-100000 credits");
+      feed.maxLossPerUnit = patch.maxLossPerUnit === null ? undefined : Math.round(patch.maxLossPerUnit);
+    }
+    if (patch.stopAtSupply !== undefined) {
+      if (patch.stopAtSupply !== null && !["MODERATE", "HIGH", "ABUNDANT"].includes(patch.stopAtSupply)) throw new Error("stopAtSupply must be MODERATE, HIGH or ABUNDANT");
+      feed.stopAtSupply = patch.stopAtSupply === null ? undefined : patch.stopAtSupply;
+    }
+    this.stoppedLogged.delete(this.key(targetWaypoint, good));
+    await this.persist(feed);
+    this.log(`feed ${good} → ${targetWaypoint}: limits set — max loss ${feed.maxLossPerUnit ?? "default gate"}c/unit, stop at supply ${feed.stopAtSupply ?? "never"}`);
   }
 
   /** Stop and forget a feed entirely (not just paused) — releases the crew
@@ -812,6 +861,21 @@ export class FeedManager {
       return;
     }
 
+    // Supply stop rule: the target has all it needs, so don't source more (a carrier already loaded still delivers above).
+    if (feed.stopAtSupply) {
+      const supply = await this.supplyAt?.(feed.targetWaypoint, feed.good);
+      const k = this.key(feed.targetWaypoint, feed.good);
+      if (supplyReached(supply, feed.stopAtSupply)) {
+        t.retryAt = Date.now() + 60_000;
+        if (!this.stoppedLogged.has(k)) {
+          this.stoppedLogged.add(k);
+          this.log(`feed ${feed.good} → ${feed.targetWaypoint}: target supply ${supply} reached stop level ${feed.stopAtSupply} — pausing sourcing until it drops`);
+        }
+        return;
+      }
+      this.stoppedLogged.delete(k);
+    }
+
     // Empty-handed: source the good. An operator-flagged "mine" feed always
     // mines — no market lookup at all, since most raw ore has no seller
     // anyway and the flag is an explicit choice, not a fallback guess.
@@ -927,7 +991,12 @@ export class FeedManager {
     // who wants the route run through regardless.
     if (!feed.force) {
       const sellAt = await this.sellPriceAt?.(feed.targetWaypoint, feed.good);
-      if (sellAt !== undefined && price > sellAt * (1 - MIN_FEED_MARGIN_PCT)) {
+      // A subsidised feed (maxLossPerUnit set) accepts paying up to that many credits above what the target pays;
+      // otherwise the buy must clear the usual margin.
+      const tooDear = feed.maxLossPerUnit !== undefined
+        ? sellAt !== undefined && price - sellAt > feed.maxLossPerUnit
+        : sellAt !== undefined && price > sellAt * (1 - MIN_FEED_MARGIN_PCT);
+      if (tooDear && sellAt !== undefined) {
         t.retryAt = Date.now() + 15_000;
         this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${sourceMarket} buy @ ${price}c leaves no margin against ${feed.targetWaypoint}'s ${sellAt}c sell — waiting for either to recover`);
         return;
@@ -982,6 +1051,8 @@ export class FeedManager {
       buyAt: f.buyAt,
       force: f.force ?? false,
       sellGapMs: f.sellGapMs,
+      maxLossPerUnit: f.maxLossPerUnit,
+      stopAtSupply: f.stopAtSupply,
       chainId: f.chainId,
       chainName: f.chainName,
       chainOrder: f.chainOrder,
