@@ -71,7 +71,7 @@ ceiling over the market's trailing-24h low, previously a hard-coded 40%; the sep
 Unset means the old behaviour. New `POST /api/missions/pacing` and MCP tools `stcommand_get_missions`,
 `stcommand_set_mission_pacing`, `stcommand_pause_mission`, `stcommand_resume_mission` (the MCP server had no mission
 tools). The gap is held in memory, so a restart allows one immediate purchase. Tests: `tests/missionPacing.test.ts`
-(no database). Not built yet: Deck/Tower form fields for these.
+(no database). UI: Deck Ops → Missions and Tower More → construction mission cards now have the three fields, Save pacing, and (Deck) Stop/Resume; Deck no longer rebuilds the cards while a field is focused.
 
 ## Fix: route fuel cost was 100x too high, hiding almost every route (2026-10-05)
 

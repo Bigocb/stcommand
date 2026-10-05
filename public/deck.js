@@ -1375,19 +1375,58 @@ function renderOps() {
             <span class="chip" style="font-size:9px;padding:2px 6px">${escapeHtml(status)}</span>
           </div>
           <div style="padding:8px 14px;border-bottom:1px solid var(--hair);font-size:11px;color:var(--dim2)">
-            ${m.assignedShip ? `carrier ${escapeHtml(m.assignedShip)}` : "no carrier yet"}
+            ${(m.assignedShips ?? []).length ? `crew ${(m.assignedShips ?? []).length}/${m.carrierTarget ?? 1}: ${escapeHtml(m.assignedShips.join(", "))}` : "no carrier yet"}
           </div>
           ${materials}
+          <div class="mission-pacing" data-wp="${escapeAttr(m.targetWaypoint)}" style="padding:10px 14px;display:flex;flex-direction:column;gap:6px">
+            <div class="ops-sub" style="padding:0">Buy pacing &mdash; price depends on total units bought, so slow the rate to match the market's refill. Blank = default.</div>
+            <div class="mk-toolbar" style="padding:0;align-items:flex-end">
+              <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">Units per buy
+                <input class="field-input mp-lot" type="number" min="1" placeholder="default" value="${m.pacing?.buyLotUnits ?? ""}" aria-label="Units per purchase" /></label>
+              <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">Gap (min)
+                <input class="field-input mp-gap" type="number" min="1" placeholder="none" value="${m.pacing?.buyGapMin ?? ""}" aria-label="Minutes between purchases" /></label>
+              <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">Ceiling % over 24h low
+                <input class="field-input mp-cap" type="number" min="1" placeholder="40" value="${m.pacing?.maxInflationPct ?? ""}" aria-label="Price ceiling percent" /></label>
+              <button class="btn pri" data-mact="save-pacing">Save pacing</button>
+              ${m.paused
+                ? '<button class="btn" data-mact="resume">Resume</button>'
+                : '<button class="btn deny" data-mact="pause">Stop</button>'}
+            </div>
+          </div>
         </div>
       `;
     }).join("");
   })();
   const missionsEl = $("ops-missions");
-  if (missionsEl) missionsEl.innerHTML = missionsHtml;
+  // Don't rebuild the cards under someone who is typing into a pacing field (the programme data refreshes every 15 s).
+  if (missionsEl && !missionsEl.contains(document.activeElement)) missionsEl.innerHTML = missionsHtml;
 
   renderAutomationFeed();
   renderNotes();
 }
+
+/* ── Mission pacing / pause / resume (Ops → Missions) ── */
+$("ops-missions").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-mact]");
+  if (!b) return;
+  const card = b.closest(".mission-pacing");
+  const wp = card?.dataset.wp;
+  if (!wp) return;
+  const act = b.dataset.mact;
+  if (act === "pause" && !confirm(`Stop the construction mission at ${wp}? The crew will be released; you can resume later.`)) return;
+  b.disabled = true;
+  try {
+    if (act === "save-pacing") {
+      const val = (cls) => { const v = card.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
+      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap") });
+    } else {
+      await api("POST", `/api/missions/${act}`, { waypoint: wp });
+    }
+    await loadProgramme();
+  } catch (err) { alert(err.message); }
+  b.disabled = false;
+  renderOps();
+});
 
 /* ── Feeder chains (Feeds) ────────────────────
  * A chain is an ordered set of feeder tiers where each tier's buy market is
