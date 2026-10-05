@@ -8,7 +8,7 @@ import { api, onUnauthorized } from "/shared/api.js";
 import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, activity,
-  marketRoutes, intel, warehouseState,
+  marketRoutes, intel,
   systems, marketSnapshots, leaderboard, factions, systemAgents, systemAgentsHistory,
   contracts, missions, feeds, feedChains, minerPreferences, notes,
   priceGoods, priceWaypointsByGood, pricePoints,
@@ -16,7 +16,7 @@ import {
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
-  loadMarkets, loadGoods, loadPrices, loadWarehouse, loadGalaxy, loadProgramme,
+  loadMarkets, loadGoods, loadPrices, loadGalaxy, loadProgramme,
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
@@ -991,52 +991,6 @@ function renderMarkets() {
   const yardsEl = $("mk-yards");
   if (yardsEl) yardsEl.innerHTML = yardsHtml;
 
-  // Warehouse panel
-  const whCountText = warehouseState.ship
-    ? `${escapeHtml(warehouseState.ship.waypointSymbol)} · ${warehouseState.goods.length} goods`
-    : `no ship designated · ${warehouseState.goods.length} goods`;
-  const whCountEl = $("mk-wh-count");
-  if (whCountEl) whCountEl.textContent = whCountText;
-
-  const warehouseHtml = (() => {
-    const goodsRows = warehouseState.goods.length
-      ? warehouseState.goods.map((g) => `
-      <div class="goodrow">
-        <div style="flex:1">
-          <div class="name">${escapeHtml(g.goodSymbol)}</div>
-          <div class="route">${g.units}u</div>
-        </div>
-        <div class="profit">${fmt(g.value)}c</div>
-      </div>
-    `).join('')
-      : '<div class="empty">Warehouse is empty.</div>';
-    const totalRow = warehouseState.goods.length ? `
-      <div class="goodrow" style="border-bottom:none;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,199,120,.06)">
-        <div style="flex:1;font-weight:600">Total</div>
-        <div class="profit">${fmt(warehouseState.totalValue)}cr</div>
-      </div>
-    ` : '';
-    // Curated targets (optional Pass B) — the goods the warehouse is
-    // allowed to buy/sell, each removable inline. Rendered even when the
-    // hold itself is empty, since the curated list is independent of
-    // what's currently on the books.
-    const targets = warehouseState.targets ?? [];
-    const targetsHeader = `<div class="dtl-h">Curated goods</div>`;
-    const targetsRows = targets.length
-      ? targets.map((t) => `
-          <div class="goodrow">
-            <div style="flex:1">
-              <div class="name">${escapeHtml(t.goodSymbol)}</div>
-              <div class="route">target ${t.target}u${t.forMission ? " · mission" : ""}</div>
-            </div>
-            <button class="btn deny" style="min-height:auto;padding:5px 10px;font-size:9px" data-remove-good="${escapeAttr(t.goodSymbol)}">Remove</button>
-          </div>
-        `).join('')
-      : '<div class="empty">No curated goods — the warehouse buys/sells nothing until you add some.</div>';
-    return goodsRows + totalRow + targetsHeader + targetsRows;
-  })();
-  const warehouseEl = $("mk-warehouse");
-  if (warehouseEl) warehouseEl.innerHTML = warehouseHtml;
 
   // Dispatch panel
   const dispatchHtml = (() => {
@@ -1067,13 +1021,6 @@ function renderMarkets() {
   setSelectOptions($("mk-dispatch-ship"), traders.map((s) => s.symbol));
   setSelectOptions($("mk-dispatch-good"), [...new Set(dispatchRoutes.map((r) => r.good))]);
   renderMinerPreferences();
-  const whCandidates = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 20);
-  setSelectOptions($("mk-warehouse-ship"), whCandidates.map((s) => s.symbol));
-  // Adjust good list: whatever's already held, plus anything currently
-  // routed — same union v6.js's renderWarehouse() builds.
-  setSelectOptions($("mk-warehouse-adjust-good"), [
-    ...new Set([...warehouseState.goods.map((g) => g.goodSymbol), ...dispatchRoutes.map((r) => r.good)]),
-  ]);
 
   // Keeper panel (optional Pass B) — static textarea, so re-rendering must
   // not clobber what the operator is midway through typing.
@@ -1323,61 +1270,6 @@ $("mk-miner-pref-clear").addEventListener("click", async () => {
   try {
     await api("POST", "/api/miner-preference", { shipSymbol: ship, clear: true });
     await loadDispatch();
-  } catch (err) { alert(err.message); }
-});
-
-$("mk-warehouse-designate").addEventListener("click", async () => {
-  const shipSymbol = $("mk-warehouse-ship").value;
-  const waypointSymbol = $("mk-warehouse-waypoint").value.trim();
-  if (!shipSymbol || !waypointSymbol) return;
-  try {
-    await api("POST", "/api/warehouse/designate", { shipSymbol, waypointSymbol });
-    $("mk-warehouse-waypoint").value = "";
-    await loadWarehouse();
-  } catch (err) { alert(err.message); }
-});
-
-$("mk-warehouse-release").addEventListener("click", async () => {
-  try {
-    await api("POST", "/api/warehouse/release");
-    await loadWarehouse();
-  } catch (err) { alert(err.message); }
-});
-
-$("mk-warehouse-adjust").addEventListener("click", async () => {
-  const good = $("mk-warehouse-adjust-good").value;
-  const units = Number($("mk-warehouse-adjust-units").value);
-  const price = Number($("mk-warehouse-adjust-price").value) || 0;
-  const direction = $("mk-warehouse-adjust-direction").value;
-  if (!good || !units || units <= 0) return;
-  try {
-    await api("POST", "/api/warehouse/adjust", { good, units, direction, price });
-    $("mk-warehouse-adjust-units").value = "";
-    $("mk-warehouse-adjust-price").value = "";
-    await loadWarehouse();
-  } catch (err) { alert(err.message); }
-});
-
-$("mk-warehouse-target-add").addEventListener("click", async () => {
-  const good = $("mk-warehouse-target-good").value.trim().toUpperCase();
-  const target = Number($("mk-warehouse-target-units").value);
-  const forMission = $("mk-warehouse-target-mission").checked;
-  if (!good || !target || target <= 0) return;
-  try {
-    await api("POST", "/api/warehouse/targets", { good, target, forMission });
-    $("mk-warehouse-target-good").value = "";
-    $("mk-warehouse-target-units").value = "";
-    $("mk-warehouse-target-mission").checked = false;
-    await loadWarehouse();
-  } catch (err) { alert(err.message); }
-});
-
-$("mk-warehouse").addEventListener("click", async (e) => {
-  const btn = e.target.closest("button[data-remove-good]");
-  if (!btn) return;
-  try {
-    await api("POST", "/api/warehouse/targets/remove", { good: btn.dataset.removeGood });
-    await loadWarehouse();
   } catch (err) { alert(err.message); }
 });
 
@@ -2099,9 +1991,6 @@ subscribe("dispatch", () => {
 subscribe("goods", () => {
   renderMarkets();
 });
-subscribe("warehouse", () => {
-  renderMarkets();
-});
 subscribe("keepers", () => {
   renderKeepers();
   if (!$("view-markets").hidden) renderMktPriceMarketList();
@@ -2150,7 +2039,6 @@ function boot() {
   loadActivity();
   loadMarkets();
   loadGoods();
-  loadWarehouse();
   loadKeepers();
   loadProgramme();
   renderTopbar();
@@ -2171,7 +2059,6 @@ function pollTick() {
   loadActivity();
   loadMarkets();
   loadGoods();
-  loadWarehouse();
   loadKeepers();
   loadProgramme();
 }

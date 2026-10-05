@@ -60,6 +60,19 @@ transaction price plus the market listing before and after, so impact is read di
 keeper snapshot. `buyCargo`/`sellCargo` now return a `TradeResult` (optional re-read of the market after the trade);
 existing callers ignore it.
 
+## Warehousing parked: UI removed from Deck, v6 and Tower, doctrine locked off (2026-10-05)
+
+Operator decision: the warehouse was an early idea and is not helping the gate chase, so it is out of the way until
+after the gate opens (it may be worth bringing back for the longer game). The Warehouse panel is gone from Deck's Markets
+screen (Dispatch now spans the width), v6's Trade Ops screen and its mobile Ops page, and Tower's More tab, along with
+their loaders and handlers. The three warehouse doctrine rules (`warehouseTarget`, `warehouseMax`, `warehouseMinMargin`)
+are in `RETIRED_POLICIES` in `src/engine/doctrine.ts`: never adopted or enabled whatever is stored, so the dispatcher
+only assigns direct round trips; hidden from `list()`/`catalog()`; and `set()`/`setAdopted()` refuse them (so the Doctrine
+screens and `stcommand_set_doctrine` cannot turn them on). To restore: delete those keys from `RETIRED_POLICIES` and
+re-add the panels (git history has them). Not removed: the `/api/warehouse/*` routes, the store tables and per-good
+targets, and the dispatcher's warehouse code paths, which are inert while the master switch is off. Unit-tested in
+`tests/doctrineRetired.test.ts` (no database needed).
+
 ## Deck: Map screen is now v6's 3D map (2026-10-05)
 
 Deck's Map screen was a flat 2D scatter of blips. It now runs v6's actual map engine: the orbit/pan/zoom

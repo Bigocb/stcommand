@@ -107,7 +107,7 @@
           <div class="mgrid">
             <!-- Routes / Yards / Prices panel — segmented like Tower's own
                  Markets tab, since all three are "what's the market doing"
-                 reads rather than write tools (Warehouse/Dispatch/Keeper
+                 reads rather than write tools (Dispatch/Keeper
                  below stay as separate always-visible panels). -->
             <div class="panel" style="grid-column:1 / -1">
               <div class="panel-h">
@@ -151,35 +151,8 @@
                 <div id="mk-keeper-stations"></div>
               </div>
             </div>
-            <!-- Warehouse panel -->
-            <div class="panel">
-              <div class="panel-h"><span class="dot"></span><span class="title">Warehouse</span><span class="count" id="mk-wh-count"></span></div>
-              <div class="mk-toolbar" id="mk-warehouse-toolbar">
-                <select class="field-select" id="mk-warehouse-ship" aria-label="Warehouse ship"></select>
-                <input class="field-input" id="mk-warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
-                <button class="btn pri" id="mk-warehouse-designate">Designate</button>
-                <button class="btn" id="mk-warehouse-release">Release</button>
-              </div>
-              <div class="mk-toolbar">
-                <select class="field-select" id="mk-warehouse-adjust-good" aria-label="Good"></select>
-                <input class="field-input" id="mk-warehouse-adjust-units" type="number" min="1" placeholder="Units" />
-                <input class="field-input" id="mk-warehouse-adjust-price" type="number" min="0" placeholder="Price/unit" />
-                <select class="field-select" id="mk-warehouse-adjust-direction" aria-label="Direction">
-                  <option value="deposit">Deposit</option>
-                  <option value="withdraw">Withdraw</option>
-                </select>
-                <button class="btn" id="mk-warehouse-adjust">Adjust</button>
-              </div>
-              <div class="mk-toolbar">
-                <input class="field-input" id="mk-warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
-                <input class="field-input" id="mk-warehouse-target-units" type="number" min="1" placeholder="Target units" />
-                <label style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--dim);white-space:nowrap"><input type="checkbox" id="mk-warehouse-target-mission" /> Buy for mission</label>
-                <button class="btn" id="mk-warehouse-target-add">Add</button>
-              </div>
-              <div class="panel-b" id="mk-warehouse"></div>
-            </div>
-            <!-- Dispatch panel -->
-            <div class="panel">
+            <!-- Dispatch panel (full width now that Warehouse is gone) -->
+            <div class="panel" style="grid-column:1 / -1">
               <div class="panel-h"><span class="dot"></span><span class="title">Dispatch</span><span class="count">traders</span></div>
               <div class="mk-toolbar" id="mk-dispatch-toolbar">
                 <select class="field-select" id="mk-dispatch-ship" aria-label="Trader ship"></select>

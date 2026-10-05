@@ -12,11 +12,11 @@ import { login, probeSession } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
-  marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, warehouseState, doctrineRules, activity,
+  marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, doctrineRules, activity,
   priceGoods, priceWaypointsByGood, pricePoints,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
-  loadProgramme, loadWarehouse, loadDoctrine, setDoctrine, loadActivity,
+  loadProgramme, loadDoctrine, setDoctrine, loadActivity,
   loadGoods, loadPrices, loadKeepers,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
@@ -87,7 +87,7 @@ function setTab(name) {
   if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
   if (name === "map") { loadMarkets(); renderScope(); }
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
-  if (name === "more") { loadBridge(); loadProgramme(); loadWarehouse(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); }
+  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -1522,10 +1522,10 @@ $("mkt-yards").addEventListener("click", async (e) => {
 });
 
 /* ── More: list-of-sections ──────────────────
- * Contracts, construction missions, warehouse, doctrine — lower-frequency
+ * Contracts, construction missions, doctrine — lower-frequency
  * checks, deliberately a plain scroll of sections rather than their own
  * tabs (docs/mobile-app-design.md). Starting a brand-new construction
- * mission and full warehouse/doctrine editing stay desktop-only for now —
+ * mission and full doctrine editing stay desktop-only for now —
  * this covers the day-to-day accept/decline/toggle actions.
  */
 function renderMoreContracts() {
@@ -1653,19 +1653,6 @@ function renderMoreFeeds() {
   }).join("");
 }
 
-function renderMoreWarehouse() {
-  const el = $("more-warehouse");
-  if (!warehouseState.ship) { el.innerHTML = '<div class="empty">No warehouse ship stationed.</div>'; return; }
-  const goods = warehouseState.goods ?? [];
-  el.innerHTML = `
-    <div class="card">
-      <div class="row1"><span class="who">${escapeHtml(warehouseState.ship)}</span><span class="amt">${fmt(warehouseState.totalValue)}c</span></div>
-      ${goods.length
-        ? goods.slice(0, 8).map((g) => `<div class="prog-row"><span>${escapeHtml(g.goodSymbol)}</span><span class="pr-pct">${fmt(g.units)} units</span></div>`).join("")
-        : '<div class="detail">No goods held.</div>'}
-    </div>`;
-}
-
 function renderMoreDoctrine() {
   $("more-doctrine-count").textContent = `${doctrineRules.filter((r) => r.enabled).length} / ${doctrineRules.length} on`;
   const el = $("more-doctrine");
@@ -1764,7 +1751,6 @@ function renderMore() {
   renderMoreMissions();
   renderMoreChains();
   renderMoreFeeds();
-  renderMoreWarehouse();
   renderMoreDoctrine();
 }
 
@@ -1914,7 +1900,6 @@ $("more-doctrine").addEventListener("click", async (e) => {
   renderMoreDoctrine();
 });
 subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); renderMoreChains(); renderMoreFeeds(); } });
-subscribe("warehouse", () => { if (moreTabActive()) renderMoreWarehouse(); });
 subscribe("doctrine", () => { if (moreTabActive()) renderMoreDoctrine(); });
 subscribe("activity", () => renderHomeActivity());
 
@@ -1945,12 +1930,6 @@ function pollTick() {
   loadProgramme();
   if (mapTabActive() || marketsTabActive() || fleetTabActive()) loadMarkets();
   if (marketsTabActive()) loadGoods();
-  if (moreTabActive()) loadWarehouse();
-  // fleetTabActive() gets its own, narrower loadProgramme() call — same
-  // reason as setTab()'s own comment: a feed/mission claim made while
-  // Fleet is already open (e.g. a new carrier assigned mid-session) needs
-  // feeds/missions/contracts to stay fresh, not just on first opening the
-  // tab — but Fleet has no use for warehouse, unlike More.
 }
 setInterval(() => {
   if (!authed || document.hidden) return;

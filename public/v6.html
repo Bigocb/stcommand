@@ -241,38 +241,6 @@
 
     <!-- ══ TRADE OPS ══ -->
     <section class="view view-tradeops" data-view="tradeops">
-      <div class="pane pane-warehouse">
-        <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="warehouse-count">—</span></div>
-        <div class="pane-b">
-          <div class="warehouse-summary" id="warehouse-summary"></div>
-          <div id="warehouse-warning"></div>
-          <div class="dispatch-toolbar">
-            <select id="warehouse-ship" aria-label="Warehouse ship"></select>
-            <input id="warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
-            <button class="btn" id="warehouse-designate">Designate</button>
-            <button class="btn ghost" id="warehouse-release">Release</button>
-          </div>
-          <div class="dispatch-toolbar">
-            <select id="warehouse-good" aria-label="Good"></select>
-            <input id="warehouse-units" type="number" min="1" placeholder="Units" style="width:70px" />
-            <input id="warehouse-price" type="number" min="0" placeholder="Price/unit" style="width:90px" />
-            <select id="warehouse-direction" aria-label="Direction">
-              <option value="deposit">Deposit</option>
-              <option value="withdraw">Withdraw</option>
-            </select>
-            <button class="btn ghost" id="warehouse-adjust">Adjust</button>
-          </div>
-          <div id="warehouse-goods"></div>
-          <div class="warehouse-targets-h">Curated goods <span>— only these are bought/sold through the warehouse</span></div>
-          <div class="dispatch-toolbar">
-            <input id="warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
-            <input id="warehouse-target-units" type="number" min="1" placeholder="Target units" style="width:100px" />
-            <label class="warehouse-target-mission"><input type="checkbox" id="warehouse-target-mission" /> Buy for mission</label>
-            <button class="btn ghost" id="warehouse-target-add">Add</button>
-          </div>
-          <div id="warehouse-targets"></div>
-        </div>
-      </div>
       <div class="pane pane-dispatch">
         <div class="pane-h"><span class="dot"></span>Dispatch<span class="count">who runs what · one good each</span></div>
         <div class="pane-b">
@@ -450,7 +418,7 @@
              .view-bridge's real map, not by containing its own -->
         <div class="m-screen" data-mscreen="map"></div>
 
-        <!-- Ops screen: reuse existing Contracts / Missions / Warehouse panes
+        <!-- Ops screen: reuse existing Contracts / Missions panes
              as-is, just grouped under this tab -->
         <div class="m-screen" data-mscreen="ops">
           <div class="pane">
@@ -496,40 +464,6 @@
                 <button class="btn" id="mobile-feed-start">Start</button>
               </div>
               <div id="mobile-feeds"></div>
-            </div>
-          </div>
-          <div class="pane">
-            <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="mobile-warehouse-count">—</span></div>
-            <div class="pane-b">
-              <div class="warehouse-summary" id="mobile-warehouse-summary"></div>
-              <div id="mobile-warehouse-warning"></div>
-              <div class="dispatch-toolbar">
-                <select id="mobile-warehouse-ship" aria-label="Warehouse ship"></select>
-                <input id="mobile-warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
-                <div class="btn-row">
-                  <button class="btn" id="mobile-warehouse-designate">Designate</button>
-                  <button class="btn ghost" id="mobile-warehouse-release">Release</button>
-                </div>
-              </div>
-              <div class="dispatch-toolbar">
-                <select id="mobile-warehouse-good" aria-label="Good"></select>
-                <input id="mobile-warehouse-units" type="number" min="1" placeholder="Units" />
-                <input id="mobile-warehouse-price" type="number" min="0" placeholder="Price/unit" />
-                <select id="mobile-warehouse-direction" aria-label="Direction">
-                  <option value="deposit">Deposit</option>
-                  <option value="withdraw">Withdraw</option>
-                </select>
-                <button class="btn ghost" id="mobile-warehouse-adjust">Adjust</button>
-              </div>
-              <div id="mobile-warehouse-goods"></div>
-              <div class="warehouse-targets-h">Curated goods <span>— only these are bought/sold through the warehouse</span></div>
-              <div class="dispatch-toolbar">
-                <input id="mobile-warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
-                <input id="mobile-warehouse-target-units" type="number" min="1" placeholder="Target units" />
-                <label class="warehouse-target-mission"><input type="checkbox" id="mobile-warehouse-target-mission" /> Buy for mission</label>
-                <button class="btn ghost" id="mobile-warehouse-target-add">Add</button>
-              </div>
-              <div id="mobile-warehouse-targets"></div>
             </div>
           </div>
         </div>

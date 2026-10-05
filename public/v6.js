@@ -21,11 +21,11 @@ import {
   connectionStatus,
   loadState, loadBridge, loadActivity, loadMarkets, loadDoctrine,
   loadDoctrineFires, loadDoctrineFireShips, setDoctrine, subscribe,
-  dispatchRoutes, dispatchAssignments, minerPreferences, warehouseState, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
+  dispatchRoutes, dispatchAssignments, minerPreferences, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, priceWaypointsByGood, pricePoints, contracts,
   missions, feeds, feedChains, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
   approvals, marketDynamics, marketDynamicsBySystemType, notes,
-  loadDispatch, loadWarehouse, loadKeepers, loadReplay, loadGoods, loadNotes,
+  loadDispatch, loadKeepers, loadReplay, loadGoods, loadNotes,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
   loadApprovals, loadMarketDynamics,
 } from "/shared/store.js";
@@ -402,7 +402,7 @@ function loadViewData(name) {
   // Trade Ops first.
   if (name === "fleet") { loadDispatch(); renderFleetTable(); }
   if (name === "markets") { loadMarkets(marketSystemFilter); loadGoods(); }
-  if (name === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); }
+  if (name === "tradeops") { loadDispatch(); loadKeepers(); }
   // Same staleness gap this comment's "fleet" branch fixes: the Automation
   // panel's trader rows read dispatchAssignments too, via describeAutomation().
   if (name === "ops") { loadProgramme(); loadDispatch(); loadNotes(); loadGoods(); }
@@ -594,75 +594,6 @@ function renderMinerPreferences() {
         <span class="ship">${escapeHtml(p.shipSymbol)}</span>
         <span class="good">${escapeHtml(p.good)}</span>
       </div>`).join("");
-}
-
-function renderWarehouse() {
-  const countTxt = warehouseState.ship
-    ? `${warehouseState.ship.shipSymbol} @ ${shortWp(warehouseState.ship.waypointSymbol)}`
-    : "no ship designated";
-  for (const id of ["warehouse-count", "mobile-warehouse-count"]) { const el = $(id); if (el) el.textContent = countTxt; }
-
-  const summaryHtml = `
-    <span>Ship <b>${warehouseState.ship ? escapeHtml(warehouseState.ship.shipSymbol) : "—"}</b></span>
-    <span>Total value <b>${fmt(warehouseState.totalValue)}c</b></span>
-  `;
-  for (const id of ["warehouse-summary", "mobile-warehouse-summary"]) { const el = $(id); if (el) el.innerHTML = summaryHtml; }
-
-  // Goods on the books with no ship to hold them are bookkeeping only — no
-  // real cargo backs them until a warehouse ship is designated.
-  const warningHtml = (!warehouseState.ship && warehouseState.goods.length)
-    ? `<div class="callout warn"><b>No warehouse ship designated.</b> The ${warehouseState.goods.length} good${warehouseState.goods.length === 1 ? "" : "s"} listed below are bookkeeping only — no ship is actually holding them. Designate a ship to make this real.</div>`
-    : "";
-  for (const id of ["warehouse-warning", "mobile-warehouse-warning"]) { const el = $(id); if (el) el.innerHTML = warningHtml; }
-
-  // Ship dropdown: any ship with a meaningful cargo hold.
-  const candidates = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 20);
-  const shipOptions = candidates.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
-  for (const id of ["warehouse-ship", "mobile-warehouse-ship"]) {
-    const sel = $(id);
-    if (!sel) continue;
-    const current = sel.value;
-    sel.innerHTML = shipOptions;
-    if (candidates.some((s) => s.symbol === current)) sel.value = current;
-  }
-
-  // Good dropdown: whatever's already held, plus anything currently routed.
-  const goodSet = [...new Set([...warehouseState.goods.map((g) => g.goodSymbol), ...dispatchRoutes.map((r) => r.good)])];
-  const goodOptions = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
-  for (const id of ["warehouse-good", "mobile-warehouse-good"]) {
-    const sel = $(id);
-    if (!sel) continue;
-    const current = sel.value;
-    sel.innerHTML = goodOptions;
-    if (goodSet.includes(current)) sel.value = current;
-  }
-
-  const goodsHtml = !warehouseState.goods.length
-    ? '<div class="empty">Warehouse is empty.</div>'
-    : (() => {
-        const maxValue = Math.max(...warehouseState.goods.map((g) => g.value), 1);
-        return warehouseState.goods.map((g) => `
-          <div class="warehouse-row">
-            <span class="good">${escapeHtml(g.goodSymbol)}</span>
-            <span class="units">${g.units}u</span>
-            <span class="cost">avg ${fmt(g.avgCost)}c</span>
-            <div class="bar"><i style="width:${Math.round((g.value / maxValue) * 100)}%"></i></div>
-            <span class="value">${fmt(g.value)}c</span>
-          </div>`).join("");
-      })();
-  for (const id of ["warehouse-goods", "mobile-warehouse-goods"]) { const el = $(id); if (el) el.innerHTML = goodsHtml; }
-
-  const targets = warehouseState.targets ?? [];
-  const targetsHtml = !targets.length
-    ? '<div class="empty">No curated goods — the warehouse buys/sells nothing until you add some.</div>'
-    : targets.map((t) => `
-        <div class="warehouse-target-row">
-          <span class="good">${escapeHtml(t.goodSymbol)}</span>
-          <span class="units">target ${t.target}u</span>
-          ${t.forMission ? '<span class="mission-tag">mission</span>' : ""}
-          <button class="btn ghost remove" data-remove-good="${escapeAttr(t.goodSymbol)}">Remove</button>
-        </div>`).join("");
-  for (const id of ["warehouse-targets", "mobile-warehouse-targets"]) { const el = $(id); if (el) el.innerHTML = targetsHtml; }
 }
 
 /* ── keeper stations ──────────────────────────────
@@ -6100,7 +6031,6 @@ const isMobile = () => mobileMQ.matches;
 function loadMobilePanels() {
   loadMarkets(marketSystemFilter);
   loadDispatch();
-  loadWarehouse();
   loadProgramme();
   loadDoctrine();
   loadGoods();
@@ -6114,7 +6044,7 @@ every(5000, loadBridge);
 every(3000, loadActivity);
 every(20000, loadApprovals);
 every(20000, () => { if (currentView === "markets") loadMarkets(marketSystemFilter); });
-every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepers(); loadWarehouse(); } });
+every(20000, () => { if (currentView === "tradeops") { loadDispatch(); loadKeepers(); } });
 every(20000, () => { if (currentView === "fleet") loadDispatch(); });
 every(20000, () => { if (currentView === "ops") loadProgramme(); });
 every(30000, () => { if (currentView === "bridge") loadNarrative(); });
@@ -6299,76 +6229,6 @@ $("keeper-reset").addEventListener("click", async () => {
     await loadKeepers();
   } catch (err) { showToastGlobal(err.message, true); }
 });
-
-// Warehouse controls: designate/release the parked ship, and manually adjust
-// bookkeeping. Shared between the desktop toolbar and the mobile page.
-async function warehouseDesignate(shipSelId, waypointInputId) {
-  const shipSymbol = $(shipSelId).value;
-  const waypointSymbol = $(waypointInputId).value.trim();
-  if (!shipSymbol || !waypointSymbol) return;
-  try {
-    await api("POST", "/api/warehouse/designate", { shipSymbol, waypointSymbol });
-    await loadWarehouse();
-    showToastGlobal(`${shipSymbol} designated warehouse ship at ${waypointSymbol}`);
-  } catch (err) { showToastGlobal(err.message, true); }
-}
-async function warehouseRelease() {
-  try {
-    await api("POST", "/api/warehouse/release");
-    await loadWarehouse();
-    showToastGlobal("Warehouse ship released");
-  } catch (err) { showToastGlobal(err.message, true); }
-}
-async function warehouseAdjust(goodSelId, unitsInputId, priceInputId, directionSelId) {
-  const good = $(goodSelId).value;
-  const units = Number($(unitsInputId).value);
-  const price = Number($(priceInputId).value) || 0;
-  const direction = $(directionSelId).value;
-  if (!good || !units || units <= 0) return;
-  try {
-    await api("POST", "/api/warehouse/adjust", { good, units, direction, price });
-    await loadWarehouse();
-    showToastGlobal(`${direction === "deposit" ? "Deposited" : "Withdrew"} ${units}u ${good}`);
-  } catch (err) { showToastGlobal(err.message, true); }
-}
-$("warehouse-designate").addEventListener("click", () => warehouseDesignate("warehouse-ship", "warehouse-waypoint"));
-$("warehouse-release").addEventListener("click", warehouseRelease);
-$("warehouse-adjust").addEventListener("click", () => warehouseAdjust("warehouse-good", "warehouse-units", "warehouse-price", "warehouse-direction"));
-$("mobile-warehouse-designate").addEventListener("click", () => warehouseDesignate("mobile-warehouse-ship", "mobile-warehouse-waypoint"));
-$("mobile-warehouse-release").addEventListener("click", warehouseRelease);
-$("mobile-warehouse-adjust").addEventListener("click", () => warehouseAdjust("mobile-warehouse-good", "mobile-warehouse-units", "mobile-warehouse-price", "mobile-warehouse-direction"));
-
-// Curated warehouse target list: which goods the warehouse buys/sells, and
-// whether a good is only bought on demand for an active mission.
-async function warehouseTargetAdd(goodInputId, unitsInputId, missionCheckboxId) {
-  const good = $(goodInputId).value.trim().toUpperCase();
-  const target = Number($(unitsInputId).value);
-  const forMission = $(missionCheckboxId).checked;
-  if (!good || !target || target <= 0) return;
-  try {
-    await api("POST", "/api/warehouse/targets", { good, target, forMission });
-    $(goodInputId).value = "";
-    $(unitsInputId).value = "";
-    $(missionCheckboxId).checked = false;
-    await loadWarehouse();
-    showToastGlobal(`${good} added to warehouse targets`);
-  } catch (err) { showToastGlobal(err.message, true); }
-}
-async function warehouseTargetRemove(good) {
-  try {
-    await api("POST", "/api/warehouse/targets/remove", { good });
-    await loadWarehouse();
-    showToastGlobal(`${good} removed from warehouse targets`);
-  } catch (err) { showToastGlobal(err.message, true); }
-}
-$("warehouse-target-add").addEventListener("click", () => warehouseTargetAdd("warehouse-target-good", "warehouse-target-units", "warehouse-target-mission"));
-$("mobile-warehouse-target-add").addEventListener("click", () => warehouseTargetAdd("mobile-warehouse-target-good", "mobile-warehouse-target-units", "mobile-warehouse-target-mission"));
-for (const id of ["warehouse-targets", "mobile-warehouse-targets"]) {
-  $(id).addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-remove-good]");
-    if (btn) warehouseTargetRemove(btn.dataset.removeGood);
-  });
-}
 
 function renderLeaderboard(agents) {
   const el = $("leaderboard-table");
@@ -7100,7 +6960,7 @@ function boot() {
     // else here keeps it off the critical path while still being ready
     // by the time a ship detail panel is likely to open.
     loadGalaxyOverview();
-    if (isMobile()) { loadDispatch(); loadWarehouse(); }
+    if (isMobile()) loadDispatch();
   });
   initScrubber();
   initInspectorCrumb();
@@ -7338,7 +7198,6 @@ function renderChatHistory() {
 }
 
 subscribe("dispatch", () => { renderDispatch(); renderMinerPreferences(); renderFleetTable(); renderMobileFleet(); renderMobileFleetStrip(); });
-subscribe("warehouse", renderWarehouse);
 subscribe("keepers", () => { renderKeepers(); renderSnapshots(); });
 subscribe("replay", renderScrubTrack);
 subscribe("prices", () => {

@@ -286,6 +286,17 @@ interface CacheEntry {
  * the cache populated the instant the object existed. `FleetManager.init()`
  * is the right place, alongside its other one-time async startup work.
  */
+/**
+ * Policies switched off at the root and not available to turn back on (operator decision
+ * 2026-10-05: warehousing is parked until after the gate opens). A retired rule is never
+ * adopted and never enabled whatever is stored for it, so every engine read sees "not
+ * applicable" (`value()` falls back to its `whenOff`, `isEnabled()` is false), and it is
+ * hidden from `list()`/`catalog()` so no UI offers it. `set()` and `setAdopted()` refuse it.
+ * To bring warehousing back, remove the keys here — the code, the stored rows and the
+ * per-good targets are all still in place.
+ */
+export const RETIRED_POLICIES: ReadonlySet<string> = new Set(["warehouseTarget", "warehouseMax", "warehouseMinMargin"]);
+
 export class Doctrine {
   private cache = new Map<string, CacheEntry>();
 
@@ -330,6 +341,7 @@ export class Doctrine {
    *  entry's `defaultAdopted` (the grandfather case), otherwise true (a
    *  dynamic shipCap: rule, which isn't part of the opt-in model at all). */
   private isAdopted(key: string, base: PolicyDefinition | undefined): boolean {
+    if (RETIRED_POLICIES.has(key)) return false;
     const override = this.cache.get(key);
     if (override) return override.adopted;
     return base?.defaultAdopted ?? true;
@@ -362,7 +374,7 @@ export class Doctrine {
    * false) so it can be re-added, same as a catalog policy.
    */
   catalog(): (PolicyDefinition & { adopted: boolean })[] {
-    const catalogRules = POLICY_CATALOG.map((d) => {
+    const catalogRules = POLICY_CATALOG.filter((d) => !RETIRED_POLICIES.has(d.key)).map((d) => {
       const override = this.cache.get(d.key);
       const adopted = this.isAdopted(d.key, d);
       return override ? { ...d, value: override.value, enabled: override.enabled, adopted } : { ...d, adopted };
@@ -453,6 +465,7 @@ export class Doctrine {
    *  `setAdopted()` for that; this is for a rule already in the tenant's
    *  active set. */
   async set(key: string, patch: { value?: number; enabled?: boolean }): Promise<DoctrineRule> {
+    if (RETIRED_POLICIES.has(key)) throw new Error(`doctrine rule ${key} is retired (warehousing is parked until after the gate opens) and cannot be changed`);
     const base = POLICY_CATALOG.find((d) => d.key === key);
     if (!base && !key.startsWith("shipCap:")) throw new Error(`unknown doctrine rule: ${key}`);
     const override = this.cache.get(key);
@@ -477,6 +490,10 @@ export class Doctrine {
    * dynamic shipCap: rules aren't part of the opt-in library model.
    */
   async setAdopted(key: string, adopted: boolean, initialValue?: number): Promise<DoctrineRule | undefined> {
+    if (RETIRED_POLICIES.has(key)) {
+      if (!adopted) return undefined; // already effectively off; nothing to record
+      throw new Error(`policy ${key} is retired (warehousing is parked until after the gate opens) and cannot be adopted`);
+    }
     const base = POLICY_CATALOG.find((d) => d.key === key);
     const override = this.cache.get(key);
     // A ship-cap key is a real fleet-composition policy too (it's just
@@ -512,6 +529,7 @@ export class Doctrine {
    */
   async completeOnboarding(selections: Record<string, boolean | { adopted: boolean; value?: number }>): Promise<DoctrineRule[]> {
     for (const d of POLICY_CATALOG) {
+      if (RETIRED_POLICIES.has(d.key)) continue;
       const sel = selections[d.key];
       const adopted = typeof sel === "boolean" ? sel : !!sel?.adopted;
       const value = typeof sel === "boolean" ? undefined : sel?.value;
