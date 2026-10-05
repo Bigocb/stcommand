@@ -495,3 +495,13 @@ onSystemChange})`, `renderDeckMap()`, `setDeckMapVisible()`, `setDeckMapSystem()
 "do not port the Three.js scene" instruction is superseded. Pending: replay scrubber, trade panel, a ship-details
 modal equivalent. Overview's Home system panel hosts the same shared 3D scene (`mountDeckMap`).
 
+
+
+## §13 Gate supply chain panel (2026-10-05)
+
+Ops now opens with a full-width "Gate supply chain" panel (`#ops-chain`) above Contracts/Missions, rendered by
+`chainHealthHtml()` in `public/shared/domain.js` from `GET /api/chain-health` (`store.js` `chainHealth`, loaded by
+`loadProgramme()`). One card per unfinished mission material; a producer row (`.ch-producer`), then an input row per
+import (`.ch-input`, `.weakest` on the worst one), nested one level for inputs produced in-system. Tags: `.ch-tag`
+with `.good/.warn/.bad` for supply and activity buckets. Tower reuses the same renderer and classes under
+`#more-chain.chain-health` with phone-width overrides in `m.css`.

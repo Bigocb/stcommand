@@ -12,7 +12,7 @@ import { login, probeSession } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
-  marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, doctrineRules, activity,
+  marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, chainHealth, doctrineRules, activity,
   priceGoods, priceWaypointsByGood, pricePoints,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
@@ -21,7 +21,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { keeperCoverage, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime } from "/shared/domain.js";
+import { keeperCoverage, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
@@ -1564,6 +1564,8 @@ function renderMoreContracts() {
 }
 
 function renderMoreMissions() {
+  const chainEl = $("more-chain");
+  if (chainEl) chainEl.innerHTML = chainHealthHtml(chainHealth);
   const el = $("more-missions");
   const active = missions.filter((m) => m.status === "active");
   if (!active.length) { el.innerHTML = '<div class="empty">No construction missions.</div>'; return; }

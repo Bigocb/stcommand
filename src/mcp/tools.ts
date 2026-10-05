@@ -447,6 +447,23 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_get_chain_health",
+    {
+      title: "Gate supply chain health",
+      description: "For every material an unfinished construction mission still needs: each in-system producer market (ask, supply, activity = production strength, trade volume, 24h low and the mission's price ceiling) and under it every input that producer imports (supply, activity = consumption strength, cheapest in-system source, the feed serving it, and which input is the weakest link). Inputs that are themselves produced in-system nest one level further. An export is RESTRICTED while any input is SCARCE; aim to hold every input at HIGH with both import activities STRONG.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return textResult(await w.fleet.chainHealth());
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_set_mission_pacing",
     {
       title: "Set a mission's buy pacing",

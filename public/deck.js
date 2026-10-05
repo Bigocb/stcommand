@@ -10,7 +10,7 @@ import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, activity,
   marketRoutes, intel,
   systems, marketSnapshots, leaderboard, factions, systemAgents, systemAgentsHistory,
-  contracts, missions, feeds, feedChains, minerPreferences, notes,
+  contracts, missions, feeds, feedChains, chainHealth, minerPreferences, notes,
   priceGoods, priceWaypointsByGood, pricePoints,
   doctrineRules, doctrineFires, doctrineFireShips,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
@@ -22,7 +22,7 @@ import {
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
-import { keeperCoverage } from "/shared/domain.js";
+import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
 
@@ -1309,6 +1309,8 @@ $("mk-keeper-reset").addEventListener("click", async () => {
  * Contracts and construction missions, read-only display.
  */
 function renderOps() {
+  const chainEl = $("ops-chain");
+  if (chainEl) chainEl.innerHTML = chainHealthHtml(chainHealth);
   // Contracts panel
   const contractsHtml = (() => {
     if (!contracts.length) {

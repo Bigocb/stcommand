@@ -532,3 +532,14 @@ body {
 .fm-tag{font-size:8px;letter-spacing:.1em;text-transform:uppercase;border:1px solid rgba(255,255,255,.18);padding:1px 5px;margin-left:6px}
 .fm-tag.fm-drift{color:#ff5b5b;border-color:rgba(255,91,91,.4)}
 .fm-tag.fm-burn{color:#4fd1c5;border-color:rgba(79,209,197,.4)}
+
+/* Gate supply chain (More tab) — same classes as Deck, phone widths */
+.chain-health .ch-card{border-bottom:1px solid var(--hairline,rgba(255,255,255,.1));margin-bottom:6px}
+.chain-health .ch-head{display:flex;flex-direction:column;gap:2px;padding:6px 0;font-size:12px}
+.chain-health .ch-title{font-weight:600}
+.chain-health .ch-producer,.chain-health .ch-input{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0;font-size:11px;border-top:1px solid rgba(255,255,255,.06)}
+.chain-health .ch-input.weakest{background:rgba(255,91,91,.08)}
+.chain-health .ch-weak{font-size:8px;text-transform:uppercase;color:#ff5b5b;border:1px solid rgba(255,91,91,.4);padding:1px 4px;margin-left:4px}
+.chain-health .ch-tag{font-size:8px;text-transform:uppercase;border:1px solid rgba(255,255,255,.18);padding:1px 4px;margin-right:2px;opacity:.9}
+.chain-health .ch-tag.good{color:#58d68d}.chain-health .ch-tag.warn{color:#ffc778}.chain-health .ch-tag.bad{color:#ff5b5b}
+.chain-health .dim{opacity:.7}

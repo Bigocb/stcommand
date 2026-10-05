@@ -406,3 +406,19 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 #mk-keeper-markets{min-height:96px}
 #mk-keeper-stations{flex:0 0 auto}
 .goodrow .btn{padding:4px 8px;font-size:10px}
+
+/* Gate supply chain panel (Ops) */
+.ch-card{border-bottom:1px solid var(--hair)}
+.ch-head{display:flex;gap:10px;align-items:baseline;padding:8px 14px;background:var(--raised);font-size:11px}
+.ch-title{font-weight:600;font-family:var(--mono)}
+.ch-producer,.ch-input{display:grid;grid-template-columns:200px 150px 1fr 1fr 1fr;gap:10px;align-items:center;padding:5px 14px;font-size:10.5px;border-top:1px solid rgba(255,199,120,.05)}
+.ch-producer{color:var(--bone);font-weight:500}
+.ch-input.weakest{background:rgba(255,91,91,.06)}
+.ch-good{font-family:var(--mono)}
+.ch-weak{font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--red);border:1px solid rgba(255,91,91,.4);padding:1px 4px;margin-left:6px}
+.ch-tag{font-size:8px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--hair-hi);padding:1px 5px;margin-right:3px;color:var(--dim)}
+.ch-tag.good{color:var(--green);border-color:rgba(88,214,141,.4)}
+.ch-tag.warn{color:var(--amber);border-color:rgba(255,199,120,.4)}
+.ch-tag.bad{color:var(--red);border-color:rgba(255,91,91,.4)}
+.ch-tag.dim{color:var(--dim2)}
+.ch-cell.dim,.ch-head .dim{color:var(--dim2)}

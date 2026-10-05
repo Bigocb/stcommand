@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Gate supply-chain panel in Deck and Tower, `GET /api/chain-health`, MCP `stcommand_get_chain_health` (2026-10-05)
+
+Review item 9. `FleetManager.chainHealth()` walks every material an unfinished mission still needs: each in-system
+producer (export ask, supply, activity = production strength, trade volume, the mission's 24h low and price ceiling),
+and under it each input the producer imports (supply, activity = consumption strength, price and volume, the cheapest
+in-system source, the feed serving it), with the weakest input flagged; inputs made in-system nest one level (iron
+<- H55 <- iron ore). Deck shows it at the top of Ops, Tower under More -> Construction, both from one shared renderer
+(`shared/domain.js` chainHealthHtml). Loaded with the programme poll. This is the view other players use to spot the
+bottleneck at a glance (community supply-chain graph).
+
 ## market_latest read memo (2026-10-05)
 
 Review item 7. `Store.latestMarketSnapshots()` ran a full `SELECT * FROM market_latest` from 16 call sites, including

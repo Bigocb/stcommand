@@ -175,3 +175,55 @@ export function keeperCoverage(wp, stations, listed, ships) {
   }
   return (listed ?? []).includes(wp) ? "pending" : "none";
 }
+
+/* ── Gate supply-chain health (GET /api/chain-health) ─────────
+ * One renderer shared by Deck and Tower: a card per material, the producer
+ * row, then one row per input (nested one level for inputs that are made
+ * in-system). Colours: supply SCARCE red, LIMITED amber, MODERATE neutral,
+ * HIGH/ABUNDANT green; activity RESTRICTED red, WEAK amber, GROWING/STRONG
+ * green. The weakest input of each producer is flagged. */
+const CH_SUP = { SCARCE: "bad", LIMITED: "warn", MODERATE: "", HIGH: "good", ABUNDANT: "good" };
+const CH_ACT = { RESTRICTED: "bad", WEAK: "warn", GROWING: "good", STRONG: "good" };
+function chTag(v, map) {
+  if (!v) return `<span class="ch-tag dim">?</span>`;
+  return `<span class="ch-tag ${map[v] ?? ""}">${escapeHtml(v.toLowerCase())}</span>`;
+}
+export function chainHealthHtml(h) {
+  if (!h) return '<div class="empty">Loading…</div>';
+  if (!h.materials?.length) return '<div class="empty">No unfinished construction mission.</div>';
+  const inputRows = (inputs, depth) => inputs.map((i) => {
+    const src = i.source ? `${escapeHtml(shortWp(i.source.waypoint))} ${i.source.price}c ${i.source.supply ? i.source.supply.toLowerCase() : ""}` : "no in-system source";
+    const feed = i.feed
+      ? `${i.feed.mine ? "mine" : "buy"} feed ${i.feed.carriers}/${i.feed.target}${i.feed.stopAtSupply ? ` · stop at ${i.feed.stopAtSupply.toLowerCase()}` : ""}${i.feed.paused ? " · paused" : ""}`
+      : "no feed";
+    return `
+      <div class="ch-input${i.weakest ? " weakest" : ""}" style="padding-left:${14 + depth * 16}px">
+        <span class="ch-good">${escapeHtml(i.good)}${i.weakest ? ' <span class="ch-weak">weakest</span>' : ""}</span>
+        <span class="ch-cell">${chTag(i.supply, CH_SUP)} ${chTag(i.activity, CH_ACT)}</span>
+        <span class="ch-cell mono">${i.price != null ? `${i.price}c` : "—"}${i.tradeVolume ? ` · vol ${i.tradeVolume}` : ""}</span>
+        <span class="ch-cell dim">${src}</span>
+        <span class="ch-cell dim">${feed}</span>
+      </div>
+      ${(i.producers ?? []).map((p) => producerBlock(p, depth + 1)).join("")}`;
+  }).join("");
+  const producerBlock = (p, depth) => `
+    <div class="ch-producer" style="padding-left:${14 + depth * 16}px">
+      <span class="ch-good">${escapeHtml(shortWp(p.waypoint))} makes it</span>
+      <span class="ch-cell">${chTag(p.supply, CH_SUP)} ${chTag(p.activity, CH_ACT)}</span>
+      <span class="ch-cell mono">ask ${p.price}c · vol ${p.tradeVolume}${p.low24h != null ? ` · 24h low ${p.low24h}c` : ""}${p.ceiling != null ? ` · ceiling ${p.ceiling}c` : ""}</span>
+      <span class="ch-cell dim">${p.ageMin != null ? `${p.ageMin}m old` : ""}</span>
+    </div>
+    ${inputRows(p.inputs ?? [], depth)}`;
+  return h.materials.map((m) => {
+    const pct = m.required ? Math.round((m.fulfilled / m.required) * 100) : 0;
+    const pacing = m.pacing ? Object.entries(m.pacing).map(([k, v]) => `${k.replace("buyLotUnits", "lot").replace("buyGapMin", "gap").replace("maxInflationPct", "ceiling%").replace("recoverPct", "recover%")} ${v}`).join(" · ") : "default pacing";
+    return `
+      <div class="ch-card">
+        <div class="ch-head">
+          <span class="ch-title">${escapeHtml(m.tradeSymbol)}</span>
+          <span class="dim">${m.fulfilled}/${m.required} (${pct}%) · ${escapeHtml(shortWp(m.missionWaypoint))}${m.paused ? " · mission paused" : ""} · ${escapeHtml(pacing)}</span>
+        </div>
+        ${m.producers.length ? m.producers.map((p) => producerBlock(p, 0)).join("") : '<div class="ch-input dim" style="padding-left:14px">no in-system producer known</div>'}
+      </div>`;
+  }).join("");
+}

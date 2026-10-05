@@ -36,6 +36,41 @@ export interface TradeResult {
 
 export type ShipType = components["schemas"]["ShipType"];
 
+/** chainHealth() shapes — see that method. */
+export interface ChainInput {
+  good: string;
+  price: number | null;
+  pays: number | null;
+  supply: string | null;
+  activity: string | null;
+  tradeVolume: number | null;
+  ageMin: number | null;
+  source: { waypoint: string; price: number; supply: string | null; activity: string | null } | null;
+  feed: { carriers: number; target: number; mine: boolean; stopAtSupply: string | null; maxLossPerUnit: number | null; paused: boolean } | null;
+  weakest: boolean;
+  producers: ChainProducer[];
+}
+export interface ChainProducer {
+  waypoint: string;
+  price: number;
+  supply: string | null;
+  activity: string | null;
+  tradeVolume: number;
+  ageMin: number;
+  low24h?: number | null;
+  ceiling?: number | null;
+  inputs: ChainInput[];
+}
+export interface ChainMaterial {
+  tradeSymbol: string;
+  required: number;
+  fulfilled: number;
+  missionWaypoint: string;
+  paused: boolean;
+  pacing: unknown;
+  producers: ChainProducer[];
+}
+
 /** How long the cached agent credit balance stays good for. See `refreshCredits`. */
 /** Tank-fuel units bought per FUEL unit at a market (refuelShip() buys in blocks of 100). */
 export { FUEL_UNIT_SIZE } from "./routeEconomics.js";
@@ -5181,6 +5216,102 @@ export class FleetManager {
   }
 
   /** Active missions for the dashboard. */
+  /**
+   * The gate's supply chain as the markets see it right now: for every material an unfinished mission still
+   * needs, each in-system producer (export) with its price/supply/activity/trade volume, and under it each input
+   * the producer imports, with the cheapest in-system source and the feed (if any) serving it. Inputs that are
+   * themselves produced in-system nest one level further (ADVANCED_CIRCUITRY <- ELECTRONICS <- SILICON, COPPER).
+   * Read-only; built from market_latest, the live supply-chain map, the missions and the feeds.
+   */
+  async chainHealth(): Promise<{
+    asOf: string;
+    materials: ChainMaterial[];
+  }> {
+    const SUPPLY_RANK: Record<string, number> = { SCARCE: 0, LIMITED: 1, MODERATE: 2, HIGH: 3, ABUNDANT: 4 };
+    const ACT_RANK: Record<string, number> = { RESTRICTED: 0, WEAK: 1, GROWING: 2, STRONG: 3 };
+    const chain = await getSupplyChain(this.api).catch(() => undefined);
+    const rows = (await this.store?.latestMarketSnapshots()) ?? [];
+    const feeds = await this.feeds.list();
+    const now = Date.now();
+    const ageMin = (iso: string) => Math.round((now - new Date(iso).getTime()) / 60_000);
+    const listing = (wp: string, good: string, type?: string) =>
+      rows.find((r) => r.waypointSymbol === wp && r.goodSymbol === good && (!type || r.type === type));
+    const cheapestSource = (system: string, good: string, excludeWp: string) => {
+      const sellers = rows.filter((r) => r.systemSymbol === system && r.goodSymbol === good && r.waypointSymbol !== excludeWp && r.type !== "IMPORT" && r.purchasePrice > 0);
+      sellers.sort((a, b) => a.purchasePrice - b.purchasePrice);
+      const s = sellers[0];
+      return s ? { waypoint: s.waypointSymbol, price: s.purchasePrice, supply: s.supply ?? null, activity: s.activity ?? null } : null;
+    };
+    const feedFor = (wp: string, good: string) => {
+      const f = feeds.find((x) => x.targetWaypoint === wp && x.good === good);
+      return f ? { carriers: f.assignedShips.length, target: f.carrierTarget, mine: !!f.mine, stopAtSupply: f.stopAtSupply ?? null, maxLossPerUnit: f.maxLossPerUnit ?? null, paused: this.feeds.isPaused(wp, good) } : null;
+    };
+    const producersOf = (system: string, good: string, depth: number, seen: Set<string>): ChainProducer[] => {
+      if (depth > 2 || seen.has(good)) return [];
+      seen.add(good);
+      const exporters = rows.filter((r) => r.systemSymbol === system && r.goodSymbol === good && r.type === "EXPORT");
+      return exporters.map((ex) => {
+        const inputs: ChainInput[] = (chain?.exportToImportMap[good] ?? [])
+          .filter((g) => g !== "EXPLOSIVES")
+          .map((g) => {
+            const imp = listing(ex.waypointSymbol, g, "IMPORT") ?? listing(ex.waypointSymbol, g);
+            return {
+              good: g,
+              price: imp?.purchasePrice ?? null,
+              pays: imp?.sellPrice ?? null,
+              supply: imp?.supply ?? null,
+              activity: imp?.activity ?? null,
+              tradeVolume: imp?.tradeVolume ?? null,
+              ageMin: imp ? ageMin(imp.timestamp) : null,
+              source: cheapestSource(system, g, ex.waypointSymbol),
+              feed: feedFor(ex.waypointSymbol, g),
+              weakest: false,
+              producers: producersOf(system, g, depth + 1, new Set(seen)),
+            };
+          });
+        let worst = Infinity;
+        for (const i of inputs) {
+          const score = (SUPPLY_RANK[i.supply ?? ""] ?? 2) * 10 + (ACT_RANK[i.activity ?? ""] ?? 1);
+          if (score < worst) worst = score;
+        }
+        for (const i of inputs) i.weakest = inputs.length > 1 && (SUPPLY_RANK[i.supply ?? ""] ?? 2) * 10 + (ACT_RANK[i.activity ?? ""] ?? 1) === worst;
+        return {
+          waypoint: ex.waypointSymbol,
+          price: ex.purchasePrice,
+          supply: ex.supply ?? null,
+          activity: ex.activity ?? null,
+          tradeVolume: ex.tradeVolume,
+          ageMin: ageMin(ex.timestamp),
+          inputs,
+        };
+      });
+    };
+    const materials: ChainMaterial[] = [];
+    for (const m of await this.missions.list()) {
+      if (m.status !== "active") continue;
+      for (const mat of m.materials) {
+        if (mat.fulfilled >= mat.required) continue;
+        const producers = producersOf(m.targetSystem, mat.tradeSymbol, 0, new Set());
+        const ceilingPct = m.pacing?.maxInflationPct ?? 40;
+        for (const p of producers) {
+          const low = mat.priceBaselines?.[p.waypoint]?.price ?? null;
+          (p as ChainProducer).low24h = low;
+          (p as ChainProducer).ceiling = low !== null ? Math.round(low * (1 + ceilingPct / 100)) : null;
+        }
+        materials.push({
+          tradeSymbol: mat.tradeSymbol,
+          required: mat.required,
+          fulfilled: mat.fulfilled,
+          missionWaypoint: m.targetWaypoint,
+          paused: this.missions.isPaused(m.targetWaypoint),
+          pacing: m.pacing ?? null,
+          producers,
+        });
+      }
+    }
+    return { asOf: new Date(now).toISOString(), materials };
+  }
+
   async getMissions() {
     return (await this.missions.list()).map((m) => ({ ...m, paused: this.missions.isPaused(m.targetWaypoint) }));
   }
