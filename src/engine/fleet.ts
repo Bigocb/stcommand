@@ -1539,10 +1539,13 @@ export class FleetManager {
       15,
       ...[...this.traders.values(), ...this.tours.values(), ...this.explorers.values()].map((a) => a.getShip().cargo.capacity),
     );
-    // The fastest, biggest-tanked hull that could fly a trip sets the fuel/time model (see tripEconomics()).
+    // The biggest-tanked hull (and slowest speed, below) set the fuel/time model (see tripEconomics()).
     const flyers = [...this.traders.values(), ...this.tours.values(), ...this.explorers.values()].map((a) => a.getShip());
     const fleetFuelCapacity = Math.max(0, ...flyers.map((sh) => sh.fuel.capacity));
-    const fleetSpeed = Math.max(0, ...flyers.map((sh) => sh.engine?.speed ?? 0));
+    // Time is modelled at the SLOWEST hull's speed: any idle trader can get the route, and most of the fleet is
+    // 15-speed shuttles, so costing it at the one 36-speed frigate overstated every per-hour figure ~2x.
+    const speeds = flyers.map((sh) => sh.engine?.speed ?? 0).filter((v) => v > 0);
+    const fleetSpeed = speeds.length ? Math.min(...speeds) : 0;
     const spendable = this.spendableCredits();
     // Deliberately NOT filtered by gate reachability here: a "buy" or
     // "sell" assignment only needs its own side of the leg (buyAt, or
