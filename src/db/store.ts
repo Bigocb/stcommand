@@ -323,6 +323,9 @@ export interface FeedRow {
   maxLossPerUnit: number | null;
   /** Stop sourcing once the target's supply reaches this bucket. null = never. */
   stopAtSupply: string | null;
+  /** Drone-plus-collector mining — see migrations/042 and feed.ts's Feed.field / Feed.collector. */
+  field: string | null;
+  collector: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -2524,23 +2527,27 @@ export class Store {
       chainOrder?: number;
       maxLossPerUnit?: number;
       stopAtSupply?: string;
+      field?: string;
+      collector?: string;
     },
   ): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO feed_missions (tenant_id, target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, force, sell_gap_ms, chain_id, chain_name, chain_order, max_loss_per_unit, stop_at_supply, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
+        `INSERT INTO feed_missions (tenant_id, target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, force, sell_gap_ms, chain_id, chain_name, chain_order, max_loss_per_unit, stop_at_supply, field, collector, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now())
          ON CONFLICT (tenant_id, target_waypoint, good) DO UPDATE SET
            assigned_ships = excluded.assigned_ships, carrier_target = excluded.carrier_target,
            paused = excluded.paused, mine = excluded.mine, buy_at = excluded.buy_at, force = excluded.force,
            sell_gap_ms = excluded.sell_gap_ms,
            chain_id = excluded.chain_id, chain_name = excluded.chain_name, chain_order = excluded.chain_order,
            max_loss_per_unit = excluded.max_loss_per_unit, stop_at_supply = excluded.stop_at_supply,
+           field = excluded.field, collector = excluded.collector,
            updated_at = excluded.updated_at`,
         [
           tenantId, f.targetSystem, f.targetWaypoint, f.good, JSON.stringify(f.assignedShips), f.carrierTarget,
           f.paused ?? false, f.mine ?? false, f.buyAt ?? null, f.force ?? false, f.sellGapMs ?? null,
           f.chainId ?? null, f.chainName ?? null, f.chainOrder ?? null, f.maxLossPerUnit ?? null, f.stopAtSupply ?? null,
+          f.field ?? null, f.collector ?? null,
         ],
       ),
     );
@@ -2565,9 +2572,11 @@ export class Store {
         chain_order: number | null;
         max_loss_per_unit: number | null;
         stop_at_supply: string | null;
+        field: string | null;
+        collector: string | null;
         created_at: Date;
         updated_at: Date;
-      }>(`SELECT target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, force, sell_gap_ms, chain_id, chain_name, chain_order, max_loss_per_unit, stop_at_supply, created_at, updated_at
+      }>(`SELECT target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, force, sell_gap_ms, chain_id, chain_name, chain_order, max_loss_per_unit, stop_at_supply, field, collector, created_at, updated_at
           FROM feed_missions ORDER BY updated_at DESC`);
       return res.rows.map((r) => ({
         targetSystem: r.target_system,
@@ -2585,6 +2594,8 @@ export class Store {
         chainOrder: r.chain_order,
         maxLossPerUnit: r.max_loss_per_unit,
         stopAtSupply: r.stop_at_supply,
+        field: r.field,
+        collector: r.collector,
         createdAt: r.created_at.toISOString(),
         updatedAt: r.updated_at.toISOString(),
       }));

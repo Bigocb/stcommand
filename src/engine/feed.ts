@@ -67,6 +67,12 @@ export interface Feed {
    *  Carriers already loaded still deliver. Over-feeding an import makes its market evolve (trade volume and
    *  consumption grow) and then it needs far more to stay supplied, so aim for HIGH, not ABUNDANT. */
   stopAtSupply?: string;
+  /** Mine feeds only: the one asteroid the crew's drones are pinned to. With `collector` set, the drones never leave it. */
+  field?: string;
+  /** Mine feeds only: a shuttle that waits in orbit at `field`, takes each drone's hold through the cargo-transfer
+   *  endpoint, and flies the full load to `targetWaypoint`. The drones then only mine (no 15-unit round trips).
+   *  Suspended from the dispatcher while assigned, like a carrier. */
+  collector?: string;
 }
 
 const SUPPLY_RANK: Record<string, number> = { SCARCE: 0, LIMITED: 1, MODERATE: 2, HIGH: 3, ABUNDANT: 4 };
@@ -102,6 +108,8 @@ export interface FeedStartOptions {
   chainOrder?: number;
   maxLossPerUnit?: number;
   stopAtSupply?: string;
+  field?: string;
+  collector?: string;
 }
 
 interface FeedTaskState {
@@ -182,6 +190,12 @@ interface FeedOptions {
    *  (mined or relocated toward an asteroid), false if this ship can't mine
    *  or has nowhere to mine from right now. */
   mineOnce?: (shipSymbol: string) => Promise<boolean>;
+  /** Pin / unpin a drone's mining field (Feed.field). */
+  pinMiner?: (shipSymbol: string, field: string) => void | Promise<void>;
+  unpinMiner?: (shipSymbol: string) => void | Promise<void>;
+  /** Hand `units` of `good` from one ship to another at the same waypoint (both in orbit, or both docked). */
+  transferCargo?: (fromShip: string, good: string, units: number, toShip: string) => Promise<unknown>;
+  orbitShip?: (shipSymbol: string) => Promise<unknown>;
 }
 
 /** Minimum gross margin a feed buy must clear against the destination's
@@ -259,6 +273,13 @@ export class FeedManager {
   private readonly jettisonCargo?: FeedOptions["jettisonCargo"];
   private readonly mineOnce?: FeedOptions["mineOnce"];
   private readonly setMinerPreference?: FeedOptions["setMinerPreference"];
+  private readonly pinMiner?: FeedOptions["pinMiner"];
+  private readonly unpinMiner?: FeedOptions["unpinMiner"];
+  private readonly transferCargo?: FeedOptions["transferCargo"];
+  private readonly orbitShip?: FeedOptions["orbitShip"];
+  /** Collector bookkeeping per feed key: when its hold last grew, so a part-load still gets sold after a while. */
+  private collectorGrewAt = new Map<string, number>();
+  private collectorLogAt = new Map<string, number>();
 
   private active = new Map<string, Feed>();
   /** Key → shipSymbol → that ship's own independent TaskState. */
@@ -306,6 +327,10 @@ export class FeedManager {
     this.sellCargo = opts.sellCargo;
     this.jettisonCargo = opts.jettisonCargo;
     this.mineOnce = opts.mineOnce;
+    this.pinMiner = opts.pinMiner;
+    this.unpinMiner = opts.unpinMiner;
+    this.transferCargo = opts.transferCargo;
+    this.orbitShip = opts.orbitShip;
     this.setMinerPreference = opts.setMinerPreference;
   }
 
@@ -346,6 +371,8 @@ export class FeedManager {
         if (opts.sellGapMs !== undefined) existing.sellGapMs = opts.sellGapMs;
         if (opts.maxLossPerUnit !== undefined) existing.maxLossPerUnit = opts.maxLossPerUnit;
         if (opts.stopAtSupply !== undefined) existing.stopAtSupply = opts.stopAtSupply;
+        if (opts.field !== undefined) existing.field = opts.field;
+        if (opts.collector !== undefined) existing.collector = opts.collector;
         // Force the running carrier(s) to re-pick their source next tick —
         // they may already have locked onto a different market before
         // being adopted into this chain.
@@ -374,6 +401,8 @@ export class FeedManager {
         sellGapMs: opts.sellGapMs ?? persisted.sellGapMs ?? undefined,
         maxLossPerUnit: opts.maxLossPerUnit ?? persisted.maxLossPerUnit ?? undefined,
         stopAtSupply: opts.stopAtSupply ?? persisted.stopAtSupply ?? undefined,
+        field: opts.field ?? persisted.field ?? undefined,
+        collector: opts.collector ?? persisted.collector ?? undefined,
         chainId: opts.chainId ?? persisted.chainId ?? undefined,
         chainName: opts.chainId !== undefined ? opts.chainName : (persisted.chainName ?? undefined),
         chainOrder: opts.chainId !== undefined ? opts.chainOrder : (persisted.chainOrder ?? undefined),
@@ -390,7 +419,9 @@ export class FeedManager {
         shipTasks.set(s, { retryAt: 0 });
         await this.suspend?.(s);
         if (feed.mine) await this.setMinerPreference?.(s, feed.good);
+        if (feed.mine && feed.field) await this.pinMiner?.(s, feed.field);
       }
+      if (feed.collector) await this.suspend?.(feed.collector);
       this.tasks.set(key, shipTasks);
       if (opts.chainId !== undefined) await this.persist(feed);
       this.log(`feed resumed (from prior state): ${good} → ${targetWaypoint}`);
@@ -406,6 +437,8 @@ export class FeedManager {
       sellGapMs: opts.sellGapMs,
       maxLossPerUnit: opts.maxLossPerUnit,
       stopAtSupply: opts.stopAtSupply,
+      field: opts.field,
+      collector: opts.collector,
       chainId: opts.chainId,
       chainName: opts.chainName,
       chainOrder: opts.chainOrder,
@@ -493,6 +526,8 @@ export class FeedManager {
       sellGapMs: f.sellGapMs ?? undefined,
       maxLossPerUnit: f.maxLossPerUnit ?? undefined,
       stopAtSupply: f.stopAtSupply ?? undefined,
+      field: f.field ?? undefined,
+      collector: f.collector ?? undefined,
       chainId: f.chainId ?? undefined,
       chainName: f.chainName ?? undefined,
       chainOrder: f.chainOrder ?? undefined,
@@ -504,7 +539,10 @@ export class FeedManager {
   /** Ships currently committed to any feed — must not be reassigned elsewhere. */
   committedShips(): Set<string> {
     const out = new Set<string>();
-    for (const f of this.active.values()) for (const s of f.assignedShips) out.add(s);
+    for (const f of this.active.values()) {
+      for (const s of f.assignedShips) out.add(s);
+      if (f.collector) out.add(f.collector);
+    }
     return out;
   }
 
@@ -518,6 +556,7 @@ export class FeedManager {
     if (feed.carrierTarget < feed.assignedShips.length) feed.carrierTarget = feed.assignedShips.length;
     await this.suspend?.(shipSymbol);
     if (feed.mine) await this.setMinerPreference?.(shipSymbol, feed.good);
+    if (feed.mine && feed.field) await this.pinMiner?.(shipSymbol, feed.field);
     if (!this.paused.has(key)) {
       const shipTasks = this.tasks.get(key) ?? new Map<string, FeedTaskState>();
       shipTasks.set(shipSymbol, { retryAt: Date.now() + this.staggerOffset(feed) });
@@ -572,6 +611,7 @@ export class FeedManager {
       this.log(`feed ${good} → ${targetWaypoint}: paused, released ${ship}`);
     }
     feed.assignedShips = [];
+    if (feed.collector) this.resume?.(feed.collector);
     this.tasks.delete(key);
     await this.persist(feed);
   }
@@ -609,6 +649,33 @@ export class FeedManager {
     this.log(`feed ${good} → ${targetWaypoint}: sell gap set to ${sellGapMs !== undefined ? `${Math.round(sellGapMs / 1000)}s` : "default"}`);
   }
 
+  /** Drone-plus-collector mining on a mine feed: pin the crew to `field` and name the `collector` shuttle (null clears). */
+  async setCollector(targetWaypoint: string, good: string, patch: { field?: string | null; collector?: string | null }): Promise<void> {
+    const key = this.key(targetWaypoint, good);
+    const feed = this.active.get(key);
+    if (!feed) throw new Error(`no active feed ${good} → ${targetWaypoint}`);
+    if (!feed.mine) throw new Error("a collector only applies to a mine feed");
+    if (patch.field !== undefined) {
+      feed.field = patch.field ?? undefined;
+      for (const s of feed.assignedShips) {
+        if (feed.field) await this.pinMiner?.(s, feed.field);
+        else await this.unpinMiner?.(s);
+      }
+    }
+    if (patch.collector !== undefined) {
+      if (feed.collector && feed.collector !== patch.collector) this.resume?.(feed.collector);
+      feed.collector = patch.collector ?? undefined;
+      if (feed.collector) {
+        if (feed.assignedShips.includes(feed.collector)) throw new Error(`${feed.collector} is a drone on this feed, not a shuttle`);
+        if (this.committedShips().has(feed.collector)) throw new Error(`${feed.collector} is already on another feed`);
+        await this.suspend?.(feed.collector);
+      }
+      this.collectorGrewAt.delete(key);
+    }
+    await this.persist(feed);
+    this.log(`feed ${good} → ${targetWaypoint}: field ${feed.field ?? "none"}, collector ${feed.collector ?? "none"}`);
+  }
+
   /** Set or clear (null) a feed's loss tolerance and supply stop rule — see Feed.maxLossPerUnit / Feed.stopAtSupply. */
   async setLimits(targetWaypoint: string, good: string, patch: { maxLossPerUnit?: number | null; stopAtSupply?: string | null }): Promise<void> {
     const feed = this.active.get(this.key(targetWaypoint, good));
@@ -637,6 +704,7 @@ export class FeedManager {
     }
     this.active.delete(key);
     this.tasks.delete(key);
+    if (feed?.collector) this.resume?.(feed.collector);
     this.paused.delete(key);
     if (this.tenantId) await this.store?.deleteFeed(this.tenantId, targetWaypoint, good);
     this.log(`feed ${good} → ${targetWaypoint}: removed`);
@@ -720,6 +788,9 @@ export class FeedManager {
       } catch (err) {
         this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${shipSymbol} step error: ${err instanceof Error ? err.message : String(err)}`);
       }
+    }
+    if (feed.mine && feed.collector && feed.field) {
+      try { await this.stepCollector(feed); } catch (err) { this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector error: ${err instanceof Error ? err.message : String(err)}`); }
     }
   }
 
@@ -808,7 +879,42 @@ export class FeedManager {
     // already longer than any sensible gap, so the gate essentially never
     // binds once sells are this much bigger. A buy feed is unaffected —
     // there's no mining cycle to wait out, so it still delivers on sight.
-    if (held > 0 && (!feed.mine || holdFreeSpace <= 0)) {
+    if (held > 0 && feed.mine && feed.collector && feed.field) {
+      // Drone-plus-collector: never fly to market. Hand the hold to the collector when it is here in orbit with
+      // room; otherwise keep mining (if there is room) or wait for it.
+      if (holdFreeSpace > 0 && cargo.units < cargo.capacity * 0.8) {
+        // keep filling first — fall through to the mining branch below
+      } else {
+        const col = await this.getShip?.(feed.collector);
+        const here = ship.nav.waypointSymbol;
+        const room = col ? col.cargo.capacity - col.cargo.units : 0;
+        if (col && col.nav.waypointSymbol === here && col.nav.status !== "IN_TRANSIT" && room > 0) {
+          if (ship.nav.status !== "IN_ORBIT") await this.orbitShip?.(ship.symbol);
+          if (col.nav.status !== "IN_ORBIT") await this.orbitShip?.(col.symbol);
+          const units = Math.min(held, room);
+          try {
+            await this.transferCargo?.(ship.symbol, feed.good, units, col.symbol);
+            this.collectorGrewAt.set(this.key(feed.targetWaypoint, feed.good), Date.now());
+            this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} handed ${units}u to collector ${col.symbol} at ${here}`);
+            this.onActivity?.("feed", `${ship.symbol} handed ${units}u ${feed.good} to ${col.symbol}`, 0, ship.symbol);
+          } catch (err) {
+            t.retryAt = Date.now() + 30_000;
+            this.log(`feed ${feed.good} → ${feed.targetWaypoint}: transfer ${ship.symbol} → ${col.symbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+            return;
+          }
+          const fresh = await this.api.getShipCargo(ship.symbol);
+          if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, fresh.inventory))) await this.releaseFailedCarrier(feed, ship.symbol, t);
+          return;
+        }
+        t.retryAt = Date.now() + 30_000;
+        const k = `${this.key(feed.targetWaypoint, feed.good)}|${ship.symbol}`;
+        if (Date.now() - (this.collectorLogAt.get(k) ?? 0) > 10 * 60_000) {
+          this.collectorLogAt.set(k, Date.now());
+          this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} full (${held}u), waiting for collector ${feed.collector} (${col ? `${col.nav.status} at ${col.nav.waypointSymbol}, room ${room}` : "unknown"})`);
+        }
+        return;
+      }
+    } else if (held > 0 && (!feed.mine || holdFreeSpace <= 0)) {
       if (ship.nav.waypointSymbol !== feed.targetWaypoint) {
         await this.dispatchShip?.(ship.symbol, feed.targetWaypoint);
         return;
@@ -1027,6 +1133,53 @@ export class FeedManager {
     }
   }
 
+  /**
+   * The collector shuttle's own loop: sit in orbit at the field; once the hold is (nearly) full of the feed's good,
+   * or a part-load has waited 20 minutes without growing, fly to the target, dock, sell (same sell-gap rule as a
+   * carrier) and come back. Fuel is handled by dispatchShip()'s own refuel logic at markets.
+   */
+  private async stepCollector(feed: Feed): Promise<void> {
+    const sym = feed.collector!;
+    const field = feed.field!;
+    const key = this.key(feed.targetWaypoint, feed.good);
+    const ship = await this.getShip?.(sym);
+    if (!ship || ship.nav.status === "IN_TRANSIT") return;
+    const held = ship.cargo.inventory?.find((i) => i.symbol === feed.good)?.units ?? 0;
+    const nearlyFull = held > 0 && ship.cargo.capacity - ship.cargo.units < 15;
+    const stale = held > 0 && Date.now() - (this.collectorGrewAt.get(key) ?? Date.now()) > 20 * 60_000;
+    const atTarget = ship.nav.waypointSymbol === feed.targetWaypoint;
+    if (nearlyFull || stale || (held > 0 && atTarget)) {
+      if (!atTarget) {
+        await this.dispatchShip?.(sym, feed.targetWaypoint);
+        return;
+      }
+      if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(sym);
+      if (!feed.force) {
+        const gapMs = feed.sellGapMs ?? DEFAULT_SELL_GAP_MS;
+        const last = this.lastSellAt.get(key) ?? 0;
+        if (Date.now() - last < gapMs) return;
+      }
+      try {
+        const res = await this.api.sellCargo(sym, feed.good, held);
+        this.lastSellAt.set(key, Date.now());
+        this.recordLedger?.({ timestamp: new Date().toISOString(), shipSymbol: sym, waypointSymbol: feed.targetWaypoint, type: "SELL", tradeSymbol: feed.good, units: held, pricePerUnit: res.transaction.pricePerUnit, total: res.transaction.totalPrice });
+        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector ${sym} sold ${held}u @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
+        this.onActivity?.("feed", `${sym} fed ${held}u ${feed.good} into ${feed.targetWaypoint} (collector)`, res.transaction.totalPrice, sym);
+      } catch (err) {
+        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector sell failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      this.collectorGrewAt.delete(key);
+      const fresh = await this.api.getShipCargo(sym);
+      await this.clearUnrelatedCargo(sym, feed.good, fresh.inventory);
+      return;
+    }
+    if (ship.nav.waypointSymbol !== field) {
+      await this.dispatchShip?.(sym, field);
+      return;
+    }
+    if (ship.nav.status !== "IN_ORBIT") await this.orbitShip?.(sym);
+  }
+
   private async releaseFailedCarrier(feed: Feed, shipSymbol: string, t: FeedTaskState): Promise<void> {
     this.resume?.(shipSymbol);
     this.log(`feed ${feed.good} → ${feed.targetWaypoint}: released ${shipSymbol}, feed stays active for a new pick`);
@@ -1053,6 +1206,8 @@ export class FeedManager {
       sellGapMs: f.sellGapMs,
       maxLossPerUnit: f.maxLossPerUnit,
       stopAtSupply: f.stopAtSupply,
+      field: f.field,
+      collector: f.collector,
       chainId: f.chainId,
       chainName: f.chainName,
       chainOrder: f.chainOrder,
