@@ -1,5 +1,8 @@
 # Deck Map — build spec (pass 4, low-context build)
 
+> **Superseded 2026-10-05:** Deck's Map now runs v6's 3D engine (`public/deck-map.js`); the "do not port v6's
+> Three.js scene" and 2D-scatter instructions below are historical. See `docs/deck-desktop-design.md` §12.
+
 **Audience note**: written to be followed literally, same as the three
 specs before it (`docs/deck-desktop-design.md`, `docs/deck-fleet-design.md`,
 `docs/deck-markets-design.md`). Every data field named below has been

@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck: Map screen is now v6's 3D map (2026-10-05)
+
+Deck's Map screen was a flat 2D scatter of blips. It now runs v6's actual map engine: the orbit/pan/zoom
+Three.js scene (right-drag orbits, drag pans, wheel/+/- zooms, Fit), procedural planets, ship hulls with
+live motion trails, jump-gate pulses, the Galaxy toggle with its route planner, and hover/click waypoint tips
+(with "ships here"). The engine was extracted from `v6.js` into `public/deck-map.js` rather than imported,
+because it is woven into v6's own globals; the few v6-only dependencies (replay scrubber, mobile layout,
+ship-details modal, system strip) are replaced by small hooks, each marked `DECK:`. Deck's own parts stay:
+the system chip row, the market detail / leaderboard / factions / system-agents side panel, and a new ship
+card there (click a hull on the map; "Open in Fleet" jumps to its Fleet row). The render loop idles while
+another screen is showing. three.js and its bloom add-ons load as classic scripts in `deck.html`, same set as
+v6. Not ported: v6's replay scrubber, trade panel and ship-details modal. Overview's small home-system
+minimap is unchanged (still the 2D one).
+
 ## Deck: fleet table grouped by role (2026-10-04)
 
 Deck's Fleet screen was a flat 40-row table, with the 26 keepers burying everything else. It now groups

@@ -21,6 +21,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
+import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip } from "/deck-map.js";
 import { keeperCoverage } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason } from "/shared/domain.js";
@@ -74,6 +75,7 @@ function setView(name) {
   if (name === "admin") openAdmin();
   if (name === "fleet") renderFleet();
   if (name === "markets") renderMarkets();
+  setDeckMapVisible(name === "map");
   if (name === "map") {
     loadGalaxy();
     renderMap();
@@ -1883,21 +1885,9 @@ $("doctrine-standing-orders").addEventListener("click", async (e) => {
 /* ── Map screen (pass 4) ────────────────────
  * System chips, 2D waypoint scatter, market detail panel, leaderboard.
  */
-function normalizeCoords(waypoints) {
-  const xs = waypoints.map((w) => w.x), ys = waypoints.map((w) => w.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const spanX = maxX - minX || 1, spanY = maxY - minY || 1;
-  // 10-90% range, not 0-100%, so a waypoint at the extreme edge of the
-  // system doesn't render its blip half-clipped by the chart's own border.
-  return (w) => ({
-    left: 10 + ((w.x - minX) / spanX) * 80,
-    top: 10 + ((w.y - minY) / spanY) * 80,
-  });
-}
-
 let selectedMapSystem = null;
 let selectedMapWaypoint = null;
+let selectedMapShip = null;
 
 function renderMap() {
   const rows = fleetRows();
@@ -1932,110 +1922,17 @@ function renderMap() {
     chip.addEventListener("click", () => {
       selectedMapSystem = chip.dataset.sys;
       selectedMapWaypoint = null;
+      selectedMapShip = null;
+      setDeckMapSelectedShip(null);
       renderMap();
     });
   });
 
-  // Get waypoints for selected system
-  const system = systems.find((s) => s.symbol === selectedMapSystem);
-  const waypoints = system?.waypoints ?? [];
-
-  // Render chart with blips
-  const normalizer = normalizeCoords(waypoints);
-  const blipsHtml = waypoints.map((wp) => {
-    const coords = normalizer(wp);
-
-    // Determine blip class
-    let blipClass = "planet"; // fallback
-    if (wp.type === "JUMP_GATE") {
-      blipClass = "gate";
-    } else if (wp.traits?.includes("MARKETPLACE")) {
-      blipClass = "market";
-    } else if (wp.traits?.includes("FUEL_STATION")) {
-      blipClass = "fuel";
-    } else if (wp.type === "ASTEROID_FIELD" || wp.type === "ENGINEERED_ASTEROID") {
-      blipClass = "asteroid";
-    } else if (wp.type === "ORBITAL_STATION") {
-      blipClass = "station";
-    }
-
-    const shortSymbol = wp.symbol.slice(wp.symbol.lastIndexOf("-") + 1);
-    return `<div class="blip ${blipClass}" style="left:${coords.left}%;top:${coords.top}%" data-wp="${escapeAttr(wp.symbol)}">
-      <div class="blabel">${escapeHtml(shortSymbol)}</div>
-    </div>`;
-  }).join("");
-
-  // Add ships to the chart
-  const shipHtml = rows
-    .filter((row) => {
-      if (row.at) {
-        const lastDash = row.at.lastIndexOf("-");
-        if (lastDash > 0) {
-          const sys = row.at.slice(0, lastDash);
-          return sys === selectedMapSystem;
-        }
-      }
-      return false;
-    })
-    .filter((row) => {
-      // Only show docked/orbiting ships, not in transit
-      const ship = (state?.ships ?? []).find((s) => s.symbol === row.symbol);
-      return ship && ship.nav?.status !== "IN_TRANSIT";
-    })
-    .map((row) => {
-      const wp = waypoints.find((w) => w.symbol === row.at);
-      if (!wp) return "";
-      const coords = normalizer(wp);
-      const shipClass = row.stranded ? "shipwarn" : "ship";
-      return `<div class="blip ${shipClass}" style="left:${coords.left}%;top:${coords.top}%"></div>`;
-    })
-    .join("");
-
-  $("map-chart").innerHTML = blipsHtml + shipHtml;
-
-  // Wire blip clicks
-  $("map-chart").querySelectorAll(".blip[data-wp]").forEach((blip) => {
-    blip.addEventListener("click", () => {
-      selectedMapWaypoint = blip.dataset.wp;
-      renderMapDetail();
-    });
-  });
-
-  // Render legend (only show what's actually on the map)
-  const hasGate = waypoints.some((w) => w.type === "JUMP_GATE");
-  const hasMarket = waypoints.some((w) => w.traits?.some((t) => t.symbol === "MARKETPLACE"));
-  const hasFuel = waypoints.some((w) => w.traits?.some((t) => t.symbol === "FUEL_STATION"));
-  const hasAsteroid = waypoints.some((w) => w.type === "ASTEROID_FIELD" || w.type === "ENGINEERED_ASTEROID");
-  const hasStation = waypoints.some((w) => w.type === "ORBITAL_STATION");
-  const hasPlanet = waypoints.some((w) => !["JUMP_GATE", "ASTEROID_FIELD", "ENGINEERED_ASTEROID", "ORBITAL_STATION"].includes(w.type) && !w.traits?.some((t) => t.symbol === "MARKETPLACE" || t.symbol === "FUEL_STATION"));
-  const hasShip = rows.some((row) => {
-    if (row.at) {
-      const lastDash = row.at.lastIndexOf("-");
-      if (lastDash > 0) {
-        const sys = row.at.slice(0, lastDash);
-        return sys === selectedMapSystem;
-      }
-    }
-    return false;
-  });
-  const hasStranded = rows.some((row) => row.stranded && row.at && row.at.slice(0, row.at.lastIndexOf("-")) === selectedMapSystem);
-
-  const legendItems = [];
-  if (hasPlanet) legendItems.push('<span><i style="background:var(--ice)"></i>Planet</span>');
-  if (hasStation) legendItems.push('<span><i class="sw-station" style="background:var(--bone)"></i>Station</span>');
-  if (hasMarket) legendItems.push('<span><i style="background:var(--ice)"></i>Market</span>');
-  if (hasAsteroid) legendItems.push('<span><i class="sw-asteroid" style="background:var(--dim2)"></i>Asteroid</span>');
-  if (hasFuel) legendItems.push('<span><i style="background:var(--green)"></i>Fuel</span>');
-  if (hasGate) legendItems.push('<span><i class="sw-gate"></i>Gate</span>');
-  if (hasShip || hasStranded) {
-    if (hasStranded) {
-      legendItems.push('<span><i class="sw-ship" style="border-bottom-color:var(--red)"></i>Stranded</span>');
-    } else {
-      legendItems.push('<span><i class="sw-ship"></i>Ship</span>');
-    }
-  }
-
-  $("map-legend").innerHTML = legendItems.length ? `<div class="legend">${legendItems.join("")}</div>` : "";
+  // The 3D map (deck-map.js) owns the chart, legend and camera; this screen
+  // only tells it which system to show and listens for clicks.
+  if (getDeckMapSystem() !== selectedMapSystem) setDeckMapSystem(selectedMapSystem);
+  else renderDeckMap();
+  renderMapLegend();
 
   // Render detail panel
   renderMapDetail();
@@ -2100,8 +1997,62 @@ function renderSystemAgents() {
   }).join("");
 }
 
+/** Static key for the 3D map's glyph vocabulary (v6's own legend, Deck-styled). */
+function renderMapLegend() {
+  $("map-legend").innerHTML = `
+    <span><i style="background:var(--ice)"></i>Planet</span>
+    <span><i class="sw-station" style="background:var(--bone)"></i>Station</span>
+    <span><i class="sw-asteroid" style="background:var(--dim2)"></i>Asteroid</span>
+    <span><i class="sw-gate"></i>Gate</span>
+    <span><i class="sw-ship"></i>Ship</span>`;
+}
+
+/** Side-panel card for a ship clicked on the map, with a way into the Fleet screen. */
+function renderMapShipCard() {
+  const el = $("map-market-detail");
+  const row = fleetRows().find((r) => r.symbol === selectedMapShip);
+  if (!row) return false;
+  el.innerHTML = `
+    <div class="detail-row"><span class="shipsym">${escapeHtml(row.symbol)}</span><span class="chip ${escapeHtml(row.role)}">${escapeHtml(row.role)}</span></div>
+    <div class="detail-row"><span>Job</span><span>${escapeHtml(row.job)}</span></div>
+    <div class="detail-row"><span>Status</span><span>${escapeHtml(row.goal)}</span></div>
+    <div class="detail-row"><span>Fuel</span><span class="mono">${row.fuelCap ? Math.round((row.fuel / row.fuelCap) * 100) : 0}%</span></div>
+    <div class="detail-row"><span>Cargo</span><span class="mono">${row.cargo}/${row.cargoCap}</span></div>
+    <div class="detail-row"><span>At</span><span class="mono">${escapeHtml(row.at)}</span></div>
+    <div class="detail-row"><span>ETA</span><span class="mono">${escapeHtml(fmtEta(row.eta))}</span></div>
+    <div style="padding:10px 14px"><button class="btn" id="map-open-fleet">Open in Fleet</button></div>`;
+  $("map-open-fleet").addEventListener("click", () => {
+    selectedFleetShip = row.symbol;
+    selectedFleetSystem = "All systems";
+    setView("fleet");
+  });
+  return true;
+}
+
+initDeckMap({
+  onShip: (symbol) => {
+    selectedMapShip = symbol;
+    selectedMapWaypoint = null;
+    setDeckMapSelectedShip(symbol);
+    renderMapDetail();
+  },
+  onWaypoint: (symbol) => {
+    selectedMapWaypoint = symbol;
+    selectedMapShip = null;
+    setDeckMapSelectedShip(null);
+    renderMapDetail();
+  },
+  onSystemChange: (symbol) => {
+    selectedMapSystem = symbol;
+    selectedMapWaypoint = null;
+    selectedMapShip = null;
+    renderMap();
+  },
+});
+
 function renderMapDetail() {
   const el = $("map-market-detail");
+  if (selectedMapShip && renderMapShipCard()) return;
   if (!selectedMapWaypoint) {
     el.innerHTML = '<div class="empty">Click a waypoint to see its market.</div>';
     return;

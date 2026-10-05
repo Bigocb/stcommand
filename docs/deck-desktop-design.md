@@ -487,3 +487,11 @@ Reset, Scoreboard, Timeline, Health, Tenants — never stacked sections. Data co
 Fleet screen table groups rows by role (collapsible header rows with count + unassigned/stranded badge,
 cooldown bar in the Job column), matching Tower/V6. Uses `shared/cooldown.js` (`loadCollapsed`,
 `toggleCollapsed`, `roleRank`, `cooldownHtml`, `startCooldownTicker`). Styles: `tr.grp-row` in `deck.css`.
+
+## 12. Map is v6's 3D engine (2026-10-05)
+
+`public/deck-map.js` is v6's map engine extracted (see CHANGELOG). Deck hooks: `initDeckMap({onShip,onWaypoint,
+onSystemChange})`, `renderDeckMap()`, `setDeckMapVisible()`, `setDeckMapSystem()`. `docs/deck-map-design.md`'s
+"do not port the Three.js scene" instruction is superseded. Pending: replay scrubber, trade panel, a ship-details
+modal equivalent, Overview minimap upgrade.
+

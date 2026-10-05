@@ -210,9 +210,18 @@
         <div class="content" id="view-map" hidden>
           <div class="chiprow" id="map-chiprow"></div>
           <div class="mapstage">
-            <div style="display:flex;flex-direction:column;min-height:0;border:1px solid var(--hair);border-radius:6px;overflow:hidden">
-              <div class="chart" id="map-chart"></div>
-              <div class="legend" id="map-legend"></div>
+            <div class="map-wrap" id="map-wrap">
+              <div class="map-hud" id="map-hud">Sector <b>—</b></div>
+              <button class="map-fit-btn" id="map-fit" title="Fit whole system">⛶ Fit</button>
+              <button class="map-fit-btn map-galaxy-btn" id="map-galaxy-toggle" title="Zoom out to the charted galaxy">🌌 Galaxy</button>
+              <div class="map-zoom-controls">
+                <button class="map-zoom-btn" id="map-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+                <button class="map-zoom-btn" id="map-zoom-out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+              </div>
+              <div id="map3d"></div>
+              <div id="galaxy-overview" class="galaxy-overview"></div>
+              <div class="map-tip" id="map-tip"></div>
+              <div class="map-legend" id="map-legend"></div>
             </div>
             <div class="panel" style="display:flex;flex-direction:column;min-height:0">
               <div class="panel-h"><span class="dot"></span><span class="title">Market</span></div>
@@ -343,6 +352,16 @@
   </div>
 </div>
 
+<!-- three.js + bloom post-processing for the 3D map (deck-map.js) — classic
+     scripts attaching to the global THREE, same set and order as v6.html. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/MaskPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 <script type="module" src="/deck.js"></script>
 </body>
 </html>
