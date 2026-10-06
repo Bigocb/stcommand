@@ -626,9 +626,19 @@ export class TenantRegistry {
     api.setPriority?.(1);
     // Fast refresh at routine urgency; the periodic full read at background urgency. Outside any scoped
     // context a call would default to critical and queue level with ships' real actions.
+    // One refresh at a time. A background-priority read can sit in the queue for most of a minute, and the timer
+    // fires every 20s: without the guard each tick launched another full refresh (a ship list, two pages, and an
+    // agent read) behind the one still waiting — measured at 24 ship-list calls in five minutes where a refresh
+    // every two minutes should make about five.
+    let refreshing = false;
     const refreshTimer = setInterval(() => {
+      if (refreshing) return;
       const full = Date.now() - lastFullAt >= FULL_REFRESH_MS;
-      void runWithApiPriority(full ? API_PRIORITY.BACKGROUND : API_PRIORITY.ROUTINE, () => refreshState(full ? "full" : "fast"));
+      if (full) lastFullAt = Date.now(); // claim it now, not when the reads finally return
+      refreshing = true;
+      void runWithApiPriority(full ? API_PRIORITY.BACKGROUND : API_PRIORITY.ROUTINE, () => refreshState(full ? "full" : "fast")).finally(() => {
+        refreshing = false;
+      });
     }, STATE_REFRESH_MS);
     refreshTimer.unref();
 

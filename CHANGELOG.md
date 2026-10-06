@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Dashboard refresh no longer stacks up; unfinished gates are re-read every 5 minutes (2026-10-06)
+
+**Refresh pile-up.** The two-cadence dashboard refresh (earlier today) recorded `lastFullAt` only after its reads came
+back, and its full read runs at background priority, where a call can wait most of a minute. The timer fires every 20s,
+so each tick launched another full refresh behind the one still queued: the limiter counted 24 ship-list calls
+(`ships <- refreshState`) in five minutes where a full read every two minutes should make about five. The timer now runs
+one refresh at a time and claims the full read when it starts.
+
+**Gate construction.** `GalaxyAtlas.refreshGateConstruction` re-read any gate still known to be unfinished on every ask,
+and the scout's reachability check (`scoutCanReachUncharted`, every maintenance pass) asks about each gate — 12-16 calls
+per five minutes. An unfinished gate is now trusted for five minutes; one never read is read at once, and a completed gate
+stays cached forever as before. The test that pinned "re-fetch a gate still cached incomplete" now checks it after the
+recheck interval.
+
 ## Contracts the operator has stood down are no longer polled every 30 seconds (2026-10-06)
 
 `ContractManager.fetchContracts` (called through `listActive` by three coordinator steps) re-read `GET /my/contracts` every

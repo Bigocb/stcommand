@@ -115,10 +115,25 @@ describe("GalaxyAtlas: gate-construction cache", () => {
 
     assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), false);
     complete = true;
-    assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), true);
+    // Past the recheck interval (an unfinished gate is trusted for a few minutes, see the next test).
+    const realNow = Date.now;
+    Date.now = () => realNow() + 6 * 60_000;
+    try {
+      assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), true);
+    } finally {
+      Date.now = realNow;
+    }
 
     assert.equal(calls.length, 2);
     assert.equal(atlas.canJump("X1-A", "X1-B"), true);
+  });
+
+  it("does not re-read an unfinished gate on every ask — the scout's reachability check asks every pass", async () => {
+    const { atlas, calls } = await makeSeededAtlas(async () => ({ isComplete: false, materials: [] }));
+
+    for (let i = 0; i < 20; i += 1) assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), false);
+
+    assert.equal(calls.length, 1);
   });
 
   it("refreshAllGateConstruction() refreshes every known gate not yet confirmed complete, and skips ones already confirmed", async () => {

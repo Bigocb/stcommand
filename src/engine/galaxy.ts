@@ -34,6 +34,9 @@ export interface GalaxyStore {
   getAllGalaxyGateConstruction?(): Promise<{ gateSymbol: string; isComplete: boolean }[]>;
 }
 
+/** How long an unfinished jump gate's construction status is trusted before it is read again. */
+const GATE_RECHECK_MS = 5 * 60_000;
+
 /** Multi-system atlas: caches waypoints, jump gates, and foreign markets. */
 export class GalaxyAtlas {
   private readonly api: SpaceTradersAPI;
@@ -239,6 +242,8 @@ export class GalaxyAtlas {
    * cache is what lets canJump()/gateComplete() stay synchronous.
    */
   private readonly gateConstruction = new Map<string, boolean>();
+  /** When each still-incomplete gate was last read, so callers that ask every pass don't each cost a call. */
+  private readonly gateCheckedAt = new Map<string, number>();
 
   /** Cached construction-complete status for one gate, or undefined if
    *  never checked (refreshGateConstruction() hasn't resolved for it yet). */
@@ -400,8 +405,14 @@ export class GalaxyAtlas {
    */
   async refreshGateConstruction(systemSymbol: string, gateSymbol: string): Promise<boolean> {
     if (this.gateConstruction.get(gateSymbol) === true) return true; // one-way: never reverts to incomplete
+    // A gate known to be unfinished only changes when someone supplies it, yet the scout's reachability check asked
+    // about every gate on every maintenance pass (about three calls a minute). Re-read an unfinished gate at most
+    // every GATE_RECHECK_MS; one never read before is read at once.
+    const lastRead = this.gateCheckedAt.get(gateSymbol);
+    if (this.gateConstruction.get(gateSymbol) === false && lastRead !== undefined && Date.now() - lastRead < GATE_RECHECK_MS) return false;
     try {
       const complete = (await this.api.getConstruction(systemSymbol, gateSymbol)).isComplete;
+      this.gateCheckedAt.set(gateSymbol, Date.now());
       this.gateConstruction.set(gateSymbol, complete);
       this.store?.recordGalaxyGateConstruction?.(gateSymbol, complete)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
       return complete;
