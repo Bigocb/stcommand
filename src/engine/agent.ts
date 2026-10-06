@@ -1141,6 +1141,11 @@ export class ShipAgent {
    * the existing default of "whatever refines to a metal" — unchanged
    * behavior for every miner that has no preference configured.
    */
+  /** True when the operator set a preferred good for this miner (surveys must then actually contain it). */
+  private hasPreferredGood(): boolean {
+    return Boolean(this.preferredMiningGood?.());
+  }
+
   private surveyPredicate(): (depositSymbol: string) => boolean {
     const preferred = this.preferredMiningGood?.();
     if (preferred) return (d) => d === preferred;
@@ -1162,7 +1167,7 @@ export class ShipAgent {
     if (!survey && this.hasSurveyor()) {
       survey = await this.createAndPickSurvey();
     } else if (!survey && this.surveyPool) {
-      survey = this.surveyPool.pick(this.ship.nav.waypointSymbol, this.surveyPredicate());
+      survey = this.surveyPool.pick(this.ship.nav.waypointSymbol, this.surveyPredicate(), this.hasPreferredGood());
       if (survey) this.log(`using shared survey at ${this.ship.nav.waypointSymbol}`);
     }
     this.rememberSurvey(survey);
@@ -1248,7 +1253,7 @@ export class ShipAgent {
           this.surveyPool?.invalidate(this.ship.nav.waypointSymbol, survey.signature);
           survey = this.hasSurveyor()
             ? await this.createAndPickSurvey()
-            : this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate());
+            : this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate(), this.hasPreferredGood());
           this.rememberSurvey(survey);
           if (survey) continue;
           this.log("no usable survey; falling back to plain extraction");
@@ -1818,7 +1823,7 @@ export class ShipAgent {
     // survey at this waypoint; fall back to plain extraction.
     let survey: components["schemas"]["Survey"] | undefined =
       this.cachedSurvey() ??
-      this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate()) ??
+      this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate(), this.hasPreferredGood()) ??
       (this.hasSurveyor() ? await this.createAndPickSurvey() : undefined);
     this.rememberSurvey(survey);
     if (survey) this.log(`using survey at ${this.ship.nav.waypointSymbol}`);
@@ -1847,7 +1852,7 @@ export class ShipAgent {
           this.log(`survey no longer usable: ${msg}`);
           this.surveyPool?.invalidate(this.ship.nav.waypointSymbol, survey.signature);
           survey =
-            this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate()) ??
+            this.surveyPool?.pick(this.ship.nav.waypointSymbol, this.surveyPredicate(), this.hasPreferredGood()) ??
             (this.hasSurveyor() ? await this.createAndPickSurvey() : undefined);
           this.rememberSurvey(survey);
           if (survey) continue;

@@ -58,3 +58,19 @@ describe("ShipAgent.surveyPredicate(): what a miner's surveys are picked to favo
     assert.equal((agent as any).surveyPredicate()("QUARTZ_SAND"), false, "confirms the fallback, not a stale preferred-good match");
   });
 });
+
+import { SurveyPool } from "../src/engine/survey.js";
+describe("SurveyPool.pick strict (operator preference)", () => {
+  const mk = (sig: string, deposits: string[]) => ({ signature: sig, symbol: "X1-A-B14", size: "SMALL", expiration: new Date(Date.now() + 3_600_000).toISOString(), deposits: deposits.map((symbol) => ({ symbol })) }) as any;
+  it("returns undefined when no pooled survey has the preferred good, instead of a random one", () => {
+    const pool = new SurveyPool();
+    pool.record("X1-A-B14", mk("a", ["COPPER_ORE", "ICE_WATER"]), mk("b", ["SILICON_CRYSTALS"]));
+    assert.equal(pool.pick("X1-A-B14", (d) => d === "IRON_ORE", true), undefined);
+    assert.ok(pool.pick("X1-A-B14", (d) => d === "IRON_ORE", false), "non-strict still falls back to any survey");
+  });
+  it("takes the survey with the highest share of the preferred good", () => {
+    const pool = new SurveyPool();
+    pool.record("X1-A-B14", mk("low", ["IRON_ORE", "COPPER_ORE", "ICE_WATER", "SILICON_CRYSTALS"]), mk("high", ["IRON_ORE", "IRON_ORE", "COPPER_ORE"]));
+    for (let i = 0; i < 20; i++) assert.equal(pool.pick("X1-A-B14", (d) => d === "IRON_ORE", true)?.signature, "high");
+  });
+});

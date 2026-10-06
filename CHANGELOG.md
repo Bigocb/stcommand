@@ -16,6 +16,9 @@ batch contained the preferred good, `createAndPickSurvey()` fell back to the bes
 it until it expired (~55 min), so every extraction drew from junk. Now: with a preference set it picks the survey
 with the highest share of the preferred deposit; if none offers it, it re-surveys on the next tick (4 tries), then
 falls back to plain uncached extraction. Without a preference nothing changes.
+The shared survey pool had the same hole (`SurveyPool.pick` returned a random survey when none held the preferred
+good, including THEO-1's own junk ones): it now takes a `strict` flag, set whenever the operator preference is set,
+that returns nothing instead and prefers the survey with the highest share of the good.
 
 ## Mission cash floor (2026-10-06)
 

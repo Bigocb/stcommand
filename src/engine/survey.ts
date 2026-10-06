@@ -26,12 +26,23 @@ export class SurveyPool {
   pick(
     waypoint: string,
     prefersRefinable: (depositSymbol: string) => boolean,
+    /** An operator-preferred good, not a soft "refinable" ranking: return undefined rather than a survey that has
+     *  none of it, and take the survey with the highest share of it. Without this a miner told to mine IRON_ORE
+     *  drew a random iron-free survey from the pool (THEO-1 at B14, 2026-10-06). */
+    strict = false,
   ): Survey | undefined {
     const list = this.byWaypoint.get(waypoint);
     if (!list) return undefined;
     const usable = list.filter((s) => !isExpired(s));
     if (usable.length === 0) return undefined;
     const refinable = usable.filter((s) => s.deposits.some((d) => prefersRefinable(d.symbol)));
+    if (strict) {
+      if (refinable.length === 0) return undefined;
+      const share = (sv: Survey) => sv.deposits.filter((d) => prefersRefinable(d.symbol)).length / (sv.deposits.length || 1);
+      const top = Math.max(...refinable.map(share));
+      const best = refinable.filter((sv) => share(sv) === top);
+      return best[Math.floor(Math.random() * best.length)];
+    }
     const pool = refinable.length > 0 ? refinable : usable;
     return pool[Math.floor(Math.random() * pool.length)];
   }
