@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Feed miners are no longer ejected when a junk-cargo clear races (2026-10-06)
+
+`clearUnrelatedCargo()` set `cleared = false` when neither sale nor jettison could find an item ("jettison: THEO-29 has
+no QUARTZ_SAND in cargo"), although its own comment says an item neither call can find is already cleared. Every caller
+then called `releaseFailedCarrier()`, so an iron-ore miner at B14 (THEO-29, 02:35) and copper-feed miners THEO-14 / 17
+were dropped from their feed, picked their own field and went off drifting to deliver. Now an item that is gone on a
+fresh cargo read counts as cleared, and a mining carrier whose clear still fails retries in 30 s instead of being
+released.
+
 ## Survey tour: `stcommand_scan_fields` (2026-10-06)
 
 `pickSurveyTarget()` returns the field a surveyor is already at, so the "surveyor scout flies between fields" role

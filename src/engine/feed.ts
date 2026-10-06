@@ -859,6 +859,18 @@ export class FeedManager {
           // exact cause, an item neither sale nor jettison can find is
           // functionally already cleared from this loop's perspective —
           // log and move on to the next item instead of blocking the ship.
+          //
+          // The code below used to set cleared=false here, which made every caller RELEASE the carrier from its
+          // feed — contradicting the paragraph above. Confirmed live 2026-10-06: THEO-29 (iron-ore crew at B14) was
+          // dropped from the feed on "jettison: has no QUARTZ_SAND in cargo", went off to pick its own field and
+          // drift-deliver; THEO-14 and THEO-17 hit the same error on the copper feed. Re-read the hold: an item that
+          // is gone counts as cleared.
+          let stillThere = true;
+          try {
+            const fresh = await this.api.getShipCargo(shipSymbol);
+            stillThere = (fresh.inventory.find((i) => i.symbol === item.symbol)?.units ?? 0) > 0;
+          } catch { /* keep stillThere = true */ }
+          if (!stillThere) continue;
           this.log(`feed: ${shipSymbol}: couldn't clear ${item.units}u ${item.symbol} (sell: ${err instanceof Error ? err.message : String(err)}; jettison: ${err2 instanceof Error ? err2.message : String(err2)})`);
           cleared = false;
         }
@@ -1043,7 +1055,8 @@ export class FeedManager {
       // reached mineOnce() again for the rest of that call's lifetime.
       const junk = cargo.inventory.filter((i) => i.symbol !== feed.good && i.units > 0);
       if (junk.length > 0) {
-        if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, cargo.inventory))) await this.releaseFailedCarrier(feed, ship.symbol, t);
+        // A failed clear on a MINER must not release it from the feed (see clearUnrelatedCargo): retry shortly.
+        if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, cargo.inventory))) t.retryAt = Date.now() + 30_000;
         return;
       }
       // mineOnce() runs schedulerDriven, so a real extraction cooldown throws
