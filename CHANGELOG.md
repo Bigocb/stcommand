@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Trader: a failed sale no longer jettisons a valuable lot (2026-10-06)
+
+THEOREM_DEV-1 bought 6 EQUIPMENT (19,212c) at K81 and lost all of it. The leftover sweep picked the best market
+galaxy-wide (`bestSell`), which was X1-JX83-E50 in another system, so it did not navigate, tried to sell at the jump
+gate it stood at ("EQUIPMENT is not listed at market X1-MG54-I51"), and the catch block jettisoned the whole hold
+("no buyer"). Fixes: the sweep only considers markets in the ship's own system (`bestSell(good, system)`), and a lot
+worth at least 1,000c is held with a log line instead of jettisoned after a failed sale. Cheap lots are still dumped.
+
 ## Feed miners are no longer ejected when a junk-cargo clear races (2026-10-06)
 
 `clearUnrelatedCargo()` set `cleared = false` when neither sale nor jettison could find an item ("jettison: THEO-29 has

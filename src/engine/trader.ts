@@ -196,6 +196,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** How often a halted agent re-checks whether the fleet has resumed. */
 /** How long a trader holds a lot below its loss floor before asking the operator for a decision. */
 const HOLD_BEFORE_FLOOR_APPROVAL_MS = 5 * 60_000;
+
+/** A leftover lot worth at least this many credits is never jettisoned after a failed sale; it is held until a market takes it. */
+const JETTISON_MAX_VALUE = 1_000;
 const HALT_POLL_MS = 1_000;
 
 /**
@@ -930,9 +933,10 @@ export class TraderAgent {
   }
 
   /** Best sell location + price for a good among observed markets. */
-  private bestSell(good: string): { waypoint: string; buy: number; sell: number; volume: number } | undefined {
+  private bestSell(good: string, system?: string): { waypoint: string; buy: number; sell: number; volume: number } | undefined {
     let best: { waypoint: string; buy: number; sell: number; volume: number } | undefined;
     for (const [wp, table] of this.priceTable) {
+      if (system && this.systemOf(wp) !== system) continue;
       const g = table.get(good);
       if (!g) continue;
       if (!best || g.sell > best.sell) best = { waypoint: wp, ...g };
@@ -1560,7 +1564,9 @@ export class TraderAgent {
       activeLeg && activeLeg.good === item.symbol && this.systemOf(activeLeg.sellAt) === this.ship.nav.systemSymbol
         ? activeLeg.sellAt
         : undefined;
-    const sell = routeSellHere ? { waypoint: routeSellHere } : this.bestSell(item.symbol);
+    // Own system only. The galaxy-wide best market is usually another system's (THEOREM_DEV-1, in X1-MG54, "dumped" 6
+    // EQUIPMENT at X1-JX83-E50), the trader can't fly there, and it then tried to sell wherever it happened to be.
+    const sell = routeSellHere ? { waypoint: routeSellHere } : this.bestSell(item.symbol, this.ship.nav.systemSymbol);
     if (sell && sell.waypoint !== this.ship.nav.waypointSymbol && this.systemOf(sell.waypoint) === this.ship.nav.systemSymbol) {
       await this.navigateTo(sell.waypoint);
     }
@@ -1636,6 +1642,14 @@ export class TraderAgent {
       // partway through the loop has already sold some of it for real.
       const stillHeld = (this.ship.cargo.inventory ?? []).find((i) => i.symbol === item.symbol)?.units ?? 0;
       if (stillHeld <= 0) return true;
+      // One failed sale (a waypoint that isn't a market, a transient API error) used to jettison the WHOLE lot.
+      // THEOREM_DEV-1 destroyed 6 EQUIPMENT (19,212c bought at K81) that way at the I51 jump gate, 2026-10-06.
+      // Only throw away what is cheap; anything worth real money is held until a market that takes it is reached.
+      const unit = this.heldCost.get(item.symbol) ?? this.priceTable.get(this.ship.nav.waypointSymbol)?.get(item.symbol)?.sell ?? this.bestSell(item.symbol, this.ship.nav.systemSymbol)?.sell ?? 0;
+      if (unit * stillHeld >= JETTISON_MAX_VALUE) {
+        this.log(`holding ${stillHeld}u ${item.symbol} (~${Math.round(unit * stillHeld)}c): sale failed at ${this.ship.nav.waypointSymbol} (${err instanceof Error ? err.message : String(err)}) — not jettisoning`);
+        return true;
+      }
       this.currentStep = { kind: "transacting", action: "jettison", good: item.symbol };
       const j = await this.api.jettisonCargo(this.symbol, item.symbol, stillHeld);
       this.currentStep = IDLE_STEP;
