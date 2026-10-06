@@ -2754,7 +2754,7 @@ export class FleetManager {
     const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
     for (const yard of yards) {
       try {
-        const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
+        const shipyard = await this.cachedShipyard(this.systemSymbol, yard.symbol);
         const available = shipyard.ships?.find((s) => s.type === "SHIP_SURVEYOR");
         if (!available) {
           this.log(`scout: no SHIP_SURVEYOR at ${yard.symbol} (stock: ${shipyard.ships?.map((s) => s.type).join(", ") ?? "none"})`);
@@ -2820,7 +2820,7 @@ export class FleetManager {
     const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
     for (const yard of yards) {
       try {
-        const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
+        const shipyard = await this.cachedShipyard(this.systemSymbol, yard.symbol);
         const available = shipyard.ships?.find((s) => s.type === "SHIP_SIPHON_DRONE");
         if (!available) {
           this.log(`siphon: no SHIP_SIPHON_DRONE at ${yard.symbol} (stock: ${shipyard.ships?.map((s) => s.type).join(", ") ?? "none"})`);
@@ -2985,7 +2985,7 @@ export class FleetManager {
     if (type) {
       for (const yard of yards) {
         try {
-          const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
+          const shipyard = await this.cachedShipyard(this.systemSymbol, yard.symbol);
           const available = shipyard.ships?.find((s) => s.type === type);
           if (available) {
             attempts.push({ type, yardSymbol: yard.symbol, price: available.purchasePrice, frameSymbol: available.frame.symbol, reason: "priority", wantRole });
@@ -4496,11 +4496,32 @@ export class FleetManager {
     return here;
   }
 
+  /**
+   * A shipyard's listing for the purchase checks (ship, scout, siphoner), at most SHIPYARD_CACHE_MS old. Those
+   * checks run every maintenance pass and each re-read every yard — 17-19 calls per five minutes — to decide whether
+   * to *ask* for an approval. Stock rotates slowly, and the purchase itself (buyShip()) still reads the yard live, so
+   * a stale listing can only delay a request or produce one the live read then turns down.
+   */
+  private async cachedShipyard(systemSymbol: string, yardSymbol: string): Promise<Awaited<ReturnType<SpaceTradersAPI["getShipyard"]>>> {
+    const hit = this.shipyardReads.get(yardSymbol);
+    if (hit && Date.now() - hit.at < FleetManager.SHIPYARD_CACHE_MS) return hit.yard;
+    const yard = await this.api.getShipyard(systemSymbol, yardSymbol);
+    this.shipyardReads.set(yardSymbol, { at: Date.now(), yard });
+    return yard;
+  }
+
   /** Snapshot a shipyard's inventory at a waypoint (only visible when docked). */
   async recordShipyardSnapshot(waypointSymbol: string): Promise<void> {
     const systemSymbol = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
+    // Every dock at a shipyard took a fresh snapshot, so ships parked at or cycling through the same yard re-read
+    // it every few minutes between them (15-20 per five minutes). Once per yard per SHIPYARD_SNAPSHOT_MS is plenty
+    // for stock that rotates slowly.
+    const last = this.shipyardSnapshotAt.get(waypointSymbol) ?? 0;
+    if (Date.now() - last < FleetManager.SHIPYARD_SNAPSHOT_MS) return;
+    this.shipyardSnapshotAt.set(waypointSymbol, Date.now());
     try {
       const yard = await this.api.getShipyard(systemSymbol, waypointSymbol);
+      this.shipyardReads.set(waypointSymbol, { at: Date.now(), yard });
       await this.store?.recordShipyardInventory(systemSymbol, waypointSymbol, yard.ships ?? []);
       this.onActivity?.("shipyard", `snapshot ${waypointSymbol} (${(yard.ships ?? []).length} ships)`, 0);
       await this.maybeRequestKeeperProbe(waypointSymbol, yard.ships ?? []);
@@ -7175,6 +7196,12 @@ export class FleetManager {
    *  every one (the core loop fires every ~2s; recording every pass would be
    *  ~30 rows/minute/tenant for no diagnostic benefit while healthy). */
   private static readonly TICK_WARN_MS = 3_000;
+  /** Purchase checks' shipyard listings, by yard — see cachedShipyard(). */
+  private readonly shipyardReads = new Map<string, { at: number; yard: Awaited<ReturnType<SpaceTradersAPI["getShipyard"]>> }>();
+  private static readonly SHIPYARD_CACHE_MS = 5 * 60_000;
+  /** When each yard was last snapshotted on a dock — see recordShipyardSnapshot(). */
+  private readonly shipyardSnapshotAt = new Map<string, number>();
+  private static readonly SHIPYARD_SNAPSHOT_MS = 5 * 60_000;
   /** How urgent each loop's own API calls are — see API_PRIORITY. */
   private static readonly LOOP_API_PRIORITY: Record<string, number> = {
     core: API_PRIORITY.ROUTINE,
