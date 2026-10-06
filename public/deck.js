@@ -11,12 +11,12 @@ import {
   marketRoutes, intel,
   systems, marketSnapshots, leaderboard, factions, systemAgents, systemAgentsHistory,
   contracts, missions, feeds, feedChains, chainHealth, minerPreferences, notes,
-  priceGoods, priceWaypointsByGood, pricePoints,
+  priceGoods, priceWaypointsByGood, pricePoints, marketTransactions, marketTransactionsAgent,
   doctrineRules, doctrineFires, doctrineFireShips,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
-  loadMarkets, loadGoods, loadPrices, loadGalaxy, loadProgramme,
+  loadMarkets, loadGoods, loadPrices, loadMarketTransactions, loadGalaxy, loadProgramme,
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
@@ -431,12 +431,14 @@ function describeAutomation(r) {
 
 /** Every ship's current automated decision, from fleetStatusSummary()'s own
  *  wants/wantsReason/wantsSource. Ported from v6.js's renderAutomationFeed(). */
+let opsSeg = "chain";
 function renderAutomationFeed() {
   const el = $("automation-feed");
   const countEl = $("automation-count");
   if (!el) return;
   const rows = [...(fleetStatus.summary ?? [])].sort((a, b) => a.symbol.localeCompare(b.symbol));
   if (countEl) countEl.textContent = `${rows.length} ships`;
+  if (opsSeg === "automation") { const c = $("ops-seg-count"); if (c) c.textContent = `${rows.length} ships`; }
   if (!rows.length) { el.innerHTML = '<div class="empty">No ships in the register.</div>'; return; }
   el.innerHTML = rows.map((r) => {
     const cls = r.doing === "stranded" ? "warn" : r.wantsSource === "operator" ? "hold" : "";
@@ -1160,7 +1162,7 @@ function renderMktPrices() {
   const goodChanged = renderMktPricePickers();
   renderMktPriceChart();
   renderMktPriceMarketList();
-  if (goodChanged && priceGood) loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+  if (goodChanged && priceGood) loadPrices(priceGood, priceTimeframeMs, priceWaypoint); loadMarketTransactions(priceGood, priceTimeframeMs, priceWaypoint);
 }
 
 $("mk-price-good-sel").addEventListener("change", (e) => {
@@ -1169,18 +1171,18 @@ $("mk-price-good-sel").addEventListener("change", (e) => {
   renderMktPricePickers();
   renderMktPriceChart();
   renderMktPriceMarketList();
-  if (priceGood) loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+  if (priceGood) loadPrices(priceGood, priceTimeframeMs, priceWaypoint); loadMarketTransactions(priceGood, priceTimeframeMs, priceWaypoint);
 });
 $("mk-price-wp-sel").addEventListener("change", (e) => {
   priceWaypoint = e.target.value;
-  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint); loadMarketTransactions(priceGood, priceTimeframeMs, priceWaypoint);
 });
 $("mk-price-timeframe-seg").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-span]");
   if (!b) return;
   priceTimeframeMs = Number(b.dataset.span);
   $("mk-price-timeframe-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-  loadPrices(priceGood, priceTimeframeMs, priceWaypoint);
+  loadPrices(priceGood, priceTimeframeMs, priceWaypoint); loadMarketTransactions(priceGood, priceTimeframeMs, priceWaypoint);
 });
 
 function renderKeepers() {
@@ -1366,10 +1368,14 @@ function renderOps() {
       const status = m.paused ? "paused" : allDone ? "complete" : "supplying";
       const materials = (m.materials ?? []).map((mat) => {
         const pct = mat.required ? Math.round((mat.fulfilled / mat.required) * 100) : 0;
+        const only = m.pacing?.onlyMaterials ?? [];
+        const done = mat.fulfilled >= mat.required;
+        const held = only.length > 0 && !only.includes(mat.tradeSymbol);
         return `
           <div style="display:flex;flex-direction:column;gap:4px;padding:8px 14px;border-bottom:1px solid var(--hair)">
             <div style="display:flex;gap:8px;align-items:center">
               <span style="flex:1;font-size:11px;font-weight:500">${escapeHtml(mat.tradeSymbol)}</span>
+              ${done ? "" : `<button class="btn mat-hold ${held ? "deny" : ""}" data-mact="toggle-material" data-material="${escapeAttr(mat.tradeSymbol)}" title="${held ? "Held: the mission skips this material. Click to buy it again." : "Buying. Click to hold this material (the mission keeps buying the others)."}">${held ? "held" : "buying"}</button>`}
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <span style="font-size:10px;color:var(--dim2)">${mat.fulfilled}/${mat.required}</span>
@@ -1380,7 +1386,7 @@ function renderOps() {
         `;
       }).join("");
       return `
-        <div style="margin-bottom:12px;border:1px solid var(--hair);border-radius:6px;overflow:hidden;background:var(--panel)">
+        <div data-mission-card style="margin-bottom:12px;border:1px solid var(--hair);border-radius:6px;overflow:hidden;background:var(--panel)">
           <div style="padding:10px 14px;border-bottom:1px solid var(--hair);display:flex;gap:8px;align-items:center">
             <span style="flex:1;font-weight:600;font-size:12px">${escapeHtml(m.targetWaypoint)}</span>
             <span class="chip" style="font-size:9px;padding:2px 6px">${escapeHtml(status)}</span>
@@ -1419,10 +1425,22 @@ function renderOps() {
 }
 
 /* ── Mission pacing / pause / resume (Ops → Missions) ── */
+/** Next onlyMaterials list after flipping one material between buying and held: the set of outstanding materials
+ *  that stay "buying". Every material buying = null (clears the filter). */
+function toggledOnlyMaterials(wp, material) {
+  const m = missions.find((x) => x.targetWaypoint === wp);
+  if (!m) return null;
+  const outstanding = (m.materials ?? []).filter((x) => x.fulfilled < x.required).map((x) => x.tradeSymbol);
+  const only = m.pacing?.onlyMaterials ?? [];
+  const buying = new Set(only.length ? only.filter((x) => outstanding.includes(x)) : outstanding);
+  if (buying.has(material)) buying.delete(material); else buying.add(material);
+  if (buying.size === 0) return undefined; // holding every material is "stop the mission" — use Stop for that
+  return outstanding.every((x) => buying.has(x)) ? null : [...buying];
+}
 $("ops-missions").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-mact]");
   if (!b) return;
-  const card = b.closest(".mission-pacing");
+  const card = b.closest(".mission-pacing") ?? b.closest("[data-mission-card]")?.querySelector(".mission-pacing");
   const wp = card?.dataset.wp;
   if (!wp) return;
   const act = b.dataset.mact;
@@ -1432,6 +1450,10 @@ $("ops-missions").addEventListener("click", async (e) => {
     if (act === "save-pacing") {
       const val = (cls) => { const v = card.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
       await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), recoverPct: val(".mp-rec") });
+    } else if (act === "toggle-material") {
+      const next = toggledOnlyMaterials(wp, b.dataset.material);
+      if (next === undefined) { alert("That would hold every material — use Stop to pause the whole mission."); b.disabled = false; return; }
+      await api("POST", "/api/missions/pacing", { waypoint: wp, onlyMaterials: next });
     } else {
       await api("POST", `/api/missions/${act}`, { waypoint: wp });
     }
@@ -2104,6 +2126,38 @@ subscribe("keepers", () => {
   renderKeepers();
   if (!$("view-markets").hidden) renderMktPriceMarketList();
 });
+/** Trades strip under the price chart: every agent's transactions at the selected good/markets, newest first.
+ *  Ours are highlighted; the point is telling our own moves apart from other agents' (operator 2026-10-06). */
+function renderMktTrades() {
+  const rows = $("mk-trades-rows");
+  if (!rows) return;
+  const me = marketTransactionsAgent;
+  const list = marketTransactions;
+  $("mk-trades-count").textContent = list.length ? `${list.length} · ${list.filter((t) => me && t.shipSymbol.startsWith(me + "-")).length} ours` : "";
+  if (!list.length) { rows.innerHTML = '<tr><td colspan="6" class="empty">No transactions recorded for this good in the window.</td></tr>'; return; }
+  rows.innerHTML = list.map((t) => {
+    const ours = me && t.shipSymbol.startsWith(me + "-");
+    const side = t.type === "SELL" ? "sell" : "buy";
+    return `<tr class="${ours ? "ours" : "theirs"}"><td>${escapeHtml(fmtTime(t.timestamp))}</td><td>${escapeHtml(shortWp(t.waypointSymbol))}</td><td>${escapeHtml(t.shipSymbol)}</td><td class="side-${side}">${side}</td><td>${fmt(t.units)}</td><td>${fmt(t.pricePerUnit)}c</td></tr>`;
+  }).join("");
+}
+subscribe("transactions", () => { if (!$("view-markets").hidden) renderMktTrades(); });
+
+$("ops-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-seg]");
+  if (!b) return;
+  opsSeg = b.dataset.seg;
+  $("ops-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  $("ops-chain").hidden = opsSeg !== "chain";
+  $("automation-feed").hidden = opsSeg !== "automation";
+  $("ops-notes-body").hidden = opsSeg !== "notes";
+  $("ops-seg-count").textContent = opsSeg === "chain"
+    ? "what each producer sees: its inputs' supply (bucket) and activity (consumption), the cheapest source, the feed on it"
+    : opsSeg === "automation" ? ($("automation-count")?.textContent ?? "") : "operator's own log/scratchpad, not read by the engine";
+  if (opsSeg === "automation") renderAutomationFeed();
+  if (opsSeg === "notes") renderNotes();
+});
+
 subscribe("prices", () => {
   if (!$("view-markets").hidden) renderMktPrices();
   refreshFeedFormSelects();

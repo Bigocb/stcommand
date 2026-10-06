@@ -510,6 +510,30 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_get_market_transactions",
+    {
+      title: "Market transactions (all agents)",
+      description: "Recent buy/sell transactions at markets as the markets themselves report them — every agent's ships, not just ours. Use it to tell whether a price move was our delivery/buy or someone else's, and to see who else trades a good. Filter by good and/or waypoint; defaults to the home system, last 24h, newest first.",
+      inputSchema: {
+        good: z.string().optional(),
+        waypoint: z.string().optional(),
+        sinceHours: z.number().min(0.25).max(24 * 14).default(24),
+        limit: z.number().int().min(1).max(1000).default(100),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ good, waypoint, sinceHours, limit }) => {
+      try {
+        const since = new Date(Date.now() - sinceHours * 3_600_000).toISOString();
+        const transactions = await w.store.marketTransactions({ good: good?.toUpperCase(), waypointSymbol: waypoint, systemSymbol: waypoint ? undefined : w.fleet.homeSystem, since, limit });
+        return textResult({ agent: w.agentSymbol, since, transactions });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_keeper_markets",
     {
       title: "Keeper priority markets",

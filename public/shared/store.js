@@ -87,6 +87,9 @@ export let priceGoods = [];
  *  which is a moment-in-time, staleness-filtered subset. */
 export let priceWaypointsByGood = {};
 export let pricePoints = [];
+/** Market transactions for the Prices tab (every agent's ships, as the market reports them) — `/api/market-transactions`. */
+export let marketTransactions = [];
+export let marketTransactionsAgent = "";
 
 export let contracts = [];
 export let missions = [];
@@ -384,6 +387,19 @@ export async function loadPrices(good, spanMs = 48 * 3600 * 1000, waypoint = "")
     const res = await fetch(`/api/prices?good=${encodeURIComponent(good)}&since=${encodeURIComponent(since)}${waypointParam}`);
     pricePoints = (await res.json()).points ?? [];
     notify("prices");
+  } catch (e) { console.error(e); }
+}
+
+export async function loadMarketTransactions(good, spanMs = 24 * 3600 * 1000, waypoint = "") {
+  if (!good) return;
+  const since = new Date(Date.now() - spanMs).toISOString();
+  const waypointParam = waypoint ? `&waypoint=${encodeURIComponent(waypoint)}` : "";
+  try {
+    const res = await fetch(`/api/market-transactions?good=${encodeURIComponent(good)}&since=${encodeURIComponent(since)}${waypointParam}&limit=150`);
+    const body = await res.json();
+    marketTransactions = body.transactions ?? [];
+    marketTransactionsAgent = body.agent ?? "";
+    notify("transactions");
   } catch (e) { console.error(e); }
 }
 

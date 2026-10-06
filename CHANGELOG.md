@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck: trades strip, two-row Ops page, per-material hold; Tower: per-material hold (2026-10-06)
+
+Operator asks: (1) expose `market_transactions` — new `GET /api/market-transactions?good&waypoint&since&limit`
+(`Store.marketTransactions`), MCP `stcommand_get_market_transactions`, and a Trades table beside "Selling here" on
+Deck's Prices tab (ours highlighted, other agents dimmed) so a price move can be matched to who traded. (2) Deck is
+a fixed-height dashboard and a third row is unreachable: Ops is now two rows — a segmented top panel (Supply chain /
+Automation / Notes) over Contracts + Missions. (3) The mission `onlyMaterials` pacing field is now a buy/hold toggle
+on each outstanding material in Deck's and Tower's mission cards; holding every material is refused (use Stop).
+
 ## Mission `onlyMaterials`: stop the fallback buy of an expensive secondary material (2026-10-06)
 
 Live: the FAB_MATS inflation guard paused that material twice (21:30, 23:34) and each time the mission fell through to

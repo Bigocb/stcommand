@@ -1330,6 +1330,23 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  /** Market transactions — ours and other agents' — for the Prices tab's trades strip and ad-hoc "was that drop us?" checks. */
+  router.get("/market-transactions", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const good = typeof req.query.good === "string" && req.query.good ? req.query.good.toUpperCase() : undefined;
+    const waypointSymbol = typeof req.query.waypoint === "string" && req.query.waypoint ? req.query.waypoint : undefined;
+    const since = String(req.query.since ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString());
+    const limit = Number(req.query.limit ?? 200);
+    try {
+      const rows = await w.store.marketTransactions({ good, waypointSymbol, systemSymbol: waypointSymbol ? undefined : w.fleet.homeSystem, since, limit: Number.isFinite(limit) ? limit : 200 });
+      res.json({ transactions: rows, agent: w.agentSymbol });
+    } catch (err) {
+      console.error("[dashboard] /market-transactions error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/prices", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

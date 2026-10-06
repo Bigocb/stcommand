@@ -1434,6 +1434,27 @@ export class Store {
     );
   }
 
+  /** Market transactions (ours and other agents', as each market read reports them), newest first. */
+  async marketTransactions(opts: { good?: string; waypointSymbol?: string; systemSymbol?: string; since: string; limit?: number }): Promise<{ waypointSymbol: string; shipSymbol: string; tradeSymbol: string; type: string; units: number; pricePerUnit: number; totalPrice: number; timestamp: string }[]> {
+    const where: string[] = ["timestamp >= $1"];
+    const params: unknown[] = [opts.since];
+    if (opts.good) { params.push(opts.good); where.push(`trade_symbol = $${params.length}`); }
+    if (opts.waypointSymbol) { params.push(opts.waypointSymbol); where.push(`waypoint_symbol = $${params.length}`); }
+    if (opts.systemSymbol) { params.push(opts.systemSymbol); where.push(`system_symbol = $${params.length}`); }
+    params.push(Math.min(Math.max(1, Math.floor(opts.limit ?? 200)), 1000));
+    const res = await withPool(this.pool, (c) =>
+      c.query<{ waypoint_symbol: string; ship_symbol: string; trade_symbol: string; type: string; units: number; price_per_unit: number; total_price: number; timestamp: Date }>(
+        `SELECT waypoint_symbol, ship_symbol, trade_symbol, type, units, price_per_unit, total_price, timestamp
+           FROM market_transactions WHERE ${where.join(" AND ")} ORDER BY timestamp DESC LIMIT $${params.length}`,
+        params,
+      ),
+    );
+    return res.rows.map((r) => ({
+      waypointSymbol: r.waypoint_symbol, shipSymbol: r.ship_symbol, tradeSymbol: r.trade_symbol, type: r.type,
+      units: Number(r.units), pricePerUnit: Number(r.price_per_unit), totalPrice: Number(r.total_price), timestamp: new Date(r.timestamp).toISOString(),
+    }));
+  }
+
   /** Short memo for latestMarketSnapshots(): 16 call sites (feeds' sellPriceAt/supplyAt per carrier per 2 s tick,
    *  the route list, keepers) each did a full `SELECT * FROM market_latest`. Invalidated by every write below, so a
    *  fresh market read is visible on the next call; otherwise reused for a few seconds. */

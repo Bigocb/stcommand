@@ -362,6 +362,10 @@ export class FleetManager {
   private explorersParkedAlerted = false;
   readonly doctrine: Doctrine;
   private systemSymbol = "";
+  /** The home system this fleet operates in (read-only view of `systemSymbol`). */
+  get homeSystem(): string {
+    return this.systemSymbol;
+  }
   private positions: WaypointPos[] = [];
   private rawWaypoints: components["schemas"]["Waypoint"][] = [];
   private markets: MarketSnapshot[] = [];

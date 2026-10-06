@@ -422,3 +422,26 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .ch-tag.bad{color:var(--red);border-color:rgba(255,91,91,.4)}
 .ch-tag.dim{color:var(--dim2)}
 .ch-cell.dim,.ch-head .dim{color:var(--dim2)}
+
+/* Prices tab: market list beside the trades strip (operator 2026-10-06: expose market_transactions in Deck). */
+.mk-price-split{display:grid;grid-template-columns:1fr 1.4fr;gap:14px;min-height:0}
+.mk-trades-scroll{max-height:220px;overflow:auto;border:1px solid var(--hair);border-radius:4px}
+.mk-trades-scroll table{font-size:11px}
+.mk-trades-scroll td{padding:4px 8px;font-family:var(--mono)}
+.mk-trades-scroll tr.ours td{color:var(--bone)}
+.mk-trades-scroll tr.theirs td{color:var(--dim)}
+.mk-trades-scroll td.side-sell{color:var(--amber)}
+.mk-trades-scroll td.side-buy{color:var(--green)}
+#ops-seg{flex:0 0 auto;width:360px}
+#ops-seg-count{flex:1;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Inline display styles beat [hidden] (see the Keeper-tab note above), so the Ops tab bodies use classes only. */
+.ops-notes-body{overflow:auto;flex:1;display:flex;flex-direction:column}
+.ops-notes-body[hidden]{display:none}
+.panel-b[hidden]{display:none}
+
+/* Mission material buy/hold toggle (onlyMaterials) — operator 2026-10-06. */
+.mat-hold{font-size:9px;padding:2px 8px;line-height:1.4}
+/* Markets page: long Dispatch / Miner-preference / Selling-here lists scroll inside their panel instead of
+   pushing the page past two rows (operator 2026-10-06). */
+#mk-dispatch,#mk-miner-pref-list{max-height:200px;overflow:auto}
+#mk-price-market-list{max-height:220px;overflow:auto}

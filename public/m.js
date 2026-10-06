@@ -1573,7 +1573,10 @@ function renderMoreMissions() {
     const matRows = (m.materials ?? []).map((mat) => {
       const pct = mat.required ? Math.round((mat.fulfilled / mat.required) * 100) : 0;
       const done = mat.fulfilled >= mat.required;
-      return `<div class="prog-row"><span>${escapeHtml(mat.tradeSymbol)}</span><span class="pr-pct">${done ? "supplied" : `${mat.fulfilled}/${mat.required}`}</span></div><div class="prog-track"><i style="width:${pct}%"></i></div>`;
+      const only = m.pacing?.onlyMaterials ?? [];
+      const held = only.length > 0 && !only.includes(mat.tradeSymbol);
+      const hold = done ? "" : `<button class="btn mat-hold${held ? " warn" : ""}" data-act="toggle-material" data-wp="${escapeHtml(m.targetWaypoint)}" data-material="${escapeHtml(mat.tradeSymbol)}" title="${held ? "Held — tap to buy this material again" : "Buying — tap to hold this material"}">${held ? "held" : "buying"}</button>`;
+      return `<div class="prog-row"><span>${escapeHtml(mat.tradeSymbol)} ${hold}</span><span class="pr-pct">${done ? "supplied" : `${mat.fulfilled}/${mat.required}`}</span></div><div class="prog-track"><i style="width:${pct}%"></i></div>`;
     }).join("");
     const allDone = (m.materials ?? []).every((mat) => mat.fulfilled >= mat.required);
     const crew = m.assignedShips ?? [];
@@ -1802,6 +1805,14 @@ $("more-missions").addEventListener("click", async (e) => {
       const row = b.closest(".mission-pacing");
       const val = (cls) => { const v = row.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
       await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), recoverPct: val(".mp-rec") });
+    } else if (act === "toggle-material") {
+      const m = missions.find((x) => x.targetWaypoint === wp);
+      const outstanding = (m?.materials ?? []).filter((x) => x.fulfilled < x.required).map((x) => x.tradeSymbol);
+      const only = m?.pacing?.onlyMaterials ?? [];
+      const buying = new Set(only.length ? only.filter((x) => outstanding.includes(x)) : outstanding);
+      if (buying.has(b.dataset.material)) buying.delete(b.dataset.material); else buying.add(b.dataset.material);
+      if (buying.size === 0) { alert("That would hold every material — use Stop to pause the whole mission."); b.disabled = false; return; }
+      await api("POST", "/api/missions/pacing", { waypoint: wp, onlyMaterials: outstanding.every((x) => buying.has(x)) ? null : [...buying] });
     } else {
       await api("POST", `/api/missions/${act}`, { waypoint: wp });
     }

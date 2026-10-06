@@ -543,3 +543,7 @@ body {
 .chain-health .ch-tag{font-size:8px;text-transform:uppercase;border:1px solid rgba(255,255,255,.18);padding:1px 4px;margin-right:2px;opacity:.9}
 .chain-health .ch-tag.good{color:#58d68d}.chain-health .ch-tag.warn{color:#ffc778}.chain-health .ch-tag.bad{color:#ff5b5b}
 .chain-health .dim{opacity:.7}
+
+/* Mission material buy/hold toggle (onlyMaterials). */
+.mat-hold{font-size:10px;padding:2px 8px;margin-left:6px}
+.mat-hold.warn{color:var(--amber,#f5a524);border-color:var(--amber,#f5a524)}
