@@ -1173,6 +1173,11 @@ export class FleetManager {
       contractNeeded: (good) => this.contracts?.outstandingUnitsFor(good) ?? Promise.resolve(0),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
+      stopManualRoute: async (reason) => {
+        if (this.dispatcher.assignmentFor(shipSymbol)?.source !== "manual") return;
+        await this.setManualDispatch(shipSymbol, undefined);
+        this.log(`${shipSymbol}: pinned route cleared — ${reason}`);
+      },
       claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
       releaseRoute: () => this.dispatcher.release(shipSymbol),
       recordSale: (good, sellAt, units) => this.dispatcher.recordSale(good, sellAt, units),

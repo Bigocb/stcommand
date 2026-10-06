@@ -115,6 +115,8 @@ export interface TraderOptions {
   /** Called at the specific moments marginFloor/maxLossPct/snapshotMaxAgeMin
    *  actually change this ship's decision — see doctrine.ts's `recordFire()`. */
   recordDoctrineFire?: (key: string) => void;
+  /** Unpin this ship's manual route (the pinned-route safety stop below). */
+  stopManualRoute?: (reason: string) => Promise<void>;
   /** Ask the operator (approvals gate) whether to sell a held lot below its loss floor. Non-blocking: undefined
    *  while pending, true approved, false denied. */
   requestApproval?: (kind: string, opts: { shipSymbol?: string; detail: string; cost?: number; timeoutMs: number; onTimeout: "approve" | "deny"; denyCooldownMs?: number }) => Promise<boolean | undefined>;
@@ -226,6 +228,9 @@ export class TraderAgent {
   private readonly marginFloor: number;
   private readonly intelMaxAgeMin: () => number;
   private readonly recordDoctrineFire?: TraderOptions["recordDoctrineFire"];
+  private readonly stopManualRoute?: TraderOptions["stopManualRoute"];
+  /** Consecutive losing trips on the ship's manual route — two in a row unpins it. */
+  private manualLosingTrips = 0;
   private readonly requestApproval?: TraderOptions["requestApproval"];
   /** When each held-below-floor good was first seen held, so the approval ask waits out a brief dip. */
   private heldBelowFloorSince = new Map<string, number>();
@@ -341,6 +346,7 @@ export class TraderAgent {
     this.marginFloor = opts.marginFloor ?? 10;
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
     this.recordDoctrineFire = opts.recordDoctrineFire;
+    this.stopManualRoute = opts.stopManualRoute;
     this.requestApproval = opts.requestApproval;
     this.atlas = opts.atlas;
     this.store = opts.store;
@@ -1068,6 +1074,20 @@ export class TraderAgent {
    * custom-route form is the only thing that ever creates a manual "direct"
    * assignment, so this stays scoped to exactly that.
    */
+  /** True when `route` is exactly this ship's own manually pinned direct route. */
+  private isPinnedRoute(route: { good: string; buyAt: string; sellAt: string }): boolean {
+    const a = this.assignedRoute?.();
+    return a?.source === "manual" && a.role === "direct" && a.good === route.good && a.buyAt === route.buyAt && a.sellAt === route.sellAt;
+  }
+
+  /** The pinned-route safety stop: unpin, so the ship returns to the dispatcher and its normal margin checks. */
+  private async haltManualRoute(reason: string): Promise<void> {
+    this.manualLosingTrips = 0;
+    this.log(`pinned route stopped: ${reason}`);
+    this.onActivity?.("route-stopped", `pinned route stopped: ${reason}`, undefined, this.symbol);
+    await this.stopManualRoute?.(reason);
+  }
+
   private isManualLegFor(good: string): boolean {
     const a = this.assignedRoute?.();
     return a?.source === "manual" && a.role === "direct" && a.good === good;
@@ -1886,6 +1906,10 @@ export class TraderAgent {
       const paid = (this.heldCost.get(item.symbol) ?? 0) * soldAny;
       const delta = totalReceived - paid;
       this.log(`sold ${soldAny}u ${item.symbol} at ${leg.sellAt} (${delta >= 0 ? "+" : ""}${delta}c)`);
+      if (this.isManualLegFor(item.symbol) && paid > 0) {
+        this.manualLosingTrips = delta < 0 ? this.manualLosingTrips + 1 : 0;
+        if (this.manualLosingTrips >= 2) await this.haltManualRoute(`two losing trips in a row on ${item.symbol} (last ${delta}c)`);
+      }
       // Only the units actually sold are done — a lot cut short by the loss
       // floor left real cargo in the hold, and deleting the pin here would
       // hand it to clearLeftoverCargo()'s sweep instead of retrying this
@@ -1928,6 +1952,17 @@ export class TraderAgent {
       // price, buying now would lock in a loss. Refuse and let the next tick
       // re-evaluate (or pick a different route) instead of buying on a bad basis.
       const liveBuy = await this.liveBuyPrice(route.buyAt, route.good);
+      // A pinned route skips the margin floor below on purpose, but never a negative margin. The sell side is the
+      // destination's latest recorded price, not the price typed when the route was pinned: 2026-10-06, a route
+      // pinned at sell 266 kept buying at H55 while its own buying ran the price from 167 to 552 and its selling
+      // pushed D47's from 266 to 127, losing ~50k in 18 minutes.
+      if (liveBuy !== undefined && this.isPinnedRoute(route)) {
+        const destSell = this.priceTable.get(route.sellAt)?.get(route.good)?.sell;
+        if (destSell !== undefined && liveBuy >= destSell) {
+          await this.haltManualRoute(`live buy ${liveBuy}c for ${route.good} at ${route.buyAt} is at or above the latest sell ${destSell}c at ${route.sellAt}`);
+          return true;
+        }
+      }
       if (liveBuy !== undefined && liveBuy > route.buyPrice) {
         const liveMargin = route.sellPrice - liveBuy;
         // Same operator-override reasoning as findRoute()'s ignoreProfitFloor

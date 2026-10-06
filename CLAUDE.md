@@ -180,6 +180,10 @@ Measured, not from the game docs; re-verify on a new reset. Raw evidence is in t
 
 - **Price is a function of stock**, path-independent and reversible. Our own units move it ~4-5% per tradeVolume lot on
   each side (FAB_MATS 20-unit lots +3.5-5.6%); markets update on a ~30 minute tick.
+- **Fast loops crash the spread.** 2026-10-06, THEOREM_DEV_2 (X1-XJ90): 40 units of ALUMINUM every ~90s (tradeVolume 60)
+  moved prices ~8-10% per load at both ends, 167 -> 552 to buy and 266 -> 127 to sell in 35 minutes. Pace a loop to
+  the market's recovery, don't run it flat out. High-margin, low-volume goods (DRUGS, ASSAULT_RIFLES at tradeVolume 20)
+  barely moved for 4-8 units.
 - **`activity`** (RESTRICTED/WEAK/GROWING/STRONG): for an export it is production strength, for an import consumption
   strength. An export is RESTRICTED while any input's supply is SCARCE; it reached WEAK once inputs were LIMITED or
   better. What lifts it above WEAK is unproven; the community supply-chain graph shows FAB_MATS STRONG with iron AND

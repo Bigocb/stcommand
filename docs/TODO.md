@@ -7,6 +7,16 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Engine flaws found starting THEOREM_DEV_2 fresh (raised 2026-10-06).** (1) A tour ship holds in place while
+  a keeper-probe approval is pending (`tour scout: holding at ... — keeper probe approval pending`), so a new tenant's
+  first tour never starts until someone decides. (2) `maybeBuyShip`'s "best-scored" fallback proposes drones even with
+  `minerTarget`/`siphonTarget` 0; only `shipCap:FRAME_DRONE` 0 stops it. (3) An idle trader with no viable route
+  ("discovering prices...") flies back and forth between the only two known markets, refuelling each time, instead of
+  heading for an unpriced one. (4) A new tenant's command frigate is hull-classified as a miner at boot regardless of
+  `minerTarget`. (5) An MCP tool error can surface as the literal text `[object Object]` (seen on
+  `stcommand_dispatch_ship` for a ship mid-tour). (6) A tour shuttle can get stuck bouncing between two far markets
+  (J61 <-> J62), refuelling every 4 minutes.
+
 - [~] **Batch ship reads: serve agents from a periodic `GET /my/ships` sweep (raised 2026-10-06, operator;
   Phase 1 SHIPPED 2026-10-06).** Every agent step starts with `GET /my/ships/:id` (`ShipAgent.refresh` /
   `TraderAgent.refresh`, ~85-90 per five minutes at 40 ships, the largest single use of the 90-a-minute budget),

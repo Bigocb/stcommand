@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Pinned routes stop themselves at a negative margin or after two losing trips (2026-10-06)
+
+A route pinned with "Assign route" / `stcommand_assign_route` is an operator override: the trader skipped the live
+margin floor before buying (comparing against the sell price typed when it was pinned) and the loss floor when selling.
+On THEOREM_DEV_2 a pinned ALUMINUM H55 -> D47 route made ~3.9k a trip for 16 minutes, then kept going while its own
+trades ran H55's buy price from 167 to 552 and pushed D47's sell price from 266 to 127, losing ~50k in 18 minutes.
+`TraderAgent` now still skips the margin *floor* for a pinned route, but refuses to buy when the live buy price is at or
+above the destination's latest recorded sell price, and counts losing trips on the pinned good: two in a row, or the
+negative-margin check, unpins the route (`stopManualRoute` -> `FleetManager.setManualDispatch(ship, undefined)`), logs
+`pinned route stopped: <reason>` and returns the ship to the dispatcher. Tests: `tests/pinnedRouteSafety.test.ts`.
+
 ## Ship-sweep measurement dated by request, with status transitions (2026-10-06)
 
 The first Phase 1 summary read 80% matched, but the sweep copy was dated by when the paged list came back. A ship that
