@@ -82,3 +82,56 @@ describe("pinned route safety stop", () => {
     assert.match(reasons[0]!, /two losing trips in a row on ALUMINUM/);
   });
 });
+
+describe("pinned route affordability", () => {
+  function pinnedTrader(opts: { cached: number; live: number; at?: string; onBuy?: (units: number) => void; onNav?: (wp: string) => void }) {
+    const ship = makeShip();
+    if (opts.at) ship.nav.waypointSymbol = opts.at;
+    const t = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getMyAgent: async () => ({ credits: opts.live }),
+        getMarket: async () => ({ tradeGoods: [{ symbol: "ALUMINUM", purchasePrice: 167, sellPrice: 100, tradeVolume: 20 }] }),
+        purchaseCargo: async (_s: string, _g: string, units: number) => {
+          opts.onBuy?.(units);
+          return { cargo: { capacity: 40, units, inventory: [{ symbol: "ALUMINUM", units }] }, transaction: { pricePerUnit: 167, totalPrice: 167 * units } };
+        },
+      } as any,
+      assignedRoute: () => pinned,
+      getCredits: () => opts.cached,
+      getMarketSnapshots: async () => [
+        { waypointSymbol: "X1-A-A1", goodSymbol: "ALUMINUM", purchasePrice: 167, sellPrice: 80, tradeVolume: 20 },
+        { waypointSymbol: "X1-A-A2", goodSymbol: "ALUMINUM", purchasePrice: 400, sellPrice: 266, tradeVolume: 20 },
+      ],
+    });
+    t.withWorld([{ symbol: "X1-A-A1", x: 0, y: 0 }, { symbol: "X1-A-A2", x: 10, y: 0 }, { symbol: "X1-A-A3", x: 20, y: 0 }]);
+    (t as any).ensureDocked = async () => {};
+    (t as any).navigateTo = async (wp: string) => { opts.onNav?.(wp); };
+    (t as any).discoverPrices = async () => { opts.onNav?.("DISCOVER"); return true; };
+    return t;
+  }
+
+  it("sizes the load against the live balance when the cached one is stale", async () => {
+    let bought = 0;
+    const t = pinnedTrader({ cached: 242, live: 130_000, onBuy: (u) => { bought += u; } });
+    await t.tick();
+    assert.ok(bought > 0, "a stale cached balance must not stop a pinned buy the live balance can afford");
+  });
+
+  it("waits at the buy market instead of wandering when it really can't afford a load", async () => {
+    const navs: string[] = [];
+    let bought = 0;
+    const t = pinnedTrader({ cached: 100, live: 100, onBuy: (u) => { bought += u; }, onNav: (wp) => navs.push(wp) });
+    await t.tick();
+    assert.equal(bought, 0);
+    assert.deepEqual(navs, [], "no discovery flight, no navigation away from the buy market");
+  });
+
+  it("heads to its buy market when it is somewhere else and can't buy", async () => {
+    const navs: string[] = [];
+    const t = pinnedTrader({ cached: 100, live: 100, at: "X1-A-A3", onNav: (wp) => navs.push(wp) });
+    await t.tick();
+    assert.deepEqual(navs, ["X1-A-A1"]);
+  });
+});

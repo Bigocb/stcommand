@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Pinned routes plan against the live balance and wait at their buy market (2026-10-06)
+
+Right after a big sale the fleet's cached balance trails the wallet by minutes. A pinned trader sized its load against
+that cached figure, so on THEOREM_DEV_2 ships docked at their buy market were rejected with `volume=0 ... credits=242`
+while the wallet held 130k, and the fallback sent them off empty to "discover prices" — four times in one evening, each
+costing a 20-30 minute empty round trip. `TraderAgent.runArbitrage()` now reads the live balance (`spendableNow()`) before
+planning a pinned route and route planning prefers it while it is under a minute old (`creditsForPlanning()`), and a
+pinned ship that still can't fly its route goes to (or stays at) its buy market and retries next tick instead of
+wandering. Tests: `tests/pinnedRouteSafety.test.ts` ("pinned route affordability").
+
 ## Pinned routes stop themselves at a negative margin or after two losing trips (2026-10-06)
 
 A route pinned with "Assign route" / `stcommand_assign_route` is an operator override: the trader skipped the live

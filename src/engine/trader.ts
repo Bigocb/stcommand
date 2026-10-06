@@ -231,6 +231,8 @@ export class TraderAgent {
   private readonly stopManualRoute?: TraderOptions["stopManualRoute"];
   /** Consecutive losing trips on the ship's manual route — two in a row unpins it. */
   private manualLosingTrips = 0;
+  /** A live balance read for planning a pinned route, preferred over the fleet's cached one while fresh. */
+  private planningCredits?: { value: number; at: number };
   private readonly requestApproval?: TraderOptions["requestApproval"];
   /** When each held-below-floor good was first seen held, so the approval ask waits out a brief dip. */
   private heldBelowFloorSince = new Map<string, number>();
@@ -1088,6 +1090,17 @@ export class TraderAgent {
     await this.stopManualRoute?.(reason);
   }
 
+  /**
+   * The balance route planning sizes a load against. Normally the fleet's cached figure, which can trail a big sale by
+   * minutes; for a pinned route runArbitrage() reads the live balance first. 2026-10-06: pinned ships at their buy
+   * market were rejected with `credits=242` while the wallet held 130k, and flew off to discover prices, four times.
+   */
+  private creditsForPlanning(): number {
+    const p = this.planningCredits;
+    if (p && Date.now() - p.at < 60_000) return p.value;
+    return this.getCredits?.() ?? Infinity;
+  }
+
   private isManualLegFor(good: string): boolean {
     const a = this.assignedRoute?.();
     return a?.source === "manual" && a.role === "direct" && a.good === good;
@@ -1240,7 +1253,7 @@ export class TraderAgent {
     const margin = sell.sell - buy.buy;
     const floor = effectiveMarginFloor(this.marginFloor, buy.buy);
     if (!ignoreProfitFloor && margin <= floor) return `margin ${margin}c <= floor ${Math.round(floor)}c`;
-    const credits = this.getCredits?.() ?? Infinity;
+    const credits = this.creditsForPlanning();
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
     const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
     const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
@@ -1329,7 +1342,7 @@ export class TraderAgent {
       this.recordDoctrineFire?.("marginFloor");
       return undefined;
     }
-    const credits = this.getCredits?.() ?? Infinity;
+    const credits = this.creditsForPlanning();
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
     // The trip's real ceiling is the hold and the wallet — buy.volume/
     // sell.volume are each market's own per-transaction limit, which the buy
@@ -1384,7 +1397,7 @@ export class TraderAgent {
         this.recordDoctrineFire?.("marginFloor");
         continue;
       }
-      const credits = this.getCredits?.() ?? Infinity;
+      const credits = this.creditsForPlanning();
       const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
       // See viableRoute()'s matching comment: the trip's ceiling is the hold
       // and the wallet, capped at a few lots' worth rather than either
@@ -1938,6 +1951,11 @@ export class TraderAgent {
     if (assignedLeg) {
       await this.warmPositioning(this.systemOf(assignedLeg.buyAt));
       await this.warmPositioning(this.systemOf(assignedLeg.sellAt), this.systemOf(assignedLeg.buyAt));
+      try {
+        this.planningCredits = { value: await this.spendableNow(), at: Date.now() };
+      } catch {
+        this.planningCredits = undefined;
+      }
     }
     for (;;) {
       const route = this.findRoute();
@@ -2067,6 +2085,15 @@ export class TraderAgent {
       return true;
     }
 
+    // A pinned ship that can't fly its route right now (usually: not enough credits yet) waits at its buy market
+    // instead of flying off empty to discover prices — the route is the operator's choice, and the next tick retries.
+    if (assignedLeg) {
+      if (this.ship.nav.waypointSymbol !== assignedLeg.buyAt) {
+        await this.navigateTo(assignedLeg.buyAt);
+        return true;
+      }
+      return false;
+    }
     // Prefer the assigned route's own buy/sell markets (that's where the
     // dispatcher wants us) for the price-discovery fallback.
     const direct = this.asDirectLeg(assigned);
