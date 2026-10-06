@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Trader: selling below the loss floor becomes an approval (2026-10-06)
+
+A trader released from a subsidised feed holds its cargo forever once the live price is under its cost basis (THEO-30
+sat 50 minutes at F52 with 40 IRON bought at 222c; THEOREM_DEV-3 the same at F45). After 5 minutes held, the trader
+now raises a `sellBelowFloor:<ship>:<good>` approval with the price, cost basis and loss; approve sells on the spot,
+deny or a 30-minute timeout keeps holding (deny cooldown 30 min before it asks again). Operator request.
+
 ## Deck: trades strip, two-row Ops page, per-material hold; Tower: per-material hold (2026-10-06)
 
 Operator asks: (1) expose `market_transactions` — new `GET /api/market-transactions?good&waypoint&since&limit`

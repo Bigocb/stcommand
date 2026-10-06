@@ -115,6 +115,9 @@ export interface TraderOptions {
   /** Called at the specific moments marginFloor/maxLossPct/snapshotMaxAgeMin
    *  actually change this ship's decision — see doctrine.ts's `recordFire()`. */
   recordDoctrineFire?: (key: string) => void;
+  /** Ask the operator (approvals gate) whether to sell a held lot below its loss floor. Non-blocking: undefined
+   *  while pending, true approved, false denied. */
+  requestApproval?: (kind: string, opts: { shipSymbol?: string; detail: string; cost?: number; timeoutMs: number; onTimeout: "approve" | "deny"; denyCooldownMs?: number }) => Promise<boolean | undefined>;
   /** Where the warehouse ship is parked, if one is designated — the rendezvous point for buy/sell-role legs. */
   getWarehouseShip?: () => { shipSymbol: string; waypointSymbol: string } | undefined;
   /** Units of a good currently held in the warehouse, for sizing a sell-role withdrawal. */
@@ -191,6 +194,8 @@ export interface WaypointPos {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** How often a halted agent re-checks whether the fleet has resumed. */
+/** How long a trader holds a lot below its loss floor before asking the operator for a decision. */
+const HOLD_BEFORE_FLOOR_APPROVAL_MS = 5 * 60_000;
 const HALT_POLL_MS = 1_000;
 
 /**
@@ -218,6 +223,11 @@ export class TraderAgent {
   private readonly marginFloor: number;
   private readonly intelMaxAgeMin: () => number;
   private readonly recordDoctrineFire?: TraderOptions["recordDoctrineFire"];
+  private readonly requestApproval?: TraderOptions["requestApproval"];
+  /** When each held-below-floor good was first seen held, so the approval ask waits out a brief dip. */
+  private heldBelowFloorSince = new Map<string, number>();
+  /** Goods the operator approved selling below the floor — consumed by the next sell. */
+  private floorOverride = new Set<string>();
   private readonly atlas?: GalaxyAtlas;
   private readonly store?: TraderOptions["store"];
   private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
@@ -328,6 +338,7 @@ export class TraderAgent {
     this.marginFloor = opts.marginFloor ?? 10;
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
     this.recordDoctrineFire = opts.recordDoctrineFire;
+    this.requestApproval = opts.requestApproval;
     this.atlas = opts.atlas;
     this.store = opts.store;
     this.getWarehouseShip = opts.getWarehouseShip;
@@ -978,6 +989,34 @@ export class TraderAgent {
   }
 
   /** True when selling at `price` would exceed the allowed loss vs the cost basis. */
+  /**
+   * A lot is below its loss floor: keep holding, or has the operator approved selling it here? After
+   * HOLD_BEFORE_FLOOR_APPROVAL_MS held, raises a `sellBelowFloor:<ship>:<good>` approval with the price, cost basis
+   * and loss; approve sells on the spot, deny or timeout keeps holding (THEO-30 sat 50 min at F52 on feed-subsidised
+   * IRON, 2026-10-06, with nothing surfacing the decision). Returns true when the sale may proceed.
+   */
+  private async floorSaleApproved(good: string, units: number, live: number, cost: number | undefined): Promise<boolean> {
+    if (this.floorOverride.has(good)) { this.floorOverride.delete(good); this.heldBelowFloorSince.delete(good); return true; }
+    this.recordDoctrineFire?.("maxLossPct");
+    this.log(`holding ${units}u ${good}: live sell ${live}c is below loss floor (cost ${cost}c)`);
+    const since = this.heldBelowFloorSince.get(good) ?? Date.now();
+    this.heldBelowFloorSince.set(good, since);
+    if (!this.requestApproval || Date.now() - since < HOLD_BEFORE_FLOOR_APPROVAL_MS) return false;
+    const loss = cost !== undefined ? (cost - live) * units : undefined;
+    const decision = await this.requestApproval(`sellBelowFloor:${this.symbol}:${good}`, {
+      shipSymbol: this.symbol,
+      detail: `${this.symbol} is holding ${units}u ${good} at ${this.ship.nav.waypointSymbol}: market pays ${live}c, cost basis ${cost ?? "?"}c${loss !== undefined ? ` (loss ${loss}c)` : ""}. Approve to sell here now, deny to keep holding for a better price.`,
+      cost: loss,
+      timeoutMs: 30 * 60_000,
+      onTimeout: "deny",
+      denyCooldownMs: 30 * 60_000,
+    });
+    if (decision !== true) return false;
+    this.heldBelowFloorSince.delete(good);
+    this.log(`operator approved selling ${units}u ${good} below floor at ${live}c`);
+    return true;
+  }
+
   private async exceedsLossFloor(good: string, price: number): Promise<boolean> {
     const cost = await this.costBasis(good);
     if (cost === undefined || cost <= 0) return false;
@@ -1541,9 +1580,7 @@ export class TraderAgent {
     try {
       const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
       if (live !== undefined && !this.isManualLegFor(item.symbol) && !this.isDustLot(item.units, live) && (await this.exceedsLossFloor(item.symbol, live))) {
-        this.recordDoctrineFire?.("maxLossPct");
-        this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
-        return true;
+        if (!(await this.floorSaleApproved(item.symbol, item.units, live, this.heldCost.get(item.symbol)))) return true;
       }
       // A single sellCargo() call is capped at the market's own advertised
       // trade volume per transaction — route.volume upstream can now be well
@@ -1780,9 +1817,7 @@ export class TraderAgent {
       await this.ensureDocked();
       const live = await this.liveSellPrice(leg.sellAt, item.symbol);
       if (live !== undefined && !this.isManualLegFor(item.symbol) && !this.isDustLot(item.units, live) && (await this.exceedsLossFloor(item.symbol, live))) {
-        this.recordDoctrineFire?.("maxLossPct");
-        this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
-        return true;
+        if (!(await this.floorSaleApproved(item.symbol, item.units, live, this.heldCost.get(item.symbol)))) return true;
       }
 
       // A single sellCargo() call is capped at the market's own advertised
