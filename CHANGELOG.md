@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Ship, siphoner, keeper-probe and scanner purchases no longer auto-approve (2026-10-06)
+
+The `buyShip`, `buySiphoner`, `buyKeeperProbe` (both paths) and `installScanner` approvals now deny on timeout, like
+`buyScout` below. Only free decisions (`assignShipRole`, `autoExploreBorrow`) still approve themselves.
+
 ## Scout purchase no longer auto-approves (2026-10-06)
 
 `maybeBuyScout` asked for a `buyScout` approval with `onTimeout: "approve"`, so a silent operator meant the money was

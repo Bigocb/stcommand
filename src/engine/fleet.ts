@@ -2541,7 +2541,7 @@ export class FleetManager {
       detail: `MOUNT_SENSOR_ARRAY_I on ${scout[0]} from ${seller.waypointSymbol} for ${seller.purchasePrice}c`,
       cost: seller.purchasePrice,
       timeoutMs: 2 * 60 * 60_000,
-      onTimeout: "approve",
+      onTimeout: "deny",
     });
     if (approved === undefined) {
       this.log(`scanner install on ${scout[0]} awaiting operator approval`);
@@ -2827,7 +2827,7 @@ export class FleetManager {
           detail: `SHIP_SIPHON_DRONE at ${yard.symbol} for ${available.purchasePrice}c`,
           cost: available.purchasePrice,
           timeoutMs: 2 * 60 * 60_000,
-          onTimeout: "approve",
+          onTimeout: "deny",
         });
         if (approved === undefined) {
           this.log(`siphon drone purchase at ${yard.symbol} awaiting operator approval`);
@@ -3010,13 +3010,12 @@ export class FleetManager {
       // every tick regardless, so this is just a guard clause — no new
       // suspension mechanism needed, the same tick that requested approval
       // just tries again next time and picks the decision up once it exists.
-      // Approves itself after 2h with nobody watching, matching the
-      // fully-automatic behavior this fleet had before the gate existed.
+      // Denies itself after 2h with nobody watching: spending needs an explicit yes.
       const approved = await this.approvals.request("buyShip", {
         detail: `${attempt.type} at ${attempt.yardSymbol} for ${attempt.price}c (${attempt.reason})`,
         cost: attempt.price,
         timeoutMs: 2 * 60 * 60_000,
-        onTimeout: "approve",
+        onTimeout: "deny",
       });
       if (approved === undefined) {
         this.log(`purchase of ${attempt.type} at ${attempt.yardSymbol} awaiting operator approval`);
@@ -4660,7 +4659,7 @@ export class FleetManager {
       detail,
       cost: probe.price,
       timeoutMs: 2 * 60 * 60_000,
-      onTimeout: "approve",
+      onTimeout: "deny",
     });
     if (approved === undefined) {
       this.log(`keeper probe purchase at ${waypointSymbol} awaiting operator approval`);
@@ -4785,7 +4784,7 @@ export class FleetManager {
       detail: `${keeperHullLabel(best.hull)} to ${marketWaypoint} (${goodsCount} goods${recommended ? ", recommended" : `, below the ${minGoods}-good recommended threshold`}) — buying at ${best.waypointSymbol} for ${best.price}c, no keeper stationed at ${marketWaypoint} yet`,
       cost: best.price,
       timeoutMs: 2 * 60 * 60_000,
-      onTimeout: "approve",
+      onTimeout: "deny",
     });
     if (approved === undefined) {
       this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) awaiting operator approval`);
@@ -4986,8 +4985,7 @@ export class FleetManager {
     // not-yet-expired row can't consume anything either way.
     const willApprove =
       row.status === "approved" ||
-      row.status === "auto_approved" ||
-      (row.status === "pending" && new Date(row.expiresAt).getTime() <= Date.now()); // onTimeout: "approve"
+      row.status === "auto_approved"; // a timed-out pending row now denies, so it needs no ship
     if (willApprove) {
       // fleetStatusSummary()'s `waypoint` is each ship's own agent's cached
       // nav — only as fresh as that ship's last tick, which can lag well
@@ -5027,7 +5025,7 @@ export class FleetManager {
       detail: row.detail,
       cost: row.cost,
       timeoutMs: 2 * 60 * 60_000,
-      onTimeout: "approve",
+      onTimeout: "deny",
     });
     if (approved === undefined) return; // still pending, or already resolved this tick
     if (approved === false) {
