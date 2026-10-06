@@ -870,7 +870,7 @@ describe("ShipProxy.ensureInOrbit / ensureDocked: no read-back after the action"
       registry: world(),
     });
     await proxy.ensureInOrbit();
-    assert.equal(proxy.ship.nav.status, "IN_ORBIT");
+    assert.equal((proxy as any).ship.nav.status, "IN_ORBIT");
     assert.equal(reads, 0);
   });
 
@@ -884,7 +884,7 @@ describe("ShipProxy.ensureInOrbit / ensureDocked: no read-back after the action"
       registry: world(),
     });
     await proxy.ensureDocked();
-    assert.equal(proxy.ship.nav.status, "DOCKED");
+    assert.equal((proxy as any).ship.nav.status, "DOCKED");
     assert.equal(reads, 0);
   });
 
@@ -898,7 +898,7 @@ describe("ShipProxy.ensureInOrbit / ensureDocked: no read-back after the action"
       registry: world(),
     });
     await proxy.ensureInOrbit();
-    assert.equal(proxy.ship.nav.status, "IN_ORBIT");
+    assert.equal((proxy as any).ship.nav.status, "IN_ORBIT");
     assert.equal(reads, 1);
   });
 });
