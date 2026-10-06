@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { SpaceTradersAPI } from "../core/client.js";
+import { API_PRIORITY, runWithApiPriority, type SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import { ShipAgent, REFINE_RECIPES } from "./agent.js";
 import { TraderAgent, type TraderOptions } from "./trader.js";
@@ -7148,6 +7148,12 @@ export class FleetManager {
    *  every one (the core loop fires every ~2s; recording every pass would be
    *  ~30 rows/minute/tenant for no diagnostic benefit while healthy). */
   private static readonly TICK_WARN_MS = 3_000;
+  /** How urgent each loop's own API calls are — see API_PRIORITY. */
+  private static readonly LOOP_API_PRIORITY: Record<string, number> = {
+    core: API_PRIORITY.ROUTINE,
+    feeds: API_PRIORITY.CRITICAL,
+    maintenance: API_PRIORITY.DEFERRABLE,
+  };
   /** Pause between passes of each coordinator loop. */
   private static readonly CORE_INTERVAL_MS = 2_000;
   private static readonly FEEDS_INTERVAL_MS = 2_000;
@@ -7238,7 +7244,10 @@ export class FleetManager {
     const rec: PassRecorder = { loop, steps: [] };
     const startedAt = Date.now();
     try {
-      await this.passRecorder.run(rec, fn);
+      // Every game-API call the pass makes carries its loop's urgency: feeds
+      // move real cargo (critical), the control loop's reads are routine, and
+      // maintenance — purchase checks, refreshes — can wait a few seconds.
+      await runWithApiPriority(FleetManager.LOOP_API_PRIORITY[loop] ?? API_PRIORITY.ROUTINE, () => this.passRecorder.run(rec, fn));
     } finally {
       await this.flushPass(rec, startedAt);
     }

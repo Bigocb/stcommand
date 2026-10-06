@@ -1,5 +1,11 @@
 # Per-request API priority — threading Scheduler priority into the HTTP layer
 
+> **Status (2026-10-06): built, differently from the plan below.** Priority now rides on AsyncLocalStorage
+> (`runWithApiPriority`), not the Client's single mutable field, because the coordinator loops and the scheduler make
+> calls at the same moment. Tiers are `API_PRIORITY` in `src/core/client.ts` (boot 0, critical 1, routine 2, deferrable 3,
+> background 4), the scheduler maps task tiers with `taskToApiPriority()`, each loop has its own, and waiting calls age
+> up a tier per 20s. See the CHANGELOG entry "API calls carry an urgency".
+
 Prompted by comparing stcommand's rate-limiting design against another
 SpaceTraders app's API-governance approach. Not an incident writeup — no bug
 has bitten us here yet. This documents a real gap found while comparing, so

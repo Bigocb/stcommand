@@ -91,6 +91,10 @@ export class Scheduler {
    *  api-request-priority-plan.md. Optional so a Scheduler built without a
    *  live API client (e.g. a test) behaves exactly as before. */
   private readonly setClientPriority?: (priority: number) => void;
+  /** Runs a task's work with its API urgency scoped to just that work (see
+   *  runWithApiPriority). Preferred over setClientPriority, which flips one
+   *  field shared by everything else making calls at the same moment. */
+  private readonly runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>) => Promise<T>;
   /**
    * Counters for the heartbeat below. Every one of them exists because a
    * failure of that kind was, at some point today, completely silent: a task
@@ -106,7 +110,7 @@ export class Scheduler {
   private lastHeartbeat = Date.now();
   private lastRanAt = Date.now();
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>) => Promise<T> } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -124,6 +128,7 @@ export class Scheduler {
     this.log = opts.log ?? (() => {});
     this.heartbeatMs = opts.heartbeatMs ?? 30_000;
     this.setClientPriority = opts.setClientPriority;
+    this.runWithPriority = opts.runWithPriority;
   }
 
   enqueue(task: Task): void {
@@ -169,9 +174,9 @@ export class Scheduler {
       // restored in `finally`, run() throwing included, so a failing task
       // can never leave the Client parked at a boosted priority for whatever
       // runs after it.
-      this.setClientPriority?.(task.priority);
+      if (!this.runWithPriority) this.setClientPriority?.(task.priority);
       try {
-        const result = await task.run();
+        const result = this.runWithPriority ? await this.runWithPriority(task.priority, () => task.run()) : await task.run();
         this.budget.consumeTokens(result.actualCalls);
         ran += 1;
         this.stats.ran += 1;
@@ -189,7 +194,7 @@ export class Scheduler {
         // cannot spin the runner, and cannot silently vanish either.
         this.enqueue({ ...task, earliestRunAt: Date.now() + 5_000 });
       } finally {
-        this.setClientPriority?.(1);
+        if (!this.runWithPriority) this.setClientPriority?.(1);
       }
     }
     this.heartbeat(ready.length);

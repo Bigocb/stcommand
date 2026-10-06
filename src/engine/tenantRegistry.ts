@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
-import { Client, RateLimiter, SpaceTradersAPI } from "../core/client.js";
+import { Client, RateLimiter, SpaceTradersAPI, runWithApiPriority, taskToApiPriority } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { ContractManager } from "./contract.js";
@@ -109,11 +109,18 @@ export class TenantRegistry {
   private logLimiterStats(): void {
     const st = this.apiLimiter.stats();
     if (st.calls === 0 && st.queueDepth === 0) return;
-    const who = Object.entries(st.byLabel)
-      .sort((a, b) => b[1].calls - a[1].calls)
-      .map(([k, v]) => `${k} ${v.calls} calls avg ${(v.avgWaitMs / 1000).toFixed(1)}s max ${(v.maxWaitMs / 1000).toFixed(1)}s`)
-      .join(" | ");
-    this.log("?", `limiter ${Math.round(st.windowMs / 60_000)}m: ${st.callsPerMin}/min of 90 · queue ${st.queueDepth} (oldest ${(st.oldestWaitMs / 1000).toFixed(1)}s) · wait avg ${(st.avgWaitMs / 1000).toFixed(1)}s max ${(st.maxWaitMs / 1000).toFixed(1)}s · ${who}`);
+    const sec = (ms: number) => (ms / 1000).toFixed(1);
+    const top = (rec: Record<string, { calls: number }>, n: number) =>
+      Object.entries(rec).sort((a, b) => b[1].calls - a[1].calls).slice(0, n);
+    const who = top(st.byLabel, 4).map(([k, v]) => `${k} ${v.calls}`).join(", ");
+    const kinds = top(st.byKind, 6).map(([k, v]) => `${k} ${v.calls}`).join(", ");
+    // Wait by tier is the number that says whether priorities are doing their job:
+    // critical (1) should be short even when deferrable (3) and background (4) are not.
+    const tiers = Object.entries(st.byPriority)
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([k, v]) => `p${k} ${v.calls} (avg ${sec(v.avgWaitMs)}s max ${sec(v.maxWaitMs)}s)`)
+      .join(" · ");
+    this.log("?", `limiter ${Math.round(st.windowMs / 60_000)}m: ${st.callsPerMin}/min of 90 · queue ${st.queueDepth} (oldest ${sec(st.oldestWaitMs)}s) · wait avg ${sec(st.avgWaitMs)}s max ${sec(st.maxWaitMs)}s · ${tiers} · by tenant: ${who} · by call: ${kinds}`);
   }
 
   constructor(
@@ -404,7 +411,7 @@ export class TenantRegistry {
     // point it's long since been assigned. Same forward-reference pattern
     // MissionManager's own callbacks into FleetManager already use.
     let fleet!: FleetManager;
-    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p) });
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn) => runWithApiPriority(taskToApiPriority(p), fn) });
     fleet = new FleetManager({
       api,
       contracts,

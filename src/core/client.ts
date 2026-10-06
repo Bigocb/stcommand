@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { paths } from "./schema.js";
 import type { components } from "./schema.js";
 // Only used for the proxied path — see request()'s own comment on why a
@@ -84,6 +85,101 @@ type RequestOptions = {
   body?: unknown;
 };
 
+/**
+ * How urgent an API call is, on the limiter's scale (lower is served first).
+ * One process-wide bucket carries every tenant's traffic, and when it is full
+ * the order it drains in decides what the fleet feels:
+ *
+ * - BOOT (0): a tenant starting up, or a rescue — never waits behind anything.
+ * - CRITICAL (1): ships in motion and money changing hands — trades,
+ *   navigation, extraction, mission and feed crews. A delay here is a ship
+ *   sitting idle with cargo aboard.
+ * - ROUTINE (2): the control loop's own reads (contracts, state it needs to
+ *   decide).
+ * - DEFERRABLE (3): can wait a couple of seconds — keeper market snapshots,
+ *   shipyard and gate refreshes, purchase checks, credit refresh.
+ * - BACKGROUND (4): pure telemetry and housekeeping.
+ *
+ * A call that keeps waiting is promoted (see RateLimiter), so lower tiers are
+ * delayed, never starved.
+ */
+export const API_PRIORITY = { BOOT: 0, CRITICAL: 1, ROUTINE: 2, DEFERRABLE: 3, BACKGROUND: 4 } as const;
+
+const priorityContext = new AsyncLocalStorage<number>();
+
+/**
+ * Run `fn` with every API call made inside it (including its awaited
+ * descendants) at `priority`. Carried on AsyncLocalStorage rather than the
+ * Client's single mutable `priority`, because the coordinator loops and the
+ * ship scheduler now make calls at the same moment and a shared field would
+ * hand one's urgency to the other.
+ */
+export function runWithApiPriority<T>(priority: number, fn: () => Promise<T>): Promise<T> {
+  return priorityContext.run(priority, fn);
+}
+
+/** The priority the running async context asked for, if any. */
+export function currentApiPriority(): number | undefined {
+  return priorityContext.getStore();
+}
+
+/**
+ * Scheduler task tiers (0 rescue, 1 mission, 2 trade/siphon/mine, 3
+ * survey/keeper, 4 telemetry) onto the limiter's scale. Mission and trade
+ * work are both "ships in motion", so both are CRITICAL.
+ */
+export function taskToApiPriority(taskPriority: number): number {
+  if (taskPriority <= 0) return API_PRIORITY.BOOT;
+  if (taskPriority <= 2) return API_PRIORITY.CRITICAL;
+  if (taskPriority === 3) return API_PRIORITY.DEFERRABLE;
+  return API_PRIORITY.BACKGROUND;
+}
+
+/**
+ * A short name for what an API call is, so the limiter can say what the
+ * budget is being spent on ("extract 180, market 90, navigate 40 ...").
+ */
+export function callKind(method: string, path: string): string {
+  const m = method.toUpperCase();
+  const p = path.split("?")[0]!;
+  const ship = /^\/my\/ships\/[^/]+(\/.*)?$/.exec(p);
+  if (ship) {
+    const sub = ship[1] ?? "";
+    if (m === "GET") {
+      if (sub === "") return "ship";
+      if (sub === "/cargo") return "cargo";
+      if (sub === "/cooldown") return "cooldown";
+      if (sub === "/nav") return "ship";
+      return "ship-other";
+    }
+    if (m === "PATCH") return "nav-mode";
+    const table: [RegExp, string][] = [
+      [/^\/navigate$/, "navigate"], [/^\/warp$/, "navigate"], [/^\/jump$/, "jump"],
+      [/^\/orbit$/, "orbit"], [/^\/dock$/, "dock"], [/^\/refuel$/, "refuel"],
+      [/^\/extract\/survey$/, "survey"], [/^\/survey$/, "survey"], [/^\/extract$/, "extract"], [/^\/siphon$/, "siphon"],
+      [/^\/purchase$/, "buy-cargo"], [/^\/sell$/, "sell-cargo"], [/^\/jettison$/, "jettison"], [/^\/transfer$/, "transfer"],
+      [/^\/refine$/, "refine"], [/^\/chart$/, "chart"], [/^\/scan\//, "scan"],
+      [/^\/mounts\//, "mount"], [/^\/repair$/, "repair"], [/^\/scrap$/, "scrap"],
+      [/^\/negotiate\/contract$/, "contract"],
+    ];
+    for (const [re, name] of table) if (re.test(sub)) return name;
+    return "ship-action";
+  }
+  if (p === "/my/ships") return m === "POST" ? "buy-ship" : "ships";
+  if (p === "/my/agent") return "agent";
+  if (/^\/my\/contracts/.test(p)) return "contract";
+  if (/^\/systems\/[^/]+\/waypoints\/[^/]+\/market$/.test(p)) return "market";
+  if (/^\/systems\/[^/]+\/waypoints\/[^/]+\/shipyard$/.test(p)) return "shipyard";
+  if (/^\/systems\/[^/]+\/waypoints\/[^/]+\/jump-gate$/.test(p)) return "jump-gate";
+  if (/^\/systems\/[^/]+\/waypoints\/[^/]+\/construction/.test(p)) return m === "POST" ? "gate-supply" : "construction";
+  if (/^\/systems\/[^/]+\/waypoints\/[^/]+$/.test(p)) return "waypoint";
+  if (/^\/systems\/[^/]+\/waypoints$/.test(p)) return "waypoints";
+  if (/^\/systems\/[^/]+$/.test(p)) return "system";
+  if (p === "/systems") return "systems";
+  if (/^\/factions/.test(p)) return "factions";
+  return "other";
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface QueueEntry {
@@ -92,12 +188,14 @@ interface QueueEntry {
   resolve: () => void;
   enqueuedAt: number;
   label: string;
+  kind: string;
 }
 
 /** One granted request, kept for the rolling stats window. */
 interface LimiterSample {
   at: number;
   label: string;
+  kind: string;
   priority: number;
   waitMs: number;
 }
@@ -121,9 +219,13 @@ export interface LimiterStats {
   maxWaitMs: number;
   byLabel: Record<string, LimiterLabelStats>;
   byPriority: Record<string, LimiterLabelStats>;
+  /** What the calls were (extract, market, navigate, ...), see callKind(). */
+  byKind: Record<string, LimiterLabelStats>;
 }
 
 const LIMITER_WINDOW_MS = 5 * 60_000;
+/** A waiting call moves up one tier for every this-many ms it has waited (never into BOOT). */
+const DEFAULT_AGING_MS = 20_000;
 
 /**
  * Token-bucket limiter to stay under the API's per-second cap. Priority-
@@ -141,6 +243,7 @@ export class RateLimiter {
   constructor(
     private readonly ratePerSec: number,
     private readonly burst: number,
+    private readonly agingMs: number = DEFAULT_AGING_MS,
   ) {
     this.tokens = burst;
   }
@@ -166,9 +269,9 @@ export class RateLimiter {
    * lets boot-critical calls (see Client.withPriority()) jump that queue
    * without starving the routine traffic — it just goes second, not never.
    */
-  acquire(priority = 1, label = "?"): Promise<void> {
+  acquire(priority = 1, label = "?", kind = "other"): Promise<void> {
     return new Promise((resolve) => {
-      this.queue.push({ priority, seq: this.seqCounter++, resolve, enqueuedAt: Date.now(), label });
+      this.queue.push({ priority, seq: this.seqCounter++, resolve, enqueuedAt: Date.now(), label, kind });
       this.pump();
     });
   }
@@ -209,6 +312,7 @@ export class RateLimiter {
       maxWaitMs: this.samples.reduce((m, s) => Math.max(m, s.waitMs), 0),
       byLabel: fold((s) => s.label),
       byPriority: fold((s) => String(s.priority)),
+      byKind: fold((s) => s.kind),
     };
   }
 
@@ -219,15 +323,29 @@ export class RateLimiter {
     this.tokens = Math.min(this.burst, this.tokens + elapsed * this.ratePerSec);
   }
 
-  /** Lowest priority number wins; ties broken by arrival order. Linear scan
+  /** Lowest effective priority number wins; ties broken by arrival order.
+   *  A call that has waited long enough is promoted a tier per `agingMs`, so
+   *  a steady stream of critical calls can delay a deferrable one but never
+   *  starve it. BOOT (0) neither ages nor is reached by aging. Linear scan
    *  is fine at this queue's realistic depth (dozens, not thousands). */
+  private effectivePriority(e: QueueEntry, now: number): number {
+    if (e.priority <= 0) return e.priority;
+    return Math.max(1, e.priority - Math.floor((now - e.enqueuedAt) / this.agingMs));
+  }
+
   private dequeueNext(): QueueEntry | undefined {
     if (this.queue.length === 0) return undefined;
+    const now = Date.now();
     let bestIdx = 0;
+    let bestPri = this.effectivePriority(this.queue[0]!, now);
     for (let i = 1; i < this.queue.length; i += 1) {
       const a = this.queue[i]!;
       const best = this.queue[bestIdx]!;
-      if (a.priority < best.priority || (a.priority === best.priority && a.seq < best.seq)) bestIdx = i;
+      const pri = this.effectivePriority(a, now);
+      if (pri < bestPri || (pri === bestPri && a.seq < best.seq)) {
+        bestIdx = i;
+        bestPri = pri;
+      }
     }
     return this.queue.splice(bestIdx, 1)[0];
   }
@@ -238,7 +356,7 @@ export class RateLimiter {
       this.tokens -= 1;
       const next = this.dequeueNext()!;
       const at = Date.now();
-      this.samples.push({ at, label: next.label, priority: next.priority, waitMs: at - next.enqueuedAt });
+      this.samples.push({ at, label: next.label, kind: next.kind, priority: next.priority, waitMs: at - next.enqueuedAt });
       next.resolve();
     }
     // Bounded even if nobody ever calls stats(): drop what's older than the window.
@@ -396,7 +514,10 @@ export class Client {
 
     let attempt = 0;
     for (;;) {
-      await this.limiter.acquire(this.priority, this.label);
+      // Boot (priority 0) always wins; otherwise the calling context's own
+      // urgency (see runWithApiPriority), then this Client's ambient priority.
+      const priority = this.priority === 0 ? 0 : (priorityContext.getStore() ?? this.priority);
+      await this.limiter.acquire(priority, this.label, callKind(req.method, req.path));
       this.callCount += 1;
       // A proxied Client goes through undici's own fetch, with its own
       // ProxyAgent as the dispatcher — both from the same undici install.

@@ -77,9 +77,13 @@ center of gravity. Per tenant, it:
   loop (`tick: SLOW pass [core|feeds|maintenance]`). `tick()` still runs all
   three once, in order, for callers that want a single deterministic pass.
 - Every tenant's API client draws from one shared token bucket (1.5 req/s —
-  SpaceTraders limits per IP). `GET /api/rate-limit` and the `instances`
-  ops tool report its recent demand and wait per tenant, and the server logs
-  `limiter 5m: ...` every five minutes.
+  SpaceTraders limits per IP). Calls carry an urgency (`API_PRIORITY`):
+  ships in motion and money changing hands go first, refreshes that can wait
+  a couple of seconds (keeper snapshots, shipyard/gate refreshes, purchase
+  checks) go after, and anything waiting long enough is promoted so nothing
+  starves. `GET /api/rate-limit` and the `instances` ops tool report recent
+  demand and wait per tenant, per tier and per call kind, and the server
+  logs `limiter 5m: ...` every five minutes.
 - Exposes the read/write surface the HTTP dashboard layer calls into —
   `getIntel()`, `computeDispatchRoutes()`, `fleetStatusSummary()`,
   `setShipRole()`, `sellShip()`, etc.

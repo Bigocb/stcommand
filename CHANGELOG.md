@@ -9,6 +9,27 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## API calls carry an urgency; critical calls go first, the rest wait their turn (2026-10-06)
+
+The one 1.5 req/s bucket was running at 89 of 90 calls a minute, so what drains first decides what the fleet feels.
+Every call now has a tier (`API_PRIORITY` in `client.ts`): **boot/rescue 0**, **critical 1** (ships in motion and money
+changing hands: trades, navigation, extraction, mission and feed crews), **routine 2** (the control loop's own reads),
+**deferrable 3** (keeper market snapshots, shipyard and gate refreshes, purchase checks, credit refresh — can wait a
+couple of seconds), **background 4**. A call that keeps waiting is promoted one tier per 20 seconds (never past boot), so a
+steady critical stream delays the rest but cannot starve it.
+
+The tier travels with the work, on AsyncLocalStorage (`runWithApiPriority`), not on the Client's shared `priority`
+field: the scheduler runs each task at `taskToApiPriority(task.priority)` (mission/trade/mine critical, keeper/survey/
+explore deferrable), and each coordinator loop runs at its own (feeds critical, core routine, maintenance deferrable).
+Before, the scheduler flipped that one shared field around every task, which would hand one loop's urgency to another
+now that they run at the same time. Boot still wins everywhere (`setPriority(0)`).
+
+The limiter also labels each call (`callKind`: extract, market, navigate, sell-cargo, ...) and the five-minute log line
+now reads `limiter 5m: N/min of 90 · queue Q · wait avg/max · p1 … · p3 … · by tenant … · by call …` — wait per tier is
+the check that critical calls stay short while deferrable ones absorb the backlog. Same numbers in `GET /api/rate-limit`
+and the `instances` ops tool. Known edge: work launched without awaiting inside a loop (a detached repair trip started by
+a maintenance pass) inherits that loop's tier until aging promotes it.
+
 ## Coordinator split into core / feeds / maintenance loops (2026-10-06)
 
 `FleetManager.run()` awaited one serial `tick()`: dispatch, every purchase check, feeds and missions, then the syncs.
