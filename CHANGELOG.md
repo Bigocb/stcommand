@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Crew ships in flight are no longer polled (2026-10-06)
+
+With the calls named, the biggest remaining source was the feed and mission loops: on every pass they read each crew ship
+and returned early if it was still flying, so a carrier on a ten-minute leg, or a collector on a long haul, was re-read
+every few seconds the whole way. `FeedManager.getShip` (53 per 5 minutes) and `MissionManager.getShip` (41) were about 20%
+of all game-API calls between them. Neither loop can do anything with a ship until it lands, so they now sleep it until its
+arrival time (`transitResumeAt()`, capped at 30 minutes, and falling back to the old every-pass read when a ship carries
+no usable arrival). Carriers use their existing `retryAt` backoff; collectors a per-feed wake time. A backoff already
+longer than the flight is left alone. The per-pass `getShipCargo` stays: the comment in `stepCarrier` records a live case
+where `ship.cargo` and `getShipCargo` disagreed.
+
 ## Trimmed the calls nothing was waiting on (2026-10-06)
 
 The first per-call breakdown of the 90-calls-a-minute budget showed where it went, and three sources were doing work no

@@ -1,6 +1,7 @@
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { Store } from "../db/store.js";
+import { transitResumeAt } from "./transit.js";
 
 export type Construction = components["schemas"]["Construction"];
 export type Ship = components["schemas"]["Ship"];
@@ -728,7 +729,12 @@ export class MissionManager {
   private async stepCarrier(mission: Mission, shipSymbol: string, t: TaskState): Promise<void> {
     const ship = await this.getShip?.(shipSymbol);
     if (!ship) return;
-    if (ship.nav.status === "IN_TRANSIT") return; // wait for arrival
+    if (ship.nav.status === "IN_TRANSIT") {
+      // Wait for arrival without re-reading the ship every pass until then.
+      const wake = transitResumeAt(ship);
+      if (wake !== undefined) t.retryAt = Math.max(t.retryAt, wake);
+      return;
+    }
 
     // A carrier that cannot reach the target on a full tank — directly, or via
     // refuel stops along the way — can never complete the mission. Release it

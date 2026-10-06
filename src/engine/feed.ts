@@ -2,6 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { Store } from "../db/store.js";
 import { Pending } from "./agentStep.js";
+import { transitResumeAt } from "./transit.js";
 import { FUEL_UNIT_SIZE } from "./routeEconomics.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -275,6 +276,8 @@ export class FeedManager {
   private readonly onActivity: FeedOptions["onActivity"];
   private readonly recordLedger?: FeedOptions["recordLedger"];
   private readonly getShip?: FeedOptions["getShip"];
+  /** `feedKey` -> when the collector's current flight lands, so stepCollector() doesn't re-read it meanwhile. */
+  private readonly collectorWakeAt = new Map<string, number>();
   private readonly estimatedFuelBetween?: FeedOptions["estimatedFuelBetween"];
   private readonly canReach?: FeedOptions["canReach"];
   private readonly dispatchShip?: FeedOptions["dispatchShip"];
@@ -883,7 +886,12 @@ export class FeedManager {
   private async stepCarrier(feed: Feed, shipSymbol: string, t: FeedTaskState): Promise<void> {
     const ship = await this.getShip?.(shipSymbol);
     if (!ship) return;
-    if (ship.nav.status === "IN_TRANSIT") return;
+    if (ship.nav.status === "IN_TRANSIT") {
+      // Nothing to do until it lands: sleep it until then instead of re-reading it every pass.
+      const wake = transitResumeAt(ship);
+      if (wake !== undefined) t.retryAt = Math.max(t.retryAt, wake);
+      return;
+    }
 
     if (this.canReach && !(await this.canReach(ship.symbol, feed.targetWaypoint))) {
       this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} cannot reach target (no viable route); releasing`);
@@ -1180,8 +1188,14 @@ export class FeedManager {
     const sym = feed.collector!;
     const field = feed.field!;
     const key = this.key(feed.targetWaypoint, feed.good);
+    if (Date.now() < (this.collectorWakeAt.get(key) ?? 0)) return;
     const ship = await this.getShip?.(sym);
-    if (!ship || ship.nav.status === "IN_TRANSIT") return;
+    if (!ship) return;
+    if (ship.nav.status === "IN_TRANSIT") {
+      const wake = transitResumeAt(ship);
+      if (wake !== undefined) this.collectorWakeAt.set(key, wake);
+      return;
+    }
     const held = ship.cargo.inventory?.find((i) => i.symbol === feed.good)?.units ?? 0;
     const nearlyFull = held > 0 && ship.cargo.capacity - ship.cargo.units < 15;
     const stale = held > 0 && Date.now() - (this.collectorGrewAt.get(key) ?? Date.now()) > 20 * 60_000;
