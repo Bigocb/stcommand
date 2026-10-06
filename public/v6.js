@@ -6391,7 +6391,7 @@ function renderContracts(list) {
       </div>
       ${deliv}
       <div class="ops-head" style="margin-top:6px">
-        <span class="ops-dead ${urgent && !c.accepted ? "urgent" : ""}">accept by ${countdown(c.deadlineToAccept ?? c.deadline)}</span>
+        ${c.accepted ? "" : `<span class="ops-dead ${urgent ? "urgent" : ""}">accept by ${countdown(c.deadlineToAccept ?? c.deadline)}</span>`}
         <span class="fill"></span>
         ${c.accepted
           ? `<span class="ops-sub">deadline ${countdown(c.deadline)}</span>

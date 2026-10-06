@@ -36,11 +36,12 @@ const CONTRACT_TTL_MS = 30_000;
 
 /**
  * The cache lifetime once the operator has stood every open contract down (abandoned an accepted one, declined an
- * offer). Nothing is being delivered, so nothing changes the list from our side — the only thing that moves it is a
- * deadline passing — yet it was still re-read every 30s for as long as the contract sat there. Operator decisions
- * invalidate the cache immediately, so this never delays picking a contract back up.
+ * offer). Nothing is being delivered, so nothing changes the list from our side — it was still re-read every 30s for
+ * as long as the contract sat there. The deadline passing needs no polling to notice: an expired contract stops
+ * counting as open, which ends the stood-down state and the next read goes out at the normal cadence. Operator
+ * decisions invalidate the cache at once. So this is only a safety net against drift nothing here can see.
  */
-const STAND_DOWN_TTL_MS = 10 * 60_000;
+const STAND_DOWN_TTL_MS = 60 * 60_000;
 
 /** Manages the agent's contracts: accept, track, deliver, fulfill. */
 export class ContractManager {

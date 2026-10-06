@@ -49,12 +49,23 @@ describe("ContractManager cache when contracts are stood down", () => {
     assert.equal(calls.get, 1, "five minutes later it is still the cached list");
   });
 
-  it("still re-reads after ten minutes, so an expiry is noticed", async () => {
+  it("keeps a safety-net read once an hour", async () => {
     const { mgr, calls } = setup([contract("c1")]);
     await mgr.abandon("c1");
     await mgr.listActive();
-    await later(11 * 60_000, () => mgr.listActive());
+    await later(30 * 60_000, () => mgr.listActive());
+    assert.equal(calls.get, 1);
+    await later(61 * 60_000, () => mgr.listActive());
     assert.equal(calls.get, 2);
+  });
+
+  it("notices the deadline passing without waiting out the long cache", async () => {
+    const soon = new Date(Date.now() + 3 * 60_000).toISOString();
+    const { mgr, calls } = setup([contract("c1", { terms: { deadline: soon, payment: { onAccepted: 1, onFulfilled: 10 }, deliver: [] } })]);
+    await mgr.abandon("c1");
+    await mgr.listActive();
+    await later(4 * 60_000, () => mgr.listActive());
+    assert.equal(calls.get, 2, "an expired contract is no longer open, so the stood-down cache no longer applies");
   });
 
   it("treats a declined offer as stood down too", async () => {

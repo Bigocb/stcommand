@@ -13,10 +13,11 @@ be useful context; not a complete project history — see `git log` for that.
 
 `ContractManager.fetchContracts` (called through `listActive` by three coordinator steps) re-read `GET /my/contracts` every
 30 seconds for as long as a contract existed, about 4 calls a minute, plus a second read of the same list in the dashboard
-refresh. When every open contract is something the operator told the fleet not to work — an accepted contract that was
+refresh. Also in the Ops contracts panel (`v6.js`): an accepted contract no longer shows a red "accept by expired" label — that deadline only applies to an offer. When every open contract is something the operator told the fleet not to work — an accepted contract that was
 abandoned, an offer that was declined — nothing delivers against it, so nothing changes the list from our side; only a
-deadline passing does. The cache now lives ten minutes in that state (a deadline passing still ends it, because an
-expired contract stops counting as open and the list is re-read), and every operator decision (`decline`, `undecline`,
+deadline passing does. The cache now lives an hour in that state, as a safety net only: a deadline passing needs no
+polling to notice (an expired contract stops counting as open, which ends the stood-down state, so the next read goes
+out at the normal cadence), and every operator decision (`decline`, `undecline`,
 `abandon`, `resume`) invalidates it so picking a contract back up is immediate. A list with no open contract is not
 "stood down": the fleet wants to negotiate a new one, so it keeps the 30s cadence. The dashboard refresh now reads the
 contracts through the same cache instead of making its own call.
