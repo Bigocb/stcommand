@@ -2762,7 +2762,7 @@ export class FleetManager {
           detail: `SHIP_SURVEYOR scout at ${yard.symbol} for ${available.purchasePrice}c`,
           cost: available.purchasePrice,
           timeoutMs: 2 * 60 * 60_000,
-          onTimeout: "approve",
+          onTimeout: "deny",
         });
         if (approved === undefined) {
           this.log(`scout purchase at ${yard.symbol} awaiting operator approval`);

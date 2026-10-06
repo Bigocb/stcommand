@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Scout purchase no longer auto-approves (2026-10-06)
+
+`maybeBuyScout` asked for a `buyScout` approval with `onTimeout: "approve"`, so a silent operator meant the money was
+spent after the timeout. That is how THEOREM_DEV bought a SHIP_SURVEYOR (~43k of a ~63k balance) nobody asked for.
+It now denies on timeout; the purchase happens only when the operator approves it.
+
 ## Trader: a failed sale no longer jettisons a valuable lot (2026-10-06)
 
 THEOREM_DEV-1 bought 6 EQUIPMENT (19,212c) at K81 and lost all of it. The leftover sweep picked the best market
