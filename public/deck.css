@@ -234,7 +234,7 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
    segmented panel, then Warehouse | Dispatch+Miner preference below it —
    Keeper folded into the segmented tabs (was its own always-visible panel,
    which pushed the grid to three rows) rather than stacked as a third row. */
-.mgrid{flex:1;display:grid;grid-template-columns:1.3fr 1fr;gap:14px;min-height:0;overflow:auto;grid-auto-rows:minmax(240px,auto)}
+.mgrid{flex:1;display:grid;grid-template-columns:1.3fr 1fr;grid-template-rows:minmax(0,1.15fr) minmax(0,1fr);gap:14px;min-height:0;overflow:hidden}
 /* Confirmed live 2026-09-27: an inline style="display:flex" on the Keeper
    tab's own hidden div beat the browser's default [hidden]{display:none}
    (inline author styles outrank it regardless of the hidden attribute),
@@ -443,5 +443,8 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .mat-hold{font-size:9px;padding:2px 8px;line-height:1.4}
 /* Markets page: long Dispatch / Miner-preference / Selling-here lists scroll inside their panel instead of
    pushing the page past two rows (operator 2026-10-06). */
-#mk-dispatch,#mk-miner-pref-list{max-height:200px;overflow:auto}
-#mk-price-market-list{max-height:220px;overflow:auto}
+/* Two fixed rows: the grid never scrolls as a page; each panel scrolls inside itself. */
+.mk-tool-body{display:flex;flex-direction:column;flex:1;min-height:0}
+.mk-tool-body[hidden]{display:none}
+#mk-tools-seg{flex:0 0 auto;width:300px}
+#mk-tools-seg-count{flex:1;text-align:right}

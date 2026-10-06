@@ -432,6 +432,15 @@ function describeAutomation(r) {
 /** Every ship's current automated decision, from fleetStatusSummary()'s own
  *  wants/wantsReason/wantsSource. Ported from v6.js's renderAutomationFeed(). */
 let opsSeg = "chain";
+$("mk-tools-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-seg]");
+  if (!b) return;
+  const seg = b.dataset.seg;
+  $("mk-tools-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  $("mk-tool-dispatch").hidden = seg !== "dispatch";
+  $("mk-tool-minerpref").hidden = seg !== "minerpref";
+  $("mk-tools-seg-count").textContent = seg === "dispatch" ? "traders" : "bias a miner's surveys toward this good";
+});
 function renderAutomationFeed() {
   const el = $("automation-feed");
   const countEl = $("automation-count");

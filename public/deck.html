@@ -159,24 +159,35 @@
                 <div id="mk-keeper-stations"></div>
               </div>
             </div>
-            <!-- Dispatch panel (full width now that Warehouse is gone) -->
+            <!-- Row 2: Dispatch / Miner preference as tabs of one full-height panel (operator 2026-10-06: two rows
+                 per page, and a long list gets the whole row, not a strip inside a stacked panel). -->
             <div class="panel" style="grid-column:1 / -1">
-              <div class="panel-h"><span class="dot"></span><span class="title">Dispatch</span><span class="count">traders</span></div>
-              <div class="mk-toolbar" id="mk-dispatch-toolbar">
-                <select class="field-select" id="mk-dispatch-ship" aria-label="Trader ship"></select>
-                <select class="field-select" id="mk-dispatch-good" aria-label="Good"></select>
-                <button class="btn pri" id="mk-dispatch-assign">Assign</button>
-                <button class="btn" id="mk-dispatch-auto">Auto</button>
+              <div class="panel-h">
+                <span class="dot"></span>
+                <div class="seg" id="mk-tools-seg">
+                  <button class="on" data-seg="dispatch">Dispatch</button>
+                  <button data-seg="minerpref">Miner preference</button>
+                </div>
+                <span class="count" id="mk-tools-seg-count">traders</span>
               </div>
-              <div class="panel-b" id="mk-dispatch"></div>
-              <div class="panel-h" style="border-top:1px solid var(--hair)"><span class="dot"></span><span class="title">Miner preference</span><span class="count">bias a miner's surveys toward this good</span></div>
-              <div class="mk-toolbar">
-                <select class="field-select" id="mk-miner-pref-ship" aria-label="Miner ship"></select>
-                <input class="field-input" id="mk-miner-pref-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
-                <button class="btn pri" id="mk-miner-pref-save">Save</button>
-                <button class="btn" id="mk-miner-pref-clear">Clear</button>
+              <div class="mk-tool-body" id="mk-tool-dispatch">
+                <div class="mk-toolbar" id="mk-dispatch-toolbar">
+                  <select class="field-select" id="mk-dispatch-ship" aria-label="Trader ship"></select>
+                  <select class="field-select" id="mk-dispatch-good" aria-label="Good"></select>
+                  <button class="btn pri" id="mk-dispatch-assign">Assign</button>
+                  <button class="btn" id="mk-dispatch-auto">Auto</button>
+                </div>
+                <div class="panel-b" id="mk-dispatch"></div>
               </div>
-              <div class="panel-b" id="mk-miner-pref-list"></div>
+              <div class="mk-tool-body" id="mk-tool-minerpref" hidden>
+                <div class="mk-toolbar">
+                  <select class="field-select" id="mk-miner-pref-ship" aria-label="Miner ship"></select>
+                  <input class="field-input" id="mk-miner-pref-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+                  <button class="btn pri" id="mk-miner-pref-save">Save</button>
+                  <button class="btn" id="mk-miner-pref-clear">Clear</button>
+                </div>
+                <div class="panel-b" id="mk-miner-pref-list"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -260,7 +271,7 @@
              grid-auto-rows for exactly this; matching .mgrid's shape here
              sidesteps that class of bug instead of re-fixing it). -->
         <div class="content" id="view-feeds" hidden>
-          <div class="mgrid" style="grid-template-columns:1fr 1fr">
+          <div class="mgrid" style="grid-template-columns:1fr 1fr;grid-template-rows:minmax(0,1fr)">
             <div class="panel">
               <div class="panel-h"><span class="dot"></span><span class="title">Feeder chains</span><span class="count">connected tiers — each buys where the last one sold</span></div>
               <div class="panel-b">

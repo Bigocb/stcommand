@@ -17,6 +17,9 @@ Deck's Prices tab (ours highlighted, other agents dimmed) so a price move can be
 a fixed-height dashboard and a third row is unreachable: Ops is now two rows — a segmented top panel (Supply chain /
 Automation / Notes) over Contracts + Missions. (3) The mission `onlyMaterials` pacing field is now a buy/hold toggle
 on each outstanding material in Deck's and Tower's mission cards; holding every material is refused (use Stop).
+(4) Follow-up the same hour: Markets row 2 is a Dispatch / Miner preference tab panel — each list gets the
+whole row instead of a strip with its own scrollbar — and the Markets grid is two fixed rows that never scroll as a
+page (panels scroll inside themselves; Feeds keeps its single row).
 
 ## Mission `onlyMaterials`: stop the fallback buy of an expensive secondary material (2026-10-06)
 
