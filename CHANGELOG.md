@@ -9,6 +9,24 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Dashboard snapshot built from the engine's own ships; a shutting-down instance stops calling the API (2026-10-06)
+
+**Snapshot.** The dashboard's live state (credits, every ship, contracts) came from one refresh that listed every ship
+through the game API (two pages at 40 ships), and an earlier change this day put it on a 45s timer at the lowest
+priority, so credits and ships could be a minute and a half old. It now has two cadences. Every 20s at routine priority:
+the live agent (one call) plus the ships as the engine already holds them (`FleetManager.currentShips()`, no API
+calls). Every 2 minutes at background priority: the game API's own ship list and the contracts; any ship it lists that
+the fleet doesn't drive yet is merged in. Credits and ship positions are fresher than before and the refresh costs about
+a third of the calls. A ship the fleet has just sold can linger in the list for up to two minutes, until the next full
+read.
+
+**Deploy 429s.** Every deploy produced a minute of "rate limited, backing off" lines: Render keeps the old instance
+running until it is told to stop, both share one IP's 1.5 req/s, and the old one kept working through its queue and any
+in-flight pass (a feed step can run for a minute) after SIGTERM, because `stopAll()` only stopped *new* passes. SIGTERM now
+also drains the shared `RateLimiter` (`drain()`: every waiting request is rejected, every later one fails at once) and
+forces exit after five seconds if an open connection keeps `server.close()` waiting. The overlap that remains is the new
+instance's own boot.
+
 ## Crew ships in flight are no longer polled (2026-10-06)
 
 With the calls named, the biggest remaining source was the feed and mission loops: on every pass they read each crew ship

@@ -205,6 +205,7 @@ interface QueueEntry {
   priority: number;
   seq: number;
   resolve: () => void;
+  reject: (err: Error) => void;
   enqueuedAt: number;
   label: string;
   kind: string;
@@ -262,6 +263,7 @@ export class RateLimiter {
   private seqCounter = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private samples: LimiterSample[] = [];
+  private draining = false;
 
   constructor(
     private readonly ratePerSec: number,
@@ -293,10 +295,28 @@ export class RateLimiter {
    * without starving the routine traffic — it just goes second, not never.
    */
   acquire(priority = 1, label = "?", kind = "other", caller = "?"): Promise<void> {
-    return new Promise((resolve) => {
-      this.queue.push({ priority, seq: this.seqCounter++, resolve, enqueuedAt: Date.now(), label, kind, caller });
+    return new Promise((resolve, reject) => {
+      if (this.draining) {
+        reject(new Error("rate limiter drained: this process is shutting down"));
+        return;
+      }
+      this.queue.push({ priority, seq: this.seqCounter++, resolve, reject, enqueuedAt: Date.now(), label, kind, caller });
       this.pump();
     });
+  }
+
+  /**
+   * Stop granting tokens for good: every waiting request is rejected and every
+   * later one fails immediately. Called when the process is told to shut down.
+   * During a deploy the old instance used to keep working through its queue
+   * and in-flight passes for up to a minute after the new one had started, and
+   * two instances share one IP's 1.5 req/s — measured as a burst of 429s on
+   * every deploy. Nothing the old instance does in that window is wanted.
+   */
+  drain(): void {
+    this.draining = true;
+    const err = new Error("rate limiter drained: this process is shutting down");
+    for (const entry of this.queue.splice(0)) entry.reject(err);
   }
 
   /**

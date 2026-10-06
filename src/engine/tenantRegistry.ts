@@ -33,7 +33,11 @@ export interface TenantWorker {
   stopRefresh?: () => void;
 }
 
-const STATE_REFRESH_MS = 45_000;
+/** How often the dashboard snapshot is rebuilt (live agent + the engine's own ship objects). */
+const STATE_REFRESH_MS = 20_000;
+/** How often the game API's own ship list and the contracts are re-read in full: the ships to catch any the
+ *  fleet doesn't drive yet, the contracts because they change rarely. Both are background-priority reads. */
+const FULL_REFRESH_MS = 2 * 60_000;
 /** Effectively "forever" — same value straders' own CLI defaults to for a
  *  long-running process; run() resolves after this many ticks per ship loop. */
 const RUN_FOREVER_TICKS = 1_000_000;
@@ -271,6 +275,10 @@ export class TenantRegistry {
 
   /** Stop every booted tenant's coordinator loop (graceful shutdown, and what tests use to let the process exit). */
   stopAll(): void {
+    // Cut off game-API traffic first: stopping the loops only stops *new* passes, and a pass in
+    // flight (a feed step can run for a minute) would keep spending the shared per-IP budget while
+    // the replacement instance is already running.
+    this.apiLimiter.drain();
     for (const worker of this.workers.values()) {
       worker.fleet.stop();
       worker.scheduler.stop();
@@ -521,11 +529,28 @@ export class TenantRegistry {
     // `prefetched` is used only by the first, boot-critical call below — a
     // periodic refresh (from setInterval) always wants a fresh live read,
     // never the stale pair from whenever boot() ran.
-    const refreshState = async (prefetched?: { agent: Awaited<ReturnType<typeof api.getMyAgent>>; ships: Ship[] }) => {
+    // Two cadences, so the numbers an operator watches stay fresh without re-listing every ship:
+    //  - "fast" (every STATE_REFRESH_MS, routine priority): the live agent (credits) and the ships as the
+    //    engine already holds them — no game-API ship list;
+    //  - "full" (boot, then every FULL_REFRESH_MS, background priority): also the game API's own ship list
+    //    and the contracts. Ships it lists that the fleet doesn't drive yet are merged in from the last
+    //    full read.
+    // Before this, one 45s-or-slower refresh fetched the agent, every ship (two pages) and the contracts at
+    // the back of the queue, so credits and ships could be a minute and a half behind.
+    let apiShips: Ship[] = bootedShips;
+    let openContracts: Awaited<ReturnType<typeof api.getContracts>> = [];
+    let lastFullAt = 0;
+    const refreshState = async (mode: "fast" | "full", prefetched?: { agent: Awaited<ReturnType<typeof api.getMyAgent>>; ships: Ship[] }) => {
       try {
         const freshAgent = prefetched?.agent ?? (await api.getMyAgent());
-        const ships = prefetched?.ships ?? (await api.listAllShips());
-        const liveContracts = await api.getContracts();
+        if (mode === "full") {
+          apiShips = prefetched?.ships ?? (await api.listAllShips());
+          openContracts = (await api.getContracts()).filter((c) => !c.fulfilled);
+          lastFullAt = Date.now();
+        }
+        const mine = fleet.currentShips();
+        const known = new Set(mine.map((s) => s.symbol));
+        const ships = [...mine, ...apiShips.filter((s) => !known.has(s.symbol))];
         // GalaxyAtlas.listSystems() only returns what's in its in-memory
         // Map — wiped on every restart and, between restarts, only
         // repopulated for systems a ship currently occupies. A system this
@@ -558,7 +583,7 @@ export class TenantRegistry {
         state.update({
           agent: freshAgent,
           ships,
-          contracts: liveContracts.filter((c) => !c.fulfilled),
+          contracts: openContracts,
           systemSymbol,
           waypoints: mappedWaypoints,
           systems,
@@ -592,15 +617,17 @@ export class TenantRegistry {
         log(`state refresh error: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
-    await refreshState({ agent, ships: bootedShips });
+    await refreshState("full", { agent, ships: bootedShips });
     // Boot-critical work is done — see the setPriority(0) call above. Only
     // now, after the one initial refreshState() call, so that call keeps
     // the boost through its three live API calls too.
     api.setPriority?.(1);
-    // Dashboard-only data (agent, every ship, contracts: about five calls a pass), so it
-    // runs at background urgency — outside any scoped context it would otherwise count as
-    // critical and queue ahead of deferrable work, and ships' real actions.
-    const refreshTimer = setInterval(() => void runWithApiPriority(API_PRIORITY.BACKGROUND, () => refreshState()), STATE_REFRESH_MS);
+    // Fast refresh at routine urgency; the periodic full read at background urgency. Outside any scoped
+    // context a call would default to critical and queue level with ships' real actions.
+    const refreshTimer = setInterval(() => {
+      const full = Date.now() - lastFullAt >= FULL_REFRESH_MS;
+      void runWithApiPriority(full ? API_PRIORITY.BACKGROUND : API_PRIORITY.ROUTINE, () => refreshState(full ? "full" : "fast"));
+    }, STATE_REFRESH_MS);
     refreshTimer.unref();
 
     return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative, stopRefresh: () => clearInterval(refreshTimer) };

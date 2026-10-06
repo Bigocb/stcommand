@@ -233,6 +233,9 @@ async function main(): Promise<void> {
   const shutdown = () => {
     log(`shutting down (${registry.size()} tenant${registry.size() === 1 ? "" : "s"} running)`);
     registry.stopAll();
+    // An open connection (a dashboard stream, an MCP session) can keep server.close() waiting for a
+    // long time; the instance has nothing left worth waiting for, so don't linger past a few seconds.
+    setTimeout(() => process.exit(0), 5_000).unref();
     server.close(() => {
       pool.end().finally(() => process.exit(0));
     });

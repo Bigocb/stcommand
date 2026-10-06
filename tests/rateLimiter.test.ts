@@ -250,3 +250,18 @@ describe("RateLimiter.stats", () => {
     assert.equal(limiter.stats().queueDepth, 0);
   });
 });
+
+describe("RateLimiter.drain", () => {
+  it("rejects what is waiting and everything after, so a shutting-down instance stops spending the shared budget", async () => {
+    const limiter = new RateLimiter(1, 1);
+    await limiter.acquire(); // use the burst token; the next calls queue
+    const waiting = limiter.acquire(1, "T", "market");
+    const outcome = waiting.then(() => "granted", (e: Error) => e.message);
+
+    limiter.drain();
+
+    assert.match(await outcome, /drained/);
+    await assert.rejects(limiter.acquire(1, "T", "ship"), /drained/);
+    assert.equal(limiter.stats().queueDepth, 0);
+  });
+});

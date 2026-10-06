@@ -6610,6 +6610,19 @@ export class FleetManager {
     );
   }
 
+  /**
+   * Every ship this fleet is driving, as its agent last saw it — no API calls. The dashboard's
+   * live snapshot is built from this rather than re-listing every ship from the game API.
+   */
+  currentShips(): Ship[] {
+    const out: Ship[] = [];
+    for (const s of this.getShipStatuses()) {
+      const ship = this.shipFor(s.symbol);
+      if (ship) out.push(ship);
+    }
+    return out;
+  }
+
   /** A ship's full current object, whichever role map (or idleShips/pendingRoleShips) actually holds it. */
   private shipFor(shipSymbol: string): Ship | undefined {
     const agent = this.controlledAgent(shipSymbol);
