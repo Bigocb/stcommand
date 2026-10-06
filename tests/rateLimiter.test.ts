@@ -224,3 +224,29 @@ describe("Production defaults use a tight burst cap", () => {
     assert.ok(ran, "a task with estimatedCalls=3 must be admitted under the default budget");
   });
 });
+
+describe("RateLimiter.stats", () => {
+  it("attributes granted calls and wait time to whoever asked", async () => {
+    const limiter = new RateLimiter(20, 2);
+    await Promise.all([
+      ...Array.from({ length: 6 }, () => limiter.acquire(1, "THEO")),
+      ...Array.from({ length: 2 }, () => limiter.acquire(1, "OTHER")),
+    ]);
+    const st = limiter.stats();
+    assert.equal(st.calls, 8);
+    assert.equal(st.byLabel.THEO?.calls, 6);
+    assert.equal(st.byLabel.OTHER?.calls, 2);
+    assert.equal(st.byPriority["1"]?.calls, 8);
+    assert.equal(st.queueDepth, 0);
+    assert.ok(st.maxWaitMs >= st.avgWaitMs, "max wait can't be below the average");
+  });
+
+  it("reports a backlog while requests are still waiting", async () => {
+    const limiter = new RateLimiter(5, 1);
+    const pending = Array.from({ length: 4 }, () => limiter.acquire(1, "THEO"));
+    const mid = limiter.stats();
+    assert.ok(mid.queueDepth >= 2, `expected a queue, got ${mid.queueDepth}`);
+    await Promise.all(pending);
+    assert.equal(limiter.stats().queueDepth, 0);
+  });
+});

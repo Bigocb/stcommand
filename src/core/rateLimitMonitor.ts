@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import type { LimiterStats } from "./client.js";
 
 /** Identity of this server process — Render sets RENDER_INSTANCE_ID per instance. */
 export const INSTANCE_ID = process.env.RENDER_INSTANCE_ID ?? `${hostname()}-${process.pid}`;
@@ -14,6 +15,7 @@ const WINDOW_MS = 60_000;
 export class RateLimitMonitor {
   private hits: number[] = [];
   private last = 0;
+  private limiterSource: (() => LimiterStats) | undefined;
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -31,9 +33,15 @@ export class RateLimitMonitor {
     if (i > 0) this.hits.splice(0, i);
   }
 
-  snapshot(): { hits60s: number; lastAt: string | null } {
+  /** Where to read the shared token bucket's demand/wait numbers from (the TenantRegistry registers it). */
+  setLimiterSource(fn: () => LimiterStats): void {
+    this.limiterSource = fn;
+  }
+
+  snapshot(): { hits60s: number; lastAt: string | null; limiter?: LimiterStats } {
     this.prune(this.now());
-    return { hits60s: this.hits.length, lastAt: this.last ? new Date(this.last).toISOString() : null };
+    const limiter = this.limiterSource?.();
+    return { hits60s: this.hits.length, lastAt: this.last ? new Date(this.last).toISOString() : null, ...(limiter ? { limiter } : {}) };
   }
 }
 

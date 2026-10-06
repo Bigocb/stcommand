@@ -62,6 +62,9 @@ export interface ClientOptions {
    *  priority); Client.withPriority() is the usual way to get a boosted one
    *  sharing the same limiter. */
   priority?: number;
+  /** Who is asking (the tenant's agent symbol). Only used to attribute
+   *  limiter wait time per tenant — see RateLimiter.stats(). */
+  label?: string;
   /**
    * Route every request this Client makes through a forward proxy —
    * `http://user:pass@host:port`. SpaceTraders rate-limits by source IP,
@@ -87,7 +90,40 @@ interface QueueEntry {
   priority: number;
   seq: number;
   resolve: () => void;
+  enqueuedAt: number;
+  label: string;
 }
+
+/** One granted request, kept for the rolling stats window. */
+interface LimiterSample {
+  at: number;
+  label: string;
+  priority: number;
+  waitMs: number;
+}
+
+export interface LimiterLabelStats {
+  calls: number;
+  avgWaitMs: number;
+  maxWaitMs: number;
+}
+
+export interface LimiterStats {
+  windowMs: number;
+  /** Requests waiting for a token right now. */
+  queueDepth: number;
+  /** How long the oldest still-waiting request has waited, ms. */
+  oldestWaitMs: number;
+  /** Requests granted in the window, and the per-minute rate that implies. */
+  calls: number;
+  callsPerMin: number;
+  avgWaitMs: number;
+  maxWaitMs: number;
+  byLabel: Record<string, LimiterLabelStats>;
+  byPriority: Record<string, LimiterLabelStats>;
+}
+
+const LIMITER_WINDOW_MS = 5 * 60_000;
 
 /**
  * Token-bucket limiter to stay under the API's per-second cap. Priority-
@@ -100,6 +136,7 @@ export class RateLimiter {
   private readonly queue: QueueEntry[] = [];
   private seqCounter = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private samples: LimiterSample[] = [];
 
   constructor(
     private readonly ratePerSec: number,
@@ -129,11 +166,50 @@ export class RateLimiter {
    * lets boot-critical calls (see Client.withPriority()) jump that queue
    * without starving the routine traffic — it just goes second, not never.
    */
-  acquire(priority = 1): Promise<void> {
+  acquire(priority = 1, label = "?"): Promise<void> {
     return new Promise((resolve) => {
-      this.queue.push({ priority, seq: this.seqCounter++, resolve });
+      this.queue.push({ priority, seq: this.seqCounter++, resolve, enqueuedAt: Date.now(), label });
       this.pump();
     });
+  }
+
+  /**
+   * Demand and wait over the last few minutes, per tenant and per priority.
+   * The limiter is one process-wide bucket, so when everything feels slow the
+   * first question is whether demand exceeds the 1.5 req/s it hands out — a
+   * queue that keeps growing means yes, and `byLabel` says whose calls they are.
+   */
+  stats(now = Date.now(), windowMs = LIMITER_WINDOW_MS): LimiterStats {
+    const cutoff = now - windowMs;
+    let i = 0;
+    while (i < this.samples.length && this.samples[i]!.at < cutoff) i += 1;
+    if (i > 0) this.samples.splice(0, i);
+    const fold = (key: (s: LimiterSample) => string) => {
+      const acc = new Map<string, { calls: number; total: number; max: number }>();
+      for (const s of this.samples) {
+        const k = key(s);
+        const a = acc.get(k) ?? { calls: 0, total: 0, max: 0 };
+        a.calls += 1;
+        a.total += s.waitMs;
+        a.max = Math.max(a.max, s.waitMs);
+        acc.set(k, a);
+      }
+      const out: Record<string, LimiterLabelStats> = {};
+      for (const [k, a] of acc) out[k] = { calls: a.calls, avgWaitMs: Math.round(a.total / a.calls), maxWaitMs: a.max };
+      return out;
+    };
+    const total = this.samples.reduce((n, s) => n + s.waitMs, 0);
+    return {
+      windowMs,
+      queueDepth: this.queue.length,
+      oldestWaitMs: this.queue.reduce((m, e) => Math.max(m, now - e.enqueuedAt), 0),
+      calls: this.samples.length,
+      callsPerMin: Math.round((this.samples.length / (windowMs / 60_000)) * 10) / 10,
+      avgWaitMs: this.samples.length ? Math.round(total / this.samples.length) : 0,
+      maxWaitMs: this.samples.reduce((m, s) => Math.max(m, s.waitMs), 0),
+      byLabel: fold((s) => s.label),
+      byPriority: fold((s) => String(s.priority)),
+    };
   }
 
   private refill(): void {
@@ -160,7 +236,17 @@ export class RateLimiter {
     this.refill();
     while (this.queue.length > 0 && this.tokens >= 1) {
       this.tokens -= 1;
-      this.dequeueNext()!.resolve();
+      const next = this.dequeueNext()!;
+      const at = Date.now();
+      this.samples.push({ at, label: next.label, priority: next.priority, waitMs: at - next.enqueuedAt });
+      next.resolve();
+    }
+    // Bounded even if nobody ever calls stats(): drop what's older than the window.
+    if (this.samples.length > 2_000) {
+      const cutoff = Date.now() - LIMITER_WINDOW_MS;
+      let i = 0;
+      while (i < this.samples.length && this.samples[i]!.at < cutoff) i += 1;
+      if (i > 0) this.samples.splice(0, i);
     }
     if (this.queue.length === 0 || this.timer) return;
     const waitMs = Math.max(1, Math.ceil(((1 - this.tokens) / this.ratePerSec) * 1000));
@@ -182,6 +268,7 @@ export class Client {
    *  live-read value (not a clone-per-priority-level) is what boot actually
    *  needs here. */
   private priority: number;
+  private readonly label: string | undefined;
   readonly onRateLimited: ClientOptions["onRateLimited"];
   /**
    * Real count of HTTP requests actually sent (including retries — a 429 or
@@ -229,6 +316,7 @@ export class Client {
     this.retryBackoffMs = opts.retryBackoffMs ?? 250;
     this.onRateLimited = opts.onRateLimited;
     this.priority = opts.priority ?? 1;
+    this.label = opts.label;
     this.proxyUrl = opts.proxyUrl;
     this.dispatcher = opts.proxyUrl ? new ProxyAgent(opts.proxyUrl) : undefined;
     // SpaceTraders' real per-account limit is 2 req/sec, but that's the
@@ -283,6 +371,7 @@ export class Client {
       retryBackoffMs: this.retryBackoffMs,
       onRateLimited: this.onRateLimited,
       priority: this.priority,
+      label: this.label,
       // Always this instance's actual limiter, not just whatever sharedLimiter
       // it was constructed with — a withToken() clone must draw from the same
       // budget as its parent even when the parent got a private one by default.
@@ -307,7 +396,7 @@ export class Client {
 
     let attempt = 0;
     for (;;) {
-      await this.limiter.acquire(this.priority);
+      await this.limiter.acquire(this.priority, this.label);
       this.callCount += 1;
       // A proxied Client goes through undici's own fetch, with its own
       // ProxyAgent as the dispatcher — both from the same undici install.

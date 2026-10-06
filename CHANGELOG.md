@@ -9,6 +9,31 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Coordinator split into core / feeds / maintenance loops (2026-10-06)
+
+`FleetManager.run()` awaited one serial `tick()`: dispatch, every purchase check, feeds and missions, then the syncs.
+When the game API backed up, `feeds.tick` alone took up to 25 minutes (it grew over the process's uptime and reset on a
+restart), and since trader route assignment lives in that same pass, a trader that sold its cargo waited for the next
+pass before it got another route. Measured: 15-minute windows with 2-6 sales while the pass was slow, 35-43 sales right
+after a restart.
+
+`run()` now drives three loops that only ever wait on themselves. **core** (~2s) computes dispatch routes, recomputes
+assignments, commits intents and syncs state, and makes no game-API calls; **feeds** (~2s) runs missions and feeds;
+**maintenance** (~5s) does credits, gate and contract refreshes and every purchase/keeper/repair/explore controller.
+Controllers still only propose on the `IntentBoard` and core commits, so an operator hold now wins a priority tie
+explicitly (proposals no longer arrive in a fixed order). Slow-pass logs and `slow_ticks` rows are tagged with the loop
+(`tick: SLOW pass [feeds]`, step names `feeds:feeds.tick`). `tick()` runs the three once in order. One risk traded
+away: a maintenance controller and a feed can now pick the same idle ship at the same moment (before, they were
+serialized); both check availability and the feed suspends the ship straight after picking it, so the window is narrow.
+
+## Rate limiter reports demand and wait per tenant (2026-10-06)
+
+All tenants share one 1.5 req/s token bucket, and nothing said how much of it each used or how long callers waited. The
+limiter now keeps a five-minute window of granted calls (tenant, priority, time spent queued). The server logs
+`limiter 5m: N/min of 90 · queue Q (oldest Ns) · wait avg/max · THEO … | OTHER …` every five minutes, and
+`GET /api/rate-limit` and the `instances` ops tool include the same figures. A queue that keeps growing means demand is
+above the bucket; the per-tenant split answers whether a second tenant is the cause.
+
 ## Ship, siphoner, keeper-probe and scanner purchases no longer auto-approve (2026-10-06)
 
 The `buyShip`, `buySiphoner`, `buyKeeperProbe` (both paths) and `installScanner` approvals now deny on timeout, like

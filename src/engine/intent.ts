@@ -247,7 +247,11 @@ export class IntentBoard {
     const byShip = new Map<string, IntentProposal>();
     for (const p of this.proposals) {
       const best = byShip.get(p.ship);
-      if (!best || p.priority < best.priority) byShip.set(p.ship, p);
+      // Ties go to the first proposal — except that an operator's hold always
+      // outranks any other controller's at the same priority. Proposals now
+      // arrive from independent loops in no fixed order, so "first" can no
+      // longer stand in for "operator first".
+      if (!best || p.priority < best.priority || (p.priority === best.priority && p.source === "operator" && best.source !== "operator")) byShip.set(p.ship, p);
     }
     this.proposals = [];
 

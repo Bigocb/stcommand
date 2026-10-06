@@ -105,6 +105,17 @@ export class TenantRegistry {
   // matching comment in src/core/client.ts for why this matters.
   private readonly apiLimiter = new RateLimiter(1.5, Math.ceil(1.5));
 
+  /** Log the shared bucket's demand and wait every few minutes, so "is the second tenant too much" has numbers. */
+  private logLimiterStats(): void {
+    const st = this.apiLimiter.stats();
+    if (st.calls === 0 && st.queueDepth === 0) return;
+    const who = Object.entries(st.byLabel)
+      .sort((a, b) => b[1].calls - a[1].calls)
+      .map(([k, v]) => `${k} ${v.calls} calls avg ${(v.avgWaitMs / 1000).toFixed(1)}s max ${(v.maxWaitMs / 1000).toFixed(1)}s`)
+      .join(" | ");
+    this.log("?", `limiter ${Math.round(st.windowMs / 60_000)}m: ${st.callsPerMin}/min of 90 · queue ${st.queueDepth} (oldest ${(st.oldestWaitMs / 1000).toFixed(1)}s) · wait avg ${(st.avgWaitMs / 1000).toFixed(1)}s max ${(st.maxWaitMs / 1000).toFixed(1)}s · ${who}`);
+  }
+
   constructor(
     private readonly pool: pg.Pool,
     private readonly log: (tenantId: string, msg: string) => void = (tenantId, msg) =>
@@ -123,6 +134,7 @@ export class TenantRegistry {
         new Client({
           token,
           proxyUrl,
+          label: agentSymbol,
           ...(proxyUrl ? {} : { sharedLimiter: this.apiLimiter }),
           onRateLimited: (sec, attempt) => {
             rateLimitMonitor.record();
@@ -132,7 +144,11 @@ export class TenantRegistry {
         token,
       );
     },
-  ) {}
+  ) {
+    rateLimitMonitor.setLimiterSource(() => this.apiLimiter.stats());
+    const timer = setInterval(() => this.logLimiterStats(), 5 * 60_000);
+    timer.unref();
+  }
 
   /** An already-booted worker, if one exists — never triggers a boot. */
   get(tenantId: string): TenantWorker | undefined {

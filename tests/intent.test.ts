@@ -33,6 +33,15 @@ describe("IntentBoard: one intent per ship", () => {
     assert.equal(board.current("S1")!.goal.kind, "keep");
   });
 
+  it("lets an operator hold win a priority tie even when another controller proposed first", () => {
+    // Proposals now arrive from independent loops in no fixed order.
+    const board = new IntentBoard();
+    board.propose({ ship: "S1", priority: 0, goal: { kind: "tour" }, reason: "rescue", source: "rescue" });
+    board.propose({ ship: "S1", priority: 0, goal: { kind: "hold" }, reason: "operator took it off the board", source: "operator" });
+    board.commit();
+    assert.equal(board.current("S1")!.source, "operator");
+  });
+
   it("clears proposals after committing, so last pass's opinions do not linger", () => {
     const board = new IntentBoard();
     board.propose({ ship: "S1", priority: 2, goal: { kind: "trade" }, reason: "r", source: "trade" });

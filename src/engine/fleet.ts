@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import { ShipAgent, REFINE_RECIPES } from "./agent.js";
@@ -292,6 +293,12 @@ interface TenderPlan {
  * Single coordinator for the whole fleet: assigns roles, ticks every ship,
  * drives the contract pipeline, and grows the fleet by buying ships.
  */
+/** Step timings for one pass of one coordinator loop. */
+interface PassRecorder {
+  loop: string;
+  steps: { name: string; ms: number }[];
+}
+
 export class FleetManager {
   private readonly api: SpaceTradersAPI;
   readonly contracts?: ContractManager;
@@ -7125,39 +7132,41 @@ export class FleetManager {
 
   /** One coordination pass over the whole fleet. */
   private lastDeadTokenLog = 0;
-  /** Per-step timings for the tick() pass currently in progress — reset at
-   *  the top of tick(), read and flushed at the bottom. See timed()/
-   *  timedSync()/flushTickTimings() and migrations/031_tick_step_timings.sql's
-   *  comment for why this exists: a live incident where feeds.tick() (called
-   *  every ~2s from this same serial pass) went silent for 5-10 minutes at a
-   *  time, with no other symptom anywhere else in the fleet — meaning
-   *  something EARLIER in this same tick() call chain was occasionally
-   *  blocking for minutes, and nothing before this instrumentation could
-   *  say which step. */
-  private tickStepTimings: { name: string; ms: number }[] = [];
+  /** Per-pass step timings. Each coordinator loop (core, feeds, maintenance)
+   *  runs its own pass with its own recorder, carried on AsyncLocalStorage so
+   *  timed()/timedSync() need no extra argument and three loops awaiting at
+   *  once can't write into each other's list. See migrations/
+   *  031_tick_step_timings.sql's comment for why this exists: a live incident
+   *  where feeds.tick() went silent for 5-10 minutes at a time because
+   *  something earlier in the one serial pass was blocking, and nothing
+   *  before this instrumentation could say which step. */
+  private readonly passRecorder = new AsyncLocalStorage<PassRecorder>();
   /** A single step taking this long or longer logs immediately. */
   private static readonly STEP_WARN_MS = 1_000;
-  /** A whole tick() pass taking this long or longer gets its full
-   *  per-step breakdown persisted via Store.recordSlowTick() — see that
-   *  table's own comment for why only slow passes are recorded, not every
-   *  one (a tick fires every ~2s; logging every pass would be ~30
-   *  rows/minute/tenant for no diagnostic benefit while healthy). */
+  /** A whole pass taking this long or longer gets its full per-step
+   *  breakdown persisted via Store.recordSlowTick() — only slow passes, not
+   *  every one (the core loop fires every ~2s; recording every pass would be
+   *  ~30 rows/minute/tenant for no diagnostic benefit while healthy). */
   private static readonly TICK_WARN_MS = 3_000;
+  /** Pause between passes of each coordinator loop. */
+  private static readonly CORE_INTERVAL_MS = 2_000;
+  private static readonly FEEDS_INTERVAL_MS = 2_000;
+  private static readonly MAINTENANCE_INTERVAL_MS = 5_000;
 
-  /** Time one async step of a tick() pass, logging immediately if it's
-   *  slow and always recording it into this pass's tickStepTimings. */
+  /** Time one async step of a pass, logging immediately if it's slow and
+   *  recording it into the running pass's step list. */
   private async timed<T>(name: string, fn: () => Promise<T>): Promise<T> {
     const start = Date.now();
     try {
       return await fn();
     } finally {
       const ms = Date.now() - start;
-      this.tickStepTimings.push({ name, ms });
+      this.passRecorder.getStore()?.steps.push({ name, ms });
       if (ms >= FleetManager.STEP_WARN_MS) this.log(`tick: ${name} took ${ms}ms`);
     }
   }
 
-  /** Same as timed(), for the handful of tick() steps that are synchronous
+  /** Same as timed(), for the handful of pass steps that are synchronous
    *  (dispatcher.recompute(), proposeOperatorHolds(), etc.) — kept separate
    *  from timed() so every call site stays honest about whether it's
    *  actually awaiting something. */
@@ -7165,23 +7174,21 @@ export class FleetManager {
     const start = Date.now();
     const result = fn();
     const ms = Date.now() - start;
-    this.tickStepTimings.push({ name, ms });
+    this.passRecorder.getStore()?.steps.push({ name, ms });
     if (ms >= FleetManager.STEP_WARN_MS) this.log(`tick: ${name} took ${ms}ms`);
     return result;
   }
 
-  /** Called once at the end of every tick() pass (both the paused/halted
-   *  early-return and the full pass) — logs and persists the full
-   *  per-step breakdown only when the pass as a whole was slow. */
-  private async flushTickTimings(tickStartedAt: number): Promise<void> {
-    const totalMs = Date.now() - tickStartedAt;
-    const steps = this.tickStepTimings;
+  /** Called at the end of every pass of every loop — logs and persists the
+   *  full per-step breakdown only when the pass as a whole was slow. */
+  private async flushPass(rec: PassRecorder, startedAt: number): Promise<void> {
+    const totalMs = Date.now() - startedAt;
     if (totalMs < FleetManager.TICK_WARN_MS) return;
-    const top = [...steps].sort((a, b) => b.ms - a.ms).slice(0, 5).map((s) => `${s.name}=${s.ms}ms`).join(", ");
-    this.log(`tick: SLOW pass — ${totalMs}ms total, top steps: ${top || "(none measured)"}`);
+    const top = [...rec.steps].sort((a, b) => b.ms - a.ms).slice(0, 5).map((s) => `${s.name}=${s.ms}ms`).join(", ");
+    this.log(`tick: SLOW pass [${rec.loop}] — ${totalMs}ms total, top steps: ${top || "(none measured)"}`);
     if (!this.tenantId) return;
     try {
-      await this.store?.recordSlowTick(this.tenantId, { startedAt: new Date(tickStartedAt).toISOString(), totalMs, steps });
+      await this.store?.recordSlowTick(this.tenantId, { startedAt: new Date(startedAt).toISOString(), totalMs, steps: rec.steps.map((s) => ({ name: `${rec.loop}:${s.name}`, ms: s.ms })) });
     } catch (err) {
       this.log(`tick: failed to record slow-tick timing: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -7207,11 +7214,46 @@ export class FleetManager {
     return true;
   }
 
+  /**
+   * One coordination pass over the whole fleet, all three loops in order.
+   * `run()` does not call this: it drives the three loops independently (see
+   * tickCore/tickFeeds/tickMaintenance) so a slow feed or purchase check can
+   * no longer hold up trader dispatch. Kept as one deterministic step for
+   * anything that wants a single pass.
+   */
   async tick(): Promise<void> {
+    await this.tickCore();
+    await this.tickFeeds();
+    await this.tickMaintenance();
+  }
+
+  /**
+   * Run one pass of a coordinator loop with its own step-timing recorder.
+   * The recorder rides along on AsyncLocalStorage, so timed()/timedSync()
+   * attribute each step to the loop that is running it even though the three
+   * loops are awaiting at the same time.
+   */
+  private async pass(loop: string, fn: () => Promise<void>): Promise<void> {
     if (this.haltedByDeadToken()) return;
-    const tickStartedAt = Date.now();
-    this.tickStepTimings = [];
+    const rec: PassRecorder = { loop, steps: [] };
+    const startedAt = Date.now();
     try {
+      await this.passRecorder.run(rec, fn);
+    } finally {
+      await this.flushPass(rec, startedAt);
+    }
+  }
+
+  /**
+   * The control loop: decide what every trader should do next and publish it.
+   * Nothing here waits on the game API (reads are the store and in-memory
+   * state; the syncs are store writes), so a pass stays short however backed
+   * up the rate limiter is. Proposals other loops make (keepers, repairs,
+   * exploring, operator holds) sit on the IntentBoard and are committed by
+   * the next pass of this loop.
+   */
+  private async tickCore(): Promise<void> {
+    await this.pass("core", async () => {
       if (this.paused) {
         // Halt stops *automation*, not *recovery*. Rescue is the one thing that
         // must keep running: a halted fleet still has ships sitting at 0 fuel,
@@ -7229,15 +7271,6 @@ export class FleetManager {
         this.timedSync("logFleetStatus", () => this.logFleetStatus());
         this.checkFleetLiveness();
         return;
-      }
-      await this.timed("refreshCredits", () => this.refreshCredits());
-      await this.timed("chartOccupiedSystems", () => this.chartOccupiedSystems());
-      await this.timed("maybeRefreshGateConstruction", () => this.maybeRefreshGateConstruction());
-      this.maybeWarmJumpNeighborhoods();
-      if (this.contracts) {
-        await this.timed("contracts.fulfillCompleted", () => this.contracts!.fulfillCompleted());
-        await this.timed("contracts.acceptBest", () => this.contracts!.acceptBest());
-        await this.timed("maybeNegotiateContract", () => this.maybeNegotiateContract());
       }
       // Centralized route dispatch: recompute distinct per-trader assignments.
       const routes = await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes());
@@ -7288,8 +7321,6 @@ export class FleetManager {
       // Same precedence ShipRegistry already enforces (operator > rescue).
       this.timedSync("proposeOperatorHolds", () => this.proposeOperatorHolds());
       this.timedSync("proposeScrapGoals", () => this.proposeScrapGoals());
-      await this.timed("maybeAssignKeepers", () => this.maybeAssignKeepers());
-      await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       // Resolve this pass's proposals to one intent per ship. Purely local: no
       // API calls, no awaiting a ship. A busy ship keeps an earning goal unless
       // something strictly more urgent preempts it — see intent.ts.
@@ -7299,6 +7330,48 @@ export class FleetManager {
           this.log(`${change.ship}: ${from} → ${change.to.goal.kind} (v${change.to.version}) — ${change.to.reason}`);
         }
       });
+      // Cutover: with a scheduler, nextRescueTask() (enqueued once from
+      // syncSchedulerTasks(), self-chained every ~2s) already covers this —
+      // see the halted branch above for why calling it here too would double
+      // it up. Without one, this direct call is unchanged from before.
+      if (!this.scheduler) await this.timed("rescueStranded", () => this.rescueStranded());
+      await this.timed("syncShipStates", () => this.syncShipStates());
+      await this.timed("syncShipManifests", () => this.syncShipManifests());
+      await this.timed("syncShipClaims", () => this.syncShipClaims());
+      this.timedSync("syncSchedulerTasks", () => this.syncSchedulerTasks());
+      this.timedSync("logFleetStatus", () => this.logFleetStatus());
+    });
+  }
+
+  /** Mission and feed crews: the slowest steps, since each walks real ships through real trips. */
+  private async tickFeeds(): Promise<void> {
+    if (this.paused) return;
+    await this.pass("feeds", async () => {
+      await this.timed("missions.tick", () => this.missions.tick());
+      await this.timed("feeds.tick", () => this.feeds.tick());
+    });
+  }
+
+  /**
+   * Everything that spends or reaches out and isn't urgent: credits, gate
+   * and contract refresh, keeper and repair proposals, ship, scout, siphoner
+   * and scanner purchases, exploring. Runs on its own, so a slow purchase
+   * check delays only the next purchase check.
+   */
+  private async tickMaintenance(): Promise<void> {
+    if (this.paused) return;
+    await this.pass("maintenance", async () => {
+      await this.timed("refreshCredits", () => this.refreshCredits());
+      await this.timed("chartOccupiedSystems", () => this.chartOccupiedSystems());
+      await this.timed("maybeRefreshGateConstruction", () => this.maybeRefreshGateConstruction());
+      this.maybeWarmJumpNeighborhoods();
+      if (this.contracts) {
+        await this.timed("contracts.fulfillCompleted", () => this.contracts!.fulfillCompleted());
+        await this.timed("contracts.acceptBest", () => this.contracts!.acceptBest());
+        await this.timed("maybeNegotiateContract", () => this.maybeNegotiateContract());
+      }
+      await this.timed("maybeAssignKeepers", () => this.maybeAssignKeepers());
+      await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       await this.timed("maybeGrowExplorers", () => this.maybeGrowExplorers());
       await this.timed("maybeBuyShip", () => this.maybeBuyShip());
       await this.timed("maybeResolveNewShipRoles", () => this.maybeResolveNewShipRoles());
@@ -7310,22 +7383,8 @@ export class FleetManager {
       await this.timed("maybeBuySiphoner", () => this.maybeBuySiphoner());
       await this.timed("maybeInstallScanner", () => this.maybeInstallScanner());
       await this.timed("autoExplore", () => this.autoExplore());
-      // Cutover: with a scheduler, nextRescueTask() (enqueued once from
-      // syncSchedulerTasks(), self-chained every ~2s) already covers this —
-      // see the halted branch above for why calling it here too would double
-      // it up. Without one, this direct call is unchanged from before.
-      if (!this.scheduler) await this.timed("rescueStranded", () => this.rescueStranded());
-      await this.timed("missions.tick", () => this.missions.tick());
-      await this.timed("feeds.tick", () => this.feeds.tick());
-      await this.timed("syncShipStates", () => this.syncShipStates());
-      await this.timed("syncShipManifests", () => this.syncShipManifests());
-      await this.timed("syncShipClaims", () => this.syncShipClaims());
-      this.timedSync("syncSchedulerTasks", () => this.syncSchedulerTasks());
-      this.timedSync("logFleetStatus", () => this.logFleetStatus());
       await this.timed("logEarnings", () => this.logEarnings());
-    } finally {
-      await this.flushTickTimings(tickStartedAt);
-    }
+    });
   }
 
   /**
@@ -8246,26 +8305,41 @@ export class FleetManager {
     }
   }
 
-  /** Drive every ship and the coordination loop. */
+  /**
+   * Drive the coordination loops. They run independently — control (route
+   * dispatch), feeds and missions, and maintenance (purchases, refreshes) —
+   * each awaiting only its own pass, so a slow step in one can't stall
+   * another. `maxTicks` bounds the control loop; the others stop when it does.
+   */
   async run(maxTicks: number): Promise<void> {
     this.running = true;
     // Cutover: with a scheduler, every agent is driven by nextTask() chains
-    // enqueued via syncSchedulerTasks() (called from tick(), including once
-    // at the end of init()) — the old blocking per-agent loops are gone, so
-    // there is nothing else to start. See FleetOptions.scheduler's comment.
-    const loops: Promise<void>[] = [];
-    let ticks = 0;
-    while (this.running && ticks < maxTicks) {
-      ticks += 1;
-      try {
-        await this.tick();
-      } catch (err) {
-        this.log(`coordinator error: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      await sleep(2_000);
-    }
+    // enqueued via syncSchedulerTasks() (called from the core pass, including
+    // once at the end of init()) — the old blocking per-agent loops are gone,
+    // so there is nothing else to start. See FleetOptions.scheduler's comment.
+    const core = this.runLoop("core", FleetManager.CORE_INTERVAL_MS, () => this.tickCore(), maxTicks).finally(() => {
+      this.running = false;
+    });
+    const rest = [
+      this.runLoop("feeds", FleetManager.FEEDS_INTERVAL_MS, () => this.tickFeeds()),
+      this.runLoop("maintenance", FleetManager.MAINTENANCE_INTERVAL_MS, () => this.tickMaintenance()),
+    ];
+    await Promise.allSettled([core, ...rest]);
     this.running = false;
-    await Promise.allSettled(loops);
+  }
+
+  /** One coordinator loop: a pass, a pause, repeat — never two passes of the same loop at once. */
+  private async runLoop(name: string, intervalMs: number, pass: () => Promise<void>, maxPasses = Number.POSITIVE_INFINITY): Promise<void> {
+    let passes = 0;
+    while (this.running && passes < maxPasses) {
+      passes += 1;
+      try {
+        await pass();
+      } catch (err) {
+        this.log(`coordinator error [${name}]: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      await sleep(intervalMs);
+    }
   }
 
   stop(): void {

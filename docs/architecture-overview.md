@@ -60,12 +60,26 @@ center of gravity. Per tenant, it:
   or a durable manual override (`setShipRole()`, persisted via
   `fleet_flags` and reapplied at boot by
   `restorePersistedManualRoles()`).
-- Runs one `tick()` per scheduler cycle: refresh credits, chart occupied
-  systems, refresh gate-construction status, run contract logic, compute
-  dispatch routes, resolve every `maybe*()` controller (buy a ship, buy a
-  scout, buy a siphoner, install a scanner, resolve a pending
-  keeper-probe approval, repair, explore), commit ship intents, then let
-  the scheduler actually drive each ship's next real action.
+- Drives three independent coordinator loops (`run()`), each awaiting only
+  itself, so one slow step can't hold up the others:
+  - **core** (every ~2s, no game-API waits): compute dispatch routes and
+    targets, recompute every trader's assignment, commit ship intents,
+    sync ship state/manifests/claims to the store, then let the scheduler
+    actually drive each ship's next real action.
+  - **feeds** (every ~2s): mission and feed crews — the slowest steps,
+    since they walk real ships through real trips.
+  - **maintenance** (every ~5s): refresh credits, chart occupied systems,
+    refresh gate-construction status, run contract logic, and resolve every
+    `maybe*()` controller (keepers, repair, buy a ship / scout / siphoner,
+    install a scanner, resolve a pending keeper-probe approval, explore).
+  Controllers in any loop only *propose* on the `IntentBoard`; the core loop
+  commits them (an operator hold wins a priority tie). Step timings are per
+  loop (`tick: SLOW pass [core|feeds|maintenance]`). `tick()` still runs all
+  three once, in order, for callers that want a single deterministic pass.
+- Every tenant's API client draws from one shared token bucket (1.5 req/s —
+  SpaceTraders limits per IP). `GET /api/rate-limit` and the `instances`
+  ops tool report its recent demand and wait per tenant, and the server logs
+  `limiter 5m: ...` every five minutes.
 - Exposes the read/write surface the HTTP dashboard layer calls into —
   `getIntel()`, `computeDispatchRoutes()`, `fleetStatusSummary()`,
   `setShipRole()`, `sellShip()`, etc.
