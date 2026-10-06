@@ -72,6 +72,10 @@ const BOOT_RETRY_COOLDOWN_MS = 15_000;
 
 export class TenantRegistry {
   private readonly workers = new Map<string, TenantWorker>();
+  /** Tenants stopped by `stopOne()` (the admin delete flow). In-flight ticks and
+   *  scheduled tasks can outlive `stop()` by a beat; their late activity writes
+   *  are dropped instead of hitting a tenant row that may already be gone. */
+  private readonly retired = new Set<string>();
   private readonly starting = new Map<string, Promise<TenantWorker>>();
   private readonly lastBootFailure = new Map<string, { at: number; error: Error }>();
   /**
@@ -266,6 +270,8 @@ export class TenantRegistry {
     worker.scheduler.stop();
     worker.stopRefresh?.();
     this.workers.delete(tenantId);
+    this.retired.add(tenantId);
+    this.log(tenantId, "worker stopped and retired — late activity writes will be dropped");
   }
 
   /** True if this process currently has a booted worker for this tenant —
@@ -277,6 +283,7 @@ export class TenantRegistry {
 
   private async boot(tenantId: string, agentSymbol: string): Promise<TenantWorker> {
     const log = (msg: string) => this.log(tenantId, msg);
+    this.retired.delete(tenantId);
     const token = await getTenantToken(this.pool, tenantId);
     const api = this.buildApi(token, agentSymbol);
     // Boosted for the duration of boot only — see Client.setPriority()'s own
@@ -346,8 +353,16 @@ export class TenantRegistry {
      *  dashboard feed and Discord by exactly the path every other event
      *  already takes. */
     const recordActivity = (kind: string, detail: string, credits?: number, shipSymbol?: string) => {
+      if (this.retired.has(tenantId)) return;
       const entry = { timestamp: new Date().toISOString(), shipSymbol: shipSymbol ?? "fleet", kind, detail, credits };
-      store.recordActivity(tenantId, entry);
+      // Fire-and-forget by design, but never unhandled: a rejected promise here
+      // used to take the whole process (every tenant) down when a tenant row was
+      // deleted out from under a still-running tick (FK 23503, 2026-10-06).
+      store.recordActivity(tenantId, entry).catch((err: unknown) => {
+        const code = (err as { code?: string } | null)?.code;
+        const msg = err instanceof Error ? err.message : String(err);
+        log(code === "23503" ? `activity write dropped (${kind}): tenant no longer exists` : `activity write failed (${kind}): ${msg}`);
+      });
       // Trades (buy/sell) and other activity only ever reach the dashboard's
       // own activity feed via this callback — DiscordRelay.postActivity's
       // sell/buy filter (discord.ts) was otherwise dead code, since ship

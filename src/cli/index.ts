@@ -241,6 +241,19 @@ async function main(): Promise<void> {
   process.on("SIGINT", shutdown);
 }
 
+// A stray rejected promise (a fire-and-forget DB write for a tenant that was just
+// deleted, a late API callback) must not take every tenant's fleet down with it —
+// that's exactly what happened on 2026-10-06. Log loudly with the stack and carry
+// on; a genuinely uncaught *exception* still means undefined state, so exit and
+// let Render restart the instance.
+process.on("unhandledRejection", (reason) => {
+  console.error("[process] unhandledRejection (not exiting):", reason instanceof Error ? (reason.stack ?? reason.message) : reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[process] uncaughtException — exiting:", err.stack ?? err);
+  process.exit(1);
+});
+
 main().catch((err) => {
   console.error(err);
   process.exit(1);

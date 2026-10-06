@@ -88,6 +88,50 @@ When you genuinely think a ship is stuck: report what you actually see (status, 
 
 This is scoped to one tenant's fleet (yours) — no cross-tenant access, no admin/infrastructure actions. If something needs the operator's own dashboard or server access, say so rather than trying to work around it with these tools.`;
 
+/** Short, log-safe summary of a tool call's arguments: key names plus any
+ *  scalar values under 40 chars. Never logs long strings or nested objects. */
+function argSummary(args: unknown): string {
+  if (!args || typeof args !== "object") return "";
+  const parts = Object.entries(args as Record<string, unknown>).map(([k, v]) =>
+    typeof v === "number" || typeof v === "boolean" || (typeof v === "string" && v.length <= 40) ? `${k}=${String(v)}` : k,
+  );
+  return parts.join(" ");
+}
+
+/** Wrap `server.registerTool` so every tool call logs start, duration and
+ *  outcome (ok / isError result / thrown). Returns a counter of how many
+ *  tools were registered, for the tools/list log line. */
+function instrumentTools(server: McpServer, tenantId: string): { count: () => number } {
+  let registered = 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const original = server.registerTool.bind(server) as (...a: any[]) => unknown;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).registerTool = (name: string, config: unknown, cb: (...a: any[]) => Promise<any>) => {
+    registered += 1;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return original(name, config, async (...cbArgs: any[]) => {
+      const started = Date.now();
+      const input = cbArgs.length > 1 ? cbArgs[0] : undefined;
+      console.log(`[mcp-tool] tenant=${tenantId} ${name} start ${argSummary(input)}`.trimEnd());
+      try {
+        const result = await cb(...cbArgs);
+        const ms = Date.now() - started;
+        if (result && typeof result === "object" && (result as { isError?: boolean }).isError) {
+          const text = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? "";
+          console.warn(`[mcp-tool] tenant=${tenantId} ${name} isError in ${ms}ms: ${String(text).slice(0, 300)}`);
+        } else {
+          console.log(`[mcp-tool] tenant=${tenantId} ${name} ok in ${ms}ms`);
+        }
+        return result;
+      } catch (err) {
+        console.error(`[mcp-tool] tenant=${tenantId} ${name} THREW in ${Date.now() - started}ms`, err);
+        throw err;
+      }
+    });
+  };
+  return { count: () => registered };
+}
+
 /**
  * The hosted MCP server, mounted at `/mcp` (see cli/index.ts) — an agent's
  * game-action entry point, per docs/mcp-server-plan.md. Stateless
@@ -120,8 +164,18 @@ export function createMcpRouter(registry: TenantRegistry): Router {
     // or errors. req.body's jsonrpc "method" (initialize, tools/list,
     // tools/call, ...) is the single most useful field for telling a
     // client-side connection drop apart from a server-side one.
-    const rpcMethod = (req.body as { method?: unknown } | undefined)?.method;
-    console.log(`[mcp] tenant=${tenantId} method=${String(rpcMethod ?? "?")} — request received`);
+    const rpcBody = req.body as { method?: unknown; params?: { clientInfo?: { name?: string; version?: string }; protocolVersion?: string; name?: string } } | undefined;
+    const rpcMethod = rpcBody?.method;
+    // initialize carries who the client is and which protocol it speaks; the
+    // user-agent and the accept header are what tell mcp-remote, Claude Code's
+    // native http client and a browser apart when a connection misbehaves.
+    const clientDesc =
+      rpcMethod === "initialize"
+        ? ` client=${rpcBody?.params?.clientInfo?.name ?? "?"}/${rpcBody?.params?.clientInfo?.version ?? "?"} protocol=${rpcBody?.params?.protocolVersion ?? "?"}`
+        : "";
+    console.log(
+      `[mcp] tenant=${tenantId} method=${String(rpcMethod ?? "?")}${clientDesc} ua="${req.header("user-agent") ?? "?"}" accept="${req.header("accept") ?? "?"}" — request received`,
+    );
 
     let worker;
     try {
@@ -137,7 +191,9 @@ export function createMcpRouter(registry: TenantRegistry): Router {
     }
 
     const server = new McpServer({ name: "stcommand", version: "1.0.0" }, { instructions: PLAYER_INSTRUCTIONS });
+    const tools = instrumentTools(server, tenantId);
     registerTools(server, worker);
+    if (rpcMethod === "tools/list") console.log(`[mcp] tenant=${tenantId} tools/list — ${tools.count()} tools registered`);
 
     try {
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -160,10 +216,12 @@ export function createMcpRouter(registry: TenantRegistry): Router {
   // Streamable HTTP is POST-only in stateless mode (no server-initiated
   // stream to GET, no session to DELETE) — same shape the SDK's own
   // simpleStatelessStreamableHttp.ts example uses.
-  router.get("/", (_req, res) => {
+  router.get("/", (req, res) => {
+    console.log(`[mcp] tenant=${req.tenantId} GET /mcp -> 405 (stateless mode, no SSE stream) ua="${req.header("user-agent") ?? "?"}"`);
     res.writeHead(405).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }));
   });
-  router.delete("/", (_req, res) => {
+  router.delete("/", (req, res) => {
+    console.log(`[mcp] tenant=${req.tenantId} DELETE /mcp -> 405 (stateless mode, no session to close)`);
     res.writeHead(405).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null }));
   });
 
