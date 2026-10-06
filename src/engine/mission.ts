@@ -155,6 +155,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** How often a *paused* mission re-reads its construction site. See `tick`. */
 const PAUSED_RECONCILE_MS = 60_000;
+/** An active mission re-reads its construction site at most this often (a delivery forces an immediate re-read). */
+const ACTIVE_RECONCILE_MS = 30_000;
 
 /**
  * Coordinates fleet missions: assigns a carrier ship to a construction site,
@@ -595,12 +597,24 @@ export class MissionManager {
     if (!shipTasks) return;
 
     // Reconcile fulfilled counts against the authoritative construction state.
-    const c = await this.api.getConstruction(mission.targetSystem, mission.targetWaypoint);
-    for (const m of mission.materials) {
-      const live = c.materials.find((x) => x.tradeSymbol === m.tradeSymbol);
-      if (live) m.fulfilled = live.fulfilled;
+    // Not on every pass: this ran on each ~2s coordinator tick for as long as
+    // the mission existed — about 10 calls a minute of a 90-a-minute budget,
+    // including while cash-floor or recovery pacing held every purchase.
+    // Counts only change when something is supplied, and a delivery below
+    // clears the stamp so the very next pass re-reads.
+    const lastRead = this.lastReconcile.get(mission.targetWaypoint) ?? 0;
+    const due = Date.now() - lastRead >= ACTIVE_RECONCILE_MS;
+    let complete = false;
+    if (due) {
+      const c = await this.api.getConstruction(mission.targetSystem, mission.targetWaypoint);
+      this.lastReconcile.set(mission.targetWaypoint, Date.now());
+      for (const m of mission.materials) {
+        const live = c.materials.find((x) => x.tradeSymbol === m.tradeSymbol);
+        if (live) m.fulfilled = live.fulfilled;
+      }
+      complete = c.isComplete;
     }
-    if (c.isComplete || mission.materials.every((m) => m.fulfilled >= m.required)) {
+    if (complete || mission.materials.every((m) => m.fulfilled >= m.required)) {
       mission.status = "complete";
       this.releaseCarrier(mission);
       if (this.tenantId) await this.store?.completeMission(this.tenantId, mission.targetWaypoint);
@@ -804,6 +818,7 @@ export class MissionManager {
       const toSupply = Math.min(neededHeld.held, neededHeld.mat.required - neededHeld.mat.fulfilled);
       if (toSupply > 0) {
         await this.api.supplyConstruction(mission.targetSystem, mission.targetWaypoint, ship.symbol, neededHeld.mat.tradeSymbol, toSupply);
+        this.lastReconcile.delete(mission.targetWaypoint); // counts just changed: re-read on the next pass
         this.log(`mission ${mission.targetWaypoint}: supplied ${toSupply}u ${neededHeld.mat.tradeSymbol}`);
         this.onActivity?.("mission", `${ship.symbol} supplied ${toSupply}u ${neededHeld.mat.tradeSymbol} to ${mission.targetWaypoint}`, 0, ship.symbol);
       }
@@ -967,6 +982,7 @@ export class MissionManager {
       if (toSupply > 0) {
         if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(ship.symbol);
         await this.api.supplyConstruction(mission.targetSystem, mission.targetWaypoint, ship.symbol, material, toSupply);
+        this.lastReconcile.delete(mission.targetWaypoint); // counts just changed: re-read on the next pass
         this.log(`mission ${mission.targetWaypoint}: supplied ${toSupply}u ${material}`);
         this.onActivity?.("mission", `${ship.symbol} supplied ${toSupply}u ${material} to ${mission.targetWaypoint}`, 0, ship.symbol);
       }

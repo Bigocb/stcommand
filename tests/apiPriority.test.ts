@@ -5,6 +5,7 @@ import {
   Client,
   RateLimiter,
   callKind,
+  callerOf,
   currentApiPriority,
   runWithApiPriority,
   taskToApiPriority,
@@ -188,5 +189,32 @@ describe("coordinator loops and the scheduler set their own urgency", () => {
     await sched.runOnce();
     assert.equal(during, API_PRIORITY.CRITICAL);
     assert.equal(flipped, 0, "the shared Client field is left alone when a scoped runner is supplied");
+  });
+});
+
+describe("callerOf", () => {
+  class Probe {
+    ask() { return callerOf(); }
+  }
+  it("names the class and method that asked", () => {
+    assert.equal(new Probe().ask(), "Probe.ask");
+  });
+  it("names a plain function", () => {
+    function namedCaller() { return callerOf(); }
+    assert.equal(namedCaller(), "namedCaller");
+  });
+});
+
+describe("RateLimiter.stats by caller", () => {
+  it("says which code spent the budget", async () => {
+    const limiter = new RateLimiter(50, 1);
+    await Promise.all([
+      limiter.acquire(1, "T", "ship", "ShipProxy.refresh"),
+      limiter.acquire(1, "T", "ship", "ShipProxy.refresh"),
+      limiter.acquire(3, "T", "market", "Keeper.snapshot"),
+    ]);
+    const st = limiter.stats();
+    assert.equal(st.byCaller["ship <- ShipProxy.refresh"]?.calls, 2);
+    assert.equal(st.byCaller["market <- Keeper.snapshot"]?.calls, 1);
   });
 });

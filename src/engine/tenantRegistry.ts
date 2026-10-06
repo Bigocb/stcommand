@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
-import { Client, RateLimiter, SpaceTradersAPI, runWithApiPriority, taskToApiPriority } from "../core/client.js";
+import { Client, RateLimiter, SpaceTradersAPI, runWithApiPriority, taskToApiPriority, API_PRIORITY } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { ContractManager } from "./contract.js";
@@ -33,7 +33,7 @@ export interface TenantWorker {
   stopRefresh?: () => void;
 }
 
-const STATE_REFRESH_MS = 20_000;
+const STATE_REFRESH_MS = 45_000;
 /** Effectively "forever" — same value straders' own CLI defaults to for a
  *  long-running process; run() resolves after this many ticks per ship loop. */
 const RUN_FOREVER_TICKS = 1_000_000;
@@ -114,6 +114,7 @@ export class TenantRegistry {
       Object.entries(rec).sort((a, b) => b[1].calls - a[1].calls).slice(0, n);
     const who = top(st.byLabel, 4).map(([k, v]) => `${k} ${v.calls}`).join(", ");
     const kinds = top(st.byKind, 6).map(([k, v]) => `${k} ${v.calls}`).join(", ");
+    const callers = top(st.byCaller, 8).map(([k, v]) => `${k} ${v.calls}`).join(", ");
     // Wait by tier is the number that says whether priorities are doing their job:
     // critical (1) should be short even when deferrable (3) and background (4) are not.
     const tiers = Object.entries(st.byPriority)
@@ -121,6 +122,8 @@ export class TenantRegistry {
       .map(([k, v]) => `p${k} ${v.calls} (avg ${sec(v.avgWaitMs)}s max ${sec(v.maxWaitMs)}s)`)
       .join(" · ");
     this.log("?", `limiter ${Math.round(st.windowMs / 60_000)}m: ${st.callsPerMin}/min of 90 · queue ${st.queueDepth} (oldest ${sec(st.oldestWaitMs)}s) · wait avg ${sec(st.avgWaitMs)}s max ${sec(st.maxWaitMs)}s · ${tiers} · by tenant: ${who} · by call: ${kinds}`);
+    // A second line so the top callers aren't lost in a long first one.
+    this.log("?", `limiter 5m top callers: ${callers}`);
   }
 
   constructor(
@@ -594,7 +597,10 @@ export class TenantRegistry {
     // now, after the one initial refreshState() call, so that call keeps
     // the boost through its three live API calls too.
     api.setPriority?.(1);
-    const refreshTimer = setInterval(refreshState, STATE_REFRESH_MS);
+    // Dashboard-only data (agent, every ship, contracts: about five calls a pass), so it
+    // runs at background urgency — outside any scoped context it would otherwise count as
+    // critical and queue ahead of deferrable work, and ships' real actions.
+    const refreshTimer = setInterval(() => void runWithApiPriority(API_PRIORITY.BACKGROUND, () => refreshState()), STATE_REFRESH_MS);
     refreshTimer.unref();
 
     return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative, stopRefresh: () => clearInterval(refreshTimer) };

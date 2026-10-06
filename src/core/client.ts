@@ -180,6 +180,25 @@ export function callKind(method: string, path: string): string {
   return "other";
 }
 
+/**
+ * Who in the codebase made this call: the first stack frame outside this
+ * file, as `Class.method` (or `file:line` for an anonymous function). Only
+ * for the limiter's stats, so "ship 140 calls" can be traced to the code
+ * asking; a call every ~600ms makes the cost of building a stack trivial.
+ */
+export function callerOf(): string {
+  const stack = new Error().stack?.split("\n") ?? [];
+  for (let i = 1; i < stack.length; i += 1) {
+    const line = stack[i]!;
+    if (line.includes("core/client.") || line.includes("node:") || line.includes("node_modules")) continue;
+    const named = /at (?:async )?(?:new )?([A-Za-z_$][\w$]*(?:\.[\w$<>]+)*) \(/.exec(line);
+    if (named) return named[1]!;
+    const loc = /([^/\\]+:\d+):\d+\)?$/.exec(line);
+    return loc ? loc[1]! : "unknown";
+  }
+  return "unknown";
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface QueueEntry {
@@ -189,6 +208,7 @@ interface QueueEntry {
   enqueuedAt: number;
   label: string;
   kind: string;
+  caller: string;
 }
 
 /** One granted request, kept for the rolling stats window. */
@@ -196,6 +216,7 @@ interface LimiterSample {
   at: number;
   label: string;
   kind: string;
+  caller: string;
   priority: number;
   waitMs: number;
 }
@@ -221,6 +242,8 @@ export interface LimiterStats {
   byPriority: Record<string, LimiterLabelStats>;
   /** What the calls were (extract, market, navigate, ...), see callKind(). */
   byKind: Record<string, LimiterLabelStats>;
+  /** `kind` + the code that asked, e.g. "ship <- ShipProxy.refresh": the answer to "what is spending the budget". */
+  byCaller: Record<string, LimiterLabelStats>;
 }
 
 const LIMITER_WINDOW_MS = 5 * 60_000;
@@ -269,9 +292,9 @@ export class RateLimiter {
    * lets boot-critical calls (see Client.withPriority()) jump that queue
    * without starving the routine traffic — it just goes second, not never.
    */
-  acquire(priority = 1, label = "?", kind = "other"): Promise<void> {
+  acquire(priority = 1, label = "?", kind = "other", caller = "?"): Promise<void> {
     return new Promise((resolve) => {
-      this.queue.push({ priority, seq: this.seqCounter++, resolve, enqueuedAt: Date.now(), label, kind });
+      this.queue.push({ priority, seq: this.seqCounter++, resolve, enqueuedAt: Date.now(), label, kind, caller });
       this.pump();
     });
   }
@@ -313,6 +336,7 @@ export class RateLimiter {
       byLabel: fold((s) => s.label),
       byPriority: fold((s) => String(s.priority)),
       byKind: fold((s) => s.kind),
+      byCaller: fold((s) => `${s.kind} <- ${s.caller}`),
     };
   }
 
@@ -356,7 +380,7 @@ export class RateLimiter {
       this.tokens -= 1;
       const next = this.dequeueNext()!;
       const at = Date.now();
-      this.samples.push({ at, label: next.label, kind: next.kind, priority: next.priority, waitMs: at - next.enqueuedAt });
+      this.samples.push({ at, label: next.label, kind: next.kind, caller: next.caller, priority: next.priority, waitMs: at - next.enqueuedAt });
       next.resolve();
     }
     // Bounded even if nobody ever calls stats(): drop what's older than the window.
@@ -512,12 +536,13 @@ export class Client {
     // can.
     if (this.fatalAuthError) throw new APIError(this.fatalAuthError, 401, "TOKEN_RESET_MISMATCH");
 
+    const caller = callerOf();
     let attempt = 0;
     for (;;) {
       // Boot (priority 0) always wins; otherwise the calling context's own
       // urgency (see runWithApiPriority), then this Client's ambient priority.
       const priority = this.priority === 0 ? 0 : (priorityContext.getStore() ?? this.priority);
-      await this.limiter.acquire(priority, this.label, callKind(req.method, req.path));
+      await this.limiter.acquire(priority, this.label, callKind(req.method, req.path), caller);
       this.callCount += 1;
       // A proxied Client goes through undici's own fetch, with its own
       // ProxyAgent as the dispatcher — both from the same undici install.

@@ -2748,7 +2748,7 @@ export class FleetManager {
       if (!this.hasUnchartedWork()) return;
       if (!(await this.scoutCanReachUncharted())) return;
     }
-    const agent = await this.api.getMyAgent();
+    const agent = { credits: await this.cachedCredits() };
     if (agent.credits < this.minCashReserve() + 35_000) return;
 
     const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
@@ -2814,7 +2814,7 @@ export class FleetManager {
   async maybeBuySiphoner(): Promise<void> {
     if (this.siphoners.size > 0) return;
     if (this.doctrine.value("siphonTarget", 0) <= 0) return;
-    const agent = await this.api.getMyAgent();
+    const agent = { credits: await this.cachedCredits() };
     if (agent.credits < this.minCashReserve() + 35_000) return;
 
     const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
@@ -2939,7 +2939,7 @@ export class FleetManager {
 
   /** Purchase the highest-scored affordable ship, if any. */
   async maybeBuyShip(): Promise<void> {
-    const agent = await this.api.getMyAgent();
+    const agent = { credits: await this.cachedCredits() };
     if (agent.credits < this.minCashReserve() + this.shipBudget()) return;
 
     const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
@@ -7047,6 +7047,20 @@ export class FleetManager {
     } catch (err) {
       // ignore: credits refresh is best-effort
     }
+  }
+
+  /**
+   * The credit balance for a "should I even consider buying" gate: the
+   * cached figure (at most CREDITS_TTL_MS old), not a live read. The
+   * ship, scout and siphoner checks ran a fresh GET /my/agent on every
+   * maintenance pass just to learn they couldn't or needn't buy. The
+   * purchase itself — buyShip() and the approval-gated paths — still reads
+   * live, so a stale figure here can only defer a purchase a few seconds or
+   * attempt one the API then refuses.
+   */
+  private async cachedCredits(): Promise<number> {
+    await this.refreshCredits();
+    return this.credits;
   }
 
   /**

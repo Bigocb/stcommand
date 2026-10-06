@@ -9,6 +9,25 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Trimmed the calls nothing was waiting on (2026-10-06)
+
+The first per-call breakdown of the 90-calls-a-minute budget showed where it went, and three sources were doing work no
+decision needed:
+
+- **Gate construction polling (~10/min).** An active mission re-read its construction site on every ~2s coordinator
+  pass, including while cash-floor or recovery pacing held every purchase. It now re-reads every 30s, and straight after
+  a delivery (the only thing that moves the counts). A paused mission already used a 60s cadence.
+- **Dashboard state refresh (~12/min).** Every 20s the registry fetched the agent, every ship (two pages at 40 ships)
+  and the contracts for the dashboard's snapshot. It now runs every 45s, and at background urgency: outside any scoped
+  context a call defaults to *critical*, so this was queuing ahead of deferrable work and level with ships' real actions.
+- **Credit checks in purchase gates (~5/min).** `maybeBuyShip`, `maybeBuyScout` and `maybeBuySiphoner` ran a fresh
+  `GET /my/agent` on every maintenance pass to learn whether buying was even plausible. They now read the 30s-cached
+  balance (`cachedCredits`); `buyShip()` and the approval-gated purchases still read live.
+
+The limiter also records who asked: a second log line, `limiter 5m top callers: ship <- ShipProxy.refresh 90, ...`,
+names the code behind each call kind (`callerOf()`, first stack frame outside `client.ts`). The 28 `GET /my/ships/:id`
+calls a minute are the biggest single item and are not trimmed yet; this is how to find out which code makes them.
+
 ## API calls carry an urgency; critical calls go first, the rest wait their turn (2026-10-06)
 
 The one 1.5 req/s bucket was running at 89 of 90 calls a minute, so what drains first decides what the fleet feels.
