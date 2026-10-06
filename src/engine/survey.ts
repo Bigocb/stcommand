@@ -10,6 +10,10 @@ const isExpired = (s: Survey): boolean => new Date(s.expiration).getTime() <= Da
  * dedicated surveyor scout deposits surveys here and the mining fleet consumes
  * them instead of each ship paying for its own surveyor mount.
  */
+/** A survey must be at least this share the operator-preferred deposit to be worth extracting through (a 1-in-7
+ *  survey is no better than plain extraction; THEO-1 at B14 2026-10-06 drew 6 of 7 junk deposits). */
+export const MIN_PREFERRED_SHARE = 0.3;
+
 export class SurveyPool {
   private byWaypoint = new Map<string, Survey[]>();
 
@@ -40,6 +44,7 @@ export class SurveyPool {
       if (refinable.length === 0) return undefined;
       const share = (sv: Survey) => sv.deposits.filter((d) => prefersRefinable(d.symbol)).length / (sv.deposits.length || 1);
       const top = Math.max(...refinable.map(share));
+      if (top < MIN_PREFERRED_SHARE) return undefined;
       const best = refinable.filter((sv) => share(sv) === top);
       return best[Math.floor(Math.random() * best.length)];
     }

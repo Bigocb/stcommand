@@ -73,4 +73,9 @@ describe("SurveyPool.pick strict (operator preference)", () => {
     pool.record("X1-A-B14", mk("low", ["IRON_ORE", "COPPER_ORE", "ICE_WATER", "SILICON_CRYSTALS"]), mk("high", ["IRON_ORE", "IRON_ORE", "COPPER_ORE"]));
     for (let i = 0; i < 20; i++) assert.equal(pool.pick("X1-A-B14", (d) => d === "IRON_ORE", true)?.signature, "high");
   });
+  it("rejects surveys below the minimum preferred share", () => {
+    const pool = new SurveyPool();
+    pool.record("X1-A-B14", mk("thin", ["IRON_ORE", "COPPER_ORE", "ICE_WATER", "SILICON_CRYSTALS", "SILICON_CRYSTALS", "ALUMINUM_ORE", "QUARTZ_SAND"]));
+    assert.equal(pool.pick("X1-A-B14", (d) => d === "IRON_ORE", true), undefined);
+  });
 });

@@ -2,6 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
+import { MIN_PREFERRED_SHARE } from "./survey.js";
 import type { Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
@@ -1327,14 +1328,15 @@ export class ShipAgent {
           const share = s.deposits.length ? n / s.deposits.length : 0;
           if (share > bestShare) { bestShare = share; best = s; }
         }
+        if (bestShare < MIN_PREFERRED_SHARE) best = undefined;
         if (!best) {
-          // No survey offers the preferred good. The old fallback committed to the best *other* refinable survey and
+          // No survey offers enough of the preferred good. The old fallback committed to the best *other* refinable survey and
           // cached it until it expired (~55 min): THEO-1 mined copper, silicon and ice at B14 for an hour with an
           // IRON_ORE preference (2026-10-06). Re-survey instead (each costs only a cooldown), and after a few
           // misses fall back to plain uncached extraction so a bad survey is never locked in.
           this.surveyPool?.record(this.ship.nav.waypointSymbol, ...res.surveys);
           this.preferredSurveyMisses += 1;
-          this.log(`survey: none of ${res.surveys.length} offers ${preferred} (${this.preferredSurveyMisses}/${PREFERRED_SURVEY_RETRIES}): ${res.surveys.map((s) => s.deposits.map((d) => d.symbol).join(",")).join(" | ")}`);
+          this.log(`survey: none of ${res.surveys.length} is at least ${Math.round(MIN_PREFERRED_SHARE * 100)}% ${preferred} (${this.preferredSurveyMisses}/${PREFERRED_SURVEY_RETRIES}): ${res.surveys.map((s) => s.deposits.map((d) => d.symbol).join(",")).join(" | ")}`);
           this.rememberSurvey(undefined);
           if (this.preferredSurveyMisses < PREFERRED_SURVEY_RETRIES) {
             await this.waitCooldown();

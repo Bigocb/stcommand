@@ -19,6 +19,8 @@ falls back to plain uncached extraction. Without a preference nothing changes.
 The shared survey pool had the same hole (`SurveyPool.pick` returned a random survey when none held the preferred
 good, including THEO-1's own junk ones): it now takes a `strict` flag, set whenever the operator preference is set,
 that returns nothing instead and prefers the survey with the highest share of the good.
+Both also require the survey to be at least 30% the preferred good (`MIN_PREFERRED_SHARE`): THEO-1's first post-fix
+survey was 1 iron in 7 deposits.
 
 ## Mission cash floor (2026-10-06)
 
