@@ -77,11 +77,11 @@ describe("RateLimiter priority and aging", () => {
     const limiter = new RateLimiter(20, 1, 40); // a tier per 40ms of waiting
     await limiter.acquire();
     const order: string[] = [];
-    const waits: Promise<void>[] = [limiter.acquire(API_PRIORITY.BACKGROUND, "T", "other").then(() => order.push("background"))];
+    const waits: Promise<void>[] = [limiter.acquire(API_PRIORITY.BACKGROUND, "T", "other").then(() => { order.push("background"); })];
     // Feed critical calls steadily for longer than the aging threshold would need (4 tiers -> 3 steps to tie with critical).
     for (let i = 0; i < 12; i += 1) {
       await new Promise((r) => setTimeout(r, 25));
-      waits.push(limiter.acquire(API_PRIORITY.CRITICAL, "T", "sell-cargo").then(() => order.push(`critical${i}`)));
+      waits.push(limiter.acquire(API_PRIORITY.CRITICAL, "T", "sell-cargo").then(() => { order.push(`critical${i}`); }));
     }
     await Promise.all(waits);
     const at = order.indexOf("background");
