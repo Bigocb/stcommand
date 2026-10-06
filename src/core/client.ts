@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { ShipObserver } from "../engine/shipSnapshots.js";
 import type { paths } from "./schema.js";
 import type { components } from "./schema.js";
 // Only used for the proxied path — see request()'s own comment on why a
@@ -651,7 +652,30 @@ export class Client {
         }
         throw new APIError(err.message, res.status, err.code, json);
       }
+      this.observeShip(req, json);
       return json as T;
+    }
+  }
+
+  private shipObserver: ShipObserver | undefined;
+
+  /** Watch single-ship reads and ship actions (see ShipSnapshotBoard). Observation only: never alters a response. */
+  setShipObserver(observer: ShipObserver | undefined): void {
+    this.shipObserver = observer;
+  }
+
+  private observeShip(req: RequestOptions, json: unknown): void {
+    if (!this.shipObserver) return;
+    const m = /^\/my\/ships\/([^/?]+)(\/[^?]*)?/.exec(req.path);
+    if (!m) return;
+    try {
+      if (req.method === "GET") {
+        if (!m[2]) this.shipObserver.onShipRead(m[1]!, (json as { data?: unknown } | undefined)?.data);
+      } else {
+        this.shipObserver.onShipAction(m[1]!);
+      }
+    } catch {
+      // An observer must never fail the request it is watching.
     }
   }
 
@@ -728,6 +752,11 @@ export class SpaceTradersAPI {
   /** Why this agent's token is permanently unusable, or undefined while it works. */
   deadTokenReason(): string | undefined {
     return this.client.deadTokenReason();
+  }
+
+  /** See Client.setShipObserver. */
+  setShipObserver(observer: ShipObserver | undefined): void {
+    this.client.setShipObserver(observer);
   }
 
   getMyAgent() {

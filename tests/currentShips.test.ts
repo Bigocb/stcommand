@@ -18,7 +18,7 @@ const agentFor = (s: any) => ({ getShip: () => s, isManual: () => false, isSuspe
 describe("FleetManager.currentShips", () => {
   it("returns every ship the fleet drives, whichever role holds it, with no API calls", () => {
     let apiCalls = 0;
-    const fleet = new FleetManager({ api: new Proxy({}, { get: () => () => { apiCalls += 1; } }) as any, log: () => {} });
+    const fleet = new FleetManager({ api: new Proxy({}, { get: (_t, key) => (key === "setShipObserver" ? undefined : () => { apiCalls += 1; }) }) as any, log: () => {} });
     const f = fleet as any;
     f.miners.set("M-1", agentFor(ship("M-1", "IN_ORBIT")));
     f.traders.set("T-1", agentFor(ship("T-1", "IN_TRANSIT")));

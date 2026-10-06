@@ -7,6 +7,27 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [~] **Batch ship reads: serve agents from a periodic `GET /my/ships` sweep (raised 2026-10-06, operator;
+  Phase 1 SHIPPED 2026-10-06).** Every agent step starts with `GET /my/ships/:id` (`ShipAgent.refresh` /
+  `TraderAgent.refresh`, ~85-90 per five minutes at 40 ships, the largest single use of the 90-a-minute budget),
+  and it grows with every ship — at 100 ships it would be ~45 a minute on its own. `GET /my/ships` returns complete
+  ships twenty per call, so a sweep is 2 calls at 40 ships and 5 at 100.
+  - **Phase 1 (shipped): measure only.** `ShipSnapshotBoard` (`src/engine/shipSnapshots.ts`) takes a sweep every 30s
+    (`FleetManager.sweepShips`, routine priority, ~4 calls a minute) and compares every single-ship read the fleet
+    makes anyway with the latest sweep copy, counting only reads Phase 2 would really have served (copy under 30s
+    old, ship hasn't acted since) and advancing the copy as Phase 2 would (finished transit = arrived, expired
+    cooldown = clear). Logs `ship sweep: N single reads · E could have used the sweep, M matched (x%) · mismatches:
+    <field counts> …` every five minutes. **Next:** read a day of these lines. Phase 2 is worth it only if the
+    match rate is very high and the mismatches are explainable.
+  - **Phase 2: let `ShipProxy.refresh()` use the copy** when it is newer than the ship's last local update and under
+    ~20s old; otherwise read as today. Every action that fails because the state was wrong (not docked, in transit,
+    cargo mismatch) forces a fresh single read and one retry. Shorten the sweep to ~15s at that point. Cooldowns by
+    their absolute `expiration`, never `remainingSeconds`.
+  - **Phase 3:** route `FeedManager.getShip` / `MissionManager.getShip` (another ~25 per five minutes) and the
+    dashboard snapshot's two-minute full list through the same copies; drop the separate list.
+  - Watch: the per-ship "last updated" ordering (an action response must always beat an older sweep), and that the
+    sweep itself never queues behind deferrable work (routine tier, one in flight at a time).
+
 - [~] **Rebuild the admin area from scratch (raised 2026-10-04, operator;
   first pass SHIPPED 2026-10-04 as Deck's Admin tabs — see CHANGELOG; remaining:
   confirm in use with `OPERATOR_AGENTS` set, then retire `public/admin.html`, the

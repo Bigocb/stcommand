@@ -11,7 +11,7 @@ import { FleetManager } from "../src/engine/fleet.js";
  * ever wait on themselves.
  */
 
-const STATICS = ["CORE_INTERVAL_MS", "FEEDS_INTERVAL_MS", "MAINTENANCE_INTERVAL_MS", "TICK_WARN_MS"] as const;
+const STATICS = ["CORE_INTERVAL_MS", "FEEDS_INTERVAL_MS", "MAINTENANCE_INTERVAL_MS", "SWEEP_INTERVAL_MS", "TICK_WARN_MS"] as const;
 const saved = new Map<string, number>();
 
 beforeEach(() => {
@@ -20,6 +20,7 @@ beforeEach(() => {
   (FleetManager as any).CORE_INTERVAL_MS = 5;
   (FleetManager as any).FEEDS_INTERVAL_MS = 5;
   (FleetManager as any).MAINTENANCE_INTERVAL_MS = 5;
+  (FleetManager as any).SWEEP_INTERVAL_MS = 5;
 });
 
 afterEach(() => {

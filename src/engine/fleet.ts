@@ -17,6 +17,7 @@ import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { IDLE_STEP, Pending, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
+import { ShipSnapshotBoard, describeSnapshotSummary } from "./shipSnapshots.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -497,6 +498,7 @@ export class FleetManager {
     this.api = opts.api;
     this.contracts = opts.contracts;
     this.log = opts.log ?? ((m) => console.log(`[fleet] ${m}`));
+    this.api.setShipObserver?.(this.shipSnapshots);
     this.recordLedger = opts.recordLedger;
     this.onActivity = opts.onActivity;
     this.minCashReserveDefault = opts.minCashReserve ?? 20_000;
@@ -7202,6 +7204,12 @@ export class FleetManager {
   /** When each yard was last snapshotted on a dock — see recordShipyardSnapshot(). */
   private readonly shipyardSnapshotAt = new Map<string, number>();
   private static readonly SHIPYARD_SNAPSHOT_MS = 5 * 60_000;
+  /** Phase 1 of the batched ship reads: compares a periodic GET /my/ships sweep against the single-ship reads the
+   *  fleet makes anyway, and logs how often the sweep copy would have been right. Changes no decision. */
+  readonly shipSnapshots = new ShipSnapshotBoard();
+  private static readonly SWEEP_INTERVAL_MS = 30_000;
+  private static readonly SWEEP_SUMMARY_MS = 5 * 60_000;
+  private lastSweepSummaryAt = Date.now();
   /** How urgent each loop's own API calls are — see API_PRIORITY. */
   private static readonly LOOP_API_PRIORITY: Record<string, number> = {
     core: API_PRIORITY.ROUTINE,
@@ -8386,9 +8394,25 @@ export class FleetManager {
     const rest = [
       this.runLoop("feeds", FleetManager.FEEDS_INTERVAL_MS, () => this.tickFeeds()),
       this.runLoop("maintenance", FleetManager.MAINTENANCE_INTERVAL_MS, () => this.tickMaintenance()),
+      this.runLoop("sweep", FleetManager.SWEEP_INTERVAL_MS, () => this.sweepShips()),
     ];
     await Promise.allSettled([core, ...rest]);
     this.running = false;
+  }
+
+  /**
+   * Read every ship in one paged list (twenty a call) and hand it to the snapshot board, then log the board's
+   * summary every few minutes. Routine priority: it is a few calls a minute, and the measurement is only meaningful
+   * if the copies are not themselves stuck behind the queue.
+   */
+  private async sweepShips(): Promise<void> {
+    if (this.paused || this.haltedByDeadToken() || typeof this.api.listAllShips !== "function") return;
+    const ships = await runWithApiPriority(API_PRIORITY.ROUTINE, () => this.api.listAllShips());
+    this.shipSnapshots.recordSweep(ships, Date.now());
+    if (Date.now() - this.lastSweepSummaryAt >= FleetManager.SWEEP_SUMMARY_MS) {
+      this.lastSweepSummaryAt = Date.now();
+      this.log(describeSnapshotSummary(this.shipSnapshots.takeSummary()));
+    }
   }
 
   /** One coordinator loop: a pass, a pause, repeat — never two passes of the same loop at once. */

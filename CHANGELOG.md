@@ -9,6 +9,23 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Shipyard reads cached; batched ship reads, phase 1 (measure only) (2026-10-06)
+
+**Shipyards.** The ship, scout and siphoner purchase checks re-read every shipyard on every maintenance pass
+(`shipyard <- FleetManager.maybeBuyShip`, 17-19 per five minutes) only to decide whether to *ask* for an approval, and every
+dock at a shipyard took a fresh snapshot (15-20). Both now trust a listing for five minutes (`cachedShipyard`,
+`recordShipyardSnapshot`), and a dock snapshot also feeds the purchase cache. The purchase itself (`buyShip()`) still
+reads the yard live.
+
+**Batched ship reads, phase 1.** The biggest remaining use of the budget is the `GET /my/ships/:id` each agent step
+starts with, and it grows with the fleet. `GET /my/ships` returns twenty complete ships per call, so a periodic sweep
+could replace most of those reads — if its copies are good enough. This phase only measures: a sweep every 30s
+(`FleetManager.sweepShips`, a fourth coordinator loop, routine priority, about 4 calls a minute) feeds a
+`ShipSnapshotBoard`, the API client reports every single-ship read and ship action to it (`Client.setShipObserver`,
+observation only), and each read is scored against the latest sweep copy the way Phase 2 would have used it. A
+`ship sweep: …` line every five minutes gives the match rate and which fields disagree. No agent reads the copies yet.
+The plan for phases 2 and 3 is in `docs/TODO.md` ("Batch ship reads").
+
 ## Dashboard refresh no longer stacks up; unfinished gates are re-read every 5 minutes (2026-10-06)
 
 **Refresh pile-up.** The two-cadence dashboard refresh (earlier today) recorded `lastFullAt` only after its reads came
