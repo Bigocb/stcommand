@@ -1434,6 +1434,46 @@ export class Store {
     );
   }
 
+  /** Keep every survey batch's deposit list per field (see migrations/043). Deduplicated by survey signature. */
+  async recordFieldSurveys(systemSymbol: string, waypointSymbol: string, surveys: { signature: string; size?: string; deposits: { symbol: string }[] }[]): Promise<void> {
+    if (!surveys.length) return;
+    const values: string[] = [];
+    const params: unknown[] = [];
+    for (const sv of surveys) {
+      const i = params.length;
+      values.push(`($${i + 1}, $${i + 2}, $${i + 3}, $${i + 4}, $${i + 5}::jsonb)`);
+      params.push(sv.signature, systemSymbol, waypointSymbol, sv.size ?? null, JSON.stringify(sv.deposits.map((d) => d.symbol)));
+    }
+    await withPool(this.pool, (c) =>
+      c.query(`INSERT INTO field_surveys (signature, system_symbol, waypoint_symbol, size, deposits) VALUES ${values.join(", ")} ON CONFLICT DO NOTHING`, params),
+    );
+  }
+
+  /** Per-field deposit tally from recorded surveys: how many surveys, and how often each deposit was listed. */
+  async fieldComposition(opts: { systemSymbol?: string; since: string }): Promise<{ waypointSymbol: string; surveys: number; deposits: number; counts: Record<string, number> }[]> {
+    const params: unknown[] = [opts.since];
+    let sys = "";
+    if (opts.systemSymbol) { params.push(opts.systemSymbol); sys = ` AND system_symbol = $2`; }
+    const res = await withPool(this.pool, (c) =>
+      c.query<{ waypoint_symbol: string; deposit: string; n: string; surveys: string }>(
+        `SELECT s.waypoint_symbol, d AS deposit, count(*) AS n,
+                (SELECT count(*) FROM field_surveys f2 WHERE f2.waypoint_symbol = s.waypoint_symbol AND f2.created_at >= $1) AS surveys
+           FROM field_surveys s, jsonb_array_elements_text(s.deposits) d
+          WHERE s.created_at >= $1${sys}
+          GROUP BY s.waypoint_symbol, d`,
+        params,
+      ),
+    );
+    const byWp = new Map<string, { waypointSymbol: string; surveys: number; deposits: number; counts: Record<string, number> }>();
+    for (const r of res.rows) {
+      const e = byWp.get(r.waypoint_symbol) ?? { waypointSymbol: r.waypoint_symbol, surveys: Number(r.surveys), deposits: 0, counts: {} };
+      e.counts[r.deposit] = Number(r.n);
+      e.deposits += Number(r.n);
+      byWp.set(r.waypoint_symbol, e);
+    }
+    return [...byWp.values()].sort((a, b) => a.waypointSymbol.localeCompare(b.waypointSymbol));
+  }
+
   /** Market transactions (ours and other agents', as each market read reports them), newest first. */
   async marketTransactions(opts: { good?: string; waypointSymbol?: string; systemSymbol?: string; since: string; limit?: number }): Promise<{ waypointSymbol: string; shipSymbol: string; tradeSymbol: string; type: string; units: number; pricePerUnit: number; totalPrice: number; timestamp: string }[]> {
     const where: string[] = ["timestamp >= $1"];
@@ -3087,7 +3127,7 @@ export class Store {
   private static readonly SHARED_GALAXY_TABLES = [
     "galaxy_systems", "galaxy_factions", "galaxy_crawl_state",
     "market_snapshots", "market_latest", "shipyard_inventory", "module_catalog",
-    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions",
+    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions", "field_surveys",
   ];
 
   /** Wipes every shared galaxy-fact table — see SHARED_GALAXY_TABLES's own

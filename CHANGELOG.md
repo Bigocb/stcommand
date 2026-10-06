@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Field composition: every survey batch is recorded per asteroid (2026-10-06)
+
+Waypoint traits say only "common metal deposits"; B14 carries that trait and its surveys are mostly copper, silicon
+and ice (3 iron deposits in 38 listed). `SurveyPool.record` now persists every batch to `field_surveys` (migration
+043, shared galaxy table, wiped on reset) so composition is a tally instead of a log search. Read it with
+`GET /api/field-composition` or MCP `stcommand_get_field_composition { good: "IRON_ORE" }`, which ranks fields by
+that deposit's share of listed deposits. The existing surveyor-scout role already flies between fields taking one
+batch per visit, so a surveyor on tour fills the table.
+
 ## Miner: a preferred good is never traded for a locked-in wrong survey (2026-10-06)
 
 THEO-1 (iron-ore preference, Surveyor II) mined silicon, copper and ice at B14 for an hour. When none of a survey

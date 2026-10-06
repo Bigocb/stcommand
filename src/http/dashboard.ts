@@ -1330,6 +1330,19 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  /** Per-field deposit tally from every survey we have taken — how much iron (etc.) each asteroid really offers. */
+  router.get("/field-composition", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const since = String(req.query.since ?? new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString());
+    try {
+      res.json({ fields: await w.store.fieldComposition({ systemSymbol: w.fleet.homeSystem, since }) });
+    } catch (err) {
+      console.error("[dashboard] /field-composition error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /** Market transactions — ours and other agents' — for the Prices tab's trades strip and ad-hoc "was that drop us?" checks. */
   router.get("/market-transactions", async (req, res) => {
     const w = worker(req);

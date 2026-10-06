@@ -534,6 +534,29 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_get_field_composition",
+    {
+      title: "Asteroid field composition from surveys",
+      description: "How often each deposit (IRON_ORE, COPPER_ORE, ...) appeared in the surveys we have taken at each asteroid field of the home system, with its share of all listed deposits. Waypoint traits only say 'common metal deposits'; this is the measured yield. Optionally rank by one good. More surveys per field means a more reliable share.",
+      inputSchema: { good: z.string().optional().describe("Rank fields by this deposit's share, e.g. IRON_ORE"), sinceHours: z.number().min(1).max(24 * 30).default(168) },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ good, sinceHours }) => {
+      try {
+        const since = new Date(Date.now() - sinceHours * 3_600_000).toISOString();
+        const fields = (await w.store.fieldComposition({ systemSymbol: w.fleet.homeSystem, since })).map((f) => ({
+          waypoint: f.waypointSymbol, surveys: f.surveys, deposits: f.deposits, counts: f.counts,
+          share: good ? Math.round(((f.counts[good.toUpperCase()] ?? 0) / (f.deposits || 1)) * 100) : undefined,
+        }));
+        if (good) fields.sort((a, b) => (b.share ?? 0) - (a.share ?? 0));
+        return textResult({ good: good?.toUpperCase(), shareIsPercentOfListedDeposits: true, fields });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_keeper_markets",
     {
       title: "Keeper priority markets",

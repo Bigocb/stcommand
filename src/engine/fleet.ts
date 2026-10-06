@@ -506,6 +506,14 @@ export class FleetManager {
         void store.recordMarketTransactions(systemSymbol, rows).catch((err) => this.log(`market transactions not saved: ${err instanceof Error ? err.message : String(err)}`));
       });
     }
+    // Tally every survey batch per field: waypoint traits don't say how much iron a field yields, surveys do.
+    if (this.store) {
+      const store = this.store;
+      this.surveyPool.onRecord = (waypoint, surveys) => {
+        const systemSymbol = waypoint.slice(0, waypoint.lastIndexOf("-"));
+        void store.recordFieldSurveys(systemSymbol, waypoint, surveys).catch((err) => this.log(`field surveys not saved: ${err instanceof Error ? err.message : String(err)}`));
+      };
+    }
     this.tenantId = opts.tenantId;
     this.approvals = new ApprovalGate(this.store, this.tenantId, this.log);
     this.discord = opts.discord;

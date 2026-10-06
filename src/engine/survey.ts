@@ -16,9 +16,14 @@ export const MIN_PREFERRED_SHARE = 0.3;
 
 export class SurveyPool {
   private byWaypoint = new Map<string, Survey[]>();
+  /** Called with every batch recorded (the fleet persists it for the field-composition tally). */
+  onRecord?: (waypoint: string, surveys: Survey[]) => void;
 
   /** Store surveys for a waypoint, dropping expired ones. */
   record(waypoint: string, ...surveys: Survey[]): void {
+    if (surveys.length) {
+      try { this.onRecord?.(waypoint, surveys); } catch { /* recording is best-effort */ }
+    }
     const existing = this.byWaypoint.get(waypoint) ?? [];
     const fresh = surveys.filter((s) => !isExpired(s));
     if (fresh.length === 0) return;
