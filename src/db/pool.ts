@@ -59,7 +59,7 @@ export function createPool(connectionString: string): pg.Pool {
   // internal-network traffic Render itself documents as the expected
   // setup — not a workaround for a mistake.
   const isLocal = /(?:^|@)(localhost|127\.0\.0\.1)(?::|\/)/.test(connectionString);
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     options: `-c search_path=${dbSchema()}`,
     ssl: isLocal ? undefined : { rejectUnauthorized: false },
@@ -73,6 +73,15 @@ export function createPool(connectionString: string): pg.Pool {
     // own comment) — it's headroom on top of that, not a substitute for it.
     max: 20,
   });
+  // An idle pooled connection that the server drops (a database restart, a network blip, an idle timeout on the
+  // provider's side) is reported as an 'error' event on the pool. With no listener, Node treats it as an uncaught
+  // exception, and the process handler exits — which is what took every tenant's fleet down at 16:56 on 2026-10-06
+  // ("Connection terminated unexpectedly", on both instances at once, mid-deploy, failing the deploy too). The pool
+  // already discards the broken client and opens a fresh one on the next query; the only thing missing was this.
+  pool.on("error", (err) => {
+    console.error(`[db] idle connection lost (pool recovers on next query): ${err.message}`);
+  });
+  return pool;
 }
 
 /**

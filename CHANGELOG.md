@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A dropped database connection no longer crashes the process (2026-10-06)
+
+At 16:56 both running instances exited at the same moment with `uncaughtException — exiting: Error: Connection terminated
+unexpectedly`: the shared Postgres dropped idle connections, `pg` reports that as an `'error'` event on the pool, nothing
+listened for it, and the process-level handler added earlier the same day exits on any uncaught exception. It also
+failed the deploy in flight (Render marked `1ec04c8` `update_failed` and kept the previous build), and the restarts
+overlapped long enough to cause a short burst of 429s. `createPool()` now handles the pool's `'error'` event with a log
+line; the pool already discards the broken client and reconnects on the next query.
+
 ## Shipyard reads cached; batched ship reads, phase 1 (measure only) (2026-10-06)
 
 **Shipyards.** The ship, scout and siphoner purchase checks re-read every shipyard on every maintenance pass
