@@ -34,6 +34,14 @@ export interface Deliverable {
  *  waited out. */
 const CONTRACT_TTL_MS = 30_000;
 
+/**
+ * The cache lifetime once the operator has stood every open contract down (abandoned an accepted one, declined an
+ * offer). Nothing is being delivered, so nothing changes the list from our side — the only thing that moves it is a
+ * deadline passing — yet it was still re-read every 30s for as long as the contract sat there. Operator decisions
+ * invalidate the cache immediately, so this never delays picking a contract back up.
+ */
+const STAND_DOWN_TTL_MS = 10 * 60_000;
+
 /** Manages the agent's contracts: accept, track, deliver, fulfill. */
 export class ContractManager {
   /** Contracts the operator declined: never auto-accepted, still listed. */
@@ -107,10 +115,25 @@ export class ContractManager {
   /** The raw contract list, served from cache when fresh. */
   private async fetchContracts(): Promise<Contract[]> {
     const now = Date.now();
-    if (this.cache && now - this.cache.at < CONTRACT_TTL_MS) return this.cache.contracts;
+    const ttl = this.cache && this.allStoodDown(this.cache.contracts, now) ? STAND_DOWN_TTL_MS : CONTRACT_TTL_MS;
+    if (this.cache && now - this.cache.at < ttl) return this.cache.contracts;
     const contracts = await this.api.getContracts();
     this.cache = { at: now, contracts };
     return contracts;
+  }
+
+  /**
+   * True when there is at least one open contract and every open one is something the operator told us not to work:
+   * an accepted contract that was abandoned, or an offer that was declined. With none open at all the fleet wants
+   * to negotiate a new one, so that is not "stood down".
+   */
+  private allStoodDown(contracts: Contract[], now: number): boolean {
+    const open = contracts.filter((c) => {
+      if (c.fulfilled) return false;
+      if (c.accepted) return new Date(c.terms.deadline).getTime() > now;
+      return !c.deadlineToAccept || new Date(c.deadlineToAccept).getTime() > now;
+    });
+    return open.length > 0 && open.every((c) => (c.accepted ? this.abandoned.has(c.id) : this.declined.has(c.id)));
   }
 
   /** Drop the cache after any call that changes contract state server-side. */
@@ -121,12 +144,14 @@ export class ContractManager {
   /** Mark a contract as declined so the fleet never auto-accepts it. */
   async decline(contractId: string): Promise<void> {
     this.declined.add(contractId);
+    this.invalidate();
     await this.persistOperatorState();
   }
 
   /** Undo a decline (the contract becomes auto-acceptable again). */
   async undecline(contractId: string): Promise<void> {
     this.declined.delete(contractId);
+    this.invalidate();
     await this.persistOperatorState();
   }
 
@@ -140,6 +165,7 @@ export class ContractManager {
    */
   async abandon(contractId: string): Promise<void> {
     this.abandoned.add(contractId);
+    this.invalidate();
     this.say(`contract ${contractId.slice(0, 8)}: no longer being worked (operator) — it will lapse at its deadline`);
     await this.persistOperatorState();
   }
@@ -147,6 +173,7 @@ export class ContractManager {
   /** Resume working a contract that was stood down. */
   async resume(contractId: string): Promise<void> {
     this.abandoned.delete(contractId);
+    this.invalidate();
     this.say(`contract ${contractId.slice(0, 8)}: back in work (operator)`);
     await this.persistOperatorState();
   }

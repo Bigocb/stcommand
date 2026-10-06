@@ -545,7 +545,9 @@ export class TenantRegistry {
         const freshAgent = prefetched?.agent ?? (await api.getMyAgent());
         if (mode === "full") {
           apiShips = prefetched?.ships ?? (await api.listAllShips());
-          openContracts = (await api.getContracts()).filter((c) => !c.fulfilled);
+          // Through the ContractManager's own cache, not a second GET /my/contracts: the fleet already keeps
+          // this list warm (30s, or ten minutes once the operator has stood every contract down).
+          openContracts = await contracts.listActive();
           lastFullAt = Date.now();
         }
         const mine = fleet.currentShips();

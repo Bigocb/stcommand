@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Contracts the operator has stood down are no longer polled every 30 seconds (2026-10-06)
+
+`ContractManager.fetchContracts` (called through `listActive` by three coordinator steps) re-read `GET /my/contracts` every
+30 seconds for as long as a contract existed, about 4 calls a minute, plus a second read of the same list in the dashboard
+refresh. When every open contract is something the operator told the fleet not to work — an accepted contract that was
+abandoned, an offer that was declined — nothing delivers against it, so nothing changes the list from our side; only a
+deadline passing does. The cache now lives ten minutes in that state (a deadline passing still ends it, because an
+expired contract stops counting as open and the list is re-read), and every operator decision (`decline`, `undecline`,
+`abandon`, `resume`) invalidates it so picking a contract back up is immediate. A list with no open contract is not
+"stood down": the fleet wants to negotiate a new one, so it keeps the 30s cadence. The dashboard refresh now reads the
+contracts through the same cache instead of making its own call.
+
 ## Orbit and dock take the new nav from the response (2026-10-06)
 
 `ShipProxy.refresh` (a `GET /my/ships/:id`) was the largest single source of game-API calls, 70-83 per five minutes. A
