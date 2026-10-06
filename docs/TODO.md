@@ -17,7 +17,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
     makes anyway with the latest sweep copy, counting only reads Phase 2 would really have served (copy under 30s
     old, ship hasn't acted since) and advancing the copy as Phase 2 would (finished transit = arrived, expired
     cooldown = clear). Logs `ship sweep: N single reads · E could have used the sweep, M matched (x%) · mismatches:
-    <field counts> …` every five minutes. **Next:** read a day of these lines. Phase 2 is worth it only if the
+    <field counts> (status: <top transitions>) …` every five minutes. The copy is dated by when the sweep request
+    was sent, so an action during the in-flight sweep counts as "acted since" (the first summary, 80% matched, was
+    biased by dating it on response). **Next:** read a day of these lines. Phase 2 is worth it only if the
     match rate is very high and the mismatches are explainable.
   - **Phase 2: let `ShipProxy.refresh()` use the copy** when it is newer than the ship's last local update and under
     ~20s old; otherwise read as today. Every action that fails because the state was wrong (not docked, in transit,

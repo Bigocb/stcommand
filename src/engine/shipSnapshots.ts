@@ -46,6 +46,8 @@ export interface SnapshotSummary {
   actedSince: number;
   /** No sweep copy recent enough. */
   noRecentCopy: number;
+  /** Status mismatches by transition, "<copy status>-><fresh status>", to tell a race from real staleness. */
+  statusTransitions: Record<string, number>;
 }
 
 function fingerprint(ship: unknown): Fingerprint {
@@ -83,7 +85,7 @@ function sameCooldown(a?: string, b?: string): boolean {
 }
 
 function emptySummary(): SnapshotSummary {
-  return { reads: 0, eligible: 0, matched: 0, mismatches: { status: 0, waypoint: 0, fuel: 0, cargoUnits: 0, cooldown: 0 }, actedSince: 0, noRecentCopy: 0 };
+  return { reads: 0, eligible: 0, matched: 0, mismatches: { status: 0, waypoint: 0, fuel: 0, cargoUnits: 0, cooldown: 0 }, actedSince: 0, noRecentCopy: 0, statusTransitions: {} };
 }
 
 export class ShipSnapshotBoard implements ShipObserver {
@@ -97,7 +99,10 @@ export class ShipSnapshotBoard implements ShipObserver {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Record one sweep. `at` is when its response came back. */
+  /**
+   * Record one sweep. `at` is when its request was sent, not when it came back: an action taken while the sweep was
+   * in flight may or may not be in the copy, so it must count as "acted since" rather than as a mismatch.
+   */
   recordSweep(ships: readonly unknown[], at: number = this.now()): void {
     for (const ship of ships) {
       const symbol = (ship as { symbol?: string }).symbol;
@@ -129,7 +134,11 @@ export class ShipSnapshotBoard implements ShipObserver {
       ok = false;
       this.stats.mismatches[field] += 1;
     };
-    if (was.status !== is.status) miss("status");
+    if (was.status !== is.status) {
+      miss("status");
+      const key = `${was.status ?? "?"}->${is.status ?? "?"}`;
+      this.stats.statusTransitions[key] = (this.stats.statusTransitions[key] ?? 0) + 1;
+    }
     if (was.waypoint !== is.waypoint) miss("waypoint");
     if (was.fuel !== is.fuel) miss("fuel");
     if (was.cargoUnits !== is.cargoUnits) miss("cargoUnits");
@@ -149,5 +158,10 @@ export class ShipSnapshotBoard implements ShipObserver {
 export function describeSnapshotSummary(s: SnapshotSummary): string {
   const pct = s.eligible ? Math.round((s.matched / s.eligible) * 100) : 0;
   const misses = FIELDS.filter((f) => s.mismatches[f] > 0).map((f) => `${f} ${s.mismatches[f]}`).join(", ") || "none";
-  return `ship sweep: ${s.reads} single reads · ${s.eligible} could have used the sweep, ${s.matched} matched (${pct}%) · mismatches: ${misses} · ${s.actedSince} acted since the sweep · ${s.noRecentCopy} no recent copy`;
+  const transitions = Object.entries(s.statusTransitions)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([k, n]) => `${k} ${n}`)
+    .join(", ");
+  return `ship sweep: ${s.reads} single reads · ${s.eligible} could have used the sweep, ${s.matched} matched (${pct}%) · mismatches: ${misses}${transitions ? ` (status: ${transitions})` : ""} · ${s.actedSince} acted since the sweep · ${s.noRecentCopy} no recent copy`;
 }

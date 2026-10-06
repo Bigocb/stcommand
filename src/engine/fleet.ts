@@ -8407,8 +8407,9 @@ export class FleetManager {
    */
   private async sweepShips(): Promise<void> {
     if (this.paused || this.haltedByDeadToken() || typeof this.api.listAllShips !== "function") return;
+    const sentAt = Date.now();
     const ships = await runWithApiPriority(API_PRIORITY.ROUTINE, () => this.api.listAllShips());
-    this.shipSnapshots.recordSweep(ships, Date.now());
+    this.shipSnapshots.recordSweep(ships, sentAt);
     if (Date.now() - this.lastSweepSummaryAt >= FleetManager.SWEEP_SUMMARY_MS) {
       this.lastSweepSummaryAt = Date.now();
       this.log(describeSnapshotSummary(this.shipSnapshots.takeSummary()));

@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Ship-sweep measurement dated by request, with status transitions (2026-10-06)
+
+The first Phase 1 summary read 80% matched, but the sweep copy was dated by when the paged list came back. A ship that
+docked, orbited or navigated while that request was in flight could be in the copy or not, and either way it scored as a
+mismatch instead of "acted since". `FleetManager.sweepShips` now dates the copy by the send time, so those reads are
+excluded the way Phase 2 would exclude them. Status mismatches are also broken down by transition (e.g.
+`DOCKED->IN_ORBIT 3`) in the five-minute `ship sweep:` line, to tell a race from a copy that is really stale.
+
 ## A dropped database connection no longer crashes the process (2026-10-06)
 
 At 16:56 both running instances exited at the same moment with `uncaughtException — exiting: Error: Connection terminated

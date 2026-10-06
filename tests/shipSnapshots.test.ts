@@ -84,6 +84,31 @@ describe("ShipSnapshotBoard", () => {
     assert.equal(b.takeSummary().matched, 1);
   });
 
+  it("counts an action taken while the sweep was in flight as acted since, not a mismatch", () => {
+    const { b, at } = board();
+    // Sweep sent at T0; the ship docks at T0+2s; the response comes back at T0+4s and is recorded with its send time.
+    at(T0 + 2_000);
+    b.onShipAction("S-1");
+    at(T0 + 4_000);
+    b.recordSweep([ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-1" } })], T0);
+    at(T0 + 10_000);
+    b.onShipRead("S-1", ship());
+    const s = b.takeSummary();
+    assert.equal(s.eligible, 0);
+    assert.equal(s.actedSince, 1);
+  });
+
+  it("breaks status mismatches down by transition", () => {
+    const { b, at } = board();
+    b.recordSweep([ship(), { ...ship(), symbol: "S-2" }], T0);
+    at(T0 + 10_000);
+    b.onShipRead("S-1", ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-1" } }));
+    b.onShipRead("S-2", { ...ship({ nav: { status: "IN_ORBIT", waypointSymbol: "X1-A-1" } }), symbol: "S-2" });
+    const s = b.takeSummary();
+    assert.deepEqual(s.statusTransitions, { "DOCKED->IN_ORBIT": 2 });
+    assert.match(describeSnapshotSummary(s), /\(status: DOCKED->IN_ORBIT 2\)/);
+  });
+
   it("summarises and starts over", () => {
     const { b, at } = board();
     b.recordSweep([ship()], T0);
