@@ -5881,6 +5881,20 @@ export class FleetManager {
     this.log(`${shipSymbol}: sold — ${station} removed from the keeper priority list (${clean.length} markets remain)`);
   }
 
+  /** Order a survey tour: the ship (role surveyor) flies to each field in turn and takes `perField` batches. */
+  startFieldScan(shipSymbol: string, fields: string[], perField = 3): void {
+    const agent = this.surveyors.get(shipSymbol);
+    if (!agent) throw new Error(`${shipSymbol} is not a surveyor — set its role to surveyor first (and take it off any feed or mission)`);
+    if (agent.isSuspended()) throw new Error(`${shipSymbol} is suspended (feed, mission or rescue) — release it first`);
+    if (!fields.length) throw new Error("fields required");
+    agent.startFieldScan(fields.map((f) => f.trim().toUpperCase()), perField);
+  }
+
+  /** Active field-scan progress for a surveyor, if any. */
+  fieldScanStatus(shipSymbol: string) {
+    return this.surveyors.get(shipSymbol)?.fieldScanStatus();
+  }
+
   /** Manual hold + mining-field pin, keyed by ship, as one `fleet_flags` JSON
    *  blob — the same "small settings" mechanism `keeperMarkets` already uses.
    *  Read once at boot to replay holds/pins that would otherwise be lost. */

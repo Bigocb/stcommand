@@ -534,6 +534,27 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_scan_fields",
+    {
+      title: "Survey tour of asteroid fields",
+      description: "Order a ship with role surveyor to fly to each listed asteroid in order and take N survey batches there; every batch is recorded to the field tally (read it with stcommand_get_field_composition). Surveys cost only a cooldown, no credits. Legs the fuel can't cruise are drifted. Take the ship off any feed/mission first. Call with no fields to read progress.",
+      inputSchema: { shipSymbol: z.string(), fields: z.array(z.string()).optional(), batchesPerField: z.number().int().min(1).max(10).default(3) },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    async ({ shipSymbol, fields, batchesPerField }) => {
+      try {
+        if (fields?.length) {
+          w.fleet.startFieldScan(shipSymbol, fields, batchesPerField);
+          await recordMcpAction(w, "field_scan", shipSymbol, `${shipSymbol}: survey tour of ${fields.length} fields`, { fields, batchesPerField });
+        }
+        return textResult({ ok: true, shipSymbol, progress: w.fleet.fieldScanStatus(shipSymbol) ?? "no active scan" });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_field_composition",
     {
       title: "Asteroid field composition from surveys",

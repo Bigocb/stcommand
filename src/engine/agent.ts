@@ -271,6 +271,19 @@ export class ShipAgent {
    *  that's already mid-flight against stale cached ship state. */
   private inFlight: Promise<unknown> | null = null;
   private surveyedFields = new Set<string>();
+  /** Operator-ordered tour of asteroid fields for composition surveys (see surveyScout()). */
+  private scanPlan?: { fields: string[]; perField: number; done: Map<string, number> };
+
+  /** Visit each field in order and take `perField` survey batches at it; surveys are recorded to the field tally. */
+  startFieldScan(fields: string[], perField: number): void {
+    this.scanPlan = { fields: [...fields], perField: Math.max(1, Math.floor(perField)), done: new Map() };
+    this.log(`field scan ordered: ${fields.length} fields × ${this.scanPlan.perField} batches`);
+  }
+
+  /** Progress of the active field scan, or undefined when none is running. */
+  fieldScanStatus(): { fields: string[]; perField: number; done: Record<string, number> } | undefined {
+    return this.scanPlan ? { fields: this.scanPlan.fields, perField: this.scanPlan.perField, done: Object.fromEntries(this.scanPlan.done) } : undefined;
+  }
   /**
    * The waypoint of an extraction session still in progress, or null. Under
    * the scheduler a mining loop no longer runs to a full hold inside one
@@ -1420,6 +1433,28 @@ export class ShipAgent {
     await this.refresh();
     await this.waitCooldown();
     this.log(`survey scout: tick @ ${this.ship.nav.waypointSymbol} (fuel ${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
+
+    // An operator-ordered field scan outranks the default "survey wherever I am" behaviour: visit each listed
+    // field in order and take N survey batches there. pickSurveyTarget() below never leaves a field the ship is
+    // already at, so without a plan a scout sits on one rock forever (THEO-18 at CE5D, 2026-10-06).
+    if (this.scanPlan) {
+      const plan = this.scanPlan;
+      const next = plan.fields.find((f) => (plan.done.get(f) ?? 0) < plan.perField);
+      if (!next) {
+        this.log(`field scan complete: ${plan.fields.map((f) => `${f.slice(f.lastIndexOf("-") + 1)}×${plan.done.get(f) ?? 0}`).join(" ")}`);
+        this.scanPlan = undefined;
+        return true;
+      }
+      if (this.ship.nav.waypointSymbol !== next) {
+        this.log(`field scan: heading to ${next} (${plan.fields.indexOf(next) + 1}/${plan.fields.length})`);
+        await this.navigateTo(next);
+      }
+      await this.ensureInOrbit();
+      // Count the attempt before surveying: createAndPickSurvey() ends the tick on the cooldown wait.
+      plan.done.set(next, (plan.done.get(next) ?? 0) + 1);
+      await this.createAndPickSurvey();
+      return true;
+    }
 
     // Priority 1: actually survey asteroid fields so miners have deposits to use.
     // Market/shipyard tours are secondary intel work.

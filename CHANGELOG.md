@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Survey tour: `stcommand_scan_fields` (2026-10-06)
+
+`pickSurveyTarget()` returns the field a surveyor is already at, so the "surveyor scout flies between fields" role
+never actually left its rock (THEO-18 has sat at CE5D all week). New operator-ordered tour: `ShipAgent.startFieldScan`
+/ `FleetManager.startFieldScan` / MCP `stcommand_scan_fields {shipSymbol, fields[], batchesPerField}` visits each field
+in order, drifts legs it can't cruise, takes N batches (recorded to the field tally) and reports completion. Progress
+is read by calling the tool without `fields`.
+
 ## Field composition: every survey batch is recorded per asteroid (2026-10-06)
 
 Waypoint traits say only "common metal deposits"; B14 carries that trait and its surveys are mostly copper, silicon
