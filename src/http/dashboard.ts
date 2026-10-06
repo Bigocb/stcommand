@@ -1079,7 +1079,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     try {
       const om = req.body?.onlyMaterials;
       const onlyMaterials = om === null ? null : Array.isArray(om) && om.every((x: unknown) => typeof x === "string") ? (om as string[]) : undefined;
-      await w.fleet.setMissionPacing(waypoint, { buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct"), recoverPct: pick("recoverPct"), onlyMaterials });
+      await w.fleet.setMissionPacing(waypoint, { buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct"), recoverPct: pick("recoverPct"), onlyMaterials, cashFloor: pick("cashFloor"), cashResume: pick("cashResume") });
       res.json({ ok: true, missions: await w.fleet.getMissions() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

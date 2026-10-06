@@ -1594,6 +1594,8 @@ function renderMoreMissions() {
         <span class="detail">gap min</span><input type="number" class="mp-gap" min="1" placeholder="none" value="${m.pacing?.buyGapMin ?? ""}" style="width:72px" aria-label="Minutes between purchases">
         <span class="detail">ceiling %</span><input type="number" class="mp-cap" min="1" placeholder="40" value="${m.pacing?.maxInflationPct ?? ""}" style="width:68px" aria-label="Price ceiling percent">
         <span class="detail" title="Buy the next lot only once the ask is back within this % of its level before the previous lot">recover %</span><input type="number" class="mp-rec" min="1" placeholder="off" value="${m.pacing?.recoverPct ?? ""}" style="width:60px" aria-label="Recovery percent">
+        <span class="detail" title="Hold purchases while credits are under this">cash floor</span><input type="number" class="mp-floor" min="1" placeholder="off" value="${m.pacing?.cashFloor ?? ""}" style="width:80px" aria-label="Cash floor">
+        <span class="detail" title="Resume once credits are back above this (default floor + 25%)">resume</span><input type="number" class="mp-resume" min="1" placeholder="+25%" value="${m.pacing?.cashResume ?? ""}" style="width:80px" aria-label="Cash resume">
         <button class="btn" data-act="save-pacing" data-wp="${escapeHtml(m.targetWaypoint)}">Save pacing</button>
       </div>
       <div class="acts">
@@ -1804,7 +1806,7 @@ $("more-missions").addEventListener("click", async (e) => {
     } else if (act === "save-pacing") {
       const row = b.closest(".mission-pacing");
       const val = (cls) => { const v = row.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
-      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), recoverPct: val(".mp-rec") });
+      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume") });
     } else if (act === "toggle-material") {
       const m = missions.find((x) => x.targetWaypoint === wp);
       const outstanding = (m?.materials ?? []).filter((x) => x.fulfilled < x.required).map((x) => x.tradeSymbol);

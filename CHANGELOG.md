@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Mission cash floor (2026-10-06)
+
+`MissionPacing.cashFloor` / `cashResume`: the mission holds purchases while the agent's credits are under the floor
+and resumes only once they are back above the resume level (default floor + 25%), so the gate mission plus
+subsidised feeds can't spend the account to zero while trading income rebuilds (THEO: 220k -> 155k in the hour to
+01:29). Dashboard pacing route, MCP `stcommand_set_mission_pacing`, Deck and Tower pacing forms all carry the two
+fields. Operator request.
+
 ## Trader: selling below the loss floor becomes an approval (2026-10-06)
 
 A trader released from a subsidised feed holds its cargo forever once the live price is under its cost basis (THEO-30

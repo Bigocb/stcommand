@@ -67,6 +67,10 @@ export interface MissionPacing {
    *  fallback-to-next-material path from buying an expensive secondary material (ADVANCED_CIRCUITRY at ~4,000c/unit,
    *  2026-10-05, twice) whenever the primary one is paused by the inflation guard. */
   onlyMaterials?: string[];
+  /** Cash floor: no purchase while the agent's credits are below this. Once tripped, buying stays held until credits
+   *  climb back to `cashResume` (default floor + 25%) so it doesn't flap on every lot. */
+  cashFloor?: number;
+  cashResume?: number;
 }
 
 export interface Mission {
@@ -203,6 +207,9 @@ export class MissionManager {
    *  a restart simply allows the next lot. */
   private preBuyPrice = new Map<string, number>();
   private recoverLogAt = new Map<string, number>();
+  /** Missions currently held by their cash floor (hysteresis state) and when that was last logged. */
+  private cashHeld = new Set<string>();
+  private cashLogAt = new Map<string, number>();
   /** Waypoint → next time step()'s pre-assignment discovery survey may run,
    *  for missions with no crew yet (so it's throttled the same way a real
    *  carrier's own maybeDiscover() call is, instead of firing every tick). */
@@ -442,11 +449,11 @@ export class MissionManager {
    */
   /** Merge pacing settings into a mission. A key set to null (or 0 for the lot and gap) clears it
    *  back to the default; keys not mentioned keep their value. */
-  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null }): Promise<MissionPacing | null> {
+  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null }): Promise<MissionPacing | null> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
     const next: MissionPacing = { ...(mission.pacing ?? {}) };
-    const apply = (key: "buyLotUnits" | "buyGapMin" | "maxInflationPct" | "recoverPct", v: number | null | undefined, min: number, max: number) => {
+    const apply = (key: "buyLotUnits" | "buyGapMin" | "maxInflationPct" | "recoverPct" | "cashFloor" | "cashResume", v: number | null | undefined, min: number, max: number) => {
       if (v === undefined) return;
       if (v === null || v === 0) { delete next[key]; return; }
       if (!Number.isFinite(v) || v < min || v > max) throw new Error(`${key} must be between ${min} and ${max} (or null to clear)`);
@@ -456,6 +463,10 @@ export class MissionManager {
     apply("buyGapMin", patch.buyGapMin, 1, 24 * 60);
     apply("maxInflationPct", patch.maxInflationPct, 1, 500);
     apply("recoverPct", patch.recoverPct, 1, 100);
+    apply("cashFloor", patch.cashFloor, 1, 1_000_000_000);
+    apply("cashResume", patch.cashResume, 1, 1_000_000_000);
+    if (next.cashFloor !== undefined && next.cashResume !== undefined && next.cashResume < next.cashFloor) throw new Error("cashResume must be at least cashFloor");
+    if (patch.cashFloor === null || patch.cashFloor === 0) this.cashHeld.delete(waypointSymbol);
     if (patch.onlyMaterials !== undefined) {
       const clean = (patch.onlyMaterials ?? []).map((m) => m.trim().toUpperCase()).filter(Boolean);
       for (const m of clean) if (!mission.materials.some((x) => x.tradeSymbol === m)) throw new Error(`${waypointSymbol} has no material ${m}`);
@@ -852,6 +863,24 @@ export class MissionManager {
         if (Date.now() < nextBuyAt) {
           t.retryAt = nextBuyAt;
           return;
+        }
+        // Pacing: cash floor. The gate mission plus subsidised feeds can outrun trading income (2026-10-06: 220k ->
+        // 155k in an hour); below the floor the mission waits for the traders to rebuild rather than spending to zero.
+        if (mission.pacing?.cashFloor) {
+          const floor = mission.pacing.cashFloor;
+          const resume = mission.pacing.cashResume ?? Math.round(floor * 1.25);
+          const held = this.cashHeld.has(mission.targetWaypoint);
+          if ((held && credits < resume) || (!held && credits < floor)) {
+            this.cashHeld.add(mission.targetWaypoint);
+            t.retryAt = Date.now() + 5 * 60_000;
+            const last = this.cashLogAt.get(mission.targetWaypoint) ?? 0;
+            if (Date.now() - last > 30 * 60_000) {
+              this.cashLogAt.set(mission.targetWaypoint, Date.now());
+              this.log(`mission ${mission.targetWaypoint}: cash ${credits}c is under the floor (${floor}c, resumes at ${resume}c) — holding purchases`);
+            }
+            return;
+          }
+          if (held) { this.cashHeld.delete(mission.targetWaypoint); this.log(`mission ${mission.targetWaypoint}: cash ${credits}c back above ${resume}c — purchases resume`); }
         }
         // Pacing: recovery gate. After a lot the ask jumps (about 4-5% per trade-volume lot); wait until the market
         // has absorbed it before the next one, so buying tracks refill instead of ratcheting the price up.
