@@ -196,12 +196,15 @@ describe("callerOf", () => {
   class Probe {
     ask() { return callerOf(); }
   }
-  it("names the class and method that asked", () => {
-    assert.equal(new Probe().ask(), "Probe.ask");
+  it("names the class and method that asked, then who called that", () => {
+    class Outer {
+      go() { return new Probe().ask(); }
+    }
+    assert.equal(new Outer().go(), "Probe.ask < Outer.go");
   });
   it("names a plain function", () => {
     function namedCaller() { return callerOf(); }
-    assert.equal(namedCaller(), "namedCaller");
+    assert.ok(namedCaller().startsWith("namedCaller"), namedCaller());
   });
 });
 

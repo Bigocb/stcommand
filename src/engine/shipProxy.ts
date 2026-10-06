@@ -257,6 +257,17 @@ export class ShipProxy {
     this.ship = await this.api.getShip(this.ship.symbol);
   }
 
+  /**
+   * Take the new nav straight from an orbit/dock response instead of reading the ship back. Both endpoints return
+   * the ship's complete `nav`, so the follow-up GET /my/ships/:id told us nothing the response hadn't — about
+   * thirty of those a five-minute window (`ship <- ShipProxy.refresh` was the largest single source of calls).
+   * Falls back to the read when a response carries no nav (a stub, or an API change).
+   */
+  private async applyNavOrRefresh(res: { nav?: Ship["nav"] } | undefined): Promise<void> {
+    if (res?.nav) this.ship = { ...this.ship, nav: res.nav };
+    else await this.refresh();
+  }
+
   /** Wait out an action cooldown, or yield the scheduler until it expires. */
   async waitCooldown(): Promise<void> {
     const cd = this.ship.cooldown;
@@ -279,8 +290,8 @@ export class ShipProxy {
     if (this.ship.nav.status === "IN_TRANSIT") await this.waitForArrival();
     if (this.ship.nav.status === "DOCKED") {
       this.log("docking → orbit");
-      await this.api.orbitShip(this.ship.symbol);
-      await this.refresh();
+      const res = await this.api.orbitShip(this.ship.symbol);
+      await this.applyNavOrRefresh(res);
     }
   }
 
@@ -289,8 +300,8 @@ export class ShipProxy {
     if (this.ship.nav.status === "IN_TRANSIT") await this.waitForArrival();
     if (this.ship.nav.status === "IN_ORBIT") {
       this.log("orbit → dock");
-      await this.api.dockShip(this.ship.symbol);
-      await this.refresh();
+      const res = await this.api.dockShip(this.ship.symbol);
+      await this.applyNavOrRefresh(res);
       // Prices are only visible to a ship physically present and docked, so
       // this is the one moment they can be captured. Recording here rather
       // than at each call site is why a dock anywhere refreshes the world.

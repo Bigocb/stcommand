@@ -188,15 +188,21 @@ export function callKind(method: string, path: string): string {
  */
 export function callerOf(): string {
   const stack = new Error().stack?.split("\n") ?? [];
-  for (let i = 1; i < stack.length; i += 1) {
+  const named: string[] = [];
+  let firstLoc: string | undefined;
+  for (let i = 1; i < stack.length && named.length < 2; i += 1) {
     const line = stack[i]!;
     if (line.includes("core/client.") || line.includes("node:") || line.includes("node_modules")) continue;
-    const named = /at (?:async )?(?:new )?([A-Za-z_$][\w$]*(?:\.[\w$<>]+)*) \(/.exec(line);
-    if (named) return named[1]!;
-    const loc = /([^/\\]+:\d+):\d+\)?$/.exec(line);
-    return loc ? loc[1]! : "unknown";
+    const m = /at (?:async )?(?:new )?([A-Za-z_$][\w$]*(?:\.[\w$<>]+)*) \(/.exec(line);
+    if (m) {
+      named.push(m[1]!);
+      continue;
+    }
+    firstLoc ??= /([^/\\]+:\d+):\d+\)?$/.exec(line)?.[1];
   }
-  return "unknown";
+  // Two frames, "A < B": the immediate caller and who called it — `ShipProxy.refresh` alone says nothing
+  // about which of its two dozen call sites is spending the budget.
+  return named.length > 0 ? named.join(" < ") : (firstLoc ?? "unknown");
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

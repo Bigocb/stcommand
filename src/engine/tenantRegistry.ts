@@ -118,7 +118,7 @@ export class TenantRegistry {
       Object.entries(rec).sort((a, b) => b[1].calls - a[1].calls).slice(0, n);
     const who = top(st.byLabel, 4).map(([k, v]) => `${k} ${v.calls}`).join(", ");
     const kinds = top(st.byKind, 6).map(([k, v]) => `${k} ${v.calls}`).join(", ");
-    const callers = top(st.byCaller, 8).map(([k, v]) => `${k} ${v.calls}`).join(", ");
+    const callers = top(st.byCaller, 12).map(([k, v]) => `${k} ${v.calls}`).join(", ");
     // Wait by tier is the number that says whether priorities are doing their job:
     // critical (1) should be short even when deferrable (3) and background (4) are not.
     const tiers = Object.entries(st.byPriority)

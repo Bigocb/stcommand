@@ -856,3 +856,49 @@ describe("ShipProxy.runHoldGoal: records a market or shipyard it parks at", () =
     assert.equal(recorded.length, 2, "throttled: not re-recorded on the next tick");
   });
 });
+
+describe("ShipProxy.ensureInOrbit / ensureDocked: no read-back after the action", () => {
+  const navOf = (status: string) => ({ status, waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date().toISOString() } });
+
+  it("takes the new nav from the orbit response instead of re-reading the ship", async () => {
+    let reads = 0;
+    const proxy = new ShipProxy(ship({ nav: navOf("DOCKED") } as any), {
+      api: {
+        getShip: async () => { reads += 1; return ship(); },
+        orbitShip: async () => ({ nav: navOf("IN_ORBIT") }),
+      } as any,
+      registry: world(),
+    });
+    await proxy.ensureInOrbit();
+    assert.equal(proxy.ship.nav.status, "IN_ORBIT");
+    assert.equal(reads, 0);
+  });
+
+  it("takes the new nav from the dock response too", async () => {
+    let reads = 0;
+    const proxy = new ShipProxy(ship({ nav: navOf("IN_ORBIT") } as any), {
+      api: {
+        getShip: async () => { reads += 1; return ship(); },
+        dockShip: async () => ({ nav: navOf("DOCKED") }),
+      } as any,
+      registry: world(),
+    });
+    await proxy.ensureDocked();
+    assert.equal(proxy.ship.nav.status, "DOCKED");
+    assert.equal(reads, 0);
+  });
+
+  it("falls back to reading the ship when a response carries no nav", async () => {
+    let reads = 0;
+    const proxy = new ShipProxy(ship({ nav: navOf("DOCKED") } as any), {
+      api: {
+        getShip: async () => { reads += 1; return ship({ nav: navOf("IN_ORBIT") } as any); },
+        orbitShip: async () => ({}),
+      } as any,
+      registry: world(),
+    });
+    await proxy.ensureInOrbit();
+    assert.equal(proxy.ship.nav.status, "IN_ORBIT");
+    assert.equal(reads, 1);
+  });
+});

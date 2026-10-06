@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Orbit and dock take the new nav from the response (2026-10-06)
+
+`ShipProxy.refresh` (a `GET /my/ships/:id`) was the largest single source of game-API calls, 70-83 per five minutes. A
+big share came from `ensureInOrbit()` and `ensureDocked()`, which called the orbit or dock endpoint and then read the
+whole ship back — though both endpoints return the ship's complete `nav`. They now apply the nav from the response
+(`applyNavOrRefresh`), falling back to the read when a response has none. That removes roughly the 30 read-backs a
+five-minute window held (about 6 calls a minute). The remaining refreshes are the per-task read at the start of each
+agent step, which is the agents' ground truth and left alone.
+
+The limiter's caller attribution now names two frames (`ShipProxy.refresh < ShipAgent.tick`) so the remaining refreshes
+can be traced to the step that makes them; the log lists the top twelve.
+
 ## Dashboard snapshot built from the engine's own ships; a shutting-down instance stops calling the API (2026-10-06)
 
 **Snapshot.** The dashboard's live state (credits, every ship, contracts) came from one refresh that listed every ship
