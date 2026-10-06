@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Mission `onlyMaterials`: stop the fallback buy of an expensive secondary material (2026-10-06)
+
+Live: the FAB_MATS inflation guard paused that material twice (21:30, 23:34) and each time the mission fell through to
+the next outstanding material and bought 20 ADVANCED_CIRCUITRY at ~4,000c/unit (80k and 82k) — 162k nobody meant to
+spend, and it would have repeated every 30 minutes while FAB_MATS stayed over the guard. `MissionPacing.onlyMaterials`
+restricts sourcing to a list (dashboard `/missions/pacing`, MCP `stcommand_set_mission_pacing`); when everything
+outstanding is excluded the carrier waits a minute instead of spinning. Clear it (null) to let the mission buy the rest.
+
 ## MCP: `stcommand_remove_feed_carrier` (2026-10-05)
 
 The dashboard could release one ship from a feed crew; MCP could only add. Needed to pull a third iron carrier back

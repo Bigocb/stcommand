@@ -63,6 +63,10 @@ export interface MissionPacing {
   /** Buy the next lot only once the ask has come back to within this percent of what it was before the previous
    *  lot: a sawtooth that paces buying by the market's own refill rather than by the clock. Unset = no such gate. */
   recoverPct?: number;
+  /** When set, the mission sources ONLY these materials; the others wait until the list is cleared. Stops the
+   *  fallback-to-next-material path from buying an expensive secondary material (ADVANCED_CIRCUITRY at ~4,000c/unit,
+   *  2026-10-05, twice) whenever the primary one is paused by the inflation guard. */
+  onlyMaterials?: string[];
 }
 
 export interface Mission {
@@ -438,11 +442,11 @@ export class MissionManager {
    */
   /** Merge pacing settings into a mission. A key set to null (or 0 for the lot and gap) clears it
    *  back to the default; keys not mentioned keep their value. */
-  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null }): Promise<MissionPacing | null> {
+  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null }): Promise<MissionPacing | null> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
     const next: MissionPacing = { ...(mission.pacing ?? {}) };
-    const apply = (key: keyof MissionPacing, v: number | null | undefined, min: number, max: number) => {
+    const apply = (key: "buyLotUnits" | "buyGapMin" | "maxInflationPct" | "recoverPct", v: number | null | undefined, min: number, max: number) => {
       if (v === undefined) return;
       if (v === null || v === 0) { delete next[key]; return; }
       if (!Number.isFinite(v) || v < min || v > max) throw new Error(`${key} must be between ${min} and ${max} (or null to clear)`);
@@ -452,6 +456,16 @@ export class MissionManager {
     apply("buyGapMin", patch.buyGapMin, 1, 24 * 60);
     apply("maxInflationPct", patch.maxInflationPct, 1, 500);
     apply("recoverPct", patch.recoverPct, 1, 100);
+    if (patch.onlyMaterials !== undefined) {
+      const clean = (patch.onlyMaterials ?? []).map((m) => m.trim().toUpperCase()).filter(Boolean);
+      for (const m of clean) if (!mission.materials.some((x) => x.tradeSymbol === m)) throw new Error(`${waypointSymbol} has no material ${m}`);
+      if (clean.length) next.onlyMaterials = [...new Set(clean)];
+      else delete next.onlyMaterials;
+      // A carrier mid-way through a now-excluded material drops it so the filter applies on its next tick.
+      for (const t of this.tasks.get(waypointSymbol)?.values() ?? []) {
+        if (t.currentMaterial && clean.length && !clean.includes(t.currentMaterial)) { t.currentMaterial = undefined; t.market = undefined; t.basePrice = undefined; }
+      }
+    }
     mission.pacing = Object.keys(next).length ? next : null;
     await this.persist(mission);
     this.log(`mission ${waypointSymbol}: pacing ${mission.pacing ? JSON.stringify(mission.pacing) : "cleared (defaults)"}`);
@@ -721,9 +735,14 @@ export class MissionManager {
     // anyway only if that's genuinely all that's left to do.
     if (!t.currentMaterial) {
       const now = Date.now();
-      const outstanding = mission.materials.filter((m) => m.fulfilled < m.required);
+      const only = mission.pacing?.onlyMaterials;
+      const outstanding = mission.materials.filter((m) => m.fulfilled < m.required && (!only?.length || only.includes(m.tradeSymbol)));
       t.currentMaterial = (outstanding.find((m) => (t.blockedUntil?.[m.tradeSymbol] ?? 0) <= now) ?? outstanding[0])?.tradeSymbol;
-      if (!t.currentMaterial) return;
+      if (!t.currentMaterial) {
+        // Everything left is held back by onlyMaterials (or nothing is outstanding): wait, don't spin.
+        t.retryAt = Date.now() + 60_000;
+        return;
+      }
       t.market = undefined;
     }
     const need = mission.materials.find((m) => m.tradeSymbol === t.currentMaterial);

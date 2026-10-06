@@ -5393,7 +5393,7 @@ export class FleetManager {
   /** Per-mission buy pacing (lot size, minimum gap, price ceiling) — see MissionPacing. */
   async setMissionPacing(
     waypointSymbol: string,
-    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null },
+    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null },
   ) {
     return this.missions.setPacing(waypointSymbol, patch);
   }
