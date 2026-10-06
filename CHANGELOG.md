@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Miner: a preferred good is never traded for a locked-in wrong survey (2026-10-06)
+
+THEO-1 (iron-ore preference, Surveyor II) mined silicon, copper and ice at B14 for an hour. When none of a survey
+batch contained the preferred good, `createAndPickSurvey()` fell back to the best *other* refinable survey and cached
+it until it expired (~55 min), so every extraction drew from junk. Now: with a preference set it picks the survey
+with the highest share of the preferred deposit; if none offers it, it re-surveys on the next tick (4 tries), then
+falls back to plain uncached extraction. Without a preference nothing changes.
+
 ## Mission cash floor (2026-10-06)
 
 `MissionPacing.cashFloor` / `cashResume`: the mission holds purchases while the agent's credits are under the floor

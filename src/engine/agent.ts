@@ -13,6 +13,8 @@ export type Ship = components["schemas"]["Ship"];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** How often a halted agent re-checks whether the fleet has resumed. */
+/** Surveys to take looking for a preferred deposit before falling back to plain extraction. */
+const PREFERRED_SURVEY_RETRIES = 4;
 const HALT_POLL_MS = 1_000;
 
 /** Farthest leg (fuel units) a tour/scout ship will DRIFT when nothing is within
@@ -282,6 +284,8 @@ export class ShipAgent {
   /** The survey the current extraction session is working from, so re-entering
    *  the session after a cooldown reuses it instead of paying for (and cooling
    *  down after) a fresh survey before every single extraction. */
+  /** Consecutive surveys that offered none of the operator-preferred good (see createAndPickSurvey). */
+  private preferredSurveyMisses = 0;
   private activeSurvey?: { waypoint: string; survey: components["schemas"]["Survey"] };
   /** Operator-chosen asteroid field; overrides the ship's own nearest-field pick. */
   private pinnedMiningTarget?: string;
@@ -1309,7 +1313,33 @@ export class ShipAgent {
       // below entirely — that ranking only exists to pick among several
       // refinable options, which isn't what a preference is asking for.
       const preferred = this.preferredMiningGood?.();
-      if (preferred) best = res.surveys.find((s) => s.deposits.some((d) => d.symbol === preferred));
+      if (preferred) {
+        // Highest share of the preferred deposit wins (an extraction draws one deposit from the survey at random,
+        // so a 1-in-5 survey wastes 4 of 5 extractions).
+        let bestShare = 0;
+        for (const s of res.surveys) {
+          const n = s.deposits.filter((d) => d.symbol === preferred).length;
+          const share = s.deposits.length ? n / s.deposits.length : 0;
+          if (share > bestShare) { bestShare = share; best = s; }
+        }
+        if (!best) {
+          // No survey offers the preferred good. The old fallback committed to the best *other* refinable survey and
+          // cached it until it expired (~55 min): THEO-1 mined copper, silicon and ice at B14 for an hour with an
+          // IRON_ORE preference (2026-10-06). Re-survey instead (each costs only a cooldown), and after a few
+          // misses fall back to plain uncached extraction so a bad survey is never locked in.
+          this.surveyPool?.record(this.ship.nav.waypointSymbol, ...res.surveys);
+          this.preferredSurveyMisses += 1;
+          this.log(`survey: none of ${res.surveys.length} offers ${preferred} (${this.preferredSurveyMisses}/${PREFERRED_SURVEY_RETRIES}): ${res.surveys.map((s) => s.deposits.map((d) => d.symbol).join(",")).join(" | ")}`);
+          this.rememberSurvey(undefined);
+          if (this.preferredSurveyMisses < PREFERRED_SURVEY_RETRIES) {
+            await this.waitCooldown();
+            return undefined;
+          }
+          this.preferredSurveyMisses = 0;
+          return undefined;
+        }
+        this.preferredSurveyMisses = 0;
+      }
       let bestPrice = 0;
       let anyRefinable: components["schemas"]["Survey"] | undefined;
       if (!best) {
