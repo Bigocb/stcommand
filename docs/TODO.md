@@ -7,17 +7,6 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-- [ ] **HIGH PRIORITY — dashboard shows a stale snapshot for mission/feed-suspended ships (raised 2026-10-07,
-  operator).** While a construction mission or feed flies a ship, its TraderAgent is suspended, and the agent is the
-  only thing that refreshes the cached snapshot the dashboard reads. The mission moves the ship through its own API
-  calls and never writes that cache back, so the UI freezes on the last pre-suspension state. Confirmed twice on
-  THEO-1: 12:31 it read "in orbit at I59, fuel 180" (from 12:15) while docked empty at F53; 19:06 it read
-  "IN_TRANSIT -> K87, fuel 52" (from ~17:47) while it had been DOCKED at D44 since ~18:19 (`stcommand_ops_ship_live`
-  showed `cacheDiffersFromLive` on nav, waypoint and fuel). The operator took it for a ship stuck in flight. Fix:
-  have the mission/feed executors write the ship snapshot (nav, fuel, cargo) into the same cache every time they read
-  or move the ship, or have the dashboard fall back to the live ship for any ship whose agent is suspended. Supersedes
-  item (6) of the trader-starvation follow-ups below.
-
 - [ ] **Mission price target as the control, not a guard (raised 2026-10-07, operator).** With `recoverPct` on, the
   ceiling sets the price the market is held at and the producer's refill sets the buying rate (see
   `docs/reset-opening-playbook.md`, "The ceiling is a target price"). Today the ceiling is `maxInflationPct` over a

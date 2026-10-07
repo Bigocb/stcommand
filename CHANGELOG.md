@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Mission and feed ships no longer freeze on the dashboard (2026-10-07)
+
+While a construction mission or feed flies a ship, the ship's agent is suspended, and the agent was the only thing that
+refreshed the cached snapshot the dashboard and fleet status read. The managers read the ship through the raw
+`api.getShip`, so the UI froze on the last pre-suspension state: THEO-1 showed "IN_TRANSIT -> I59 with 20u" for over an
+hour (operator watched it the whole drive home) while it had delivered and sat DOCKED empty at D44, and earlier "in
+orbit at I59" while docked at F53. `MissionManager` and `FeedManager` now get the ship through `FleetManager.liveShip()`,
+which writes every live read back via the existing `noteShipState()`. Closes the high-priority TODO item.
+
 ## A mission lot larger than the market's trade volume is bought in several transactions (2026-10-07)
 
 The construction mission made one `purchaseCargo` per stop, capped at the market's per-transaction trade volume, so

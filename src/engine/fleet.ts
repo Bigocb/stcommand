@@ -550,7 +550,11 @@ export class FleetManager {
       log: (m) => this.log(`mission: ${m}`),
       onActivity: opts.onActivity,
       recordLedger: this.recordLedger,
-      getShip: (s) => this.api.getShip(s),
+      // Every live read the mission makes is written back into the suspended agent's cached snapshot
+      // (noteShipState), which is what the dashboard and fleet status show. Without it a mission carrier froze
+      // on its last pre-suspension state: 2026-10-07 THEO-1 read "IN_TRANSIT -> I59 with 20u" for over an hour
+      // while it had delivered and sat DOCKED empty at D44.
+      getShip: (s) => this.liveShip(s),
       estimatedFuelBetween: (a, b) => this.estimatedFuelBetween(a, b),
       canReach: async (shipSymbol, targetWaypoint) => this.canReachTarget(shipSymbol, targetWaypoint),
       dispatchShip: (s, w) => this.dispatchShipHop(s, w),
@@ -585,7 +589,7 @@ export class FleetManager {
       log: (m) => this.log(`feed: ${m}`),
       onActivity: opts.onActivity,
       recordLedger: this.recordLedger,
-      getShip: (s) => this.api.getShip(s),
+      getShip: (s) => this.liveShip(s), // same write-back as the mission's getShip above
       estimatedFuelBetween: (a, b) => this.estimatedFuelBetween(a, b),
       canReach: async (shipSymbol, targetWaypoint) => this.canReachTarget(shipSymbol, targetWaypoint),
       dispatchShip: (s, w) => this.dispatchShipHop(s, w),
@@ -6707,6 +6711,13 @@ export class FleetManager {
     const agent = this.controlledAgent(shipSymbol);
     if (agent) agent.adoptShip?.(ship);
     else if (this.idleShips.has(shipSymbol)) this.idleShips.set(shipSymbol, ship);
+  }
+
+  /** A live getShip() whose result also refreshes the fleet's cached snapshot (noteShipState). */
+  private async liveShip(shipSymbol: string): Promise<Ship> {
+    const ship = await this.api.getShip(shipSymbol);
+    this.noteShipState(shipSymbol, ship);
+    return ship;
   }
 
   /** What the ship's agent is doing right now (see agentStep.ts) — idle for an idle ship (no agent driving it) or a fake test agent that doesn't implement getStep(). */
