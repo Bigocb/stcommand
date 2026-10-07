@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A tour ship in a corner hops toward stale markets instead of ping-ponging (2026-10-07)
+
+THEOREM_DEV_2-5, made a tour ship at 04:02 because 13 of X1-XJ90's 24 markets had gone 8-10 hours unseen, flew
+I59 <-> J61 every seven minutes for 40 minutes. Fuel was fine (it refuels to 300 at every stop); the target pick was
+the problem. From the I59 gate corner every stale market is 340-600 units away, beyond one 300-fuel leg, so the
+stale-first, nearest-next sort only ever offered the two fresh corner markets, each the other's nearest. When no stale
+market is in range, `steppingStone()` (agent.ts) now picks the reachable market that gets closest to one, as long as
+that is closer than where the ship stands; each hop strictly shortens the distance, so it cannot cycle
+(`tests/tourSteppingStone.test.ts`). Likely the same cause as the J61 <-> J62 bounce of 2026-10-06.
+
 ## Fleets wait for the old instance to stop; mining drones dump junk in one call (2026-10-07)
 
 Two follow-ups to the trader-starvation incident below, shipped together so they cost one restart.

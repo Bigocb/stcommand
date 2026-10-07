@@ -35,7 +35,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   heading for an unpriced one. (4) A new tenant's command frigate is hull-classified as a miner at boot regardless of
   `minerTarget`. (5) An MCP tool error can surface as the literal text `[object Object]` (seen on
   `stcommand_dispatch_ship` for a ship mid-tour). (6) A tour shuttle can get stuck bouncing between two far markets
-  (J61 <-> J62), refuelling every 4 minutes.
+  (J61 <-> J62), refuelling every 4 minutes. [Likely fixed 2026-10-07: tour stepping stone, see CHANGELOG.]
 
 - [~] **Batch ship reads: serve agents from a periodic `GET /my/ships` sweep (raised 2026-10-06, operator;
   Phase 1 SHIPPED 2026-10-06).** Every agent step starts with `GET /my/ships/:id` (`ShipAgent.refresh` /

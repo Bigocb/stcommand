@@ -218,6 +218,32 @@ export const REFINE_RECIPES: Record<string, "IRON" | "COPPER" | "SILVER" | "GOLD
 };
 
 /**
+ * The tour's next hop when no stale market is in range of one leg: the reachable market that gets closest to a stale
+ * one, if that is closer than where the ship already is. Undefined means "use the normal pick" (a stale market is in
+ * range, nothing is stale, or no hop gets closer).
+ *
+ * Confirmed live 2026-10-07 (THEOREM_DEV_2-5, X1-XJ90): from the I59 gate corner every stale market sat 340-600 units
+ * away against a 300 tank, so the stale-first, nearest-next sort only ever offered the two fresh markets in the corner,
+ * and the ship flew I59 <-> J61 every seven minutes while 13 markets stayed 8-10 hours unseen.
+ */
+export function steppingStone(
+  reachable: readonly { t: string; stale: boolean }[],
+  staleInSystem: readonly string[],
+  here: string,
+  fuel: (a: string, b: string) => number,
+): string | undefined {
+  if (reachable.length === 0 || reachable[0]!.stale || staleInSystem.length === 0) return undefined;
+  const toStale = (w: string) => Math.min(...staleInSystem.map((s) => fuel(w, s)));
+  const fromHere = toStale(here);
+  let best: { t: string; d: number } | undefined;
+  for (const r of reachable) {
+    const d = toStale(r.t);
+    if (Number.isFinite(d) && d < fromHere && (!best || d < best.d)) best = { t: r.t, d };
+  }
+  return best?.t;
+}
+
+/**
  * Drives a single ship through the survival loop:
  * orbit → navigate → extract → (cargo full) → dock → sell → refuel → repeat.
  * Uses market snapshots to decide where to mine and where to sell.
@@ -1688,7 +1714,7 @@ export class ShipAgent {
       // the target was chosen instead of while choosing it.
       .filter((x) => x.dist <= fuelBudget && this.fuelNeededRoundTrip(x.t) <= fuelBudget)
       .sort((a, b) => Number(b.stale) - Number(a.stale) || a.dist - b.dist);
-    const target = reachable[0]?.t;
+    const target = steppingStone(reachable, [...stale].filter((t) => t !== here && t.slice(0, t.lastIndexOf("-")) === this.ship.nav.systemSymbol), here, (a, b) => this.registry.fuelFor(a, b)) ?? reachable[0]?.t;
     if (!target) {
       // Refuelling is decided after a target is chosen, so a ship with an empty
       // tank — the one that most needs fuel — returns here every tick and never

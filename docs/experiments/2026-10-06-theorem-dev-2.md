@@ -99,3 +99,5 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   covered the fresh third). Operator keeper rule: every market with more than 4 goods, plus the shipyard; the list is
   built from the tour's fresh prices and approved before buying. The held frigate flew F52 -> H55 after each restart
   (a restored hold loses to the trader's first tick; TODO); re-held at H55. Denied the re-proposed 94k shuttle.
+- **04:42** 762k. The tour ship never left the I59/J61 corner (stale markets all > 300 from it); fixed with a
+  stepping-stone hop (CHANGELOG). Denied an auto-proposed 287k light hauler. IRON_ORE contract at 160/201.
