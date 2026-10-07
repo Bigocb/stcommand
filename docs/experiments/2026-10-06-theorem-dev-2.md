@@ -87,3 +87,6 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   — only +130 over K92's 5,223, so the "+975" leg was a stale-price illusion. Nothing in X1-XJ90 clears 800; all three
   cargo ships idle or on the IRON_ORE contract. At this recovery rate the system supports roughly one leg-trip every
   few hours, not the 6-7M goal.
+- **03:38** Wallet 767k (771k at 02:35: fuel only). No leg clears 800; FIREARMS E48 -> J62 back to +456 (from closed at
+  00:50), ANTIMATTER I60 -> I59 +415. The idle frigate was ping-ponging F52 <-> H55 every ~15 min (engine flaw 3): held.
+  Shuttle 2-3 is on the IRON_ORE contract, 120/201 delivered. Denied a 94k shuttle proposal (no leg for it).
