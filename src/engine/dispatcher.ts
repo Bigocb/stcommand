@@ -84,6 +84,9 @@ export const MAX_TRADERS_PER_BUY_MARKET = 3;
  *  (positioning jumps included) before the trader is released for new work. */
 export const COMMIT_GRACE_MS = 3 * 60 * 60_000;
 
+/** How long a leg a trader refused stays out of that trader's picks. */
+export const DECLINE_MS = 15 * 60_000;
+
 /**
  * How many of a market's own per-transaction lots a single trip is assumed
  * able to move at that market's flat buy/sell price, in both the ranking
@@ -253,6 +256,8 @@ export class RouteDispatcher {
    *  `hadCargo` flips once the hold has been seen loaded, so an empty hold
    *  afterwards means the sale completed. */
   private committed = new Map<string, { at: number; hadCargo: boolean }>();
+  /** Auto legs a trader refused (see decline()), kept out of that trader's picks until `until`. */
+  private declined = new Map<string, { good: string; buyAt?: string; sellAt?: string; until: number }>();
   /** The ranked route list from the last recompute, used to serve live claims. */
   private routes: DispatchRoute[] = [];
   private lastComputed = 0;
@@ -471,6 +476,21 @@ export class RouteDispatcher {
   /** Give up a claim (ship scrapped, role changed, route abandoned). */
   release(shipSymbol: string): void {
     this.assignments.delete(shipSymbol);
+  }
+
+  /**
+   * The trader refused its auto assignment (margin under the floor, a protected good, ...). Drop the assignment and
+   * its commitment, and keep that leg out of this trader's picks for DECLINE_MS. Without this an empty trader stayed
+   * committed to a leg it would never fly for up to COMMIT_GRACE_MS: confirmed live 2026-10-07, THEOREM_DEV_2-1
+   * (FOOD K92 -> A1, margin 195-261c under a 300c floor) and THEOREM_DEV_2-3 (POLYNUCLEOTIDES, protected for a
+   * contract) both flew price-discovery hops for 35+ minutes with CLOTHING worth 35,519c a trip unassigned.
+   */
+  decline(shipSymbol: string): void {
+    const a = this.assignments.get(shipSymbol);
+    if (!a || a.source === "manual") return;
+    this.assignments.delete(shipSymbol);
+    this.committed.delete(shipSymbol);
+    this.declined.set(shipSymbol, { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, until: Date.now() + DECLINE_MS });
   }
 
   /**
@@ -1009,8 +1029,12 @@ export class RouteDispatcher {
       // first-reachable-in-ranked-order pick.
       let item: (typeof work)[number] | undefined;
       let bestScore = -Infinity;
+      const refused = this.declined.get(t.shipSymbol);
+      if (refused && refused.until <= nowMs) this.declined.delete(t.shipSymbol);
+      const isRefused = (w: { good?: string; buyAt?: string; sellAt?: string }): boolean =>
+        !!refused && refused.until > nowMs && w.good === refused.good && w.buyAt === refused.buyAt && w.sellAt === refused.sellAt;
       for (const w of work) {
-        if (usedKeys.has(w.key) || !reachable(w)) continue;
+        if (usedKeys.has(w.key) || !reachable(w) || isRefused(w)) continue;
         const extra = impactCost(w);
         if (extra === undefined) continue; // an extra buyer here is not worth it / over the cap
         // Direct routes carry a time-scaled score (see scoreRoute()); keep the extra buyers' impact cost on the

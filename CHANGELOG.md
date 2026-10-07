@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A trader that refuses its assigned route gets a new one instead of idling for hours (2026-10-07)
+
+When a trader declined the dispatcher's auto leg (margin under its floor, a protected good, a dead route), it fell
+through to "discovering prices" while the dispatcher kept it *committed* to that leg: an empty trader's commitment only
+lapsed after `COMMIT_GRACE_MS` (3h) or when it stood at the buy market with the route gone from the list. Confirmed
+live 13:04-13:40: THEOREM_DEV_2-1 held FOOD K92 -> A1 (margin 195-261c, floor 300c) and ping-ponged K92 <-> A1 with an
+empty hold, refuelling 25 times; THEOREM_DEV_2-3 held POLYNUCLEOTIDES E49 -> F53 (protected for a contract). Both
+traders were idle for 35+ minutes with CLOTHING worth 35,519c a trip unassigned.
+
+The trader now calls `RouteDispatcher.decline()` when it rejects an auto leg for any reason other than missing prices
+(which discovery fixes). That drops the assignment and its commitment and keeps the leg out of that trader's picks for
+15 minutes (`DECLINE_MS`); the trader's next tick claims the best leg it can fly. Manual pins are never declined.
+Tests: `tests/dispatcherDecline.test.ts`.
+
 ## The chain guard lets traders deliver protected goods to the chain's own producers (2026-10-07)
 
 Operator: "we're leaving money on the table." `protectChainGoods` drops every route for a good in an open gate's
