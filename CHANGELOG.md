@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## The chain guard lets traders deliver protected goods to the chain's own producers (2026-10-07)
+
+Operator: "we're leaving money on the table." `protectChainGoods` drops every route for a good in an open gate's
+supply chain so traders don't drain a producer's inputs, but it also dropped the routes that feed the chain. On THEO,
+MICROPROCESSORS A3 -> D44 (+1,487/unit, ~59k a load) and ELECTRONICS F53 -> D44 (+1,383) were hidden while D44 is the
+ADVANCED_CIRCUITRY producer, and the dispatcher had all six traders on legs worth +40 to +2,700 a trip; two pins were
+the stopgap. `chainSinks()` (supplyChain.ts) now maps each chain good to the markets that EXPORT a chain link made from
+it (a gate material or another chain good), and `computeDispatchRoutes()` keeps a protected leg when its sell side is
+one of those markets. Selling a chain good anywhere else is still blocked; the 'protected' log line now names the
+allowed sinks (`tests/supplyChain.test.ts`).
+
 ## A tour ship in a corner hops toward stale markets instead of ping-ponging (2026-10-07)
 
 THEOREM_DEV_2-5, made a tour ship at 04:02 because 13 of X1-XJ90's 24 markets had gone 8-10 hours unseen, flew

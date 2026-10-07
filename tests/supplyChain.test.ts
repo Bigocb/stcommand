@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { getSupplyChain, resetSupplyChainCacheForTests, transitiveInputs } from "../src/engine/supplyChain.js";
+import { chainSinks, getSupplyChain, resetSupplyChainCacheForTests, transitiveInputs } from "../src/engine/supplyChain.js";
 
 describe("getSupplyChain", () => {
   beforeEach(() => resetSupplyChainCacheForTests());
@@ -69,5 +69,39 @@ describe("transitiveInputs", () => {
     assert.ok(transitiveInputs(["FAB_MATS", "ADVANCED_CIRCUITRY"], map).has("QUARTZ_SAND"));
     assert.equal(transitiveInputs(["NOT_A_GOOD"], map).size, 0);
     assert.equal(transitiveInputs(["IRON_ORE"], map).size, 0);
+  });
+});
+
+describe("chainSinks", () => {
+  // THEO's X1-JX83, 2026-10-07: D44 makes ADVANCED_CIRCUITRY, F53 makes FAB_MATS and also exports ELECTRONICS.
+  const map = {
+    ADVANCED_CIRCUITRY: ["ELECTRONICS", "MICROPROCESSORS"],
+    FAB_MATS: ["IRON", "QUARTZ_SAND"],
+    ELECTRONICS: ["SILICON_CRYSTALS", "COPPER"],
+    IRON_ORE: ["EXPLOSIVES"],
+  };
+  const rows = [
+    { waypointSymbol: "D44", goodSymbol: "ADVANCED_CIRCUITRY", type: "EXPORT" },
+    { waypointSymbol: "D44", goodSymbol: "ELECTRONICS", type: "IMPORT" },
+    { waypointSymbol: "F53", goodSymbol: "FAB_MATS", type: "EXPORT" },
+    { waypointSymbol: "F53", goodSymbol: "ELECTRONICS", type: "EXPORT" },
+    { waypointSymbol: "C41", goodSymbol: "ELECTRONICS", type: "IMPORT" },
+    { waypointSymbol: "B7", goodSymbol: "IRON_ORE", type: "EXPORT" },
+  ];
+  const sinks = chainSinks(["ADVANCED_CIRCUITRY", "FAB_MATS", "ELECTRONICS", "MICROPROCESSORS", "IRON", "IRON_ORE"], map, rows);
+
+  it("marks the producer of a chain material as a sink for that material's inputs", () => {
+    assert.deepEqual([...(sinks.get("ELECTRONICS") ?? [])], ["D44"]);
+    assert.deepEqual([...(sinks.get("MICROPROCESSORS") ?? [])], ["D44"]);
+    assert.deepEqual([...(sinks.get("IRON") ?? [])], ["F53"]);
+  });
+
+  it("follows the chain down a level (an ELECTRONICS producer is a sink for its inputs)", () => {
+    assert.deepEqual([...(sinks.get("COPPER") ?? [])], ["F53"]);
+  });
+
+  it("does not treat a plain importer as a sink, and ignores EXPLOSIVES", () => {
+    assert.ok(!sinks.get("ELECTRONICS")?.has("C41"));
+    assert.equal(sinks.has("EXPLOSIVES"), false);
   });
 });

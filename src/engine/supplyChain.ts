@@ -65,6 +65,33 @@ export function transitiveInputs(roots: Iterable<string>, map: Record<string, st
   return out;
 }
 
+/**
+ * For each chain good, the markets that buy it to make another link of the same chain: a market that EXPORTS one of
+ * `chainOutputs` (the gate materials plus their transitive inputs) is a sink for every input `map` lists for that
+ * export. Delivering a protected good to one of these feeds the gate's chain instead of draining it, so the chain guard
+ * lets those routes through. Confirmed live 2026-10-07 (THEO): MICROPROCESSORS A3 -> D44 (+1,487) and ELECTRONICS
+ * F53 -> D44 (+1,383) were dropped as protected while D44 is the ADVANCED_CIRCUITRY producer itself, and the
+ * dispatcher had six traders on legs worth +40 to +2,700 a trip.
+ */
+export function chainSinks(
+  chainOutputs: Iterable<string>,
+  map: Record<string, string[]>,
+  rows: readonly { waypointSymbol: string; goodSymbol: string; type: string }[],
+): Map<string, Set<string>> {
+  const outputs = new Set(chainOutputs);
+  const sinks = new Map<string, Set<string>>();
+  for (const r of rows) {
+    if (r.type !== "EXPORT" || !outputs.has(r.goodSymbol)) continue;
+    for (const input of map[r.goodSymbol] ?? []) {
+      if (input === "EXPLOSIVES") continue;
+      let s = sinks.get(input);
+      if (!s) sinks.set(input, (s = new Set()));
+      s.add(r.waypointSymbol);
+    }
+  }
+  return sinks;
+}
+
 /** Test-only: the module cache is process-wide by design, so tests need a way to reset it between runs. */
 export function resetSupplyChainCacheForTests(): void {
   cached = undefined;

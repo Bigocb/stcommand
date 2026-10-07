@@ -23,7 +23,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
-import { getSupplyChain, transitiveInputs } from "./supplyChain.js";
+import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
@@ -1558,20 +1558,24 @@ export class FleetManager {
    * these so no trader resells them for margin and drains a producer's inputs; feeds and manual routes are unaffected.
    * Empty when the doctrine rule is off, no mission is open, or the supply-chain fetch fails.
    */
-  private async gateChainGoods(): Promise<Set<string>> {
-    if (!this.doctrine.isEnabled("protectChainGoods")) return new Set();
+  private async gateChainGoods(): Promise<{ goods: Set<string>; sinks: Map<string, Set<string>> }> {
+    const none = { goods: new Set<string>(), sinks: new Map<string, Set<string>>() };
+    if (!this.doctrine.isEnabled("protectChainGoods")) return none;
     const roots = this.missions.outstandingMaterials();
-    if (roots.size === 0) return new Set();
+    if (roots.size === 0) return none;
     const chain = await getSupplyChain(this.api).catch(() => undefined);
-    if (!chain) return new Set();
+    if (!chain) return none;
     const goods = transitiveInputs(roots, chain.exportToImportMap);
+    // Markets that turn a chain good into another link of the chain (D44 makes ADVANCED_CIRCUITRY from ELECTRONICS
+    // and MICROPROCESSORS): a route delivering there feeds the gate instead of draining it — see chainSinks().
+    const sinks = chainSinks([...roots, ...goods], chain.exportToImportMap, (await this.store?.latestMarketSnapshots()) ?? []);
     for (const r of roots) goods.delete(r);
-    const summary = [...goods].sort().join(",");
+    const summary = [...goods].sort().map((g) => (sinks.has(g) ? `${g}(sell ok at ${[...sinks.get(g)!].sort().join("/")})` : g)).join(",");
     if (summary !== this.lastChainGoodsLog) {
       this.lastChainGoodsLog = summary;
       this.log(`gate supply chain protected from margin trading: ${summary || "(none)"}`);
     }
-    return goods;
+    return { goods, sinks };
   }
 
   async computeDispatchRoutes(): Promise<DispatchRoute[]> {
@@ -1591,11 +1595,12 @@ export class FleetManager {
     // whose sell side sits in a system this tenant has never charted isn't
     // something it could ever actually complete.
     const charted = new Set(this.chartedSystems);
-    const chainGoods = await this.gateChainGoods();
+    const chain = await this.gateChainGoods();
     const legs = ((await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [])
       .filter((l) => charted.has(l.buySystem) && charted.has(l.sellSystem))
-      // The gate's own supply chain is not for margin trading (see gateChainGoods()).
-      .filter((l) => !chainGoods.has(l.goodSymbol));
+      // The gate's own supply chain is not for margin trading (see gateChainGoods()), except a leg that sells the good
+      // to a market making another link of the chain from it.
+      .filter((l) => !chain.goods.has(l.goodSymbol) || (chain.sinks.get(l.goodSymbol)?.has(l.sellAt) ?? false));
     // A single purchaseCargo() call is capped at the market's own advertised
     // trade volume — l.volume above, straight from tradeLegs()'s
     // LEAST(b.trade_volume, s.trade_volume) — but that is a per-*transaction*

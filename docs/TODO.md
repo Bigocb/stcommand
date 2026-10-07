@@ -30,7 +30,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   E49 (+96/unit) and 2-3 COPPER H55 -> A3 (+60) with the floor at 300; both traders rejected them and went "discovering
   prices", while FIREARMS E48 -> J62 sat at +1,141 and ASSAULT_RIFLES at +844 (fresh at both ends) unassigned. Apply
   the trader's floor when the dispatcher builds work, and check why its FIREARMS value (8,592) was a third of
-  margin x tradeVolume (22,820).
+  margin x tradeVolume (22,820). (6) The dashboard shows a mission/feed carrier's stale cached snapshot: 12:31 THEO-1
+  read "in orbit at I59, fuel 180" (from 12:15) while it was docked empty at F53; a suspended agent's cache is never
+  refreshed while the mission flies the ship. Refresh it from the mission's own reads, or show the live ship.
 
 - [ ] **Engine flaws found starting THEOREM_DEV_2 fresh (raised 2026-10-06).** (1) A tour ship holds in place while
   a keeper-probe approval is pending (`tour scout: holding at ... — keeper probe approval pending`), so a new tenant's
