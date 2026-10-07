@@ -22,7 +22,10 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   the deploy (`stcommand_ops_instances` byCaller). Still open: (2) Route churn: three times in 90 minutes the dispatcher reassigned
   THEO-C/THEO-30 while they were flying empty to the previous route's buy market; keep the current route unless the new
   one beats it clearly. (3) A server restart reshuffles assignments (THEO-C lost a 16.9k/trip EQUIPMENT leg one stop
-  from its buy market for a 4.2k JEWELRY one); restore the last assignment of a ship already en route.
+  from its buy market for a 4.2k JEWELRY one); restore the last assignment of a ship already en route. (4) A restored
+  operator hold loses a race with the trader's first tick: THEOREM_DEV_2-1, held at F52, logged "operator hold at F52"
+  at 04:10:22 after a restart, then "no claimable route viable / discovering prices" at 04:10:26 and flew to H55 anyway.
+  Every restart moved it (03:44, 04:10). The trader should not tick before the restore loop's holds are in place.
 
 - [ ] **Engine flaws found starting THEOREM_DEV_2 fresh (raised 2026-10-06).** (1) A tour ship holds in place while
   a keeper-probe approval is pending (`tour scout: holding at ... — keeper probe approval pending`), so a new tenant's

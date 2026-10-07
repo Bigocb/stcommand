@@ -95,3 +95,7 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   J62's ask is 4,780 (4,666 at 00:45) with the export RESTRICTED, so the source itself is short, while H55's bid came back
   4,145 -> 4,844; margin +64. CLOTHING K92 5,223 (79 min old) vs F52 5,367, +144. Only FIREARMS and ANTIMATTER (+415)
   clear 300; nothing clears 800. No keeper move (no stale market worth more than one already covered), no pins.
+- **04:10** 764k. 2-5 turned into a tour ship at 04:02 (13 of 24 markets were 8-10 h unseen, so "no leg >= 800" only
+  covered the fresh third). Operator keeper rule: every market with more than 4 goods, plus the shipyard; the list is
+  built from the tour's fresh prices and approved before buying. The held frigate flew F52 -> H55 after each restart
+  (a restored hold loses to the trader's first tick; TODO); re-held at H55. Denied the re-proposed 94k shuttle.
