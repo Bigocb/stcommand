@@ -599,6 +599,7 @@ export class FleetManager {
       getCredits: async () => this.spendableCredits(),
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
       jettisonCargo: (s, g, u) => this.jettisonCargoUnlessValuable(s, g, u),
+      dumpJunk: (s, g, u) => this.dumpJunk(s, g, u),
       // A "mine" feed's crew are miners driven by their own ShipAgent's
       // extraction loop for one batch — see agent.ts's mineOnce() — rather
       // than FeedManager's own buy/sell primitives, which don't apply to a
@@ -4038,6 +4039,19 @@ export class FleetManager {
       throw new Error(`refusing to jettison ~${Math.round(value)}c of ${good} (limit ${MAX_DESTROYABLE_CREDITS}c)`);
     }
     await this.jettisonCargo(shipSymbol, good, units);
+  }
+
+  /** A feed drone's low-value off-target ore, overboard in one API call: the caller just read the hold, so unlike
+   *  jettisonCargo() there is no cached-ship check that a stale snapshot could fail. Same value guard as
+   *  jettisonCargoUnlessValuable(). */
+  private async dumpJunk(shipSymbol: string, good: string, units: number): Promise<void> {
+    const MAX_DESTROYABLE_CREDITS = 2_000;
+    const rows = (await this.store?.latestMarketSnapshots()) ?? [];
+    const best = Math.max(0, ...rows.filter((r) => r.goodSymbol === good).map((r) => r.sellPrice ?? 0));
+    if (best * units > MAX_DESTROYABLE_CREDITS) throw new Error(`${units}u ${good} is worth ~${Math.round(best * units)}c — not dumping`);
+    await this.api.jettisonCargo(shipSymbol, good, units);
+    this.log(`${shipSymbol} jettisoned ${units}u ${good}`);
+    this.onActivity?.("jettison", `${shipSymbol} jettisoned ${units}u ${good}`, undefined, shipSymbol);
   }
 
   async jettisonCargo(shipSymbol: string, good: string, units: number): Promise<void> {

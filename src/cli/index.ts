@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID } from "../core/rateLimitMonitor.js";
+import { waitForPredecessor } from "../core/instanceGate.js";
 import express from "express";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,6 +82,10 @@ async function main(): Promise<void> {
   // and never awaited: booting N tenants can take a while (each does a real
   // SpaceTraders API round-trip), and the gate/login routes must be servable
   // immediately, not held up behind it.
+  // Fleets wait for the instance this deploy replaces to stop — see src/core/instanceGate.ts.
+  const bootedAt = new Date();
+  const gateStore = new Store(pool);
+  registry.setBootGate(waitForPredecessor({ others: (sec) => gateStore.otherLiveInstances(INSTANCE_ID, sec), bootedAt, log }));
   registry.bootAll().catch((err) => log(`eager tenant boot failed: ${err instanceof Error ? err.message : String(err)}`));
 
   // Galaxy-wide crawl (system coordinates/types, faction roster, and an
@@ -107,7 +112,6 @@ async function main(): Promise<void> {
   // Heartbeat so any instance can tell whether another one is alive at the
   // same time (deploy overlap — the usual 429-storm cause). See migration 034.
   const heartbeatStore = new Store(pool);
-  const bootedAt = new Date();
   const beat = () => heartbeatStore.touchInstance(INSTANCE_ID, bootedAt).catch(() => {});
   void beat();
   const heartbeatInterval = setInterval(beat, 10_000);

@@ -315,7 +315,16 @@ export class TenantRegistry {
     return this.workers.has(tenantId);
   }
 
+  /** Every boot waits for this first — see src/core/instanceGate.ts. */
+  private bootGate: Promise<void> = Promise.resolve();
+
+  /** Hold every tenant boot (eager or request-triggered) until `gate` settles. */
+  setBootGate(gate: Promise<void>): void {
+    this.bootGate = gate.catch(() => {});
+  }
+
   private async boot(tenantId: string, agentSymbol: string): Promise<TenantWorker> {
+    await this.bootGate;
     const log = (msg: string) => this.log(tenantId, msg);
     this.retired.delete(tenantId);
     const token = await getTenantToken(this.pool, tenantId);

@@ -9,6 +9,24 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fleets wait for the old instance to stop; mining drones dump junk in one call (2026-10-07)
+
+Two follow-ups to the trader-starvation incident below, shipped together so they cost one restart.
+
+**Boot gate.** A Render deploy starts the new instance, passes its health check, moves traffic, and only then sends the
+old instance SIGTERM, so both used to fly the same ships for that gap. `src/core/instanceGate.ts`'s
+`waitForPredecessor()` now holds every tenant boot (`TenantRegistry.setBootGate()`, eager and request-triggered alike)
+until no instance that started earlier has written a heartbeat in the last 15 s (heartbeats are every 10 s), capped at
+90 s, and proceeds at once if the heartbeat table can't be read. The web server still starts immediately, since the
+old instance is only stopped once the new one is healthy.
+
+**Drone junk.** A mine feed drone cleared each off-target ore through `sellCargo`: a ship read, a dock, a sale the
+field's market refused, then the jettison, plus an orbit before the next extraction, then a fresh ship and cargo read
+on the following pass before mining. With 10 drones on CE5D jettisoning ice, copper, aluminum and silicon nearly every
+cycle, that was about two thirds of the shared budget. The mine branch now dumps junk worth under 2,000c with one
+`jettison` call (`FleetManager.dumpJunk()`, same value guard as before) and mines in the same step; anything it refuses
+still goes through the full clear (`tests/feedJunkDump.test.ts`, `tests/instanceGate.test.ts`).
+
 ## Slow keeper tasks no longer hold traders for half an hour (2026-10-07)
 
 Operator check on THEO-C and THEO-30 "not going the right way": every route assignment was correct, but traders were
@@ -19,9 +37,9 @@ waited ~35 s for its DEFERRABLE market call, so one pass took 30+ minutes; THEO 
 once it has run something and spent `PASS_MAX_MS` (5 s), so the next pass re-sorts and a trader waits at most one slow
 task. Tasks not reached stay queued and lead the next pass at their own priority (`tests/schedulerPassCap.test.ts`).
 
-Same incident: two pushes 50 s apart (03:06:54, 03:07:44) left three server instances driving THEO for about a minute,
-which showed up as doubled refuels, a FABRICS sell for 30 units on a ship holding 20, and "ship is in transit" errors.
-Batch documentation pushes; each one restarts both fleets.
+Same incident: two pushes 50 s apart (03:06:54, 03:07:44) meant two instances drove THEO at once for ~30 s and then
+~60 s (three in total), which showed up as doubled refuels, a FABRICS sell for 30 units on a ship holding 20, and "ship
+is in transit" errors. Fixed by the boot gate below; still batch documentation pushes, each restarts both fleets.
 
 ## A buying feed and a mining feed can supply the same market (2026-10-07)
 

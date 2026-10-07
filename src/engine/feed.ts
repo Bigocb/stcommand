@@ -186,6 +186,9 @@ interface FeedOptions {
   getCredits?: () => Promise<number>;
   sellCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
   jettisonCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
+  /** A mining drone's off-target ore, straight overboard in one call when it is worth little (throws otherwise).
+   *  The hold was just read, so no ship re-read, no dock, no sale attempt. See the mine branch of stepCarrier(). */
+  dumpJunk?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
   /** Mine one batch of the feed's good for this ship, if it has a mining
    *  mount and a reachable asteroid — the fallback source when nothing
    *  sells the good (raw ore, typically). Returns true if it did anything
@@ -295,6 +298,7 @@ export class FeedManager {
   private readonly getCredits?: FeedOptions["getCredits"];
   private readonly sellCargo?: FeedOptions["sellCargo"];
   private readonly jettisonCargo?: FeedOptions["jettisonCargo"];
+  private readonly dumpJunk?: FeedOptions["dumpJunk"];
   private readonly mineOnce?: FeedOptions["mineOnce"];
   private readonly setMinerPreference?: FeedOptions["setMinerPreference"];
   private readonly pinMiner?: FeedOptions["pinMiner"];
@@ -351,6 +355,7 @@ export class FeedManager {
     this.getCredits = opts.getCredits;
     this.sellCargo = opts.sellCargo;
     this.jettisonCargo = opts.jettisonCargo;
+    this.dumpJunk = opts.dumpJunk;
     this.mineOnce = opts.mineOnce;
     this.pinMiner = opts.pinMiner;
     this.unpinMiner = opts.unpinMiner;
@@ -1092,12 +1097,24 @@ export class FeedManager {
       // found none — while this check, reading the stale `ship.cargo` from
       // the top of this call, kept seeing 4u and retrying forever. Never
       // reached mineOnce() again for the rest of that call's lifetime.
-      const junk = cargo.inventory.filter((i) => i.symbol !== feed.good && i.units > 0);
+      let junk = cargo.inventory.filter((i) => i.symbol !== feed.good && i.units > 0);
+      // Cheap path first. Confirmed live 2026-10-07 (THEO, 10 drones on CE5D): clearing each junk ore through
+      // sellCargo cost a ship read, a dock, a sale the field's market refused, and then the jettison, plus an orbit
+      // before the next extraction, about two thirds of the shared call budget, which starved every keeper and
+      // trader. Low-value ore goes straight overboard; anything dumpJunk refuses still goes through the full clear.
+      if (junk.length > 0 && this.dumpJunk) {
+        const left: typeof junk = [];
+        for (const item of junk) {
+          try { await this.dumpJunk(ship.symbol, item.symbol, item.units); } catch { left.push(item); }
+        }
+        junk = left;
+      }
       if (junk.length > 0) {
         // A failed clear on a MINER must not release it from the feed (see clearUnrelatedCargo): retry shortly.
-        if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, cargo.inventory))) t.retryAt = Date.now() + 30_000;
+        if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, junk))) t.retryAt = Date.now() + 30_000;
         return;
       }
+      // Hold is clear: mine in this same step rather than spending another ship and cargo read on the next pass.
       // mineOnce() runs schedulerDriven, so a real extraction cooldown throws
       // Pending (CooldownPending/NavigationPending) instead of sleeping it
       // out in place — see mineOnce()'s own comment for why that matters
