@@ -142,3 +142,8 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   and stationed them: K92, E48, E49, D46, F53, A1, D47, B7, F51 (C44 already had probe 2-8). With J62, F52, H55, A2 and
   C44 that is 14 keepers on every market with more than 4 goods except F50, G54, H57, H58, which the tour keeps
   covering. Purpose: see a leg recover the minute it does, instead of on the tour's 2-4 h lap.
+- **12:45** THEO (control fleet), the chain-guard fix's payoff: between 12:28 and 12:40 MICROPROCESSORS A3 -> D44 made
+  +197,820 over four 40-unit trips and ELECTRONICS F53 -> D44 +140,320 over three, ~338k in 12 minutes, while feeding
+  D44 (the ADVANCED_CIRCUITRY producer). D44 bids eased 3,902 -> 3,794 (MICROPROCESSORS) and 3,041 -> 2,787
+  (ELECTRONICS). THEOREM_DEV_2: rifles pin +30,900, then both weapons legs closed (~+200); pins cleared, all 14 keepers
+  docked with prices 1-4 min old.
