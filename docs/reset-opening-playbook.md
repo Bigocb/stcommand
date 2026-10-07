@@ -17,8 +17,9 @@ evidence behind each step. Numbers are from that week; re-measure on a new map.
 ## Hour 1-3: feed the chains before buying anything for the gate
 
 5. Start the construction mission so its materials are protected, but set pacing first: `buyLotUnits` = the
-   producer's trade volume (20 for FAB_MATS), `buyGapMin` 30, `recoverPct` 3. Do not buy until the producer's
-   activity reads GROWING or STRONG. Buying into a RESTRICTED or WEAK producer only lifts its price.
+   producer's trade volume (20 for FAB_MATS), `buyGapMin` 30, `recoverPct` 3, and **`maxInflationPct` 25** (see
+   "The ceiling is a target price" below). Do not buy until the producer's activity reads GROWING or STRONG. Buying
+   into a RESTRICTED or WEAK producer only lifts its price.
 6. Feeds for every input of every gate material, from the raw end up, each with `stopAtSupply HIGH` (not ABUNDANT:
    over-feeding grows the market's trade volume and consumption, and it then starves):
    - iron ore -> refinery (mine feed, 2-3 drones, or buy from the ore exchange with a shuttle);
@@ -38,6 +39,25 @@ evidence behind each step. Numbers are from that week; re-measure on a new map.
     days of work, so the aim of week one is a producer that is GROWING or STRONG, not a count.
 11. Keep traders on the big spreads (FABRICS, MEDICINE, SHIP_PARTS when they appear) and let the chain guard keep
     them off iron, sand, silicon and copper.
+
+## The ceiling is a target price, not just a guard
+
+Measured on THEO's F53 FAB_MATS, 2026-10-06/07 (operator's insight): with `recoverPct` on, the mission never buys above
+the ceiling and waits for the market to come back down after every lot, so **the ceiling sets the price the market is
+held at and the producer's refill sets the buying rate**. Over 7.5 hours at a 40% ceiling (baseline 1,051, so 1,471)
+every lot pushed F53 up 30-40 credits, the price walked 1,173 -> 1,469, and the ceiling became the only thing gating
+buys.
+
+| Knob | What it controls |
+| --- | --- |
+| `maxInflationPct` (ceiling over the baseline) | the price level we hold the market at |
+| Feeds into the producer | the speed: units per hour at that price |
+| `buyLotUnits`, `buyGapMin` | how smooth each step is |
+
+So: a **low ceiling from hour one (25% over the opening price, about 1,100 -> about 1,375 for FAB_MATS) together with
+well-fed inputs**. A low ceiling only costs speed while the producer is input-starved; started late on a market that
+has already climbed, it halts buying for many hours (at 25% THEO would have paused 17-40 h). Lower it in steps on a
+running mission (THEO: 40% -> 35% on 2026-10-07, 30% next once F53 is back near 1,350).
 
 ## Numbers from the 2026-10-04 week
 

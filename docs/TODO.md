@@ -7,6 +7,16 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Mission price target as the control, not a guard (raised 2026-10-07, operator).** With `recoverPct` on, the
+  ceiling sets the price the market is held at and the producer's refill sets the buying rate (see
+  `docs/reset-opening-playbook.md`, "The ceiling is a target price"). Today the ceiling is `maxInflationPct` over a
+  baseline seeded once (THEO F53: 1,051). Make it explicit: (1) a target price set relative to the opening price when
+  the mission starts, shown as a price, not a percent; (2) adaptive: tighten the target when every input of the
+  producer is at HIGH (production can sustain a lower price) and relax it, within a bound, while inputs are SCARCE;
+  (3) show the resulting expected rate (units/hour at the target) on the chain panel so a too-low target that would
+  stall the gate before the reset is visible. Also: never swap a mission carrier that still holds mission cargo
+  (2026-10-07, THEO-2B sold 20 FAB_MATS bought at 1,464 back for 706 after being moved to a feed).
+
 - [ ] **Engine flaws found starting THEOREM_DEV_2 fresh (raised 2026-10-06).** (1) A tour ship holds in place while
   a keeper-probe approval is pending (`tour scout: holding at ... — keeper probe approval pending`), so a new tenant's
   first tour never starts until someone decides. (2) `maybeBuyShip`'s "best-scored" fallback proposes drones even with
