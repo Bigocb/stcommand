@@ -124,3 +124,8 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   traders rejected (TODO), while weapons had recovered: FIREARMS E48 -> J62 +1,141 (E48 ask 3,378 at 00:50 -> 2,935),
   ASSAULT_RIFLES +844. Pinned the frigate to FIREARMS and 2-3 to ASSAULT_RIFLES. Weapons took ~6.5 h to recover from
   saturation. A new POLYNUCLEOTIDES x23 contract (to J62, 3,168 + 7,757) is open.
+- **07:57** **1,029,557, past 1M.** Weapons pins made +89,480 in 30 min: FIREARMS +40,960 and +21,980 (E48 ask 2,935 ->
+  3,531 across the two buys), ASSAULT_RIFLES +26,540 (E48 3,590 -> 3,948). Both legs then closed (RIFLES ~+30, FIREARMS
+  ~+300), so both pins were cleared and the ships held rather than left to the dispatcher's sub-floor picks. CLOTHING
+  K92 -> F52 is back to +1,051 (K92 ask 4,959 at 07:25), so the frigate is pinned there; 2-3 waits (one ship per good per
+  market). Weapons pattern: ~6.5 h to recover, ~2 loads before the spread closes again.
