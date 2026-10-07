@@ -68,3 +68,14 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
 - **Capital-aware ship buying:** only buy a ship when spare cash covers its first load.
 - **Route-weighted keeper placement** as a periodic job (done by hand here hourly).
 - **Weekly test bed:** a fresh agent each week to try one new opening idea against THEO's play, with this log format.
+
+## Running notes (hourly market reviews)
+
+- **00:50** Weapons legs saturated (E48 rifles 2,603 -> 3,879 in ~2h with two ships). Shuttles unpinned, marginFloor
+  300.
+- **01:32** EQUIPMENT K92 -> J62 closed (+73/unit). Frigate and shuttle 2-5 held instead of wandering.
+- **01:37** Only leg >= 800 with fresh prices at both ends: CLOTHING K92 -> J62 (+829). Frigate pinned to it. Weapons
+  have no leg >= 300, so keeper 2-2 moved E48 -> F52: F52's CLOTHING price (the best sink, +975) was 7 hours stale.
+  Keeper list now J62, F52, H55, A2. The dispatcher took an IRON_ORE procurement contract (201 to H55, 27,594 on
+  delivery plus 3,891 on accept, ore ~39/unit at J62): about +20k for ~5 shuttle trips, worth running while the
+  trade legs recover.
