@@ -82,3 +82,8 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
 - **02:24** First automatic pinned-route safety stop: CLOTHING K92 buy reached 5,223, at or above J62's latest sell, so
   the frigate's pin cleared itself (`28c91e4` working as intended). Two clothing trips: +23,080, +13,560. No leg in
   the system clears 300 except ANTIMATTER I60 -> I59 (+415); frigate held. Wallet 771k at 02:35.
+- **03:06** Recovery is slow: FIREARMS at E48 3,378 (00:50) -> 3,319 (03:06), about -25/hour after we stopped buying;
+  ASSAULT_RIFLES at E48 still 4,141 vs J62's 4,012. F52's CLOTHING price, fresh now that a keeper sits there, is 5,353
+  — only +130 over K92's 5,223, so the "+975" leg was a stale-price illusion. Nothing in X1-XJ90 clears 800; all three
+  cargo ships idle or on the IRON_ORE contract. At this recovery rate the system supports roughly one leg-trip every
+  few hours, not the 6-7M goal.
