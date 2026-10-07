@@ -129,3 +129,7 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   ~+300), so both pins were cleared and the ships held rather than left to the dispatcher's sub-floor picks. CLOTHING
   K92 -> F52 is back to +1,051 (K92 ask 4,959 at 07:25), so the frigate is pinned there; 2-3 waits (one ship per good per
   market). Weapons pattern: ~6.5 h to recover, ~2 loads before the spread closes again.
+- **08:30** 1,041,506. The CLOTHING pin was a near-miss: priced at +1,051 from a K92 ask 13 min old (~4,256), the frigate
+  actually paid 5,186 and sold at 5,266-5,282, +3,360 for the trip. Rule for pins: the buy side must be under ~5 min old,
+  or confirmed live on arrival. The dispatcher then sent the frigate on FABRICS E49 -> K92 (+11,930) by itself; 2-3
+  held at I59, tour at A1. Light hauler proposal denied (9th).
