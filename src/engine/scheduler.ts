@@ -70,6 +70,9 @@ export class SchedulerBudget {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** How long one runOnce() pass may keep working through its ready list before re-sorting — see runOnce(). */
+export const PASS_MAX_MS = 5_000;
+
 /**
  * One per tenant. Holds a priority queue of `Task`s and a `SchedulerBudget`;
  * `run()` is a coordinator-style loop (same `while (running) { ...; await
@@ -149,7 +152,14 @@ export class Scheduler {
       .sort((a, b) => a.priority - b.priority || a.earliestRunAt - b.earliestRunAt);
 
     let ran = 0;
+    const passStart = Date.now();
     for (const task of ready) {
+      // A pass ends early once it has run something and used up PASS_MAX_MS, so the next pass re-sorts and anything
+      // higher-priority that came due in the meantime goes first. Confirmed live 2026-10-07 (THEO): ~26 keepers each
+      // waited ~35 s for a DEFERRABLE market call behind a busy limiter, one pass over the fixed list took 30 minutes
+      // or more, and traders — first in the list, but only once per pass — acted about once per half hour with every
+      // route correctly assigned. The tasks not reached stay queued and lead the next pass at their own priority.
+      if (ran > 0 && Date.now() - passStart >= PASS_MAX_MS) break;
       const budget = this.budget.availableTokens();
       if (task.estimatedCalls > budget) {
         // Skipping is silent by design — save the budget for a higher-priority

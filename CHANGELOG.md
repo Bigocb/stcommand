@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Slow keeper tasks no longer hold traders for half an hour (2026-10-07)
+
+Operator check on THEO-C and THEO-30 "not going the right way": every route assignment was correct, but traders were
+acting about once every 30 minutes. `Scheduler.runOnce()` ran one pass over a ready list fixed at the start, strictly
+in order. With the limiter busy (10 feed-driven mining drones at mission priority), each of THEO's ~26 keeper tasks
+waited ~35 s for its DEFERRABLE market call, so one pass took 30+ minutes; THEO logged no scheduler heartbeat from
+02:12 to 03:15, and a trader that came due a second after its own turn waited for the rest of the pass. A pass now ends
+once it has run something and spent `PASS_MAX_MS` (5 s), so the next pass re-sorts and a trader waits at most one slow
+task. Tasks not reached stay queued and lead the next pass at their own priority (`tests/schedulerPassCap.test.ts`).
+
+Same incident: two pushes 50 s apart (03:06:54, 03:07:44) left three server instances driving THEO for about a minute,
+which showed up as doubled refuels, a FABRICS sell for 30 units on a ship holding 20, and "ship is in transit" errors.
+Batch documentation pushes; each one restarts both fleets.
+
 ## A buying feed and a mining feed can supply the same market (2026-10-07)
 
 Operator request: feed QUARTZ_SAND into F53 by buying it at B7 *and* by mining it at CE5D at the same time. Feeds were

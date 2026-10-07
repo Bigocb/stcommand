@@ -17,6 +17,15 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   stall the gate before the reset is visible. Also: never swap a mission carrier that still holds mission cargo
   (2026-10-07, THEO-2B sold 20 FAB_MATS bought at 1,464 back for 706 after being moved to a feed).
 
+- [ ] **Trader starvation follow-ups (raised 2026-10-07, THEO-C/THEO-30 check).** The scheduler pass cap (CHANGELOG
+  2026-10-07) stops slow keepers holding traders for a whole pass; still open: (1) the 10 feed-driven mining drones on
+  CE5D spend about two thirds of the shared 90/min budget at mission priority (`FeedManager.stepCarrier` reads every
+  drone's ship and cargo each feed tick, ~24 s), and jettison most of what they extract, so keepers wait ~35 s per call;
+  poll a drone only when its cooldown is due. (2) Route churn: three times in 90 minutes the dispatcher reassigned
+  THEO-C/THEO-30 while they were flying empty to the previous route's buy market; keep the current route unless the new
+  one beats it clearly. (3) A server restart reshuffles assignments (THEO-C lost a 16.9k/trip EQUIPMENT leg one stop
+  from its buy market for a 4.2k JEWELRY one); restore the last assignment of a ship already en route.
+
 - [ ] **Engine flaws found starting THEOREM_DEV_2 fresh (raised 2026-10-06).** (1) A tour ship holds in place while
   a keeper-probe approval is pending (`tour scout: holding at ... — keeper probe approval pending`), so a new tenant's
   first tour never starts until someone decides. (2) `maybeBuyShip`'s "best-scored" fallback proposes drones even with
