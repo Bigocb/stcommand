@@ -28,6 +28,9 @@ evidence behind each step. Numbers are from that week; re-measure on a new map.
    - silicon crystals and copper (ore -> refinery -> producer) for the electronics / microprocessor chain.
    The exchange markets' silicon and sand get drained by other agents in the first hours: start these first.
 7. Buy shuttles (40-hold, ~90k) before probes. Probes only at markets routes actually use; cap `keeperCount`.
+   Operator rule of thumb (2026-10-07): a market trading **more than 4 goods** is worth a keeper; shipyards always.
+   Run one idle ship as `tour` first so every market has a fresh price, then place keepers from that map, moving
+   existing probes before buying new ones. Without it, THEOREM_DEV_2 had 13 of 24 markets unseen for 8-10 hours.
 
 ## Day 1 onward: hold, do not burst
 
