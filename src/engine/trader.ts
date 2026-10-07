@@ -79,7 +79,7 @@ export interface TraderOptions {
   /** Centralized dispatch: the specific assignment this trader holds (or undefined if it holds no claim). */
   assignedRoute?: () => TraderAssignment | undefined;
   /** Tell the dispatcher this trader refused its auto assignment, so it is reassigned instead of kept committed. */
-  declineRoute?: () => void;
+  declineRoute?: (wholeGood: boolean) => void;
   /**
    * Take the best dispatch route no other trader holds. `accept` rejects routes
    * this ship can't actually fly, so the dispatcher moves on to the next-best
@@ -221,7 +221,7 @@ export class TraderAgent {
   private readonly protectedGoods?: () => Set<string>;
   private readonly reservedGoods?: () => Set<string>;
   private readonly assignedRoute?: () => TraderAssignment | undefined;
-  private readonly declineRoute?: () => void;
+  private readonly declineRoute?: (wholeGood: boolean) => void;
   private readonly claimRoute?: TraderOptions["claimRoute"];
   private readonly releaseRoute?: () => void;
   private readonly recordSale?: TraderOptions["recordSale"];
@@ -1178,7 +1178,7 @@ export class TraderAgent {
       // the dashboard — fall through to discovery/idle instead. An auto leg we
       // refuse for good (not just missing prices, which discovery fixes) goes
       // back to the dispatcher so the next recompute hands us something else.
-      if (!ignoreProfitFloor && why !== "viable" && !why.startsWith("missing prices")) this.declineRoute?.();
+      if (!ignoreProfitFloor && why !== "viable" && !why.startsWith("missing prices")) this.declineRoute?.(why.startsWith("protected good"));
       return undefined;
     }
 

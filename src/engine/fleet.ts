@@ -1174,7 +1174,7 @@ export class FleetManager {
       contractNeeded: (good) => this.contracts?.outstandingUnitsFor(good) ?? Promise.resolve(0),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
-      declineRoute: () => this.dispatcher.decline(shipSymbol),
+      declineRoute: (wholeGood) => this.dispatcher.decline(shipSymbol, wholeGood),
       stopManualRoute: async (reason) => {
         if (this.dispatcher.assignmentFor(shipSymbol)?.source !== "manual") return;
         await this.setManualDispatch(shipSymbol, undefined);

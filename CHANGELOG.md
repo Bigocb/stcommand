@@ -21,7 +21,12 @@ traders were idle for 35+ minutes with CLOTHING worth 35,519c a trip unassigned.
 The trader now calls `RouteDispatcher.decline()` when it rejects an auto leg for any reason other than missing prices
 (which discovery fixes). That drops the assignment and its commitment and keeps the leg out of that trader's picks for
 15 minutes (`DECLINE_MS`); the trader's next tick claims the best leg it can fly. Manual pins are never declined.
-Tests: `tests/dispatcherDecline.test.ts`.
+A protected-good refusal blocks every leg of that good for the trader, since it is refused at any market.
+
+Follow-up the same afternoon: with declines working, the dispatcher still handed out one sub-floor leg after another
+(13:45-14:11: FOOD +208, COPPER +61, FABRICS +167/+179, AMMUNITION +179, FERTILIZERS +100 against a 300c floor), each
+costing a recompute and a discovery hop. It now drops direct legs at or under `effectiveMarginFloor(marginFloor,
+buyPrice)` (the trader's own check, same doctrine value) before assigning. Tests: `tests/dispatcherDecline.test.ts`.
 
 ## The chain guard lets traders deliver protected goods to the chain's own producers (2026-10-07)
 

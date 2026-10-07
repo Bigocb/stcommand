@@ -109,7 +109,7 @@ export const DECLINE_MS = 15 * 60_000;
  */
 export const MAX_LOTS_PER_TRIP = 3;
 
-import { REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
+import { REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 
 /**
  * "direct"      — buy here, carry it yourself, sell there. One trader owns
@@ -257,7 +257,7 @@ export class RouteDispatcher {
    *  afterwards means the sale completed. */
   private committed = new Map<string, { at: number; hadCargo: boolean }>();
   /** Auto legs a trader refused (see decline()), kept out of that trader's picks until `until`. */
-  private declined = new Map<string, { good: string; buyAt?: string; sellAt?: string; until: number }>();
+  private declined = new Map<string, { good: string; buyAt?: string; sellAt?: string; wholeGood: boolean; until: number }>();
   /** The ranked route list from the last recompute, used to serve live claims. */
   private routes: DispatchRoute[] = [];
   private lastComputed = 0;
@@ -484,13 +484,15 @@ export class RouteDispatcher {
    * committed to a leg it would never fly for up to COMMIT_GRACE_MS: confirmed live 2026-10-07, THEOREM_DEV_2-1
    * (FOOD K92 -> A1, margin 195-261c under a 300c floor) and THEOREM_DEV_2-3 (POLYNUCLEOTIDES, protected for a
    * contract) both flew price-discovery hops for 35+ minutes with CLOTHING worth 35,519c a trip unassigned.
+   * `wholeGood` keeps every leg of that good out (a protected good is refused at any market, and 2-3 was handed
+   * POLYNUCLEOTIDES E49 -> D46 right after refusing E49 -> F53).
    */
-  decline(shipSymbol: string): void {
+  decline(shipSymbol: string, wholeGood = false): void {
     const a = this.assignments.get(shipSymbol);
     if (!a || a.source === "manual") return;
     this.assignments.delete(shipSymbol);
     this.committed.delete(shipSymbol);
-    this.declined.set(shipSymbol, { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, until: Date.now() + DECLINE_MS });
+    this.declined.set(shipSymbol, { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, wholeGood, until: Date.now() + DECLINE_MS });
   }
 
   /**
@@ -895,6 +897,16 @@ export class RouteDispatcher {
       const rankPriority = cb.value ?? displayProfit; // outranks an equivalent mission-buy shortfall — contracts have hard deadlines, warehousing doesn't
       work.push({ key: `${cb.good}:contractBuy`, make: (s) => this.toContractBuyAssignment(s, cb, displayProfit), profitPerTrip: rankPriority });
     }
+    // A direct leg at or under the trader's own margin floor is one every trader refuses (whyNotViable() applies the
+    // same effectiveMarginFloor to the same doctrine value), so handing it out only burns a recompute and a price-
+    // discovery hop. Confirmed live 2026-10-07 13:45-14:11: THEOREM_DEV_2-1/-3 were handed FOOD (+208), COPPER (+61),
+    // FABRICS (+167/+179), AMMUNITION (+179) and FERTILIZERS (+100) against a 300c floor, one after another.
+    const floorFlat = tuning?.marginFloor ?? 0;
+    for (let i = work.length - 1; i >= 0; i--) {
+      const w = work[i]!;
+      if (w.sellAt === undefined || w.buyPrice === undefined || w.sellPrice === undefined) continue;
+      if (w.sellPrice - w.buyPrice <= effectiveMarginFloor(floorFlat, w.buyPrice)) work.splice(i, 1);
+    }
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
     let leavingHome = 0;
@@ -1032,7 +1044,8 @@ export class RouteDispatcher {
       const refused = this.declined.get(t.shipSymbol);
       if (refused && refused.until <= nowMs) this.declined.delete(t.shipSymbol);
       const isRefused = (w: { good?: string; buyAt?: string; sellAt?: string }): boolean =>
-        !!refused && refused.until > nowMs && w.good === refused.good && w.buyAt === refused.buyAt && w.sellAt === refused.sellAt;
+        !!refused && refused.until > nowMs && w.good === refused.good &&
+        (refused.wholeGood || (w.buyAt === refused.buyAt && w.sellAt === refused.sellAt));
       for (const w of work) {
         if (usedKeys.has(w.key) || !reachable(w) || isRefused(w)) continue;
         const extra = impactCost(w);

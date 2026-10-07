@@ -29,10 +29,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   (5) The dispatcher assigns legs below the trader's own `marginFloor`: 07:25, THEOREM_DEV_2-1 got FERTILIZERS G54 ->
   E49 (+96/unit) and 2-3 COPPER H55 -> A3 (+60) with the floor at 300; both traders rejected them and went "discovering
   prices", while FIREARMS E48 -> J62 sat at +1,141 and ASSAULT_RIFLES at +844 (fresh at both ends) unassigned.
-  Half fixed 2026-10-07: a trader that refuses an auto leg now hands it back (`RouteDispatcher.decline()`) and is
-  reassigned on the next recompute, so a sub-floor leg costs one cycle instead of up to 3h. Still open: apply the
-  trader's floor when the dispatcher builds work, and check why its FIREARMS value (8,592) was a third of
-  margin x tradeVolume (22,820). (6) The dashboard shows a mission/feed carrier's stale cached snapshot: 12:31 THEO-1
+  Fixed 2026-10-07: the dispatcher drops direct legs at or under `effectiveMarginFloor` before assigning, and a trader
+  that refuses an auto leg hands it back (`RouteDispatcher.decline()`). Still open: check why its FIREARMS value
+  (8,592) was a third of margin x tradeVolume (22,820). (6) The dashboard shows a mission/feed carrier's stale cached snapshot: 12:31 THEO-1
   read "in orbit at I59, fuel 180" (from 12:15) while it was docked empty at F53; a suspended agent's cache is never
   refreshed while the mission flies the ship. Refresh it from the mission's own reads, or show the live ship.
 

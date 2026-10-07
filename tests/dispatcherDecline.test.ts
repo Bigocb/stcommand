@@ -41,3 +41,30 @@ describe("RouteDispatcher.decline", () => {
     assert.equal(d.assignmentFor("SHIP-1")?.source, "manual");
   });
 });
+
+describe("RouteDispatcher: margin floor and whole-good declines", () => {
+  const leg = (good: string, sellAt: string, buyPrice: number, sellPrice: number, profitPerTrip: number) => ({
+    ...route(good, profitPerTrip), sellAt, buyPrice, sellPrice,
+  });
+
+  it("never hands out a direct leg at or under the trader's margin floor", () => {
+    const d = new RouteDispatcher();
+    const traders = [{ shipSymbol: "SHIP-1", capacity: 40 }];
+    // FOOD +208 on a 2,282 ask with a 300c floor (live 2026-10-07), ranked above CLOTHING.
+    d.recompute([leg("FOOD", "X1-A-M2", 2282, 2490, 9000), leg("CLOTHING", "X1-A-M3", 4000, 5000, 8000)], traders, [], [], [], [],
+      undefined, undefined, undefined, undefined, undefined, { marginFloor: 300 });
+    assert.equal(d.assignmentFor("SHIP-1")?.good, "CLOTHING");
+  });
+
+  it("a whole-good decline keeps every leg of that good away from the trader", () => {
+    const d = new RouteDispatcher();
+    const traders = [{ shipSymbol: "SHIP-1", capacity: 40 }];
+    const routes = [leg("POLY", "X1-A-M2", 10, 20, 500), leg("POLY", "X1-A-M3", 10, 20, 450), leg("IRON", "X1-A-M2", 10, 20, 100)];
+    d.recompute(routes, traders);
+    assert.equal(d.assignmentFor("SHIP-1")?.good, "POLY");
+    d.decline("SHIP-1", true);
+    again(d);
+    d.recompute(routes, traders);
+    assert.equal(d.assignmentFor("SHIP-1")?.good, "IRON");
+  });
+});
