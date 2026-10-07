@@ -133,3 +133,7 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   actually paid 5,186 and sold at 5,266-5,282, +3,360 for the trip. Rule for pins: the buy side must be under ~5 min old,
   or confirmed live on arrival. The dispatcher then sent the frigate on FABRICS E49 -> K92 (+11,930) by itself; 2-3
   held at I59, tour at A1. Light hauler proposal denied (9th).
+- **09:34** 1,055,481. Dispatcher trips: FABRICS E49 -> D46 +14,550, CLOTHING K92 -> F52 +20,860, then a loss: ADVANCED_CIRCUITRY
+  D47 -> A4 -12,600 (bought 3,475/3,618; A4 paid 3,651 for the first 20 and 2,812 for the second, -23% in one lot, on an
+  import price 35+ min old). A tradeVolume-20 sink can't take 40 units. DRUGS J62 -> H55 back to +770 (fresh both
+  ends), so 2-3 (held at I59, one leg from J62) is pinned to it.
