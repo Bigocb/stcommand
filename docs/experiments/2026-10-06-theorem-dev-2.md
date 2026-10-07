@@ -1,0 +1,70 @@
+# Experiment log: THEOREM_DEV_2, single-system trading test bed (2026-10-06/07)
+
+Operator goal: "make as much money as we can — it's our test bed." Fresh agent THEOREM_DEV_2 (tenant `1153833e`), home
+system X1-XJ90, registered mid-week (reset 2026-10-04, next 2026-10-11). Gate (I59, 1,600 FAB_MATS + 400
+ADVANCED_CIRCUITRY) deliberately ignored. THEO (`7e1ea899`) kept running its normal gate-feeding play as the control.
+Run by a Claude Code session through the hosted MCP (`/mcp`) plus direct API scripts; every number below is from the
+activity feed or the live API.
+
+## Wallet curve
+
+| Time (UTC) | Credits | What happened |
+|---|---|---|
+| 17:46 | 175,000 | Start: 1 command frigate, 1 probe |
+| 18:11 | 65,639 | Bought light shuttle (88,853) + A2 keeper probe (21,627) |
+| 18:24 | 68,460 | First pinned ALUMINUM H55 -> D47 trip, +3,930 |
+| 18:57 | ~19,000 | Pinned aluminum ran 18 min at a loss, ~-50k (see lesson 1) |
+| 20:02 | 17,337 | Low point; frigate idle, tour shuttle stuck bouncing J61 <-> J62 |
+| 20:32 | 27,385 | First hand-run DRUGS J62 -> H55, +10,696 |
+| 20:58 | 76,854 | Weapons E48 -> J62 + DRUGS J62 -> H55 round trip, +50,845 |
+| 21:32 | 133,712 | 20 rifles +40,260, 9 firearms +18,054 |
+| 21:42 | 41,683 | Bought 2nd shuttle (91,381) |
+| 23:15 | 254,129 | Pinned routes running after the live-balance fix |
+| 23:57 | 291,146 | |
+| 00:27 | 478,830 | Peak so far; three full 40-unit loads cycling |
+
+Roughly +460k from the 17:46 start and +460k from the 20:02 low in about 4.5 hours, on 3 cargo ships.
+
+## What worked
+
+- **High-margin, low-volume goods.** DRUGS (J62 -> H55, +2,600/unit at first) and ASSAULT_RIFLES/FIREARMS (E48 -> J62,
+  +2,000/unit) at tradeVolume 20 barely moved per 4-8 units, where 40 units of ALUMINUM (tradeVolume 60) moved ~8-10%
+  per load.
+- **Two-way loops.** Weapons east, drugs west: both legs loaded.
+- **Pinned routes inside the app** once they were safe (survive the Claude container restarting, which happened ~10
+  times in the evening).
+- **Route-weighted keeper placement** (operator idea): rank markets by the route profit through them, keep probes there
+  (J62, E48, H55, A2), move existing probes instead of buying (operator: "save some money").
+
+## Lessons (each cost real credits)
+
+1. **Pinned routes had no safety net** — skipped the margin floor and the loss floor. The aluminum pin crashed its own
+   spread (buy 167 -> 552, sell 266 -> 127) and lost ~50k. Fixed in `28c91e4`: never buy at or above the destination's
+   latest sell; two losing trips unpin.
+2. **Fast loops crash the spread, even on good goods.** DRUGS J62 buy 2,775 -> 4,666 and H55 sell 5,449 -> 4,145 over
+   ~3.5 hours with 1-2 ships; E48 rifles 2,520 -> 3,879 in ~2 hours with 2 ships. Every high-margin leg in the system
+   was saturated by ~00:45. Pace legs and rotate goods before the margin closes; one ship per good per market.
+3. **Stale cached balance strands pinned ships.** Right after a big sale the fleet's cached credits trailed by minutes
+   (`credits=242` with 130k in the wallet); pinned ships rejected their route and flew off to "discover prices", four
+   times. Fixed in `c7dcd90`: live balance for pinned planning, wait at the buy market.
+4. **Working capital per ship.** Buying a third ship left too little cash for full loads; two drug ships starved for
+   ~30 min. Keep ~one full load of capital per pinned ship before buying more ships.
+5. **Auto-buyer noise.** It proposed a tour shuttle, a siphon drone, a mining drone and surveyors-as-keepers (~70k)
+   repeatedly; `shipCap:FRAME_DRONE` 0 stopped drones, the rest needed denying every check.
+6. **Scripts in an ephemeral container die.** Hand-run loop scripts were killed by container restarts mid-leg (one ship
+   sat 23 min holding 91k of rifles). Anything that must keep running belongs in the app.
+
+## Engine flaws found (see docs/TODO.md)
+
+Tour holds on a pending keeper approval; drone proposals with targets at 0; idle trader ping-pongs between the two known
+markets; new command frigate auto-classed as miner; `[object Object]` MCP errors; tour shuttle bouncing J61 <-> J62;
+keeper proposals using a 70k surveyor when the nearest yard has no probes.
+
+## Ideas worth automating
+
+- **Margin-decay rotation:** watch each pinned leg's margin trend and rotate to the next-best leg before it closes,
+  instead of waiting for the safety stop.
+- **Per-market pressure budget:** cap units/hour bought at one market for one good (one ship per good per market).
+- **Capital-aware ship buying:** only buy a ship when spare cash covers its first load.
+- **Route-weighted keeper placement** as a periodic job (done by hand here hourly).
+- **Weekly test bed:** a fresh agent each week to try one new opening idea against THEO's play, with this log format.
