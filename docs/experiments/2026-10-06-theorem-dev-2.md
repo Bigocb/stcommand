@@ -109,3 +109,9 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   +26,920. DRUGS J62 -> H55 is back to +820 with both ends fresh, so the frigate is pinned to it. The tour has now
   refreshed 16 of 24 markets; still >2 h old: A1, A3, A4, BX5D, F50, F51, H57, H58. Denied a 287k hauler and a 70k
   surveyor-as-keeper proposal. (The 05:37 market review was lost to a container restart; folded into this check.)
+- **06:21** 873k (+110k since 05:47): DRUGS J62 -> H55 pinned run +24,900 (bought 4,434/4,876, sold 5,318/5,237), FABRICS
+  E49 -> D46 +15,900 (a leg only the tour revealed: E49 was 10 h unseen), IRON_ORE contract fulfilled +27,594, and a
+  new MEDICINE x18 contract (D46 -> F52) paid 44,947 on accept, 127,925 on delivery, ~95k to source. The tour has every
+  market under 2 h old. Keeper list (more than 4 goods, ranked by route value): K92 74.8k, E49 49.6k, D46 25.5k,
+  E48 24.2k, F53 24.0k, A1 17.7k, D47 12.2k, C44 7.2k; G54, H57, H58, F51, F50 carry no leg >= 300 right now.
+  Already covered: J62, F52, H55, A2. Probe 23,834 at A2. Sent to the operator for approval.
