@@ -115,3 +115,8 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   market under 2 h old. Keeper list (more than 4 goods, ranked by route value): K92 74.8k, E49 49.6k, D46 25.5k,
   E48 24.2k, F53 24.0k, A1 17.7k, D47 12.2k, C44 7.2k; G54, H57, H58, F51, F50 carry no leg >= 300 right now.
   Already covered: J62, F52, H55, A2. Probe 23,834 at A2. Sent to the operator for approval.
+- **06:52** 948k (+75k in 30 min, 175k -> 948k since the start). The DRUGS pin self-stopped at 06:22: one 40-unit
+  run lifted J62's ask 4,434 -> 5,303, above H55's bid, so a DRUGS leg is one trip per recovery cycle. The dispatcher
+  then used the frigate well on its own: MEDICINE contract delivered (+127,925; contract net ~+78.9k with the 44,947
+  accept and 94,014 sourcing), CLOTHING K92 -> A1 +25,150; 2-3 ran MACHINERY E49 -> D47 +17,400. Since the tour
+  refreshed the far markets, the dispatcher has had legs again: E49, D46, D47 and A1 trades were all invisible before.
