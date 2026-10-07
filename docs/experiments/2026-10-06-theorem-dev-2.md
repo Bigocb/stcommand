@@ -90,3 +90,8 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
 - **03:38** Wallet 767k (771k at 02:35: fuel only). No leg clears 800; FIREARMS E48 -> J62 back to +456 (from closed at
   00:50), ANTIMATTER I60 -> I59 +415. The idle frigate was ping-ponging F52 <-> H55 every ~15 min (engine flaw 3): held.
   Shuttle 2-3 is on the IRON_ORE contract, 120/201 delivered. Denied a 94k shuttle proposal (no leg for it).
+- **03:47** Recovery check (asks at the export, bids at the import): FIREARMS E48 3,319 -> 3,248 since 03:06 (~-100/h),
+  J62 bid 3,704, so +456; ASSAULT_RIFLES E48 4,141 -> 4,043 (~-140/h) against J62 4,093, +50. DRUGS has not recovered:
+  J62's ask is 4,780 (4,666 at 00:45) with the export RESTRICTED, so the source itself is short, while H55's bid came back
+  4,145 -> 4,844; margin +64. CLOTHING K92 5,223 (79 min old) vs F52 5,367, +144. Only FIREARMS and ANTIMATTER (+415)
+  clear 300; nothing clears 800. No keeper move (no stale market worth more than one already covered), no pins.
