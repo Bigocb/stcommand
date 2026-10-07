@@ -101,3 +101,7 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   (a restored hold loses to the trader's first tick; TODO); re-held at H55. Denied the re-proposed 94k shuttle.
 - **04:42** 762k. The tour ship never left the I59/J61 corner (stale markets all > 300 from it); fixed with a
   stepping-stone hop (CHANGELOG). Denied an auto-proposed 287k light hauler. IRON_ORE contract at 160/201.
+- **05:15** 759k. The stepping-stone fix works: the tour ship left the I59 corner at 04:51 and has since refreshed I60,
+  K92, E49, G54, C45 and is docking at C44; 12 of 24 markets are still more than 2 h old. Margins are climbing back
+  toward 800: FIREARMS E48 -> J62 +724, CLOTHING K92 -> F52 +682 (K92's ask fell 5,223 -> 4,680 in ~2 h), DRUGS
+  J62 -> H55 +581 (J62 4,780 -> 4,515). IRON_ORE contract at 200/201. Denied the 287k light hauler again.
