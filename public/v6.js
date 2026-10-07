@@ -6667,7 +6667,7 @@ function renderFeeds(list) {
       .map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(shortWp(s.symbol))}</option>`)
       .join("");
     const crewChips = crew.length
-      ? crew.map((s) => `<span class="tag">${escapeHtml(s)} <button class="chip-x" data-act="remove-carrier" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-ship="${escapeAttr(s)}" aria-label="Remove ${escapeHtml(s)}">&times;</button></span>`).join(" ")
+      ? crew.map((s) => `<span class="tag">${escapeHtml(s)} <button class="chip-x" data-act="remove-carrier" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}" data-ship="${escapeAttr(s)}" aria-label="Remove ${escapeHtml(s)}">&times;</button></span>`).join(" ")
       : '<span class="ops-sub">no crew yet</span>';
     return `<div class="ops-card">
       <div class="ops-head">
@@ -6682,23 +6682,23 @@ function renderFeeds(list) {
       </div>
       <div class="ops-head" style="margin-top:6px">${crewChips}</div>
       <div class="ops-head" style="margin-top:6px">
-        <select class="assign-carrier" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" aria-label="Carrier ship">
+        <select class="assign-carrier" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}" aria-label="Carrier ship">
           <option value="">add ship…</option>
           ${options}
         </select>
-        <button class="btn" data-act="assign" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Add</button>
+        <button class="btn" data-act="assign" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}">Add</button>
       </div>
       <div class="ops-head" style="margin-top:6px">
-        <input type="number" class="carrier-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
-        <button class="btn" data-act="set-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Set crew size</button>
-        <input type="number" class="sell-gap-min" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" min="0" placeholder="min" value="${f.sellGapMs ? Math.round(f.sellGapMs / 60_000) : ""}" style="width:56px" title="Minimum minutes between sells into this market (blank = default)" aria-label="Sell gap minutes">
-        <button class="btn" data-act="set-sell-gap" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Set sell gap</button>
+        <input type="number" class="carrier-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
+        <button class="btn" data-act="set-target" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}">Set crew size</button>
+        <input type="number" class="sell-gap-min" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}" min="0" placeholder="min" value="${f.sellGapMs ? Math.round(f.sellGapMs / 60_000) : ""}" style="width:56px" title="Minimum minutes between sells into this market (blank = default)" aria-label="Sell gap minutes">
+        <button class="btn" data-act="set-sell-gap" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}">Set sell gap</button>
         <span class="fill"></span>
         ${f.paused
-          ? `<button class="btn pri" data-act="on" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn on</button>`
-          : `<button class="btn" data-act="off" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Turn off</button>`}
-        <button class="btn ghost" data-act="${f.force ? "unforce" : "force"}" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">${f.force ? "Unforce" : "Force"}</button>
-        <button class="btn ghost" data-act="remove" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}">Remove</button>
+          ? `<button class="btn pri" data-act="on" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}">Turn on</button>`
+          : `<button class="btn" data-act="off" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}">Turn off</button>`}
+        <button class="btn ghost" data-act="${f.force ? "unforce" : "force"}" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}">${f.force ? "Unforce" : "Force"}</button>
+        <button class="btn ghost" data-act="remove" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}">Remove</button>
       </div>
     </div>`;
   }).join("");
@@ -6853,40 +6853,40 @@ $("mobile-missions").addEventListener("click", onMissionClick);
 async function onFeedClick(e) {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
-  const { act, wp, good, ship } = btn.dataset;
+  const { act, wp, good, ship, mine } = btn.dataset;
   try {
     if (act === "assign") {
       const select = btn.closest(".ops-head").querySelector(".assign-carrier");
       const shipSymbol = select?.value;
       if (!shipSymbol) { showToastGlobal("Pick a ship first", true); return; }
-      await api("POST", "/api/feeds/assign", { waypoint: wp, good, shipSymbol });
+      await api("POST", "/api/feeds/assign", { waypoint: wp, good, mine: mine === "1", shipSymbol });
       showToastGlobal(`${shipSymbol} added to feed ${good} → ${wp}`);
     } else if (act === "remove-carrier") {
-      await api("POST", "/api/feeds/remove-carrier", { waypoint: wp, good, shipSymbol: ship });
+      await api("POST", "/api/feeds/remove-carrier", { waypoint: wp, good, mine: mine === "1", shipSymbol: ship });
       showToastGlobal(`${ship} removed from feed ${good} → ${wp}`);
     } else if (act === "set-target") {
       const input = btn.closest(".ops-head").querySelector(".carrier-target");
       const count = Number(input?.value);
       if (!Number.isFinite(count) || count < 0) { showToastGlobal("Enter a valid crew size", true); return; }
-      await api("POST", "/api/feeds/carrier-target", { waypoint: wp, good, count });
+      await api("POST", "/api/feeds/carrier-target", { waypoint: wp, good, mine: mine === "1", count });
       showToastGlobal(`${good} → ${wp} crew target set to ${count}`);
     } else if (act === "on") {
-      await api("POST", "/api/feeds/resume", { waypoint: wp, good });
+      await api("POST", "/api/feeds/resume", { waypoint: wp, good, mine: mine === "1" });
       showToastGlobal(`Feed ${good} → ${wp} turned on`);
     } else if (act === "off") {
-      await api("POST", "/api/feeds/pause", { waypoint: wp, good });
+      await api("POST", "/api/feeds/pause", { waypoint: wp, good, mine: mine === "1" });
       showToastGlobal(`Feed ${good} → ${wp} turned off`);
     } else if (act === "remove") {
       if (!confirm(`Remove the feed ${good} → ${wp}? Its crew is released; this isn't just a pause.`)) return;
-      await api("POST", "/api/feeds/remove", { waypoint: wp, good });
+      await api("POST", "/api/feeds/remove", { waypoint: wp, good, mine: mine === "1" });
       showToastGlobal(`Feed ${good} → ${wp} removed`);
     } else if (act === "force" || act === "unforce") {
-      await api("POST", "/api/feeds/force", { waypoint: wp, good, force: act === "force" });
+      await api("POST", "/api/feeds/force", { waypoint: wp, good, mine: mine === "1", force: act === "force" });
       showToastGlobal(act === "force" ? `Feed ${good} → ${wp} will buy regardless of margin` : `Feed ${good} → ${wp} margin gate re-enabled`);
     } else if (act === "set-sell-gap") {
       const input = btn.closest(".ops-head").querySelector(".sell-gap-min");
       const sellGapMin = input?.value?.trim() ?? "";
-      await api("POST", "/api/feeds/sell-gap", { waypoint: wp, good, sellGapMin: sellGapMin === "" ? null : Number(sellGapMin) });
+      await api("POST", "/api/feeds/sell-gap", { waypoint: wp, good, mine: mine === "1", sellGapMin: sellGapMin === "" ? null : Number(sellGapMin) });
       showToastGlobal(sellGapMin === "" ? `${good} → ${wp} sell gap reset to default` : `${good} → ${wp} sell gap set to ${sellGapMin}m`);
     }
     loadProgramme();

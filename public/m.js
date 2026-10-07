@@ -1660,16 +1660,16 @@ function renderMoreFeeds() {
       </div>
       <div class="detail">${f.mine ? "mined" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "bought"}${f.chainName ? ` · chain: ${escapeHtml(f.chainName)}` : ""} · crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""} · gap ${f.sellGapMs ? `${Math.round(f.sellGapMs / 60_000)}m` : "default"}${f.stopAtSupply ? ` · stop at ${escapeHtml(f.stopAtSupply.toLowerCase())}` : ""}${f.maxLossPerUnit != null ? ` · loss ≤ ${f.maxLossPerUnit}c` : ""}${f.field ? ` · field ${escapeHtml(shortWp(f.field))}` : ""}${f.collector ? ` · collector ${escapeHtml(f.collector)}` : ""}</div>
       <div class="acts">
-        <input type="number" class="carrier-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
-        <button class="btn" data-act="set-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Set crew size</button>
+        <input type="number" class="carrier-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
+        <button class="btn" data-act="set-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}">Set crew size</button>
         ${f.paused
-          ? `<button class="btn pri" data-act="on" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Turn on</button>`
-          : `<button class="btn deny" data-act="off" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Turn off</button>`}
-        <button class="btn" data-act="remove" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Remove</button>
+          ? `<button class="btn pri" data-act="on" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}">Turn on</button>`
+          : `<button class="btn deny" data-act="off" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}">Turn off</button>`}
+        <button class="btn" data-act="remove" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}">Remove</button>
       </div>
       <div class="acts">
-        <input type="number" class="sell-gap-min" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" min="0" placeholder="gap min" value="${f.sellGapMs ? Math.round(f.sellGapMs / 60_000) : ""}" style="width:70px" aria-label="Sell gap minutes">
-        <button class="btn" data-act="set-sell-gap" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}">Set spread</button>
+        <input type="number" class="sell-gap-min" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}" min="0" placeholder="gap min" value="${f.sellGapMs ? Math.round(f.sellGapMs / 60_000) : ""}" style="width:70px" aria-label="Sell gap minutes">
+        <button class="btn" data-act="set-sell-gap" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}">Set spread</button>
       </div>
     </div>`;
   }).join("");
@@ -1876,7 +1876,7 @@ $("feed-start-btn").addEventListener("click", async () => {
 $("more-feeds").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
-  const { act, wp, good } = b.dataset;
+  const { act, wp, good, mine } = b.dataset;
   if (act === "remove" && !confirm(`Remove the feed ${good} → ${wp}? Its crew is released; this isn't just a pause.`)) return;
   b.disabled = true;
   try {
@@ -1884,17 +1884,17 @@ $("more-feeds").addEventListener("click", async (e) => {
       const input = b.closest(".acts").querySelector(".carrier-target");
       const count = Number(input?.value);
       if (!Number.isFinite(count) || count < 0) { alert("Enter a valid crew size"); return; }
-      await api("POST", "/api/feeds/carrier-target", { waypoint: wp, good, count });
+      await api("POST", "/api/feeds/carrier-target", { waypoint: wp, good, mine: mine === "1", count });
     } else if (act === "on") {
-      await api("POST", "/api/feeds/resume", { waypoint: wp, good });
+      await api("POST", "/api/feeds/resume", { waypoint: wp, good, mine: mine === "1" });
     } else if (act === "off") {
-      await api("POST", "/api/feeds/pause", { waypoint: wp, good });
+      await api("POST", "/api/feeds/pause", { waypoint: wp, good, mine: mine === "1" });
     } else if (act === "remove") {
-      await api("POST", "/api/feeds/remove", { waypoint: wp, good });
+      await api("POST", "/api/feeds/remove", { waypoint: wp, good, mine: mine === "1" });
     } else if (act === "set-sell-gap") {
       const input = b.closest(".acts").querySelector(".sell-gap-min");
       const sellGapMin = input?.value?.trim() ?? "";
-      await api("POST", "/api/feeds/sell-gap", { waypoint: wp, good, sellGapMin: sellGapMin === "" ? null : Number(sellGapMin) });
+      await api("POST", "/api/feeds/sell-gap", { waypoint: wp, good, mine: mine === "1", sellGapMin: sellGapMin === "" ? null : Number(sellGapMin) });
     }
     await loadProgramme();
   } catch (err) { alert(err.message); }

@@ -20,7 +20,9 @@ sell gap, remove) takes an optional `mine`. Omitted, it acts as before when the 
 when it has both. Assigning a carrier without `mine` puts a miner on the mining feed and a trader on the buying one;
 the collector settings always mean the mining feed. The chain-health view adds both crews up into one input. MCP tools
 `stcommand_remove_feed`, `stcommand_set_feed_limits`, `stcommand_assign_feed_carrier` and
-`stcommand_remove_feed_carrier` and the dashboard feed routes accept `mine`. Tests: `tests/feedSourceKey.test.ts`.
+`stcommand_remove_feed_carrier` and the dashboard feed routes accept `mine` (MCP also takes the strings "true"/"false", for
+clients holding a tool list from before the change). Deck, Tower and v6 feed rows carry `data-mine` and send it with
+every per-feed action, so their buttons act on the right feed when a good has two. Tests: `tests/feedSourceKey.test.ts`.
 
 ## Pinned routes plan against the live balance and wait at their buy market (2026-10-06)
 

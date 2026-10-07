@@ -495,7 +495,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     {
       title: "Release a ship from a feed's crew",
       description: "Take one ship off a feed (the feed stays active with the rest of its crew, carrierTarget drops by one). The ship goes back to its normal role — a trader returns to the automatic dispatcher, a miner to free mining.",
-      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string(), mine: z.boolean().optional().describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
+      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string(), mine: z.preprocess((v) => (v === "true" ? true : v === "false" ? false : v), z.boolean().optional()).describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     async ({ waypoint, good, shipSymbol, mine }) => {
@@ -750,7 +750,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
         good: z.string(),
         maxLossPerUnit: z.number().int().min(0).nullable().optional(),
         stopAtSupply: z.enum(["MODERATE", "HIGH", "ABUNDANT"]).nullable().optional(),
-        mine: z.boolean().optional().describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one."),
+        mine: z.preprocess((v) => (v === "true" ? true : v === "false" ? false : v), z.boolean().optional()).describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one."),
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
@@ -795,7 +795,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     {
       title: "Add a specific ship to a feed's crew",
       description: "Pin one ship (a miner for a mine feed, a trader otherwise) to an existing feed. It must not already be on another feed or mission. When the good has both a buying and a mining feed into this market, a miner joins the mining one and a trader the buying one unless `mine` says otherwise.",
-      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string(), mine: z.boolean().optional().describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
+      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string(), mine: z.preprocess((v) => (v === "true" ? true : v === "false" ? false : v), z.boolean().optional()).describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
     async ({ waypoint, good, shipSymbol, mine }) => {
@@ -814,7 +814,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     {
       title: "Stop and forget a feed",
       description: "Remove a feed entirely (releases its crew back to automatic control).",
-      inputSchema: { waypoint: z.string(), good: z.string(), mine: z.boolean().optional().describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
+      inputSchema: { waypoint: z.string(), good: z.string(), mine: z.preprocess((v) => (v === "true" ? true : v === "false" ? false : v), z.boolean().optional()).describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
       annotations: { destructiveHint: true, idempotentHint: true },
     },
     async ({ waypoint, good, mine }) => {
