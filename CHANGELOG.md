@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A mission lot larger than the market's trade volume is bought in several transactions (2026-10-07)
+
+The construction mission made one `purchaseCargo` per stop, capped at the market's per-transaction trade volume, so
+`buyLotUnits` above that volume did nothing. Live: D44 sells ADVANCED_CIRCUITRY 20u/tx, the operator set lot 40, and
+THEO-1 kept buying 20 and flying its ~40 minute D44 -> I59 round trip half empty. `MissionManager.stepCarrier` now
+buys the lot in trade-volume chunks in the same stop, stopping early at the price ceiling, at the cash floor, or on a
+failed later transaction (the first chunk failing keeps the old block-and-retry path). Without pacing this also fills
+the hold instead of buying one trade volume. Tests: `tests/missionPacing.test.ts`.
+
 ## A trader that refuses its assigned route gets a new one instead of idling for hours (2026-10-07)
 
 When a trader declined the dispatcher's auto leg (margin under its floor, a protected good, a dead route), it fell

@@ -947,11 +947,38 @@ export class MissionManager {
         // caps at 20u/tx) — buying more than that fails the whole purchase.
         const volumeCap = buyer?.tradeVolume && buyer.tradeVolume > 0 ? buyer.tradeVolume : toBuy;
         const lotCap = mission.pacing?.buyLotUnits ?? Infinity;
-        const units = Math.max(1, Math.min(toBuy, affordable, volumeCap, lotCap));
-        try {
-          const res = await this.api.purchaseCargo(ship.symbol, material, units);
-          if (mission.pacing?.buyGapMin) this.nextBuyAt.set(gapKey, Date.now() + mission.pacing.buyGapMin * 60_000);
-          if (mission.pacing?.recoverPct) this.preBuyPrice.set(gapKey, price);
+        // A lot larger than the market's per-transaction volume is bought as several transactions in the same stop.
+        // Confirmed live 2026-10-07: D44 sells ADVANCED_CIRCUITRY 20u/tx, so a 40u lot bought 20 and THEO-1 flew a
+        // ~40 minute round trip half empty. Later chunks stop at the price ceiling or the cash floor.
+        const lotTarget = Math.max(1, Math.min(toBuy, affordable, lotCap));
+        const priceCeiling = firstSeen * (1 + ceiling);
+        let bought = 0;
+        let spent = 0;
+        while (bought < lotTarget) {
+          const units = Math.max(1, Math.min(lotTarget - bought, volumeCap));
+          if (bought > 0) {
+            const floorLeft = credits - spent - (mission.pacing?.cashFloor ?? 0);
+            if (floorLeft < units * price) break;
+          }
+          let res: Awaited<ReturnType<typeof this.api.purchaseCargo>>;
+          try {
+            res = await this.api.purchaseCargo(ship.symbol, material, units);
+          } catch (err) {
+            if (bought > 0) {
+              this.log(`mission ${mission.targetWaypoint}: further ${material} buy stopped after ${bought}u: ${err instanceof Error ? err.message : String(err)}`);
+              break;
+            }
+            // Market may not actually stock it (stale intel), or some other
+            // per-purchase failure. Block this material for a while and let a
+            // different outstanding one get a turn, rather than retrying the
+            // same failing purchase forever while other materials sit idle.
+            t.retryAt = Date.now() + 15_000;
+            this.blockMaterial(t, material);
+            this.log(`mission ${mission.targetWaypoint}: buy ${material} failed: ${err instanceof Error ? err.message : String(err)}`);
+            return;
+          }
+          bought += units;
+          spent += res.transaction.totalPrice;
           this.recordLedger?.({
             timestamp: new Date().toISOString(),
             shipSymbol: ship.symbol,
@@ -962,18 +989,12 @@ export class MissionManager {
             pricePerUnit: res.transaction.pricePerUnit,
             total: res.transaction.totalPrice,
           });
-          this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} bought ${units}u ${material} @ ${price}c at ${market}`);
+          this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} bought ${units}u ${material} @ ${res.transaction.pricePerUnit}c at ${market}`);
           this.onActivity?.("buy", `${ship.symbol} ${units}u ${material} @ ${res.transaction.pricePerUnit}c at ${market} (mission)`, -res.transaction.totalPrice, ship.symbol);
-        } catch (err) {
-          // Market may not actually stock it (stale intel), or some other
-          // per-purchase failure. Block this material for a while and let a
-          // different outstanding one get a turn, rather than retrying the
-          // same failing purchase forever while other materials sit idle.
-          t.retryAt = Date.now() + 15_000;
-          this.blockMaterial(t, material);
-          this.log(`mission ${mission.targetWaypoint}: buy ${material} failed: ${err instanceof Error ? err.message : String(err)}`);
-          return;
+          if (res.transaction.pricePerUnit >= priceCeiling) break;
         }
+        if (mission.pacing?.buyGapMin) this.nextBuyAt.set(gapKey, Date.now() + mission.pacing.buyGapMin * 60_000);
+        if (mission.pacing?.recoverPct) this.preBuyPrice.set(gapKey, price);
         t.step = "supply";
       }
     }

@@ -89,3 +89,24 @@ describe("MissionManager buy pacing", () => {
     assert.equal(bought.length, 1, `only one purchase inside the gap, got ${JSON.stringify(bought)}`);
   });
 });
+
+describe("MissionManager multi-transaction lots", () => {
+  it("a lot larger than the market's trade volume is bought as several transactions in one stop", async () => {
+    const h = harness({ tradeVolume: 20 });
+    await h.mgr.startConstruction("X1-A-I1");
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 40, buyGapMin: 20 });
+    await h.mgr.tick();
+    assert.deepEqual(h.bought, [20, 20]);
+  });
+
+  it("stops chunking before a later transaction would dip under the cash floor", async () => {
+    const h = harness({ tradeVolume: 20, price: 1000 });
+    await h.mgr.startConstruction("X1-A-I1");
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    // 10,000,000 credits: the first 20u (20,000) is allowed, a second would leave less than the floor.
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 40, cashFloor: 9_970_000 });
+    await h.mgr.tick();
+    assert.deepEqual(h.bought, [20]);
+  });
+});
