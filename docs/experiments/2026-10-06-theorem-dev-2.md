@@ -79,3 +79,6 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   Keeper list now J62, F52, H55, A2. The dispatcher took an IRON_ORE procurement contract (201 to H55, 27,594 on
   delivery plus 3,891 on accept, ore ~39/unit at J62): about +20k for ~5 shuttle trips, worth running while the
   trade legs recover.
+- **02:24** First automatic pinned-route safety stop: CLOTHING K92 buy reached 5,223, at or above J62's latest sell, so
+  the frigate's pin cleared itself (`28c91e4` working as intended). Two clothing trips: +23,080, +13,560. No leg in
+  the system clears 300 except ANTIMATTER I60 -> I59 (+415); frigate held. Wallet 771k at 02:35.
