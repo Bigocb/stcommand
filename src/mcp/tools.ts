@@ -495,12 +495,12 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     {
       title: "Release a ship from a feed's crew",
       description: "Take one ship off a feed (the feed stays active with the rest of its crew, carrierTarget drops by one). The ship goes back to its normal role — a trader returns to the automatic dispatcher, a miner to free mining.",
-      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string() },
+      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string(), mine: z.boolean().optional().describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ waypoint, good, shipSymbol }) => {
+    async ({ waypoint, good, shipSymbol, mine }) => {
       try {
-        await w.fleet.removeFeedCarrier(waypoint, good.toUpperCase(), shipSymbol);
+        await w.fleet.removeFeedCarrier(waypoint, good.toUpperCase(), shipSymbol, mine);
         await recordMcpAction(w, "feed_remove_carrier", shipSymbol, `${shipSymbol} released from feed ${good.toUpperCase()} @ ${waypoint}`, { waypoint, good });
         return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
       } catch (err) {
@@ -717,7 +717,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     "stcommand_start_feed",
     {
       title: "Start a feeder tier",
-      description: "Start a feed: a crew that sources `good` and sells it into `waypoint` (e.g. IRON_ORE into the refinery market H55). mine=true sources by mining (miners are claimed by the feed, so contracts/missions cannot take them, and their survey preference is wired to the good); mine=false buys it. carrierTarget is how many ships to staff. Same as the dashboard's Feeder tiers form.",
+      description: "Start a feed: a crew that sources `good` and sells it into `waypoint` (e.g. IRON_ORE into the refinery market H55). mine=true sources by mining (miners are claimed by the feed, so contracts/missions cannot take them, and their survey preference is wired to the good); mine=false buys it. A buying and a mining feed for the same good can run into the same market side by side. carrierTarget is how many ships to staff. Same as the dashboard's Feeder tiers form.",
       inputSchema: {
         waypoint: z.string().describe("Market that receives the good"),
         good: z.string().describe("Exact TradeSymbol, e.g. IRON_ORE"),
@@ -750,12 +750,13 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
         good: z.string(),
         maxLossPerUnit: z.number().int().min(0).nullable().optional(),
         stopAtSupply: z.enum(["MODERATE", "HIGH", "ABUNDANT"]).nullable().optional(),
+        mine: z.boolean().optional().describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one."),
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ waypoint, good, maxLossPerUnit, stopAtSupply }) => {
+    async ({ waypoint, good, maxLossPerUnit, stopAtSupply, mine }) => {
       try {
-        await w.fleet.setFeedLimits(waypoint, good.toUpperCase(), { maxLossPerUnit, stopAtSupply });
+        await w.fleet.setFeedLimits(waypoint, good.toUpperCase(), { maxLossPerUnit, stopAtSupply }, mine);
         await recordMcpAction(w, "feed_limits", undefined, `feed ${good.toUpperCase()} -> ${waypoint}: max loss ${maxLossPerUnit ?? "unchanged"}, stop at ${stopAtSupply ?? "unchanged"}`, { waypoint, good, maxLossPerUnit, stopAtSupply });
         return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
       } catch (err) {
@@ -779,7 +780,8 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     },
     async ({ waypoint, good, field, collector }) => {
       try {
-        await w.fleet.setFeedCollector(waypoint, good.toUpperCase(), { field: field === undefined ? undefined : field, collector: collector === undefined ? undefined : collector });
+        // A collector only exists on a mining feed, so this always targets that one.
+        await w.fleet.setFeedCollector(waypoint, good.toUpperCase(), { field: field === undefined ? undefined : field, collector: collector === undefined ? undefined : collector }, true);
         await recordMcpAction(w, "feed_collector", collector ?? undefined, `feed ${good.toUpperCase()} -> ${waypoint}: field ${field ?? "unchanged"}, collector ${collector ?? "unchanged"}`, { waypoint, good, field, collector });
         return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
       } catch (err) {
@@ -792,13 +794,13 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     "stcommand_assign_feed_carrier",
     {
       title: "Add a specific ship to a feed's crew",
-      description: "Pin one ship (a miner for a mine feed, a trader otherwise) to an existing feed. It must not already be on another feed or mission.",
-      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string() },
+      description: "Pin one ship (a miner for a mine feed, a trader otherwise) to an existing feed. It must not already be on another feed or mission. When the good has both a buying and a mining feed into this market, a miner joins the mining one and a trader the buying one unless `mine` says otherwise.",
+      inputSchema: { waypoint: z.string(), good: z.string(), shipSymbol: z.string(), mine: z.boolean().optional().describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ waypoint, good, shipSymbol }) => {
+    async ({ waypoint, good, shipSymbol, mine }) => {
       try {
-        await w.fleet.assignFeedCarrier(waypoint, good.toUpperCase(), shipSymbol);
+        await w.fleet.assignFeedCarrier(waypoint, good.toUpperCase(), shipSymbol, mine);
         await recordMcpAction(w, "feed_assign", shipSymbol, `${shipSymbol} -> feed ${good.toUpperCase()} @ ${waypoint}`, { waypoint, good });
         return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
       } catch (err) {
@@ -812,12 +814,12 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     {
       title: "Stop and forget a feed",
       description: "Remove a feed entirely (releases its crew back to automatic control).",
-      inputSchema: { waypoint: z.string(), good: z.string() },
+      inputSchema: { waypoint: z.string(), good: z.string(), mine: z.boolean().optional().describe("Which feed when this good has both a buying and a mining feed into this market: true = the mining one, false = the buying one. Omit when there is only one.") },
       annotations: { destructiveHint: true, idempotentHint: true },
     },
-    async ({ waypoint, good }) => {
+    async ({ waypoint, good, mine }) => {
       try {
-        await w.fleet.removeFeed(waypoint, good.toUpperCase());
+        await w.fleet.removeFeed(waypoint, good.toUpperCase(), mine);
         await recordMcpAction(w, "feed_remove", undefined, `feed ${good.toUpperCase()} @ ${waypoint} removed`, { waypoint, good });
         return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
       } catch (err) {

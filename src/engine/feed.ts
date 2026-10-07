@@ -268,6 +268,9 @@ export function collectorFuelUnits(toField: number, toTarget: number, capacity: 
   return Math.min(5, Math.ceil((need - capacity) / FUEL_UNIT_SIZE));
 }
 
+/** Suffix that marks a mining feed's key — see FeedManager.key(). */
+const MINE_KEY_SUFFIX = "::mine";
+
 export class FeedManager {
   private readonly api: SpaceTradersAPI;
   private readonly store?: Store;
@@ -357,8 +360,32 @@ export class FeedManager {
     this.setMinerPreference = opts.setMinerPreference;
   }
 
-  private key(targetWaypoint: string, good: string): string {
-    return `${targetWaypoint}::${good}`;
+  /**
+   * A feed is identified by its target market, its good AND how it sources the good: a buying feed and a mining feed
+   * can supply the same market side by side (2026-10-07, operator: buy sand at B7 and mine it at CE5D, both into
+   * F53). A buying feed keeps the original two-part key, so nothing about existing buy feeds changes.
+   */
+  private key(targetWaypoint: string, good: string, mine = false): string {
+    return mine ? `${targetWaypoint}::${good}${MINE_KEY_SUFFIX}` : `${targetWaypoint}::${good}`;
+  }
+
+  private feedKey(f: { targetWaypoint: string; good: string; mine?: boolean | null }): string {
+    return this.key(f.targetWaypoint, f.good, !!f.mine);
+  }
+
+  /**
+   * The key an operator call means. `mine` given: exactly that feed. Omitted: the only feed for this good at this market
+   * (as before this change), or the buying feed when there is none yet; an error when both a buying and a mining feed
+   * exist, since guessing would act on the wrong crew.
+   */
+  private resolve(targetWaypoint: string, good: string, mine?: boolean): string {
+    if (mine !== undefined) return this.key(targetWaypoint, good, mine);
+    const buy = this.key(targetWaypoint, good, false);
+    const mined = this.key(targetWaypoint, good, true);
+    const hasBuy = this.active.has(buy);
+    const hasMine = this.active.has(mined);
+    if (hasBuy && hasMine) throw new Error(`${good} → ${targetWaypoint} has both a buying and a mining feed — say which with mine=true or mine=false`);
+    return hasMine ? mined : buy;
   }
 
   /** First-cycle stagger offset for a ship joining at crew position
@@ -373,7 +400,8 @@ export class FeedManager {
   /** Start (or resume, if already persisted) a feeder tier. */
   async start(targetWaypoint: string, good: string, opts: FeedStartOptions = {}): Promise<void> {
     const carrierTarget = opts.carrierTarget ?? 1;
-    const key = this.key(targetWaypoint, good);
+    const key = opts.mine === undefined ? this.resolve(targetWaypoint, good) : this.key(targetWaypoint, good, opts.mine);
+    const mineFlag = key.endsWith(MINE_KEY_SUFFIX);
     // A feed already running under this exact (targetWaypoint, good) — most
     // commonly startChain() naming a tier the operator had already started
     // standalone. A plain re-call (opts.chainId undefined) stays the
@@ -410,7 +438,7 @@ export class FeedManager {
     }
     const system = targetWaypoint.slice(0, targetWaypoint.lastIndexOf("-"));
     const known = this.tenantId ? await this.store?.latestFeeds(this.tenantId) : undefined;
-    const persisted = known?.find((f) => f.targetWaypoint === targetWaypoint && f.good === good);
+    const persisted = known?.find((f) => f.targetWaypoint === targetWaypoint && f.good === good && (f.mine ?? false) === mineFlag);
     if (persisted) {
       const feed: Feed = {
         targetSystem: system,
@@ -521,17 +549,17 @@ export class FeedManager {
 
   /** Pause every tier of a chain as one unit. */
   async pauseChain(chainId: string): Promise<void> {
-    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.pause(t.targetWaypoint, t.good);
+    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.pause(t.targetWaypoint, t.good, !!t.mine);
   }
 
   /** Resume every tier of a paused chain as one unit. */
   async resumeChain(chainId: string): Promise<void> {
-    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.resumeFeed(t.targetWaypoint, t.good);
+    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.resumeFeed(t.targetWaypoint, t.good, !!t.mine);
   }
 
   /** Stop and forget every tier of a chain — like remove(), not pause(). */
   async removeChain(chainId: string): Promise<void> {
-    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.remove(t.targetWaypoint, t.good);
+    for (const t of (await this.list()).filter((f) => f.chainId === chainId)) await this.remove(t.targetWaypoint, t.good, !!t.mine);
   }
 
   /** Full list of known feeds (standalone and chain tiers alike). */
@@ -555,8 +583,8 @@ export class FeedManager {
       chainName: f.chainName ?? undefined,
       chainOrder: f.chainOrder ?? undefined,
     }));
-    return [...this.active.values(), ...persisted.filter((p) => !this.active.has(this.key(p.targetWaypoint, p.good)))]
-      .map((f) => ({ ...f, paused: this.active.has(this.key(f.targetWaypoint, f.good)) ? this.paused.has(this.key(f.targetWaypoint, f.good)) : (f.paused ?? false) }));
+    return [...this.active.values(), ...persisted.filter((p) => !this.active.has(this.feedKey(p)))]
+      .map((f) => ({ ...f, paused: this.active.has(this.feedKey(f)) ? this.paused.has(this.feedKey(f)) : (f.paused ?? false) }));
   }
 
   /** Ships currently committed to any feed — must not be reassigned elsewhere. */
@@ -570,8 +598,8 @@ export class FeedManager {
   }
 
 
-  async assignCarrier(targetWaypoint: string, good: string, shipSymbol: string): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async assignCarrier(targetWaypoint: string, good: string, shipSymbol: string, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
     const feed = this.active.get(key);
     if (!feed) throw new Error(`no active feed for ${good} → ${targetWaypoint}`);
     if (feed.assignedShips.includes(shipSymbol)) return;
@@ -590,8 +618,8 @@ export class FeedManager {
     this.onActivity?.("feed", `${shipSymbol} assigned to feed ${good} → ${targetWaypoint} by operator`, 0, shipSymbol);
   }
 
-  async removeCarrier(targetWaypoint: string, good: string, shipSymbol: string): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async removeCarrier(targetWaypoint: string, good: string, shipSymbol: string, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
     const feed = this.active.get(key);
     if (!feed) return;
     const idx = feed.assignedShips.indexOf(shipSymbol);
@@ -606,8 +634,8 @@ export class FeedManager {
     this.onActivity?.("feed", `${shipSymbol} removed from feed ${good} → ${targetWaypoint} by operator`, 0, shipSymbol);
   }
 
-  async setCarrierTarget(targetWaypoint: string, good: string, count: number): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async setCarrierTarget(targetWaypoint: string, good: string, count: number, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
     const feed = this.active.get(key);
     if (!feed) throw new Error(`no active feed for ${good} → ${targetWaypoint}`);
     const target = Math.max(0, Math.floor(count));
@@ -623,8 +651,8 @@ export class FeedManager {
   }
 
   /** Pause a feed: release its whole crew to autonomy, stop buying/selling. */
-  async pause(targetWaypoint: string, good: string): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async pause(targetWaypoint: string, good: string, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
     if (!this.active.has(key)) return;
     this.paused.add(key);
     const feed = this.active.get(key)!;
@@ -639,8 +667,8 @@ export class FeedManager {
     await this.persist(feed);
   }
 
-  async resumeFeed(targetWaypoint: string, good: string): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async resumeFeed(targetWaypoint: string, good: string, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
     if (!this.paused.delete(key)) return;
     const feed = this.active.get(key);
     if (feed) {
@@ -652,8 +680,8 @@ export class FeedManager {
 
   /** Toggle the operator's margin-gate override for a running feed — see
    *  Feed.force's own comment for what it skips. */
-  async setForce(targetWaypoint: string, good: string, force: boolean): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async setForce(targetWaypoint: string, good: string, force: boolean, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
     const feed = this.active.get(key);
     if (!feed) return;
     feed.force = force;
@@ -663,8 +691,8 @@ export class FeedManager {
 
   /** Set (or clear, with `undefined`) this feed's own sell-pacing gap,
    *  overriding DEFAULT_SELL_GAP_MS — see that constant's comment. */
-  async setSellGap(targetWaypoint: string, good: string, sellGapMs: number | undefined): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async setSellGap(targetWaypoint: string, good: string, sellGapMs: number | undefined, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
     const feed = this.active.get(key);
     if (!feed) return;
     feed.sellGapMs = sellGapMs;
@@ -673,8 +701,9 @@ export class FeedManager {
   }
 
   /** Drone-plus-collector mining on a mine feed: pin the crew to `field` and name the `collector` shuttle (null clears). */
-  async setCollector(targetWaypoint: string, good: string, patch: { field?: string | null; collector?: string | null }): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async setCollector(targetWaypoint: string, good: string, patch: { field?: string | null; collector?: string | null }, mine?: boolean): Promise<void> {
+    // A collector only applies to a mine feed, so an unqualified call means the mining feed.
+    const key = this.resolve(targetWaypoint, good, mine ?? (this.active.has(this.key(targetWaypoint, good, true)) ? true : undefined));
     const feed = this.active.get(key);
     if (!feed) throw new Error(`no active feed ${good} → ${targetWaypoint}`);
     if (!feed.mine) throw new Error("a collector only applies to a mine feed");
@@ -705,8 +734,9 @@ export class FeedManager {
   }
 
   /** Set or clear (null) a feed's loss tolerance and supply stop rule — see Feed.maxLossPerUnit / Feed.stopAtSupply. */
-  async setLimits(targetWaypoint: string, good: string, patch: { maxLossPerUnit?: number | null; stopAtSupply?: string | null }): Promise<void> {
-    const feed = this.active.get(this.key(targetWaypoint, good));
+  async setLimits(targetWaypoint: string, good: string, patch: { maxLossPerUnit?: number | null; stopAtSupply?: string | null }, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
+    const feed = this.active.get(key);
     if (!feed) throw new Error(`no active feed ${good} → ${targetWaypoint}`);
     if (patch.maxLossPerUnit !== undefined) {
       if (patch.maxLossPerUnit !== null && (!Number.isFinite(patch.maxLossPerUnit) || patch.maxLossPerUnit < 0 || patch.maxLossPerUnit > 100_000)) throw new Error("maxLossPerUnit must be 0-100000 credits");
@@ -716,7 +746,7 @@ export class FeedManager {
       if (patch.stopAtSupply !== null && !["MODERATE", "HIGH", "ABUNDANT"].includes(patch.stopAtSupply)) throw new Error("stopAtSupply must be MODERATE, HIGH or ABUNDANT");
       feed.stopAtSupply = patch.stopAtSupply === null ? undefined : patch.stopAtSupply;
     }
-    this.stoppedLogged.delete(this.key(targetWaypoint, good));
+    this.stoppedLogged.delete(key);
     await this.persist(feed);
     this.log(`feed ${good} → ${targetWaypoint}: limits set — max loss ${feed.maxLossPerUnit ?? "default gate"}c/unit, stop at supply ${feed.stopAtSupply ?? "never"}`);
   }
@@ -724,8 +754,8 @@ export class FeedManager {
   /** Stop and forget a feed entirely (not just paused) — releases the crew
    *  and removes the persisted row, unlike pause() which keeps it around
    *  to resume later. */
-  async remove(targetWaypoint: string, good: string): Promise<void> {
-    const key = this.key(targetWaypoint, good);
+  async remove(targetWaypoint: string, good: string, mine?: boolean): Promise<void> {
+    const key = this.resolve(targetWaypoint, good, mine);
     const feed = this.active.get(key);
     if (feed) {
       for (const ship of feed.assignedShips) this.resume?.(ship);
@@ -734,18 +764,19 @@ export class FeedManager {
     this.tasks.delete(key);
     if (feed?.collector) this.resume?.(feed.collector);
     this.paused.delete(key);
-    if (this.tenantId) await this.store?.deleteFeed(this.tenantId, targetWaypoint, good);
+    if (this.tenantId) await this.store?.deleteFeed(this.tenantId, targetWaypoint, good, key.endsWith(MINE_KEY_SUFFIX));
     this.log(`feed ${good} → ${targetWaypoint}: removed`);
   }
 
-  isPaused(targetWaypoint: string, good: string): boolean {
-    return this.paused.has(this.key(targetWaypoint, good));
+  isPaused(targetWaypoint: string, good: string, mine?: boolean): boolean {
+    if (mine !== undefined) return this.paused.has(this.key(targetWaypoint, good, mine));
+    return this.paused.has(this.key(targetWaypoint, good, false)) || this.paused.has(this.key(targetWaypoint, good, true));
   }
 
   /** Advance every active feed by one step. Call once per coordinator tick. */
   async tick(): Promise<void> {
     for (const feed of [...this.active.values()]) {
-      const key = this.key(feed.targetWaypoint, feed.good);
+      const key = this.feedKey(feed);
       if (this.paused.has(key)) {
         const last = this.lastTouch.get(key) ?? 0;
         if (Date.now() - last >= PAUSED_TOUCH_MS) this.lastTouch.set(key, Date.now());
@@ -762,7 +793,7 @@ export class FeedManager {
   /** Advance one feed: auto-crew toward carrierTarget, then step every
    *  currently-assigned carrier once. */
   private async step(feed: Feed): Promise<void> {
-    const key = this.key(feed.targetWaypoint, feed.good);
+    const key = this.feedKey(feed);
     const shipTasks = this.tasks.get(key);
     if (!shipTasks) return;
 
@@ -939,7 +970,7 @@ export class FeedManager {
           const units = Math.min(held, room);
           try {
             await this.transferCargo?.(ship.symbol, feed.good, units, col.symbol);
-            this.collectorGrewAt.set(this.key(feed.targetWaypoint, feed.good), Date.now());
+            this.collectorGrewAt.set(this.feedKey(feed), Date.now());
             this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} handed ${units}u to collector ${col.symbol} at ${here}`);
             this.onActivity?.("feed", `${ship.symbol} handed ${units}u ${feed.good} to ${col.symbol}`, 0, ship.symbol);
           } catch (err) {
@@ -952,7 +983,7 @@ export class FeedManager {
           return;
         }
         t.retryAt = Date.now() + 30_000;
-        const k = `${this.key(feed.targetWaypoint, feed.good)}|${ship.symbol}`;
+        const k = `${this.feedKey(feed)}|${ship.symbol}`;
         if (Date.now() - (this.collectorLogAt.get(k) ?? 0) > 10 * 60_000) {
           this.collectorLogAt.set(k, Date.now());
           this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} full (${held}u), waiting for collector ${feed.collector} (${col ? `${col.nav.status} at ${col.nav.waypointSymbol}, room ${room}` : "unknown"})`);
@@ -972,7 +1003,7 @@ export class FeedManager {
       // gate, for an operator who wants the route run through regardless.
       if (!feed.force) {
         const gapMs = feed.sellGapMs ?? DEFAULT_SELL_GAP_MS;
-        const feedKey = this.key(feed.targetWaypoint, feed.good);
+        const feedKey = this.feedKey(feed);
         const last = this.lastSellAt.get(feedKey) ?? 0;
         const readyAt = last + gapMs;
         if (Date.now() < readyAt) {
@@ -990,7 +1021,7 @@ export class FeedManager {
       this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} arrived with ${held}u, gap clear${feed.force ? " (forced)" : ""} — selling now`);
       try {
         const res = await this.api.sellCargo(ship.symbol, feed.good, held);
-        this.lastSellAt.set(this.key(feed.targetWaypoint, feed.good), Date.now());
+        this.lastSellAt.set(this.feedKey(feed), Date.now());
         this.recordLedger?.({
           timestamp: new Date().toISOString(),
           shipSymbol: ship.symbol,
@@ -1015,7 +1046,7 @@ export class FeedManager {
     // Supply stop rule: the target has all it needs, so don't source more (a carrier already loaded still delivers above).
     if (feed.stopAtSupply) {
       const supply = await this.supplyAt?.(feed.targetWaypoint, feed.good);
-      const k = this.key(feed.targetWaypoint, feed.good);
+      const k = this.feedKey(feed);
       if (supplyReached(supply, feed.stopAtSupply)) {
         t.retryAt = Date.now() + 60_000;
         if (!this.stoppedLogged.has(k)) {
@@ -1187,7 +1218,7 @@ export class FeedManager {
   private async stepCollector(feed: Feed): Promise<void> {
     const sym = feed.collector!;
     const field = feed.field!;
-    const key = this.key(feed.targetWaypoint, feed.good);
+    const key = this.feedKey(feed);
     if (Date.now() < (this.collectorWakeAt.get(key) ?? 0)) return;
     const ship = await this.getShip?.(sym);
     if (!ship) return;
@@ -1279,14 +1310,14 @@ export class FeedManager {
     this.log(`feed ${feed.good} → ${feed.targetWaypoint}: released ${shipSymbol}, feed stays active for a new pick`);
     const idx = feed.assignedShips.indexOf(shipSymbol);
     if (idx !== -1) feed.assignedShips.splice(idx, 1);
-    this.tasks.get(this.key(feed.targetWaypoint, feed.good))?.delete(shipSymbol);
+    this.tasks.get(this.feedKey(feed))?.delete(shipSymbol);
     t.market = undefined;
     await this.persist(feed);
   }
 
   private async persist(f: Feed): Promise<void> {
     if (!this.tenantId) return;
-    const key = this.key(f.targetWaypoint, f.good);
+    const key = this.feedKey(f);
     await this.store?.recordFeed(this.tenantId, {
       targetSystem: f.targetSystem,
       targetWaypoint: f.targetWaypoint,

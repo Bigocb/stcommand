@@ -29,6 +29,13 @@ import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
  * `worker.store.X(...)` unchanged for the three shared-galaxy-table methods
  * that never did.
  */
+/** Which of a good's feeds a feed route means: `mine` true/false picks the mining or buying feed when both exist
+ *  into the same market (see FeedManager.key()); anything else leaves it to the engine's one-feed default. */
+function feedMine(body: unknown): boolean | undefined {
+  const m = (body as { mine?: unknown } | undefined)?.mine;
+  return typeof m === "boolean" ? m : undefined;
+}
+
 export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, galaxyCrawler: GalaxyCrawler): Router {
   const router = Router();
 
@@ -1201,7 +1208,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const waypoint = String(req.body?.waypoint ?? "");
     const good = String(req.body?.good ?? "").toUpperCase();
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
-    await w.fleet.pauseFeed(waypoint, good);
+    await w.fleet.pauseFeed(waypoint, good, feedMine(req.body));
     res.json({ ok: true, feeds: await w.fleet.getFeeds() });
   });
 
@@ -1211,7 +1218,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const waypoint = String(req.body?.waypoint ?? "");
     const good = String(req.body?.good ?? "").toUpperCase();
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
-    await w.fleet.resumeFeed(waypoint, good);
+    await w.fleet.resumeFeed(waypoint, good, feedMine(req.body));
     res.json({ ok: true, feeds: await w.fleet.getFeeds() });
   });
 
@@ -1224,7 +1231,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const good = String(req.body?.good ?? "").toUpperCase();
     const force = req.body?.force === true;
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
-    await w.fleet.setFeedForce(waypoint, good, force);
+    await w.fleet.setFeedForce(waypoint, good, force, feedMine(req.body));
     res.json({ ok: true, feeds: await w.fleet.getFeeds() });
   });
 
@@ -1238,7 +1245,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const num = (v: unknown): number | null | undefined => (v === undefined ? undefined : v === null || v === "" ? null : Number(v));
     const str = (v: unknown): string | null | undefined => (v === undefined ? undefined : v === null || v === "" ? null : String(v).toUpperCase());
     try {
-      await w.fleet.setFeedLimits(waypoint, good, { maxLossPerUnit: num(req.body?.maxLossPerUnit), stopAtSupply: str(req.body?.stopAtSupply) });
+      await w.fleet.setFeedLimits(waypoint, good, { maxLossPerUnit: num(req.body?.maxLossPerUnit), stopAtSupply: str(req.body?.stopAtSupply) }, feedMine(req.body));
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -1254,7 +1261,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
     const str = (v: unknown): string | null | undefined => (v === undefined ? undefined : v === null || v === "" ? null : String(v).toUpperCase());
     try {
-      await w.fleet.setFeedCollector(waypoint, good, { field: str(req.body?.field), collector: str(req.body?.collector) });
+      await w.fleet.setFeedCollector(waypoint, good, { field: str(req.body?.field), collector: str(req.body?.collector) }, true);
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -1271,7 +1278,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const sellGapMs = sellGapMin === null || sellGapMin === undefined || sellGapMin === ""
       ? undefined
       : Number(sellGapMin) * 60_000;
-    await w.fleet.setFeedSellGap(waypoint, good, sellGapMs !== undefined && Number.isFinite(sellGapMs) && sellGapMs > 0 ? sellGapMs : undefined);
+    await w.fleet.setFeedSellGap(waypoint, good, sellGapMs !== undefined && Number.isFinite(sellGapMs) && sellGapMs > 0 ? sellGapMs : undefined, feedMine(req.body));
     res.json({ ok: true, feeds: await w.fleet.getFeeds() });
   });
 
@@ -1281,7 +1288,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const waypoint = String(req.body?.waypoint ?? "");
     const good = String(req.body?.good ?? "").toUpperCase();
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
-    await w.fleet.removeFeed(waypoint, good);
+    await w.fleet.removeFeed(waypoint, good, feedMine(req.body));
     res.json({ ok: true, feeds: await w.fleet.getFeeds() });
   });
 
@@ -1293,7 +1300,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const shipSymbol = String(req.body?.shipSymbol ?? "");
     if (!waypoint || !good || !shipSymbol) return res.status(400).json({ error: "waypoint, good and shipSymbol required" });
     try {
-      await w.fleet.assignFeedCarrier(waypoint, good, shipSymbol);
+      await w.fleet.assignFeedCarrier(waypoint, good, shipSymbol, feedMine(req.body));
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -1308,7 +1315,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const shipSymbol = String(req.body?.shipSymbol ?? "");
     if (!waypoint || !good || !shipSymbol) return res.status(400).json({ error: "waypoint, good and shipSymbol required" });
     try {
-      await w.fleet.removeFeedCarrier(waypoint, good, shipSymbol);
+      await w.fleet.removeFeedCarrier(waypoint, good, shipSymbol, feedMine(req.body));
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
@@ -1323,7 +1330,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const count = Number(req.body?.count);
     if (!waypoint || !good || !Number.isFinite(count)) return res.status(400).json({ error: "waypoint, good and count required" });
     try {
-      await w.fleet.setFeedCarrierTarget(waypoint, good, count);
+      await w.fleet.setFeedCarrierTarget(waypoint, good, count, feedMine(req.body));
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

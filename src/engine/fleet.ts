@@ -5294,9 +5294,19 @@ export class FleetManager {
       const s = sellers[0];
       return s ? { waypoint: s.waypointSymbol, price: s.purchasePrice, supply: s.supply ?? null, activity: s.activity ?? null } : null;
     };
+    // A good can have a buying and a mining feed into the same market; the chain view shows them as one input with the
+    // crews added up. mine is true when any of them mines; stop/loss limits come from the first one listed.
     const feedFor = (wp: string, good: string) => {
-      const f = feeds.find((x) => x.targetWaypoint === wp && x.good === good);
-      return f ? { carriers: f.assignedShips.length, target: f.carrierTarget, mine: !!f.mine, stopAtSupply: f.stopAtSupply ?? null, maxLossPerUnit: f.maxLossPerUnit ?? null, paused: this.feeds.isPaused(wp, good) } : null;
+      const fs = feeds.filter((x) => x.targetWaypoint === wp && x.good === good);
+      const f = fs[0];
+      if (!f) return null;
+      return {
+        carriers: fs.reduce((n, x) => n + x.assignedShips.length, 0),
+        target: fs.reduce((n, x) => n + x.carrierTarget, 0),
+        mine: fs.some((x) => !!x.mine),
+        stopAtSupply: f.stopAtSupply ?? null, maxLossPerUnit: f.maxLossPerUnit ?? null,
+        paused: fs.every((x) => this.feeds.isPaused(wp, good, !!x.mine)),
+      };
     };
     const producersOf = (system: string, good: string, depth: number, seen: Set<string>): ChainProducer[] => {
       if (depth > 2 || seen.has(good)) return [];
@@ -5452,7 +5462,7 @@ export class FleetManager {
 
   /** Active feeder tiers for the dashboard. */
   async getFeeds() {
-    return (await this.feeds.list()).map((f) => ({ ...f, paused: this.feeds.isPaused(f.targetWaypoint, f.good) }));
+    return (await this.feeds.list()).map((f) => ({ ...f, paused: this.feeds.isPaused(f.targetWaypoint, f.good, !!f.mine) }));
   }
 
   /** Start a feeder tier: a crew that sources `good` and sells it into
@@ -5488,47 +5498,51 @@ export class FleetManager {
   }
 
   /** Pause a feed (stop buying/selling, release its crew). */
-  async pauseFeed(waypointSymbol: string, good: string): Promise<void> {
-    await this.feeds.pause(waypointSymbol, good);
+  async pauseFeed(waypointSymbol: string, good: string, mine?: boolean): Promise<void> {
+    await this.feeds.pause(waypointSymbol, good, mine);
   }
 
   /** Resume a paused feed. */
-  async resumeFeed(waypointSymbol: string, good: string): Promise<void> {
-    await this.feeds.resumeFeed(waypointSymbol, good);
+  async resumeFeed(waypointSymbol: string, good: string, mine?: boolean): Promise<void> {
+    await this.feeds.resumeFeed(waypointSymbol, good, mine);
   }
 
   /** Toggle a feed's margin-gate override — see Feed.force's own comment. */
-  async setFeedForce(waypointSymbol: string, good: string, force: boolean): Promise<void> {
-    await this.feeds.setForce(waypointSymbol, good, force);
+  async setFeedForce(waypointSymbol: string, good: string, force: boolean, mine?: boolean): Promise<void> {
+    await this.feeds.setForce(waypointSymbol, good, force, mine);
   }
 
   /** Set (or clear) a feed's own sell-pacing gap override — see
    *  FeedManager.setSellGap()/DEFAULT_SELL_GAP_MS. */
   /** Drone-plus-collector mining on a mine feed: the asteroid the drones are pinned to and the shuttle that collects. */
-  setFeedCollector(waypointSymbol: string, good: string, patch: { field?: string | null; collector?: string | null }): Promise<void> {
-    return this.feeds.setCollector(waypointSymbol, good, patch);
+  setFeedCollector(waypointSymbol: string, good: string, patch: { field?: string | null; collector?: string | null }, mine?: boolean): Promise<void> {
+    return this.feeds.setCollector(waypointSymbol, good, patch, mine);
   }
 
   /** Set or clear (null) a feed's loss tolerance (credits/unit above the target's pay) and supply stop rule. */
-  setFeedLimits(waypointSymbol: string, good: string, patch: { maxLossPerUnit?: number | null; stopAtSupply?: string | null }): Promise<void> {
-    return this.feeds.setLimits(waypointSymbol, good, patch);
+  setFeedLimits(waypointSymbol: string, good: string, patch: { maxLossPerUnit?: number | null; stopAtSupply?: string | null }, mine?: boolean): Promise<void> {
+    return this.feeds.setLimits(waypointSymbol, good, patch, mine);
   }
 
-  async setFeedSellGap(waypointSymbol: string, good: string, sellGapMs: number | undefined): Promise<void> {
-    await this.feeds.setSellGap(waypointSymbol, good, sellGapMs);
+  async setFeedSellGap(waypointSymbol: string, good: string, sellGapMs: number | undefined, mine?: boolean): Promise<void> {
+    await this.feeds.setSellGap(waypointSymbol, good, sellGapMs, mine);
   }
 
   /** Stop and forget a feed entirely — unlike pauseFeed(), this removes the
    *  persisted row, not just releases the crew. */
-  async removeFeed(waypointSymbol: string, good: string): Promise<void> {
-    await this.feeds.remove(waypointSymbol, good);
+  async removeFeed(waypointSymbol: string, good: string, mine?: boolean): Promise<void> {
+    await this.feeds.remove(waypointSymbol, good, mine);
   }
 
   /** Manually add a ship to a feed's crew — same reachability/claim checks
    *  as assignMissionCarrier(), claiming "feed" instead of "mission". */
-  async assignFeedCarrier(waypointSymbol: string, good: string, shipSymbol: string): Promise<void> {
+  async assignFeedCarrier(waypointSymbol: string, good: string, shipSymbol: string, mine?: boolean): Promise<void> {
     const feedList = await this.feeds.list();
-    const thisFeed = feedList.find((f) => f.targetWaypoint === waypointSymbol && f.good === good);
+    const forGood = feedList.filter((f) => f.targetWaypoint === waypointSymbol && f.good === good);
+    // A buying feed and a mining feed can share a target (see FeedManager.key()). Unqualified, a miner joins the
+    // mining feed and anything else the buying one, which is the only crew each could serve anyway.
+    const wantMine = mine ?? (forGood.length > 1 ? this.miners.has(shipSymbol) : forGood[0]?.mine === true);
+    const thisFeed = forGood.find((f) => !!f.mine === wantMine);
     if (thisFeed?.mine && !this.miners.has(shipSymbol)) {
       throw new Error(`${shipSymbol} isn't a miner — ${good} → ${waypointSymbol} is set to source by mining, not buying`);
     }
@@ -5536,7 +5550,7 @@ export class FleetManager {
     if (!agent) throw new Error(`${shipSymbol} is not a miner or trader — feeding needs a cargo hold`);
     if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold`);
     const otherFeed = feedList
-      .find((f) => f.assignedShips.includes(shipSymbol) && !(f.targetWaypoint === waypointSymbol && f.good === good));
+      .find((f) => f.assignedShips.includes(shipSymbol) && !(f.targetWaypoint === waypointSymbol && f.good === good && !!f.mine === wantMine));
     if (otherFeed) throw new Error(`${shipSymbol} is already feeding ${otherFeed.good} → ${otherFeed.targetWaypoint}`);
     const otherMission = (await this.missions.list()).find((m) => m.assignedShips.includes(shipSymbol) && m.status === "active");
     if (otherMission) throw new Error(`${shipSymbol} is already carrying the mission at ${otherMission.targetWaypoint}`);
@@ -5548,18 +5562,20 @@ export class FleetManager {
       this.shipRegistry.release(shipSymbol, "feed");
       throw new Error(`${shipSymbol} cannot reach ${waypointSymbol} on a full tank, even via refuel stops — pick a ship with more fuel range`);
     }
-    await this.feeds.assignCarrier(waypointSymbol, good, shipSymbol);
+    await this.feeds.assignCarrier(waypointSymbol, good, shipSymbol, wantMine);
   }
 
   /** Release one specific ship from a feed's crew, lowering its carrierTarget to match. */
-  async removeFeedCarrier(waypointSymbol: string, good: string, shipSymbol: string): Promise<void> {
-    await this.feeds.removeCarrier(waypointSymbol, good, shipSymbol);
+  async removeFeedCarrier(waypointSymbol: string, good: string, shipSymbol: string, mine?: boolean): Promise<void> {
+    // Unqualified: whichever of this good's feeds actually carries the ship.
+    const carrying = mine ?? (await this.feeds.list()).find((f) => f.targetWaypoint === waypointSymbol && f.good === good && f.assignedShips.includes(shipSymbol))?.mine;
+    await this.feeds.removeCarrier(waypointSymbol, good, shipSymbol, carrying === undefined ? undefined : !!carrying);
     this.shipRegistry.release(shipSymbol, "feed");
   }
 
   /** Set how many ships a feed wants staffed. */
-  async setFeedCarrierTarget(waypointSymbol: string, good: string, count: number): Promise<void> {
-    await this.feeds.setCarrierTarget(waypointSymbol, good, count);
+  async setFeedCarrierTarget(waypointSymbol: string, good: string, count: number, mine?: boolean): Promise<void> {
+    await this.feeds.setCarrierTarget(waypointSymbol, good, count, mine);
   }
 
   /**

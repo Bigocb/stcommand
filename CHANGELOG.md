@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A buying feed and a mining feed can supply the same market (2026-10-07)
+
+Operator request: feed QUARTZ_SAND into F53 by buying it at B7 *and* by mining it at CE5D at the same time. Feeds were
+keyed by (target market, good), so a second feed for the same good replaced the first. The source mode is now part of
+a feed's identity: `FeedManager.key()` gives a mining feed its own key (a buying feed keeps the old one, so existing
+feeds are untouched), `migrations/044_feed_source_key.sql` widens the unique constraint to
+`(tenant_id, target_waypoint, good, mine)`, and every per-feed operation (limits, pause/resume, carriers, crew size,
+sell gap, remove) takes an optional `mine`. Omitted, it acts as before when the good has one feed and refuses to guess
+when it has both. Assigning a carrier without `mine` puts a miner on the mining feed and a trader on the buying one;
+the collector settings always mean the mining feed. The chain-health view adds both crews up into one input. MCP tools
+`stcommand_remove_feed`, `stcommand_set_feed_limits`, `stcommand_assign_feed_carrier` and
+`stcommand_remove_feed_carrier` and the dashboard feed routes accept `mine`. Tests: `tests/feedSourceKey.test.ts`.
+
 ## Pinned routes plan against the live balance and wait at their buy market (2026-10-06)
 
 Right after a big sale the fleet's cached balance trails the wallet by minutes. A pinned trader sized its load against

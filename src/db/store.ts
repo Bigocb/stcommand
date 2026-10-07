@@ -2596,7 +2596,7 @@ export class Store {
       c.query(
         `INSERT INTO feed_missions (tenant_id, target_system, target_waypoint, good, assigned_ships, carrier_target, paused, mine, buy_at, force, sell_gap_ms, chain_id, chain_name, chain_order, max_loss_per_unit, stop_at_supply, field, collector, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now())
-         ON CONFLICT (tenant_id, target_waypoint, good) DO UPDATE SET
+         ON CONFLICT (tenant_id, target_waypoint, good, mine) DO UPDATE SET
            assigned_ships = excluded.assigned_ships, carrier_target = excluded.carrier_target,
            paused = excluded.paused, mine = excluded.mine, buy_at = excluded.buy_at, force = excluded.force,
            sell_gap_ms = excluded.sell_gap_ms,
@@ -2663,10 +2663,13 @@ export class Store {
     });
   }
 
-  /** Remove a feed entirely (operator-initiated, not just paused). */
-  async deleteFeed(tenantId: string, targetWaypoint: string, good: string): Promise<void> {
+  /** Remove a feed entirely (operator-initiated, not just paused). `mine` picks the buying or the mining feed for
+   *  this good; omitted, both go (the old one-feed-per-good behaviour). */
+  async deleteFeed(tenantId: string, targetWaypoint: string, good: string, mine?: boolean): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
-      c.query(`DELETE FROM feed_missions WHERE target_waypoint = $1 AND good = $2`, [targetWaypoint, good]),
+      mine === undefined
+        ? c.query(`DELETE FROM feed_missions WHERE target_waypoint = $1 AND good = $2`, [targetWaypoint, good])
+        : c.query(`DELETE FROM feed_missions WHERE target_waypoint = $1 AND good = $2 AND mine = $3`, [targetWaypoint, good, mine]),
     );
   }
 
