@@ -26,6 +26,11 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   operator hold loses a race with the trader's first tick: THEOREM_DEV_2-1, held at F52, logged "operator hold at F52"
   at 04:10:22 after a restart, then "no claimable route viable / discovering prices" at 04:10:26 and flew to H55 anyway.
   Every restart moved it (03:44, 04:10). The trader should not tick before the restore loop's holds are in place.
+  (5) The dispatcher assigns legs below the trader's own `marginFloor`: 07:25, THEOREM_DEV_2-1 got FERTILIZERS G54 ->
+  E49 (+96/unit) and 2-3 COPPER H55 -> A3 (+60) with the floor at 300; both traders rejected them and went "discovering
+  prices", while FIREARMS E48 -> J62 sat at +1,141 and ASSAULT_RIFLES at +844 (fresh at both ends) unassigned. Apply
+  the trader's floor when the dispatcher builds work, and check why its FIREARMS value (8,592) was a third of
+  margin x tradeVolume (22,820).
 
 - [ ] **Engine flaws found starting THEOREM_DEV_2 fresh (raised 2026-10-06).** (1) A tour ship holds in place while
   a keeper-probe approval is pending (`tour scout: holding at ... — keeper probe approval pending`), so a new tenant's

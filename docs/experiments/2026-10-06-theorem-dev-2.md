@@ -120,3 +120,7 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   then used the frigate well on its own: MEDICINE contract delivered (+127,925; contract net ~+78.9k with the 44,947
   accept and 94,014 sourcing), CLOTHING K92 -> A1 +25,150; 2-3 ran MACHINERY E49 -> D47 +17,400. Since the tour
   refreshed the far markets, the dispatcher has had legs again: E49, D46, D47 and A1 trades were all invisible before.
+- **07:25** 943k, no trades in 30 min: the dispatcher kept assigning sub-floor legs (FERTILIZERS +96, COPPER +60) that the
+  traders rejected (TODO), while weapons had recovered: FIREARMS E48 -> J62 +1,141 (E48 ask 3,378 at 00:50 -> 2,935),
+  ASSAULT_RIFLES +844. Pinned the frigate to FIREARMS and 2-3 to ASSAULT_RIFLES. Weapons took ~6.5 h to recover from
+  saturation. A new POLYNUCLEOTIDES x23 contract (to J62, 3,168 + 7,757) is open.
