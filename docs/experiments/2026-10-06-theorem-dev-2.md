@@ -137,3 +137,8 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   D47 -> A4 -12,600 (bought 3,475/3,618; A4 paid 3,651 for the first 20 and 2,812 for the second, -23% in one lot, on an
   import price 35+ min old). A tradeVolume-20 sink can't take 40 units. DRUGS J62 -> H55 back to +770 (fresh both
   ends), so 2-3 (held at I59, one leg from J62) is pinned to it.
+- **11:55** Operator approved keepers. The tour had every market under 4 h old (most under 2 h; it also found B7, 18
+  goods, the system's biggest market). Bought 9 probes at A2 for ~257k (23.8k rising to ~31k each; 1,075k -> 819k)
+  and stationed them: K92, E48, E49, D46, F53, A1, D47, B7, F51 (C44 already had probe 2-8). With J62, F52, H55, A2 and
+  C44 that is 14 keepers on every market with more than 4 goods except F50, G54, H57, H58, which the tour keeps
+  covering. Purpose: see a leg recover the minute it does, instead of on the tour's 2-4 h lap.
