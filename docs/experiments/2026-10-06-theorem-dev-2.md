@@ -105,3 +105,7 @@ keeper proposals using a 70k surveyor when the nearest yard has no probes.
   K92, E49, G54, C45 and is docking at C44; 12 of 24 markets are still more than 2 h old. Margins are climbing back
   toward 800: FIREARMS E48 -> J62 +724, CLOTHING K92 -> F52 +682 (K92's ask fell 5,223 -> 4,680 in ~2 h), DRUGS
   J62 -> H55 +581 (J62 4,780 -> 4,515). IRON_ORE contract at 200/201. Denied the 287k light hauler again.
+- **05:48** 763k. First trade in three hours: the dispatcher sent 2-3 on CLOTHING K92 -> F52 (40 @ 4,680 -> 5,350-5,362),
+  +26,920. DRUGS J62 -> H55 is back to +820 with both ends fresh, so the frigate is pinned to it. The tour has now
+  refreshed 16 of 24 markets; still >2 h old: A1, A3, A4, BX5D, F50, F51, H57, H58. Denied a 287k hauler and a 70k
+  surveyor-as-keeper proposal. (The 05:37 market review was lost to a container restart; folded into this check.)
