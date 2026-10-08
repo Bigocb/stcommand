@@ -109,11 +109,14 @@ feeds fewer buyers):
   made 23k. A hauler carries twice the cargo for the same fixed costs per trip (jumps ~5.5k each, refuels), so its net
   per trip is more than double, and its 600-fuel tank keeps it cruising where a 300-fuel shuttle drifts for hours on
   long legs.
-- Hold fill: before the trial the haulers averaged ~20 units a buy on an 80-unit hold (a quarter full); with fewer
-  traders sharing the wallet they averaged 46-54 (4 of 6 buys near full). Many traders buying from one wallet pushes
-  each buy under the cash floor, so every lot is small. Fewer, bigger hulls fill their holds.
-- Total profit did not rise in the first trial hour (274k against 391k the hour before), because the parked shuttles had
-  been earning too (162k). The trial is inconclusive on its own; the hold-size comparison is the solid part.
+- Hold fill: before the trial the haulers averaged ~20 units a buy on an 80-unit hold (a quarter full). In the first trial
+  hour (fewer traders, cash 640k-1.2M) they averaged 46-54, but in the second hour (cash 586k-1.2M, well above the
+  ~100k the buy sizing needs) they fell back to 19-29. So the improvement was NOT explained by wallet share: cash was not
+  the binding limit in either hour, and the small buys more likely come from a market's own lot size / supply or from
+  which routes the dispatcher picked. Treat "fewer traders to feed each buy" as unproven.
+- Total profit did not rise: matched net was 391k the hour before parking three shuttles, then 274k and 308k in the two trial
+  hours (the parked shuttles had earned 162k of the 391k). The solid finding is the hold-size split (haulers earned the
+  large majority of the profit each hour), not the trader-count theory.
 
 Rules of thumb to carry forward:
 
