@@ -77,3 +77,25 @@ running mission (THEO: 40% -> 35% on 2026-10-07, 30% next once F53 is back near 
 | Import activity climb | WEAK -> STRONG over about 12 h of steady feeding (iron) |
 | Market tick | about 30 minutes |
 | Reset timing | weekly, Saturday ~13:00 UTC (`GET /` reports `serverResets.next`) |
+
+## What the best week looked like, and what to compare against (operator notes, 2026-10-08)
+
+Week of 2026-09-27: THEO ended at 25,738,654 credits (trading net 54.8M, 3,312 trades, 123 ships: 17 traders, 7
+haulers, ~100 keepers, 1 explorer). Per the operator, that week ran FOUR systems like the home system, each with its
+own traders and keepers, bought from that system's own shipyards, plus one big siphon ship (1,200 fuel, 150 cargo).
+The rule of thumb that came out of it: four systems at 300k+/hour each beats the total.
+
+- **Count the home-type systems early.** The galaxy has a handful of "full" systems (26-27 markets, 3 shipyards): on
+  the 2026-10-04 universe JX83 (home), AA31, GY77 and YG40. The in-between hubs (TA92, UD26) have no markets or yards of
+  their own, so they are jump hops, not places to trade. YG40's gate was incomplete (it takes materials of its own).
+- **Buy the fleet where it will work.** Light haulers cost 314,772 at JX83-A2 but 536,845 at AA31-A2 on the same day, so
+  check each yard's price before sending a purchase and expect new-system hulls to cost more.
+- **Open the gate before judging a system.** The home-system routes got visibly better once I59 was complete
+  (11:30 UTC, 2026-10-08): the Tower list showed several routes over 100k a trip. Part of that was the figure being
+  priced at an 80-unit hold after the first haulers arrived (a 40-unit shuttle earns ~60% of it), so compare like for
+  like. Check next week whether the home routes improve the same way once the gate opens.
+- **Shuttles to haulers.** 300-fuel shuttles drift (hours per leg) on long legs; the 600-fuel light hauler keeps
+  cruising and carries 80 units. Swap them one at a time, and scrap a shuttle only when it is close to a yard: a
+  scrap-bound shuttle drifted 1-2.5 hours to A2 and earned nothing meanwhile.
+- **Pace check.** To beat 25.74M from a standing start the fleet needs ~350k/hour for the final three days; the
+  matched trading net was ~460k/hour on 2026-10-08 with one home-type system trading (THEO-31/-33/-39 hauler era).
