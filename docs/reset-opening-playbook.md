@@ -110,13 +110,15 @@ feeds fewer buyers):
   per trip is more than double, and its 600-fuel tank keeps it cruising where a 300-fuel shuttle drifts for hours on
   long legs.
 - Hold fill: before the trial the haulers averaged ~20 units a buy on an 80-unit hold (a quarter full). In the first trial
-  hour (fewer traders, cash 640k-1.2M) they averaged 46-54, but in the second hour (cash 586k-1.2M, well above the
-  ~100k the buy sizing needs) they fell back to 19-29. So the improvement was NOT explained by wallet share: cash was not
-  the binding limit in either hour, and the small buys more likely come from a market's own lot size / supply or from
-  which routes the dispatcher picked. Treat "fewer traders to feed each buy" as unproven.
+  hour they averaged 46-54, in the second 19-29. Cash read at 20-30 minute intervals (586k-1.2M) looked comfortably above
+  the floor, but that sampling is too coarse: rebuilding the wallet minute by minute from market transactions shows it
+  swinging by hundreds of thousands inside a single minute (a hauler's 80-unit buy of a 5-7k good is 400-550k) and dipping
+  to roughly 150-270k at the low (18:26). Trips last 1-15 minutes, so one trader's buy leaves the next trader unable to
+  fill a hold of an expensive good. Wallet contention is therefore plausible, and likely worst for high-priced goods; the
+  evidence for it is circumstantial, not a measured per-buy balance. Do not judge it from periodic cash readings.
 - Total profit did not rise: matched net was 391k the hour before parking three shuttles, then 274k and 308k in the two trial
   hours (the parked shuttles had earned 162k of the 391k). The solid finding is the hold-size split (haulers earned the
-  large majority of the profit each hour), not the trader-count theory.
+  large majority of the profit each hour); whether fewer traders helps is still open.
 
 Rules of thumb to carry forward:
 
