@@ -99,3 +99,29 @@ The rule of thumb that came out of it: four systems at 300k+/hour each beats the
   scrap-bound shuttle drifted 1-2.5 hours to A2 and earned nothing meanwhile.
 - **Pace check.** To beat 25.74M from a standing start the fleet needs ~350k/hour for the final three days; the
   matched trading net was ~460k/hour on 2026-10-08 with one home-type system trading (THEO-31/-33/-39 hauler era).
+
+## Hold size matters: swap shuttles for haulers early (2026-10-08, THEO)
+
+Measured on THEO, hour to 2026-10-08 18:37 UTC (trial of parking three of the weakest 40-unit shuttles so the shared wallet
+feeds fewer buyers):
+
+- The three 80-unit light haulers made 251k of that hour's 274k matched trading net; the two running 40-unit shuttles
+  made 23k. A hauler carries twice the cargo for the same fixed costs per trip (jumps ~5.5k each, refuels), so its net
+  per trip is more than double, and its 600-fuel tank keeps it cruising where a 300-fuel shuttle drifts for hours on
+  long legs.
+- Hold fill: before the trial the haulers averaged ~20 units a buy on an 80-unit hold (a quarter full); with fewer
+  traders sharing the wallet they averaged 46-54 (4 of 6 buys near full). Many traders buying from one wallet pushes
+  each buy under the cash floor, so every lot is small. Fewer, bigger hulls fill their holds.
+- Total profit did not rise in the first trial hour (274k against 391k the hour before), because the parked shuttles had
+  been earning too (162k). The trial is inconclusive on its own; the hold-size comparison is the solid part.
+
+Rules of thumb to carry forward:
+
+1. Buy light haulers (80 cargo, 600 fuel, ~315k at the home yard on 2026-10-08; check each yard, AA31's was 537k the
+   same day) before more shuttles or probes once cash allows. Buy at the cheapest yard and fly them over.
+2. Keep ship purchases (haulers, keeper probes, the 2.2M refining freighter) behind a cash level (~1M) so the wallet
+   never sits under the floor with traders waiting on it. Cash dipped to 12k twice that day on purchases.
+3. Do not scrap a shuttle far from a yard: scrap-bound shuttles drifted 1-2.5 hours to A2 earning nothing. Park it
+   (hold) when empty instead, or scrap it when it passes a yard.
+4. The Tower and Deck route figures price every route at the fleet's biggest hold; read the per-hold line (40u / 80u)
+   to know what a shuttle actually earns.
