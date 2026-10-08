@@ -3316,19 +3316,20 @@ export class FleetManager {
       this.log(`${shipSymbol}: already in ${targetSystem}, touring in place`);
       return;
     }
-    // Hard block, not a warning: keepers cover the home system's big markets
-    // on their own, but the smaller/outlying ones only ever get a price
-    // update from a tour ship passing through. Letting every tour ship walk
-    // off to a remote system at once leaves those permanently stale until
-    // one wanders back — confirmed live: an operator sent both of DRAGOM's
-    // tour ships toward the gate in the same session. If this ship is
-    // currently the only tour ship standing in the home system, refuse
-    // rather than silently leaving nobody covering it.
-    if (ship.nav.systemSymbol === this.systemSymbol) {
-      const homeTourShips = [...this.tours.entries()].filter(([, a]) => a.getShip().nav.systemSymbol === this.systemSymbol).map(([sym]) => sym);
-      if (homeTourShips.length <= 1 && homeTourShips.includes(shipSymbol)) {
-        throw new Error(`${shipSymbol} is the only tour ship left in ${this.systemSymbol} — dispatching it would leave home with no tour coverage. Assign another tour ship to home first, or promote one, before sending this one out.`);
-      }
+    // Hard block, not a warning: keepers cover a system's big markets on their
+    // own, but the smaller/outlying ones only ever get a price update from a
+    // tour ship passing through. Letting the last tour ship walk off leaves
+    // those permanently stale until one wanders back — confirmed live: an
+    // operator sent both of DRAGOM's tour ships toward the gate in the same
+    // session. If this ship is currently the only tour ship standing in the
+    // system it is leaving, refuse rather than silently leaving nobody
+    // covering it. Applies to every system we run, not just home: on
+    // 2026-10-08 THEO-1 left AA31 (its only tour ship) for GY77 unchallenged,
+    // because the check only looked at the home system.
+    const here = ship.nav.systemSymbol;
+    const toursHere = [...this.tours.entries()].filter(([, a]) => a.getShip().nav.systemSymbol === here).map(([sym]) => sym);
+    if (toursHere.length <= 1 && toursHere.includes(shipSymbol)) {
+      throw new Error(`${shipSymbol} is the only tour ship left in ${here} — dispatching it would leave ${here} with no tour coverage. Assign another tour ship to ${here} first, or promote one, before sending this one out.`);
     }
     await this.updateShipManualState(shipSymbol, { tourDestination: targetSystem });
     this.log(`${shipSymbol}: dispatched to tour ${targetSystem}, ${this.findSystemPath(ship.nav.systemSymbol, targetSystem)?.length ?? "?"} known hop(s) away`);

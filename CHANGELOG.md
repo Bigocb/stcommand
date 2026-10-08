@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## The last-tour-ship guard now covers every system, not just home (2026-10-08)
+
+`dispatchTourShip` refused to send away the only tour ship in the HOME system, but checked nothing elsewhere. THEO-1
+was AA31's only tour ship and was sent on to GY77 without a word, leaving AA31's unkept markets with no price updates
+(the operator: it could not leave without another tour ship in the system last week). The check now counts tour ships
+standing in whichever system the ship is in, and the refusal names that system. No test covers it: it needs a full
+`FleetManager`; verified by typecheck and reading the diff.
+
 ## Route cards show the profit per hold size (2026-10-08)
 
 The route list priced every route at the fleet's biggest hold, so once 80-unit light haulers joined the 40-unit
