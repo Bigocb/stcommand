@@ -389,7 +389,8 @@ export class FeedManager {
     const mined = this.key(targetWaypoint, good, true);
     const hasBuy = this.active.has(buy);
     const hasMine = this.active.has(mined);
-    if (hasBuy && hasMine) throw new Error(`${good} → ${targetWaypoint} has both a buying and a mining feed — say which with mine=true or mine=false`);
+    // status 409: a refusal the caller can fix by saying which, not a server fault (see http/jsonErrors.ts)
+    if (hasBuy && hasMine) throw Object.assign(new Error(`${good} → ${targetWaypoint} has both a buying and a mining feed — say which with mine=true or mine=false`), { status: 409 });
     return hasMine ? mined : buy;
   }
 

@@ -9,6 +9,22 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Feed routes answer a refusal as JSON, not a bare 500 (2026-10-08)
+
+Removing COPPER_ORE from the dashboard threw a 500 (three tries, 11:20 UTC). COPPER_ORE → H55 had both a buying and a
+mining feed, and the request did not say which (`mine` omitted), so `FeedManager.resolve()` refused with "say which with
+mine=true or mine=false". The feed routes have no try/catch, and Express 5 answers an uncaught async throw with an HTML
+500 that hides the message, so the page showed nothing useful. The other feeds had a single mode each, which is why they
+removed fine. Removing each with `mine` set worked straight away (buying feed, then mining feed).
+
+The dashboards in this repo (Tower `m.js`, Deck `deck.js`, `v6.js`) already send `mine` on remove, so the request most
+likely came from a tab loaded before 2026-10-07 01:28 UTC (commit 0d2dcdf) that never reloaded. Not confirmed.
+
+- The ambiguity refusal now carries status 409.
+- The dashboard router ends with a `jsonErrors` handler (`src/http/jsonErrors.ts`): an error thrown out of any route
+  without its own catch answers JSON `{ error }` with its status (500 if it has none), so the toast shows the reason.
+  Test: `tests/jsonErrors.test.ts`.
+
 ## The gate mission no longer spends below its cash floor (2026-10-08)
 
 `cashFloor` only decided whether the mission bought at all. The lot itself was sized from the whole balance, so once

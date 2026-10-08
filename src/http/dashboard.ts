@@ -8,6 +8,7 @@ import { setTenantDiscordWebhook, getTenantDiscordWebhook, getTenantDiscordEnabl
 import { mintMcpKey, listMcpKeys, revokeMcpKey } from "../db/mcpKeys.js";
 import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
 import { makeTTLCache } from "./cache.js";
+import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 
@@ -2071,6 +2072,9 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
+
+  // Last: an error thrown out of a route that has no try/catch of its own answers JSON with its message.
+  router.use(jsonErrors);
 
   return router;
 }
