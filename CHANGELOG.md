@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## The ledger records the wallet balance at each trade (2026-10-08)
+
+Many traders buy from one wallet, so how full a hold gets depends on what the previous trader left. Cash read every 20-30
+minutes cannot show that (it can swing by hundreds of thousands inside a minute), and rebuilding it from transactions
+needs anchors and drifts by the untracked ship and jump costs. `ledger` now has a `wallet_after` column
+(`migrations/045_ledger_wallet_after.sql`): every row is stamped with the balance from the game's own response to the
+trade. `SpaceTradersAPI` keeps the latest `agent.credits` seen on a sell, purchase or ship purchase
+(`lastKnownCredits`), and the tenant's ledger writer adds it to each entry. With several ships trading at once the value
+can already include a neighbour's transaction that landed a moment later, so read it as "the wallet at about this
+trade". Rows from before the deploy stay NULL. Dashboard and MCP reads are unchanged.
+
 ## The last-tour-ship guard now covers every system, not just home (2026-10-08)
 
 `dispatchTourShip` refused to send away the only tour ship in the HOME system, but checked nothing elsewhere. THEO-1

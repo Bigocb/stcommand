@@ -418,7 +418,7 @@ export class TenantRegistry {
     const contracts = new ContractManager(api, store, tenantId, {
       log,
       onActivity: recordActivity,
-      recordLedger: (e) => store.recordLedger(tenantId, e as never),
+      recordLedger: (e) => store.recordLedger(tenantId, { ...e, walletAfter: api.lastKnownCredits } as never),
     });
     // Replay the operator's own contract decisions before anything can act on
     // them. These used to live only in memory, so a deploy discarded them and
@@ -440,7 +440,7 @@ export class TenantRegistry {
       log,
       discord,
       scheduler,
-      recordLedger: (e) => store.recordLedger(tenantId, e),
+      recordLedger: (e) => store.recordLedger(tenantId, { ...e, walletAfter: api.lastKnownCredits }),
       onActivity: recordActivity,
       minCashReserve: 20_000,
     });

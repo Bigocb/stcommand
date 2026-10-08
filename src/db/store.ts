@@ -58,6 +58,9 @@ export interface LedgerEntry {
   // manual dumps) — NULL there means "no matched-trade number applies",
   // never zero. See migrations/023_ledger_realized_pnl.sql.
   realizedPnl?: number;
+  /** Wallet balance right after this transaction, from the game's own response (see SpaceTradersAPI.lastKnownCredits).
+   *  Lets a later analysis see what a buy was sized from. Undefined for rows written without a recent response. */
+  walletAfter?: number;
 }
 
 export interface ActivityEntry {
@@ -479,8 +482,8 @@ export class Store {
   async recordLedger(tenantId: string, entry: LedgerEntry): Promise<void> {
     await withTenant(this.pool, tenantId, async (c) => {
       await c.query(
-        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl, wallet_after)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           tenantId,
           entry.timestamp,
@@ -492,6 +495,7 @@ export class Store {
           entry.pricePerUnit ?? null,
           entry.total,
           entry.realizedPnl ?? null,
+          entry.walletAfter ?? null,
         ],
       );
       if (entry.type === "SHIP") {

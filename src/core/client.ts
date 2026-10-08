@@ -725,6 +725,16 @@ export class SpaceTradersAPI {
     readonly token: string,
   ) {}
 
+  /** The wallet balance from the most recent trade/purchase response (every one returns `agent.credits`). The
+   *  ledger stamps each row with it, so the balance a buy was sized from is on record. With several ships trading
+   *  at once it can already include a neighbour's transaction that landed a moment later. */
+  lastKnownCredits: number | undefined;
+
+  private noteCredits<T extends { agent?: { credits?: number } }>(res: T): T {
+    if (typeof res?.agent?.credits === "number") this.lastKnownCredits = res.agent.credits;
+    return res;
+  }
+
   status() {
     return this.client.request<paths["/"]["get"]["responses"]["200"]["content"]["application/json"]>({
       method: "GET",
@@ -909,7 +919,7 @@ export class SpaceTradersAPI {
       agent: components["schemas"]["Agent"];
       ship: components["schemas"]["Ship"];
       transaction: components["schemas"]["ShipyardTransaction"];
-    }>("/my/ships", { shipType, waypointSymbol });
+    }>("/my/ships", { shipType, waypointSymbol }).then((r) => this.noteCredits(r));
   }
 
   transferCargo(shipSymbol: string, tradeSymbol: string, units: number, toShipSymbol: string) {
@@ -1034,7 +1044,7 @@ export class SpaceTradersAPI {
       agent: components["schemas"]["Agent"];
       cargo: components["schemas"]["ShipCargo"];
       transaction: components["schemas"]["MarketTransaction"];
-    }>(`/my/ships/${shipSymbol}/sell`, { symbol, units });
+    }>(`/my/ships/${shipSymbol}/sell`, { symbol, units }).then((r) => this.noteCredits(r));
   }
 
   purchaseCargo(shipSymbol: string, symbol: string, units: number) {
@@ -1042,7 +1052,7 @@ export class SpaceTradersAPI {
       agent: components["schemas"]["Agent"];
       cargo: components["schemas"]["ShipCargo"];
       transaction: components["schemas"]["MarketTransaction"];
-    }>(`/my/ships/${shipSymbol}/purchase`, { symbol, units });
+    }>(`/my/ships/${shipSymbol}/purchase`, { symbol, units }).then((r) => this.noteCredits(r));
   }
 
   /** Throw away cargo from a ship's hold (e.g. to free space on a stranded ship). */
