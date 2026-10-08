@@ -785,8 +785,29 @@ export class SpaceTradersAPI {
     return this.client.get<components["schemas"]["ShipCargo"]>(`/my/ships/${shipSymbol}/cargo`);
   }
 
-  getContracts() {
-    return this.client.get<components["schemas"]["Contract"][]>("/my/contracts", { limit: 20 });
+  /** Last page of /my/contracts seen, so a refresh usually costs one call. */
+  private contractsPage = 1;
+
+  /**
+   * The newest page of contracts. The API lists contracts oldest first, 20 per page, and allows only one open contract
+   * at a time, which is always the newest. Reading page 1 only (the old behavior) hid every contract past the 20th:
+   * THEOREM_DEV_2's 21st offer (MEDICINE, 154k) sat unseen for hours and the fleet kept trying to negotiate a new one
+   * (2026-10-08). Starts at the last page seen and moves to the real last page when the total says it has grown.
+   */
+  async getContracts(): Promise<components["schemas"]["Contract"][]> {
+    const fetchPage = (page: number) =>
+      this.client.request<{ data: components["schemas"]["Contract"][]; meta: components["schemas"]["Meta"] }>({
+        method: "GET",
+        path: "/my/contracts",
+        query: { limit: 20, page },
+      });
+    let res = await fetchPage(this.contractsPage);
+    const last = Math.max(1, Math.ceil(res.meta.total / 20));
+    if (last !== this.contractsPage) {
+      this.contractsPage = last;
+      res = await fetchPage(last);
+    }
+    return res.data;
   }
 
   acceptContract(contractId: string) {

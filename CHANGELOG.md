@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Contracts past the 20th are seen again, and negotiating docks first (2026-10-08)
+
+Two bugs kept agents off contracts, which pay 120-230k each for manufactured goods.
+
+- `getContracts()` read only page 1 of `/my/contracts` (20 per page, oldest first). The one open contract is always the
+  newest, so once an agent had done 20, the engine never saw another one. THEOREM_DEV_2's 21st offer (MEDICINE, 16 to
+  A1, 154,416) sat unaccepted for about 3.5 hours while the fleet kept trying to negotiate a new one. It now follows
+  `meta.total` to the last page and remembers it, so a refresh is still usually one call. Test:
+  `tests/contractPaging.test.ts`. (Live, I accepted that MEDICINE contract by hand and flew it with 2-3: +70,848.)
+- `maybeNegotiateContract()` picked any ship not in transit, usually an orbiting drone, and every try failed with
+  "Ship is not currently docked" (THEO, about once a minute after its ALUMINUM_ORE contract finished). It now prefers a
+  docked ship and docks the fallback first.
+
 ## Mission and feed ships no longer freeze on the dashboard (2026-10-07)
 
 While a construction mission or feed flies a ship, the ship's agent is suspended, and the agent was the only thing that

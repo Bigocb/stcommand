@@ -7168,14 +7168,20 @@ export class FleetManager {
     if (active.length > 0) return;
     if (Date.now() - this.lastNegotiateAttempt < 60_000) return;
 
+    // Negotiating needs a DOCKED ship. Picking any non-transit ship meant an orbiting miner or feed carrier was chosen
+    // and every attempt failed "Ship is not currently docked" (THEO, 2026-10-08), so prefer one already docked and
+    // dock the fallback first.
     const statuses = this.getShipStatuses();
     const candidate =
+      statuses.find((s) => s.role === "idle" && s.status === "DOCKED") ??
+      statuses.find((s) => s.status === "DOCKED" && !s.paused) ??
       statuses.find((s) => s.role === "idle" && s.status !== "IN_TRANSIT") ??
       statuses.find((s) => s.status !== "IN_TRANSIT" && !s.paused);
     if (!candidate) return;
 
     this.lastNegotiateAttempt = Date.now();
     try {
+      if (candidate.status !== "DOCKED") await this.api.dockShip(candidate.symbol);
       const contract = await this.contracts.negotiate(candidate.symbol);
       this.log(`negotiated contract ${contract.id} via ${candidate.symbol}`);
     } catch (err) {
