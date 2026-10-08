@@ -449,12 +449,16 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   RESTRICTED to WEAK, but iron push drained H55's source and lost money per trip. Do not test until the current
   copper/silicon/FAB_MATS tests finish.
 
-- **Backhaul: a loaded return leg (operator idea, 2026-10-05).** Route economics now charge the empty flight back to
+- **Backhaul / trade circuits: a loaded return leg (operator idea, 2026-10-05; re-raised 2026-10-08).** Route economics now charge the empty flight back to
   the buy market as a real cost of every repeat (fuel + time), which is correct for today's A->B->A shuttle. Rough
   concept to investigate later: look for "two-way" lanes, where the ship sells good X at B, buys a second good Y there,
   and carries it back to A (or to wherever it wants to buy X's next round), so the return leg earns instead of being
   sunk fuel. Needs a pair-of-legs search over the same price data (X: A->B, Y: B->A, or a triangle A->B->C->A) scored
   on combined net per hour, plus holding the hold-size / cash constraints across both purchases. Not scoped.
+  The operator wants this kept on the list for a future pass. The fuller version is a "circuit": a fixed loop of 3+
+  markets where every leg carries cargo, assigned to one trader as a standing route. Check first how much the dispatcher
+  already gets by picking each ship's next leg from where it is now. On 2026-10-08 THEO-1 sold FABRICS at E48, then ran
+  FOOD and FUEL out of E50 without an empty trip home. Measure the dead-leg share in the ledger before building anything.
 
 - **Gate-chain follow-ups (2026-10-05).** (a) done in Deck 2026-10-05 (Tower shows tags only; v6 none). (b) done 2026-10-05 as the Ops "Gate supply chain" panel.
   (b-old) A "chain health" Deck panel like the community
