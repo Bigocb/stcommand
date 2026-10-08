@@ -135,6 +135,9 @@ export interface AgentOptions {
   hasPendingKeeperApproval?: (waypointSymbol: string) => Promise<boolean>;
   /** Stationary keeper: the market this ship polls on a timer to keep prices fresh. */
   keeperMarket?: () => string | undefined;
+  /** How long a keeper waits before polling this market again (at least 5 minutes). Absent = always 5. A market whose
+   *  prices have sat still for a while is polled less often; see FleetManager.keeperPollMs(). */
+  keeperPollMs?: (market: string) => number;
   /**
    * Whether the ship is allowed to act at all right now. False while the fleet
    * is halted.
@@ -273,6 +276,7 @@ export class ShipAgent {
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly hasPendingKeeperApproval?: AgentOptions["hasPendingKeeperApproval"];
   private readonly keeperMarket?: () => string | undefined;
+  private readonly keeperPollMs?: (market: string) => number;
   private readonly intentFor?: AgentOptions["intentFor"];
   private readonly done?: () => void;
   /** Systems refreshSystemMarkets() has already been tried for this tour, so
@@ -375,6 +379,7 @@ export class ShipAgent {
     this.recordShipyard = opts.recordShipyard;
     this.hasPendingKeeperApproval = opts.hasPendingKeeperApproval;
     this.keeperMarket = opts.keeperMarket;
+    this.keeperPollMs = opts.keeperPollMs;
     this.intentFor = opts.intentFor;
     this.done = opts.done;
     this.onTenderAbandoned = opts.onTenderAbandoned;
@@ -2063,7 +2068,9 @@ export class ShipAgent {
       this.log("keeper: no assigned market");
       return false;
     }
-    await this.refresh();
+    // A keeper already docked at its market has nothing to learn from a ship read: only this fleet moves it, and the
+    // fleet-wide sweep keeps its copy current. Skipping the read saves one call per keeper per poll.
+    if (!(this.ship.nav.waypointSymbol === market && this.ship.nav.status === "DOCKED")) await this.refresh();
     // If we're not at the assigned market, fly there (one-time reposition).
     // Refuel first — navigateTo() bails when fuel is short instead of
     // topping up, which would strand the keeper mid-hop.
@@ -2311,6 +2318,13 @@ export class ShipAgent {
     };
   }
 
+  /** Delay after a successful keeper poll: 5 minutes, longer for a market whose prices have not moved. */
+  private keeperDelayMs(): number {
+    const market = this.keeperMarket?.();
+    const wanted = market ? this.keeperPollMs?.(market) : undefined;
+    return Math.max(5 * 60_000, wanted ?? 0);
+  }
+
   /** Unlike the other three, a successful keeper poll backs off 5 minutes (KEEPER_POLL_MS-equivalent), not 0 — same as keeperLoop()'s own sleep(5 * 60_000) after a snapshot. */
   nextKeeperTask(earliestRunAt = Date.now()): Task {
     // See nextTask()'s comment: not set here, only by external enqueue sites.
@@ -2330,7 +2344,7 @@ export class ShipAgent {
         this.inFlight = p;
         try {
           const snapshotted = await p;
-          return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted ? 5 * 60_000 : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted ? this.keeperDelayMs() : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextKeeperTask(err.resumeAt) };

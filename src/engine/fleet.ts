@@ -18,6 +18,7 @@ import { IDLE_STEP, Pending, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { ShipSnapshotBoard, describeSnapshotSummary } from "./shipSnapshots.js";
+import { KEEPER_POLL_MIN_MS, keeperPollDelayMs } from "./keeperCadence.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -1924,6 +1925,29 @@ export class FleetManager {
     return this.registry;
   }
 
+  /** Per market: the last price/supply signature seen and when it last differed. Fed by every snapshot from any ship. */
+  private readonly marketSignatures = new Map<string, { sig: string; changedAt: number }>();
+
+  private noteMarketSignature(waypointSymbol: string, goods: readonly { symbol: string; purchasePrice: number; sellPrice: number; supply?: string }[]): void {
+    const sig = goods.map((g) => `${g.symbol}:${g.purchasePrice}:${g.sellPrice}:${g.supply ?? ""}`).join("|");
+    const prev = this.marketSignatures.get(waypointSymbol);
+    if (!prev || prev.sig !== sig) this.marketSignatures.set(waypointSymbol, { sig, changedAt: Date.now() });
+  }
+
+  /**
+   * How long a keeper may wait before reading this market again. Measured 2026-10-08 over 6h on JX83/AA31/GY77: a
+   * price moves about every 27 minutes (IQR 18-33) when it moves at all, 41% of price series never moved, and only
+   * 12% of 5-minute-apart snapshots differed, so most 5-minute polls re-read an unchanged market. The wait is a third
+   * of the time since the market last changed, between 5 and 30 minutes: a market that moved recently stays at 5,
+   * one that has sat still for 90 minutes drops to 30. Any ship's snapshot counts as a change, so a market a trader is
+   * working keeps its fast cadence. 30 is well inside the 90-minute intel window (snapshotMaxAgeMin).
+   */
+  keeperPollMs(waypointSymbol: string): number {
+    const seen = this.marketSignatures.get(waypointSymbol);
+    if (!seen) return KEEPER_POLL_MIN_MS;
+    return keeperPollDelayMs(Date.now() - seen.changedAt);
+  }
+
   /** Snapshot current market prices at a waypoint if it has a MARKETPLACE trait.
    *  Called whenever a ship docks so the dashboard stays current. */
   async recordMarketSnapshot(waypointSymbol: string): Promise<void> {
@@ -1968,6 +1992,7 @@ export class FleetManager {
         exchange: (market.exchange ?? []).map((g) => g.symbol),
         fetchedAt: new Date().toISOString(),
       });
+      this.noteMarketSignature(waypointSymbol, goods);
       this.onActivity?.("market", `snapshot ${waypointSymbol} (${goods.length} goods)`, 0);
       // The actual "expand the keeper check to markets" ask (2026-09-21,
       // corrected after initially only expanding the shipyard-triggered
@@ -2112,6 +2137,7 @@ export class FleetManager {
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
+            keeperPollMs: (wp) => this.keeperPollMs(wp),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -2442,6 +2468,7 @@ export class FleetManager {
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
+            keeperPollMs: (wp) => this.keeperPollMs(wp),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -7615,6 +7642,7 @@ export class FleetManager {
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
         keeperMarket: () => this.keeperMarkets.get(sym),
+        keeperPollMs: (wp) => this.keeperPollMs(wp),
         getCredits: () => this.spendableCredits(),
         galaxy: this.galaxy,
         store: this.store,

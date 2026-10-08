@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Keepers poll quiet markets less often (2026-10-08)
+
+Keepers were about 36% of the API budget (a ship read, a market read and a shipyard check every 5 minutes each), and the
+limiter was at 90 of 90 a minute. Prices over the last 6 hours on JX83/AA31/GY77 (372 series): when a price moves it
+moves about every 27 minutes (IQR 18-33), 41% never moved, and only 12% of 5-minute-apart readings differed, so most
+polls re-read an unchanged market. A keeper now waits a third of the time its market has sat unchanged, between 5 and 30
+minutes (`keeperPollDelayMs`, `FleetManager.keeperPollMs`); any ship's snapshot counts as a change, so a market a trader
+works keeps the 5-minute cadence, and 30 minutes is well inside the 90-minute intel window. A keeper already docked at its
+market also skips its own ship read (nothing but this fleet moves it, and the 30s sweep keeps a copy). Expect roughly 70%
+fewer keeper calls; to be confirmed against the limiter's per-caller counts.
+
 ## Dashboard credits move at the trade (2026-10-08)
 
 Deck and Tower showed the balance from a 20s agent read (`GET /my/agent`, routine priority) polled by the browser every
