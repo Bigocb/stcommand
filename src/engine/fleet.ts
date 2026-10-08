@@ -1630,6 +1630,8 @@ export class FleetManager {
       15,
       ...[...this.traders.values(), ...this.tours.values(), ...this.explorers.values()].map((a) => a.getShip().cargo.capacity),
     );
+    // Distinct hold sizes among the traders, so each route can also be priced for the hull that would fly it.
+    const traderHolds = [...new Set([...this.traders.values()].map((t) => t.getShip().cargo.capacity).filter((c) => c > 0))].sort((x, y) => x - y);
     // The biggest-tanked hull (and slowest speed, below) set the fuel/time model (see tripEconomics()).
     const flyers = [...this.traders.values(), ...this.tours.values(), ...this.explorers.values()].map((a) => a.getShip());
     const fleetFuelCapacity = Math.max(0, ...flyers.map((sh) => sh.fuel.capacity));
@@ -1686,6 +1688,17 @@ export class FleetManager {
         let fuelUnits = 0;
         let tripSeconds: number | undefined;
         let secPerDist: number | undefined;
+        // Net profit of one trip carrying `units` (the route's single-ship figure for one hold size).
+        const profitFor = (units: number): number => {
+          if (crossSystem) {
+            const t = tripEconomics({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, units, buyVolume, sellVolume, distance: 1, fuelPrice: 0, fuelCapacity: 0, speed: fleetSpeed });
+            return Math.round(t.gross - this.crossSystemTripCost(l.buySystem, l.sellSystem) - t.slippage);
+          }
+          return Math.round(tripEconomics({
+            buyPrice: l.buyPrice, sellPrice: l.sellPrice, units, buyVolume, sellVolume,
+            distance: dist!, fuelPrice: fuelAt.get(l.buyAt) ?? 72, fuelCapacity: fleetFuelCapacity, speed: fleetSpeed,
+          }).net);
+        };
         if (crossSystem) {
           // Jump costs are credits, not tank-fuel; slippage still applies on both sides.
           fuelCost = this.crossSystemTripCost(l.buySystem, l.sellSystem);
@@ -1707,6 +1720,9 @@ export class FleetManager {
           tripSeconds = t.seconds;
           secPerDist = t.secPerDist;
         }
+        // The same trip for each hold size flying: the headline figure above is priced at the biggest hold.
+        const profitByHold: Record<string, number> = {};
+        for (const h of traderHolds) profitByHold[h] = profitFor(Math.max(0, Math.min(h, affordable, l.volume * MAX_LOTS_PER_TRIP)));
         return {
           good: l.goodSymbol,
           buyAt: l.buyAt,
@@ -1726,6 +1742,7 @@ export class FleetManager {
           tripSeconds,
           secPerDist,
           profitPerTrip,
+          profitByHold,
           ageMinutes: Math.round((Date.now() - new Date(l.stalestIso).getTime()) / 60_000),
         };
       })

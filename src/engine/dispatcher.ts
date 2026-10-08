@@ -29,6 +29,8 @@ export interface DispatchRoute {
   secPerDist?: number;
   /** Net per trip: spread - round-trip fuel - slippage. */
   profitPerTrip: number;
+  /** The same trip's net priced at each trader hold size flying (units -> credits); profitPerTrip is the biggest hold's. */
+  profitByHold?: Record<string, number>;
   ageMinutes: number;
 }
 

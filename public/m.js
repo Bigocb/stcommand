@@ -1135,6 +1135,14 @@ function tradersFor() {
   return (fleetStatus.ships ?? []).filter((s) => s.role === "trader");
 }
 
+// The same trip priced for each hold size flying (profitPerTrip is the biggest hold's), so a 40-unit shuttle's
+// real take isn't read off a figure that assumes an 80-unit hauler. Shown only when the holds differ.
+function holdLine(r) {
+  const holds = Object.entries(r.profitByHold ?? {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+  if (holds.length < 2) return "";
+  return `<div class="rr-legs">${holds.map(([u, p]) => `${u}u ${signed(p)}`).join(" · ")}</div>`;
+}
+
 function renderMarketRoutes() {
   const el = $("mkt-routes");
   if (!marketRoutes.length) { el.innerHTML = '<div class="empty">No profitable routes in fresh snapshots.</div>'; return; }
@@ -1158,6 +1166,7 @@ function renderMarketRoutes() {
       : "";
     return `<div class="route-row">
       <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${signed(r.profitPerTrip)}/trip</span></div>
+      ${holdLine(r)}
       <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>
       <div class="rr-actions"><button class="btn" data-act="route-toggle" data-key="${escapeHtml(routeKey)}">${openRouteGood === routeKey ? "Close" : "Assign a ship"}</button></div>
       ${picker}

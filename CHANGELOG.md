@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Route cards show the profit per hold size (2026-10-08)
+
+The route list priced every route at the fleet's biggest hold, so once 80-unit light haulers joined the 40-unit
+shuttles the per-trip figure read ~1.6x what a shuttle earns. `computeDispatchRoutes()` now also returns
+`profitByHold` (net per trip for each distinct trader hold size), `/api/market/routes` passes it through, and the Tower
+route card adds a `40u +64,240 · 80u +104,680` line when the holds differ. The headline `/trip` figure is unchanged
+(still the biggest hold's), and the dispatcher still ranks on it, which is open in `docs/TODO.md`.
+
 ## Drone hulls no longer set the route-costing speed (2026-10-08)
 
 The route list costs every trip at the slowest flying hull's speed (`fleet.ts`, `fleetSpeed`). When THEO-17, a

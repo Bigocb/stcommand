@@ -522,6 +522,6 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 - **Route profit priced per ship, not at the fleet's biggest hold (found 2026-10-08).** `fleet.ts` prices every route
   at `maxTraderCargo` (the largest hold flying), so once 80-unit light haulers joined 40-unit shuttles the Tower route
   list reads ~1.6x what a shuttle earns (E45 -> J62 ASSAULT_RIFLES ~104.7k at 80 units, ~64k at 40; price impact is
-  super-linear in units). Options: show a per-hull figure on each route, or price at the cargo of the ship the
-  dispatcher would send. Also open: the dispatcher allows one seller per (good, sell market), so two 100k routes into the
+  super-linear in units). Shipped 2026-10-08: the Tower route card now shows the figure per hold size (`profitByHold`). Still open: price at the
+  cargo of the ship the dispatcher would send (it ranks on the biggest-hold figure and never reads a ship's cargo). Also open: the dispatcher allows one seller per (good, sell market), so two 100k routes into the
   same market get one ship.

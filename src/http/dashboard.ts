@@ -539,6 +539,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         marginPct: Math.round(((r.sellPrice - r.buyPrice) / r.buyPrice) * 1000) / 10,
         grossPerTrip: Math.round((r.sellPrice - r.buyPrice) * r.volume),
         profitPerTrip: r.profitPerTrip,
+        profitByHold: r.profitByHold ?? null,
         crossSystem: r.buySystem !== r.sellSystem,
         ageMinutes: r.ageMinutes,
       }));
