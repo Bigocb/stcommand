@@ -10,7 +10,12 @@ evidence behind each step. Numbers are from that week; re-measure on a new map.
 1. Register, sign in on the dashboard, run the admin reset cleanup for the old tenant. `protectChainGoods` is on by
    default: keep it on.
 2. Command ship as **tour** until every market in the home system has one price read; then trader.
-3. Accept the first contract (early-game money; contracts are ~1% of profit later, so no more than one at a time).
+3. Accept the first contract and keep contracts running all week. The game allows only one open contract at a time
+   (offered or accepted), so throughput depends on finishing each one fast. Correction 2026-10-08: the old "~1% of profit"
+   note was wrong. THEOREM_DEV_2 completed 20 contracts in X1-XJ90 for 1.36M in payouts (MACHINERY/FOOD/MEDICINE ones
+   paid 120-230k each, against roughly 60-90k sourcing cost). THEO's were paused on day one, and one half-done
+   ALUMINUM_ORE contract blocked new offers for 3 days. Never pause contracts. If one is stuck, finish it cheaply so the
+   next offer can come in. Payouts track the good's value; they did not visibly grow over the week.
 4. Open Ops: the **Gate supply chain** panel shows the gate's materials, each producer and its inputs. Note which
    inputs read SCARCE: those are the day's work.
 

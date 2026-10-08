@@ -10,7 +10,7 @@ Current week (reset 2026-10-04, tenant `7e1ea899`, home system X1-JX83, gate X1-
 400 ADVANCED_CIRCUITRY): the operator did not state a starting layout; what ran was 1 command frigate, 10 mining
 drones (all on one STRIPPED asteroid, CE5D), 6-7 shuttle traders, 1 surveyor and ~26 keeper probes (6 retired on
 2026-10-05). The lesson of the week is in `docs/reset-opening-playbook.md`: feed every input of the gate materials
-from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, and let the mission buy only when the
+from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, never pause contracts (one at a time, 120-230k each for manufactured goods), and let the mission buy only when the
 producer's activity is GROWING or STRONG and the recovery gate (`recoverPct`) allows. Update this section when the
 operator states a layout for a following week.
 
