@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## MCP tool to start the gate mission (2026-10-08)
+
+There was no MCP way to start a construction mission (only the dashboard's start control), so a session driving a
+tenant over MCP could not run the opening playbook's step 5. `stcommand_start_mission` starts the mission for a gate
+under construction and, when pacing fields are passed, applies them before any buying: it starts, pauses, sets the
+pacing, then resumes, so a new mission never sources at the default 40% ceiling.
+
 ## Max lots per trip is a doctrine rule (2026-10-08)
 
 A trip's volume has been `min(hold, what the wallet allows, lot size x MAX_LOTS_PER_TRIP)` with the constant fixed at 3

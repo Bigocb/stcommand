@@ -659,6 +659,38 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_start_mission",
+    {
+      title: "Start a construction mission",
+      description: "Start the construction-supply mission for a jump gate under construction (same as the dashboard's start control). A new mission sources at default pacing (40% ceiling), so pass the pacing here to set it before any buying starts: the mission is started, paused, given the pacing, then resumed. Pacing fields are the same as stcommand_set_mission_pacing. Idempotent for a site that already has a mission (pacing is still applied).",
+      inputSchema: {
+        waypoint: z.string().describe("The construction site, e.g. X1-XJ90-I59"),
+        buyLotUnits: z.number().int().optional(),
+        buyGapMin: z.number().int().optional(),
+        maxInflationPct: z.number().int().optional(),
+        recoverPct: z.number().int().optional(),
+        onlyMaterials: z.array(z.string()).optional(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ waypoint, buyLotUnits, buyGapMin, maxInflationPct, recoverPct, onlyMaterials }) => {
+      try {
+        await w.fleet.startMission(waypoint);
+        const pacing = { buyLotUnits, buyGapMin, maxInflationPct, recoverPct, onlyMaterials };
+        if (Object.values(pacing).some((v) => v !== undefined)) {
+          await w.fleet.pauseMission(waypoint);
+          await w.fleet.setMissionPacing(waypoint, pacing);
+          await w.fleet.resumeMission(waypoint);
+        }
+        await recordMcpAction(w, "mission_start", waypoint, `started mission ${waypoint}`, { waypoint, ...pacing });
+        return textResult({ ok: true, missions: await w.fleet.getMissions() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_pause_mission",
     {
       title: "Pause a construction mission",
