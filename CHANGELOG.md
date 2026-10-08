@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Drone hulls no longer set the route-costing speed (2026-10-08)
+
+The route list costs every trip at the slowest flying hull's speed (`fleet.ts`, `fleetSpeed`). When THEO-17, a
+mining drone (engine speed 9), was made the home tour ship, it became that slowest hull and every modelled trip
+stretched ~1.7x against the 15-speed shuttles, lowering every dispatcher ranking score. A drone never takes a
+trade route, so `FRAME_DRONE` hulls are now left out of that speed. Related, not changed: the displayed
+profit-per-trip is priced at the fleet's biggest hold, so after the 80-unit light haulers arrived it reads about
+1.6x what a 40-unit shuttle earns (E45 -> J62 ASSAULT_RIFLES: ~104.7k at 80 units, ~64k at 40). Per-ship pricing
+is open in `docs/TODO.md`.
+
 ## Feed routes answer a refusal as JSON, not a bare 500 (2026-10-08)
 
 Removing COPPER_ORE from the dashboard threw a 500 (three tries, 11:20 UTC). COPPER_ORE → H55 had both a buying and a

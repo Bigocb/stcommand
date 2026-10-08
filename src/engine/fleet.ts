@@ -1635,7 +1635,9 @@ export class FleetManager {
     const fleetFuelCapacity = Math.max(0, ...flyers.map((sh) => sh.fuel.capacity));
     // Time is modelled at the SLOWEST hull's speed: any idle trader can get the route, and most of the fleet is
     // 15-speed shuttles, so costing it at the one 36-speed frigate overstated every per-hour figure ~2x.
-    const speeds = flyers.map((sh) => sh.engine?.speed ?? 0).filter((v) => v > 0);
+    // A drone hull (a mining drone repurposed as a tour ship, speed 9) never takes a trade route, so it must not
+    // set the speed every route is costed at: THEO-17 did that on 2026-10-08, stretching every modelled trip ~1.7x.
+    const speeds = flyers.filter((sh) => sh.frame?.symbol !== "FRAME_DRONE").map((sh) => sh.engine?.speed ?? 0).filter((v) => v > 0);
     const fleetSpeed = speeds.length ? Math.min(...speeds) : 0;
     const spendable = this.spendableCredits();
     // Deliberately NOT filtered by gate reachability here: a "buy" or
