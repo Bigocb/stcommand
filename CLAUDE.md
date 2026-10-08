@@ -29,6 +29,16 @@ here so they don't get lost between sessions:
   misdiagnosing THEO-1C as stuck).
 - **Every tool call acts immediately at operator trust level.** There's no
   confirm step except `stcommand_decide_approval`'s own gate.
+- **Check the fleet before acting, and again before retrying.** Before any
+  action that changes the fleet or spends credits (buy/sell ship, dispatch,
+  jump, tour, role change, hold/release, trade, set_doctrine, and the same
+  calls through `mcp.sh`/`st.sh`), read the current state first —
+  `stcommand_get_fleet_status` (or `stcommand_ops_ship_live` for one ship) plus
+  `stcommand_get_approvals`. After any call that errors, times out, or is
+  reported as rejected, do NOT re-issue it until a read confirms it did not
+  happen. 2026-10-08: a `buy_ship` that was reported rejected had actually
+  executed (THEO-50, ~366k, no ledger SHIP row), and a second buy followed, so
+  the fleet ended up with two haulers when one was wanted.
 - **Reassigning a ship's role interrupts whatever it was doing.** Don't
   call `stcommand_set_ship_role` on a ship mid-task without a reason — it
   won't finish its current job first.
