@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Max lots per trip is a doctrine rule (2026-10-08)
+
+A trip's volume has been `min(hold, what the wallet allows, lot size x MAX_LOTS_PER_TRIP)` with the constant fixed at 3
+(`dispatcher.ts`). With 80-unit light haulers that caps a good that trades in lots of 18 at 54 units and one in lots of 20
+at 60, however big the hold: ledger `wallet_after` showed those part-filled buys leaving 600-900k in the wallet, so the
+cap, not cash, was the limit. It is now the doctrine rule `maxLotsPerTrip` (default 3, range 1-12, adopted by default so
+nothing changes until it is edited), visible and editable on the dashboard's Doctrine tab and through
+`stcommand_set_doctrine`. `computeDispatchRoutes()` (route profit figures) and every trader read it live, so a change
+applies from the next route plan. Each extra lot still moves the price ~4.5% against us; the route profit model charges
+for that, so a higher cap trades per-unit margin for fuller holds.
+
 ## The ledger records the wallet balance at each trade (2026-10-08)
 
 Many traders buy from one wallet, so how full a hold gets depends on what the previous trader left. Cash read every 20-30

@@ -108,6 +108,8 @@ export interface TraderOptions {
   maxLossPct?: number;
   /** Minimum per-unit margin for a route to be worth taking. Default 10. */
   marginFloor?: number;
+  /** Lots of a market's own trade volume one trip may buy (doctrine `maxLotsPerTrip`); read live at each plan. */
+  maxLotsPerTrip?: () => number;
   /**
    * How long a price stays usable, in minutes. The dispatcher filters its route
    * list by the same number, so both are reasoning about the same markets.
@@ -229,6 +231,7 @@ export class TraderAgent {
   private readonly applyCashFloor?: (credits: number) => number;
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
+  private readonly maxLotsPerTrip: () => number;
   private readonly intelMaxAgeMin: () => number;
   private readonly recordDoctrineFire?: TraderOptions["recordDoctrineFire"];
   private readonly stopManualRoute?: TraderOptions["stopManualRoute"];
@@ -350,6 +353,7 @@ export class TraderAgent {
     this.applyCashFloor = opts.applyCashFloor;
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
+    this.maxLotsPerTrip = opts.maxLotsPerTrip ?? (() => MAX_LOTS_PER_TRIP);
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
     this.recordDoctrineFire = opts.recordDoctrineFire;
     this.stopManualRoute = opts.stopManualRoute;
@@ -1263,7 +1267,7 @@ export class TraderAgent {
     const credits = this.creditsForPlanning();
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
     const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
-    const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
+    const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * this.maxLotsPerTrip());
     if (volume <= 0 || lotSize <= 0) return `volume=${volume} lotSize=${lotSize} cargo=${this.ship.cargo.capacity} credits=${credits}`;
     const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize, buyVolume: buy.volume, sellVolume: sell.volume };
     const profit = this.routeProfit(route);
@@ -1365,7 +1369,7 @@ export class TraderAgent {
     // can see, and assuming the entire cargo capacity trades at one flat
     // price turned a route that looked profitable into a real loss once
     // later lots actually executed.
-    const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
+    const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * this.maxLotsPerTrip());
     if (volume <= 0 || lotSize <= 0) return undefined;
     const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize, buyVolume: buy.volume, sellVolume: sell.volume };
     if (!ignoreProfitFloor && this.routeProfit(route) <= 0) return undefined;
@@ -1410,7 +1414,7 @@ export class TraderAgent {
       // and the wallet, capped at a few lots' worth rather than either
       // market's own per-transaction limit OR the whole hold.
       const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
-      const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * MAX_LOTS_PER_TRIP);
+      const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * this.maxLotsPerTrip());
       if (volume <= 0 || lotSize <= 0) continue;
       const candidate: Route = {
         good,

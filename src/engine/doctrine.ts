@@ -80,6 +80,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "maxLotsPerTrip",
+    name: "Max lots per trip",
+    description: "How many of a market's own trade-volume lots one trader may buy in a single trip. A trip's volume is min(hold, what the wallet allows, lot size x this), so with the default 3 a good that trades in lots of 18 caps a trip at 54 units however big the hold is (seen 2026-10-08: ANTIMATTER 54 and MACHINERY 60 on 80-unit haulers with 600-900k still in the wallet). Raise it as holds grow (a 150-unit hull needs 7+ on an 18-unit lot). Each extra lot moves the price ~4.5% against us, which the route profit figures already charge for, so more lots earn less per unit. Takes effect on the next route plan.",
+    value: 3, min: 1, max: 12, step: 1, unit: " lots",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",

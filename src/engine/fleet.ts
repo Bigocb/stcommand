@@ -1008,6 +1008,11 @@ export class FleetManager {
     return Math.max(0, credits - this.minCashReserve());
   }
 
+  /** Lots of a market's trade volume one trip may buy: doctrine `maxLotsPerTrip`, whole lots, default 3. */
+  private maxLotsPerTrip(): number {
+    return Math.max(1, Math.round(this.doctrine.value("maxLotsPerTrip", MAX_LOTS_PER_TRIP)));
+  }
+
   /** Headroom above the cash floor before a ship purchase is even considered. */
   private shipBudget(): number {
     return this.doctrine.value("shipBudget", 0);
@@ -1196,6 +1201,7 @@ export class FleetManager {
       applyCashFloor: (credits: number) => this.spendableCredits(credits),
       maxLossPct: this.doctrine.value("maxLossPct", 100),
       marginFloor: this.doctrine.value("marginFloor", 0),
+      maxLotsPerTrip: () => this.maxLotsPerTrip(),
       recordDoctrineFire: (key) => this.doctrine.recordFire(key, shipSymbol),
       getWarehouseShip: () => this.getWarehouseShip(),
       warehouseBalance: async (good) => {
@@ -1642,6 +1648,7 @@ export class FleetManager {
     const speeds = flyers.filter((sh) => sh.frame?.symbol !== "FRAME_DRONE").map((sh) => sh.engine?.speed ?? 0).filter((v) => v > 0);
     const fleetSpeed = speeds.length ? Math.min(...speeds) : 0;
     const spendable = this.spendableCredits();
+    const maxLots = this.maxLotsPerTrip();
     // Deliberately NOT filtered by gate reachability here: a "buy" or
     // "sell" assignment only needs its own side of the leg (buyAt, or
     // sellAt) to be reachable from the warehouse — not that buyAt and
@@ -1679,7 +1686,7 @@ export class FleetManager {
         // one transaction, without assuming a depth real markets don't have.
         // A placeholder ratio, same as CROSS_SYSTEM_JUMP_COST_ESTIMATE
         // above: tune against real executed-trip totals.
-        const volume = Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * MAX_LOTS_PER_TRIP));
+        const volume = Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * maxLots));
         const buyVolume = l.buyVolume ?? l.volume;
         const sellVolume = l.sellVolume ?? l.volume;
         let fuelCost: number;
@@ -1722,7 +1729,7 @@ export class FleetManager {
         }
         // The same trip for each hold size flying: the headline figure above is priced at the biggest hold.
         const profitByHold: Record<string, number> = {};
-        for (const h of traderHolds) profitByHold[h] = profitFor(Math.max(0, Math.min(h, affordable, l.volume * MAX_LOTS_PER_TRIP)));
+        for (const h of traderHolds) profitByHold[h] = profitFor(Math.max(0, Math.min(h, affordable, l.volume * maxLots)));
         return {
           good: l.goodSymbol,
           buyAt: l.buyAt,
