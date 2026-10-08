@@ -954,6 +954,14 @@ function escapeAttr(s) {
 /* ── Markets screen (pass 3) ─────────────────
  * Routes, Yards & outfitting, Warehouse, Dispatch read-only panels.
  */
+// The same trip priced for each hold size flying (profitPerTrip is the biggest hold's), so a 40-unit shuttle's
+// real take isn't read off a figure that assumes an 80-unit hauler. Shown only when the holds differ.
+function holdLine(r) {
+  const holds = Object.entries(r.profitByHold ?? {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+  if (holds.length < 2) return "";
+  return `<div class="route">${holds.map(([u, p]) => `${u}u ${signed(p)}`).join(" · ")}</div>`;
+}
+
 function renderMarkets() {
   // Routes panel
   const routesHtml = (() => {
@@ -967,6 +975,7 @@ function renderMarkets() {
         <div style="flex:1">
           <div class="name">${escapeHtml(r.goodSymbol)}</div>
           <div class="route">${escapeHtml(r.buyAt)} → ${escapeHtml(r.sellAt)}</div>
+          ${holdLine(r)}
         </div>
         <div class="profit">${signed(r.profitPerTrip)}</div>
       </div>
