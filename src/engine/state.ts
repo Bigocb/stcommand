@@ -52,6 +52,15 @@ export class FleetState {
     this.snapshot = { ...this.snapshot, agent: { ...agent, credits } };
   }
 
+  /** Set one ship's hold from a buy/sell response so the cargo moves with the balance. Unknown ships are ignored. */
+  setShipCargo(shipSymbol: string, cargo: Ship["cargo"]): void {
+    const i = this.snapshot.ships.findIndex((sh) => sh.symbol === shipSymbol);
+    if (i < 0) return;
+    const ships = this.snapshot.ships.slice();
+    ships[i] = { ...ships[i]!, cargo };
+    this.snapshot = { ...this.snapshot, ships };
+  }
+
   get(): FleetSnapshot {
     return this.snapshot;
   }

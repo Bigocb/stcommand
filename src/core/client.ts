@@ -734,11 +734,21 @@ export class SpaceTradersAPI {
    *  instead of waiting for the next 20s agent read (which queues behind other work when the limiter is full). */
   onCredits?: (credits: number) => void;
 
+  /** Called with a ship's hold after each buy or sell, so the dashboard shows the cargo with the balance rather
+   *  than up to a refresh later. */
+  onCargo?: (shipSymbol: string, cargo: components["schemas"]["ShipCargo"]) => void;
+
   private noteCredits<T extends { agent?: { credits?: number } }>(res: T): T {
     if (typeof res?.agent?.credits === "number") {
       this.lastKnownCredits = res.agent.credits;
       this.onCredits?.(res.agent.credits);
     }
+    return res;
+  }
+
+  private noteTrade<T extends { agent?: { credits?: number }; cargo?: components["schemas"]["ShipCargo"] }>(shipSymbol: string, res: T): T {
+    this.noteCredits(res);
+    if (res?.cargo) this.onCargo?.(shipSymbol, res.cargo);
     return res;
   }
 
@@ -1051,7 +1061,7 @@ export class SpaceTradersAPI {
       agent: components["schemas"]["Agent"];
       cargo: components["schemas"]["ShipCargo"];
       transaction: components["schemas"]["MarketTransaction"];
-    }>(`/my/ships/${shipSymbol}/sell`, { symbol, units }).then((r) => this.noteCredits(r));
+    }>(`/my/ships/${shipSymbol}/sell`, { symbol, units }).then((r) => this.noteTrade(shipSymbol, r));
   }
 
   purchaseCargo(shipSymbol: string, symbol: string, units: number) {
@@ -1059,7 +1069,7 @@ export class SpaceTradersAPI {
       agent: components["schemas"]["Agent"];
       cargo: components["schemas"]["ShipCargo"];
       transaction: components["schemas"]["MarketTransaction"];
-    }>(`/my/ships/${shipSymbol}/purchase`, { symbol, units }).then((r) => this.noteCredits(r));
+    }>(`/my/ships/${shipSymbol}/purchase`, { symbol, units }).then((r) => this.noteTrade(shipSymbol, r));
   }
 
   /** Throw away cargo from a ship's hold (e.g. to free space on a stranded ship). */

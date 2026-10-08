@@ -27,6 +27,8 @@ Deck and Tower showed the balance from a 20s agent read (`GET /my/agent`, routin
 (operator watched two sales and saw no change). Every trade and purchase response already carries the wallet, so the
 client now hands it to `FleetState.setCredits()` straight away; the 20s read stays as the correction.
 
+That left the balance ahead of the hold (operator saw 300k leave with no cargo change: a 290k ANTIMATTER buy whose cargo showed on the next 20s read), so the same response's `cargo` now also goes to `FleetState.setShipCargo()` (`Client.onCargo`) and the two move together.
+
 ## MCP tool to start the gate mission (2026-10-08)
 
 There was no MCP way to start a construction mission (only the dashboard's start control), so a session driving a
