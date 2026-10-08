@@ -1140,7 +1140,7 @@ function tradersFor() {
 function holdLine(r) {
   const holds = Object.entries(r.profitByHold ?? {}).sort((a, b) => Number(a[0]) - Number(b[0]));
   if (holds.length < 2) return "";
-  return `<div class="rr-legs">${holds.map(([u, p]) => `${u}u ${signed(p)}`).join(" · ")}</div>`;
+  return `<div class="rr-holds">${holds.map(([u, p]) => `${u}u ${signed(p)}`).join(" · ")}</div>`;
 }
 
 function renderMarketRoutes() {

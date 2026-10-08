@@ -446,6 +446,9 @@ body {
 .route-row .rr-good { font-family: var(--chrome); font-weight: 600; font-size: 12.5px; }
 .route-row .rr-profit { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--green); }
 .route-row .rr-legs { font-family: var(--mono); font-size: 9.5px; color: var(--dim); margin: 4px 0 8px; }
+/* Profit per hold size: amber so it reads apart from the dim route line beneath it. */
+.route-row .rr-holds { font-family: var(--mono); font-size: 10px; color: var(--amber); margin: 4px 0 0; }
+.route-row .rr-holds + .rr-legs { margin-top: 2px; }
 .route-row .rr-actions { display: flex; }
 .route-row .rr-actions .btn { flex: 1; }
 .ship-pick {
