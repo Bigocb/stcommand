@@ -352,7 +352,7 @@ export class Store {
       if (f.waypoint) add("waypoint_symbol = ?", f.waypoint);
       args.push(f.limit);
       const r = await c.query(
-        `SELECT timestamp, ship_symbol, type, trade_symbol, units, waypoint_symbol, price_per_unit, total, realized_pnl
+        `SELECT timestamp, ship_symbol, type, trade_symbol, units, waypoint_symbol, price_per_unit, total, realized_pnl, wallet_after
          FROM ledger WHERE ${where.join(" AND ")} ORDER BY timestamp DESC LIMIT $${args.length}`,
         args,
       );

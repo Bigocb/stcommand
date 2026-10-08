@@ -118,7 +118,7 @@ export const OPS_TOOLS: OpsTool[] = [
   {
     name: "ledger",
     title: "Ledger rows",
-    description: "Filtered ledger rows, newest first (type: PURCHASE|SELL|REFUEL|JUMP|SHIP|CONTRACT|OTHER). Prices are credits; `realized_pnl` is set only on sells with a tracked cost basis.",
+    description: "Filtered ledger rows, newest first (type: PURCHASE|SELL|REFUEL|JUMP|SHIP|CONTRACT|OTHER). Prices are credits; `realized_pnl` is set only on sells with a tracked cost basis. `wallet_after` is the wallet balance right after the trade (rows from 2026-10-08 20:04 UTC onward).",
     input: { ship: z.string().optional(), good: z.string().optional(), type: z.string().optional(), waypoint: z.string().optional(), sinceHours: num(6), limit: num(40) },
     async run(ctx, a) {
       const rows = await ctx.w.store.opsLedger(ctx.w.tenantId, { ship: a.ship, good: a.good, type: a.type, waypoint: a.waypoint, sinceIso: iso(ctx.now() - a.sinceHours * 3_600_000), limit: Math.min(a.limit, 300) });
