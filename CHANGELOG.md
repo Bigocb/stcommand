@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## The gate mission no longer spends below its cash floor (2026-10-08)
+
+`cashFloor` only decided whether the mission bought at all. The lot itself was sized from the whole balance, so once
+cash was above the resume level, one stop could spend nearly all of it. Live: THEO at ~260k bought 25
+ADVANCED_CIRCUITRY for 184,475 at 02:47 with a 200k floor and fell to ~25k, which left its traders short of cash
+for their own cargo. The 2026-10-07 multi-transaction change made this worse, because a lot could now be bigger than
+one 20-unit transaction. The lot is now sized from `credits - cashFloor`, and the mission waits when less than one
+unit fits. Tests in `tests/missionPacing.test.ts`.
+
 ## Contracts past the 20th are seen again, and negotiating docks first (2026-10-08)
 
 Two bugs kept agents off contracts, which pay 120-230k each for manufactured goods.

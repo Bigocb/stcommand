@@ -104,9 +104,28 @@ describe("MissionManager multi-transaction lots", () => {
     const h = harness({ tradeVolume: 20, price: 1000 });
     await h.mgr.startConstruction("X1-A-I1");
     await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
-    // 10,000,000 credits: the first 20u (20,000) is allowed, a second would leave less than the floor.
+    // 10,000,000 credits and a 9,970,000 floor: 30,000 to spend, so 20u then 10u, never a second full 20u.
     await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 40, cashFloor: 9_970_000 });
     await h.mgr.tick();
-    assert.deepEqual(h.bought, [20]);
+    assert.deepEqual(h.bought, [20, 10]);
+  });
+
+  it("sizes the first transaction from the cash above the floor, not the whole balance", async () => {
+    const h = harness({ tradeVolume: 20, price: 1000 });
+    await h.mgr.startConstruction("X1-A-I1");
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    // 5,000 above the floor at 1,000/unit: 5 units, not 20.
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 40, cashFloor: 9_995_000 });
+    await h.mgr.tick();
+    assert.deepEqual(h.bought, [5]);
+  });
+
+  it("buys nothing when less than one unit fits above the floor", async () => {
+    const h = harness({ tradeVolume: 20, price: 1000 });
+    await h.mgr.startConstruction("X1-A-I1");
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 40, cashFloor: 9_999_500 });
+    await h.mgr.tick();
+    assert.deepEqual(h.bought, []);
   });
 });

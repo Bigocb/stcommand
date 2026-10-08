@@ -942,7 +942,15 @@ export class MissionManager {
           this.log(`mission ${mission.targetWaypoint}: ${market} price for ${material} rose to ${price}c (was ${t.basePrice}c) — re-shopping instead of buying`);
           return;
         }
-        const affordable = price > 0 ? Math.floor(credits / price) : toBuy;
+        // Spend only what sits above the cash floor. The floor gate above decides whether to buy at all; without this
+        // the lot itself was sized from the whole balance (2026-10-08: THEO at ~260k bought 25 AC for 184k, landing at
+        // ~75k with a 200k floor, and the traders then had too little cash to buy their own cargo).
+        const spendable = credits - (mission.pacing?.cashFloor ?? 0);
+        const affordable = price > 0 ? Math.floor(spendable / price) : toBuy;
+        if (price > 0 && affordable < 1) {
+          t.retryAt = Date.now() + 5 * 60_000;
+          return;
+        }
         // Respect the market's per-transaction trade volume limit (e.g. FAB_MATS
         // caps at 20u/tx) — buying more than that fails the whole purchase.
         const volumeCap = buyer?.tradeVolume && buyer.tradeVolume > 0 ? buyer.tradeVolume : toBuy;
