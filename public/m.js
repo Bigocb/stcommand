@@ -21,7 +21,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { keeperCoverage, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml } from "/shared/domain.js";
+import { keeperCoverage, cargoValueText, cargoValueTitle, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
@@ -342,6 +342,7 @@ function fleetRows() {
       job: claim ?? (st?.role === "trader" ? (jobLabel(assignment) ?? "unassigned") : null),
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
+      cargoValue: state?.cargoValues?.[s.symbol],
       condition: worstConditionPct(s) ?? 100,
       waypoint: s.nav?.waypointSymbol ?? "",
       nav: s.nav?.status ?? "",
@@ -378,7 +379,7 @@ function hullCard(row, extraClass) {
       ${row.job ? `<div class="job">${row.job === "unassigned" ? "unassigned" : "→ " + escapeHtml(row.job)}</div>` : ""}
       <div class="gauges">
         <div class="gauge-row"><span class="g-k">Fuel</span><div class="g-track"><div class="g-fill${row.fuelCap && row.fuel / row.fuelCap < 0.25 ? " red" : ""}" style="width:${row.fuelCap ? (row.fuel / row.fuelCap) * 100 : 0}%"></div></div><span class="g-v">${row.fuel}/${row.fuelCap}</span></div>
-        <div class="gauge-row"><span class="g-k">Hold</span><div class="g-track"><div class="g-fill amber" style="width:${row.cargoCap ? (row.cargo / row.cargoCap) * 100 : 0}%"></div></div><span class="g-v">${row.cargoCap ? `${row.cargo}/${row.cargoCap}` : "—"}</span></div>
+        <div class="gauge-row"><span class="g-k">Hold</span><div class="g-track"><div class="g-fill amber" style="width:${row.cargoCap ? (row.cargo / row.cargoCap) * 100 : 0}%"></div></div><span class="g-v"${row.cargoValue ? ` title="${escapeAttr(cargoValueTitle(row.cargoValue))}"` : ""}>${row.cargoCap ? `${row.cargo}/${row.cargoCap}` : "—"}${cargoValueText(row.cargoValue) ? ` <span class="cv">${escapeHtml(cargoValueText(row.cargoValue))}</span>` : ""}</span></div>
         <div class="gauge-row"><span class="g-k">Hull</span><div class="g-track"><div class="g-fill${row.condition < 50 ? " red" : ""}" style="width:${row.condition}%"></div></div><span class="g-v">${row.condition}%</span></div>
       </div>
       <div class="at">${row.stranded ? "STRANDED · " : ""}${escapeHtml(shortWp(row.waypoint))} · ${escapeHtml((row.nav || "idle").replace(/_/g, " ").toLowerCase())} ${row.cooldown ?? ""}</div>
@@ -448,7 +449,8 @@ function renderRoster() {
       <span class="rr-id"><span class="sym">${escapeHtml(r.symbol)}</span><span class="role sys" title="${escapeAttr(r.waypoint)}">${escapeHtml(sysShort(r.waypoint))}</span></span>
       <span class="rr-job${jobCls}">${r.stranded ? "STRANDED · " : ""}${escapeHtml(jobTxt)} ${r.cooldown}</span>
       <span class="rr-stats">
-        ${r.cargoCap ? `<span class="cg ${r.cargo > 0 ? "on" : "off"}" title="Cargo ${r.cargo}/${r.cargoCap}"></span>` : `<span class="cg none"></span>`}
+        ${r.cargoCap ? `<span class="cg ${r.cargo > 0 ? "on" : "off"}" title="Cargo ${r.cargo}/${r.cargoCap}${cargoValueText(r.cargoValue) ? ` · ${cargoValueText(r.cargoValue)}` : ""}"></span>` : `<span class="cg none"></span>`}
+        ${cargoValueText(r.cargoValue) ? `<span class="cv">${escapeHtml(cargoValueText(r.cargoValue))}</span>` : ""}
         ${r.fuelCap ? `<span class="fg ${fuelPct < 25 ? "low" : fuelPct < 50 ? "mid" : "ok"}" title="Fuel ${r.fuel}/${r.fuelCap} (${fuelPct}%)"></span>` : `<span class="fg none"></span>`}
         <span class="eta${etaTxt !== "—" ? " live" : ""}">${escapeHtml(etaTxt)}${fmTag(r.flightMode)}</span>
       </span>
@@ -651,7 +653,7 @@ function renderShipDetails(shipSymbol) {
 
   return `<div class="ship-details">
     ${role ? `<div class="detail-row"><span>Type</span><span class="d">${escapeHtml(roleLabel(role))}</span></div>` : ""}
-    <div class="dtl-h">Cargo hold ${ship.cargo?.units ?? 0}/${capacity}</div>
+    <div class="dtl-h" title="${escapeAttr(cargoValueTitle(state?.cargoValues?.[ship.symbol]))}">Cargo hold ${ship.cargo?.units ?? 0}/${capacity}${cargoValueText(state?.cargoValues?.[ship.symbol]) ? ` · <span class="cv">${escapeHtml(cargoValueText(state?.cargoValues?.[ship.symbol]))}</span>` : ""}</div>
     ${cargo.length
       ? cargo.map((i) => `<div class="detail-row"><span>${i.units}u ${escapeHtml(i.symbol)}</span><button class="btn deny" data-act="jettison" data-good="${escapeHtml(i.symbol)}" data-units="${i.units}">Jettison</button></div>`).join("")
       : '<div class="empty">Hold is empty.</div>'}

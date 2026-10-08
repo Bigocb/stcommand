@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Value of what a ship is carrying, on Deck and Tower (2026-10-08)
+
+Operator wanted to see how much capital sits in holds (with five haulers loaded the wallet reads far lower than the
+fleet is worth, and the wallet-contention question depends on it). `cargoValue()` (`src/engine/cargoValue.ts`) prices
+each good a ship carries at its own route's sell market (live snapshot, falling back to the route's quoted price),
+otherwise at the best price any market in its system pays, then takes off our own per-lot price impact (the dispatcher's
+`slippageCredits`), so the figure reads as roughly what the hold would fetch rather than the list price. Goods with no
+known price are counted separately and shown as `+` (partly priced) or `?`. `FleetManager.cargoValues()` caches it for
+15s, adds the per-unit cost basis from the cargo manifest, and `GET /api/state` returns it as `cargoValues` keyed by
+ship. Deck gets a Value column in the fleet table plus the figure in the hold heading, per-good lines and map detail;
+Tower gets it on the hull card's Hold gauge, the roster row and the hold heading. The tooltip shows each good's price,
+which market it is priced at, and the cost basis on file (the manifest keeps the last purchase price, so it overstates
+the average paid for a multi-lot buy).
+
 ## Keepers poll quiet markets less often (2026-10-08)
 
 Keepers were about 36% of the API budget (a ship read, a market read and a shipyard check every 5 minutes each), and the

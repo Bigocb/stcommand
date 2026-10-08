@@ -448,3 +448,7 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .mk-tool-body[hidden]{display:none}
 #mk-tools-seg{flex:0 0 auto;width:300px}
 #mk-tools-seg-count{flex:1;text-align:right}
+
+/* Estimated value of a hold (cargoValueText) */
+td.cv { color: var(--amber, #e8b04a); white-space: nowrap; }
+.dtl-h .cv { color: var(--amber, #e8b04a); }

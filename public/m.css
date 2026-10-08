@@ -550,3 +550,7 @@ body {
 /* Mission material buy/hold toggle (onlyMaterials). */
 .mat-hold{font-size:10px;padding:2px 8px;margin-left:6px}
 .mat-hold.warn{color:var(--amber,#f5a524);border-color:var(--amber,#f5a524)}
+
+/* Estimated value of a hold (cargoValueText) */
+.cv { font-family: var(--mono); color: var(--amber); }
+.roster-row .rr-stats .cv { font-size: 10px; margin-right: 6px; }

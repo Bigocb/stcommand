@@ -19,6 +19,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { ShipSnapshotBoard, describeSnapshotSummary } from "./shipSnapshots.js";
 import { KEEPER_POLL_MIN_MS, keeperPollDelayMs } from "./keeperCadence.js";
+import { cargoValue, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -1923,6 +1924,49 @@ export class FleetManager {
   /** The live world, for readers migrating off their own withWorld() copy. */
   getRegistry(): Registry {
     return this.registry;
+  }
+
+  private cargoValueCache?: { at: number; value: Record<string, CargoValue> };
+  private manifestCostCache?: { at: number; byShip: Map<string, Map<string, number>> };
+
+  /**
+   * What each loaded ship's hold is worth, by ship symbol (see cargoValue()). Cached for 15s: it is read by every
+   * dashboard poll and nothing about it moves faster than a trade.
+   */
+  async cargoValues(): Promise<Record<string, CargoValue>> {
+    const now = Date.now();
+    if (this.cargoValueCache && now - this.cargoValueCache.at < 15_000) return this.cargoValueCache.value;
+
+    // Per-unit cost basis per ship and good, from the manifest the tick already keeps (a query, so cached for a minute).
+    if (this.store && this.tenantId && (!this.manifestCostCache || now - this.manifestCostCache.at > 60_000)) {
+      try {
+        const byShip = new Map<string, Map<string, number>>();
+        for (const r of await this.store.getAllManifestRows(this.tenantId)) {
+          if (!byShip.has(r.shipSymbol)) byShip.set(r.shipSymbol, new Map());
+          byShip.get(r.shipSymbol)!.set(r.goodSymbol, r.costBasis);
+        }
+        this.manifestCostCache = { at: now, byShip };
+      } catch {
+        // cost is a nice-to-have; value alone still shows
+      }
+    }
+
+    const assignments = new Map(this.dispatcher.list().map((a) => [a.shipSymbol, a]));
+    const out: Record<string, CargoValue> = {};
+    for (const ship of this.currentShips()) {
+      const cargo = ship.cargo?.inventory ?? [];
+      if (!cargo.length) continue;
+      const a = assignments.get(ship.symbol);
+      out[ship.symbol] = cargoValue({
+        cargo,
+        assignment: a ? { good: a.good, sellAt: a.sellAt, sellPrice: a.sellPrice } : undefined,
+        marketAt: (wp) => this.registry.market(wp),
+        marketsHere: this.registry.markets(ship.nav.systemSymbol),
+        costPerUnit: this.manifestCostCache?.byShip.get(ship.symbol),
+      });
+    }
+    this.cargoValueCache = { at: now, value: out };
+    return out;
   }
 
   /** Per market: the last price/supply signature seen and when it last differed. Fed by every snapshot from any ship. */

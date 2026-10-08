@@ -227,3 +227,34 @@ export function chainHealthHtml(h) {
       </div>`;
   }).join("");
 }
+
+/** Compact credits: 1,234,567 -> "1.23M", 290,400 -> "290k". */
+function compactCredits(n) {
+  const v = Math.round(n);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `${Math.round(v / 1_000)}k`;
+  return String(v);
+}
+
+/**
+ * What a ship's hold is worth, from the server's `cargoValues[symbol]` (src/engine/cargoValue.ts): "~290k" for the
+ * estimated proceeds net of our own price impact, "~290k+" when part of the hold has no known price, "?" when none of
+ * it does, "" for an empty hold.
+ */
+export function cargoValueText(cv) {
+  if (!cv || !cv.items?.length) return "";
+  if (cv.value <= 0) return "?";
+  return `~${compactCredits(cv.value)}${cv.unpricedUnits > 0 ? "+" : ""}`;
+}
+
+/** Tooltip for cargoValueText: one line per good, then what we paid. Plain text (escape it into an attribute). */
+export function cargoValueTitle(cv) {
+  if (!cv || !cv.items?.length) return "";
+  const lines = cv.items.map((i) =>
+    i.source === "none"
+      ? `${i.units} ${i.symbol}: no known price`
+      : `${i.units} ${i.symbol} @ ${fmt(i.unitPrice)} (${i.source === "route" ? "its route's market" : "best in system"}${i.sellAt ? ` ${shortWp(i.sellAt)}` : ""}) = ${fmt(i.net)}`);
+  lines.push(`Net of our own price impact. Listed prices: ${fmt(cv.gross)}.`);
+  if (cv.cost > 0) lines.push(`Paid about ${fmt(cv.cost)} (cost basis on file).`);
+  return lines.join("\n");
+}

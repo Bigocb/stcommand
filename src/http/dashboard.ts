@@ -160,7 +160,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
 
   router.use("/ops", createOpsRouter(worker));
 
-  router.get("/state", (req, res) => {
+  router.get("/state", async (req, res) => {
     const w = worker(req);
     if (!w) {
       // No live worker — this tenant's boot is currently failing (see
@@ -177,7 +177,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       res.status(503).json({ error: "engine not ready" });
       return;
     }
-    res.json({ ...w.state.get(), stale: false });
+    // Value of what each ship is carrying, for Deck's Value column and Tower's hold line. Best-effort: a failure here
+    // must not take the whole state response down.
+    const cargoValues = await w.fleet.cargoValues().catch(() => ({}));
+    res.json({ ...w.state.get(), cargoValues, stale: false });
   });
 
   /**
