@@ -730,8 +730,15 @@ export class SpaceTradersAPI {
    *  at once it can already include a neighbour's transaction that landed a moment later. */
   lastKnownCredits: number | undefined;
 
+  /** Called with the balance from every trade/purchase response, so the dashboard's figure moves at the trade
+   *  instead of waiting for the next 20s agent read (which queues behind other work when the limiter is full). */
+  onCredits?: (credits: number) => void;
+
   private noteCredits<T extends { agent?: { credits?: number } }>(res: T): T {
-    if (typeof res?.agent?.credits === "number") this.lastKnownCredits = res.agent.credits;
+    if (typeof res?.agent?.credits === "number") {
+      this.lastKnownCredits = res.agent.credits;
+      this.onCredits?.(res.agent.credits);
+    }
     return res;
   }
 

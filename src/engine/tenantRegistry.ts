@@ -346,6 +346,8 @@ export class TenantRegistry {
     api.setPriority?.(0);
     const store = new Store(this.pool);
     const state = new FleetState();
+    // Optional-assigned: a test's injected fake API is a plain object, not a SpaceTradersAPI.
+    if (api) (api as { onCredits?: (c: number) => void }).onCredits = (c) => state.setCredits(c);
 
     const agent = await api.getMyAgent();
     const systemSymbol = agent.headquarters.slice(0, agent.headquarters.lastIndexOf("-"));

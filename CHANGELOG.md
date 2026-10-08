@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Dashboard credits move at the trade (2026-10-08)
+
+Deck and Tower showed the balance from a 20s agent read (`GET /my/agent`, routine priority) polled by the browser every
+15s, so a sale could take 35s or more to show, longer when the shared limiter was full and the read waited in the queue
+(operator watched two sales and saw no change). Every trade and purchase response already carries the wallet, so the
+client now hands it to `FleetState.setCredits()` straight away; the 20s read stays as the correction.
+
 ## MCP tool to start the gate mission (2026-10-08)
 
 There was no MCP way to start a construction mission (only the dashboard's start control), so a session driving a

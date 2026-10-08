@@ -45,6 +45,13 @@ export class FleetState {
     this.snapshot = { ...this.snapshot, ...s, updatedAt: new Date().toISOString() };
   }
 
+  /** Set the displayed balance from a trade response, without waiting for the next agent read. */
+  setCredits(credits: number): void {
+    const agent = this.snapshot.agent;
+    if (!agent) return;
+    this.snapshot = { ...this.snapshot, agent: { ...agent, credits } };
+  }
+
   get(): FleetSnapshot {
     return this.snapshot;
   }
