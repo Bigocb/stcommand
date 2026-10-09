@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Hold values fall back to stored prices after a restart (2026-10-09)
+
+After a deploy the in-memory market registry is empty until ships and keepers
+re-read their markets, so a full hold (THEO-31's 80 ADVANCED_CIRCUITRY, ~441k
+paid) showed as unpriced and "Credits + holds" read ~500k short for several
+minutes. `FleetManager.cargoValues()` now falls back to the stored
+`market_latest` snapshots for any market the registry has not got; the live
+registry still wins when it has one.
+
 ## Credits + holds at the top of Deck and Tower (2026-10-09)
 
 A second number beside Credits: the wallet plus the estimated proceeds of every

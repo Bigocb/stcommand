@@ -30,6 +30,7 @@ describe("cargoValueText", () => {
   });
 });
 
+// @ts-expect-error plain browser module, no types
 import { cargoProfit } from "../public/shared/domain.js";
 
 describe("cargoProfit", () => {
@@ -45,6 +46,7 @@ describe("cargoProfit", () => {
   });
 });
 
+// @ts-expect-error plain browser module, no types
 import { walletPlusHolds } from "../public/shared/domain.js";
 
 describe("walletPlusHolds", () => {

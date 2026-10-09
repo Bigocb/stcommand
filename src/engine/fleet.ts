@@ -1952,6 +1952,28 @@ export class FleetManager {
       }
     }
 
+    // The in-memory registry is empty after a restart until ships and keepers re-read the markets, which left a full
+    // hold "unpriced" (and the wallet+holds figure short) for the first several minutes. The stored latest
+    // snapshots fill the gap; anything the registry already knows wins.
+    const stored = new Map<string, MarketSnapshot>();
+    try {
+      for (const r of (await this.store?.latestMarketSnapshots()) ?? []) {
+        let m = stored.get(r.waypointSymbol);
+        if (!m) {
+          m = { symbol: r.waypointSymbol, systemSymbol: r.systemSymbol, tradeGoods: {}, imports: [], exports: [], exchange: [], fetchedAt: r.timestamp };
+          stored.set(r.waypointSymbol, m);
+        }
+        m.tradeGoods[r.goodSymbol] = { symbol: r.goodSymbol, purchasePrice: r.purchasePrice, sellPrice: r.sellPrice, tradeVolume: r.tradeVolume, supply: r.supply } as MarketSnapshot["tradeGoods"][string];
+      }
+    } catch {
+      // stored prices are a fallback only
+    }
+    const marketsIn = (system: string): MarketSnapshot[] => {
+      const live = this.registry.markets(system);
+      const seen = new Set(live.map((m) => m.symbol));
+      return [...live, ...[...stored.values()].filter((m) => m.systemSymbol === system && !seen.has(m.symbol))];
+    };
+
     const assignments = new Map(this.dispatcher.list().map((a) => [a.shipSymbol, a]));
     const out: Record<string, CargoValue> = {};
     for (const ship of this.currentShips()) {
@@ -1961,8 +1983,8 @@ export class FleetManager {
       out[ship.symbol] = cargoValue({
         cargo,
         assignment: a ? { good: a.good, sellAt: a.sellAt, sellPrice: a.sellPrice } : undefined,
-        marketAt: (wp) => this.registry.market(wp),
-        marketsHere: this.registry.markets(ship.nav.systemSymbol),
+        marketAt: (wp) => this.registry.market(wp) ?? stored.get(wp),
+        marketsHere: marketsIn(ship.nav.systemSymbol),
         costPerUnit: this.manifestCostCache?.byShip.get(ship.symbol),
       });
     }
