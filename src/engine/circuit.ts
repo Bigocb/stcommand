@@ -24,9 +24,15 @@ export interface CircuitPolicy {
   ttlMinutes: number;
   /** Leg 2 is dropped when the spendable cash would not buy at least this share of its planned load. */
   minCashShare: number;
+  /**
+   * How much of the empty flight from leg 2's sell market back to leg 1's buy market counts against the circuit (0..1).
+   * 1 (today) wants a true loop: leg 2 must end near where leg 1 began. 0 only asks for two loaded legs back to back and
+   * lets the ship pick again from wherever leg 2 ends, which admits many more pairs.
+   */
+  returnShare: number;
 }
 
-export const DEFAULT_CIRCUIT_POLICY: CircuitPolicy = { weight: 0, horizonMinutes: 10, bailoutShare: 0.5, ttlMinutes: 60, minCashShare: 0.5 };
+export const DEFAULT_CIRCUIT_POLICY: CircuitPolicy = { weight: 0, horizonMinutes: 10, bailoutShare: 0.5, ttlMinutes: 60, minCashShare: 0.5, returnShare: 1 };
 
 export interface CircuitContext {
   /** Straight-line distance between two waypoints in one system. */
@@ -92,10 +98,10 @@ export function bestCircuit(
     const betweenSeconds = ctx.distanceBetween(leg1.sellAt, c.buyAt) * c.secPerDist;
     const returnSeconds = ctx.distanceBetween(c.sellAt, leg1.buyAt) * leg1.secPerDist;
     if (!Number.isFinite(betweenSeconds) || !Number.isFinite(returnSeconds)) continue;
-    if (betweenSeconds > horizon || returnSeconds > horizon) continue;
+    if (betweenSeconds > horizon || (policy.returnShare > 0 && returnSeconds > horizon)) continue;
     // Each trip time is a round trip; half of it is one way (plus dock time). The pair's profit is the two scored rates
     // turned back into per-trip amounts (rate x trip / reference), divided by the cycle, so reference time cancels.
-    const cycleSeconds = leg1.tripSeconds / 2 + c.tripSeconds / 2 + betweenSeconds + returnSeconds;
+    const cycleSeconds = leg1.tripSeconds / 2 + c.tripSeconds / 2 + betweenSeconds + returnSeconds * policy.returnShare;
     const rate = (leg1.profitPerTrip * leg1.tripSeconds + c.profitPerTrip * c.tripSeconds) / cycleSeconds;
     if (!best || rate > best.rate) {
       best = {
@@ -105,6 +111,38 @@ export function bestCircuit(
     }
   }
   return best;
+}
+
+/**
+ * One line for the log saying why a route got no circuit: how many second legs were even candidates, how many passed each
+ * distance test, and the best pair that did (with its rate against the route's own score), so the horizon and return share
+ * can be tuned from what the dispatcher actually sees.
+ */
+export function circuitReport(
+  leg1: ChainCandidate,
+  candidates: readonly ChainCandidate[],
+  ctx: CircuitContext,
+  policy: CircuitPolicy,
+  ownScore: number,
+): string {
+  const system = leg1.buySystem;
+  const horizon = policy.horizonMinutes * 60;
+  let sameSystem = 0, free = 0, nearSale = 0, nearStart = 0;
+  for (const c of candidates) {
+    if (c.key === leg1.key || c.good === leg1.good || c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
+    if (c.buySystem !== system || systemOf(c.sellAt) !== system) continue;
+    sameSystem += 1;
+    if (ctx.unavailable(c)) continue;
+    free += 1;
+    const between = ctx.distanceBetween(leg1.sellAt, c.buyAt) * c.secPerDist;
+    const back = ctx.distanceBetween(c.sellAt, leg1.buyAt) * leg1.secPerDist;
+    if (between <= horizon) nearSale += 1;
+    if (between <= horizon && back <= horizon) nearStart += 1;
+  }
+  const best = bestCircuit(leg1, candidates, ctx, policy);
+  const pairs = `${sameSystem} same-system legs, ${free} free, ${nearSale} start within ${policy.horizonMinutes}m of the sale, ${nearStart} also end within ${policy.horizonMinutes}m of the start`;
+  if (!best) return `no circuit (${pairs})`;
+  return `circuit not better than the route alone: best ${best.leg2.good} rate ${Math.round(best.rate)} vs route ${Math.round(ownScore)} (${Math.round(best.betweenSeconds)}s empty after the sale, ${Math.round(best.returnSeconds)}s back; ${pairs})`;
 }
 
 /**

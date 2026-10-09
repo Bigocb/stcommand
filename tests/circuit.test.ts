@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { bestCircuit, circuitExpired, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type CircuitContext, type CircuitPolicy } from "../src/engine/circuit.js";
+import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type CircuitContext, type CircuitPolicy } from "../src/engine/circuit.js";
 import type { ChainCandidate } from "../src/engine/chain.js";
 
 const cand = (key: string, buyAt: string, sellAt: string, profit: number, extra: Partial<ChainCandidate> = {}): ChainCandidate => ({
@@ -60,6 +60,44 @@ describe("bestCircuit", () => {
   it("takes the best of several second legs", () => {
     const worse = cand("WORSE", "X1-A-101", "X1-A-11", 10_000);
     assert.equal(bestCircuit(leg1, [leg1, worse, back], ctx(), on)?.leg2.key, "BACK");
+  });
+});
+
+describe("return share", () => {
+  const leg1 = cand("OUT", "X1-A-10", "X1-A-100", 40_000);
+  const ends = cand("ENDSFAR", "X1-A-102", "X1-A-900", 42_000); // starts by the sale, ends 890s from where leg 1 began
+  it("by default a second leg that ends far from the start is not a circuit", () => {
+    assert.equal(bestCircuit(leg1, [leg1, ends], ctx(), on), undefined);
+  });
+  it("with the return share at 0 two loaded legs back to back are enough, and the empty return is not charged", () => {
+    const c = bestCircuit(leg1, [leg1, ends], ctx(), { ...on, returnShare: 0 });
+    assert.equal(c?.leg2.key, "ENDSFAR");
+    assert.equal(c?.cycleSeconds, 300 + 300 + 2); // no return hop in the cycle
+    assert.ok(Math.abs((c?.rate ?? 0) - (82_000 * 600) / 602) < 1e-6);
+  });
+  it("a share between 0 and 1 charges that part of a return that is within reach", () => {
+    const back = cand("BACK", "X1-A-102", "X1-A-30", 42_000); // 20s back
+    const half = bestCircuit(leg1, [leg1, back], ctx(), { ...on, returnShare: 0.5 });
+    assert.equal(half?.cycleSeconds, 300 + 300 + 2 + 10);
+  });
+});
+
+describe("circuitReport", () => {
+  const leg1 = cand("OUT", "X1-A-10", "X1-A-100", 40_000);
+  it("counts why nothing paired", () => {
+    const other = cand("OTHER", "X1-A-900", "X1-A-950", 40_000); // starts 800s from the sale
+    const text = circuitReport(leg1, [leg1, other], ctx(), on, 40_000);
+    assert.match(text, /^no circuit \(1 same-system legs, 1 free, 0 start within 10m of the sale, 0 also end within 10m of the start\)$/);
+  });
+  it("names the best pair and its rate against the route when one exists", () => {
+    const back = cand("BACK", "X1-A-102", "X1-A-12", 30_000);
+    const text = circuitReport(leg1, [leg1, back], ctx(), on, 90_000);
+    assert.match(text, /best BACK rate \d+ vs route 90000/);
+  });
+  it("does not count legs that are taken", () => {
+    const back = cand("BACK", "X1-A-102", "X1-A-12", 30_000);
+    const text = circuitReport(leg1, [leg1, back], ctx({ unavailable: () => true }), on, 40_000);
+    assert.match(text, /1 same-system legs, 0 free/);
   });
 });
 

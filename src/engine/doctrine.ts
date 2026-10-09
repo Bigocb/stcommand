@@ -101,6 +101,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "chainCircuitHorizonMin",
+    name: "Circuit reach",
+    description: "How far apart, in flying minutes, a circuit's two legs may be: the second leg must start within this long of where the first sells (and, unless the return share below is 0, end within it of where the first began). Longer admits more pairs but each empty hop costs the pair some of its rate. Only used while Two-leg circuits is on. Takes effect on the next dispatch recompute.",
+    value: 10, min: 1, max: 60, step: 1, unit: " min",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "chainCircuitReturnPct",
+    name: "Circuit return leg",
+    description: "How much of the empty flight from the second leg's sell market back to the first leg's buy market counts against a circuit. 100 wants a true loop (the second leg must end near where the first began). 0 only asks for two loaded legs back to back and lets the ship pick again from wherever the second leg ends, which admits many more pairs. Only used while Two-leg circuits is on. Takes effect on the next dispatch recompute.",
+    value: 100, min: 0, max: 100, step: 10, unit: "%",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",

@@ -212,6 +212,24 @@ describe("dispatcher circuits", () => {
     assert.equal(d.assignmentFor("T-1")?.circuit?.leg, 1);
   });
 
+  it("logs why a route got no circuit", () => {
+    const d = new RouteDispatcher();
+    const lines: string[] = [];
+    run(d, 1, [SOLO], [t1()], lines);
+    assert.ok(lines.some((l) => l.startsWith("dispatch circuit: T-1 SOLO — no circuit (")), lines.join("\n"));
+  });
+
+  it("the return share admits a second leg that ends far from where the first began", () => {
+    const FAR_END = route("FAR_END", "X1-A-102", "X1-A-900", 42_000);
+    const pick = (share?: number) => {
+      const d = new RouteDispatcher();
+      d.recompute([OUT, FAR_END], [t1()], [], [], [], [], () => false, distance, undefined, undefined, undefined, { circuitWeight: 1, circuitReturnShare: share });
+      return d.assignmentFor("T-1");
+    };
+    assert.equal(pick()?.circuit, undefined, "by default it must be a loop");
+    assert.equal(pick(0)?.circuit?.leg, 1, "with the return share at 0 it is a circuit");
+  });
+
   it("replaces the follow-on credit for a route that has a circuit", () => {
     const d = new RouteDispatcher();
     d.recompute([OUT, BACK, SOLO], [t1()], [], [], [], [], () => false, distance, undefined, undefined, undefined, { followOnWeight: 0.5, circuitWeight: 1 });

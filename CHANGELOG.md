@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Circuit tuning knobs and a "why no circuit" log (2026-10-09)
+
+The follow-on lookahead was switched off (it matched about 1 in 20 of its predictions to the ship's next buy), so circuits
+are the only chaining left and the aim is to see them more often. Two doctrine rules, both only used while Two-leg circuits
+is on, change what counts as a pair without a deploy: **Circuit reach** (`chainCircuitHorizonMin`, default 10 minutes, how
+far apart the legs may be) and **Circuit return leg** (`chainCircuitReturnPct`, default 100): at 100 the second leg must end
+near where the first began (a true loop, today's rule); at 0 only two loaded legs back to back are needed and the empty
+flight back is not charged, which admits many more pairs. Trips here are short (one to three minutes), so a five-minute empty
+hop each way outweighs the second leg unless the legs are almost touching, which is why circuits have been rare. Every route
+that gets no circuit now logs why: `dispatch circuit: SHIP KEY - no circuit (N same-system legs, N free, N start within Xm of
+the sale, N also end within Xm of the start)` or, when a pair exists but the route alone is better, the best pair's rate
+against the route's. Defaults reproduce the previous behaviour.
+
 ## A cross-system route is only handed to a ship that can reach the gate (2026-10-09)
 
 The dispatcher checked that a jump between two systems was possible, but not that the ship could fly to the gate in its own

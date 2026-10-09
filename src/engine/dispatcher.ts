@@ -113,7 +113,7 @@ export const MAX_LOTS_PER_TRIP = 3;
 
 import { REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
-import { bestCircuit, circuitExpired, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
+import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
 
 /**
  * "direct"      — buy here, carry it yourself, sell there. One trader owns
@@ -638,7 +638,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; jumpSeconds?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; jumpSeconds?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1004,6 +1004,7 @@ export class RouteDispatcher {
       ...DEFAULT_CIRCUIT_POLICY,
       weight: Math.max(0, tuning?.circuitWeight ?? 0),
       horizonMinutes: tuning?.circuitHorizonMin ?? DEFAULT_CIRCUIT_POLICY.horizonMinutes,
+      returnShare: Math.min(1, Math.max(0, tuning?.circuitReturnShare ?? DEFAULT_CIRCUIT_POLICY.returnShare)),
     };
     for (const [ship, planned] of this.circuits) {
       if (circuitPolicy.weight <= 0 || circuitExpired(planned, nowMs, circuitPolicy)) this.circuits.delete(ship);
@@ -1277,6 +1278,11 @@ export class RouteDispatcher {
       if (leg2Served && planned) {
         made.circuit = { leg: 2, leg2: { ...planned.leg2, score: Math.round(leg2Served.score) }, explain: leg2Served.reason };
         log?.(`dispatch circuit: ${t.shipSymbol} leg 2 ${item.key} — ${leg2Served.reason}`);
+      }
+      if (circuitPolicy.weight > 0 && !itemCircuit && !leg2Served && item.sellAt !== undefined) {
+        // Why this route got no circuit, so the horizon and return share can be tuned from what the dispatcher sees.
+        const cand = candidateByKey.get(item.key);
+        if (cand) log?.(`dispatch circuit: ${t.shipSymbol} ${item.key} — ${circuitReport(cand, chainCandidates, chainCtx, circuitPolicy, bestScore)}`);
       }
       if (itemCircuit) {
         const l2 = itemCircuit.leg2;
