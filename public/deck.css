@@ -455,3 +455,10 @@ td.cp { white-space: nowrap; }
 td.cp.up { color: var(--good, #5ec27a); }
 td.cp.down { color: var(--bad, #e5675d); }
 .dtl-h .cv { color: var(--amber, #e8b04a); }
+
+/* Trading pace sparkline (paceSparkline) */
+.pace-spark { display: block; width: 100%; height: 26px; margin-top: 6px; }
+.pace-spark .pace-up { fill: var(--good, #5ec27a); opacity: .55; }
+.pace-spark .pace-down { fill: var(--bad, #e5675d); opacity: .55; }
+.pace-spark .now { opacity: 1; }
+.pace-spark .pace-zero { stroke: currentColor; stroke-opacity: .25; stroke-width: 1; vector-effect: non-scaling-stroke; }

@@ -58,3 +58,21 @@ describe("walletPlusHolds", () => {
     assert.deepEqual(walletPlusHolds(5, undefined), { total: 5, holds: 0, partial: false });
   });
 });
+
+// @ts-expect-error plain browser module, no types
+import { paceSparkline, paceTrend } from "../public/shared/domain.js";
+
+describe("pace display helpers", () => {
+  it("trend compares the last hour with the 3-hour average", () => {
+    assert.equal(paceTrend({ perHour1h: 150_000, perHour3h: 100_000 }), "up");
+    assert.equal(paceTrend({ perHour1h: 80_000, perHour3h: 100_000 }), "down");
+    assert.equal(paceTrend({ perHour1h: 105_000, perHour3h: 100_000 }), "flat");
+    assert.equal(paceTrend(undefined), "flat");
+  });
+  it("sparkline draws a bar per point and nothing for too little data", () => {
+    assert.equal(paceSparkline([1]), "");
+    const svg = paceSparkline([100, -50, 200]);
+    assert.equal((svg.match(/<rect/g) ?? []).length, 3);
+    assert.ok(svg.includes("pace-down"));
+  });
+});

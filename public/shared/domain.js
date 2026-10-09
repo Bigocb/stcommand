@@ -248,6 +248,33 @@ export function cargoValueText(cv) {
 }
 
 /**
+ * Sparkline of the trailing-hour trading pace (bridge.pace.series), per hour. Bars above a zero line are green, below
+ * red; the last bar is the current pace. Returns an SVG string sized by viewBox, so CSS decides the displayed size.
+ */
+export function paceSparkline(series, w = 120, h = 28) {
+  const vals = (series ?? []).slice(-20);
+  if (vals.length < 2) return "";
+  const max = Math.max(1, ...vals.map((v) => Math.abs(v)));
+  const mid = h / 2;
+  const bw = w / vals.length;
+  const bars = vals.map((v, i) => {
+    const bh = Math.max(1, (Math.abs(v) / max) * (mid - 1));
+    const y = v >= 0 ? mid - bh : mid;
+    const cls = v >= 0 ? "pace-up" : "pace-down";
+    return `<rect class="${cls}${i === vals.length - 1 ? " now" : ""}" x="${(i * bw + 0.5).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, bw - 1).toFixed(1)}" height="${bh.toFixed(1)}"/>`;
+  });
+  return `<svg class="pace-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Trading pace, last 5 hours"><line x1="0" x2="${w}" y1="${mid}" y2="${mid}" class="pace-zero"/>${bars.join("")}</svg>`;
+}
+
+/** Trend of the current pace against the 3-hour average: "up", "down" or "flat" (within 10%). */
+export function paceTrend(pace) {
+  if (!pace) return "flat";
+  const base = Math.abs(pace.perHour3h) || 1;
+  const d = (pace.perHour1h - pace.perHour3h) / base;
+  return d > 0.1 ? "up" : d < -0.1 ? "down" : "flat";
+}
+
+/**
  * Wallet plus the estimated proceeds of every hold ({ shipSymbol: cargoValue }
  * as /api/state returns it). `holds` is the sum alone, `partial` is true when
  * any hold has units we could not price, so the total is a floor.

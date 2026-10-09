@@ -21,7 +21,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml } from "/shared/domain.js";
+import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
@@ -122,13 +122,15 @@ function renderTiles() {
   const ships = state?.ships ?? [];
   const stranded = fleetStatus.stranded?.length ?? 0;
   const unassigned = unassignedTraders().length;
-  const rate = bridge.rate ?? 0;
+  const pace = bridge.pace;
+  const rate = pace ? pace.perHour1h : bridge.rate ?? 0;
+  const trend = pace ? { up: " ▲", down: " ▼", flat: "" }[paceTrend(pace)] : "";
   const wph = walletPlusHolds(state?.agent?.credits ?? bridge.credits ?? 0, state?.cargoValues);
 
   $("home-tiles").innerHTML = `
     <div class="tile"><div class="k">Credits</div><div class="v">${fmt(state?.agent?.credits ?? bridge.credits ?? 0)}</div></div>
     <div class="tile"><div class="k">Credits + holds</div><div class="v">${fmt(wph.total)}${wph.partial ? "+" : ""}</div><div class="sub">holds ~${fmt(wph.holds)}</div></div>
-    <div class="tile"><div class="k">Rate</div><div class="v ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr</span></div></div>
+    <div class="tile"><div class="k">Rate</div><div class="v ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h avg ${signed(pace.perHour3h)} · net trading</div>${paceSparkline(pace.series)}` : ""}</div>
     <div class="tile"><div class="k">Fleet</div><div class="v">${ships.length}<span class="sub"> hulls</span></div><div class="sub">${stranded} stranded · ${unassigned} unassigned</div></div>
   `;
   $("tb-note").textContent = stranded + unassigned + approvals.length > 0

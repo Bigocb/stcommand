@@ -24,7 +24,7 @@ import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 startRateLimitIndicator($("tb-conn"));
@@ -121,9 +121,12 @@ function renderTopbar() {
   $("tb-networth").title = `Holds ~${fmt(wph.holds)}${wph.partial ? " (some cargo unpriced)" : ""}`;
 
   // Rate (format with sign, color based on positive/negative)
-  const rate = bridge.rate ?? 0;
+  // Net trading pace over the last 60 minutes (src/engine/pace.ts); falls back to the old 3-hour cash-flow rate.
+  const pace = bridge.pace;
+  const rate = pace ? pace.perHour1h : bridge.rate ?? 0;
   const rateEl = $("tb-rate");
-  rateEl.textContent = signed(rate);
+  rateEl.textContent = signed(rate) + (pace ? { up: " ▲", down: " ▼", flat: "" }[paceTrend(pace)] : "");
+  rateEl.title = pace ? `Net trading profit, last 60 min, per hour. 3h avg ${signed(pace.perHour3h)}, 6h avg ${signed(pace.perHourWindow)}. Excludes cargo and ship purchases.` : "";
   rateEl.className = "v";
   if (rate >= 0) rateEl.classList.add("good");
   else rateEl.classList.add("bad");

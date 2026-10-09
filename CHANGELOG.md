@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Rate is now net trading pace over the last hour (2026-10-09)
+
+The Rate on Deck's top bar and Tower Home was a 3-hour lagged average of wallet movement, so open cargo and ship
+purchases read as losses (-74,822/hr while traders were mid-trip, the day keepers were bought). It now shows net
+trading pace: realized profit on sales minus fuel and jump costs over the last 60 minutes, per hour, with an arrow
+against the 3-hour average and (Tower) a sparkline of the trailing-hour pace over 5 hours. Cargo and ship purchases
+don't count, so it equals the change in wallet + holds at cost, ships excluded. `/api/bridge` gains `pace`
+(`src/engine/pace.ts`, `Store.tradingPaceBuckets`); the old `rate` field is unchanged for the v2-v6 pages.
+
 ## Tower Home drops the Best route tile (2026-10-09)
 
 Removed at the operator's request. The tile showed the single best assignment's profit per trip, which is

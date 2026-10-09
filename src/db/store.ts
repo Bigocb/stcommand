@@ -529,6 +529,34 @@ export class Store {
     });
   }
 
+  /**
+   * Trading pace buckets: per bucket, realized profit on sales minus fuel and jump costs (cargo purchases and ship
+   * purchases excluded). Equal-width buckets ending now, oldest first. See engine/pace.ts.
+   */
+  async tradingPaceBuckets(tenantId: string, hours: number, bucketMinutes: number): Promise<number[]> {
+    const size = bucketMinutes * 60_000;
+    const count = Math.ceil((hours * 3600_000) / size);
+    const now = Date.now();
+    const start = now - count * size;
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ timestamp: Date; delta: number }>(
+        `SELECT timestamp,
+           CASE WHEN type = 'SELL' THEN COALESCE(realized_pnl, 0)
+                WHEN type IN ('REFUEL', 'JUMP') THEN -total
+                ELSE 0 END AS delta
+         FROM ledger
+         WHERE timestamp >= $1 AND type IN ('SELL', 'REFUEL', 'JUMP')`,
+        [new Date(start).toISOString()],
+      );
+      const out = Array<number>(count).fill(0);
+      for (const r of res.rows) {
+        const idx = Math.min(count - 1, Math.floor((r.timestamp.getTime() - start) / size));
+        if (idx >= 0) out[idx] = (out[idx] ?? 0) + Number(r.delta);
+      }
+      return out.map((v) => Math.round(v));
+    });
+  }
+
   async ledgerTotals(tenantId: string): Promise<{ credits: number; buys: number; sells: number }> {
     return withTenant(this.pool, tenantId, async (c) => {
       // `total` is always stored as a positive magnitude (res.transaction.totalPrice,

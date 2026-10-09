@@ -11,6 +11,7 @@ import { makeTTLCache } from "./cache.js";
 import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
+import { paceFromBuckets } from "../engine/pace.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -453,8 +454,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         contracts: (state.contracts ?? []) as any[],
       });
 
+      const pace = paceFromBuckets(await w.store.tradingPaceBuckets(w.tenantId, 6, 15), 15);
+
       res.json({
-        rate, prevRate: prev, forgone,
+        rate, prevRate: prev, pace, forgone,
         matchedNet: matched.net, matchedTrades: matched.trades, matchedWindowHours: RATE_WINDOW_HOURS,
         series: series.map((p) => p.net),
         credits: state.agent?.credits ?? 0,
