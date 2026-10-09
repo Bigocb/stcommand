@@ -461,7 +461,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   FOOD and FUEL out of E50 without an empty trip home. Measure the dead-leg share in the ledger before building anything.
   2026-10-09 progress: `stcommand_ops_deadhead` measures it (about 27% of time loaded); follow-on lookahead (v1) is on; two-leg
   circuits (v2, `chainCircuitWeight`) are built and off, awaiting a live trial (they survive a restart and check cash at the
-  second leg). Still open: 3+ leg and cross-system circuits (v3), and a Tower route card showing "then: ...".
+  second leg). Route labels show the follow-on / circuit. Still open: 3+ leg and cross-system circuits (v3).
 
 - **Gate-chain follow-ups (2026-10-05).** (a) done in Deck 2026-10-05 (Tower shows tags only; v6 none). (b) done 2026-10-05 as the Ops "Gate supply chain" panel.
   (b-old) A "chain health" Deck panel like the community

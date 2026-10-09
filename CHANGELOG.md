@@ -26,6 +26,10 @@ before (covered by a test), and turning it off again releases every held leg.
   hour, and `release`, `decline` and a manual assignment drop them. For a route that has a circuit the circuit replaces
   the follow-on credit; routes without one still get the follow-on credit. Assignments carry an informational `circuit`
   field and the log has `dispatch circuit: ...` lines.
+- Visibility: a trader's route label on Tower, Deck and the desktop Fleet tab now carries a short note after the good,
+  `chainNote()` in `public/shared/domain.js`: " · then ALUMINUM JX83-H55 → JX83-D44" for the follow-on the dispatcher has
+  lined up, or " · circuit 1/2, back via CLOTHING" / " · circuit 2/2" for a circuit. Read-only; nothing shows with the
+  clauses off.
 - The trader is unchanged. It still flies one assignment at a time and keeps its own wallet and viability checks, so a
   second leg it refuses is simply dropped.
 - Cash: when the second leg comes up the dispatcher checks the spendable cash (wallet less the cash floor, after the first

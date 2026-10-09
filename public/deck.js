@@ -24,7 +24,7 @@ import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 startRateLimitIndicator($("tb-conn"));
@@ -385,7 +385,7 @@ function jobFor(ship, role) {
     const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
     if (a) {
       const good = escapeHtml(a.good);
-      if (a.role === "direct") return `route: ${good}`;
+      if (a.role === "direct") return `route: ${good}${escapeHtml(chainNote(a))}`;
       if (a.role === "contractBuy") return `contract: ${good}`;
       if (a.role === "haul") return `mission: ${good}`;
       if (a.role === "buy") return a.missionBuy ? `mission: ${good}` : `warehouse buy: ${good}`;

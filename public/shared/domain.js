@@ -78,6 +78,19 @@ export function shortWp(s) {
   return parts.length >= 3 ? parts.slice(1).join("-") : parts.slice(-1)[0];
 }
 
+/**
+ * A short plain-text note for a trader's route label saying what the dispatcher has lined up after it: the follow-on trip
+ * it expects to start where this one sells (lookahead), or its place in a two-leg circuit. "" when there is nothing to
+ * say. Not escaped; callers escape it with the rest of the label. See src/engine/chain.ts and circuit.ts.
+ */
+export function chainNote(assignment) {
+  const c = assignment?.circuit;
+  if (c) return c.leg === 2 ? " · circuit 2/2" : ` · circuit 1/2, back via ${c.leg2.good}`;
+  const f = assignment?.followOn;
+  if (f) return ` · then ${f.good} ${shortWp(f.buyAt)} → ${shortWp(f.sellAt)}`;
+  return "";
+}
+
 export function abbrev(s) {
   if (!s) return "?";
   return s.split("_").map((p) => p[0]).join("").slice(0, 3).toUpperCase();

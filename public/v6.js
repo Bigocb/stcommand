@@ -2,6 +2,7 @@ import {
   worstConditionPct,
   shipTransitLerp,
   shortWp,
+  chainNote,
   abbrev,
   relTime,
   countdown,
@@ -1618,7 +1619,7 @@ function jobFor(ship, role) {
     const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
     if (a) {
       const good = escapeHtml(a.good);
-      if (a.role === "direct") return `route: ${good}`;
+      if (a.role === "direct") return `route: ${good}${escapeHtml(chainNote(a))}`;
       if (a.role === "contractBuy") return `contract: ${good}`;
       if (a.role === "haul") return `mission: ${good}`;
       if (a.role === "buy") return a.missionBuy ? `mission: ${good}` : `warehouse buy: ${good}`;
