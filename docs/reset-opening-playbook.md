@@ -153,3 +153,14 @@ markets to trade in, not a better scoring formula. Plan for the next reset:
 5. **Heavy haulers.** A tour ship at a shipyard records its ship specs (fuel, cargo, speed, crew); check them on Deck's
    yard list. Only the 150-hold refining freighter (2.2M at GY77-A2, speed 36) has been seen so far; light haulers
    (80 cargo, 600 fuel, speed 15) cost 310-540k depending on the yard.
+
+6. **Keep expanding: when one new system goes online, start the next straight away** (operator, 2026-10-09: "we are
+   definitely running the current routes dry"). A system is online when its markets show up in the dispatcher's work list
+   (`dispatch recompute: ... work:`). Pick the next from the list in step 1 by gate status and distance: traders only take
+   routes up to 3 gate hops away, so a system 3+ hops out is only reachable by tour ship (its prices) unless traders are
+   moved there. On 2026-10-09 JJ27 (30 markets, 3 yards) was 3 hops from AA31 and MG54; the MC94 / BY91 / GH86 / RQ95
+   cluster (about 80 markets) is 1-2 hops from each other but 12+ from the home cluster, so it needs its own traders.
+7. **Moving the last tour ship out of a system.** `dispatch_tour` refuses it (the system would have no tour coverage).
+   Where keepers already cover every market there, hop it with `jump_ship` one gate at a time (a jump is ~10 minutes of
+   cooldown), then `release_ship` at the far end so it starts touring.
+
