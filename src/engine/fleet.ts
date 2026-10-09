@@ -886,6 +886,14 @@ export class FleetManager {
         this.log(`restore manual dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    const circuitFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "dispatchCircuits") : undefined;
+    if (circuitFlag) {
+      try {
+        this.dispatcher.restoreCircuits(circuitFlag);
+      } catch (err) {
+        this.log(`restore dispatch circuits failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     const minerPrefFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "minerPreferredGoods") : undefined;
     if (minerPrefFlag) {
       try {
@@ -7564,9 +7572,19 @@ export class FleetManager {
           homeSystem: this.systemSymbol,
           homeReserve: 1,
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100 },
+        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits() },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
+      // Keep pending two-leg circuits across a restart (a small per-tenant flag; written only when they change).
+      const circuitJson = this.dispatcher.circuitSnapshot();
+      if (circuitJson !== undefined && this.tenantId) {
+        try {
+          if (circuitJson === "[]") await this.store?.removeFleetFlag(this.tenantId, "dispatchCircuits");
+          else await this.store?.setFleetFlag(this.tenantId, "dispatchCircuits", circuitJson);
+        } catch (err) {
+          this.log(`save dispatch circuits failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       // First, so that its priority-0 proposal wins the tie against rescue's
       // own priority-0 hold — ties go to the first proposal, and an operator
       // who took a hull off the board outranks every automatic controller.

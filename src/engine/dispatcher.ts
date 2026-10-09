@@ -268,8 +268,11 @@ export class RouteDispatcher {
   /** Auto legs a trader refused (see decline()), kept out of that trader's picks until `until`. */
   private declined = new Map<string, { good: string; buyAt?: string; sellAt?: string; wholeGood: boolean; until: number }>();
   /** Circuits handed out (leg 1 assigned) whose second leg is kept for that ship until it is served or the plan expires.
-   *  In memory only: a restart forgets them and every trader simply picks fresh work, as before circuits existed. */
+   *  Saved by the caller via circuitSnapshot() and loaded with restoreCircuits(); without that a restart forgets them and
+   *  every trader simply picks fresh work, as before circuits existed. */
   private circuits = new Map<string, PlannedCircuit>();
+  /** The last serialized circuits handed to / loaded by the persistence layer, to tell when they changed. */
+  private savedCircuits = "[]";
   /** The ranked route list from the last recompute, used to serve live claims. */
   private routes: DispatchRoute[] = [];
   private lastComputed = 0;
@@ -360,6 +363,34 @@ export class RouteDispatcher {
       // 2026-10-02, THEO-8: "Release to auto" cleared the stored flag but the
       // dispatcher kept logging its old manual ANTIMATTER route as assigned.
       if (this.assignments.get(shipSymbol)?.source === "manual") this.assignments.delete(shipSymbol);
+    }
+  }
+
+  /** Planned circuits as JSON, once, when they have changed since the last call (undefined otherwise), so the caller can
+   *  persist them across a restart. An empty plan list is "[]". */
+  circuitSnapshot(): string | undefined {
+    const json = JSON.stringify([...this.circuits.entries()]);
+    if (json === this.savedCircuits) return undefined;
+    this.savedCircuits = json;
+    return json;
+  }
+
+  /** Load circuits saved by circuitSnapshot(). Anything malformed is skipped; an expired plan is dropped on the next recompute. */
+  restoreCircuits(json: string): void {
+    try {
+      const rows = JSON.parse(json) as unknown;
+      if (!Array.isArray(rows)) return;
+      for (const row of rows) {
+        const [ship, p] = row as [unknown, PlannedCircuit | undefined];
+        if (typeof ship !== "string" || !p || typeof p.at !== "number" || typeof p.leg2Score !== "number") continue;
+        const l = p.leg2;
+        if (!l || typeof l.good !== "string" || typeof l.buyAt !== "string" || typeof l.sellAt !== "string") continue;
+        this.circuits.set(ship, { leg2: { good: l.good, buyAt: l.buyAt, sellAt: l.sellAt }, leg2Score: p.leg2Score, at: p.at, ...(p.leg1Sold ? { leg1Sold: true } : {}) });
+      }
+    } catch {
+      // unreadable: start with whatever parsed, which is nothing
+    } finally {
+      this.savedCircuits = JSON.stringify([...this.circuits.entries()]);
     }
   }
 
@@ -605,7 +636,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1145,7 +1176,11 @@ export class RouteDispatcher {
         } else {
           const w2 = work.find((w) => workLegId(w) === lid);
           const s2 = w2 ? scoreItem(w2) : undefined;
-          const verdict = judgeLeg2(planned, s2?.score, circuitPolicy);
+          // Cash free to spend after leg 1's proceeds (the caller passes the wallet less the cash floor).
+          const afford = w2 && tuning?.circuitCash !== undefined && w2.buyPrice !== undefined
+            ? { spendable: tuning.circuitCash, cost: w2.buyPrice * Math.min(w2.volume ?? t.capacity, t.capacity) }
+            : undefined;
+          const verdict = judgeLeg2(planned, s2?.score, circuitPolicy, afford);
           if (w2 && s2 && verdict.ok) {
             item = w2;
             bestScore = s2.score;

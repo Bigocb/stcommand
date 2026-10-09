@@ -22,9 +22,11 @@ export interface CircuitPolicy {
   bailoutShare: number;
   /** A planned circuit is forgotten (and its second leg released) after this many minutes. */
   ttlMinutes: number;
+  /** Leg 2 is dropped when the spendable cash would not buy at least this share of its planned load. */
+  minCashShare: number;
 }
 
-export const DEFAULT_CIRCUIT_POLICY: CircuitPolicy = { weight: 0, horizonMinutes: 10, bailoutShare: 0.5, ttlMinutes: 60 };
+export const DEFAULT_CIRCUIT_POLICY: CircuitPolicy = { weight: 0, horizonMinutes: 10, bailoutShare: 0.5, ttlMinutes: 60, minCashShare: 0.5 };
 
 export interface CircuitContext {
   /** Straight-line distance between two waypoints in one system. */
@@ -126,13 +128,18 @@ export interface Leg2Verdict {
 
 /**
  * Should the planned second leg still be flown? `nowScore` is its current score for this ship (undefined when it is no
- * longer on the board, reserved by someone else, unreachable or refused).
+ * longer on the board, reserved by someone else, unreachable or refused). `afford`, when the caller knows the wallet,
+ * is the cash free to spend (above the cash floor, after the first leg's proceeds) and the cost of the planned load: a
+ * leg that cash cannot buy at least `minCashShare` of would be flown nearly empty, so it is dropped instead.
  */
-export function judgeLeg2(planned: PlannedCircuit, nowScore: number | undefined, policy: CircuitPolicy): Leg2Verdict {
+export function judgeLeg2(planned: PlannedCircuit, nowScore: number | undefined, policy: CircuitPolicy, afford?: { spendable: number; cost: number }): Leg2Verdict {
   if (nowScore === undefined) return { ok: false, reason: "no longer available" };
   if (nowScore <= 0) return { ok: false, reason: "no longer profitable" };
   if (nowScore < planned.leg2Score * policy.bailoutShare) {
     return { ok: false, reason: `score fell to ${Math.round(nowScore)} from ${Math.round(planned.leg2Score)} (under ${Math.round(policy.bailoutShare * 100)}%)` };
+  }
+  if (afford && afford.cost > 0 && afford.spendable < afford.cost * policy.minCashShare) {
+    return { ok: false, reason: `cash: ${Math.round(afford.spendable)} spendable vs ${Math.round(afford.cost)} for the load (under ${Math.round(policy.minCashShare * 100)}%)` };
   }
   return { ok: true, reason: `score ${Math.round(nowScore)} vs ${Math.round(planned.leg2Score)} planned` };
 }

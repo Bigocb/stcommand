@@ -27,8 +27,13 @@ before (covered by a test), and turning it off again releases every held leg.
   the follow-on credit; routes without one still get the follow-on credit. Assignments carry an informational `circuit`
   field and the log has `dispatch circuit: ...` lines.
 - The trader is unchanged. It still flies one assignment at a time and keeps its own wallet and viability checks, so a
-  second leg it cannot afford or refuses is simply dropped. The pin is in memory only: a restart forgets it and every
-  trader picks fresh work, as before circuits existed.
+  second leg it refuses is simply dropped.
+- Cash: when the second leg comes up the dispatcher checks the spendable cash (wallet less the cash floor, after the first
+  leg's proceeds) against the planned load, and drops the leg if it would buy under half of it (`minCashShare`).
+- Restarts: pending circuits are saved to the tenant's `fleet_flags` (key `dispatchCircuits`, written only when they
+  change, cleared by a server reset like the rest of the game state) and restored at start-up, so a deploy between the
+  two legs does not lose the return leg. A restored plan whose first leg was never seen to sell in this process is
+  dropped rather than assumed; the trader's held-route pin still carries the cargo either way.
 
 ## Holds and credits move together on the dashboard (2026-10-09)
 

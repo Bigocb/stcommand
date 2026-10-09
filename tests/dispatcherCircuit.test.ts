@@ -24,8 +24,8 @@ const SOLO = route("SOLO", "X1-A-10", "X1-A-900", 45_000);
 const t1 = (over: Record<string, unknown> = {}) => ({ shipSymbol: "T-1", capacity: 40, system: "X1-A", waypoint: "X1-A-10", fuelCapacity: 5000, ...over });
 const t2 = (over: Record<string, unknown> = {}) => ({ shipSymbol: "T-2", capacity: 20, system: "X1-A", waypoint: "X1-A-102", fuelCapacity: 5000, ...over });
 
-function run(d: RouteDispatcher, weight: number, routes: DispatchRoute[], traders: ReturnType<typeof t1>[], lines: string[] = []) {
-  d.recompute(routes, traders, [], [], [], [], () => false, distance, (m) => lines.push(m), undefined, undefined, { circuitWeight: weight });
+function run(d: RouteDispatcher, weight: number, routes: DispatchRoute[], traders: ReturnType<typeof t1>[], lines: string[] = [], circuitCash?: number) {
+  d.recompute(routes, traders, [], [], [], [], () => false, distance, (m) => lines.push(m), undefined, undefined, { circuitWeight: weight, circuitCash });
 }
 
 describe("dispatcher circuits", () => {
@@ -87,6 +87,27 @@ describe("dispatcher circuits", () => {
     assert.ok(lines.some((l) => l.includes("dropped leg 2") && l.includes("fell to")));
   });
 
+  it("drops the second leg when the spendable cash would buy under half its load", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    // BACK's buy price is 100 and a load is min(volume 40, hold 40) = 4,000; half of that is 2,000.
+    const plan = (cashAfterSale: number) => {
+      const d = new RouteDispatcher();
+      run(d, 1, [OUT, BACK, SOLO], [t1()]);
+      t.mock.timers.tick(60_001);
+      run(d, 1, [OUT, BACK, SOLO], [t1({ busy: true })]);
+      t.mock.timers.tick(60_001);
+      const lines: string[] = [];
+      run(d, 1, [OUT, BACK, SOLO], [t1({ waypoint: "X1-A-100" })], lines, cashAfterSale);
+      return { a: d.assignmentFor("T-1"), lines };
+    };
+    const rich = plan(10_000);
+    assert.equal(rich.a?.good, "BACK");
+    assert.equal(rich.a?.circuit?.leg, 2);
+    const poor = plan(1_999);
+    assert.notEqual(poor.a?.circuit?.leg, 2);
+    assert.ok(poor.lines.some((l) => l.includes("dropped leg 2") && l.includes("cash:")));
+  });
+
   it("keeps the second leg from a ship that shows up later, until the plan expires", (t) => {
     t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
     const early = new RouteDispatcher();
@@ -111,6 +132,52 @@ describe("dispatcher circuits", () => {
     run(d, 0, [OUT, BACK, SOLO], [t1({ busy: true }), t2()], lines);
     assert.ok(!lines.some((l) => l.includes("dispatch circuit")));
     assert.equal(d.assignmentFor("T-2")?.good, "BACK", "BACK is no longer held for T-1");
+  });
+
+  it("a restart keeps the pending circuit: snapshot, restore, and the second leg is still served", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const before = new RouteDispatcher();
+    assert.equal(before.circuitSnapshot(), undefined, "nothing planned, nothing to save");
+    run(before, 1, [OUT, BACK, SOLO], [t1()]);
+    t.mock.timers.tick(60_001);
+    run(before, 1, [OUT, BACK, SOLO], [t1({ busy: true })]);
+    const saved = before.circuitSnapshot();
+    assert.ok(saved && saved.includes("BACK"));
+    assert.equal(before.circuitSnapshot(), undefined, "unchanged since the last save");
+
+    // New process: fresh dispatcher, same saved plan. The ship is mid-leg-1; the fleet passes its held-route pin as inFlight.
+    const after = new RouteDispatcher();
+    after.restoreCircuits(saved!);
+    assert.equal(after.circuitSnapshot(), undefined, "a restored plan is not re-saved");
+    const pin = [{ shipSymbol: "T-1", good: "OUT", buyAt: "X1-A-10", sellAt: "X1-A-100", units: 40 }];
+    const all = [OUT, BACK, SOLO];
+    t.mock.timers.tick(60_001);
+    after.recompute(all, [t1({ busy: true }), t2()], [], [], [], [], () => false, distance, undefined, undefined, undefined, { circuitWeight: 1 }, pin);
+    assert.notEqual(after.assignmentFor("T-2")?.good, "BACK", "still held after the restart");
+    t.mock.timers.tick(60_001);
+    run(after, 1, all, [t1({ waypoint: "X1-A-100" }), t2()]); // sold
+    assert.equal(after.assignmentFor("T-1")?.good, "BACK");
+    assert.equal(after.assignmentFor("T-1")?.circuit?.leg, 2);
+  });
+
+  it("a restored plan whose first leg was never seen to run is dropped, not assumed", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const before = new RouteDispatcher();
+    run(before, 1, [OUT, BACK, SOLO], [t1()]);
+    const after = new RouteDispatcher();
+    after.restoreCircuits(before.circuitSnapshot()!);
+    t.mock.timers.tick(60_001);
+    const lines: string[] = [];
+    run(after, 1, [OUT, BACK, SOLO], [t1({ waypoint: "X1-A-100" })], lines);
+    assert.notEqual(after.assignmentFor("T-1")?.circuit?.leg, 2);
+    assert.ok(lines.some((l) => l.includes("leg 1 never ran")));
+  });
+
+  it("ignores a malformed saved plan", () => {
+    const d = new RouteDispatcher();
+    d.restoreCircuits("not json at all");
+    d.restoreCircuits(JSON.stringify([["T-1", { nonsense: true }], 7, null]));
+    assert.equal(d.circuitSnapshot(), undefined);
   });
 
   it("replaces the follow-on credit for a route that has a circuit", () => {

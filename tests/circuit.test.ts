@@ -102,6 +102,19 @@ describe("judgeLeg2", () => {
   });
 });
 
+describe("judgeLeg2 cash", () => {
+  const planned = { leg2: { good: "BACK", buyAt: "X1-A-102", sellAt: "X1-A-12" }, leg2Score: 30_000, at: 0 };
+  it("flies the leg when cash buys at least half the load, or the wallet is unknown", () => {
+    assert.equal(judgeLeg2(planned, 30_000, on, { spendable: 50_000, cost: 100_000 }).ok, true);
+    assert.equal(judgeLeg2(planned, 30_000, on).ok, true);
+  });
+  it("drops the leg when cash would buy under half the load", () => {
+    const v = judgeLeg2(planned, 30_000, on, { spendable: 49_999, cost: 100_000 });
+    assert.equal(v.ok, false);
+    assert.match(v.reason, /cash: 49999 spendable vs 100000/);
+  });
+});
+
 describe("circuitExpired / legId", () => {
   it("expires after the ttl", () => {
     const planned = { leg2: { good: "G", buyAt: "X1-A-1", sellAt: "X1-A-2" }, leg2Score: 1, at: 1_000 };
