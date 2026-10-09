@@ -117,6 +117,7 @@
                   <button class="on" data-seg="routes">Routes</button>
                   <button data-seg="yards">Yards</button>
                   <button data-seg="prices">Prices</button>
+                  <button data-seg="systems">Systems</button>
                   <button data-seg="keeper">Keeper</button>
                 </div>
                 <span class="count" id="mk-mkt-seg-count">top 5</span>
@@ -144,6 +145,13 @@
                     <div class="mk-trades-scroll"><table id="mk-trades-table"><tr><th>Time</th><th>Market</th><th>Ship</th><th>Side</th><th>Units</th><th>Price</th></tr><tbody id="mk-trades-rows"></tbody></table></div>
                   </div>
                 </div>
+              </div>
+              <div class="panel-b" id="mk-systems" hidden>
+                <div class="mk-toolbar">
+                  <select class="field-select" id="mk-sys-sel" aria-label="System"></select>
+                  <span class="hint" style="font-size:10px;color:var(--dim2)">Click a badge to add or remove a market from the keeper list.</span>
+                </div>
+                <div id="mk-sys-market-list"></div>
               </div>
               <div class="panel-b mk-keeper-body" id="mk-keeper" hidden>
                 <div style="display:flex;align-items:center;gap:8px">

@@ -1079,8 +1079,10 @@ $("mk-mkt-seg").addEventListener("click", (e) => {
   $("mk-routes").hidden = mktSeg !== "routes";
   $("mk-yards").hidden = mktSeg !== "yards";
   $("mk-prices").hidden = mktSeg !== "prices";
+  $("mk-systems").hidden = mktSeg !== "systems";
   $("mk-keeper").hidden = mktSeg !== "keeper";
-  $("mk-mkt-seg-count").textContent = mktSeg === "prices" || mktSeg === "keeper" ? "" : "top 5";
+  $("mk-mkt-seg-count").textContent = mktSeg === "prices" || mktSeg === "keeper" || mktSeg === "systems" ? "" : "top 5";
+  if (mktSeg === "systems") { renderSystemMarkets(); loadKnownMarkets(); }
 });
 
 /** Covered/pending/unflagged indicator for one market waypoint — ported
@@ -1115,6 +1117,60 @@ function renderMktPriceMarketList() {
   }).join("");
 }
 $("mk-price-market-list").addEventListener("click", (e) => {
+  const b = e.target.closest(".keeper-badge[data-wp]");
+  if (b) toggleKeeperPriority(b.dataset.wp);
+});
+
+/* ── Markets: Systems segment ────────────────
+ * Ported from Tower's Systems segment (m.js): pick a system, see every market
+ * this fleet has ever priced in it (any age — a stale market is exactly the one
+ * that needs a keeper), each with the same keeper badge as the Prices list.
+ */
+let sysPick = "";
+/** Every market ever priced, any age (GET /api/markets/known). */
+let knownMarkets = [];
+async function loadKnownMarkets() {
+  try {
+    const d = await api("GET", "/api/markets/known");
+    knownMarkets = d.markets ?? [];
+    if (!$("view-markets").hidden && mktSeg === "systems") renderSystemMarkets();
+  } catch { /* keep the last list */ }
+}
+function renderSystemMarkets() {
+  const sel = $("mk-sys-sel");
+  const list = $("mk-sys-market-list");
+  if (!sel || !list) return;
+  const sysOf = (wp) => wp.slice(0, wp.lastIndexOf("-"));
+  // Known (any age) first; fall back to the fresh snapshots until it has loaded.
+  const byWp = new Map();
+  for (const m of knownMarkets) byWp.set(m.waypointSymbol, { goods: m.goods, stamp: m.timestamp });
+  if (!byWp.size) {
+    for (const s of marketSnapshots) {
+      const cur = byWp.get(s.waypointSymbol) ?? { goods: 0, stamp: "" };
+      cur.goods += 1;
+      if (s.timestamp > cur.stamp) cur.stamp = s.timestamp;
+      byWp.set(s.waypointSymbol, cur);
+    }
+  }
+  const counts = new Map();
+  for (const wp of byWp.keys()) counts.set(sysOf(wp), (counts.get(sysOf(wp)) ?? 0) + 1);
+  const systems = [...counts.keys()].sort();
+  if (!systems.length) { list.innerHTML = '<div class="empty">No market snapshots yet.</div>'; sel.innerHTML = ""; return; }
+  if (!systems.includes(sysPick)) sysPick = systems[0];
+  // Don't rebuild the picker while it is open (15s poll).
+  if (document.activeElement !== sel) {
+    sel.innerHTML = systems.map((s) => `<option value="${escapeAttr(s)}"${s === sysPick ? " selected" : ""}>${escapeHtml(s)} (${counts.get(s)})</option>`).join("");
+  }
+  const rows = [...byWp.keys()].filter((wp) => sysOf(wp) === sysPick).sort();
+  list.innerHTML = rows.map((wp) => {
+    const { goods, stamp } = byWp.get(wp);
+    const mins = stamp ? Math.round((Date.now() - new Date(stamp).getTime()) / 60000) : null;
+    const age = mins === null ? "" : mins < 90 ? `${mins}m` : mins < 2880 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`;
+    return `<div class="goodrow"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${goods} goods${age ? ` · ${age} old` : ""}</span></div>`;
+  }).join("");
+}
+$("mk-sys-sel").addEventListener("change", (e) => { sysPick = e.target.value; renderSystemMarkets(); });
+$("mk-sys-market-list").addEventListener("click", (e) => {
   const b = e.target.closest(".keeper-badge[data-wp]");
   if (b) toggleKeeperPriority(b.dataset.wp);
 });
@@ -2148,7 +2204,7 @@ subscribe("goods", () => {
 });
 subscribe("keepers", () => {
   renderKeepers();
-  if (!$("view-markets").hidden) renderMktPriceMarketList();
+  if (!$("view-markets").hidden) { renderMktPriceMarketList(); if (mktSeg === "systems") renderSystemMarkets(); }
 });
 /** Trades strip under the price chart: every agent's transactions at the selected good/markets, newest first.
  *  Ours are highlighted; the point is telling our own moves apart from other agents' (operator 2026-10-06). */
@@ -2239,6 +2295,7 @@ function boot() {
 }
 
 function pollTick() {
+  if (!$("view-markets").hidden && mktSeg === "systems") loadKnownMarkets();
   loadState();
   loadBridge();
   loadApprovals();

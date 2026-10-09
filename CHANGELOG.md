@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck's Markets tab gets Tower's Systems segment (2026-10-09)
+
+Tower's Markets tab has a Systems segment: pick a system, see every market ever priced in it (any age, from
+`GET /api/markets/known`, since a stale market is exactly the one that needs a keeper), each with the keeper badge to add
+or remove it from the keeper list. Deck had only the per-good Prices list and the raw Keeper textarea, so that workflow
+was phone-only. Deck's Markets panel now has the same Systems segment (a system picker and the badge list, with the
+age and goods count per market), sharing the existing `keeperBadge()` and `toggleKeeperPriority()`.
+
 ## Value of what a ship is carrying, on Deck and Tower (2026-10-08)
 
 Operator wanted to see how much capital sits in holds (with five haulers loaded the wallet reads far lower than the
