@@ -147,7 +147,7 @@ markets to trade in, not a better scoring formula. Plan for the next reset:
 3. **Use `dispatch_tour`, not explorers.** It sets the tour role and walks the gate graph; once there the ship tours the
    system's markets itself. Keep `explorerTarget` at **0**. With it above 0, turning explorers into tour ships makes the
    fleet refill the count by converting spare *traders* (it took THEO-62, the 150-hold ship, and THEO-51 on 2026-10-09).
-   `dispatch_tour` also refuses to move the only tour ship out of a system.
+   `dispatch_tour` moves a lone tour ship freely (the old last-tour-in-system guard was removed 2026-10-09).
 4. **Then put keepers on the markets a trade route actually uses** (see the keeper rule above), and let the dispatcher's
    cross-system routes and circuits (`chainCircuitCrossSystem`) spread traders across the new systems.
 5. **Heavy haulers.** A tour ship at a shipyard records its ship specs (fuel, cargo, speed, crew); check them on Deck's

@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## dispatch_tour no longer refuses the last tour ship in a system (2026-10-09)
+
+Removed the guard in `dispatchTourShip` that threw when the ship was the only tour ship in its system. It dates from before
+keepers; keepers now camp the markets that matter, and the guard blocked sending a lone tour ship to map a new system
+(it forced hop-by-hop `jump_ship`). Operator's call.
+
 ## Deck yard list shows ship specs; playbook: open systems early (2026-10-09)
 
 Deck's Markets > yards panel now shows the same spec chips Tower's yard cards do (fuel, cargo, speed, crew, slots, mounts;
