@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Keeper probes are bought at the cheapest yard (2026-10-09)
+
+A market-triggered keeper request (`maybeRequestKeeperProbeForMarket`) chose
+the keeper hull first and then the yard *nearest the target*, ignoring price.
+At X1-MG54 that meant a probe at A2 for 124,017c while C38 sold the same probe
+for 55,589c. It now takes the highest-preference hull any yard in the system
+stocks (probe, then surveyor, then drone) and buys it at the cheapest yard,
+using only prices seen in the last 10 minutes; if no yard has a fresh price it
+falls back to the stored ones rather than propose nothing. Ties go to the
+nearer yard. Logic is `src/engine/keeperYard.ts`. The shipyard-triggered path
+is unchanged: it only ever sees the yard a ship is standing at.
+
 ## Deck lists the top 20 routes, like Tower (2026-10-09)
 
 Deck's Markets > Routes list showed only the top 5 routes while Tower shows 20, so the operator could not see how far the

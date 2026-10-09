@@ -27,6 +27,7 @@ import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
+import { pickCheapestKeeperYard } from "./keeperYard.js";
 import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -4889,22 +4890,19 @@ export class FleetManager {
     const positions = new Map(this.galaxy.allPositions().map((p) => [p.symbol, p]));
     const marketPos = positions.get(marketWaypoint);
     const yards = (await this.store?.shipyardInventory()) ?? [];
-    let best: { waypointSymbol: string; price: number; dist: number; hull: string; rank: number } | undefined;
-    for (const row of yards) {
-      if (row.systemSymbol !== marketSystem) continue;
-      const rank = KEEPER_HULL_PREFERENCE.indexOf(row.shipType);
-      if (rank < 0) continue; // not a keeper-capable hull
-      const yardPos = positions.get(row.waypointSymbol);
-      // Same fallback convention as nearestUncoveredKeeperMarket(): the
-      // shipyard itself as a candidate (dist 0) when it coincides with the
-      // market, otherwise unreachable-until-proven-otherwise if we have no
-      // charted position for it yet.
-      const dist = yardPos && marketPos ? Math.hypot(yardPos.x - marketPos.x, yardPos.y - marketPos.y) : row.waypointSymbol === marketWaypoint ? 0 : Infinity;
-      // Prefer the better hull first (probe > surveyor > mining drone), then the nearer yard.
-      if (!best || rank < best.rank || (rank === best.rank && dist < best.dist)) {
-        best = { waypointSymbol: row.waypointSymbol, price: row.purchasePrice, dist, hull: row.shipType, rank };
-      }
+    // Cheapest keeper hull across the system's yards (fresh prices first), not
+    // the nearest yard: see keeperYard.ts.
+    const yardDist = (wp: string): number => {
+      const yardPos = positions.get(wp);
+      return yardPos && marketPos ? Math.hypot(yardPos.x - marketPos.x, yardPos.y - marketPos.y) : wp === marketWaypoint ? 0 : Infinity;
+    };
+    // Hull preference still comes first (a probe anywhere beats a cheaper drone); price decides the yard.
+    let pick: ReturnType<typeof pickCheapestKeeperYard<(typeof yards)[number]>>;
+    for (const hull of KEEPER_HULL_PREFERENCE) {
+      pick = pickCheapestKeeperYard(yards, { systemSymbol: marketSystem, hulls: [hull], nowMs: Date.now(), distance: yardDist });
+      if (pick) break;
     }
+    const best = pick ? { waypointSymbol: pick.waypointSymbol, price: pick.purchasePrice, hull: pick.shipType } : undefined;
     if (!best) return; // no shipyard in this system has a cached keeper hull in stock right now
     if (!this.canAfford(best.price)) return;
 
