@@ -659,6 +659,30 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_get_cargo_value",
+    {
+      title: "Estimated value of every loaded hold",
+      description: "What each ship's cargo is worth, the same figure Deck and Tower show: units priced at the ship's own route market (or the best price in its system), net of our own price impact, plus the cost basis on file. Returns the fleet total, the wallet for context, and one row per loaded ship with its goods. Use it in status updates: capital tied up in holds is part of what the wallet is worth.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        const values = await w.fleet.cargoValues();
+        const ships = Object.entries(values)
+          .map(([shipSymbol, v]) => ({ shipSymbol, value: v.value, gross: v.gross, cost: v.cost, unpricedUnits: v.unpricedUnits, items: v.items }))
+          .sort((a, b) => b.value - a.value);
+        const total = ships.reduce((n, x) => n + x.value, 0);
+        const totalCost = ships.reduce((n, x) => n + x.cost, 0);
+        const credits = w.state.get().agent?.credits ?? null;
+        return textResult({ credits, totalValue: total, totalCost, walletPlusHolds: credits === null ? null : credits + total, loadedShips: ships.length, ships });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_start_mission",
     {
       title: "Start a construction mission",

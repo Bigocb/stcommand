@@ -29,7 +29,8 @@ known price are counted separately and shown as `+` (partly priced) or `?`. `Fle
 ship. Deck gets a Value column in the fleet table plus the figure in the hold heading, per-good lines and map detail;
 Tower gets it on the hull card's Hold gauge, the roster row and the hold heading. The tooltip shows each good's price,
 which market it is priced at, and the cost basis on file (the manifest keeps the last purchase price, so it overstates
-the average paid for a multi-lot buy).
+the average paid for a multi-lot buy). `stcommand_get_cargo_value` returns the same per ship plus the fleet total and the
+wallet, for status reports.
 
 ## Keepers poll quiet markets less often (2026-10-08)
 
