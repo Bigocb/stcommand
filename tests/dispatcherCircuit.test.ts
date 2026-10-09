@@ -270,4 +270,49 @@ describe("dispatcher circuits", () => {
     run(e, 1, [OUT, BACK, SOLO], [t1()], lines2);
     assert.ok(lines2.some((l) => l.includes("dropped leg 2") && l.includes("refused before it ran")));
   });
+
+  describe("across a gate", () => {
+    // OUT buys in A and sells in B (one way: 840s, a jump); RET buys in B and sells back in A. canJump says every gate works.
+    const cross = (good: string, buyAt: string, sellAt: string, profit: number): DispatchRoute => ({
+      ...route(good, buyAt, sellAt, profit),
+      buySystem: buyAt.slice(0, buyAt.lastIndexOf("-")), sellSystem: sellAt.slice(0, sellAt.lastIndexOf("-")), tripSeconds: 840,
+    } as DispatchRoute);
+    const OUTX = cross("OUTX", "X1-A-10", "X1-B-100", 60_000);
+    const RETX = cross("RETX", "X1-B-102", "X1-A-12", 50_000);
+    const plan = (circuitCrossSystem: boolean) => {
+      const d = new RouteDispatcher();
+      const lines: string[] = [];
+      d.recompute([OUTX, RETX], [t1()], [], [], [], [], () => true, distance, (m) => lines.push(m), undefined, undefined, { circuitWeight: 1, circuitCrossSystem });
+      return { a: d.assignmentFor("T-1"), lines };
+    };
+
+    it("is planned only when the switch is on, and keeps the way back for the ship", () => {
+      const off = plan(false);
+      assert.equal(off.a?.good, "OUTX");
+      assert.equal(off.a?.circuit, undefined);
+      const on = plan(true);
+      assert.equal(on.a?.good, "OUTX");
+      assert.equal(on.a?.circuit?.leg, 1);
+      assert.equal(on.a?.circuit?.leg2.good, "RETX");
+      assert.ok(on.lines.some((l) => l.startsWith("dispatch circuit: T-1 OUTX") && l.includes("then RETX")));
+    });
+
+    it("serves the way back from the far system once the way out has been sold", (t) => {
+      t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+      const d = new RouteDispatcher();
+      const tune = { circuitWeight: 1, circuitCrossSystem: true };
+      const go = (tr: ReturnType<typeof t1>[], lines?: string[]) =>
+        d.recompute([OUTX, RETX], tr, [], [], [], [], () => true, distance, lines ? (m) => lines.push(m) : undefined, undefined, undefined, tune);
+      go([t1()]);
+      assert.equal(d.assignmentFor("T-1")?.good, "OUTX");
+      t.mock.timers.tick(60_001);
+      go([t1({ busy: true })]);
+      t.mock.timers.tick(60_001);
+      const lines: string[] = [];
+      go([t1({ system: "X1-B", waypoint: "X1-B-100" })], lines); // sold in B, empty again
+      assert.equal(d.assignmentFor("T-1")?.good, "RETX");
+      assert.equal(d.assignmentFor("T-1")?.circuit?.leg, 2);
+      assert.ok(lines.some((l) => l.startsWith("dispatch circuit: T-1 leg 2")));
+    });
+  });
 });

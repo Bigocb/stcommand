@@ -96,7 +96,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "chainCircuitWeight",
     name: "Two-leg circuits",
-    description: "Plan a trip as a pair: buy A and sell B, then a second trip that starts near B and ends near A, so the ship is never flying empty between them. A route is ranked higher when such a pair beats the route on its own, by this share of the difference (50 = half), and the second leg is then kept for that ship (it is dropped if its margin falls to half of what was planned, or it goes off the board). Same-system pairs only. Off by default (clause disabled): turn the clause on to use it; the trader itself is unchanged. While on it replaces the follow-on credit for routes that have a circuit. Takes effect on the next dispatch recompute (within a minute). See docs/backhaul-plan.md.",
+    description: "Plan a trip as a pair: buy A and sell B, then a second trip that starts near B and ends near A, so the ship is never flying empty between them. A route is ranked higher when such a pair beats the route on its own, by this share of the difference (50 = half), and the second leg is then kept for that ship (it is dropped if its margin falls to half of what was planned, or it goes off the board). Same-system pairs unless \"Circuits across a gate\" is on. Off by default (clause disabled): turn the clause on to use it; the trader itself is unchanged. While on it replaces the follow-on credit for routes that have a circuit. Takes effect on the next dispatch recompute (within a minute). See docs/backhaul-plan.md.",
     value: 50, min: 0, max: 100, step: 5, unit: "%",
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
@@ -113,6 +113,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     description: "How much of the empty flight from the second leg's sell market back to the first leg's buy market counts against a circuit. 100 wants a true loop (the second leg must end near where the first began). 0 only asks for two loaded legs back to back and lets the ship pick again from wherever the second leg ends, which admits many more pairs. Only used while Two-leg circuits is on. Takes effect on the next dispatch recompute.",
     value: 100, min: 0, max: 100, step: 10, unit: "%",
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "chainCircuitCrossSystem",
+    name: "Circuits across a gate",
+    description: "Let a two-leg circuit cross a jump gate and come back: buy A and sell B in another system, then buy near B and sell back near A, so the ship is loaded on the way home instead of jumping back empty. Each leg is ranked with its jump cooldowns (about ten minutes a jump), so the pair has to earn that wait back. Off by default (clause disabled): turn the clause on to use it; it only does anything while Two-leg circuits is on, and the cross-system routes rule decides which gate trips exist at all. Takes effect on the next dispatch recompute.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
     key: "maxLossPct",

@@ -8,7 +8,11 @@
  *
  * Pure: no I/O, no clock. Everything the dispatcher already knows (distances, what is already promised) comes in through
  * `CircuitContext`. Policy is data (`CircuitPolicy`); weight 0 is the off switch and reproduces today's picks exactly.
- * Same-system pairs only for now: cross-system legs pay jumps and need their own cost model (v3).
+ * Same-system pairs by default. With `policy.crossSystem` a pair may also be a round trip across a gate: leg 1 buys in
+ * system A and sells in system B, leg 2 buys in B and sells back in A. The ship jumps there and back either way (a
+ * one-way cross-system route is followed by an empty jump home); the circuit just fills the way back. A leg that crosses
+ * a gate has a `tripSeconds` that is already one-way (its jump cooldowns plus flying), so it is not halved like a
+ * same-system round trip.
  */
 
 import type { ChainCandidate } from "./chain.js";
@@ -30,9 +34,11 @@ export interface CircuitPolicy {
    * lets the ship pick again from wherever leg 2 ends, which admits many more pairs.
    */
   returnShare: number;
+  /** Allow a pair that crosses a gate and comes back (leg 1 A->B, leg 2 B->A). Off reproduces same-system-only circuits. */
+  crossSystem: boolean;
 }
 
-export const DEFAULT_CIRCUIT_POLICY: CircuitPolicy = { weight: 0, horizonMinutes: 10, bailoutShare: 0.5, ttlMinutes: 60, minCashShare: 0.5, returnShare: 1 };
+export const DEFAULT_CIRCUIT_POLICY: CircuitPolicy = { weight: 0, horizonMinutes: 10, bailoutShare: 0.5, ttlMinutes: 60, minCashShare: 0.5, returnShare: 1, crossSystem: false };
 
 export interface CircuitContext {
   /** Straight-line distance between two waypoints in one system. */
@@ -71,6 +77,23 @@ export interface PlannedCircuit {
 
 const systemOf = (waypoint: string): string => waypoint.slice(0, waypoint.lastIndexOf("-"));
 
+/** True when the leg sells in a different system than it buys in. */
+const crossesGate = (c: ChainCandidate): boolean => systemOf(c.sellAt) !== c.buySystem;
+
+/** One-way flying time of a leg: a same-system `tripSeconds` is a round trip (halve it), a cross-system one is one-way. */
+const legSeconds = (c: ChainCandidate): number => (crossesGate(c) ? c.tripSeconds : c.tripSeconds / 2);
+
+/**
+ * Can `c` follow `leg1` as its second leg? It must buy where leg 1 sells and sell back in the system leg 1 began in, so
+ * the ship ends up where the pair started. Same-system pairs always qualify; a pair across a gate only when allowed.
+ */
+function closesLoop(leg1: ChainCandidate, c: ChainCandidate, policy: CircuitPolicy): boolean {
+  const start = leg1.buySystem;
+  const mid = systemOf(leg1.sellAt);
+  if (mid !== start && !policy.crossSystem) return false;
+  return c.buySystem === mid && systemOf(c.sellAt) === start;
+}
+
 /** Identity of a leg across recomputes (work keys change with what else is on the board). */
 export const legId = (leg: { good: string; buyAt: string; sellAt: string }): string => `${leg.good}|${leg.buyAt}|${leg.sellAt}`;
 
@@ -86,22 +109,20 @@ export function bestCircuit(
 ): Circuit | undefined {
   if (policy.weight <= 0) return undefined;
   if (leg1.profitPerTrip <= 0 || leg1.tripSeconds <= 0) return undefined;
-  const system = leg1.buySystem;
-  if (systemOf(leg1.sellAt) !== system) return undefined;
   const horizon = policy.horizonMinutes * 60;
   let best: Circuit | undefined;
   for (const c of candidates) {
     if (c.key === leg1.key || c.good === leg1.good) continue;
     if (c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
-    if (c.buySystem !== system || systemOf(c.sellAt) !== system) continue;
+    if (!closesLoop(leg1, c, policy)) continue;
     if (ctx.unavailable(c)) continue;
     const betweenSeconds = ctx.distanceBetween(leg1.sellAt, c.buyAt) * c.secPerDist;
     const returnSeconds = ctx.distanceBetween(c.sellAt, leg1.buyAt) * leg1.secPerDist;
     if (!Number.isFinite(betweenSeconds) || !Number.isFinite(returnSeconds)) continue;
     if (betweenSeconds > horizon || (policy.returnShare > 0 && returnSeconds > horizon)) continue;
-    // Each trip time is a round trip; half of it is one way (plus dock time). The pair's profit is the two scored rates
+    // Each trip time is a round trip (or, across a gate, already one way); the pair's profit is the two scored rates
     // turned back into per-trip amounts (rate x trip / reference), divided by the cycle, so reference time cancels.
-    const cycleSeconds = leg1.tripSeconds / 2 + c.tripSeconds / 2 + betweenSeconds + returnSeconds * policy.returnShare;
+    const cycleSeconds = legSeconds(leg1) + legSeconds(c) + betweenSeconds + returnSeconds * policy.returnShare;
     const rate = (leg1.profitPerTrip * leg1.tripSeconds + c.profitPerTrip * c.tripSeconds) / cycleSeconds;
     if (!best || rate > best.rate) {
       best = {
@@ -127,12 +148,11 @@ export function circuitReport(
   positioningSeconds = 0,
   penalty = 0,
 ): string {
-  const system = leg1.buySystem;
   const horizon = policy.horizonMinutes * 60;
   let sameSystem = 0, free = 0, nearSale = 0, nearStart = 0;
   for (const c of candidates) {
     if (c.key === leg1.key || c.good === leg1.good || c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
-    if (c.buySystem !== system || systemOf(c.sellAt) !== system) continue;
+    if (!closesLoop(leg1, c, policy)) continue;
     sameSystem += 1;
     if (ctx.unavailable(c)) continue;
     free += 1;
@@ -142,7 +162,7 @@ export function circuitReport(
     if (between <= horizon && back <= horizon) nearStart += 1;
   }
   const best = bestCircuit(leg1, candidates, ctx, policy);
-  const pairs = `${sameSystem} same-system legs, ${free} free, ${nearSale} start within ${policy.horizonMinutes}m of the sale, ${nearStart} also end within ${policy.horizonMinutes}m of the start`;
+  const pairs = `${sameSystem} legs that close the loop, ${free} free, ${nearSale} start within ${policy.horizonMinutes}m of the sale, ${nearStart} also end within ${policy.horizonMinutes}m of the start`;
   if (!best) return `no circuit (${pairs})`;
   // The circuit's rate is per reference trip with no empty flight to the first buy, so it is put on the route's scale
   // (positioning discount, extra-buyer penalty) before being compared with `ownScore`, the way circuitScore() does.
@@ -162,7 +182,11 @@ export function circuitScore(base: number, circuit: Circuit | undefined, positio
   if (!circuit || policy.weight <= 0) return base;
   const t = circuit.leg1.tripSeconds;
   const asCircuit = circuit.rate * (t / (t + Math.max(0, positioningSeconds))) - penalty;
-  return asCircuit > base ? base + policy.weight * (asCircuit - base) : base;
+  // A same-system trip's score already charges the flight home. A route across a gate is scored on its one-way time, so
+  // its own score hides the empty jump home (as long as the way out); the circuit fills that way back, so it is
+  // compared with what the route really earns once the return is counted, and the gain is added to the ranking score.
+  const own = crossesGate(circuit.leg1) ? base / 2 : base;
+  return asCircuit > own ? base + policy.weight * (asCircuit - own) : base;
 }
 
 export interface Leg2Verdict {

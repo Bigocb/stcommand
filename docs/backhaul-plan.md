@@ -1,6 +1,6 @@
 # Backhaul and circuits — plan
 
-Status: Step 0 and v1 are live (2026-10-09, `chainFollowOnWeight` switched on by the operator). v2 (two-leg circuits, `src/engine/circuit.ts`, doctrine `chainCircuitWeight`) is built on the feature branch and switched off; it is not on `main`. v3 not started. Owner decision points are at the end.
+Status: Step 0 and v1 are live (2026-10-09, `chainFollowOnWeight` switched on by the operator). v2 (two-leg circuits, `src/engine/circuit.ts`, doctrine `chainCircuitWeight`) is built on the feature branch and switched off; it is not on `main`. v3 (cross-system round-trip circuits, doctrine `chainCircuitCrossSystem`) is built and switched off, 2026-10-09; 3+ leg circuits are not started. Owner decision points are at the end.
 
 What v2 does differently from the sketch below: the dispatcher keeps the second leg for the ship (no new trader code, no
 change to `held_route`). A pending circuit is saved in `fleet_flags` (`dispatchCircuits`) and restored after a restart. At

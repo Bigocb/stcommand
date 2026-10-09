@@ -9,6 +9,21 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Cross-system circuits, built and switched off (2026-10-09)
+
+Same-system circuit pairs ran dry once every route on the board crossed a gate (all nine traders were on cross-system
+routes at 21:44 UTC). A circuit can now be a round trip across a gate: leg 1 buys in A and sells in B, leg 2 buys in B and
+sells back in A. The ship jumps there and back either way (a one-way cross-system route ends in an empty jump home); the
+circuit fills the way back. New doctrine clause `chainCircuitCrossSystem` (disabled by default) feeds
+`CircuitPolicy.crossSystem`; with it off, picks are exactly what they were, and there is a test for that.
+
+Two things the same-system code got away with and this one cannot: a gate trip's `tripSeconds` is already one-way, so it
+is not halved like a round trip; and a gate route's ranking score uses its one-way time, which hides the empty jump home.
+Compared with that score, a circuit (about 55k a pair in the test) would never win against a 60k route that really earns
+30k. The circuit is therefore credited against the route's rate with the return counted (half its score), and the gain
+is added to the ranking score. Everything else (second leg kept for the ship, bail-out at half of plan, cash check, 60
+minute expiry, restart persistence) is the same code path. Tests: `tests/circuit.test.ts` and `tests/dispatcherCircuit.test.ts`.
+
 ## A trader the operator sells now goes to the yard instead of trading on (2026-10-09)
 
 THEO-27 was sold at 20:51 UTC ("flying to X1-AA31-A2 to be scrapped") and was still trading at 21:45: it flew a FIREARMS

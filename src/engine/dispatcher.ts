@@ -654,7 +654,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; jumpSeconds?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; jumpSeconds?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1021,6 +1021,7 @@ export class RouteDispatcher {
       weight: Math.max(0, tuning?.circuitWeight ?? 0),
       horizonMinutes: tuning?.circuitHorizonMin ?? DEFAULT_CIRCUIT_POLICY.horizonMinutes,
       returnShare: Math.min(1, Math.max(0, tuning?.circuitReturnShare ?? DEFAULT_CIRCUIT_POLICY.returnShare)),
+      crossSystem: tuning?.circuitCrossSystem ?? DEFAULT_CIRCUIT_POLICY.crossSystem,
     };
     for (const note of this.circuitNotes.splice(0)) log?.(note);
     for (const [ship, planned] of this.circuits) {

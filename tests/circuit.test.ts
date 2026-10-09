@@ -57,6 +57,60 @@ describe("bestCircuit", () => {
     assert.equal(bestCircuit(crossLeg1, [crossLeg1, back], ctx(), on), undefined, "a cross-system first leg has no same-system circuit");
   });
 
+  describe("across a gate", () => {
+    // OUT: buy in A, sell in B (one way: 840s incl. a jump). RET: buy in B near where OUT sold, sell back in A near where OUT began.
+    const num2 = (w: string): number => Number(w.slice(w.lastIndexOf("-") + 1));
+    const dist2 = { distanceBetween: (a: string, b: string) => Math.abs(num2(a) - num2(b)), unavailable: () => false };
+    const out = cand("OUT", "X1-A-10", "X1-B-100", 60_000, { tripSeconds: 840 });
+    const ret = cand("RET", "X1-B-102", "X1-A-12", 50_000, { tripSeconds: 840 });
+    const cross: CircuitPolicy = { ...on, crossSystem: true };
+
+    it("is off unless the policy allows it", () => {
+      assert.equal(bestCircuit(out, [out, ret], dist2, on), undefined);
+    });
+
+    it("pairs a way out with a way back, and counts each gate trip as one way (not halved)", () => {
+      const c = bestCircuit(out, [out, ret], dist2, cross);
+      assert.equal(c?.leg2.key, "RET");
+      assert.equal(c?.cycleSeconds, 840 + 840 + 2 + 2);
+      assert.ok(Math.abs((c?.rate ?? 0) - ((60_000 * 840 + 50_000 * 840) / 1684)) < 1e-6);
+    });
+
+    it("is credited against what the way out earns once the empty jump home is counted, not its one-way score", () => {
+      // The route's score (60,000) uses its one-way time. Alone the ship also jumps home empty for as long again, so it
+      // really earns 30,000; the pair earns ~54,900, and the credit is the weighted difference added to the score.
+      const c = bestCircuit(out, [out, ret], dist2, cross)!;
+      assert.ok(c.rate < 60_000, "under the one-way score: comparing with that would never credit a circuit");
+      const credited = circuitScore(60_000, c, 0, 0, cross);
+      assert.ok(Math.abs(credited - (60_000 + (c.rate - 30_000))) < 1e-6);
+      // a same-system circuit is compared with the score itself, as before
+      const same = bestCircuit(leg1, [leg1, back], ctx(), cross)!;
+      assert.ok(Math.abs(circuitScore(40_000, same, 0, 0, cross) - (40_000 + (same.rate - 40_000))) < 1e-6);
+    });
+
+    it("is credited in proportion to what the way back earns: a thin return adds almost nothing", () => {
+      const thin = cand("THIN", "X1-B-102", "X1-A-12", 1_000, { tripSeconds: 840 });
+      const good = bestCircuit(out, [out, ret], dist2, cross)!;
+      const poor = bestCircuit(out, [out, thin], dist2, cross)!;
+      const gain = (c: typeof good) => circuitScore(60_000, c, 0, 0, cross) - 60_000;
+      assert.ok(gain(poor) < 500 && gain(good) > 20_000);
+    });
+
+    it("needs the second leg to start in the system leg 1 sells in and end in the one it began in", () => {
+      const wrongStart = cand("W1", "X1-C-102", "X1-A-12", 90_000, { tripSeconds: 840 });
+      const wrongEnd = cand("W2", "X1-B-102", "X1-C-12", 90_000, { tripSeconds: 840 });
+      const sameSystem = cand("W3", "X1-B-102", "X1-B-12", 90_000);
+      assert.equal(bestCircuit(out, [out, wrongStart, wrongEnd, sameSystem], dist2, cross), undefined);
+    });
+
+    it("leaves same-system circuits exactly as they were when it is on", () => {
+      const a = bestCircuit(leg1, [leg1, back], ctx(), on);
+      const b = bestCircuit(leg1, [leg1, back], ctx(), cross);
+      assert.equal(a?.rate, b?.rate);
+      assert.equal(a?.cycleSeconds, b?.cycleSeconds);
+    });
+  });
+
   it("takes the best of several second legs", () => {
     const worse = cand("WORSE", "X1-A-101", "X1-A-11", 10_000);
     assert.equal(bestCircuit(leg1, [leg1, worse, back], ctx(), on)?.leg2.key, "BACK");
@@ -87,7 +141,7 @@ describe("circuitReport", () => {
   it("counts why nothing paired", () => {
     const other = cand("OTHER", "X1-A-900", "X1-A-950", 40_000); // starts 800s from the sale
     const text = circuitReport(leg1, [leg1, other], ctx(), on, 40_000);
-    assert.match(text, /^no circuit \(1 same-system legs, 1 free, 0 start within 10m of the sale, 0 also end within 10m of the start\)$/);
+    assert.match(text, /^no circuit \(1 legs that close the loop, 1 free, 0 start within 10m of the sale, 0 also end within 10m of the start\)$/);
   });
   it("names the best pair and its rate against the route when one exists", () => {
     const back = cand("BACK", "X1-A-102", "X1-A-12", 30_000);
@@ -104,7 +158,7 @@ describe("circuitReport", () => {
   it("does not count legs that are taken", () => {
     const back = cand("BACK", "X1-A-102", "X1-A-12", 30_000);
     const text = circuitReport(leg1, [leg1, back], ctx({ unavailable: () => true }), on, 40_000);
-    assert.match(text, /1 same-system legs, 0 free/);
+    assert.match(text, /1 legs that close the loop, 0 free/);
   });
 });
 
