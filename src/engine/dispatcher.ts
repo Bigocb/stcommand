@@ -113,6 +113,7 @@ export const MAX_LOTS_PER_TRIP = 3;
 
 import { REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
+import { DEFAULT_MATCH_POLICY, matchShips, type MatchPolicy } from "./matching.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
 
 /**
@@ -654,7 +655,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; jumpSeconds?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; matchTopN?: number; jumpSeconds?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -839,7 +840,7 @@ export class RouteDispatcher {
     // `sellAt`, only set for a `direct` item: the one case that needs the
     // *whole* round trip to fit a fuel tank, not just the leg to buyAt — see
     // reachable()'s own comment below for the live case this closes.
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; tripSeconds?: number; secPerDist?: number }[] = [];
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; tripSeconds?: number; secPerDist?: number; rawProfit?: number; profitByHold?: Record<string, number> }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -867,7 +868,7 @@ export class RouteDispatcher {
         // undoing the whole point of resorting `routes` above. toAssignment()
         // below still builds the displayed TraderAssignment from the route's
         // real profitPerTrip — only this ranking figure is adjusted.
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist });
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance > target.target) {
@@ -911,7 +912,7 @@ export class RouteDispatcher {
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
       // Decayed score here too — see the primary-loop push's own comment.
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist });
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
@@ -1058,7 +1059,91 @@ export class RouteDispatcher {
       unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key) || circuitHeld.has(legId(c)),
     };
     const candidateByKey = new Map(chainCandidates.map((c) => [c.key, c]));
-    for (const t of sorted) {
+    // Can this trader take this work, from where it stands? (Hoisted out of the loop so route-first matching can ask it
+    // about ships other than the one being served.)
+    const multiHopOk = (w: { buySystem?: string; profitPerTrip?: number }, from: string): boolean => {
+      if (!crossSystem?.enabled || w.buySystem === undefined) return false;
+      const path = crossSystem.path(from, w.buySystem);
+      if (!path || path.length < 3) return false; // 1 hop is handled by canJump above
+      if ((w.profitPerTrip ?? 0) <= pathCost(path)) return false; // first trip must net positive
+      if (crossSystem.homeSystem !== undefined && from === crossSystem.homeSystem) {
+        const reserve = crossSystem.homeReserve ?? 1;
+        const stayingHome = traders.filter((x) => x.system === crossSystem.homeSystem).length - 1 - leavingHome;
+        if (stayingHome < reserve) return false;
+      }
+      return true;
+    };
+    const reachableFor = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): boolean => {
+      if (w.buySystem === undefined || t.system === undefined) return true;
+      if (w.buySystem !== t.system) {
+        const jumpOk = canJump(t.system, w.buySystem) || multiHopOk(w, t.system);
+        if (!jumpOk) return false;
+        // The ship also has to reach the gate in its own system. The route check above only knows a jump is possible: a
+        // 300-tank trader 399 from the gate cannot cruise there and drifted for 2h09m (THEO-27, 2026-10-09 17:50), so a
+        // gate beyond the tank is unreachable unless a fuel stop relays it, exactly as for a same-system leg.
+        const nextSystem = canJump(t.system, w.buySystem) ? w.buySystem : crossSystem?.path(t.system, w.buySystem)?.[1];
+        const gate = nextSystem !== undefined ? crossSystem?.gateFor?.(t.system, nextSystem) : undefined;
+        if (gate !== undefined && t.waypoint !== undefined && t.fuelCapacity !== undefined &&
+            distanceBetween(t.waypoint, gate) > t.fuelCapacity &&
+            !(hasFuelStop?.(t.system, t.waypoint, gate, t.fuelCapacity) ?? false)) return false;
+        return true;
+      }
+      if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return true;
+      if (distanceBetween(t.waypoint, w.buyAt) > t.fuelCapacity &&
+          !(hasFuelStop?.(t.system, t.waypoint, w.buyAt, t.fuelCapacity) ?? false)) return false;
+      // A `direct` item (sellAt set) needs the *whole round trip* to fit the
+      // tank, not just the leg to buyAt — a same-system route whose sell
+      // market sits further out than the trader's own fuel capacity still
+      // passed the check above and only failed later, inside the trader's
+      // own findRoute(), after an assignment cycle was already burned on it.
+      // Confirmed live: THEO-11 (80-unit tank) was hand ADVANCED_CIRCUITRY
+      // X1-XB94-D43 -> X1-XB94-A4 (91 units apart) three separate times
+      // across recomputes despite 14 other same-system routes it could
+      // actually fly sitting right there in the same work list, because
+      // nothing here ever checked the sell leg. Cross-system sellAt is
+      // untouched — that leg is a jump, not a fuel-distance flight, and
+      // canJump() above already covers whether it is possible at all.
+      if (w.sellAt === undefined) return true;
+      const sellSystem = w.sellAt.slice(0, w.sellAt.lastIndexOf("-"));
+      if (sellSystem !== w.buySystem) return true;
+      if (distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity) return true;
+      return hasFuelStop?.(w.buySystem, w.buyAt, w.sellAt, t.fuelCapacity) ?? false;
+    };
+    // Route-first matching (matching.ts): off at topN 0. Otherwise the ships best suited to the top routes are served
+    // first, in route order, then everyone else by hold size as before.
+    const isDeclinedBy = (ship: string, w: { good?: string; buyAt?: string; sellAt?: string }): boolean => {
+      const r = this.declined.get(ship);
+      return !!r && r.until > nowMs && w.good === r.good && (r.wholeGood || (w.buyAt === r.buyAt && w.sellAt === r.sellAt));
+    };
+    let loopOrder = sorted;
+    const matchPolicy: MatchPolicy = { ...DEFAULT_MATCH_POLICY, topN: Math.max(0, Math.floor(tuning?.matchTopN ?? 0)) };
+    if (matchPolicy.topN > 0) {
+      const idle = sorted.filter((t) => !t.busy && !this.manual.has(t.shipSymbol) && !next.has(t.shipSymbol) && !this.committed.has(t.shipSymbol));
+      const tradeItems = work.filter((w) => w.sellAt !== undefined && w.buyAt !== undefined && !usedKeys.has(w.key));
+      const byKey = new Map(tradeItems.map((w) => [w.key, w]));
+      const traderBySymbol = new Map(idle.map((t) => [t.shipSymbol, t]));
+      const matched = matchShips(
+        tradeItems.map((w) => ({ key: w.key, profitPerTrip: w.profitPerTrip, rawProfit: w.rawProfit, profitByHold: w.profitByHold, volume: w.volume, tripSeconds: w.tripSeconds })),
+        idle.map((t) => ({ shipSymbol: t.shipSymbol, capacity: t.capacity })),
+        {
+          positioningSeconds: (ship, item) => {
+            const t = traderBySymbol.get(ship.shipSymbol);
+            const w = byKey.get(item.key);
+            if (!t || !w || !reachableFor(t, w) || isDeclinedBy(t.shipSymbol, w)) return undefined;
+            if (w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system) {
+              return (chainCtx.crossSystemHops(t.system, w.buySystem) ?? 1) * chainPolicy.jumpSeconds;
+            }
+            return t.waypoint && w.buyAt && w.secPerDist ? distanceBetween(t.waypoint, w.buyAt) * w.secPerDist : 0;
+          },
+        },
+        matchPolicy,
+      );
+      for (const note of matched.notes) log?.(note);
+      const first = matched.order.flatMap((sym) => traderBySymbol.get(sym) ?? []);
+      const firstSet = new Set(matched.order);
+      loopOrder = [...first, ...sorted.filter((t) => !firstSet.has(t.shipSymbol))];
+    }
+    for (const t of loopOrder) {
       const manual = this.manual.get(t.shipSymbol);
       if (manual) {
         next.set(t.shipSymbol, manual);
@@ -1116,54 +1201,7 @@ export class RouteDispatcher {
       // the cap, the hold being empty (busy traders never get here), the FIRST
       // trip alone covering the positioning cost, and at least `homeReserve`
       // traders staying behind in the home system.
-      const multiHopOk = (w: { buySystem?: string; profitPerTrip?: number }, from: string): boolean => {
-        if (!crossSystem?.enabled || w.buySystem === undefined) return false;
-        const path = crossSystem.path(from, w.buySystem);
-        if (!path || path.length < 3) return false; // 1 hop is handled by canJump above
-        if ((w.profitPerTrip ?? 0) <= pathCost(path)) return false; // first trip must net positive
-        if (crossSystem.homeSystem !== undefined && from === crossSystem.homeSystem) {
-          const reserve = crossSystem.homeReserve ?? 1;
-          const stayingHome = traders.filter((x) => x.system === crossSystem.homeSystem).length - 1 - leavingHome;
-          if (stayingHome < reserve) return false;
-        }
-        return true;
-      };
-      const reachable = (w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): boolean => {
-        if (w.buySystem === undefined || t.system === undefined) return true;
-        if (w.buySystem !== t.system) {
-          const jumpOk = canJump(t.system, w.buySystem) || multiHopOk(w, t.system);
-          if (!jumpOk) return false;
-          // The ship also has to reach the gate in its own system. The route check above only knows a jump is possible: a
-          // 300-tank trader 399 from the gate cannot cruise there and drifted for 2h09m (THEO-27, 2026-10-09 17:50), so a
-          // gate beyond the tank is unreachable unless a fuel stop relays it, exactly as for a same-system leg.
-          const nextSystem = canJump(t.system, w.buySystem) ? w.buySystem : crossSystem?.path(t.system, w.buySystem)?.[1];
-          const gate = nextSystem !== undefined ? crossSystem?.gateFor?.(t.system, nextSystem) : undefined;
-          if (gate !== undefined && t.waypoint !== undefined && t.fuelCapacity !== undefined &&
-              distanceBetween(t.waypoint, gate) > t.fuelCapacity &&
-              !(hasFuelStop?.(t.system, t.waypoint, gate, t.fuelCapacity) ?? false)) return false;
-          return true;
-        }
-        if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return true;
-        if (distanceBetween(t.waypoint, w.buyAt) > t.fuelCapacity &&
-            !(hasFuelStop?.(t.system, t.waypoint, w.buyAt, t.fuelCapacity) ?? false)) return false;
-        // A `direct` item (sellAt set) needs the *whole round trip* to fit the
-        // tank, not just the leg to buyAt — a same-system route whose sell
-        // market sits further out than the trader's own fuel capacity still
-        // passed the check above and only failed later, inside the trader's
-        // own findRoute(), after an assignment cycle was already burned on it.
-        // Confirmed live: THEO-11 (80-unit tank) was hand ADVANCED_CIRCUITRY
-        // X1-XB94-D43 -> X1-XB94-A4 (91 units apart) three separate times
-        // across recomputes despite 14 other same-system routes it could
-        // actually fly sitting right there in the same work list, because
-        // nothing here ever checked the sell leg. Cross-system sellAt is
-        // untouched — that leg is a jump, not a fuel-distance flight, and
-        // canJump() above already covers whether it is possible at all.
-        if (w.sellAt === undefined) return true;
-        const sellSystem = w.sellAt.slice(0, w.sellAt.lastIndexOf("-"));
-        if (sellSystem !== w.buySystem) return true;
-        if (distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity) return true;
-        return hasFuelStop?.(w.buySystem, w.buyAt, w.sellAt, t.fuelCapacity) ?? false;
-      };
+      const reachable = (w: Parameters<typeof reachableFor>[1]): boolean => reachableFor(t, w);
       // Best REACHABLE item by score. A multi-hop positioning trip is scored
       // net of a third of its positioning cost (the trader will usually run
       // that lane a few times once it is there); everything else keeps its

@@ -122,6 +122,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "routeMatchTopN",
+    name: "Best ship for the best routes",
+    description: "Hand the best routes to the ships that would earn the most from them, instead of to whichever idle trader is biggest. For each of this many top routes the dispatcher picks the idle ship with the highest profit at its own hold size, less the time it spends getting to the buy market, and serves those ships first, best route first. Everything else (circuits, fuel, market impact) is unchanged; ships not matched are served by hold size as before. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 6, min: 1, max: 20, step: 1, unit: " routes",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",

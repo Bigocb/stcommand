@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Route-first matching, built and switched off (2026-10-09)
+
+New pure module `src/engine/matching.ts` and doctrine clause `routeMatchTopN` ("Best ship for the best routes", disabled by
+default). Until now the dispatcher walked idle traders biggest hold first, so a route went to whichever big ship got there
+first, however far it stood from the buy market or however little the route paid on its hold. With the clause on, each of
+the top N routes (best first) is given to the idle ship that earns most from it at its own hold size (`profitByHold`), less
+the time to reach the buy market; those ships are served first, in route order, then everyone else by hold size as before.
+It only changes the order ships are served in: scoring, circuits, fuel and market-impact checks are untouched, and the
+matched ship still picks by its own scoring. The dispatch log gets one `dispatch match: ROUTE -> SHIP (worth N, next ...)`
+line per match. Off (or topN 0) reproduces the old order exactly (tested). The reachability check moved out of the per-ship
+loop so it can be asked about any ship. Prompted by RELIC_TECH (about +1.1M a trip) going to a 40-hold ship.
+
 ## dispatch_tour no longer refuses the last tour ship in a system (2026-10-09)
 
 Removed the guard in `dispatchTourShip` that threw when the ship was the only tour ship in its system. It dates from before
