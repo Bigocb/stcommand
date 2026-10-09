@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request as ExpressRequest } from "express";
 import { createOpsRouter } from "./ops.js";
 import { rateLimitMonitor, INSTANCE_ID } from "../core/rateLimitMonitor.js";
 import type pg from "pg";
@@ -854,6 +854,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const { shipSymbol, waypointSymbol } = req.body ?? {};
+    auditFleetAction(req, "dispatch", `${shipSymbol} -> ${waypointSymbol}`);
     if (typeof shipSymbol !== "string" || typeof waypointSymbol !== "string") {
       return res.status(400).json({ error: "shipSymbol and waypointSymbol required" });
     }
@@ -1553,6 +1554,14 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json({ claims: await w.store.getAllClaims(w.tenantId) });
   });
 
+  /** One log line saying which client sent a fleet-changing request, so an unexplained hold can be traced. */
+  const auditFleetAction = (req: ExpressRequest, action: string, detail: string): void => {
+    const ua = String(req.get("user-agent") ?? "?").slice(0, 120);
+    const ip = String(req.get("x-forwarded-for") ?? req.ip ?? "?").split(",")[0]?.trim();
+    const referer = String(req.get("referer") ?? "-").slice(0, 80);
+    console.log(`[dashboard] ${action} ${detail} from ${ip} ua="${ua}" referer=${referer}`);
+  };
+
   router.post("/fleet/dispatch", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
@@ -1605,6 +1614,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const { shipSymbol } = req.body ?? {};
+    auditFleetAction(req, "hold", String(shipSymbol));
     if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
     try {
       await w.fleet.holdShip(shipSymbol);
@@ -1619,6 +1629,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const { shipSymbol } = req.body ?? {};
+    auditFleetAction(req, "release", String(shipSymbol));
     if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
     try {
       await w.fleet.releaseShip(shipSymbol);
