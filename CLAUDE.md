@@ -277,6 +277,20 @@ ships that a player would need to know about — that's the signal this
 section exists to capture, the MCP-player equivalent of this file's own
 "Reporting matched buy/sell P&L" entry below.
 
+## Build new logic as self-contained modules
+
+Operator preference (2026-10-09). New engine logic goes in its own small module with a narrow interface, so the
+simple version ships first and complexity can be added later without rewriting callers. The pattern, from the
+follow-on lookahead (`src/engine/chain.ts`, `docs/backhaul-plan.md`) and the trading pace (`src/engine/pace.ts`):
+
+- **Pure.** No I/O, no clock, no globals. Everything it needs comes in through arguments or a small context object
+  the caller fills (distance, reachability, reservations), so it can't disagree with the caller about what is possible.
+- **Policy is data.** Weights and limits are a policy object backed by a doctrine clause, so the feature ships
+  switched off and can be turned up or down live. Weight 0 / clause off must reproduce today's behaviour, with a test.
+- **Explainable.** Return or log a one-line reason for each decision.
+- **Tested in isolation,** plus one test at the seam where the caller uses it.
+- **Callers stay thin.** The dispatcher, trader and dashboard call the module; they don't hold its logic.
+
 ## Docs to keep current
 
 - `docs/TODO.md` — open items; move a closed one to `CHANGELOG.md`
