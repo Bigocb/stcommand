@@ -459,6 +459,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   markets where every leg carries cargo, assigned to one trader as a standing route. Check first how much the dispatcher
   already gets by picking each ship's next leg from where it is now. On 2026-10-08 THEO-1 sold FABRICS at E48, then ran
   FOOD and FUEL out of E50 without an empty trip home. Measure the dead-leg share in the ledger before building anything.
+  2026-10-09 progress: `stcommand_ops_deadhead` measures it (about 27% of time loaded); follow-on lookahead (v1) is on; two-leg
+  circuits (v2, `chainCircuitWeight`) are built and off, awaiting a live trial. Still open: persist a pending circuit across a
+  restart, a cash check at the second leg, 3+ leg and cross-system circuits (v3), and a Tower route card showing "then: ...".
 
 - **Gate-chain follow-ups (2026-10-05).** (a) done in Deck 2026-10-05 (Tower shows tags only; v6 none). (b) done 2026-10-05 as the Ops "Gate supply chain" panel.
   (b-old) A "chain health" Deck panel like the community

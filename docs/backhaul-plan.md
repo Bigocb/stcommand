@@ -1,6 +1,11 @@
 # Backhaul and circuits — plan
 
-Status: Step 0 and v1 built on the feature branch (2026-10-09), switched off (doctrine `chainFollowOnWeight`, clause disabled). v2/v3 not started. Owner decision points are at the end.
+Status: Step 0 and v1 are live (2026-10-09, `chainFollowOnWeight` switched on by the operator). v2 (two-leg circuits, `src/engine/circuit.ts`, doctrine `chainCircuitWeight`) is built on the feature branch and switched off; it is not on `main`. v3 not started. Owner decision points are at the end.
+
+What v2 does differently from the sketch below: the dispatcher keeps the second leg for the ship (no new trader code, no
+change to `held_route`), so a restart forgets a pending circuit and traders fall back to normal picking. Open from the
+sketch: persisting the circuit across a restart, a cash check at the second leg's buy (the trader's own sizing and cash
+floor still apply and a refused leg is dropped), and cross-system pairs (v3).
 
 ## The gap
 

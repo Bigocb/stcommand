@@ -113,6 +113,7 @@ export const MAX_LOTS_PER_TRIP = 3;
 
 import { REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
+import { bestCircuit, circuitExpired, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
 
 /**
  * "direct"      — buy here, carry it yourself, sell there. One trader owns
@@ -153,6 +154,9 @@ export interface TraderAssignment {
   missionBuy?: boolean;
   /** Informational: the route the dispatcher expected this trip to lead into (see chain.ts). The trader does not read it. */
   followOn?: { good: string; buyAt: string; sellAt: string; score: number };
+  /** Informational: this trip is one leg of a two-leg circuit (see circuit.ts). Leg 1 names the leg planned to follow;
+   *  leg 2 is that leg being served. The trader does not read it; the dispatcher keeps the second leg for this ship. */
+  circuit?: { leg: 1 | 2; leg2: { good: string; buyAt: string; sellAt: string; score: number }; explain: string };
 }
 
 /** A good's warehouse state, as input to deciding whether it needs a buy or
@@ -263,6 +267,9 @@ export class RouteDispatcher {
   private committed = new Map<string, { at: number; hadCargo: boolean }>();
   /** Auto legs a trader refused (see decline()), kept out of that trader's picks until `until`. */
   private declined = new Map<string, { good: string; buyAt?: string; sellAt?: string; wholeGood: boolean; until: number }>();
+  /** Circuits handed out (leg 1 assigned) whose second leg is kept for that ship until it is served or the plan expires.
+   *  In memory only: a restart forgets them and every trader simply picks fresh work, as before circuits existed. */
+  private circuits = new Map<string, PlannedCircuit>();
   /** The ranked route list from the last recompute, used to serve live claims. */
   private routes: DispatchRoute[] = [];
   private lastComputed = 0;
@@ -342,6 +349,7 @@ export class RouteDispatcher {
   /** Assign a specific route to a trader. Pass undefined to clear an override. */
   setManual(shipSymbol: string, assignment: TraderAssignment | undefined): void {
     this.committed.delete(shipSymbol);
+    this.circuits.delete(shipSymbol);
     if (assignment) {
       this.manual.set(shipSymbol, { ...assignment, source: "manual" });
     } else {
@@ -481,6 +489,7 @@ export class RouteDispatcher {
   /** Give up a claim (ship scrapped, role changed, route abandoned). */
   release(shipSymbol: string): void {
     this.assignments.delete(shipSymbol);
+    this.circuits.delete(shipSymbol);
   }
 
   /**
@@ -497,6 +506,7 @@ export class RouteDispatcher {
     if (!a || a.source === "manual") return;
     this.assignments.delete(shipSymbol);
     this.committed.delete(shipSymbol);
+    this.circuits.delete(shipSymbol);
     this.declined.set(shipSymbol, { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, wholeGood, until: Date.now() + DECLINE_MS });
   }
 
@@ -595,7 +605,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -681,7 +691,13 @@ export class RouteDispatcher {
       const c = this.committed.get(t.shipSymbol);
       if (!c) continue;
       if (t.busy) c.hadCargo = true;
-      else if (c.hadCargo) { this.committed.delete(t.shipSymbol); continue; }
+      else if (c.hadCargo) {
+        this.committed.delete(t.shipSymbol);
+        // The trip's cargo is sold: if it was leg 1 of a circuit, leg 2 may now be served.
+        const planned = this.circuits.get(t.shipSymbol);
+        if (planned) planned.leg1Sold = true;
+        continue;
+      }
       const a = this.assignments.get(t.shipSymbol);
       // Mid-flight to the buy waypoint the trip is never revoked for a changed
       // list; once the ship is standing at the buy waypoint with an empty hold
@@ -949,7 +965,21 @@ export class RouteDispatcher {
       followOnWeight: Math.max(0, tuning?.followOnWeight ?? 0),
       horizonMinutes: tuning?.followOnHorizonMin ?? DEFAULT_CHAIN_POLICY.horizonMinutes,
     };
-    const chainCandidates: ChainCandidate[] = chainPolicy.followOnWeight > 0
+    // Two-leg circuits (circuit.ts): off at weight 0, which also forgets any plan still held.
+    const circuitPolicy: CircuitPolicy = {
+      ...DEFAULT_CIRCUIT_POLICY,
+      weight: Math.max(0, tuning?.circuitWeight ?? 0),
+      horizonMinutes: tuning?.circuitHorizonMin ?? DEFAULT_CIRCUIT_POLICY.horizonMinutes,
+    };
+    for (const [ship, planned] of this.circuits) {
+      if (circuitPolicy.weight <= 0 || circuitExpired(planned, nowMs, circuitPolicy)) this.circuits.delete(ship);
+    }
+    // Second legs kept for a ship that has not served them yet: nobody else is handed or credited them.
+    const circuitHeld = new Map<string, string>();
+    for (const [ship, planned] of this.circuits) circuitHeld.set(legId(planned.leg2), ship);
+    const workLegId = (w: { good?: string; buyAt?: string; sellAt?: string }): string | undefined =>
+      w.good !== undefined && w.buyAt !== undefined && w.sellAt !== undefined ? legId({ good: w.good, buyAt: w.buyAt, sellAt: w.sellAt }) : undefined;
+    const chainCandidates: ChainCandidate[] = chainPolicy.followOnWeight > 0 || circuitPolicy.weight > 0
       ? work.flatMap((w) =>
           w.sellAt !== undefined && w.buyAt !== undefined && w.buySystem !== undefined && w.good !== undefined && w.tripSeconds && w.secPerDist
             ? [{ key: w.key, good: w.good, buyAt: w.buyAt, buySystem: w.buySystem, sellAt: w.sellAt, profitPerTrip: w.profitPerTrip, tripSeconds: w.tripSeconds, secPerDist: w.secPerDist }]
@@ -964,8 +994,9 @@ export class RouteDispatcher {
         const path = crossSystem.path(from, to);
         return path ? pathCost(path) : undefined;
       },
-      unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key),
+      unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key) || circuitHeld.has(legId(c)),
     };
+    const candidateByKey = new Map(chainCandidates.map((c) => [c.key, c]));
     for (const t of sorted) {
       const manual = this.manual.get(t.shipSymbol);
       if (manual) {
@@ -1070,35 +1101,80 @@ export class RouteDispatcher {
       // first-reachable-in-ranked-order pick.
       let item: (typeof work)[number] | undefined;
       let itemFollowOn: FollowOn | undefined;
+      let itemCircuit: Circuit | undefined;
+      let leg2Served: { score: number; reason: string } | undefined;
       let bestScore = -Infinity;
       const refused = this.declined.get(t.shipSymbol);
       if (refused && refused.until <= nowMs) this.declined.delete(t.shipSymbol);
       const isRefused = (w: { good?: string; buyAt?: string; sellAt?: string }): boolean =>
         !!refused && refused.until > nowMs && w.good === refused.good &&
         (refused.wholeGood || (w.buyAt === refused.buyAt && w.sellAt === refused.sellAt));
-      for (const w of work) {
-        if (usedKeys.has(w.key) || !reachable(w) || isRefused(w)) continue;
+      // What a work item is worth to THIS trader before any lookahead: the route's score less the extra-buyer impact,
+      // discounted for the flight to its buy market. Undefined when it cannot or should not be handed to this trader.
+      const scoreItem = (w: (typeof work)[number]): { score: number; penalty: number; positioning: number } | undefined => {
+        if (usedKeys.has(w.key) || !reachable(w) || isRefused(w)) return undefined;
         const extra = impactCost(w);
-        if (extra === undefined) continue; // an extra buyer here is not worth it / over the cap
+        if (extra === undefined) return undefined; // an extra buyer here is not worth it / over the cap
         // Direct routes carry a time-scaled score (see scoreRoute()); keep the extra buyers' impact cost on the
         // same scale, and charge the flight from this trader to the buy market against the trip's own time.
         const timeScale = w.tripSeconds ? REFERENCE_TRIP_SECONDS / w.tripSeconds : 1;
-        let score = w.profitPerTrip - extra * timeScale;
+        const penalty = extra * timeScale;
+        let score = w.profitPerTrip - penalty;
+        let positioning = 0;
         if (w.tripSeconds && w.secPerDist && w.buyAt && t.waypoint && t.system !== undefined && w.buySystem === t.system) {
-          const positioning = distanceBetween(t.waypoint, w.buyAt) * w.secPerDist;
+          positioning = distanceBetween(t.waypoint, w.buyAt) * w.secPerDist;
           score *= w.tripSeconds / (w.tripSeconds + positioning);
         }
-        if (score <= 0) continue;
+        if (score <= 0) return undefined;
         if (crossSystem?.enabled && w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system && !canJump(t.system, w.buySystem)) {
           const path = crossSystem.path(t.system, w.buySystem);
           if (path) score -= pathCost(path) / 3;
         }
+        return { score, penalty, positioning };
+      };
+      // A circuit planned for this ship gets exactly one chance at its second leg, and only after the first leg's cargo
+      // was sold. If that leg has gone off the board, lost its margin or become unreachable, the circuit is dropped and
+      // the ship is picked for like any other idle trader.
+      const planned = this.circuits.get(t.shipSymbol);
+      if (planned) {
+        this.circuits.delete(t.shipSymbol);
+        const lid = legId(planned.leg2);
+        circuitHeld.delete(lid);
+        if (!planned.leg1Sold) {
+          log?.(`dispatch circuit: ${t.shipSymbol} dropped leg 2 ${lid} — leg 1 never ran`);
+        } else {
+          const w2 = work.find((w) => workLegId(w) === lid);
+          const s2 = w2 ? scoreItem(w2) : undefined;
+          const verdict = judgeLeg2(planned, s2?.score, circuitPolicy);
+          if (w2 && s2 && verdict.ok) {
+            item = w2;
+            bestScore = s2.score;
+            leg2Served = { score: s2.score, reason: verdict.reason };
+          } else {
+            log?.(`dispatch circuit: ${t.shipSymbol} dropped leg 2 ${lid} — ${verdict.reason}`);
+          }
+        }
+      }
+      for (const w of leg2Served ? [] : work) {
+        const lid = workLegId(w);
+        const holder = lid !== undefined ? circuitHeld.get(lid) : undefined;
+        if (holder !== undefined && holder !== t.shipSymbol) continue; // kept for another ship's circuit
+        const scored = scoreItem(w);
+        if (!scored) continue;
+        let score = scored.score;
         let followOn: FollowOn | undefined;
-        if (chainPolicy.followOnWeight > 0 && w.sellAt !== undefined) {
+        let circuit: Circuit | undefined;
+        const candidate = candidateByKey.get(w.key);
+        if (circuitPolicy.weight > 0 && w.sellAt !== undefined && candidate) {
+          const found = bestCircuit(candidate, chainCandidates, chainCtx, circuitPolicy);
+          const credited = circuitScore(score, found, scored.positioning, scored.penalty, circuitPolicy);
+          if (found && credited > score) { circuit = found; score = credited; }
+        }
+        if (!circuit && chainPolicy.followOnWeight > 0 && w.sellAt !== undefined) {
           followOn = bestFollowOn(w.sellAt, chainCandidates, chainCtx, chainPolicy, w.key);
           score = chainScore(score, followOn, chainPolicy);
         }
-        if (score > bestScore) { bestScore = score; item = w; itemFollowOn = followOn; }
+        if (score > bestScore) { bestScore = score; item = w; itemFollowOn = followOn; itemCircuit = circuit; }
       }
       if (item && crossSystem?.enabled && crossSystem.homeSystem !== undefined && t.system === crossSystem.homeSystem && item.buySystem !== undefined && item.buySystem !== t.system) {
         leavingHome += 1;
@@ -1131,6 +1207,17 @@ export class RouteDispatcher {
       }
       usedKeys.add(item.key);
       const made = item.make(t.shipSymbol);
+      if (leg2Served && planned) {
+        made.circuit = { leg: 2, leg2: { ...planned.leg2, score: Math.round(leg2Served.score) }, explain: leg2Served.reason };
+        log?.(`dispatch circuit: ${t.shipSymbol} leg 2 ${item.key} — ${leg2Served.reason}`);
+      }
+      if (itemCircuit) {
+        const l2 = itemCircuit.leg2;
+        made.circuit = { leg: 1, leg2: { good: l2.good, buyAt: l2.buyAt, sellAt: l2.sellAt, score: Math.round(l2.profitPerTrip) }, explain: itemCircuit.explain };
+        this.circuits.set(t.shipSymbol, { leg2: { good: l2.good, buyAt: l2.buyAt, sellAt: l2.sellAt }, leg2Score: l2.profitPerTrip, at: nowMs });
+        circuitHeld.set(legId(l2), t.shipSymbol);
+        log?.(`dispatch circuit: ${t.shipSymbol} ${item.key} — ${itemCircuit.explain}`);
+      }
       if (itemFollowOn) {
         made.followOn = { good: itemFollowOn.candidate.good, buyAt: itemFollowOn.candidate.buyAt, sellAt: itemFollowOn.candidate.sellAt, score: Math.round(itemFollowOn.score) };
         if (chainPolicy.reserveFollowOn) reservedFollowOns.add(itemFollowOn.candidate.key);

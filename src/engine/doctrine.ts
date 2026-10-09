@@ -94,6 +94,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "chainCircuitWeight",
+    name: "Two-leg circuits",
+    description: "Plan a trip as a pair: buy A and sell B, then a second trip that starts near B and ends near A, so the ship is never flying empty between them. A route is ranked higher when such a pair beats the route on its own, by this share of the difference (50 = half), and the second leg is then kept for that ship (it is dropped if its margin falls to half of what was planned, or it goes off the board). Same-system pairs only. Off by default (clause disabled): turn the clause on to use it; the trader itself is unchanged. While on it replaces the follow-on credit for routes that have a circuit. Takes effect on the next dispatch recompute (within a minute). See docs/backhaul-plan.md.",
+    value: 50, min: 0, max: 100, step: 5, unit: "%",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",

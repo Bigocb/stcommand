@@ -9,6 +9,27 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Two-leg circuits, off by default (2026-10-09)
+
+Second step of `docs/backhaul-plan.md` (v2). Lookahead only nudges which route an idle trader picks; it cannot stop a
+second trader taking the return leg, and it never required that leg to end where the first began. A circuit is a pair:
+buy A and sell B, then buy near B and sell near A. Nothing changes until the new doctrine clause **Two-leg circuits**
+(`chainCircuitWeight`, 50%, clause disabled by default) is switched on; with the clause off the dispatcher is exactly as
+before (covered by a test), and turning it off again releases every held leg.
+
+- `src/engine/circuit.ts` (pure, tested): `bestCircuit()` finds the best second leg for a route (starts within 10 minutes
+  of the sale, ends within 10 minutes of the first buy, a different good, same system), scores the pair over the whole
+  cycle including both empty hops, and `circuitScore()` credits the weighted gain over the route's own score. `judgeLeg2()`
+  is the bail-out: the second leg is dropped if it is gone, unprofitable or has fallen under half its planned score.
+- The dispatcher keeps the second leg for that ship (`RouteDispatcher.circuits`): other traders are not handed or credited
+  it, and once the first leg's cargo has been sold the ship is given it ahead of the normal pick. Plans expire after an
+  hour, and `release`, `decline` and a manual assignment drop them. For a route that has a circuit the circuit replaces
+  the follow-on credit; routes without one still get the follow-on credit. Assignments carry an informational `circuit`
+  field and the log has `dispatch circuit: ...` lines.
+- The trader is unchanged. It still flies one assignment at a time and keeps its own wallet and viability checks, so a
+  second leg it cannot afford or refuses is simply dropped. The pin is in memory only: a restart forgets it and every
+  trader picks fresh work, as before circuits existed.
+
 ## Holds and credits move together on the dashboard (2026-10-09)
 
 Credits update the instant a trade response arrives, but hold values came from the agents' own cached ships (a tick
