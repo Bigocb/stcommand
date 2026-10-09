@@ -130,3 +130,26 @@ Rules of thumb to carry forward:
    (hold) when empty instead, or scrap it when it passes a yard.
 4. The Tower and Deck route figures price every route at the fleet's biggest hold; read the per-hold line (40u / 80u)
    to know what a shuttle actually earns.
+
+## Open more systems from the start (2026-10-09, operator)
+
+Routes were 100k+ a trip early last week and about 50k a trip by day 6 of this one: eleven traders working the same three
+systems squeeze the spreads, and a market recovers only a few percent an hour (measured 2026-10-05). The fix is more
+markets to trade in, not a better scoring formula. Plan for the next reset:
+
+1. **As soon as the home gate is open, start looking for large systems and send a tour ship to each.** A full-size system
+   has 79-92 waypoints, about 25 markets and 3 shipyards; most others have 0-4 markets (asteroid belts and a gate). On
+   2026-10-09 the full-size ones beyond the home cluster were MB58, JU15 (gate still unfinished), JJ27 (gate open), and
+   XJ90, PZ19, NU62, NC79, ZZ69, YG40, MK29 (gates unfinished). Mid-size systems with 14-26 markets (GH86, MC94, CU25,
+   RQ95, BY91) are worth a tour too. Skip anything under about 10 markets.
+2. **Check the gate before sending a ship.** The shared table `galaxy_gate_construction` (`is_complete`) says which
+   gates are open; 12 of 93 known gates were still closed. Query it with the read-only login (`stcommand` schema).
+3. **Use `dispatch_tour`, not explorers.** It sets the tour role and walks the gate graph; once there the ship tours the
+   system's markets itself. Keep `explorerTarget` at **0**. With it above 0, turning explorers into tour ships makes the
+   fleet refill the count by converting spare *traders* (it took THEO-62, the 150-hold ship, and THEO-51 on 2026-10-09).
+   `dispatch_tour` also refuses to move the only tour ship out of a system.
+4. **Then put keepers on the markets a trade route actually uses** (see the keeper rule above), and let the dispatcher's
+   cross-system routes and circuits (`chainCircuitCrossSystem`) spread traders across the new systems.
+5. **Heavy haulers.** A tour ship at a shipyard records its ship specs (fuel, cargo, speed, crew); check them on Deck's
+   yard list. Only the 150-hold refining freighter (2.2M at GY77-A2, speed 36) has been seen so far; light haulers
+   (80 cargo, 600 fuel, speed 15) cost 310-540k depending on the yard.

@@ -154,6 +154,9 @@ tr:hover td{background:var(--raised)}
 
 /* Fleet screen (pass 2) */
 .chiprow{display:flex;gap:6px;flex:0 0 auto}
+.yc-stats{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.yc-chip{font-family:var(--chrome);font-size:9px;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:10px;background:rgba(147,166,180,.12);color:var(--ice);white-space:nowrap}
+.yc-chip i{font-style:normal;color:var(--dim);margin-right:5px}
 .syschip{font-family:var(--mono);font-size:10.5px;padding:5px 11px;border-radius:4px;border:1px solid var(--hair-hi);color:var(--dim);background:var(--panel);cursor:pointer}
 .syschip.on{color:var(--amber);border-color:var(--amber-glow);background:var(--amber-dim)}
 

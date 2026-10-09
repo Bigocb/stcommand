@@ -998,6 +998,20 @@ function renderMarkets() {
   if (routesEl) routesEl.innerHTML = routesHtml;
 
   // Yards & outfitting panel
+  /** Labelled spec chips for a shipyard listing (same facts as Tower's yard cards: fuel, cargo, speed, crew, slots,
+   *  mounts). Zero or unknown values are left out. Cargo comes from the cargo-hold modules the ship is sold with. */
+  const shipSpecChips = (y) => {
+    const cargo = (y.modules ?? []).filter((m) => (m.symbol ?? "").startsWith("MODULE_CARGO_HOLD")).reduce((n, m) => n + (m.capacity ?? 0), 0);
+    const chip = (label, value) => `<span class="yc-chip"><i>${label}</i>${value}</span>`;
+    const out = [];
+    if (y.fuelCapacity > 0) out.push(chip("FUEL", fmt(y.fuelCapacity)));
+    if (cargo > 0) out.push(chip("CARGO", fmt(cargo)));
+    if (y.engineSpeed != null) out.push(chip("SPEED", y.engineSpeed));
+    if (y.crewCapacity > 0) out.push(chip("CREW", `${y.crewRequired ?? 0}/${y.crewCapacity}`));
+    if (y.moduleSlots > 0) out.push(chip("SLOTS", y.moduleSlots));
+    if (y.mountingPoints > 0) out.push(chip("MOUNTS", y.mountingPoints));
+    return out.length ? `<div class="yc-stats">${out.join("")}</div>` : "";
+  };
   const yardsHtml = (() => {
     const yards = intel.shipyards ?? [];
     if (!yards.length) {
@@ -1021,6 +1035,7 @@ function renderMarkets() {
           <div style="flex:1">
             <div class="name">${escapeHtml(best.shipTypeName)}</div>
             <div class="route">${escapeHtml(shortWp(best.waypointSymbol))}</div>
+            ${shipSpecChips(best)}
           </div>
           <div class="profit">${fmt(best.purchasePrice)}c</div>
           <button class="btn pri" style="margin-left:10px" data-buy-ship="${escapeAttr(best.shipType)}" data-yard="${escapeAttr(best.waypointSymbol)}" title="Buy ${escapeAttr(best.shipTypeName)} at ${escapeAttr(best.waypointSymbol)}">Buy</button>

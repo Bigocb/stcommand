@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck yard list shows ship specs; playbook: open systems early (2026-10-09)
+
+Deck's Markets > yards panel now shows the same spec chips Tower's yard cards do (fuel, cargo, speed, crew, slots, mounts;
+zero or unknown values left out). `docs/reset-opening-playbook.md` gains "Open more systems from the start": routes shrank
+from 100k+ to about 50k a trip as eleven traders worked three systems, so next reset the tour ships go to every large
+system as soon as the home gate opens (check `galaxy_gate_construction`, use `dispatch_tour`, keep `explorerTarget` at 0).
+
 ## Cross-system circuits, built and switched off (2026-10-09)
 
 Same-system circuit pairs ran dry once every route on the board crossed a gate (all nine traders were on cross-system
