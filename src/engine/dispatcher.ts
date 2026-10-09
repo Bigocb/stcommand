@@ -1200,7 +1200,10 @@ export class RouteDispatcher {
         let followOn: FollowOn | undefined;
         let circuit: Circuit | undefined;
         const candidate = candidateByKey.get(w.key);
-        if (circuitPolicy.weight > 0 && w.sellAt !== undefined && candidate) {
+        // Only a first leg that starts in this ship's own system is credited: the circuit's score has no price for a
+        // flight or jump to another system, so a cross-system first leg would be over-credited (seen live 2026-10-09,
+        // THEO-51 and THEO-27 planned GY77 pairs from JX83 and sat empty).
+        if (circuitPolicy.weight > 0 && w.sellAt !== undefined && candidate && (t.system === undefined || w.buySystem === t.system)) {
           const found = bestCircuit(candidate, chainCandidates, chainCtx, circuitPolicy);
           const credited = circuitScore(score, found, scored.positioning, scored.penalty, circuitPolicy);
           if (found && credited > score) { circuit = found; score = credited; }

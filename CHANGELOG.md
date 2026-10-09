@@ -30,6 +30,8 @@ before (covered by a test), and turning it off again releases every held leg.
   `chainNote()` in `public/shared/domain.js`: " · then ALUMINUM JX83-H55 → JX83-D44" for the follow-on the dispatcher has
   lined up, or " · circuit 1/2, back via CLOTHING" / " · circuit 2/2" for a circuit. Read-only; nothing shows with the
   clauses off.
+- A circuit is only credited when its first leg starts in the ship's own system. The score has no price for a flight or
+  jump to another system, and live (2026-10-09) THEO-51 and THEO-27 were planned GY77 pairs while standing in JX83.
 - The trader is unchanged. It still flies one assignment at a time and keeps its own wallet and viability checks, so a
   second leg it refuses is simply dropped.
 - Cash: when the second leg comes up the dispatcher checks the spendable cash (wallet less the cash floor, after the first

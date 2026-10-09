@@ -180,6 +180,28 @@ describe("dispatcher circuits", () => {
     assert.equal(d.circuitSnapshot(), undefined);
   });
 
+  it("does not credit a circuit whose first leg starts in another system than the ship", () => {
+    const inB = (good: string, buyAt: string, sellAt: string, profit: number): DispatchRoute =>
+      ({ ...route(good, buyAt, sellAt, profit), buySystem: "X1-B", sellSystem: "X1-B" }) as DispatchRoute;
+    const XOUT = inB("XOUT", "X1-B-10", "X1-B-100", 40_000);
+    const XBACK = inB("XBACK", "X1-B-102", "X1-B-12", 42_000);
+    const LOCAL = route("LOCAL", "X1-A-1", "X1-A-60", 50_000); // plain route right where the ship stands
+    const pick = (weight: number) => {
+      const d = new RouteDispatcher();
+      d.recompute([XOUT, XBACK, LOCAL], [t1({ waypoint: "X1-A-1" })], [], [], [], [], () => true, distance, undefined, undefined, undefined, { circuitWeight: weight });
+      return d.assignmentFor("T-1");
+    };
+    assert.equal(pick(1)?.good, "LOCAL", "the other system's pair is not over-credited");
+    assert.equal(pick(1)?.circuit, undefined);
+    assert.equal(pick(0)?.good, "LOCAL");
+  });
+
+  it("still credits a circuit whose first leg starts in the ship's own system", () => {
+    const d = new RouteDispatcher();
+    d.recompute([OUT, BACK, SOLO], [t1()], [], [], [], [], () => true, distance, undefined, undefined, undefined, { circuitWeight: 1 });
+    assert.equal(d.assignmentFor("T-1")?.circuit?.leg, 1);
+  });
+
   it("replaces the follow-on credit for a route that has a circuit", () => {
     const d = new RouteDispatcher();
     d.recompute([OUT, BACK, SOLO], [t1()], [], [], [], [], () => false, distance, undefined, undefined, undefined, { followOnWeight: 0.5, circuitWeight: 1 });
