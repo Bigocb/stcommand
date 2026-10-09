@@ -13,7 +13,8 @@ be useful context; not a complete project history — see `git log` for that.
 
 Removed the guard in `dispatchTourShip` that threw when the ship was the only tour ship in its system. It dates from before
 keepers; keepers now camp the markets that matter, and the guard blocked sending a lone tour ship to map a new system
-(it forced hop-by-hop `jump_ship`). Operator's call.
+(it forced hop-by-hop `jump_ship`). Operator's call. The playbook (step 7) now says when a tour ship may move on: once the system's waypoints are mapped and
+at least one keeper, including one at a shipyard, is in place.
 
 ## Deck yard list shows ship specs; playbook: open systems early (2026-10-09)
 

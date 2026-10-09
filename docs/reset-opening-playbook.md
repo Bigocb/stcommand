@@ -160,7 +160,10 @@ markets to trade in, not a better scoring formula. Plan for the next reset:
    routes up to 3 gate hops away, so a system 3+ hops out is only reachable by tour ship (its prices) unless traders are
    moved there. On 2026-10-09 JJ27 (30 markets, 3 yards) was 3 hops from AA31 and MG54; the MC94 / BY91 / GH86 / RQ95
    cluster (about 80 markets) is 1-2 hops from each other but 12+ from the home cluster, so it needs its own traders.
-7. **Moving the last tour ship out of a system.** `dispatch_tour` refuses it (the system would have no tour coverage).
-   Where keepers already cover every market there, hop it with `jump_ship` one gate at a time (a jump is ~10 minutes of
-   cooldown), then `release_ship` at the far end so it starts touring.
+7. **When a tour ship may leave a system (operator, 2026-10-09).** Move it on as soon as both are true: (a) every
+   waypoint in the system is mapped (markets and shipyards charted, prices recorded once), and (b) at least one keeper
+   is in place, including one at a shipyard so yard stock and prices stay fresh. Then send it to the next system and
+   start the next one. Don't keep a tour ship parked in a finished system. `dispatch_tour` no longer refuses the last
+   tour ship in a system (guard removed 2026-10-09), so use it directly; it walks the gates itself. Only fall back to
+   hopping with `jump_ship` plus `release_ship` at the far end if the walk stalls. A jump is ~10 minutes of cooldown.
 
