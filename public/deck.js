@@ -964,6 +964,9 @@ function holdLine(r) {
   return `<div class="route">${holds.map(([u, p]) => `${u}u ${signed(p)}`).join(" · ")}</div>`;
 }
 
+/** How many of the dispatcher's routes the Markets tab lists, best first. */
+const ROUTES_SHOWN = 20;
+
 function renderMarkets() {
   // Routes panel
   const routesHtml = (() => {
@@ -971,8 +974,9 @@ function renderMarkets() {
       return '<div class="empty">No profitable routes yet.</div>';
     }
     const sorted = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0));
-    const top5 = sorted.slice(0, 5);
-    return top5.map((r) => `
+    // Top 20, like Tower's Routes list (the panel scrolls).
+    const topRoutes = sorted.slice(0, ROUTES_SHOWN);
+    return topRoutes.map((r) => `
       <div class="goodrow">
         <div style="flex:1">
           <div class="name">${escapeHtml(r.goodSymbol)}</div>
@@ -1081,7 +1085,7 @@ $("mk-mkt-seg").addEventListener("click", (e) => {
   $("mk-prices").hidden = mktSeg !== "prices";
   $("mk-systems").hidden = mktSeg !== "systems";
   $("mk-keeper").hidden = mktSeg !== "keeper";
-  $("mk-mkt-seg-count").textContent = mktSeg === "prices" || mktSeg === "keeper" || mktSeg === "systems" ? "" : "top 5";
+  $("mk-mkt-seg-count").textContent = mktSeg === "prices" || mktSeg === "keeper" || mktSeg === "systems" ? "" : `top ${ROUTES_SHOWN}`;
   if (mktSeg === "systems") { renderSystemMarkets(); loadKnownMarkets(); }
 });
 

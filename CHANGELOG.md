@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck lists the top 20 routes, like Tower (2026-10-09)
+
+Deck's Markets > Routes list showed only the top 5 routes while Tower shows 20, so the operator could not see how far the
+profitable routes ran down. Deck now lists the top 20 (the panel already scrolls) and its header count says so.
+
 ## Feed carriers back off when the margin gate blocks them (2026-10-09)
 
 A feed whose buy fails its margin gate (the source's ask above what the target pays, plus `maxLossPerUnit`) retried every
