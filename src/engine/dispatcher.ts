@@ -631,6 +631,8 @@ export class RouteDispatcher {
       homeSystem?: string;
       /** Traders that must stay in the home system. */
       homeReserve?: number;
+      /** The gate waypoint in `fromSystem` that leads to the adjacent `toSystem`, so the ship's own flight to it can be checked. */
+      gateFor?: (fromSystem: string, toSystem: string) => string | undefined;
     },
     // Buyers-at-one-market handling (see BUY_IMPACT_PER_UNIT). All optional;
     // the defaults are the exported constants, and `marginFloor` (credits per
@@ -1107,8 +1109,17 @@ export class RouteDispatcher {
       const reachable = (w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): boolean => {
         if (w.buySystem === undefined || t.system === undefined) return true;
         if (w.buySystem !== t.system) {
-          if (canJump(t.system, w.buySystem)) return true;
-          return multiHopOk(w, t.system);
+          const jumpOk = canJump(t.system, w.buySystem) || multiHopOk(w, t.system);
+          if (!jumpOk) return false;
+          // The ship also has to reach the gate in its own system. The route check above only knows a jump is possible: a
+          // 300-tank trader 399 from the gate cannot cruise there and drifted for 2h09m (THEO-27, 2026-10-09 17:50), so a
+          // gate beyond the tank is unreachable unless a fuel stop relays it, exactly as for a same-system leg.
+          const nextSystem = canJump(t.system, w.buySystem) ? w.buySystem : crossSystem?.path(t.system, w.buySystem)?.[1];
+          const gate = nextSystem !== undefined ? crossSystem?.gateFor?.(t.system, nextSystem) : undefined;
+          if (gate !== undefined && t.waypoint !== undefined && t.fuelCapacity !== undefined &&
+              distanceBetween(t.waypoint, gate) > t.fuelCapacity &&
+              !(hasFuelStop?.(t.system, t.waypoint, gate, t.fuelCapacity) ?? false)) return false;
+          return true;
         }
         if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return true;
         if (distanceBetween(t.waypoint, w.buyAt) > t.fuelCapacity &&

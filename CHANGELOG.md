@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A cross-system route is only handed to a ship that can reach the gate (2026-10-09)
+
+The dispatcher checked that a jump between two systems was possible, but not that the ship could fly to the gate in its own
+system. THEO-27 (300 tank) was handed a JX83 route while standing in GY77 and 399 from the gate: it could not cruise that far,
+found no fuel stop to relay it, and drifted for 2h09m. The same fuel-range test a same-system leg already gets (gate beyond
+the tank and no fuel stop that relays it means unreachable) now applies to the flight to the first gate; the new
+`crossSystem.gateFor` callback names that gate (`Galaxy.gatesTo`). With no gate known it behaves as before.
+
 ## Jumps cost time in the lookahead and circuit credits (2026-10-09)
 
 A gate jump leaves the ship on a cooldown of about 10 minutes (every trader that had just jumped showed ~599s), but the

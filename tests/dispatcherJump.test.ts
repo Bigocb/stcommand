@@ -43,3 +43,29 @@ describe("jump cooldown in the plain route score", () => {
     assert.equal(pick(far), "LOCAL");
   });
 });
+
+describe("the ship's own flight to the gate", () => {
+  // A 300-tank ship 999 from the only gate cannot cruise there; before this check it was handed the cross-system route
+  // anyway and drifted for hours (THEO-27, 2026-10-09).
+  const far = route("FAR", "X1-B-1", "X1-B-60", 600_000, "X1-B", 840);
+  const crossSystem = { enabled: false, path: () => undefined, hopCost: () => 0, gateFor: () => "X1-A-1000" };
+  const run = (hasFuelStop: boolean, gateAt = "X1-A-1000") => {
+    const d = new RouteDispatcher();
+    d.recompute([LOCAL, far], [{ ...ship, fuelCapacity: 300 }], [], [], [], [], () => true, distance, undefined, () => hasFuelStop,
+      { ...crossSystem, gateFor: () => gateAt });
+    return d.assignmentFor("T-1")?.good;
+  };
+  it("is not handed a cross-system route whose gate is beyond its tank and has no fuel stop to relay it", () => {
+    assert.equal(run(false), "LOCAL");
+  });
+  it("is handed it when a fuel stop relays the flight, or when the gate is within the tank", () => {
+    assert.equal(run(true), "FAR");
+    assert.equal(run(false, "X1-A-200"), "FAR");
+  });
+  it("is unchanged when the caller cannot name the gate", () => {
+    const d = new RouteDispatcher();
+    d.recompute([LOCAL, far], [{ ...ship, fuelCapacity: 300 }], [], [], [], [], () => true, distance, undefined, () => false,
+      { enabled: false, path: () => undefined, hopCost: () => 0 });
+    assert.equal(d.assignmentFor("T-1")?.good, "FAR");
+  });
+});

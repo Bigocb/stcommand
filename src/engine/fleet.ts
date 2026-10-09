@@ -7583,6 +7583,7 @@ export class FleetManager {
           hopCost: (a, b) => this.crossSystemLegCost(a, b),
           homeSystem: this.systemSymbol,
           homeReserve: 1,
+          gateFor: (from, to) => this.galaxy.gatesTo(from, to)[0],
         },
         { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits() },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
