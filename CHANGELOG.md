@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Tower Home drops the Best route tile (2026-10-09)
+
+Removed at the operator's request. The tile showed the single best assignment's profit per trip, which is
+still on the Deck routes list; Home keeps Credits, Credits + holds, Rate and Fleet.
+
 ## Hold values fall back to stored prices after a restart (2026-10-09)
 
 After a deploy the in-memory market registry is empty until ships and keepers

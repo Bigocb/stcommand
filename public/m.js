@@ -122,7 +122,6 @@ function renderTiles() {
   const ships = state?.ships ?? [];
   const stranded = fleetStatus.stranded?.length ?? 0;
   const unassigned = unassignedTraders().length;
-  const bestRoute = [...dispatchAssignments].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0))[0];
   const rate = bridge.rate ?? 0;
   const wph = walletPlusHolds(state?.agent?.credits ?? bridge.credits ?? 0, state?.cargoValues);
 
@@ -131,7 +130,6 @@ function renderTiles() {
     <div class="tile"><div class="k">Credits + holds</div><div class="v">${fmt(wph.total)}${wph.partial ? "+" : ""}</div><div class="sub">holds ~${fmt(wph.holds)}</div></div>
     <div class="tile"><div class="k">Rate</div><div class="v ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr</span></div></div>
     <div class="tile"><div class="k">Fleet</div><div class="v">${ships.length}<span class="sub"> hulls</span></div><div class="sub">${stranded} stranded · ${unassigned} unassigned</div></div>
-    <div class="tile"><div class="k">Best route</div><div class="v amber">${bestRoute ? signed(bestRoute.profitPerTrip) : "—"}</div><div class="sub">${bestRoute ? escapeHtml(bestRoute.good) : "none yet"}</div></div>
   `;
   $("tb-note").textContent = stranded + unassigned + approvals.length > 0
     ? `${approvals.length + stranded + unassigned} need you`
