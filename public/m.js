@@ -314,7 +314,7 @@ function claimFor(ship) {
   const wanted = contracts.find((c) => c.accepted && !c.fulfilled && !c.abandoned && c.deliver.some((d) => held.has(d.tradeSymbol) && d.unitsFulfilled < d.unitsRequired));
   if (wanted) {
     const d = wanted.deliver.find((x) => held.has(x.tradeSymbol));
-    return `contract: ${d.tradeSymbol} → ${d.destinationSymbol}`;
+    return `holding contract cargo: ${d.tradeSymbol} (for ${d.destinationSymbol})`;
   }
   return null;
 }

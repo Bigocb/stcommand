@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Fleet row says "holding contract cargo", not "contract: X → Y" (2026-10-09)
+
+The job label for a ship with no assignment was inferred from its hold: any good an open contract still wants printed as
+`contract: HYDROCARBON → X1-JX83-G54`, which read as an order. A siphon drone full of HYDROCARBON showed it while sitting
+in orbit (siphoners are not wired to deliver to contracts; only traders and miners are). It now reads
+`holding contract cargo: HYDROCARBON (for X1-JX83-G54)` in Deck, Tower and v6.
+
 ## A refused finished leg no longer cancels the circuit's second leg (2026-10-09)
 
 Seen live: THEO-33 delivered the first leg of a circuit (ASSAULT_RIFLES to J62, 86k) and its planned second leg (DRUGS J62

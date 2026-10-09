@@ -397,7 +397,7 @@ function jobFor(ship, role) {
   const wanted = (contracts ?? []).find((c) => c.accepted && !c.fulfilled && !c.abandoned && c.deliver.some((d) => held.has(d.tradeSymbol) && d.unitsFulfilled < d.unitsRequired));
   if (wanted) {
     const d = wanted.deliver.find((x) => held.has(x.tradeSymbol));
-    return `contract: ${escapeHtml(d.tradeSymbol)} → ${escapeHtml(d.destinationSymbol)}`;
+    return `holding contract cargo: ${escapeHtml(d.tradeSymbol)} (for ${escapeHtml(d.destinationSymbol)})`;
   }
   // A trader with no dispatcher assignment but a loaded hold is mid-trade
   // (bought, not yet sold), not idle: say what it is carrying instead of
