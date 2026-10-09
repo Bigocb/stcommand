@@ -7559,7 +7559,7 @@ export class FleetManager {
           homeSystem: this.systemSymbol,
           homeReserve: 1,
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0) },
+        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100 },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
       // First, so that its priority-0 proposal wins the tie against rescue's

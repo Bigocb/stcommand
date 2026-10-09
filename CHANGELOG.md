@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Follow-on lookahead and the deadhead measure, off by default (2026-10-09)
+
+First step of `docs/backhaul-plan.md`: traders spend a lot of time flying empty after a sale, and the dispatcher scored
+each route only from where the ship stands. Two additions, neither changes behaviour until switched on:
+
+- `src/engine/chain.ts` (pure, tested): `bestFollowOn()` finds the best route that can start where a route sells, and
+  `chainScore()` adds a weighted share of it to the route's score. The dispatcher calls it per idle trader when the new
+  doctrine clause **Follow-on lookahead** (`chainFollowOnWeight`, 50%, clause disabled by default) is on; the chosen
+  follow-on is recorded on the assignment (`followOn`) and logged as `dispatch chain: ...`. The trader is unchanged.
+  With the clause off, `followOnWeight` is 0 and the dispatcher is exactly as before (covered by a test).
+- New ops tool `stcommand_ops_deadhead` (`src/engine/deadhead.ts`): per ship and fleet, the share of time loaded vs
+  empty and realized profit per loaded hour, from the ledger. The baseline to judge the lookahead against.
+
 ## Rate is now net trading pace over the last hour (2026-10-09)
 
 The Rate on Deck's top bar and Tower Home was a 3-hour lagged average of wallet movement, so open cargo and ship

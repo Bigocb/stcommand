@@ -360,6 +360,19 @@ export class Store {
     });
   }
 
+  /** Every PURCHASE and SELL since `sinceIso`, oldest first, for the ops `deadhead` tool (engine/deadhead.ts). */
+  async opsTradeRows(tenantId: string, sinceIso: string): Promise<{ ship_symbol: string; type: string; units: number; timestamp: Date; total: number; realized_pnl: number | null }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `SELECT ship_symbol, type, units, timestamp, total, realized_pnl FROM ledger
+         WHERE timestamp >= $1 AND type IN ('PURCHASE', 'SELL') AND ship_symbol IS NOT NULL
+         ORDER BY timestamp ASC LIMIT 20000`,
+        [sinceIso],
+      );
+      return r.rows;
+    });
+  }
+
   /** Ledger roll-ups for the ops `pnl` tool: by type, matched trading profit, per-ship leaders. */
   async opsPnl(tenantId: string, sinceIso: string): Promise<{
     byType: { type: string; n: number; total: number }[];

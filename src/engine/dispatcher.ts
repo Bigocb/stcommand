@@ -112,6 +112,7 @@ export const DECLINE_MS = 15 * 60_000;
 export const MAX_LOTS_PER_TRIP = 3;
 
 import { REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
+import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
 
 /**
  * "direct"      — buy here, carry it yourself, sell there. One trader owns
@@ -150,6 +151,8 @@ export interface TraderAssignment {
    *  outstanding demand — exempts it from the trader's protectedGoods
    *  block, which otherwise refuses to buy a mission-reserved good. */
   missionBuy?: boolean;
+  /** Informational: the route the dispatcher expected this trip to lead into (see chain.ts). The trader does not read it. */
+  followOn?: { good: string; buyAt: string; sellAt: string; score: number };
 }
 
 /** A good's warehouse state, as input to deciding whether it needs a buy or
@@ -592,7 +595,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -939,6 +942,30 @@ export class RouteDispatcher {
       if (w.sellPrice !== undefined && w.sellPrice - ask < marginFloorPerUnit) return undefined;
       return w.volume * (ask - w.buyPrice);
     };
+    // Follow-on lookahead (chain.ts, docs/backhaul-plan.md): credit a route for the best trip that can start where it
+    // sells. Off (weight 0) it changes nothing; nothing below is computed.
+    const chainPolicy: ChainPolicy = {
+      ...DEFAULT_CHAIN_POLICY,
+      followOnWeight: Math.max(0, tuning?.followOnWeight ?? 0),
+      horizonMinutes: tuning?.followOnHorizonMin ?? DEFAULT_CHAIN_POLICY.horizonMinutes,
+    };
+    const chainCandidates: ChainCandidate[] = chainPolicy.followOnWeight > 0
+      ? work.flatMap((w) =>
+          w.sellAt !== undefined && w.buyAt !== undefined && w.buySystem !== undefined && w.good !== undefined && w.tripSeconds && w.secPerDist
+            ? [{ key: w.key, good: w.good, buyAt: w.buyAt, buySystem: w.buySystem, sellAt: w.sellAt, profitPerTrip: w.profitPerTrip, tripSeconds: w.tripSeconds, secPerDist: w.secPerDist }]
+            : [])
+      : [];
+    const reservedFollowOns = new Set<string>();
+    const chainCtx = {
+      distanceBetween,
+      crossSystemCost: (from: string, to: string): number | undefined => {
+        if (canJump(from, to)) return CROSS_SYSTEM_JUMP_COST_ESTIMATE;
+        if (!crossSystem?.enabled) return undefined;
+        const path = crossSystem.path(from, to);
+        return path ? pathCost(path) : undefined;
+      },
+      unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key),
+    };
     for (const t of sorted) {
       const manual = this.manual.get(t.shipSymbol);
       if (manual) {
@@ -1042,6 +1069,7 @@ export class RouteDispatcher {
       // plain profit, so with the switch off this is exactly the old
       // first-reachable-in-ranked-order pick.
       let item: (typeof work)[number] | undefined;
+      let itemFollowOn: FollowOn | undefined;
       let bestScore = -Infinity;
       const refused = this.declined.get(t.shipSymbol);
       if (refused && refused.until <= nowMs) this.declined.delete(t.shipSymbol);
@@ -1065,7 +1093,12 @@ export class RouteDispatcher {
           const path = crossSystem.path(t.system, w.buySystem);
           if (path) score -= pathCost(path) / 3;
         }
-        if (score > bestScore) { bestScore = score; item = w; }
+        let followOn: FollowOn | undefined;
+        if (chainPolicy.followOnWeight > 0 && w.sellAt !== undefined) {
+          followOn = bestFollowOn(w.sellAt, chainCandidates, chainCtx, chainPolicy, w.key);
+          score = chainScore(score, followOn, chainPolicy);
+        }
+        if (score > bestScore) { bestScore = score; item = w; itemFollowOn = followOn; }
       }
       if (item && crossSystem?.enabled && crossSystem.homeSystem !== undefined && t.system === crossSystem.homeSystem && item.buySystem !== undefined && item.buySystem !== t.system) {
         leavingHome += 1;
@@ -1098,6 +1131,11 @@ export class RouteDispatcher {
       }
       usedKeys.add(item.key);
       const made = item.make(t.shipSymbol);
+      if (itemFollowOn) {
+        made.followOn = { good: itemFollowOn.candidate.good, buyAt: itemFollowOn.candidate.buyAt, sellAt: itemFollowOn.candidate.sellAt, score: Math.round(itemFollowOn.score) };
+        if (chainPolicy.reserveFollowOn) reservedFollowOns.add(itemFollowOn.candidate.key);
+        log?.(`dispatch chain: ${t.shipSymbol} ${item.key} — ${explainChain(item.profitPerTrip, itemFollowOn, chainPolicy)}`);
+      }
       next.set(t.shipSymbol, made);
       if (made.role === "direct" && made.source === "auto" && made.buyAt && made.sellAt) {
         this.committed.set(t.shipSymbol, { at: nowMs, hadCargo: false });

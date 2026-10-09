@@ -3,6 +3,7 @@ import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
+import { deadheadFromTrades } from "../engine/deadhead.js";
 import type { OpsTool } from "./types.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
@@ -123,6 +124,28 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx, a) {
       const rows = await ctx.w.store.opsLedger(ctx.w.tenantId, { ship: a.ship, good: a.good, type: a.type, waypoint: a.waypoint, sinceIso: iso(ctx.now() - a.sinceHours * 3_600_000), limit: Math.min(a.limit, 300) });
       return { returned: rows.length, rows };
+    },
+  },
+
+  {
+    name: "deadhead",
+    title: "Loaded vs empty time",
+    description: "How much of each ship's time is spent carrying cargo, from the ledger: loaded from a ship's first buy until its hold is sold down, empty otherwise (flying to a buy, docking, repositioning). Per ship: loaded share, trips, realized profit and profit per loaded hour; plus the fleet roll-up. The baseline for the backhaul / follow-on work (docs/backhaul-plan.md). Ledger-only, so a window that opens mid-trip assumes the ship was already loaded.",
+    input: { sinceHours: num(3) },
+    async run(ctx, a) {
+      const to = ctx.now();
+      const from = to - a.sinceHours * 3_600_000;
+      const rows = await ctx.w.store.opsTradeRows(ctx.w.tenantId, iso(from));
+      const r = deadheadFromTrades(
+        rows.map((x) => ({ shipSymbol: x.ship_symbol, type: x.type as "PURCHASE" | "SELL", units: Number(x.units), timestampMs: new Date(x.timestamp).getTime(), total: Number(x.total), realizedPnl: x.realized_pnl === null ? null : Number(x.realized_pnl) })),
+        from,
+        to,
+      );
+      return {
+        window: { since: iso(from), hours: a.sinceHours },
+        fleet: { loadedShare: Math.round(r.fleet.loadedShare * 100) / 100, pnl: r.fleet.pnl, pnlPerLoadedHour: r.fleet.pnlPerLoadedHour },
+        ships: r.ships.map((s) => ({ shipSymbol: s.shipSymbol, loadedShare: Math.round(s.loadedShare * 100) / 100, loadedMin: Math.round(s.loadedMs / 60_000), emptyMin: Math.round(s.emptyMs / 60_000), trips: s.trips, pnl: s.pnl, pnlPerLoadedHour: s.pnlPerLoadedHour })),
+      };
     },
   },
 

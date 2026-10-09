@@ -1,0 +1,107 @@
+/**
+ * Chains: scoring a route by what the ship can do AFTER it sells. See docs/backhaul-plan.md.
+ *
+ * The dispatcher ranks each route on its own, from where the ship stands. A route that ends next to a good follow-on
+ * (a buy market with a worthwhile trip starting there) leaves the ship loaded sooner than one that ends in a dead end,
+ * but nothing credited that. v1 adds the best follow-on's score, weighted, to the route's own. The trader is unchanged:
+ * after the sale it picks its next route as usual, and a route starting where it stands has ~zero positioning, so the
+ * follow-on wins by itself.
+ *
+ * Pure: no I/O, no clock. Everything the dispatcher already knows (distance, gate links, reservations) comes in through
+ * `ChainContext`, so this and the dispatcher cannot disagree about what is reachable or what a positioning leg costs.
+ * Later versions (committed circuits, longer chains) grow inside this file behind the same entry points.
+ */
+
+/** The fields of a dispatcher work item this module reads. A direct (buy at A, sell at B) route. */
+export interface ChainCandidate {
+  key: string;
+  good: string;
+  buyAt: string;
+  buySystem: string;
+  sellAt: string;
+  /** The dispatcher's ranking score for this route (profit per trip, scaled to the reference trip length). */
+  profitPerTrip: number;
+  tripSeconds: number;
+  secPerDist: number;
+}
+
+export interface ChainPolicy {
+  /** Share (0..1) of the follow-on's score credited to the route. 0 switches the whole feature off. */
+  followOnWeight: number;
+  /** A follow-on that would start more than this long after the sale (positioning flight) is ignored. */
+  horizonMinutes: number;
+  /** A follow-on may be credited to only one trader per dispatch cycle. */
+  reserveFollowOn: boolean;
+}
+
+export const DEFAULT_CHAIN_POLICY: ChainPolicy = { followOnWeight: 0, horizonMinutes: 15, reserveFollowOn: true };
+
+export interface ChainContext {
+  /** Straight-line distance between two waypoints in one system. */
+  distanceBetween: (a: string, b: string) => number;
+  /**
+   * Cost in credits of reaching `toSystem` from `fromSystem` (a jump or a verified multi-hop path), or undefined if
+   * it cannot be done. Only called for different systems.
+   */
+  crossSystemCost: (fromSystem: string, toSystem: string) => number | undefined;
+  /** True when this follow-on may not be used (already assigned this cycle, reserved by another chain, refused...). */
+  unavailable: (candidate: ChainCandidate) => boolean;
+}
+
+export interface FollowOn {
+  candidate: ChainCandidate;
+  /** The follow-on's own score from where the ship will stand, before the policy weight. */
+  score: number;
+  /** Seconds of empty flight from the sell market to the follow-on's buy market (0 across a gate: a jump costs credits, not time). */
+  positioningSeconds: number;
+}
+
+const systemOf = (waypoint: string): string => waypoint.slice(0, waypoint.lastIndexOf("-"));
+
+/**
+ * The best route a ship could start right after selling at `sellAt`, scored the way the dispatcher scores an idle
+ * trader's pick: the route's score, times trip/(trip + positioning) for the empty leg, minus a third of any jump cost.
+ */
+export function bestFollowOn(
+  sellAt: string,
+  candidates: readonly ChainCandidate[],
+  ctx: ChainContext,
+  policy: ChainPolicy,
+  excludeKey?: string,
+): FollowOn | undefined {
+  const here = systemOf(sellAt);
+  let best: FollowOn | undefined;
+  for (const c of candidates) {
+    if (c.key === excludeKey || ctx.unavailable(c)) continue;
+    if (c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
+    let score = c.profitPerTrip;
+    let positioningSeconds = 0;
+    if (c.buySystem === here) {
+      positioningSeconds = ctx.distanceBetween(sellAt, c.buyAt) * c.secPerDist;
+      if (!Number.isFinite(positioningSeconds)) continue;
+      if (positioningSeconds > policy.horizonMinutes * 60) continue;
+      score *= c.tripSeconds / (c.tripSeconds + positioningSeconds);
+    } else {
+      const cost = ctx.crossSystemCost(here, c.buySystem);
+      if (cost === undefined) continue;
+      score -= cost / 3;
+    }
+    if (score <= 0) continue;
+    if (!best || score > best.score) best = { candidate: c, score, positioningSeconds };
+  }
+  return best;
+}
+
+/** The route's score including its follow-on credit. With weight 0, or no follow-on, it is the plain score. */
+export function chainScore(baseScore: number, followOn: FollowOn | undefined, policy: ChainPolicy): number {
+  if (!followOn || policy.followOnWeight <= 0) return baseScore;
+  return baseScore + policy.followOnWeight * followOn.score;
+}
+
+/** One line for logs and tools: why this route was credited. */
+export function explainChain(baseScore: number, followOn: FollowOn | undefined, policy: ChainPolicy): string {
+  if (policy.followOnWeight <= 0) return "follow-on lookahead off";
+  if (!followOn) return `score ${Math.round(baseScore)}, no follow-on from its sell market`;
+  const c = followOn.candidate;
+  return `score ${Math.round(baseScore)} + ${policy.followOnWeight} x ${Math.round(followOn.score)} (then ${c.good}: buy ${c.buyAt}, sell ${c.sellAt}, ${Math.round(followOn.positioningSeconds)}s empty)`;
+}

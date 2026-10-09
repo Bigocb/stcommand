@@ -1,6 +1,6 @@
 # Backhaul and circuits — plan
 
-Status: proposal (2026-10-09), nothing built. Owner decision points are at the end.
+Status: Step 0 and v1 built on the feature branch (2026-10-09), switched off (doctrine `chainFollowOnWeight`, clause disabled). v2/v3 not started. Owner decision points are at the end.
 
 ## The gap
 

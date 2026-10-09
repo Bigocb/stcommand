@@ -87,6 +87,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "chainFollowOnWeight",
+    name: "Follow-on lookahead",
+    description: "Credit a route for the best trip that can start where it sells, so traders prefer routes that leave them loaded sooner instead of flying empty after the sale. The value is the share of the follow-on's score added to the route's own (50 = half). Off by default (clause disabled): turn the clause on to use it; the trader itself is unchanged. Takes effect on the next dispatch recompute (within a minute). See docs/backhaul-plan.md.",
+    value: 50, min: 0, max: 100, step: 5, unit: "%",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",
