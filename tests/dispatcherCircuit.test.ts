@@ -130,7 +130,7 @@ describe("dispatcher circuits", () => {
     t.mock.timers.tick(60_001);
     const lines: string[] = [];
     run(d, 0, [OUT, BACK, SOLO], [t1({ busy: true }), t2()], lines);
-    assert.ok(!lines.some((l) => l.includes("dispatch circuit")));
+    assert.deepEqual(lines.filter((l) => l.includes("dispatch circuit")).map((l) => l.includes("switched off")), [true], "one line saying the plan was forgotten");
     assert.equal(d.assignmentFor("T-2")?.good, "BACK", "BACK is no longer held for T-1");
   });
 
@@ -248,5 +248,26 @@ describe("dispatcher circuits", () => {
     (d as unknown as { lastComputed: number }).lastComputed = 0;
     run(d, 1, [BACK], [t2()]);
     assert.equal(d.assignmentFor("T-2")?.good, "BACK");
+  });
+
+  it("a trader refusing the leg it just sold keeps the second leg; a refusal before leg 1 ran drops it, with a log line", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, 1, [OUT, BACK, SOLO], [t1()]);
+    t.mock.timers.tick(60_001);
+    run(d, 1, [OUT, BACK, SOLO], [t1({ busy: true })]); // loaded
+    d.decline("T-1"); // the trader re-checks its old assignment after the sale and refuses it
+    t.mock.timers.tick(60_001);
+    const lines: string[] = [];
+    run(d, 1, [OUT, BACK, SOLO], [t1({ waypoint: "X1-A-100" })], lines);
+    assert.equal(d.assignmentFor("T-1")?.circuit?.leg, 2, "the second leg is still served");
+
+    const e = new RouteDispatcher();
+    run(e, 1, [OUT, BACK, SOLO], [t1()]);
+    e.decline("T-1"); // refused before any cargo was bought
+    (e as unknown as { lastComputed: number }).lastComputed = 0;
+    const lines2: string[] = [];
+    run(e, 1, [OUT, BACK, SOLO], [t1()], lines2);
+    assert.ok(lines2.some((l) => l.includes("dropped leg 2") && l.includes("refused before it ran")));
   });
 });

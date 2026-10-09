@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A refused finished leg no longer cancels the circuit's second leg (2026-10-09)
+
+Seen live: THEO-33 delivered the first leg of a circuit (ASSAULT_RIFLES to J62, 86k) and its planned second leg (DRUGS J62
+to H55) vanished with no log line; it was then given an unrelated route. Probable cause, not yet proven from logs: right
+after a sale the trader still holds the leg it just finished as its assignment, re-checks it (the sale moved that price),
+refuses it, and `decline()` threw away the commitment *and* the circuit, so the "leg 1 sold" signal never fired. `decline()`
+now marks leg 1 sold when cargo had been seen aboard, and only drops the plan when the leg was refused before it ran.
+Every other way a plan can disappear (release, manual route, expiry, circuits switched off) now logs
+`dispatch circuit: <ship> dropped leg 2 <leg> — <why>`, so the next one is no longer silent.
+
 ## Who sent a hold, and an honest "why no circuit" line (2026-10-09)
 
 - The dashboard's hold, release and dispatch routes now log the client (address, user agent, referer). THEO-62 was put

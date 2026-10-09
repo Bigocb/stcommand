@@ -271,6 +271,8 @@ export class RouteDispatcher {
    *  Saved by the caller via circuitSnapshot() and loaded with restoreCircuits(); without that a restart forgets them and
    *  every trader simply picks fresh work, as before circuits existed. */
   private circuits = new Map<string, PlannedCircuit>();
+  /** Why a planned circuit was forgotten outside recompute (release, decline, manual route), logged by the next recompute. */
+  private circuitNotes: string[] = [];
   /** The last serialized circuits handed to / loaded by the persistence layer, to tell when they changed. */
   private savedCircuits = "[]";
   /** The ranked route list from the last recompute, used to serve live claims. */
@@ -352,7 +354,7 @@ export class RouteDispatcher {
   /** Assign a specific route to a trader. Pass undefined to clear an override. */
   setManual(shipSymbol: string, assignment: TraderAssignment | undefined): void {
     this.committed.delete(shipSymbol);
-    this.circuits.delete(shipSymbol);
+    this.forgetCircuit(shipSymbol, "a manual route was set or cleared");
     if (assignment) {
       this.manual.set(shipSymbol, { ...assignment, source: "manual" });
     } else {
@@ -520,7 +522,14 @@ export class RouteDispatcher {
   /** Give up a claim (ship scrapped, role changed, route abandoned). */
   release(shipSymbol: string): void {
     this.assignments.delete(shipSymbol);
+    this.forgetCircuit(shipSymbol, "the ship was released");
+  }
+
+  private forgetCircuit(shipSymbol: string, why: string): void {
+    const planned = this.circuits.get(shipSymbol);
+    if (!planned) return;
     this.circuits.delete(shipSymbol);
+    this.circuitNotes.push(`dispatch circuit: ${shipSymbol} dropped leg 2 ${legId(planned.leg2)} — ${why}`);
   }
 
   /**
@@ -536,8 +545,15 @@ export class RouteDispatcher {
     const a = this.assignments.get(shipSymbol);
     if (!a || a.source === "manual") return;
     this.assignments.delete(shipSymbol);
+    // The trader refuses what it still holds as its assignment, which right after a sale is the leg it just finished
+    // (its price has moved), not the circuit's second leg. If cargo was seen aboard, leg 1 ran: keep the plan and mark it
+    // sold, because the commitment that would have noticed the sale is deleted just below.
+    const planned = this.circuits.get(shipSymbol);
+    if (planned && !planned.leg1Sold) {
+      if (this.committed.get(shipSymbol)?.hadCargo) planned.leg1Sold = true;
+      else this.forgetCircuit(shipSymbol, "its first leg was refused before it ran");
+    }
     this.committed.delete(shipSymbol);
-    this.circuits.delete(shipSymbol);
     this.declined.set(shipSymbol, { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, wholeGood, until: Date.now() + DECLINE_MS });
   }
 
@@ -1006,8 +1022,12 @@ export class RouteDispatcher {
       horizonMinutes: tuning?.circuitHorizonMin ?? DEFAULT_CIRCUIT_POLICY.horizonMinutes,
       returnShare: Math.min(1, Math.max(0, tuning?.circuitReturnShare ?? DEFAULT_CIRCUIT_POLICY.returnShare)),
     };
+    for (const note of this.circuitNotes.splice(0)) log?.(note);
     for (const [ship, planned] of this.circuits) {
-      if (circuitPolicy.weight <= 0 || circuitExpired(planned, nowMs, circuitPolicy)) this.circuits.delete(ship);
+      if (circuitPolicy.weight <= 0 || circuitExpired(planned, nowMs, circuitPolicy)) {
+        this.circuits.delete(ship);
+        log?.(`dispatch circuit: ${ship} dropped leg 2 ${legId(planned.leg2)} — ${circuitPolicy.weight <= 0 ? "circuits switched off" : "plan expired"}`);
+      }
     }
     // Second legs kept for a ship that has not served them yet: nobody else is handed or credited them.
     const circuitHeld = new Map<string, string>();
