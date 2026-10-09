@@ -2,6 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { Store } from "../db/store.js";
 import { Pending } from "./agentStep.js";
+import { marginWaitMs } from "./feedBackoff.js";
 import { transitResumeAt } from "./transit.js";
 import { FUEL_UNIT_SIZE } from "./routeEconomics.js";
 
@@ -125,6 +126,8 @@ interface FeedTaskState {
    *  comment. */
   basePrice?: number;
   retryAt: number;
+  /** Consecutive times the margin gate has blocked this carrier's buy; sets how long it waits (feedBackoff.ts). */
+  marginBlocks?: number;
 }
 
 interface FeedOptions {
@@ -1198,11 +1201,17 @@ export class FeedManager {
         ? sellAt !== undefined && price - sellAt > feed.maxLossPerUnit
         : sellAt !== undefined && price > sellAt * (1 - MIN_FEED_MARGIN_PCT);
       if (tooDear && sellAt !== undefined) {
-        t.retryAt = Date.now() + 15_000;
-        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${sourceMarket} buy @ ${price}c leaves no margin against ${feed.targetWaypoint}'s ${sellAt}c sell — waiting for either to recover`);
+        // Each retry re-reads the ship and its hold (2 calls), so a feed stuck behind the gate used to cost ~7 calls a
+        // minute doing nothing (measured 2026-10-09: three stuck feeds = ~105 calls per 5 minutes of the shared
+        // budget). Back off 30s -> 5min; any clear pass resets it.
+        t.marginBlocks = (t.marginBlocks ?? 0) + 1;
+        const waitMs = marginWaitMs(t.marginBlocks);
+        t.retryAt = Date.now() + waitMs;
+        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${sourceMarket} buy @ ${price}c leaves no margin against ${feed.targetWaypoint}'s ${sellAt}c sell — waiting for either to recover (retry in ${Math.round(waitMs / 1000)}s)`);
         return;
       }
     }
+    t.marginBlocks = 0;
     const affordable = price > 0 ? Math.floor(credits / price) : freeSpace;
     const volumeCap = buyer?.tradeVolume && buyer.tradeVolume > 0 ? buyer.tradeVolume : freeSpace;
     const units = Math.max(1, Math.min(freeSpace, affordable, volumeCap));

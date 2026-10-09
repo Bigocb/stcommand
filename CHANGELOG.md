@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Feed carriers back off when the margin gate blocks them (2026-10-09)
+
+A feed whose buy fails its margin gate (the source's ask above what the target pays, plus `maxLossPerUnit`) retried every
+15 seconds, and each retry re-reads the ship and its hold first (2 API calls) before it re-checks the price. On
+THEOREM_DEV_2 three stuck feeds (iron, copper, aluminum, gaps of 19-37c against an allowance of 15) were measured at about
+105 calls per 5 minutes, a fifth of the shared budget, for nothing. A blocked carrier now waits 30s, then doubling up to
+5 minutes (`marginWaitMs`), and any clear pass resets it. Separately the allowance on those three feeds was raised
+(set_feed_limits maxLossPerUnit 15 -> 50): our own buying moves the source's ask up by more than 15, and leaving the
+feeds blocked starved the producers (F51 went back to RESTRICTED).
+
 ## Deck's Markets tab gets Tower's Systems segment (2026-10-09)
 
 Tower's Markets tab has a Systems segment: pick a system, see every market ever priced in it (any age, from
