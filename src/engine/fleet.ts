@@ -28,6 +28,7 @@ import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { pickCheapestKeeperYard } from "./keeperYard.js";
+import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -1565,6 +1566,13 @@ export class FleetManager {
     return total;
   }
 
+  /** Gate jumps between two systems (1 for a single hop), for pricing the cooldown time of a cross-system trip. */
+  private crossSystemHops(fromSystem: string, toSystem: string): number {
+    if (this.galaxy.canJump(fromSystem, toSystem)) return 1;
+    const path = this.galaxy.jumpPath(fromSystem, toSystem);
+    return path && path.length >= 2 ? path.length - 1 : 1;
+  }
+
   private crossSystemLegCost(buySystem: string, sellSystem: string): number {
     const gate = this.galaxy.gatesTo(buySystem, sellSystem)[0];
     const learned = gate ? this.galaxy.learnedJumpCost(gate, sellSystem) : undefined;
@@ -1723,6 +1731,10 @@ export class FleetManager {
           const t = tripEconomics({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, units: volume, buyVolume, sellVolume, distance: 1, fuelPrice: 0, fuelCapacity: 0, speed: fleetSpeed });
           slippage = t.slippage;
           profitPerTrip = Math.round(t.gross - fuelCost - slippage);
+          // One way, buy to sell. A route with no trip time was ranked on raw profit against same-system routes ranked
+          // per 10 minutes, so any cross-system trip beat them however long the jumps kept the ship busy (2026-10-09:
+          // the six small traders sat empty hopping systems). The ship sits out one cooldown per jump.
+          tripSeconds = this.crossSystemHops(l.buySystem, l.sellSystem) * JUMP_COOLDOWN_SECONDS + CROSS_SYSTEM_FLIGHT_SECONDS;
         } else {
           // Round trip: the ship flies back to the buy market empty, and that fuel and time are real
           // costs of every repeat. FUEL is sold per 100 tank-fuel and a CRUISE leg burns ~1 tank-fuel

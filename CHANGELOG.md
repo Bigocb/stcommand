@@ -18,8 +18,14 @@ first legs were over-credited, and the six smaller traders spent most of the aft
 empty time, scaled the same way as a same-system flight, and drops a path longer than the horizon (15 minutes, so one
 hop); the circuit credit charges the same wait for a first leg in another system. Cross-system credits are not banned: a
 pair that still earns enough after the wait is credited, which is the behaviour to keep as cross-system trading opens up.
-Not changed here: the plain route score still ignores jump time for the first leg (it only charges the credits), which is
-the likelier remaining cause of small traders hopping between systems.
+The plain route score now counts it too. A cross-system route had no trip time (`tripSeconds` is only set for
+same-system round trips), so it was ranked on raw profit per trip against same-system routes ranked per 10 minutes: a
+cross-system trip beat them however long the jumps kept the ship busy, which is why the six small traders spent the
+afternoon hopping systems and sitting empty. `computeDispatchRoutes` now gives a cross-system route a one-way trip time
+(jump cooldowns for each hop plus `CROSS_SYSTEM_FLIGHT_SECONDS`, a 240s placeholder), and the dispatcher charges the wait
+for getting to a buy market in another system against the score. A cross-system trip that earns enough per unit of time
+still wins (THEO-62's FOOD haul is ~700k per ten minutes after the wait). Rankings shown as per hour on Deck and Tower
+change for cross-system routes too.
 
 ## The server no longer exits when the database drops a connection in use (2026-10-09)
 

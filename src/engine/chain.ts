@@ -31,6 +31,10 @@ export interface ChainCandidate {
  */
 export const JUMP_COOLDOWN_SECONDS = 600;
 
+/** Placeholder: seconds of in-system flying a one-way cross-system trip adds to its jump cooldowns (to the gate in the
+ *  buy system, from the gate to the market in the sell system). Tune against real trip times. */
+export const CROSS_SYSTEM_FLIGHT_SECONDS = 240;
+
 export interface ChainPolicy {
   /** Share (0..1) of the follow-on's score credited to the route. 0 switches the whole feature off. */
   followOnWeight: number;

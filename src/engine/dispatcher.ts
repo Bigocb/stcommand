@@ -1164,10 +1164,12 @@ export class RouteDispatcher {
         }
         if (score <= 0) return undefined;
         if (w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system) {
-          // Another system: the ship sits out one jump cooldown per hop before it can buy. The plain score does not
-          // charge that time (see the cross-system notes above); the lookahead credits below do, so they only count when
-          // the pair still earns after the wait.
+          // Another system: the ship sits out one jump cooldown per hop before it can buy.
           positioning = (chainCtx.crossSystemHops(t.system, w.buySystem) ?? 1) * chainPolicy.jumpSeconds;
+          // The same wait counts against the plain score when the route has a trip time to scale it by (a same-system
+          // route in another system, or a cross-system route, which fleet.ts now gives one): before this, a trip that
+          // needed jumps was ranked as if it started the moment the ship picked it.
+          if (w.tripSeconds) score *= w.tripSeconds / (w.tripSeconds + positioning);
           if (crossSystem?.enabled && !canJump(t.system, w.buySystem)) {
             const path = crossSystem.path(t.system, w.buySystem);
             if (path) {
