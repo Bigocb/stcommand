@@ -24,7 +24,7 @@ import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 startRateLimitIndicator($("tb-conn"));
@@ -116,6 +116,9 @@ function renderTopbar() {
   // Credits
   const credits = state?.agent?.credits ?? bridge.credits ?? 0;
   $("tb-credits").textContent = fmt(credits);
+  const wph = walletPlusHolds(credits, state?.cargoValues);
+  $("tb-networth").textContent = fmt(wph.total) + (wph.partial ? "+" : "");
+  $("tb-networth").title = `Holds ~${fmt(wph.holds)}${wph.partial ? " (some cargo unpriced)" : ""}`;
 
   // Rate (format with sign, color based on positive/negative)
   const rate = bridge.rate ?? 0;

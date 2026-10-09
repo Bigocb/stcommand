@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Credits + holds at the top of Deck and Tower (2026-10-09)
+
+A second number beside Credits: the wallet plus the estimated proceeds of every
+hold (`walletPlusHolds` in `public/shared/domain.js`, fed by `cargoValues` from
+`/api/state`). Deck: "+ Holds" in the top bar; Tower: a "Credits + holds" tile
+on Home. A trailing "+" means some cargo has no known price, so the figure is a
+floor. Prompted by three traders buying at once and taking the wallet to 13k:
+the wallet alone looked like a collapse while the money was sitting in cargo.
+
 ## Deck fleet table shows potential profit per hold (2026-10-09)
 
 A Profit column on the Fleet tab next to Value: the hold's estimated proceeds

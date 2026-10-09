@@ -44,3 +44,15 @@ describe("cargoProfit", () => {
     assert.equal(cargoProfit(undefined).text, "");
   });
 });
+
+import { walletPlusHolds } from "../public/shared/domain.js";
+
+describe("walletPlusHolds", () => {
+  it("adds every hold's proceeds to the wallet and flags unpriced cargo", () => {
+    const r = walletPlusHolds(13_000, { a: cv(400_000), b: cv(170_000, 2), c: undefined });
+    assert.deepEqual(r, { total: 583_000, holds: 570_000, partial: true });
+  });
+  it("is just the wallet with no cargo values", () => {
+    assert.deepEqual(walletPlusHolds(5, undefined), { total: 5, holds: 0, partial: false });
+  });
+});

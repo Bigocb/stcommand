@@ -248,6 +248,23 @@ export function cargoValueText(cv) {
 }
 
 /**
+ * Wallet plus the estimated proceeds of every hold ({ shipSymbol: cargoValue }
+ * as /api/state returns it). `holds` is the sum alone, `partial` is true when
+ * any hold has units we could not price, so the total is a floor.
+ */
+export function walletPlusHolds(credits, cargoValues) {
+  let holds = 0;
+  let partial = false;
+  for (const cv of Object.values(cargoValues ?? {})) {
+    if (!cv) continue;
+    holds += Math.max(0, cv.value ?? 0);
+    if ((cv.unpricedUnits ?? 0) > 0) partial = true;
+  }
+  const wallet = credits ?? 0;
+  return { total: wallet + holds, holds, partial };
+}
+
+/**
  * Potential profit on a hold: its estimated proceeds minus what we paid (cost
  * basis on file). Returns { text, tone } where tone is "up" | "down" | "" ;
  * text is "" when there is no priced cargo, "?" when the hold has no cost
