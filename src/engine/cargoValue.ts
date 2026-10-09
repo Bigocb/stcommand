@@ -92,3 +92,16 @@ export function cargoValue(input: CargoValueInput): CargoValue {
 
   return { value: Math.round(value), gross: Math.round(gross), cost: Math.round(cost), unpricedUnits, items };
 }
+
+/**
+ * A cheap fingerprint of every hold ("SHIP:GOOD=units,..." per ship, sorted). The dashboard caches hold values for a
+ * few seconds, but a trade changes the fingerprint at once, so the cache is dropped the moment cargo moves instead
+ * of showing last trade's holds beside this trade's credits.
+ */
+export function cargoSignature(ships: readonly { symbol: string; cargo?: { inventory?: readonly { symbol: string; units: number }[] } }[]): string {
+  return ships
+    .filter((s) => (s.cargo?.inventory?.length ?? 0) > 0)
+    .map((s) => `${s.symbol}:${[...(s.cargo!.inventory ?? [])].sort((a, b) => a.symbol.localeCompare(b.symbol)).map((i) => `${i.symbol}=${i.units}`).join(",")}`)
+    .sort()
+    .join("|");
+}

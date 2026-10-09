@@ -180,8 +180,9 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
     // Value of what each ship is carrying, for Deck's Value column and Tower's hold line. Best-effort: a failure here
     // must not take the whole state response down.
-    const cargoValues = await w.fleet.cargoValues().catch(() => ({}));
-    res.json({ ...w.state.get(), cargoValues, stale: false });
+    const snapshot = w.state.get();
+    const cargoValues = await w.fleet.cargoValues(new Map(snapshot.ships.map((sh) => [sh.symbol, sh.cargo]))).catch(() => ({}));
+    res.json({ ...snapshot, cargoValues, stale: false });
   });
 
   /**

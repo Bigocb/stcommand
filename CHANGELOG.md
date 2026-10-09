@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Holds and credits move together on the dashboard (2026-10-09)
+
+Credits update the instant a trade response arrives, but hold values came from the agents' own cached ships (a tick
+behind) and were cached for 15 seconds, so Credits + holds swung by about a cargo's worth right after a trade. The
+dashboard now prices the hold from the same live per-ship cargo it shows beside the credits (`FleetManager.cargoValues`
+takes it), and the cache is dropped as soon as any hold changes (`cargoSignature`). The MCP `get_cargo_value` tool is
+unchanged.
+
 ## Follow-on lookahead and the deadhead measure, off by default (2026-10-09)
 
 First step of `docs/backhaul-plan.md`: traders spend a lot of time flying empty after a sale, and the dispatcher scored

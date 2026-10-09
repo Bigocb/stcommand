@@ -19,7 +19,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { ShipSnapshotBoard, describeSnapshotSummary } from "./shipSnapshots.js";
 import { KEEPER_POLL_MIN_MS, keeperPollDelayMs } from "./keeperCadence.js";
-import { cargoValue, type CargoValue } from "./cargoValue.js";
+import { cargoValue, cargoSignature, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
@@ -1927,16 +1927,21 @@ export class FleetManager {
     return this.registry;
   }
 
-  private cargoValueCache?: { at: number; value: Record<string, CargoValue> };
+  private cargoValueCache?: { at: number; sig: string; value: Record<string, CargoValue> };
   private manifestCostCache?: { at: number; byShip: Map<string, Map<string, number>> };
 
   /**
    * What each loaded ship's hold is worth, by ship symbol (see cargoValue()). Cached for 15s: it is read by every
    * dashboard poll and nothing about it moves faster than a trade.
    */
-  async cargoValues(): Promise<Record<string, CargoValue>> {
+  async cargoValues(liveCargo?: ReadonlyMap<string, Ship["cargo"]>): Promise<Record<string, CargoValue>> {
     const now = Date.now();
-    if (this.cargoValueCache && now - this.cargoValueCache.at < 15_000) return this.cargoValueCache.value;
+    // `liveCargo` is the dashboard's own per-ship hold, updated the instant a trade response arrives (same as the
+    // credits). The agents' cached ships catch up a tick later, which made Credits + holds jump by a cargo's worth
+    // right after every trade; use the live hold when we have one, and drop the cache when any hold changes.
+    const ships = this.currentShips().map((s) => (liveCargo?.has(s.symbol) ? { ...s, cargo: liveCargo.get(s.symbol)! } : s));
+    const sig = cargoSignature(ships);
+    if (this.cargoValueCache && this.cargoValueCache.sig === sig && now - this.cargoValueCache.at < 15_000) return this.cargoValueCache.value;
 
     // Per-unit cost basis per ship and good, from the manifest the tick already keeps (a query, so cached for a minute).
     if (this.store && this.tenantId && (!this.manifestCostCache || now - this.manifestCostCache.at > 60_000)) {
@@ -1976,7 +1981,7 @@ export class FleetManager {
 
     const assignments = new Map(this.dispatcher.list().map((a) => [a.shipSymbol, a]));
     const out: Record<string, CargoValue> = {};
-    for (const ship of this.currentShips()) {
+    for (const ship of ships) {
       const cargo = ship.cargo?.inventory ?? [];
       if (!cargo.length) continue;
       const a = assignments.get(ship.symbol);
@@ -1988,7 +1993,7 @@ export class FleetManager {
         costPerUnit: this.manifestCostCache?.byShip.get(ship.symbol),
       });
     }
-    this.cargoValueCache = { at: now, value: out };
+    this.cargoValueCache = { at: now, sig, value: out };
     return out;
   }
 

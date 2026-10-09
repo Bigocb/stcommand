@@ -56,3 +56,15 @@ describe("cargoValue", () => {
     assert.deepEqual([v.value, v.gross, v.cost, v.unpricedUnits, v.items.length], [0, 0, 0, 0, 0]);
   });
 });
+
+import { cargoSignature } from "../src/engine/cargoValue.js";
+
+describe("cargoSignature", () => {
+  const ship = (symbol: string, inv: [string, number][]) => ({ symbol, cargo: { inventory: inv.map(([s, u]) => ({ symbol: s, units: u })) } });
+  it("changes the moment any hold changes, and ignores empty holds and ordering", () => {
+    const a = cargoSignature([ship("A", [["FOOD", 80]]), ship("B", []), ship("C", [["IRON", 5], ["COPPER", 2]])]);
+    assert.equal(a, cargoSignature([ship("C", [["COPPER", 2], ["IRON", 5]]), ship("A", [["FOOD", 80]])]));
+    assert.notEqual(a, cargoSignature([ship("A", [["FOOD", 60]]), ship("C", [["IRON", 5], ["COPPER", 2]])]));
+    assert.equal(cargoSignature([ship("A", [])]), "");
+  });
+});
