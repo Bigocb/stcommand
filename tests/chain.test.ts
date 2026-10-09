@@ -32,10 +32,27 @@ describe("bestFollowOn", () => {
     const f = cand("F", "X1-A-2000", "X1-A-2100", 90_000); // 1,988s empty > 15 min
     assert.equal(bestFollowOn("X1-A-12", [f], ctx(), on), undefined);
   });
-  it("charges a third of the jump for a cross-system follow-on, and skips unreachable ones", () => {
+  it("charges a cross-system follow-on the jump's credits (a third) and its cooldown time, and skips unreachable ones", () => {
     const x = cand("X", "X1-B-5", "X1-B-9", 30_000);
-    assert.equal(bestFollowOn("X1-A-12", [x], ctx(), on)?.score, 30_000 - 2000);
+    // 30,000 x 600/(600 + 600s cooldown) - 6,000/3
+    assert.equal(bestFollowOn("X1-A-12", [x], ctx(), on)?.score, 15_000 - 2000);
     assert.equal(bestFollowOn("X1-A-12", [x], ctx({ crossSystemCost: () => undefined }), on), undefined);
+  });
+  it("a cross-system follow-on still counts when it earns enough to justify the wait", () => {
+    const rich = cand("RICH", "X1-B-5", "X1-B-9", 300_000);
+    const near = cand("NEAR", "X1-A-14", "X1-A-60", 60_000);
+    assert.equal(bestFollowOn("X1-A-12", [rich, near], ctx(), on)?.candidate.key, "RICH");
+    const modest = cand("MODEST", "X1-B-5", "X1-B-9", 70_000);
+    assert.equal(bestFollowOn("X1-A-12", [modest, near], ctx(), on)?.candidate.key, "NEAR", "70k after a 10-minute wait loses to a 60k trip next door");
+  });
+  it("charges each hop and drops a path that is beyond the horizon", () => {
+    const x = cand("X", "X1-B-5", "X1-B-9", 300_000);
+    assert.equal(bestFollowOn("X1-A-12", [x], ctx({ crossSystemHops: () => 2 }), on), undefined, "two hops = 1,200s > 15 min");
+    assert.equal(bestFollowOn("X1-A-12", [x], ctx({ crossSystemHops: () => 2 }), { ...on, horizonMinutes: 30 })?.score, 300_000 * 600 / 1800 - 2000);
+  });
+  it("weight 0 and a zero jump time reproduce the old cross-system score", () => {
+    const x = cand("X", "X1-B-5", "X1-B-9", 30_000);
+    assert.equal(bestFollowOn("X1-A-12", [x], ctx(), { ...on, jumpSeconds: 0 })?.score, 30_000 - 2000);
   });
 });
 

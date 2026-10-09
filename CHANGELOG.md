@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Jumps cost time in the lookahead and circuit credits (2026-10-09)
+
+A gate jump leaves the ship on a cooldown of about 10 minutes (every trader that had just jumped showed ~599s), but the
+follow-on lookahead and the circuit credit priced it in credits only (a third of the jump). Cross-system follow-ons and
+first legs were over-credited, and the six smaller traders spent most of the afternoon empty (THEO-51 empty for 176 of
+180 minutes). `bestFollowOn` now charges each hop `jumpSeconds` (default 600, `JUMP_COOLDOWN_SECONDS` in chain.ts) as
+empty time, scaled the same way as a same-system flight, and drops a path longer than the horizon (15 minutes, so one
+hop); the circuit credit charges the same wait for a first leg in another system. Cross-system credits are not banned: a
+pair that still earns enough after the wait is credited, which is the behaviour to keep as cross-system trading opens up.
+Not changed here: the plain route score still ignores jump time for the first leg (it only charges the credits), which is
+the likelier remaining cause of small traders hopping between systems.
+
 ## The server no longer exits when the database drops a connection in use (2026-10-09)
 
 From 2026-10-08 17:02 the server process exited and restarted about every 15 minutes (21 times between 11:20 and 17:16 on
@@ -44,8 +56,9 @@ before (covered by a test), and turning it off again releases every held leg.
   `chainNote()` in `public/shared/domain.js`: " · then ALUMINUM JX83-H55 → JX83-D44" for the follow-on the dispatcher has
   lined up, or " · circuit 1/2, back via CLOTHING" / " · circuit 2/2" for a circuit. Read-only; nothing shows with the
   clauses off.
-- A circuit is only credited when its first leg starts in the ship's own system. The score has no price for a flight or
-  jump to another system, and live (2026-10-09) THEO-51 and THEO-27 were planned GY77 pairs while standing in JX83.
+- A first leg in another system is credited for what it earns AFTER the jump cooldown, not only its credits. Live
+  (2026-10-09) THEO-51 and THEO-27 were planned GY77 pairs while standing in JX83 and sat empty, because the score
+  charged a jump as credits and no time. See "Jumps cost time" below.
 - The trader is unchanged. It still flies one assignment at a time and keeps its own wallet and viability checks, so a
   second leg it refuses is simply dropped.
 - Cash: when the second leg comes up the dispatcher checks the spendable cash (wallet less the cash floor, after the first

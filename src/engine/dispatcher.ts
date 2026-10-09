@@ -636,7 +636,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; jumpSeconds?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -995,6 +995,7 @@ export class RouteDispatcher {
       ...DEFAULT_CHAIN_POLICY,
       followOnWeight: Math.max(0, tuning?.followOnWeight ?? 0),
       horizonMinutes: tuning?.followOnHorizonMin ?? DEFAULT_CHAIN_POLICY.horizonMinutes,
+      jumpSeconds: tuning?.jumpSeconds ?? DEFAULT_CHAIN_POLICY.jumpSeconds,
     };
     // Two-leg circuits (circuit.ts): off at weight 0, which also forgets any plan still held.
     const circuitPolicy: CircuitPolicy = {
@@ -1024,6 +1025,11 @@ export class RouteDispatcher {
         if (!crossSystem?.enabled) return undefined;
         const path = crossSystem.path(from, to);
         return path ? pathCost(path) : undefined;
+      },
+      crossSystemHops: (from: string, to: string): number | undefined => {
+        if (canJump(from, to)) return 1;
+        const path = crossSystem?.enabled ? crossSystem.path(from, to) : undefined;
+        return path ? path.length - 1 : undefined;
       },
       unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key) || circuitHeld.has(legId(c)),
     };
@@ -1149,7 +1155,7 @@ export class RouteDispatcher {
         // Direct routes carry a time-scaled score (see scoreRoute()); keep the extra buyers' impact cost on the
         // same scale, and charge the flight from this trader to the buy market against the trip's own time.
         const timeScale = w.tripSeconds ? REFERENCE_TRIP_SECONDS / w.tripSeconds : 1;
-        const penalty = extra * timeScale;
+        let penalty = extra * timeScale;
         let score = w.profitPerTrip - penalty;
         let positioning = 0;
         if (w.tripSeconds && w.secPerDist && w.buyAt && t.waypoint && t.system !== undefined && w.buySystem === t.system) {
@@ -1157,9 +1163,19 @@ export class RouteDispatcher {
           score *= w.tripSeconds / (w.tripSeconds + positioning);
         }
         if (score <= 0) return undefined;
-        if (crossSystem?.enabled && w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system && !canJump(t.system, w.buySystem)) {
-          const path = crossSystem.path(t.system, w.buySystem);
-          if (path) score -= pathCost(path) / 3;
+        if (w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system) {
+          // Another system: the ship sits out one jump cooldown per hop before it can buy. The plain score does not
+          // charge that time (see the cross-system notes above); the lookahead credits below do, so they only count when
+          // the pair still earns after the wait.
+          positioning = (chainCtx.crossSystemHops(t.system, w.buySystem) ?? 1) * chainPolicy.jumpSeconds;
+          if (crossSystem?.enabled && !canJump(t.system, w.buySystem)) {
+            const path = crossSystem.path(t.system, w.buySystem);
+            if (path) {
+              const share = pathCost(path) / 3;
+              score -= share;
+              penalty += share;
+            }
+          }
         }
         return { score, penalty, positioning };
       };
@@ -1200,10 +1216,10 @@ export class RouteDispatcher {
         let followOn: FollowOn | undefined;
         let circuit: Circuit | undefined;
         const candidate = candidateByKey.get(w.key);
-        // Only a first leg that starts in this ship's own system is credited: the circuit's score has no price for a
-        // flight or jump to another system, so a cross-system first leg would be over-credited (seen live 2026-10-09,
-        // THEO-51 and THEO-27 planned GY77 pairs from JX83 and sat empty).
-        if (circuitPolicy.weight > 0 && w.sellAt !== undefined && candidate && (t.system === undefined || w.buySystem === t.system)) {
+        // A first leg in another system is credited only for what it earns after the jump cooldown: scoreItem() charges
+        // that time as `positioning` (seen live 2026-10-09: before it did, THEO-51 and THEO-27 were planned GY77 pairs
+        // from JX83 and sat empty).
+        if (circuitPolicy.weight > 0 && w.sellAt !== undefined && candidate) {
           const found = bestCircuit(candidate, chainCandidates, chainCtx, circuitPolicy);
           const credited = circuitScore(score, found, scored.positioning, scored.penalty, circuitPolicy);
           if (found && credited > score) { circuit = found; score = credited; }

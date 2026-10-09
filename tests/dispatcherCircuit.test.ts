@@ -180,20 +180,30 @@ describe("dispatcher circuits", () => {
     assert.equal(d.circuitSnapshot(), undefined);
   });
 
-  it("does not credit a circuit whose first leg starts in another system than the ship", () => {
-    const inB = (good: string, buyAt: string, sellAt: string, profit: number): DispatchRoute =>
-      ({ ...route(good, buyAt, sellAt, profit), buySystem: "X1-B", sellSystem: "X1-B" }) as DispatchRoute;
-    const XOUT = inB("XOUT", "X1-B-10", "X1-B-100", 40_000);
-    const XBACK = inB("XBACK", "X1-B-102", "X1-B-12", 42_000);
+  describe("a first leg in another system", () => {
+    const inB = (good: string, buyAt: string, sellAt: string, profit: number, tripSeconds = 600): DispatchRoute =>
+      ({ ...route(good, buyAt, sellAt, profit), buySystem: "X1-B", sellSystem: "X1-B", tripSeconds }) as DispatchRoute;
     const LOCAL = route("LOCAL", "X1-A-1", "X1-A-60", 50_000); // plain route right where the ship stands
-    const pick = (weight: number) => {
+    const pick = (out: number, back: number, tripSeconds: number, weight = 1) => {
+      const XOUT = inB("XOUT", "X1-B-10", "X1-B-100", out, tripSeconds);
+      const XBACK = inB("XBACK", "X1-B-102", "X1-B-12", back, tripSeconds);
       const d = new RouteDispatcher();
       d.recompute([XOUT, XBACK, LOCAL], [t1({ waypoint: "X1-A-1" })], [], [], [], [], () => true, distance, undefined, undefined, undefined, { circuitWeight: weight });
       return d.assignmentFor("T-1");
     };
-    assert.equal(pick(1)?.good, "LOCAL", "the other system's pair is not over-credited");
-    assert.equal(pick(1)?.circuit, undefined);
-    assert.equal(pick(0)?.good, "LOCAL");
+    it("is not over-credited: the jump cooldown is charged as time", () => {
+      // short trips: (40k + 42k) per cycle is ~81k, but a 600s wait halves it to ~41k, under the 50k route next door
+      assert.equal(pick(40_000, 42_000, 600)?.good, "LOCAL");
+      assert.equal(pick(40_000, 42_000, 600)?.circuit, undefined);
+      assert.equal(pick(40_000, 42_000, 600, 0)?.good, "LOCAL");
+    });
+    it("is credited when the pair still earns enough after the wait", () => {
+      // long trips make the same wait a small share of the cycle: ~82k a cycle, ~68k after the wait, over the 50k route
+      const a = pick(200_000, 210_000, 3000);
+      assert.equal(a?.circuit?.leg, 1, "the pair is planned as a circuit");
+      assert.ok(a?.good === "XOUT" || a?.good === "XBACK");
+      assert.equal(pick(200_000, 210_000, 3000, 0)?.good, "LOCAL", "with the feature off the pick is unchanged");
+    });
   });
 
   it("still credits a circuit whose first leg starts in the ship's own system", () => {
