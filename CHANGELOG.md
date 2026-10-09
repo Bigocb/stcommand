@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## The server no longer exits when the database drops a connection in use (2026-10-09)
+
+From 2026-10-08 17:02 the server process exited and restarted about every 15 minutes (21 times between 11:20 and 17:16 on
+2026-10-09 alone), each time pausing every trader until the dispatcher re-assigned them. The log was always
+`uncaughtException ... Connection terminated unexpectedly`, thrown from pg's client, right after several
+`[db] idle connection lost` lines. The pool already had an `error` listener, but that only covers idle clients: a client
+that is checked out (inside `withTenant`/`withPool`) had none, so when Postgres dropped every connection at once the error
+became an uncaught exception. `createPool` now also puts an `error` listener on every new pooled client (logged as
+`[db] connection lost while in use`); the query that was running still fails to its caller and the pool opens a fresh
+connection on the next one. Why the connections drop: Render's `promptoria-db` is a 256 MB Postgres plan whose memory
+swings between ~136 MB and ~257 MB of a 268 MB limit and falls back at each drop (connections 20 -> 7-8 at 15:15 and
+16:55), with the app holding 20 pooled connections, so the database is being restarted for lack of memory. That is a
+plan-size decision, not changed here.
+
 ## Two-leg circuits, off by default (2026-10-09)
 
 Second step of `docs/backhaul-plan.md` (v2). Lookahead only nudges which route an idle trader picks; it cannot stop a

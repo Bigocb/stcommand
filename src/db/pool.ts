@@ -81,6 +81,17 @@ export function createPool(connectionString: string): pg.Pool {
   pool.on("error", (err) => {
     console.error(`[db] idle connection lost (pool recovers on next query): ${err.message}`);
   });
+  // The pool's listener above only covers IDLE clients. A client that is checked out (inside withTenant/withPool,
+  // between its queries, or while the callback is doing other work) has no listener, so when the database drops every
+  // connection at once ("Connection terminated unexpectedly") the error is emitted on the client with nobody to catch it,
+  // becomes an uncaughtException, and the process exits and restarts. Seen about every 15 minutes on 2026-10-09 (Render's
+  // 256 MB Postgres was running at ~96% of its memory limit and being restarted). The query that was in flight still
+  // rejects to its caller as before; this only stops the process from dying for it.
+  pool.on("connect", (client) => {
+    client.on("error", (err) => {
+      console.error(`[db] connection lost while in use (the running query fails, the pool opens a fresh one): ${err.message}`);
+    });
+  });
   return pool;
 }
 
