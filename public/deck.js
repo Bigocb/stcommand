@@ -24,7 +24,7 @@ import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason, cargoValueText, cargoValueTitle } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, fmtTime, shortWp, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 startRateLimitIndicator($("tb-conn"));
@@ -615,6 +615,7 @@ function renderFleet() {
         <td class="mono">${fuelPct}%</td>
         <td class="mono">${row.cargo}/${row.cargoCap}</td>
         <td class="mono cv" title="${escapeHtml(cargoValueTitle(row.cargoValue))}">${escapeHtml(cargoValueText(row.cargoValue)) || "—"}</td>
+        <td class="mono cp ${cargoProfit(row.cargoValue).tone}" title="Estimated proceeds minus what we paid (cost basis on file)">${escapeHtml(cargoProfit(row.cargoValue).text) || "—"}</td>
         <td class="mono">${escapeHtml(row.at)}</td>
         <td class="mono eta${fmtEta(row.eta) !== "—" ? " live" : ""}">${escapeHtml(fmtEta(row.eta))}${fmTag(row.flightMode)}</td>
       </tr>
@@ -633,7 +634,7 @@ function renderFleet() {
       const crit = items.filter((r) => r.stranded).length;
       const warn = items.filter((r) => !r.stranded && r.job === "unassigned").length;
       const badge = crit ? `<span class="grp-badge crit">${crit} stranded</span>` : warn ? `<span class="grp-badge warn">${warn} unassigned</span>` : "";
-      return `<tr class="grp-row" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}"><td colspan="9">
+      return `<tr class="grp-row" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}"><td colspan="10">
         <span class="chev">${isCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(role)}</span><span class="g-n">${items.length}</span>${badge}
       </td></tr>${isCollapsed ? "" : items.map(rowHtml).join("")}`;
     }).join("");

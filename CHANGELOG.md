@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Deck fleet table shows potential profit per hold (2026-10-09)
+
+A Profit column on the Fleet tab next to Value: the hold's estimated proceeds
+minus what we paid (cost basis from `ship_manifest`), green when positive and
+red when negative. It shows "?" when there is no cost basis on file or part of
+the hold is unpriced, since the difference would be wrong in both cases. Helper
+`cargoProfit` in `public/shared/domain.js`.
+
 ## Keeper probes are bought at the cheapest yard (2026-10-09)
 
 A market-triggered keeper request (`maybeRequestKeeperProbeForMarket`) chose

@@ -29,3 +29,18 @@ describe("cargoValueText", () => {
     assert.match(t, /Paid about 80,000/);
   });
 });
+
+import { cargoProfit } from "../public/shared/domain.js";
+
+describe("cargoProfit", () => {
+  it("is proceeds minus cost, signed and toned", () => {
+    assert.deepEqual(cargoProfit(cv(290_400)), { text: "+210k", tone: "up", profit: 210_400 });
+    assert.equal(cargoProfit({ ...cv(50_000) }).text, "-30k");
+    assert.equal(cargoProfit({ ...cv(50_000) }).tone, "down");
+  });
+  it("is ? without a cost basis or with unpriced units, blank when empty", () => {
+    assert.equal(cargoProfit({ ...cv(50_000), cost: 0 }).text, "?");
+    assert.equal(cargoProfit(cv(50_000, 3)).text, "?");
+    assert.equal(cargoProfit(undefined).text, "");
+  });
+});

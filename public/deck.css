@@ -451,4 +451,7 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 
 /* Estimated value of a hold (cargoValueText) */
 td.cv { color: var(--amber, #e8b04a); white-space: nowrap; }
+td.cp { white-space: nowrap; }
+td.cp.up { color: var(--good, #5ec27a); }
+td.cp.down { color: var(--bad, #e5675d); }
 .dtl-h .cv { color: var(--amber, #e8b04a); }

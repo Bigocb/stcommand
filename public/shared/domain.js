@@ -247,6 +247,21 @@ export function cargoValueText(cv) {
   return `~${compactCredits(cv.value)}${cv.unpricedUnits > 0 ? "+" : ""}`;
 }
 
+/**
+ * Potential profit on a hold: its estimated proceeds minus what we paid (cost
+ * basis on file). Returns { text, tone } where tone is "up" | "down" | "" ;
+ * text is "" when there is no priced cargo, "?" when the hold has no cost
+ * basis to compare against or is partly unpriced (the cost would cover units
+ * the proceeds leave out, so the difference would be wrong).
+ */
+export function cargoProfit(cv) {
+  if (!cv || !cv.items?.length || cv.value <= 0) return { text: "", tone: "", profit: null };
+  if (!(cv.cost > 0) || cv.unpricedUnits > 0) return { text: "?", tone: "", profit: null };
+  const profit = Math.round(cv.value - cv.cost);
+  const sign = profit > 0 ? "+" : profit < 0 ? "-" : "";
+  return { text: `${sign}${compactCredits(Math.abs(profit))}`, tone: profit > 0 ? "up" : profit < 0 ? "down" : "", profit };
+}
+
 /** Tooltip for cargoValueText: one line per good, then what we paid. Plain text (escape it into an attribute). */
 export function cargoValueTitle(cv) {
   if (!cv || !cv.items?.length) return "";
