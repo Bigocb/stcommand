@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## A trader the operator sells now goes to the yard instead of trading on (2026-10-09)
+
+THEO-27 was sold at 20:51 UTC ("flying to X1-AA31-A2 to be scrapped") and was still trading at 21:45: it flew a FIREARMS
+leg, then bought 40 EQUIPMENT (about 115k) and started a two-jump trip. `TraderAgent.tick()` handled repair, hold, explore and
+tender goals itself but had no case for `scrap`; `drivenByFleet()` is false for scrap, so it did not even log "standing down".
+Every other role reaches `runScrapGoal()` through `runFleetDrivenGoal()`. The trader now runs it, but only on an empty hold:
+scrapping destroys the cargo, so a loaded trader finishes the trip it is on first. Test in `tests/intentConsumption.test.ts`.
+
 ## Fleet row says "holding contract cargo", not "contract: X → Y" (2026-10-09)
 
 The job label for a ship with no assignment was inferred from its hold: any good an open contract still wants printed as

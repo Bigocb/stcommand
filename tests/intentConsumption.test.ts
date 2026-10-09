@@ -185,6 +185,33 @@ describe("every role stands down on a waypoint-less hold — the one goal that s
   });
 });
 
+describe("a trader sold by the operator", () => {
+  // THEO-27 was sold at 20:51 and kept trading for an hour: TraderAgent.tick() flew repair/hold/explore/tender goals
+  // but had no case for scrap. Scrap runs only on an empty hold; a loaded trader finishes its trip first.
+  const scrapIntent = intent({ kind: "scrap", yard: "X1-A-A1" }, "operator");
+  const yardApi = { getCallCount: () => 0, getShip: async () => makeShip(), dockShip: async () => ({}) } as any;
+
+  it("scraps at the yard once its hold is empty", async () => {
+    let scrapped = 0;
+    const agent = new TraderAgent(makeShip() as unknown as TraderShip, {
+      api: yardApi, log: () => {}, intentFor: () => scrapIntent, scrapHere: async () => { scrapped += 1; },
+    });
+    await agent.tick();
+    assert.equal(scrapped, 1);
+  });
+
+  it("does not scrap while the hold is loaded (the cargo would be destroyed with the hull)", async () => {
+    let scrapped = 0;
+    const loaded = makeShip();
+    (loaded as any).cargo = { capacity: 40, units: 40, inventory: [{ symbol: "EQUIPMENT", units: 40 }] };
+    const agent = new TraderAgent(loaded as unknown as TraderShip, {
+      api: { ...yardApi, getShip: async () => loaded }, log: () => {}, intentFor: () => scrapIntent, scrapHere: async () => { scrapped += 1; },
+    });
+    try { await agent.tick(); } catch { /* the ordinary trade path is not under test */ }
+    assert.equal(scrapped, 0);
+  });
+});
+
 describe("an agent still acts when the intent is its own work", () => {
   it("a trade or tour intent does not stand a ship down", async () => {
     let ticked = false;

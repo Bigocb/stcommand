@@ -2459,6 +2459,12 @@ export class TraderAgent {
     if (intent?.goal.kind === "explore") {
       return this.proxy.runExploreGoal(intent, () => this.intentFor?.());
     }
+    // An operator sale. Every other role reaches runScrapGoal() through runFleetDrivenGoal(); a trader never did, so a
+    // sold trader kept trading (seen live 2026-10-09: THEO-27 was sold at 20:51 and bought 115k of EQUIPMENT at 21:28).
+    // Scrapping destroys the hold, so a loaded trader finishes the trip it is on and goes to the yard once it is empty.
+    if (intent?.goal.kind === "scrap" && this.ship.cargo.units === 0) {
+      return this.proxy.runScrapGoal(intent, () => this.intentFor?.());
+    }
     if (intent?.goal.kind === "tender") {
       return this.proxy.runTenderGoal(intent, () => this.intentFor?.());
     }
