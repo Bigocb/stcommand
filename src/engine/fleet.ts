@@ -1161,6 +1161,7 @@ export class FleetManager {
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
       jumpTo: (sym, wp) => this.jumpToward(sym, wp),
+      scrapHere: async (sym: string) => { await this.scrapShip(sym); },
       findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
         this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
       atlas: this.galaxy,
@@ -1287,6 +1288,9 @@ export class FleetManager {
     return [...this.traders.entries()]
       .filter(([sym]) => sym !== this.warehouseShip?.shipSymbol)
       .filter(([sym]) => available.has(sym) || this.shipRegistry.ownerOf(sym)?.owner === "trading")
+      // A sold ship with an empty hold is on its way to be scrapped: it gets no more work (2026-10-09: THEO-27 kept a
+      // CLOTHING assignment and counted as a trader while it sat waiting). A loaded one stays, so its trip is carried.
+      .filter(([sym, a]) => !(this.scrapTargets.has(sym) && (a.getShip().cargo?.units ?? 0) === 0))
       .map(([sym, a]) => ({
         shipSymbol: sym,
         capacity: a.getShip().cargo?.capacity ?? 0,
@@ -2662,6 +2666,7 @@ export class FleetManager {
         scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
         onScan: (res) => this.ingestScanResults(ship.symbol, res),
         jumpTo: (sym, wp) => this.jumpToward(sym, wp),
+        scrapHere: async (sym: string) => { await this.scrapShip(sym); },
         jumpToUnchartedSystem: (sym) => this.scoutJumpToUnchartedSystem(sym),
         advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
         refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
@@ -7732,6 +7737,7 @@ export class FleetManager {
         keeperMarket: () => this.keeperMarkets.get(sym),
         keeperPollMs: (wp) => this.keeperPollMs(wp),
         getCredits: () => this.spendableCredits(),
+        scrapHere: async (sym: string) => { await this.scrapShip(sym); },
         galaxy: this.galaxy,
         store: this.store,
         done: () => this.forgetIntent(sym),

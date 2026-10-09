@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Sold ships now actually scrap; sold ships leave the dispatcher's pool (2026-10-09)
+
+The "send to scrap" button only ever flew a ship to the yard. Traders, scouts and keepers were built without the `scrapHere`
+handler, and the executor called it as `scrapHere?.()`, so on arrival nothing happened and nothing was logged (siphoners, miners
+and the other ShipAgent roles had it). All three are wired now, a missing handler is logged instead of ignored, and
+`tests/scrapWiring.test.ts` checks every agent construction in `fleet.ts` has one. Also, a sold ship with an empty hold no longer
+counts as a trader in the dispatcher (THEO-27 kept being handed CLOTHING while it waited); a loaded one stays so its trip is
+carried to the end.
+
 ## Route-first matching, built and switched off (2026-10-09)
 
 New pure module `src/engine/matching.ts` and doctrine clause `routeMatchTopN` ("Best ship for the best routes", disabled by

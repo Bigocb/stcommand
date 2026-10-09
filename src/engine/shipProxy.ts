@@ -711,8 +711,14 @@ export class ShipProxy {
     }
 
     this.assertAt(yard, "scrap");
+    if (!this.scrapHere) {
+      // Never a silent no-op: until 2026-10-09 traders, scouts and keepers were built without it, and a sold ship sat at
+      // the yard forever with nothing in the log.
+      this.log(`scrap at ${yard} not possible: this ship was built without a scrap handler`);
+      return true;
+    }
     try {
-      await this.scrapHere?.(this.ship.symbol);
+      await this.scrapHere(this.ship.symbol);
     } catch (err) {
       this.log(`scrap at ${yard} failed: ${err instanceof Error ? err.message : String(err)}`);
     }

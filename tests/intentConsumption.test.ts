@@ -200,6 +200,13 @@ describe("a trader sold by the operator", () => {
     assert.equal(scrapped, 1);
   });
 
+  it("says so in the log when built without a scrap handler, instead of doing nothing silently", async () => {
+    const logs: string[] = [];
+    const agent = new TraderAgent(makeShip() as unknown as TraderShip, { api: yardApi, log: (m: string) => logs.push(m), intentFor: () => scrapIntent });
+    await agent.tick();
+    assert.ok(logs.some((l) => l.includes("without a scrap handler")));
+  });
+
   it("does not scrap while the hold is loaded (the cargo would be destroyed with the hull)", async () => {
     let scrapped = 0;
     const loaded = makeShip();
