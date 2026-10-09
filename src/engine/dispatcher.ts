@@ -1282,7 +1282,8 @@ export class RouteDispatcher {
       if (circuitPolicy.weight > 0 && !itemCircuit && !leg2Served && item.sellAt !== undefined) {
         // Why this route got no circuit, so the horizon and return share can be tuned from what the dispatcher sees.
         const cand = candidateByKey.get(item.key);
-        if (cand) log?.(`dispatch circuit: ${t.shipSymbol} ${item.key} — ${circuitReport(cand, chainCandidates, chainCtx, circuitPolicy, bestScore)}`);
+        const own = scoreItem(item);
+        if (cand) log?.(`dispatch circuit: ${t.shipSymbol} ${item.key} — ${circuitReport(cand, chainCandidates, chainCtx, circuitPolicy, bestScore, own?.positioning, own?.penalty)}`);
       }
       if (itemCircuit) {
         const l2 = itemCircuit.leg2;

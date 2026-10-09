@@ -92,7 +92,14 @@ describe("circuitReport", () => {
   it("names the best pair and its rate against the route when one exists", () => {
     const back = cand("BACK", "X1-A-102", "X1-A-12", 30_000);
     const text = circuitReport(leg1, [leg1, back], ctx(), on, 90_000);
-    assert.match(text, /best BACK rate \d+ vs route 90000/);
+    assert.match(text, /best BACK scores \d+ \(rate \d+\) vs route 90000/);
+  });
+  it("puts the circuit on the route's scale (positioning, penalty) before comparing", () => {
+    const back = cand("BACK", "X1-A-102", "X1-A-12", 30_000);
+    const plain = circuitReport(leg1, [leg1, back], ctx(), on, 90_000);
+    const shifted = circuitReport(leg1, [leg1, back], ctx(), on, 90_000, leg1.tripSeconds, 1_000);
+    const scored = (t: string) => Number(/scores (-?\d+)/.exec(t)![1]);
+    assert.ok(scored(shifted) < scored(plain) / 2, "a positioning flight as long as the trip more than halves it");
   });
   it("does not count legs that are taken", () => {
     const back = cand("BACK", "X1-A-102", "X1-A-12", 30_000);

@@ -124,6 +124,8 @@ export function circuitReport(
   ctx: CircuitContext,
   policy: CircuitPolicy,
   ownScore: number,
+  positioningSeconds = 0,
+  penalty = 0,
 ): string {
   const system = leg1.buySystem;
   const horizon = policy.horizonMinutes * 60;
@@ -142,7 +144,11 @@ export function circuitReport(
   const best = bestCircuit(leg1, candidates, ctx, policy);
   const pairs = `${sameSystem} same-system legs, ${free} free, ${nearSale} start within ${policy.horizonMinutes}m of the sale, ${nearStart} also end within ${policy.horizonMinutes}m of the start`;
   if (!best) return `no circuit (${pairs})`;
-  return `circuit not better than the route alone: best ${best.leg2.good} rate ${Math.round(best.rate)} vs route ${Math.round(ownScore)} (${Math.round(best.betweenSeconds)}s empty after the sale, ${Math.round(best.returnSeconds)}s back; ${pairs})`;
+  // The circuit's rate is per reference trip with no empty flight to the first buy, so it is put on the route's scale
+  // (positioning discount, extra-buyer penalty) before being compared with `ownScore`, the way circuitScore() does.
+  const t = best.leg1.tripSeconds;
+  const scored = best.rate * (t / (t + Math.max(0, positioningSeconds))) - penalty;
+  return `circuit not better than the route alone: best ${best.leg2.good} scores ${Math.round(scored)} (rate ${Math.round(best.rate)}) vs route ${Math.round(ownScore)} (${Math.round(best.betweenSeconds)}s empty after the sale, ${Math.round(best.returnSeconds)}s back; ${pairs})`;
 }
 
 /**

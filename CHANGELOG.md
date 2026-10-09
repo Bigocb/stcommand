@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Who sent a hold, and an honest "why no circuit" line (2026-10-09)
+
+- The dashboard's hold, release and dispatch routes now log the client (address, user agent, referer). THEO-62 was put
+  under an operator hold mid-route at 17:43 UTC that the operator did not place; the MCP logs every call and showed none,
+  but the dashboard path logged nothing, so the sender could not be told apart.
+- The "circuit not better than the route alone" log compared the circuit's raw rate with the route's *discounted* score
+  (so 496621 vs 209975 read as a bug). It now puts the circuit on the route's scale (positioning flight, extra-buyer
+  penalty) first and prints both numbers.
+
 ## Circuit tuning knobs and a "why no circuit" log (2026-10-09)
 
 The follow-on lookahead was switched off (it matched about 1 in 20 of its predictions to the ship's next buy), so circuits
