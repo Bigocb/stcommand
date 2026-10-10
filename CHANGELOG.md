@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Metrics screen in Deck (2026-10-10)
+
+New rail item "Metrics": range buttons (1h, 6h, 24h, 3d, 6d), KPI tiles with the change against the window before (net trading,
+per hour, credits, sales, profit per sale, overhead, fleet spend), a credits line and a net-trading-per-interval bar chart with
+hover values, a pace-to-reset panel (projection at the window's rate against an editable target, and the rate needed), and
+tables of profit by good, by ship (with hold size and per-hour) and by sell system, plus traders that sold nothing. Built
+from the ledger by `src/engine/metrics.ts` (pure, tested), served by `GET /api/metrics`, rendered by `public/shared/metrics.js`.
+See `docs/deck-desktop-design.md` §14.
+
 ## Sold ships now actually scrap; sold ships leave the dispatcher's pool (2026-10-09)
 
 The "send to scrap" button only ever flew a ship to the yard. Traders, scouts and keepers were built without the `scrapHere`

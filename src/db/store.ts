@@ -570,6 +570,28 @@ export class Store {
     });
   }
 
+  /** Ledger rows since `sinceIso`, oldest first, in the shape engine/metrics.ts reads. Capped; the cap keeps a week of heavy trading bounded. */
+  async ledgerRowsSince(tenantId: string, sinceIso: string, limit = 400_000): Promise<import("../engine/metrics.js").LedgerRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(
+        `SELECT timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, total, realized_pnl, wallet_after
+         FROM ledger WHERE timestamp >= $1 ORDER BY timestamp LIMIT $2`,
+        [sinceIso, limit],
+      );
+      return res.rows.map((r: any) => ({
+        ts: new Date(r.timestamp).getTime(),
+        ship: r.ship_symbol,
+        waypoint: r.waypoint_symbol,
+        type: r.type,
+        good: r.trade_symbol ?? null,
+        units: Number(r.units ?? 0),
+        total: Number(r.total),
+        pnl: r.realized_pnl === null ? null : Number(r.realized_pnl),
+        wallet: r.wallet_after === null ? null : Number(r.wallet_after),
+      }));
+    });
+  }
+
   async ledgerTotals(tenantId: string): Promise<{ credits: number; buys: number; sells: number }> {
     return withTenant(this.pool, tenantId, async (c) => {
       // `total` is always stored as a positive magnitude (res.transaction.totalPrice,

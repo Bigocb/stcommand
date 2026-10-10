@@ -20,6 +20,7 @@ import {
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
+import { mountMetrics } from "/shared/metrics.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
@@ -66,11 +67,13 @@ $("auth-form").addEventListener("submit", async (e) => {
 /* ── view switching ────────────────────────
  * Overview, Fleet, and Markets screens; others show inert placeholders.
  */
+let metricsScreen = null;
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
   document.querySelectorAll(".rail .item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
   const viewEl = $(`view-${name}`);
   if (viewEl) viewEl.hidden = false;
+  if (name !== "metrics") metricsScreen?.hide();
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
   if (name === "fleet") renderFleet();
@@ -93,6 +96,13 @@ function setView(name) {
     loadGoods();
     renderFeeds();
     renderChains();
+  }
+  if (name === "metrics") {
+    metricsScreen ??= mountMetrics($("metrics-root"), {
+      api,
+      netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined),
+    });
+    metricsScreen.show();
   }
   if (name === "doctrine") {
     loadDoctrine();

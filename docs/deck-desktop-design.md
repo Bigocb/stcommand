@@ -505,3 +505,14 @@ Ops now opens with a full-width "Gate supply chain" panel (`#ops-chain`) above C
 import (`.ch-input`, `.weakest` on the worst one), nested one level for inputs produced in-system. Tags: `.ch-tag`
 with `.good/.warn/.bad` for supply and activity buckets. Tower reuses the same renderer and classes under
 `#more-chain.chain-health` with phone-width overrides in `m.css`.
+
+## §14 Metrics screen (2026-10-10)
+
+A quiet rail item ("Metrics", last before Admin) opens `#view-metrics`, rendered by `public/shared/metrics.js`
+(`mountMetrics(root, { api, netWorth })`, so Tower can mount it the same way later). Data: `GET /api/metrics?hours=N`
+(1, 6, 24, 72 or 144), built from the ledger by `src/engine/metrics.ts`: per-interval buckets, totals with the previous
+window for comparison, breakdowns by good, ship and sell system, and the traders that sold nothing. Net trading is the
+front page's pace figure (realized profit less fuel and jumps); ship purchases and scrap are shown separately. The
+"Pace to reset" panel is a straight line at the window's rate against an editable target (default last week's final,
+25,738,654; kept in `localStorage`), using the server's next reset time. Refreshes every 60 s while open. Classes: `.mx-*`
+in `deck.css`.

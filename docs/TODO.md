@@ -7,6 +7,10 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Metrics follow-ups (raised 2026-10-10).** Shipped the Deck Metrics screen. Not built: mount it in Tower; profit per
+  route (buy and sell are separate ledger rows, so this needs a trip id on both); trader utilization (share of time with
+  cargo or flying to a buy market) which needs per-ship state history; contract and mission income (not in the ledger).
+
 - [ ] **Mission price target as the control, not a guard (raised 2026-10-07, operator).** With `recoverPct` on, the
   ceiling sets the price the market is held at and the producer's refill sets the buying rate (see
   `docs/reset-opening-playbook.md`, "The ceiling is a target price"). Today the ceiling is `maxInflationPct` over a

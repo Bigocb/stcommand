@@ -12,6 +12,8 @@ import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
+import { buildMetrics, bucketMinutesFor } from "../engine/metrics.js";
+import { resetWatcherStatus } from "../engine/resetWatcher.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -397,6 +399,36 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     res.json({ ticks: await w.store.recentSlowTicks(w.tenantId, 50) });
+  });
+
+  /* ── Financial metrics ───────────────────────────────────────
+     What the fleet earned and spent over the last N hours, bucketed for a chart, with breakdowns by good, ship and sell
+     system and the window before for comparison. Built from the ledger (engine/metrics.ts). */
+  router.get("/metrics", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      const hours = Math.min(144, Math.max(1, Number(req.query.hours) || 6));
+      const now = Date.now();
+      // Twice the window: the second half is the comparison.
+      const rows = await w.store.ledgerRowsSince(w.tenantId, new Date(now - 2 * hours * 3600_000).toISOString());
+      const state = w.state.get();
+      const holds: Record<string, number> = {};
+      for (const s of state.ships ?? []) holds[s.symbol] = s.cargo?.capacity ?? 0;
+      const statuses = w.fleet.getShipStatuses();
+      const traders = statuses.filter((s: { role: string }) => s.role === "trader").map((s: { symbol: string }) => s.symbol);
+      const metrics = buildMetrics(rows, { now, hours, bucketMinutes: bucketMinutesFor(hours), holds, traders });
+      res.json({
+        ...metrics,
+        credits: state.agent?.credits ?? 0,
+        shipCount: statuses.length,
+        traderCount: traders.length,
+        resetAt: resetWatcherStatus()?.nextReset ?? null,
+      });
+    } catch (err) {
+      console.error("[dashboard] /metrics error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   /* ── Bridge ──────────────────────────────────────────────────
