@@ -644,3 +644,9 @@ body {
 
 .fleet-modes { margin: 8px 12px 0; }
 .fleet-modes button { flex: 1; }
+
+.jump-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair, #333); }
+.jump-row .tgt { min-width: 0; font-size: 13px; }
+.jump-row .via { color: var(--muted, #888); font-size: 11px; }
+.jump-row.gate-off { opacity: 0.4; }
+.jump-row .btn { flex: 0 0 auto; }

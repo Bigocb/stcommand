@@ -22,7 +22,7 @@ export interface FleetSnapshot {
   systemSymbol: string;
   waypoints: { symbol: string; x: number; y: number; type: string; traits: string[] }[];
   systems: SystemView[];
-  jumpConnections: { from: string; to: string }[];
+  jumpConnections: { from: string; to: string; complete?: boolean }[];
   totals: { credits: number; buys: number; sells: number };
   updatedAt: string;
 }

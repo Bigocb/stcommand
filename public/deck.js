@@ -17,7 +17,7 @@ import {
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
   loadMarkets, loadGoods, loadPrices, loadMarketTransactions, loadGalaxy, loadProgramme,
-  loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes,
+  loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes, jumpConnections,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
@@ -25,6 +25,7 @@ import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
+import { jumpPlannerHtml } from "/shared/jump.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
@@ -839,6 +840,7 @@ function renderFleetActions(shipRow) {
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
     <button class="btn full" data-act="role-toggle">${fleetRoleOpen ? "Close" : `Change role (${escapeHtml(shipRow.role)})`}</button>
     <button class="btn full" data-act="details-toggle">${fleetDetailsOpen ? "Close full details" : "Full details"}</button>
+    ${jumpPlannerHtml(ship.nav?.waypointSymbol, nav, jumpConnections)}
     ${extra}
   `;
 }
@@ -858,6 +860,11 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
   const ship = selectedFleetShip;
   if (!ship) return;
 
+  if (act === "jump") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/jump", { shipSymbol: ship, waypointSymbol: b.dataset.to }); await loadState(); return renderFleet(); }
+    catch (err) { alert(err.message); b.disabled = false; return; }
+  }
   if (act === "send-toggle") { fleetSendOpen = !fleetSendOpen; fleetRouteOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
   if (act === "route-toggle") { fleetRouteOpen = !fleetRouteOpen; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
   if (act === "role-toggle") {

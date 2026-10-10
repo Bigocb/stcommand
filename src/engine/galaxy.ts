@@ -206,11 +206,13 @@ export class GalaxyAtlas {
   }
 
   /** Return all jump gate connections as pairs of waypoint symbols. */
-  jumpConnections(): { from: string; to: string }[] {
-    const out: { from: string; to: string }[] = [];
+  jumpConnections(): { from: string; to: string; complete: boolean }[] {
+    const out: { from: string; to: string; complete: boolean }[] = [];
     for (const sys of this.systems.values()) {
       for (const jg of sys.jumpGates) {
-        for (const c of jg.connections) out.push({ from: jg.symbol, to: c });
+        // complete: the gate at `from` is finished, so a ship can jump through it. Unknown counts as not finished.
+        const complete = this.gateConstruction.get(jg.symbol) === true;
+        for (const c of jg.connections) out.push({ from: jg.symbol, to: c, complete });
       }
     }
     return out;

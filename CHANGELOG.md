@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Jump planner on Tower and Deck ship sheets
+
+The ship sheet on Tower and Deck now has the v6 jump planner: one row per gate out of the ship's system, with a Jump
+button. A gate that isn't finished is greyed out and its Jump is disabled, and so is any ship in transit. Gate
+completion comes from the galaxy's construction status, so a gate that is still under construction can't be picked by
+mistake.
+
 ## 2026-10-10 — Manual send to waypoint refuels on the way
 
 The Tower "Send to waypoint" control no longer refuses a ship that can't make the leg on its own fuel, and it no

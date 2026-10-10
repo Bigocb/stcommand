@@ -498,3 +498,9 @@ td.cp.down { color: var(--bad, #e5675d); }
 @media (max-width: 1100px){ .mx-kpis{grid-template-columns:repeat(3,1fr)} .mx-charts,.cols3{grid-template-columns:1fr} .mx-projgrid{grid-template-columns:repeat(2,1fr)} }
 .mx-tables .panel{overflow:visible}
 .mx-tables .panel-b{flex:0 0 auto;overflow:visible}
+
+.jump-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair, #333); }
+.jump-row .tgt { min-width: 0; font-size: 13px; }
+.jump-row .via { color: var(--muted, #888); font-size: 11px; }
+.jump-row.gate-off { opacity: 0.4; }
+.jump-row .btn { flex: 0 0 auto; }

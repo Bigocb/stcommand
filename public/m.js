@@ -17,11 +17,12 @@ import {
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadDoctrine, setDoctrine, loadActivity,
-  loadGoods, loadPrices, loadKeepers,
+  loadGoods, loadPrices, loadKeepers, jumpConnections,
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { renderMarkdown } from "/shared/markdown.js";
+import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml } from "/shared/domain.js";
 
@@ -577,6 +578,7 @@ function renderSheet(row) {
       </div>
     </div>`;
   }
+  extra += jumpPlannerHtml(row.waypoint, row.nav, jumpConnections);
   if (detailsOpen) {
     extra += renderShipDetails(row.symbol);
   }
@@ -649,6 +651,12 @@ $("sheet-actions").addEventListener("click", async (e) => {
   if (!b || b.disabled) return;
   const act = b.dataset.act;
   const ship = sheetShip;
+  if (act === "jump") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/jump", { shipSymbol: ship, waypointSymbol: b.dataset.to }); await loadState(); }
+    catch (err) { alert(err.message); b.disabled = false; }
+    return;
+  }
 
   if (act === "send-toggle") { const next = !sendFormOpen; closeSheetForms(); sendFormOpen = next; return renderFleetView(); }
   if (act === "route-toggle") { const next = !routePickerOpen; closeSheetForms(); routePickerOpen = next; return renderFleetView(); }
