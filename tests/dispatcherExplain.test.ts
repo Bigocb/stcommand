@@ -93,6 +93,20 @@ describe("dispatcher explain snapshot", () => {
     });
   });
 
+  it("sends the route to the ship nearest its gate, not the first of two equal ships in the system", () => {
+    // Both ships sit one jump from X1-B, so the jump count alone cannot tell them apart. The far ship is listed
+    // first, which is what the old tie-break picked.
+    const far = { shipSymbol: "FAR", capacity: 40, system: "X1-A", waypoint: "X1-A-FAR", fuelCapacity: 400 };
+    const near = { shipSymbol: "NEAR", capacity: 40, system: "X1-A", waypoint: "X1-A-NEAR", fuelCapacity: 400 };
+    const crossRoute = { ...route("GOOD", "X1-B", 5000), buyAt: "X1-B-BUY", sellAt: "X1-B-SELL", tripSeconds: 3600, secPerDist: 1 } as DispatchRoute;
+    const distanceBetween = (a: string, b: string) => (a === "X1-A-FAR" ? 500 : a === "X1-A-NEAR" ? 10 : 0);
+    const d = new RouteDispatcher();
+    d.recompute([crossRoute], [far, near], [], [], [], [], (f, t) => f === "X1-A" && t === "X1-B", distanceBetween, undefined, undefined,
+      { enabled: true, path: () => ["X1-A", "X1-B"], hopCost: () => 0, gateFor: (from: string) => `${from}-GATE` });
+    assert.equal(d.assignmentFor("NEAR")?.good, "GOOD");
+    assert.equal(d.assignmentFor("FAR"), undefined);
+  });
+
   it("keeps the snapshot from the latest cycle only", () => {
     const d = new RouteDispatcher();
     d.recompute([route("FUEL", "X1-KU72", 6601)], [{ shipSymbol: "T-1", capacity: 40, system: "X1-KU72", waypoint: "X1-KU72-A1" }], [], [], [], [], canJump);

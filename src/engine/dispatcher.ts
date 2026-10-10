@@ -1171,6 +1171,16 @@ export class RouteDispatcher {
     };
     const reachableFor = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): boolean =>
       whyUnreachable(t, w) === undefined;
+    /** Seconds a ship in another system needs before it can start buying: one cooldown per jump, plus the flight from
+     *  where it sits to its gate. The flight matters: two ships in the same system both sit `hops` jumps away, so without
+     *  it the one standing at the gate and the one across the system looked identical and the choice fell to hold size. */
+    const crossSystemPositioning = (t: (typeof traders)[number], w: { buySystem?: string; secPerDist?: number }): number => {
+      let seconds = (chainCtx.crossSystemHops(t.system!, w.buySystem!) ?? 1) * chainPolicy.jumpSeconds;
+      const nextSystem = canJump(t.system!, w.buySystem!) ? w.buySystem : crossSystem?.path(t.system!, w.buySystem!)?.[1];
+      const gate = nextSystem !== undefined ? crossSystem?.gateFor?.(t.system!, nextSystem) : undefined;
+      if (gate !== undefined && t.waypoint !== undefined && w.secPerDist) seconds += distanceBetween(t.waypoint, gate) * w.secPerDist;
+      return seconds;
+    };
     // Route-first matching (matching.ts): off at topN 0. Otherwise the ships best suited to the top routes are served
     // first, in route order, then everyone else by hold size as before.
     const isDeclinedBy = (ship: string, w: { good?: string; buyAt?: string; sellAt?: string }): boolean => {
@@ -1193,7 +1203,7 @@ export class RouteDispatcher {
             const w = byKey.get(item.key);
             if (!t || !w || !reachableFor(t, w) || isDeclinedBy(t.shipSymbol, w)) return undefined;
             if (w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system) {
-              return (chainCtx.crossSystemHops(t.system, w.buySystem) ?? 1) * chainPolicy.jumpSeconds;
+              return crossSystemPositioning(t, w);
             }
             return t.waypoint && w.buyAt && w.secPerDist ? distanceBetween(t.waypoint, w.buyAt) * w.secPerDist : 0;
           },
@@ -1298,7 +1308,7 @@ export class RouteDispatcher {
         if (score <= 0) return undefined;
         if (w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system) {
           // Another system: the ship sits out one jump cooldown per hop before it can buy.
-          positioning = (chainCtx.crossSystemHops(t.system, w.buySystem) ?? 1) * chainPolicy.jumpSeconds;
+          positioning = crossSystemPositioning(t, w);
           // The same wait counts against the plain score when the route has a trip time to scale it by (a same-system
           // route in another system, or a cross-system route, which fleet.ts now gives one): before this, a trip that
           // needed jumps was ranked as if it started the moment the ship picked it.
