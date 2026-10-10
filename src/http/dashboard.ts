@@ -1574,6 +1574,13 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     await w.fleet.setPaused(false);
+    // Resuming is an explicit captain "run the fleet" decision, so it must also
+    // clear the durable tenants.onboarding_pending flag. Otherwise boot's
+    // onboarding gate (TenantRegistry.boot) re-pauses the fleet on the next
+    // restart, and the captain's resume never sticks — the exact trap where a
+    // tenant that adopted doctrine via Book mode (never the full-screen
+    // onboarding confirm) got re-paused on every restart.
+    await clearOnboardingPending(pool, w.tenantId);
     res.json({ paused: false });
   });
 

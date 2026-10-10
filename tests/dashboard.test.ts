@@ -152,6 +152,20 @@ describe("POST /api/fleet/pause + /api/fleet/resume", () => {
     assert.deepEqual(await resumed.json(), { paused: false });
     assert.equal(((await (await get("/api/fleet/status")).json()) as { paused: boolean }).paused, false);
   });
+
+  it("resume clears the durable onboarding_pending flag so a restart can't re-pause", async () => {
+    // Reproduces the trap: a tenant that adopted doctrine via Book mode (never
+    // the full-screen onboarding confirm) still has onboarding_pending=true, so
+    // boot re-pauses on every restart. Resuming must clear it durably.
+    await pool.query(`UPDATE tenants SET onboarding_pending = true WHERE id = $1`, [tenantId]);
+    const res = await post("/api/fleet/resume");
+    assert.equal(res.status, 200);
+    const row = await pool.query<{ onboarding_pending: boolean }>(
+      `SELECT onboarding_pending FROM tenants WHERE id = $1`,
+      [tenantId],
+    );
+    assert.equal(row.rows[0]?.onboarding_pending, false);
+  });
 });
 
 describe("GET/POST /api/doctrine", () => {
