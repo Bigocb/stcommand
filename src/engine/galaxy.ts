@@ -83,7 +83,7 @@ export class GalaxyAtlas {
         markets: [],
         shipyards: [],
       };
-      this.systems.set(systemSymbol, known);
+      this.systems.set(systemSymbol, known); this.pathCache.clear();
       for (const w of known.waypoints) {
         if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
       }
@@ -91,7 +91,7 @@ export class GalaxyAtlas {
     }
     const waypoints = await this.api.getAllSystemWaypoints(systemSymbol);
     const known: KnownSystem = { symbol: systemSymbol, waypoints, jumpGates: [], markets: [], shipyards: [] };
-    this.systems.set(systemSymbol, known);
+    this.systems.set(systemSymbol, known); this.pathCache.clear();
     for (const w of waypoints) {
       if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
     }
@@ -139,7 +139,7 @@ export class GalaxyAtlas {
       markets: existing?.markets ?? [],
       shipyards: existing?.shipyards ?? [],
     };
-    this.systems.set(systemSymbol, known);
+    this.systems.set(systemSymbol, known); this.pathCache.clear();
     for (const w of waypoints) {
       if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
     }
@@ -186,7 +186,7 @@ export class GalaxyAtlas {
         }
       }),
     );
-    known.jumpGates = results;
+    known.jumpGates = results; this.pathCache.clear();
     await this.store?.setSystemTopology(systemSymbol, known.waypoints, results);
     return results;
   }
@@ -287,8 +287,16 @@ export class GalaxyAtlas {
    * cache-only: call warmJumpPath() first to populate the cache.
    */
   jumpPath(from: string, to: string): string[] | undefined {
-    return findJumpPath(from, to, (s) => this.usableNeighbors(s), MAX_POSITIONING_HOPS);
+    // Cached: the dispatcher asks for the same system pair once per trade leg, tens of thousands of times a pass, and
+    // the breadth-first search behind it was most of the server's CPU (profiled 2026-10-10). The cache is dropped
+    // whenever a system, gate connection or gate construction status changes, so an answer is never older than the data.
+    const key = `${from}>${to}`;
+    if (this.pathCache.has(key)) return this.pathCache.get(key)?.slice();
+    const path = findJumpPath(from, to, (s) => this.usableNeighbors(s), MAX_POSITIONING_HOPS);
+    this.pathCache.set(key, path);
+    return path?.slice();
   }
+  private readonly pathCache = new Map<string, string[] | undefined>();
 
   /**
    * Load and verify every gate within MAX_POSITIONING_HOPS of `from`, so that
@@ -413,7 +421,7 @@ export class GalaxyAtlas {
     try {
       const complete = (await this.api.getConstruction(systemSymbol, gateSymbol)).isComplete;
       this.gateCheckedAt.set(gateSymbol, Date.now());
-      this.gateConstruction.set(gateSymbol, complete);
+      this.gateConstruction.set(gateSymbol, complete); this.pathCache.clear();
       this.store?.recordGalaxyGateConstruction?.(gateSymbol, complete)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
       return complete;
     } catch (err) {
@@ -432,7 +440,7 @@ export class GalaxyAtlas {
       // construction. Leaving the status unset here means the next
       // refreshAllGateConstruction() sweep just retries it.
       if (err instanceof APIError && err.status === 404) {
-        this.gateConstruction.set(gateSymbol, true);
+        this.gateConstruction.set(gateSymbol, true); this.pathCache.clear();
         this.store?.recordGalaxyGateConstruction?.(gateSymbol, true)?.catch(() => { /* best-effort — see above */ });
         return true;
       }
@@ -456,7 +464,7 @@ export class GalaxyAtlas {
    * live API kept rejecting the jump.
    */
   recordGateNotComplete(gateSymbol: string): void {
-    this.gateConstruction.set(gateSymbol, false);
+    this.gateConstruction.set(gateSymbol, false); this.pathCache.clear();
     this.store?.recordGalaxyGateConstruction?.(gateSymbol, false)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
   }
 
@@ -475,7 +483,7 @@ export class GalaxyAtlas {
       // stale "incomplete" loaded from the store downgrade a "complete"
       // this process already confirmed live since starting up.
       if (this.gateConstruction.get(r.gateSymbol) === true) continue;
-      this.gateConstruction.set(r.gateSymbol, r.isComplete);
+      this.gateConstruction.set(r.gateSymbol, r.isComplete); this.pathCache.clear();
     }
   }
 
@@ -625,7 +633,7 @@ export class GalaxyAtlas {
     let added = 0;
     for (const s of systems) {
       if (this.systems.has(s.symbol)) continue;
-      this.systems.set(s.symbol, { symbol: s.symbol, waypoints: [], jumpGates: [], markets: [], shipyards: [] });
+      this.systems.set(s.symbol, { symbol: s.symbol, waypoints: [], jumpGates: [], markets: [], shipyards: [] }); this.pathCache.clear();
       added += 1;
     }
     return added;
@@ -638,7 +646,7 @@ export class GalaxyAtlas {
       let sys = this.systems.get(w.systemSymbol);
       if (!sys) {
         sys = { symbol: w.systemSymbol, waypoints: [], jumpGates: [], markets: [], shipyards: [] };
-        this.systems.set(w.systemSymbol, sys);
+        this.systems.set(w.systemSymbol, sys); this.pathCache.clear();
       }
       const existing = sys.waypoints.find((ew) => ew.symbol === w.symbol);
       if (existing) {

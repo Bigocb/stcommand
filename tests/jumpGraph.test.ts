@@ -73,4 +73,21 @@ describe("GalaxyAtlas.jumpPath / warmJumpPath", () => {
     atlas.recordGateNotComplete("X1-B-GATE");
     assert.equal(atlas.jumpPath("X1-A", "X1-C"), undefined);
   });
+
+  it("answers a repeated pair from its cache (one search), hands out copies, and forgets when a gate changes", async () => {
+    const atlas = await atlasWith(() => true);
+    await atlas.warmJumpPath("X1-A", "X1-C");
+    let searches = 0;
+    const real = atlas.usableNeighbors.bind(atlas);
+    atlas.usableNeighbors = (s: string) => { searches += 1; return real(s); };
+    const first = atlas.jumpPath("X1-A", "X1-C");
+    const afterFirst = searches;
+    assert.ok(afterFirst > 0);
+    for (let i = 0; i < 50; i++) atlas.jumpPath("X1-A", "X1-C");
+    assert.equal(searches, afterFirst, "fifty more asks cost no more searching");
+    first!.push("mutated");
+    assert.deepEqual(atlas.jumpPath("X1-A", "X1-C"), ["X1-A", "X1-B", "X1-C"], "a caller changing its copy does not change the cache");
+    atlas.recordGateNotComplete("X1-B-GATE");
+    assert.equal(atlas.jumpPath("X1-A", "X1-C"), undefined, "a gate change drops the cached answer");
+  });
 });

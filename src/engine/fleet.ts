@@ -1562,6 +1562,15 @@ export class FleetManager {
   /** Jump cost of a whole buy->sell leg: every hop of a verified multi-hop
    *  path, or the single gate's cost for an adjacent pair. */
   private crossSystemTripCost(buySystem: string, sellSystem: string): number {
+    const key = `${buySystem}>${sellSystem}`;
+    const memo = this.tripCostMemo.get(key);
+    if (memo !== undefined) return memo;
+    const cost = this.crossSystemTripCostUncached(buySystem, sellSystem);
+    this.tripCostMemo.set(key, cost);
+    return cost;
+  }
+
+  private crossSystemTripCostUncached(buySystem: string, sellSystem: string): number {
     if (this.galaxy.canJump(buySystem, sellSystem)) return this.crossSystemLegCost(buySystem, sellSystem);
     const path = this.galaxy.jumpPath(buySystem, sellSystem);
     if (!path || path.length < 3) return this.crossSystemLegCost(buySystem, sellSystem);
@@ -1572,10 +1581,23 @@ export class FleetManager {
 
   /** Gate jumps between two systems (1 for a single hop), for pricing the cooldown time of a cross-system trip. */
   private crossSystemHops(fromSystem: string, toSystem: string): number {
-    if (this.galaxy.canJump(fromSystem, toSystem)) return 1;
-    const path = this.galaxy.jumpPath(fromSystem, toSystem);
-    return path && path.length >= 2 ? path.length - 1 : 1;
+    const key = `${fromSystem}>${toSystem}`;
+    const memo = this.hopsMemo.get(key);
+    if (memo !== undefined) return memo;
+    let hops: number;
+    if (this.galaxy.canJump(fromSystem, toSystem)) hops = 1;
+    else {
+      const path = this.galaxy.jumpPath(fromSystem, toSystem);
+      hops = path && path.length >= 2 ? path.length - 1 : 1;
+    }
+    this.hopsMemo.set(key, hops);
+    return hops;
   }
+
+  /** Per-system-pair answers for one computeDispatchRoutes() pass, which asks the same pair for every good and market
+   *  between them (profiled 2026-10-10: about two thirds of the server's CPU). Cleared at the start of each pass. */
+  private readonly tripCostMemo = new Map<string, number>();
+  private readonly hopsMemo = new Map<string, number>();
 
   private crossSystemLegCost(buySystem: string, sellSystem: string): number {
     const gate = this.galaxy.gatesTo(buySystem, sellSystem)[0];
@@ -1613,6 +1635,8 @@ export class FleetManager {
   }
 
   async computeDispatchRoutes(): Promise<DispatchRoute[]> {
+    this.tripCostMemo.clear();
+    this.hopsMemo.clear();
     const positions = new Map<string, { x: number; y: number }>();
     for (const p of this.galaxy.allPositions()) positions.set(p.symbol, { x: p.x, y: p.y });
     const fuelAt = new Map<string, number>();
