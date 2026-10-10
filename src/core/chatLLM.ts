@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 /**
  * Minimal OpenAI-compatible chat client used by the co-pilot agent.
  *
@@ -54,6 +55,8 @@ export class ChatLLM {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
   private readonly onEvent: ChatLLMOptions["onEvent"];
+  /** One id per client, sent on OpenCode's gateway: it refuses requests without a session id ("MissingSessionID"). */
+  private readonly sessionId = randomUUID();
 
   constructor(opts: ChatLLMOptions) {
     this.apiKey = opts.apiKey;
@@ -61,6 +64,11 @@ export class ChatLLM {
     this.baseUrl = (opts.baseUrl ?? process.env.ST_LLM_BASE_URL ?? DEFAULT_BASE).replace(/\/+$/, "");
     this.timeoutMs = opts.timeoutMs ?? 120_000;
     this.onEvent = opts.onEvent;
+  }
+
+  /** OpenCode's Go gateway routes by session and rejects requests that do not carry one. Other providers ignore it, but it is only sent to that host. */
+  private gatewayHeaders(): Record<string, string> {
+    return this.baseUrl.includes("opencode.ai") ? { "x-opencode-session": this.sessionId } : {};
   }
 
   private async request(
@@ -78,6 +86,7 @@ export class ChatLLM {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
+          ...this.gatewayHeaders(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -127,6 +136,7 @@ export class ChatLLM {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
+          ...this.gatewayHeaders(),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
