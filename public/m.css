@@ -491,6 +491,9 @@ body {
 .doc-row .dn { font-family: var(--mono); font-size: 11px; flex: 1; }
 .doc-row .tag { font-family: var(--chrome); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--hair); border-radius: 2px; padding: 2px 5px; }
 .doc-row .tag.live { color: var(--green); border-color: rgba(88, 214, 141, 0.4); }
+.doc-row .dv { width: 64px; font: 11px var(--mono); color: var(--bone); background: transparent; border: 1px solid var(--hair); border-radius: 3px; padding: 3px 5px; text-align: right; }
+.doc-row .dv:focus { outline: none; border-color: var(--dim); }
+.doc-row .du { font-family: var(--chrome); font-size: 9px; color: var(--dim); }
 .sw {
   width: 30px; height: 17px; border: 1px solid var(--hair-hi); background: var(--ground); position: relative;
   border-radius: 9px; flex: 0 0 auto; padding: 0;

@@ -1523,12 +1523,19 @@ function renderMoreDoctrine() {
   $("more-doctrine-count").textContent = `${doctrineRules.filter((r) => r.enabled).length} / ${doctrineRules.length} on`;
   const el = $("more-doctrine");
   if (!doctrineRules.length) { el.innerHTML = '<div class="empty">Doctrine unavailable — the fleet is still starting.</div>'; return; }
-  el.innerHTML = doctrineRules.map((r) => `
+  // Don't clobber a number being typed.
+  if (el.contains(document.activeElement) && document.activeElement.classList.contains("dv")) return;
+  el.innerHTML = doctrineRules.map((r) => {
+    // A numeric rule (a limit or a share) gets a value box; a plain on/off rule does not.
+    const numeric = typeof r.value === "number" && typeof r.max === "number" && r.max > 1;
+    return `
     <div class="doc-row" data-key="${escapeHtml(r.key)}">
       <span class="dn">${escapeHtml(r.name)}</span>
       <span class="tag ${r.enforced ? "live" : ""}">${r.enforced ? "applied" : "not wired"}</span>
+      ${numeric ? `<input class="dv" type="number" inputmode="decimal" min="${r.min}" max="${r.max}" step="${r.step ?? 1}" value="${r.value}" aria-label="${escapeHtml(r.name)} value">${r.unit ? `<span class="du">${escapeHtml(r.unit.trim())}</span>` : ""}` : ""}
       <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeHtml(r.name)}"><i></i></button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 function renderMoreKeepers() {
@@ -1778,6 +1785,20 @@ $("more-doctrine").addEventListener("click", async (e) => {
   renderMoreDoctrine();
 });
 subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); renderMoreChains(); renderMoreFeeds(); } });
+// A numeric rule's value box: save on change, reject out-of-range values server-side and reload the real value.
+$("more-doctrine").addEventListener("change", async (e) => {
+  const input = e.target.closest("input.dv");
+  if (!input) return;
+  const key = input.closest(".doc-row").dataset.key;
+  const value = Number(input.value);
+  input.disabled = true;
+  try {
+    const res = await api("POST", "/api/doctrine", { key, value });
+    setDoctrine(res.rules, undefined);
+  } catch (err) { alert(err.message); loadDoctrine(); }
+  input.disabled = false;
+  renderMoreDoctrine();
+});
 subscribe("doctrine", () => { if (moreTabActive()) renderMoreDoctrine(); });
 subscribe("activity", () => renderHomeActivity());
 
