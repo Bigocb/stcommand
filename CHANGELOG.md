@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Production runs the compiled server, not tsx (2026-10-10)
+
+`npm start` ran `tsx src/cli/index.ts`: four processes (npm, sh, the tsx launcher, the app), and the app itself under tsx's loader
+with source maps. On an empty database that is 259 MB against about 100 MB for the compiled server (162 MB with npm in front of
+it), on a 512 MB Render box whose memory had been creeping up about 2 MB a minute, mostly outside the JS heap. Now `npm install`
+builds `dist/` (a `postinstall` running `tsc -p tsconfig.build.json`, which compiles only `src/` so the output is `dist/cli/...`),
+and `npm start` runs `scripts/start.mjs`, which imports the compiled server in its own process. If `dist/` is missing it
+falls back to tsx and says so, instead of crash-looping. `@types/express` moved to `dependencies` so the production install can
+type-check. `npm run start:tsx` keeps the old behaviour for debugging.
+
 ## Cross-system route costing no longer eats the server's CPU (2026-10-10)
 
 Profiled the live server with the new `ops_profile` tool (15 s window, 80% busy, event loop stalling 2.5-6 s at a time): about
