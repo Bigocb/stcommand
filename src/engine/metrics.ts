@@ -227,3 +227,21 @@ export function projectToReset(current: number, perHour: number, hoursLeft: numb
 export function rateNeeded(current: number, target: number, hoursLeft: number): number {
   return hoursLeft > 0 && target > current ? rnd((target - current) / hoursLeft) : 0;
 }
+
+export interface WealthSample { ts: number; worth: number }
+
+/**
+ * Credits plus holds at the end of each bucket, carried forward over buckets with no sample and null before the
+ * first one. A sample belongs to the bucket it falls in; when a bucket has several, the latest wins.
+ */
+export function worthByBucket(bucketStarts: readonly number[], bucketMinutes: number, samples: readonly WealthSample[]): (number | null)[] {
+  const size = bucketMinutes * 60_000;
+  const last: (number | null)[] = Array(bucketStarts.length).fill(null);
+  const from = bucketStarts[0] ?? 0;
+  for (const s of [...samples].sort((a, b) => a.ts - b.ts)) {
+    const i = Math.min(bucketStarts.length - 1, Math.floor((s.ts - from) / size));
+    if (i >= 0 && s.ts >= from) last[i] = s.worth;
+  }
+  let carry: number | null = null;
+  return last.map((v) => (carry = v ?? carry));
+}

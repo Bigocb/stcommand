@@ -120,6 +120,7 @@ export function mountMetrics(root, { api, netWorth } = {}) {
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Credits</span><span class="count" id="mx-wallet-h"></span></div><div class="panel-b mx-chart" id="mx-wallet"></div></div>
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Net trading per interval</span><span class="count" id="mx-net-h"></span></div><div class="panel-b mx-chart" id="mx-net"></div></div>
     </div>
+    <div class="panel mx-worth"><div class="panel-h"><span class="dot"></span><span class="title">Credits + holds</span><span class="count" id="mx-worth-h"></span></div><div class="panel-b mx-chart" id="mx-worth"></div></div>
     <div class="panel mx-proj"><div class="panel-h"><span class="dot"></span><span class="title">Pace to reset</span><span class="count">straight line at the window's rate</span></div><div class="panel-b" id="mx-proj"></div></div>
     <div class="cols3 mx-tables">
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">By good</span></div><div class="panel-b" style="padding:0" id="mx-goods"></div></div>
@@ -147,6 +148,10 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     ].join("");
     $("mx-wallet-h").textContent = data.walletEnd !== null ? fmt(data.walletEnd) : "";
     $("mx-wallet").innerHTML = lineChart("Credits over time", data.buckets, data.buckets.map((b) => b.wallet), data.hours, "var(--amber)");
+    const worthSeries = data.buckets.map((b) => b.worth ?? null);
+    const lastWorth = worthSeries.filter((v) => v !== null).at(-1);
+    $("mx-worth-h").textContent = lastWorth === undefined ? "" : fmt(lastWorth);
+    $("mx-worth").innerHTML = lineChart("Credits plus holds over time", data.buckets, worthSeries, data.hours, "var(--amber)");
     $("mx-net-h").textContent = signed(t.net);
     $("mx-net").innerHTML = barChart("Net trading per interval", data.buckets, data.buckets.map((b) => b.net), data.hours);
 

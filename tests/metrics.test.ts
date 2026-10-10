@@ -106,3 +106,21 @@ describe("range helpers", () => {
     assert.equal(rateNeeded(1, 2, 0), 0);
   });
 });
+
+import { worthByBucket } from "../src/engine/metrics.js";
+
+describe("worthByBucket", () => {
+  it("takes the latest sample in each bucket and carries the last value forward over empty buckets", () => {
+    const starts = [0, H, 2 * H, 3 * H];
+    const series = worthByBucket(starts, 60, [
+      { ts: 10 * 60_000, worth: 100 },
+      { ts: 50 * 60_000, worth: 120 },
+      { ts: 2 * H + 5 * 60_000, worth: 200 },
+    ]);
+    assert.deepEqual(series, [120, 120, 200, 200]);
+  });
+
+  it("is null until the first sample", () => {
+    assert.deepEqual(worthByBucket([0, H], 60, []), [null, null]);
+  });
+});

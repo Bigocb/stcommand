@@ -570,6 +570,28 @@ export class Store {
     });
   }
 
+  /** Records one credits-plus-holds sample for the tenant (see migrations/046_wealth_samples.sql). */
+  async recordWealthSample(tenantId: string, sampledAt: Date, credits: number, holds: number): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO wealth_samples (tenant_id, sampled_at, credits, holds) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (tenant_id, sampled_at) DO NOTHING`,
+        [tenantId, sampledAt.toISOString(), Math.round(credits), Math.round(holds)],
+      ),
+    );
+  }
+
+  /** Credits-plus-holds samples since `sinceIso`, oldest first, as the metrics chart reads them. */
+  async wealthSamplesSince(tenantId: string, sinceIso: string, limit = 20_000): Promise<{ ts: number; worth: number }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(
+        `SELECT sampled_at, credits::float8 + holds::float8 AS worth FROM wealth_samples WHERE sampled_at >= $1 ORDER BY sampled_at LIMIT $2`,
+        [sinceIso, limit],
+      );
+      return res.rows.map((r: any) => ({ ts: new Date(r.sampled_at).getTime(), worth: Number(r.worth) }));
+    });
+  }
+
   /** Ledger rows since `sinceIso`, oldest first, in the shape engine/metrics.ts reads. Capped; the cap keeps a week of heavy trading bounded. */
   async ledgerRowsSince(tenantId: string, sinceIso: string, limit = 150_000): Promise<import("../engine/metrics.js").LedgerRow[]> {
     return withTenant(this.pool, tenantId, async (c) => {

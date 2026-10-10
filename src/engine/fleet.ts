@@ -81,6 +81,7 @@ export interface ChainMaterial {
 /** Tank-fuel units bought per FUEL unit at a market (refuelShip() buys in blocks of 100). */
 export { FUEL_UNIT_SIZE } from "./routeEconomics.js";
 
+const WEALTH_SAMPLE_MS = 5 * 60_000;
 const CREDITS_TTL_MS = 30_000;
 
 /** Ranking figure: profit per trip scaled to a reference trip length so a short repeating route beats a long one with the same profit. */
@@ -7298,6 +7299,20 @@ export class FleetManager {
    * matters — `TraderAgent.runBuy` and the mission carrier's buy sizing — read
    * it live at the point of purchase and are unaffected by this.
    */
+  /** Writes a credits-plus-holds sample every few minutes for the Metrics chart (migrations/046_wealth_samples.sql). */
+  private lastWealthSampleAt = 0;
+  private async sampleWealth(): Promise<void> {
+    const now = Date.now();
+    if (!this.store || !this.tenantId || now - this.lastWealthSampleAt < WEALTH_SAMPLE_MS) return;
+    this.lastWealthSampleAt = now;
+    try {
+      const holds = Object.values(await this.cargoValues()).reduce((n, cv) => n + Math.max(0, cv?.value ?? 0), 0);
+      await this.store.recordWealthSample(this.tenantId, new Date(now), this.credits, holds);
+    } catch (err) {
+      this.log(`wealth sample failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private async refreshCredits(): Promise<void> {
     const now = Date.now();
     if (now - this.lastCreditsFetch < CREDITS_TTL_MS) return;
@@ -7691,6 +7706,7 @@ export class FleetManager {
       await this.timed("resolvePendingKeeperProbeApproval:buyKeeperProbe", () => this.resolvePendingKeeperProbeApproval("buyKeeperProbe"));
       await this.timed("resolvePendingKeeperProbeApproval:buyKeeperProbeForMarket", () => this.resolvePendingKeeperProbeApproval("buyKeeperProbeForMarket"));
       await this.timed("advanceKeeperMarketQueue", () => this.advanceKeeperMarketQueue());
+      await this.timed("sampleWealth", () => this.sampleWealth());
       await this.timed("maybeBuyScout", () => this.maybeBuyScout());
       await this.timed("maybeBuySiphoner", () => this.maybeBuySiphoner());
       await this.timed("maybeInstallScanner", () => this.maybeInstallScanner());

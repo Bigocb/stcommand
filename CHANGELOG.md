@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Metrics: a Credits + holds chart
+
+The Credits chart shows wallet only, so cargo in transit looked like a drop when a trader bought a load. The engine now records credits plus the estimated value of every hold every five minutes (new table `wealth_samples`, migration 046), and the Metrics view (Deck and Tower) plots that as its own chart, in the same ranges. The series is bucketed by a pure function (`worthByBucket` in engine/metrics.ts, tested). History starts at deploy, so the first day shows a short line.
+
 ## 2026-10-10 — Extra-buyer price impact follows the buy market's lot size
 
 When a second or third trader is sent to the same buy market, the dispatcher predicts the ask will have risen by the units already promised there. That rise used a flat 0.2% per unit, measured on a 20-unit-lot market. A 300-unit-lot market moves about 0.015% per unit (the 4.5%-per-lot figure trip slippage already uses), so deep markets were priced as if thin. The per-unit impact is now `PRICE_IMPACT_PER_LOT / buy market lot size` when the route carries it; an explicit tuning value or a route with no known lot size keeps the flat 0.2%. Tested for a thin and a deep market.

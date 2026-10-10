@@ -12,7 +12,7 @@ import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
-import { buildMetrics, bucketMinutesFor } from "../engine/metrics.js";
+import { buildMetrics, bucketMinutesFor, worthByBucket } from "../engine/metrics.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 
 /**
@@ -418,9 +418,13 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       for (const s of state.ships ?? []) holds[s.symbol] = s.cargo?.capacity ?? 0;
       const statuses = w.fleet.getShipStatuses();
       const traders = statuses.filter((s: { role: string }) => s.role === "trader").map((s: { symbol: string }) => s.symbol);
-      const metrics = buildMetrics(rows, { now, hours, bucketMinutes: bucketMinutesFor(hours), holds, traders });
+      const bucketMinutes = bucketMinutesFor(hours);
+      const metrics = buildMetrics(rows, { now, hours, bucketMinutes, holds, traders });
+      const samples = await w.store.wealthSamplesSince(w.tenantId, new Date(metrics.from).toISOString());
+      const worth = worthByBucket(metrics.buckets.map((b) => b.t), bucketMinutes, samples);
       res.json({
         ...metrics,
+        buckets: metrics.buckets.map((b, i) => ({ ...b, worth: worth[i] ?? null })),
         credits: state.agent?.credits ?? 0,
         shipCount: statuses.length,
         traderCount: traders.length,
