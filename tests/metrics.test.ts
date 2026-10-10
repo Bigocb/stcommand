@@ -7,6 +7,24 @@ const NOW = 100 * H;
 const row = (over: Partial<LedgerRow>): LedgerRow => ({ ts: NOW - 1000, ship: "T-1", waypoint: "X1-A-B1", type: "SELL", good: "FOOD", units: 10, total: 1000, pnl: 200, wallet: null, ...over });
 const opts = { now: NOW, hours: 2, bucketMinutes: 60 };
 
+describe("buildMetrics by waypoint", () => {
+  it("ranks waypoints by realised profit and counts buys beside sales", () => {
+    const m = buildMetrics([
+      row({ waypoint: "X1-A-B1", pnl: 300, total: 1500 }),
+      row({ waypoint: "X1-A-B2", pnl: 500, total: 2000 }),
+      row({ waypoint: "X1-A-B2", type: "PURCHASE", total: 900, units: 10, pnl: null }),
+      row({ waypoint: "X1-C-D1", type: "PURCHASE", total: 400, units: 4, pnl: null }),
+    ], opts);
+    assert.deepEqual(m.byWaypoint.map((w) => w.waypoint), ["X1-A-B2", "X1-A-B1", "X1-C-D1"]);
+    const b2 = m.byWaypoint[0]!;
+    assert.equal(b2.system, "X1-A");
+    assert.equal(b2.profit, 500);
+    assert.equal(b2.sells, 1);
+    assert.equal(b2.buys, 1);
+    assert.equal(b2.buySpend, 900);
+  });
+});
+
 describe("buildMetrics", () => {
   it("buckets cargo purchases into units and average price paid, so a rising price shows as a line", () => {
     const m = buildMetrics([

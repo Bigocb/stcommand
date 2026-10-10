@@ -83,6 +83,8 @@ export interface MetricsTotals {
 }
 
 export interface MetricsGood { good: string; profit: number; units: number; sells: number; profitPerUnit: number; marginPct: number }
+/** One waypoint's sales and buys over the window. Profit is realised on completed sales only. */
+export interface MetricsWaypoint { waypoint: string; system: string; profit: number; sells: number; sellRevenue: number; buys: number; buySpend: number; units: number }
 export interface MetricsShip { ship: string; hold: number | null; profit: number; sells: number; profitPerSale: number; profitPerHour: number }
 export interface MetricsSystem { system: string; profit: number; sells: number }
 
@@ -99,6 +101,7 @@ export interface Metrics {
   walletEnd: number | null;
   byGood: MetricsGood[];
   byShip: MetricsShip[];
+  byWaypoint: MetricsWaypoint[];
   bySystem: MetricsSystem[];
   /** Traders that made no sale in the window. */
   idleTraders: string[];
@@ -179,7 +182,12 @@ export function buildMetrics(rows: readonly LedgerRow[], opts: MetricsOptions): 
   const goods = new Map<string, { profit: number; units: number; sells: number; revenue: number; matchedRevenue: number }>();
   const ships = new Map<string, { profit: number; sells: number }>();
   const systems = new Map<string, { profit: number; sells: number }>();
+  const waypoints = new Map<string, MetricsWaypoint>();
   for (const r of inWindow) {
+    const wp = waypoints.get(r.waypoint) ?? { waypoint: r.waypoint, system: systemOf(r.waypoint), profit: 0, sells: 0, sellRevenue: 0, buys: 0, buySpend: 0, units: 0 };
+    if (r.type === "SELL") { wp.sellRevenue += r.total; wp.units += r.units; if (r.pnl !== null) { wp.profit += r.pnl; wp.sells += 1; } }
+    else if (r.type === "PURCHASE") { wp.buys += 1; wp.buySpend += r.total; wp.units += r.units; }
+    waypoints.set(r.waypoint, wp);
     if (r.type !== "SELL" || r.pnl === null) continue;
     const g = goods.get(r.good ?? "?") ?? { profit: 0, units: 0, sells: 0, revenue: 0, matchedRevenue: 0 };
     g.profit += r.pnl; g.units += r.units; g.sells += 1; g.matchedRevenue += r.total;
@@ -202,13 +210,16 @@ export function buildMetrics(rows: readonly LedgerRow[], opts: MetricsOptions): 
     .map(([ship, s]) => ({ ship, hold: opts.holds?.[ship] ?? null, profit: rnd(s.profit), sells: s.sells, profitPerSale: s.sells ? rnd(s.profit / s.sells) : 0, profitPerHour: windowHours > 0 ? rnd(s.profit / windowHours) : 0 }))
     .sort((a, b) => b.profit - a.profit);
   const bySystem = [...systems.entries()].map(([system, s]) => ({ system, profit: rnd(s.profit), sells: s.sells })).sort((a, b) => b.profit - a.profit);
+  const byWaypoint = [...waypoints.values()]
+    .map((w) => ({ ...w, profit: rnd(w.profit), sellRevenue: rnd(w.sellRevenue), buySpend: rnd(w.buySpend) }))
+    .sort((a, b) => b.profit - a.profit || b.buySpend - a.buySpend);
   const idleTraders = (opts.traders ?? []).filter((t) => !ships.has(t)).sort();
 
   return {
     hours, bucketMinutes, from, to: now, buckets, totals,
     previous: { net: prev.net, profit: prev.profit, sells: prev.sells, netPerHour: prev.netPerHour },
     walletStart, walletEnd: buckets.at(-1)?.wallet ?? walletStart,
-    byGood, byShip, bySystem, idleTraders,
+    byGood, byShip, byWaypoint, bySystem, idleTraders,
   };
 }
 

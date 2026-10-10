@@ -104,6 +104,20 @@ function kpi(label, value, sub, tone = "", title = "") {
   return `<div class="kpi"${title ? ` title="${escapeHtml(title)}"` : ""}><div class="k">${label}</div><div class="v ${tone}">${value}</div><div class="sub">${sub ?? ""}</div></div>`;
 }
 
+let wpSystem = "";
+function renderWaypoints(root, data) {
+  const $ = (id) => root.querySelector(`#${id}`);
+  const systems = [...new Set((data.byWaypoint ?? []).map((w) => w.system))].sort();
+  const sel = $("mx-wp-sys");
+  if (wpSystem && !systems.includes(wpSystem)) wpSystem = "";
+  sel.innerHTML = `<option value="">All systems</option>${systems.map((s) => `<option value="${escapeHtml(s)}"${s === wpSystem ? " selected" : ""}>${escapeHtml(s)}</option>`).join("")}`;
+  sel.onchange = () => { wpSystem = sel.value; renderWaypoints(root, data); };
+  const rows = (data.byWaypoint ?? []).filter((w) => !wpSystem || w.system === wpSystem).slice(0, 25);
+  $("mx-waypoints").innerHTML = table(["Waypoint", "Profit", "Sales", "Sold", "Buys", "Spent"],
+    rows.map((w) => [escapeHtml(w.waypoint), signed(w.profit), fmt(w.sells), fmt(w.sellRevenue), fmt(w.buys), fmt(w.buySpend)]),
+    "No sales or buys in this range.");
+}
+
 function table(headers, rows, empty) {
   if (!rows.length) return `<div class="empty">${empty}</div>`;
   return `<table><tr>${headers.map((h, i) => `<th${i ? ' class="num"' : ""}>${h}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((c, i) => `<td${i ? ' class="num"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</table>`;
@@ -128,6 +142,12 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     <div class="cols2 mx-charts">
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Buying per interval</span><span class="count" id="mx-buy-h"></span></div><div class="panel-b mx-chart" id="mx-buy"></div></div>
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Average price paid per unit</span><span class="count" id="mx-price-h"></span></div><div class="panel-b mx-chart" id="mx-price"></div></div>
+    </div>
+    <div class="panel mx-wp">
+      <div class="panel-h"><span class="dot"></span><span class="title">By waypoint</span>
+        <select class="mx-wp-sys" id="mx-wp-sys" aria-label="Filter by system"><option value="">All systems</option></select>
+      </div>
+      <div class="panel-b" style="padding:0" id="mx-waypoints"></div>
     </div>
     <div class="panel mx-proj"><div class="panel-h"><span class="dot"></span><span class="title">Pace to reset</span><span class="count">straight line at the window's rate</span></div><div class="panel-b" id="mx-proj"></div></div>
     <div class="cols3 mx-tables">
@@ -202,6 +222,7 @@ export function mountMetrics(root, { api, netWorth } = {}) {
       data.byShip.slice(0, 14).map((s) => [escapeHtml(s.ship), s.hold ?? "—", signed(s.profit), fmt(s.sells), signed(s.profitPerSale), signed(s.profitPerHour)]), "No completed sales in this range.");
     $("mx-systems").innerHTML = table(["System", "Profit", "Sales"],
       data.bySystem.map((s) => [escapeHtml(s.system), signed(s.profit), fmt(s.sells)]), "No completed sales in this range.");
+    renderWaypoints(root, data);
     $("mx-idle").innerHTML = data.idleTraders.length
       ? data.idleTraders.map((s) => `<span class="mx-chip">${escapeHtml(s)}</span>`).join("")
       : `<span class="sub">Every trader sold something.</span>`;

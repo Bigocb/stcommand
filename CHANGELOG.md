@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Metrics: ranked waypoint table with a system filter
+
+The Metrics tab has a "By waypoint" table: each waypoint's realised profit, sales and sold value, plus cargo bought
+and spent there, ranked by profit. A system dropdown filters it. Buys appear beside sales so a market where our own
+buying is pushing the price up shows up alongside where we make money.
+
 ## 2026-10-10 — Jump planner on Tower and Deck ship sheets
 
 The ship sheet on Tower and Deck now has the v6 jump planner: one row per gate out of the ship's system, with a Jump
