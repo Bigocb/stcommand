@@ -1103,23 +1103,40 @@ export class RouteDispatcher {
     const candidateByKey = new Map(chainCandidates.map((c) => [c.key, c]));
     // Can this trader take this work, from where it stands? (Hoisted out of the loop so route-first matching can ask it
     // about ships other than the one being served.)
-    const multiHopOk = (w: { buySystem?: string; profitPerTrip?: number }, from: string): boolean => {
-      if (!crossSystem?.enabled || w.buySystem === undefined) return false;
-      const path = crossSystem.path(from, w.buySystem);
-      if (!path || path.length < 3) return false; // 1 hop is handled by canJump above
-      if ((w.profitPerTrip ?? 0) <= pathCost(path)) return false; // first trip must net positive
-      if (crossSystem.homeSystem !== undefined && from === crossSystem.homeSystem) {
-        const reserve = crossSystem.homeReserve ?? 1;
-        const stayingHome = traders.filter((x) => x.system === crossSystem.homeSystem).length - 1 - leavingHome;
-        if (stayingHome < reserve) return false;
+    // Every fuel check on a multi-jump path: each intermediate system's arrival gate to its exit gate must fit the tank,
+    // or a known fuel stop in that system must relay it. Jumps themselves cost no fuel, so the tank is taken as full on
+    // arrival. (Only the first system's gate was checked before this.)
+    const relayBlock = (path: string[], t: (typeof traders)[number]): string | undefined => {
+      if (t.fuelCapacity === undefined) return undefined;
+      for (let i = 1; i + 1 < path.length; i++) {
+        const sys = path[i]!;
+        const arrive = crossSystem?.gateFor?.(sys, path[i - 1]!);
+        const leave = crossSystem?.gateFor?.(sys, path[i + 1]!);
+        if (arrive === undefined || leave === undefined) continue;
+        if (distanceBetween(arrive, leave) > t.fuelCapacity && !(hasFuelStop?.(sys, arrive, leave, t.fuelCapacity) ?? false)) {
+          return `the relay through ${sys} from ${arrive} to ${leave} is beyond its fuel range`;
+        }
       }
-      return true;
+      return undefined;
     };
-    const reachableFor = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): boolean => {
-      if (w.buySystem === undefined || t.system === undefined) return true;
+    /** Why this trader cannot take this work from where it stands, or undefined when it can. Cross-system reasons name
+     *  the guard that failed, so dispatch_explain says which one blocks a route. */
+    const whyUnreachable = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): string | undefined => {
+      if (w.buySystem === undefined || t.system === undefined) return undefined;
       if (w.buySystem !== t.system) {
-        const jumpOk = canJump(t.system, w.buySystem) || multiHopOk(w, t.system);
-        if (!jumpOk) return false;
+        if (!canJump(t.system, w.buySystem)) {
+          if (!crossSystem?.enabled) return `${w.buySystem} is not one gate from ${t.system} and cross-system routes are off`;
+          const path = crossSystem.path(t.system, w.buySystem);
+          if (!path || path.length < 3) return `no finished gate path from ${t.system} to ${w.buySystem} within the jump limit`;
+          if ((w.profitPerTrip ?? 0) <= pathCost(path)) return `the first trip does not cover the ${path.length - 1}-jump positioning cost`;
+          if (crossSystem.homeSystem !== undefined && t.system === crossSystem.homeSystem) {
+            const reserve = crossSystem.homeReserve ?? 1;
+            const stayingHome = traders.filter((x) => x.system === crossSystem.homeSystem).length - 1 - leavingHome;
+            if (stayingHome < reserve) return `${t.system} keeps its last ${reserve} trader(s) at home`;
+          }
+          const relay = relayBlock(path, t);
+          if (relay !== undefined) return relay;
+        }
         // The ship also has to reach the gate in its own system. The route check above only knows a jump is possible: a
         // 300-tank trader 399 from the gate cannot cruise there and drifted for 2h09m (THEO-27, 2026-10-09 17:50), so a
         // gate beyond the tank is unreachable unless a fuel stop relays it, exactly as for a same-system leg.
@@ -1127,12 +1144,12 @@ export class RouteDispatcher {
         const gate = nextSystem !== undefined ? crossSystem?.gateFor?.(t.system, nextSystem) : undefined;
         if (gate !== undefined && t.waypoint !== undefined && t.fuelCapacity !== undefined &&
             distanceBetween(t.waypoint, gate) > t.fuelCapacity &&
-            !(hasFuelStop?.(t.system, t.waypoint, gate, t.fuelCapacity) ?? false)) return false;
-        return true;
+            !(hasFuelStop?.(t.system, t.waypoint, gate, t.fuelCapacity) ?? false)) return `gate ${gate} is beyond fuel range from ${t.waypoint}`;
+        return undefined;
       }
-      if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return true;
+      if (w.buyAt === undefined || t.waypoint === undefined || t.fuelCapacity === undefined) return undefined;
       if (distanceBetween(t.waypoint, w.buyAt) > t.fuelCapacity &&
-          !(hasFuelStop?.(t.system, t.waypoint, w.buyAt, t.fuelCapacity) ?? false)) return false;
+          !(hasFuelStop?.(t.system, t.waypoint, w.buyAt, t.fuelCapacity) ?? false)) return `buy market ${w.buyAt} is beyond fuel range from ${t.waypoint}`;
       // A `direct` item (sellAt set) needs the *whole round trip* to fit the
       // tank, not just the leg to buyAt — a same-system route whose sell
       // market sits further out than the trader's own fuel capacity still
@@ -1145,12 +1162,15 @@ export class RouteDispatcher {
       // nothing here ever checked the sell leg. Cross-system sellAt is
       // untouched — that leg is a jump, not a fuel-distance flight, and
       // canJump() above already covers whether it is possible at all.
-      if (w.sellAt === undefined) return true;
+      if (w.sellAt === undefined) return undefined;
       const sellSystem = w.sellAt.slice(0, w.sellAt.lastIndexOf("-"));
-      if (sellSystem !== w.buySystem) return true;
-      if (distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity) return true;
-      return hasFuelStop?.(w.buySystem, w.buyAt, w.sellAt, t.fuelCapacity) ?? false;
+      if (sellSystem !== w.buySystem) return undefined;
+      if (distanceBetween(w.buyAt, w.sellAt) <= t.fuelCapacity) return undefined;
+      return (hasFuelStop?.(w.buySystem, w.buyAt, w.sellAt, t.fuelCapacity) ?? false)
+        ? undefined : `sell market ${w.sellAt} is beyond fuel range from ${w.buyAt}`;
     };
+    const reachableFor = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): boolean =>
+      whyUnreachable(t, w) === undefined;
     // Route-first matching (matching.ts): off at topN 0. Otherwise the ships best suited to the top routes are served
     // first, in route order, then everyone else by hold size as before.
     const isDeclinedBy = (ship: string, w: { good?: string; buyAt?: string; sellAt?: string }): boolean => {
@@ -1331,18 +1351,20 @@ export class RouteDispatcher {
       const whyRejected = (w: (typeof work)[number]): string => {
         if (usedKeys.has(w.key)) return "already claimed this cycle";
         if (isRefused(w)) return "declined by this trader";
-        if (!reachable(w)) {
-          return w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system
-            ? `${w.buySystem} is out of reach from ${t.system}`
-            : `buy market ${w.buyAt} is beyond fuel range from ${t.waypoint}`;
-        }
+        const unreachable = whyUnreachable(t, w);
+        if (unreachable !== undefined) return unreachable;
         const buyers = (buyKey(w) ? pendingTraders.get(buyKey(w)!) : undefined) ?? 0;
         if (buyers >= cap) return `${buyers} traders already buying at ${w.buyAt} (cap ${cap})`;
         if (impactCost(w) === undefined) return `margin gone after ${buyers} buyer(s) at ${w.buyAt}`;
         return "net score at or below zero after positioning";
       };
       const scoredItems: (typeof work)[number][] = [];
-      for (const w of leg2Served ? [] : work) {
+      for (const w of work) {
+        // A ship already on its planned second leg is not scored against the rest: say so for each route it was passed over.
+        if (leg2Served) {
+          if (w !== item) noteRejected(w, `on a planned circuit leg 2 (${item?.key ?? "?"})`);
+          continue;
+        }
         const lid = workLegId(w);
         const holder = lid !== undefined ? circuitHeld.get(lid) : undefined;
         if (holder !== undefined && holder !== t.shipSymbol) { noteRejected(w, "held for another ship's circuit"); continue; }

@@ -33,7 +33,7 @@ describe("dispatcher explain snapshot", () => {
     const t1 = snap.traders.find((t) => t.ship === "T-1")!;
     assert.equal(t1.assigned, "FUEL@X1-KU72-SELL");
     const reason = (key: string) => t1.rejected.find((r) => r.key === key)?.reason;
-    assert.equal(reason("MEDICINE"), "X1-RD37 is out of reach from X1-KU72");
+    assert.equal(reason("MEDICINE"), "X1-RD37 is not one gate from X1-KU72 and cross-system routes are off");
     assert.equal(reason("COPPER"), "outscored by FUEL");
     assert.equal(reason("FUEL"), undefined, "the chosen route is not a rejection");
   });
@@ -60,6 +60,37 @@ describe("dispatcher explain snapshot", () => {
     const snap = d.explain()!;
     assert.deepEqual(snap.floorDropped.map((r) => r.good), ["DUD"]);
     assert.ok(!snap.routes.some((r) => r.good === "DUD"), "a dropped route is not on the work list");
+  });
+
+  describe("reasons for a cross-system route", () => {
+    const far = { shipSymbol: "T-1", capacity: 40, system: "X1-A", waypoint: "X1-A-P1", fuelCapacity: 100 };
+    const remote = route("GOOD", "X1-C", 5000);
+    const reasonFor = (d: RouteDispatcher, ship: string, key: string) =>
+      d.explain()!.traders.find((t) => t.ship === ship)!.rejected.find((r) => r.key === key)?.reason;
+
+    it("says cross-system routes are off when the switch is off", () => {
+      const d = new RouteDispatcher();
+      d.recompute([remote], [far], [], [], [], [], canJump, () => 0, undefined, undefined,
+        { enabled: false, path: () => undefined, hopCost: () => 0 });
+      assert.match(reasonFor(d, "T-1", "GOOD")!, /cross-system routes are off/);
+    });
+
+    it("says no finished gate path exists within the jump limit", () => {
+      const d = new RouteDispatcher();
+      d.recompute([remote], [far], [], [], [], [], canJump, () => 0, undefined, undefined,
+        { enabled: true, path: () => undefined, hopCost: () => 0 });
+      assert.match(reasonFor(d, "T-1", "GOOD")!, /no finished gate path from X1-A to X1-C/);
+    });
+
+    it("names the intermediate gate whose relay is beyond the tank", () => {
+      // X1-A -> X1-B -> X1-C. Every gate is in fuel range from the ship except the two gates inside X1-B, 500 apart.
+      const gateFor = (from: string, to: string) => `${from}-TO-${to}`;
+      const distanceBetween = (a: string, b: string) => (a.startsWith("X1-B-") && b.startsWith("X1-B-") ? 500 : 0);
+      const d = new RouteDispatcher();
+      d.recompute([remote], [far], [], [], [], [], canJump, distanceBetween, undefined, undefined,
+        { enabled: true, path: () => ["X1-A", "X1-B", "X1-C"], hopCost: () => 0, gateFor });
+      assert.match(reasonFor(d, "T-1", "GOOD")!, /relay through X1-B from X1-B-TO-X1-A to X1-B-TO-X1-C/);
+    });
   });
 
   it("keeps the snapshot from the latest cycle only", () => {

@@ -7612,8 +7612,18 @@ export class FleetManager {
       // systems idle traders actually sit in matter — reachable()'s relay
       // check never looks outside a trader's own system anyway.
       const traderSystems = new Set(traders.map((t) => t.system).filter((s): s is string => s !== undefined));
+      // A multi-jump route also needs fuel stops in the systems it passes through (the relay check at each gate), so
+      // include every system on a path from a trader's system to a route's buy system.
+      const relaySystems = new Set<string>(traderSystems);
+      const buySystems = new Set(routes.map((r) => r.buySystem).filter((s): s is string => s !== undefined));
+      for (const from of traderSystems) {
+        for (const to of buySystems) {
+          if (from === to) continue;
+          for (const sys of this.galaxy.jumpPath(from, to) ?? []) relaySystems.add(sys);
+        }
+      }
       const fuelStopsBySystem = new Map<string, Set<string>>();
-      await this.timed("fuelStopsBySystem", () => Promise.all([...traderSystems].map(async (sys) => { fuelStopsBySystem.set(sys, await this.fuelStops(sys)); })));
+      await this.timed("fuelStopsBySystem", () => Promise.all([...relaySystems].map(async (sys) => { fuelStopsBySystem.set(sys, await this.fuelStops(sys)); })));
       this.timedSync("dispatcher.recompute", () => this.dispatcher.recompute(
         routes,
         traders,
