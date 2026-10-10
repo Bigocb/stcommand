@@ -10,6 +10,7 @@ import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 import { MAX_POSITIONING_HOPS } from "./jumpGraph.js";
+import { pickFloorRedirect } from "./floorRedirect.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -1008,6 +1009,34 @@ export class TraderAgent {
     return undefined;
   }
 
+  /** Markets already tried for a lot held below its floor, so a redirect cannot bounce between two. Cleared on sale. */
+  private floorRedirectTried = new Map<string, Set<string>>();
+
+  /** Re-pins a held lot to another reachable market that clears the loss floor (floorRedirect.ts). True when it moved. */
+  private async redirectBelowFloor(good: string, leg: DirectLeg & { lotSize: number }): Promise<boolean> {
+    const cost = await this.costBasis(good);
+    if (cost === undefined || cost <= 0) return false;
+    const tried = this.floorRedirectTried.get(good) ?? new Set<string>();
+    tried.add(leg.sellAt);
+    this.floorRedirectTried.set(good, tried);
+    const prices = new Map<string, number>();
+    for (const [wp, table] of this.priceTable) {
+      const g = table.get(good);
+      if (g && g.sell > 0) prices.set(wp, g.sell);
+    }
+    const here = this.ship.nav.systemSymbol;
+    const pick = pickFloorRedirect({
+      good, here: leg.sellAt, cost, maxLossPct: this.maxLossPct, prices, tried,
+      systemOf: (w) => this.systemOf(w), reachable: (sys) => this.systemsConnected(here, sys),
+    });
+    if (!pick) return false;
+    const redirected = { ...leg, sellAt: pick.waypoint, sellPrice: pick.price };
+    this.heldRoute.set(good, redirected);
+    await this.persistHeldRoute?.(good, { buyAt: redirected.buyAt, sellAt: redirected.sellAt, buyPrice: redirected.buyPrice, sellPrice: redirected.sellPrice, lotSize: redirected.lotSize }, cost);
+    this.log(`held ${good}: below loss floor at ${leg.sellAt}, redirecting delivery (${pick.reason})`);
+    return true;
+  }
+
   /** True when selling at `price` would exceed the allowed loss vs the cost basis. */
   /**
    * A lot is below its loss floor: keep holding, or has the operator approved selling it here? After
@@ -1563,7 +1592,7 @@ export class TraderAgent {
     // the trip is over, and a stale leg would answer for the next one.
     for (const good of [...this.heldRoute.keys()]) {
       if (held.has(good)) continue;
-      this.heldRoute.delete(good);
+      this.heldRoute.delete(good); this.floorRedirectTried.delete(good);
       await this.clearPersistedHeldRoute?.(good);
     }
     const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0 && !protectedGoods.has(i.symbol));
@@ -1875,6 +1904,9 @@ export class TraderAgent {
       await this.ensureDocked();
       const live = await this.liveSellPrice(leg.sellAt, item.symbol);
       if (live !== undefined && !this.isManualLegFor(item.symbol) && !this.isDustLot(item.units, live) && (await this.exceedsLossFloor(item.symbol, live))) {
+        // Try another market that clears the floor before holding: a stuck hull earns nothing.
+        const moved = await this.redirectBelowFloor(item.symbol, leg);
+        if (moved) return true;
         if (!(await this.floorSaleApproved(item.symbol, item.units, live, this.heldCost.get(item.symbol)))) return true;
       }
 
@@ -1939,7 +1971,7 @@ export class TraderAgent {
       // hand it to clearLeftoverCargo()'s sweep instead of retrying this
       // same route (and its already-verified sellAt) on the next tick.
       if (remaining <= 0) {
-        this.heldRoute.delete(item.symbol);
+        this.heldRoute.delete(item.symbol); this.floorRedirectTried.delete(item.symbol);
         await this.clearPersistedHeldRoute?.(item.symbol);
       }
       return true;

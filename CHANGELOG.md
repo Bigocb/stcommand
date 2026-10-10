@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — A held lot below its loss floor is redirected to a market that clears it
+
+`deliverHeldCargo` only held when the destination's live price fell below the loss floor. THEO-85 (490-unit freighter) sat at MC94-EB3F with 180u EQUIPMENT (cost 2767c, market 2146c) while other markets paid 3,600c+, so the biggest hull idled and the CLOTHING routes in its system went untaken. It now re-pins the lot to the best reachable market that clears the floor (new pure module `src/engine/floorRedirect.ts`, tested), remembers the markets already tried so it cannot bounce, and falls back to the old hold + operator approval when none clears. Not covered: orphaned cargo with no pinned route (the leftover sweep, own system only).
+
 ## 2026-10-10 — Keeper request queue no longer blocks behind one unrequestable market
 
 `advanceKeeperMarketQueue` only ever tried the first uncovered market on the operator's priority list. If that market could not be requested (no keeper hull cached in its system, the shipyard path had already asked for it, or the durable state said covered), nothing behind it was tried, so coverable markets waited for hours (MB58-E47 at the head, MC94 and MB58 markets behind it). It now walks the uncovered markets in priority order, up to 8 per tick, and stops at the first that asks or buys; `maybeRequestKeeperProbeForMarket` reports whether it did.
