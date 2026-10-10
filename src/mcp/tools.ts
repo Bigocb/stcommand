@@ -3,6 +3,7 @@ import { registerOpsTools } from "../ops/mcp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TenantWorker } from "../engine/tenantRegistry.js";
 import type { ShipType } from "../engine/fleet.js";
+import { API_BASE } from "../core/client.js";
 
 /**
  * Every tool registered here for a given request's `worker` (the caller's
@@ -60,6 +61,36 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
     async () => textResult(w.state.get()),
+  );
+
+  server.registerTool(
+    "stcommand_get_gate_status",
+    {
+      description: "Jump gates in a system and whether each one's construction is finished. A gate must be finished before a ship can jump through it. Reads the galaxy data this server keeps, and with live=true also asks SpaceTraders directly for each gate.",
+      inputSchema: { system: z.string().describe("System symbol, e.g. X1-ZZ69"), live: z.boolean().optional() },
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async ({ system, live }) => {
+      const sys = system.trim().toUpperCase();
+      const gates = w.fleet.getGalaxy().gateStatusFor(sys);
+      if (!gates.length) return textResult({ system: sys, gates: [], note: "no jump gates known for this system yet" });
+      const out = await Promise.all(gates.map(async (g) => {
+        const row: Record<string, unknown> = { gate: g.gate, complete: g.complete === true ? true : g.complete === false ? false : "unknown", connections: g.connections };
+        if (live) {
+          try {
+            const res = await fetch(`${API_BASE}/systems/${sys}/waypoints/${g.gate}/construction`, { signal: AbortSignal.timeout(10_000) });
+            if (!res.ok) throw new Error(`status ${res.status}`);
+            const j = (await res.json()) as { data?: { isComplete?: boolean; materials?: { tradeSymbol: string; required: number; fulfilled: number }[] } };
+            row.liveComplete = j.data?.isComplete ?? null;
+            row.materials = j.data?.materials ?? [];
+          } catch (err) {
+            row.liveError = err instanceof Error ? err.message : String(err);
+          }
+        }
+        return row;
+      }));
+      return textResult({ system: sys, gates: out });
+    },
   );
 
   server.registerTool(

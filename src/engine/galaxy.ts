@@ -218,6 +218,13 @@ export class GalaxyAtlas {
     return out;
   }
 
+  /** Every known jump gate in a system, with whether its construction is finished and where it connects. */
+  gateStatusFor(systemSymbol: string): { gate: string; complete: boolean | undefined; connections: string[] }[] {
+    const known = this.systems.get(systemSymbol);
+    if (!known) return [];
+    return known.jumpGates.map((jg) => ({ gate: jg.symbol, complete: this.gateConstruction.get(jg.symbol), connections: [...jg.connections] }));
+  }
+
   /** Find jump gates in `fromSystem` that connect to `toSystem`. */
   gatesTo(fromSystem: string, toSystem: string): string[] {
     const known = this.systems.get(fromSystem);

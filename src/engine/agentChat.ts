@@ -212,6 +212,20 @@ export class ChatAgent {
         },
       },
       {
+        name: "get_gate_status",
+        description: "Jump gates in a system and whether each gate's construction is finished (a gate must be finished to jump through it). Use this for any question about whether a gate is open; do not guess.",
+        parameters: { type: "object", properties: { system: { type: "string", description: "System symbol, e.g. X1-ZZ69" } }, required: ["system"] },
+        readOnly: true,
+        execute: async (args) => {
+          if (!ctx.fleet) return JSON.stringify({ error: "fleet not ready" });
+          const system = typeof args.system === "string" ? args.system.trim().toUpperCase() : "";
+          if (!/^X1-[A-Z0-9]+$/.test(system)) return JSON.stringify({ error: "system must look like X1-ABC12" });
+          const gates = ctx.fleet.getGalaxy().gateStatusFor(system);
+          if (!gates.length) return JSON.stringify({ system, gates: [], note: "no jump gates known for this system yet" });
+          return JSON.stringify({ system, gates: gates.map((g) => ({ ...g, complete: g.complete === true ? true : g.complete === false ? false : "unknown" })) });
+        },
+      },
+      {
         name: "get_agent",
         description: "The agent profile: symbol, credits, ship count, headquarters.",
         parameters: { type: "object", properties: {} },

@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Gate status tool for the MCP server and the co-pilot
+
+A read-only `stcommand_get_gate_status` tool lists a system's jump gates, whether each is finished and where it
+connects. With `live` it also asks SpaceTraders for each gate's construction, so the answer doesn't depend on our
+cached data. The co-pilot gets the same check as `get_gate_status`, so it can answer "is the gate open" from data
+instead of guessing.
+
 ## 2026-10-10 — Metrics: ranked waypoint table with a system filter
 
 The Metrics tab has a "By waypoint" table: each waypoint's realised profit, sales and sold value, plus cargo bought
