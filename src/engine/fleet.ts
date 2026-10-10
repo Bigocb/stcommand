@@ -6010,6 +6010,14 @@ export class FleetManager {
     await this.dispatchShip(shipSymbol, waypointSymbol);
   }
 
+  /**
+   * Move a ship to a waypoint in its own system, refuelling at a market or fuel stop on the way when the direct leg
+   * is beyond its tank. Same planner the missions use (dispatchShipHop). Other systems fall back to dispatchShip.
+   */
+  async routeShipTo(shipSymbol: string, waypointSymbol: string): Promise<void> {
+    await this.dispatchShipHop(shipSymbol, waypointSymbol);
+  }
+
   async dispatchShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
     const ship = await this.api.getShip(shipSymbol);
     const targetSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));

@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Manual send to waypoint refuels on the way
+
+The Tower "Send to waypoint" control no longer refuses a ship that can't make the leg on its own fuel, and it no
+longer flies a bare straight-line leg. Ships now go through the same stop-aware planner the missions use: they refuel
+at a market or fuel stop when the direct leg is beyond the tank. Idle ships route the same way.
+
 ## 2026-10-10 — Metrics: buying pattern charts
 
 Two new charts on the Metrics tab, over the same range as the others. "Buying per interval" shows credits spent on

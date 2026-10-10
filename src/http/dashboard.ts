@@ -1651,12 +1651,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
           error: `${waypointSymbol} is in ${targetSystem}, but ${shipSymbol} is in ${ship.nav.systemSymbol}. This only moves a ship within its own system — use tour dispatch to send it to another system, or give a trader a route that starts there.`,
         });
       }
-      const need = w.fleet.estimatedFuelTo(shipSymbol, waypointSymbol);
-      if (ship.fuel.capacity > 0 && ship.fuel.current < need) {
-        return res.status(400).json({
-          error: `${shipSymbol} needs ${need} fuel to reach ${waypointSymbol}, but has ${ship.fuel.current}/${ship.fuel.capacity}`,
-        });
-      }
+      // No fuel refusal here any more: the route planner refuels at a market or fuel stop on the way, so a ship that
+      // can't make the leg on its own fuel is routed through a stop instead of turned away.
     } catch (err) {
       console.error("[dashboard] dispatch pre-check error", err);
     }
@@ -1668,13 +1664,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       // than a side effect of moving.
       w.fleet.sendShipTo(shipSymbol, waypointSymbol).catch((err) => console.error("[dashboard] dispatch error", err));
     } else {
-      const api = w.fleet.getApi();
-      api.getShip(shipSymbol)
-        .then((ship) => {
-          if (ship.nav.status === "DOCKED") return api.orbitShip(shipSymbol);
-        })
-        .then(() => api.navigateShip(shipSymbol, waypointSymbol))
-        .catch((err) => console.error("[dashboard] fallback dispatch error", err));
+      // Idle ships go through the same stop-aware planner the missions use, not a bare navigate.
+      w.fleet.routeShipTo(shipSymbol, waypointSymbol).catch((err) => console.error("[dashboard] route error", err));
     }
     res.json({ ok: true, shipSymbol, waypointSymbol });
   });
