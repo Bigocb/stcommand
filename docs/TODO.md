@@ -7,6 +7,20 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Plan infrastructure for gate-free ships (raised 2026-10-10, operator).** The new bulk freighter (THEO-85, bought
+  2026-10-10 at MC94-E10B for 3,766,800c; 490 cargo, 4,000 fuel, speed 60) has a hyper/jump drive and does not need gates.
+  Everything cross-system today assumes gates: `MAX_POSITIONING_HOPS` (3) and `GalaxyAtlas.jumpPath()`/`canJump()`, the
+  `galaxy_gate_construction` completeness checks, `crossSystemTripCost()`/`crossSystemHops()` pricing in
+  `computeDispatchRoutes()`, `TraderAgent.jumpToSystem()`, `FleetManager.jumpToward()`, tour `hopToward()`. Needed:
+  (1) read a ship's drive capability from its modules/mounts (the shipyard listing for SHIP_BULK_FREIGHTER shows only
+  cargo holds and crew quarters, so confirm what the live ship reports before building); (2) the real rules of the drive
+  (range, fuel or other cost, cooldown, which API call: jump with a jump-drive module vs warp), then a per-ship reach model
+  in place of the gate graph; (3) route costing per ship class, since a gate-free hull can trade any system pair in range
+  (including systems whose gates are unfinished, e.g. YG40, ZZ69, JU15) at a different cost and trip time than a gated one;
+  (4) dispatcher/matching must offer such a ship the whole in-range work list (`routeMatchTopN` helps here); (5) tour and
+  mapping, so one such hull can chart or deliver to systems no gate reaches; (6) show the capability in Deck/Tower fleet
+  rows. Follow the self-contained-module rule (pure planner, policy as a doctrine clause, switched off first).
+
 - [ ] **Metrics follow-ups (raised 2026-10-10).** Shipped the Deck and Tower Metrics screens. Not built: profit per
   route (buy and sell are separate ledger rows, so this needs a trip id on both); trader utilization (share of time with
   cargo or flying to a buy market) which needs per-ship state history; contract and mission income (not in the ledger).
