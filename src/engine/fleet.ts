@@ -4935,11 +4935,11 @@ export class FleetManager {
    * trigger path. resolvePendingKeeperProbeApproval() takes a kind
    * parameter so it can poll both.
    */
-  private async maybeRequestKeeperProbeForMarket(marketWaypoint: string): Promise<void> {
-    if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
-    if ([...this.keeperMarkets.values()].includes(marketWaypoint)) return; // already covered
+  private async maybeRequestKeeperProbeForMarket(marketWaypoint: string): Promise<boolean> {
+    if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return false;
+    if ([...this.keeperMarkets.values()].includes(marketWaypoint)) return false; // already covered
     const priority = await this.keeperPriorityMarkets();
-    if (!priority.includes(marketWaypoint)) return; // operator hasn't flagged this market as worth a keeper
+    if (!priority.includes(marketWaypoint)) return false; // operator hasn't flagged this market as worth a keeper
 
     // Deterministic "worth covering?" signal, 2026-09-21: the operator asked
     // for the approval to carry something concrete to judge by, rather than
@@ -4971,8 +4971,8 @@ export class FleetManager {
       if (pick) break;
     }
     const best = pick ? { waypointSymbol: pick.waypointSymbol, price: pick.purchasePrice, hull: pick.shipType } : undefined;
-    if (!best) return; // no shipyard in this system has a cached keeper hull in stock right now
-    if (!this.canAfford(best.price)) return;
+    if (!best) return false; // no shipyard in this system has a cached keeper hull in stock right now
+    if (!this.canAfford(best.price)) return false;
 
     const shipSymbol = `${best.waypointSymbol}|${marketWaypoint}|${best.hull}`;
     // Live bug, 2026-09-21: ApprovalGate.request() dedups by KIND only — it
@@ -4991,11 +4991,11 @@ export class FleetManager {
     // once the kind frees up.
     if (this.store && this.tenantId) {
       const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
-      if (existing && existing.shipSymbol !== shipSymbol) return;
+      if (existing && existing.shipSymbol !== shipSymbol) return true; // the slot is busy with another market: nothing further can ask this tick
     }
 
-    if (await this.otherKeeperKindTargets("buyKeeperProbe", marketWaypoint)) return; // the shipyard path already asked for this one
-    if (await this.keeperTargetCovered(marketWaypoint)) return; // already covered per the durable state (another instance may have just bought it)
+    if (await this.otherKeeperKindTargets("buyKeeperProbe", marketWaypoint)) return false; // the shipyard path already asked for this one
+    if (await this.keeperTargetCovered(marketWaypoint)) return false; // already covered per the durable state (another instance may have just bought it)
     const approved = await this.approvals.request("buyKeeperProbeForMarket", {
       shipSymbol,
       // "at <yard>" is the purchase SOURCE (wherever cached stock exists —
@@ -5011,13 +5011,14 @@ export class FleetManager {
     });
     if (approved === undefined) {
       this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) awaiting operator approval`);
-      return;
+      return true;
     }
     if (approved === false) {
       this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) denied by operator`);
-      return;
+      return true;
     }
     await this.purchaseKeeperProbe(best.waypointSymbol, marketWaypoint, best.price, best.hull);
+    return true;
   }
 
   /**
@@ -5046,9 +5047,16 @@ export class FleetManager {
     if (existing) return; // something's already in flight — resolvePendingKeeperProbeApproval() owns resolving it
     const priority = await this.keeperPriorityMarkets();
     const covered = new Set(this.keeperMarkets.values());
-    const next = priority.find((m) => !covered.has(m));
-    if (!next) return; // every priority market is already covered
-    await this.maybeRequestKeeperProbeForMarket(next);
+    // Walk the uncovered markets in priority order until one actually asks (or buys). A market that cannot be
+    // requested right now (no keeper hull in stock in its system, the shipyard path already asked for it, ...)
+    // must not block the ones behind it: 2026-10-10 the head, MB58-E47, sat unrequestable for hours while
+    // coverable markets waited. Bounded so a long list costs few store reads per tick.
+    let tried = 0;
+    for (const m of priority) {
+      if (covered.has(m)) continue;
+      if (await this.maybeRequestKeeperProbeForMarket(m)) return;
+      if (++tried >= 8) return;
+    }
   }
 
   /**

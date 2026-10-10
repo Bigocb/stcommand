@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Keeper request queue no longer blocks behind one unrequestable market
+
+`advanceKeeperMarketQueue` only ever tried the first uncovered market on the operator's priority list. If that market could not be requested (no keeper hull cached in its system, the shipyard path had already asked for it, or the durable state said covered), nothing behind it was tried, so coverable markets waited for hours (MB58-E47 at the head, MC94 and MB58 markets behind it). It now walks the uncovered markets in priority order, up to 8 per tick, and stops at the first that asks or buys; `maybeRequestKeeperProbeForMarket` reports whether it did.
+
 ## Production runs the compiled server, not tsx (2026-10-10)
 
 `npm start` ran `tsx src/cli/index.ts`: four processes (npm, sh, the tsx launcher, the app), and the app itself under tsx's loader
