@@ -96,7 +96,8 @@ function setTab(name) {
   if (name === "metrics") { metricsScreen ??= mountMetrics($("metrics-root"), { api, netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined) }); metricsScreen.show(); }
   else metricsScreen?.hide();
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
-  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); loadCopilot(); }
+  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); }
+  if (name === "copilot") { loadCopilot(); loadCopilotSettings(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -933,6 +934,49 @@ async function sendCopilot(message) {
     $("cp-send").disabled = false;
   }
 }
+/* Co-pilot settings: base URL, model and key. The key is write-only: it is never read back, so the field is
+ * always blank and saving needs it again. Saving replaces the tenant's stored config and takes effect at once. */
+async function loadCopilotSettings() {
+  try {
+    const cfg = await api("GET", "/api/settings/llm");
+    $("cp-set-current").textContent = cfg.configured ? `Set: ${cfg.model} at ${cfg.baseUrl ?? "default endpoint"}` : "Not configured — add a base URL, model and key.";
+    if (cfg.baseUrl) $("cp-base").value = cfg.baseUrl;
+    if (cfg.model) $("cp-model").value = cfg.model;
+  } catch (e) { $("cp-set-status").textContent = e.message; }
+}
+$("cp-gear").addEventListener("click", () => {
+  const open = $("cp-settings").hidden;
+  $("cp-settings").hidden = !open;
+  $("cp-gear").setAttribute("aria-expanded", String(open));
+});
+$("cp-save").addEventListener("click", async () => {
+  const apiKey = $("cp-key").value.trim();
+  const model = $("cp-model").value.trim();
+  if (!apiKey) { $("cp-set-status").textContent = "Paste the API key to save."; return; }
+  if (!model) { $("cp-set-status").textContent = "Model is required."; return; }
+  try {
+    await api("POST", "/api/settings/llm", { provider: "custom", baseUrl: $("cp-base").value.trim() || undefined, model, apiKey });
+    $("cp-key").value = "";
+    $("cp-set-status").textContent = "Saved.";
+    loadCopilotSettings();
+  } catch (e) { $("cp-set-status").textContent = e.message; }
+});
+$("cp-clear").addEventListener("click", async () => {
+  if (!confirm("Remove the co-pilot's API key? The chat will stop working until a new one is saved.")) return;
+  try {
+    await api("POST", "/api/settings/llm", {});
+    $("cp-key").value = "";
+    $("cp-set-status").textContent = "Key removed.";
+    loadCopilotSettings();
+  } catch (e) { $("cp-set-status").textContent = e.message; }
+});
+/* More tab's own segments, like Markets' (Work / Fleet / Rules). */
+$("more-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-mseg]");
+  if (!b) return;
+  document.querySelectorAll("#more-seg button").forEach((x) => x.classList.toggle("on", x === b));
+  for (const seg of ["work", "fleet", "rules"]) $(`more-pane-${seg}`).hidden = seg !== b.dataset.mseg;
+});
 $("cp-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = $("cp-input").value.trim();

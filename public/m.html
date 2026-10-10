@@ -115,14 +115,12 @@
     </div>
     <div class="screen" data-screen="more">
       <div class="more-scroll">
-        <div class="sec-h">Co-pilot</div>
-        <div id="cp-log" class="cp-log"></div>
-        <div id="cp-actions" class="cp-actions"></div>
-        <form class="mission-start-row" id="cp-form">
-          <input id="cp-input" placeholder="Ask the co-pilot…" autocomplete="off" />
-          <button class="btn pri" id="cp-send" type="submit">Send</button>
-        </form>
-        <div class="cp-status" id="cp-status"></div>
+        <div class="seg" id="more-seg">
+          <button class="on" data-mseg="work">Work</button>
+          <button data-mseg="fleet">Fleet</button>
+          <button data-mseg="rules">Rules</button>
+        </div>
+        <div id="more-pane-work">
         <div class="sec-h">Contracts <span class="n" id="more-contract-count">0</span></div>
         <div id="more-contracts"></div>
         <div class="sec-h">Construction</div>
@@ -145,6 +143,8 @@
           <button class="btn pri" id="feed-start-btn">Start</button>
         </div>
         <div id="more-feeds"></div>
+        </div>
+        <div id="more-pane-fleet" hidden>
         <div class="sec-h">Keeper stations <span class="n" id="more-keeper-count">0</span></div>
         <div class="detail">Markets that get a stationed keeper, one waypoint per line. Only listed markets ask for a keeper when a ship docks there.</div>
         <div class="doc-row">
@@ -166,9 +166,36 @@
         </div>
         <div id="bulk-list"></div>
         <div class="mission-start-row"><button class="btn deny" id="bulk-go">Scrap selected</button></div>
+        </div>
+        <div id="more-pane-rules" hidden>
         <div class="sec-h">Doctrine <span class="n" id="more-doctrine-count">0</span></div>
         <div id="more-doctrine"></div>
+        </div>
       </div>
+    </div>
+    <div class="screen" data-screen="copilot">
+      <div class="cp-head">
+        <span class="cp-title">Co-pilot</span>
+        <button class="btn ghost" id="cp-gear" aria-expanded="false">Settings</button>
+      </div>
+      <div class="cp-settings" id="cp-settings" hidden>
+        <div class="cp-set-note" id="cp-set-current">Not configured</div>
+        <label class="cp-field">Base URL<input id="cp-base" placeholder="https://opencode.ai/zen/go/v1" autocapitalize="off" spellcheck="false" /></label>
+        <label class="cp-field">Model<input id="cp-model" placeholder="deepseek-v4.1-flash" autocapitalize="off" spellcheck="false" /></label>
+        <label class="cp-field">API key<input id="cp-key" type="password" placeholder="Paste key to save" autocomplete="off" /></label>
+        <div class="cp-set-row">
+          <button class="btn pri" id="cp-save">Save</button>
+          <button class="btn deny" id="cp-clear">Remove key</button>
+        </div>
+        <div class="cp-status" id="cp-set-status"></div>
+      </div>
+      <div id="cp-log" class="cp-log"></div>
+      <div id="cp-actions" class="cp-actions"></div>
+      <div class="cp-status" id="cp-status"></div>
+      <form class="cp-composer" id="cp-form">
+        <input id="cp-input" placeholder="Ask the co-pilot…" autocomplete="off" />
+        <button class="btn pri" id="cp-send" type="submit">Send</button>
+      </form>
     </div>
     <div class="screen" data-screen="admin">
       <div class="more-scroll">
@@ -183,6 +210,7 @@
     <button data-tab="fleet"><span class="dot"></span>Fleet</button>
     <button data-tab="metrics"><span class="dot"></span>Metrics</button>
     <button data-tab="markets"><span class="dot"></span>Markets</button>
+    <button data-tab="copilot"><span class="dot"></span>Co-pilot</button>
     <button data-tab="more"><span class="dot"></span>More</button>
     <button data-tab="admin" id="tab-admin" hidden><span class="dot"></span>Admin</button>
   </nav>

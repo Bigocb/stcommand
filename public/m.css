@@ -611,7 +611,7 @@ body {
 .mx-tip { display: none; }
 
 /* Co-pilot (More tab) */
-.cp-log { max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.cp-log { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; }
 .cp-msg { padding: 8px 10px; border: 1px solid var(--hair); border-radius: 6px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
 .cp-msg.user { align-self: flex-end; max-width: 85%; color: var(--ice); }
 .cp-msg.assistant { align-self: flex-start; max-width: 95%; }
@@ -619,3 +619,18 @@ body {
 .cp-proposal { display: flex; gap: 6px; }
 .cp-proposal .btn { flex: 1; }
 .cp-status { font-size: 12px; color: var(--amber); min-height: 16px; margin-bottom: 8px; }
+
+.cp-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--hair); }
+.cp-title { font-family: var(--chrome); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; }
+.cp-settings { padding: 10px 12px; border-bottom: 1px solid var(--hair); display: flex; flex-direction: column; gap: 8px; }
+.cp-settings[hidden] { display: none; }
+.cp-set-note { font-size: 12px; color: var(--ice); }
+.cp-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted, #8a8a8a); }
+.cp-field input { font: inherit; font-size: 14px; color: inherit; background: transparent; border: 1px solid var(--hair); border-radius: 6px; padding: 8px 10px; }
+.cp-set-row { display: flex; gap: 6px; }
+.cp-set-row .btn { flex: 1; }
+.cp-composer { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--hair); }
+.cp-composer input { flex: 1; font: inherit; font-size: 15px; color: inherit; background: transparent; border: 1px solid var(--hair); border-radius: 18px; padding: 8px 14px; }
+.cp-composer .btn { flex: 0 0 auto; }
+.cp-status { padding: 0 12px; }
+.cp-msg { margin: 0; }
