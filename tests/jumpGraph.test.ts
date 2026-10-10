@@ -81,8 +81,7 @@ describe("GalaxyAtlas.jumpPath / warmJumpPath", () => {
     const real = atlas.usableNeighbors.bind(atlas);
     atlas.usableNeighbors = (s: string) => { searches += 1; return real(s); };
     const first = atlas.jumpPath("X1-A", "X1-C");
-    const afterFirst = searches;
-    assert.ok(afterFirst > 0);
+    const afterFirst = searches; // 0 here: warmJumpPath() already asked for this pair
     for (let i = 0; i < 50; i++) atlas.jumpPath("X1-A", "X1-C");
     assert.equal(searches, afterFirst, "fifty more asks cost no more searching");
     first!.push("mutated");

@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Cross-system route costing no longer eats the server's CPU (2026-10-10)
+
+Profiled the live server with the new `ops_profile` tool (15 s window, 80% busy, event loop stalling 2.5-6 s at a time): about
+60% of all CPU was the jump-path search (`findJumpPath`, `jumpPath`, `gatesTo`, `connectedSystems`, `edgeUsable`), called by
+`computeDispatchRoutes` for every cross-system trade leg, several times per leg (once per trader hold size plus the cost and
+the trip time), with nothing cached. Those stalls are what made MCP calls time out, UI requests drop ("Load failed" on scrap)
+and every ship step take seconds to minutes. `GalaxyAtlas.jumpPath` now caches per system pair and drops the cache whenever a
+system, a gate connection or a gate's construction status changes; `FleetManager` memoizes trip cost and hops per system pair
+for the length of a route pass. Same answers, far fewer searches (`tests/jumpGraph.test.ts`).
+
 ## ops_profile: see where the server's CPU and memory go (2026-10-10)
 
 New read-only ops tool `profile` (MCP `stcommand_ops_profile`, HTTP `/api/ops/profile`) built on the Node inspector, with the
