@@ -3917,6 +3917,7 @@ export class FleetManager {
 
   /** Scrap a ship at a shipyard, removing it from the fleet and returning credits. */
   async scrapShip(shipSymbol: string): Promise<{ transaction: components["schemas"]["ScrapTransaction"] }> {
+    const started = Date.now();
     const ship = await this.api.getShip(shipSymbol);
     if (ship.nav.status === "IN_TRANSIT") throw new Error(`${shipSymbol} is in transit`);
     if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
@@ -3930,7 +3931,10 @@ export class FleetManager {
       total: res.transaction.totalPrice,
     });
     this.onActivity?.("scrap", `${shipSymbol} scrapped at ${ship.nav.waypointSymbol} for ${res.transaction.totalPrice}c`, res.transaction.totalPrice, shipSymbol);
+    const scrappedAt = Date.now();
     await this.removeShip(shipSymbol);
+    // Seen 2026-10-09: the dashboard and MCP calls for a scrap outlive their 60 s timeouts. Say where the time goes.
+    this.log(`${shipSymbol}: scrapped for ${res.transaction.totalPrice}c (api ${scrappedAt - started}ms, cleanup ${Date.now() - scrappedAt}ms)`);
     return { transaction: res.transaction };
   }
 

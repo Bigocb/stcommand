@@ -571,7 +571,7 @@ export class Store {
   }
 
   /** Ledger rows since `sinceIso`, oldest first, in the shape engine/metrics.ts reads. Capped; the cap keeps a week of heavy trading bounded. */
-  async ledgerRowsSince(tenantId: string, sinceIso: string, limit = 400_000): Promise<import("../engine/metrics.js").LedgerRow[]> {
+  async ledgerRowsSince(tenantId: string, sinceIso: string, limit = 150_000): Promise<import("../engine/metrics.js").LedgerRow[]> {
     return withTenant(this.pool, tenantId, async (c) => {
       const res = await c.query(
         `SELECT timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, total, realized_pnl, wallet_after

@@ -25,7 +25,7 @@ import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend } from "/shared/domain.js";
+import { fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 startRateLimitIndicator($("tb-conn"));
@@ -955,7 +955,10 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
     if (!confirm(`Sell ${ship} permanently? It will fly to the nearest shipyard and be scrapped there. This cannot be undone.`)) return;
     b.disabled = true;
     try { await api("POST", "/api/fleet/sell-ship", { shipSymbol: ship }); selectedFleetShip = null; await loadState(); }
-    catch (err) { alert(err.message); }
+    catch (err) {
+      if (isNetworkError(err)) { try { await loadState(); } catch (_) {} alert(DROPPED_REQUEST_NOTE); }
+      else alert(err.message);
+    }
     return renderFleet();
   }
 });

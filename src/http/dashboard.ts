@@ -408,7 +408,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     try {
-      const hours = Math.min(144, Math.max(1, Number(req.query.hours) || 6));
+      // 72 h at most: the query reads twice the window, and the server has 512 MB.
+      const hours = Math.min(72, Math.max(1, Number(req.query.hours) || 6));
       const now = Date.now();
       // Twice the window: the second half is the comparison.
       const rows = await w.store.ledgerRowsSince(w.tenantId, new Date(now - 2 * hours * 3600_000).toISOString());

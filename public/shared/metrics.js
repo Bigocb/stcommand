@@ -16,7 +16,6 @@ const RANGES = [
   { hours: 6, label: "6h" },
   { hours: 24, label: "24h" },
   { hours: 72, label: "3d" },
-  { hours: 144, label: "6d" },
 ];
 const DEFAULT_TARGET = 25_738_654; // last week's final credits
 const REFRESH_MS = 60_000;

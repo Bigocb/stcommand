@@ -36,7 +36,7 @@ import {
 } from "/shared/session.js";
 import { applyVersionPreference, mountSwitcher } from "/shared/switcher.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
-import { keeperCoverage } from "/shared/domain.js";
+import { keeperCoverage, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 
 const $ = (id) => document.getElementById(id);
@@ -5518,7 +5518,10 @@ function openShipDetails(shipSymbol, opts = {}) {
         await loadState();
         backdrop.classList.remove("open");
         alert(`${b.dataset.ship} scrapped for ${fmt(res.totalPrice)} credits.`);
-      } catch (err) { alert(err.message); b.disabled = false; }
+      } catch (err) {
+        if (isNetworkError(err)) { try { await loadState(); } catch (_) {} backdrop.classList.remove("open"); alert(DROPPED_REQUEST_NOTE); }
+        else { alert(err.message); b.disabled = false; }
+      }
     });
   });
   modal.querySelectorAll(".sell-ship").forEach((b) => {

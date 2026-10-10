@@ -510,7 +510,7 @@ with `.good/.warn/.bad` for supply and activity buckets. Tower reuses the same r
 
 A quiet rail item ("Metrics", last before Admin) opens `#view-metrics`, rendered by `public/shared/metrics.js`
 (`mountMetrics(root, { api, netWorth })`, so Tower can mount it the same way later). Data: `GET /api/metrics?hours=N`
-(1, 6, 24, 72 or 144), built from the ledger by `src/engine/metrics.ts`: per-interval buckets, totals with the previous
+(1, 6, 24 or 72), built from the ledger by `src/engine/metrics.ts`: per-interval buckets, totals with the previous
 window for comparison, breakdowns by good, ship and sell system, and the traders that sold nothing. Net trading is the
 front page's pace figure (realized profit less fuel and jumps); ship purchases and scrap are shown separately. The
 "Pace to reset" panel is a straight line at the window's rate against an editable target (default last week's final,

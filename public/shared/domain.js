@@ -330,3 +330,14 @@ export function cargoValueTitle(cv) {
   if (cv.cost > 0) lines.push(`Paid about ${fmt(cv.cost)} (cost basis on file).`);
   return lines.join("\n");
 }
+
+/**
+ * A fetch that never got an answer (the browser's own wording, e.g. Safari's "Load failed"), as opposed to the server
+ * answering with an error. A slow action such as selling a ship can outlive the connection and still have succeeded, so
+ * callers reload the fleet and say so instead of reporting a bare failure.
+ */
+export function isNetworkError(err) {
+  return /load failed|failed to fetch|networkerror|network request failed|the network connection was lost/i.test(String(err?.message ?? err));
+}
+
+export const DROPPED_REQUEST_NOTE = "The connection dropped before the server answered. The action may still have gone through; the fleet has been reloaded, so check it before trying again.";

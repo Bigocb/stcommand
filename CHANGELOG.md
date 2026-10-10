@@ -11,7 +11,7 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## Metrics screen in Deck (2026-10-10)
 
-New rail item "Metrics": range buttons (1h, 6h, 24h, 3d, 6d), KPI tiles with the change against the window before (net trading,
+New rail item "Metrics": range buttons (1h, 6h, 24h, 3d), KPI tiles with the change against the window before (net trading,
 per hour, credits, sales, profit per sale, overhead, fleet spend), a credits line and a net-trading-per-interval bar chart with
 hover values, a pace-to-reset panel (projection at the window's rate against an editable target, and the rate needed), and
 tables of profit by good, by ship (with hold size and per-hour) and by sell system, plus traders that sold nothing. Built
