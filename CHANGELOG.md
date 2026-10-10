@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Dispatcher explain: why a route did or did not get a trader
+
+`stcommand_ops_dispatch_explain` answers "why isn't this route being flown" from the dispatcher's own last cycle
+instead of from logs. Each recompute now keeps the ranked work list (with the claimant of each route), the routes
+dropped under the margin floor, and, for every idle trader, the reason it was refused each route it was checked
+against: already claimed, declined, out of reach, buyer cap, margin gone after impact, net score, or outscored by a
+named route. Filter by ship and/or good. Busy traders show their assignment without rejections, and a route that
+never reached the work list (no open gate, or its market already being sold into) is not shown. Bookkeeping only;
+no change to what the dispatcher assigns.
+
 ## 2026-10-10 — Gate status tool for the MCP server and the co-pilot
 
 A read-only `stcommand_get_gate_status` tool lists a system's jump gates, whether each is finished and where it

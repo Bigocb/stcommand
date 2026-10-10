@@ -4,6 +4,7 @@ import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { deadheadFromTrades } from "../engine/deadhead.js";
+import { selectExplain } from "../engine/dispatchExplain.js";
 import { heapReport, heapStart, heapStop, profileCpu, runtimeStatus } from "./profiler.js";
 import type { OpsTool } from "./types.js";
 
@@ -299,6 +300,18 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx) {
       const list = ctx.w.fleet.dispatcher.list();
       return { asOf: iso(ctx.now()), count: list.length, assignments: list };
+    },
+  },
+  {
+    name: "dispatch_explain",
+    title: "Why the dispatcher picked what it picked",
+    description:
+      "The route dispatcher's last cycle (refreshed about once a minute): the ranked work list with each route's claimant, the routes dropped under the margin floor, and for each trader the reason it was refused each route it was checked against — already claimed, declined, out of reach, buyer cap, margin gone after impact, net score, or outscored by a named route. Filter by ship and/or good to see one ship's or one route's reasons. Busy traders show their assignment without rejections. A route that never reached the work list (no open gate, or its market already being sold into) is not listed.",
+    input: { ship: z.string().optional(), good: z.string().optional(), limit: num(30) },
+    async run(ctx, a) {
+      const snap = ctx.w.fleet.dispatcher.explain();
+      if (!snap) return { note: "The dispatcher has not completed a cycle since this process started." };
+      return selectExplain(snap, { ship: a.ship, good: a.good, limit: a.limit });
     },
   },
 ];

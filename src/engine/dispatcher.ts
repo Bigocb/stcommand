@@ -118,6 +118,28 @@ import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } fr
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
 import { DEFAULT_MATCH_POLICY, matchShips, type MatchPolicy } from "./matching.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
+import { goodOfKey, type DispatchExplainSnapshot, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
+
+/** Caps on what one recompute keeps for dispatch_explain, so the snapshot stays a few KB. */
+export const EXPLAIN_MAX_ROUTES = 60;
+export const EXPLAIN_MAX_REJECTIONS = 60;
+
+/** A work item as dispatch_explain shows it. `profitPerTrip` is the ranking score; `rawProfit` the route's own figure when it differs. */
+function explainRouteOf(
+  w: { key: string; good?: string; buyAt?: string; sellAt?: string; buySystem?: string; profitPerTrip: number; rawProfit?: number },
+  claimedBy: string | undefined,
+): ExplainRoute {
+  return {
+    key: w.key,
+    good: w.good ?? goodOfKey(w.key),
+    buyAt: w.buyAt,
+    sellAt: w.sellAt,
+    buySystem: w.buySystem,
+    profitPerTrip: Math.round(w.rawProfit ?? w.profitPerTrip),
+    score: Math.round(w.profitPerTrip),
+    claimedBy,
+  };
+}
 
 /**
  * "direct"      — buy here, carry it yourself, sell there. One trader owns
@@ -282,6 +304,8 @@ export class RouteDispatcher {
   /** The ranked route list from the last recompute, used to serve live claims. */
   private routes: DispatchRoute[] = [];
   private lastComputed = 0;
+  /** What the last non-throttled recompute saw and decided, for dispatch_explain. Replaced wholesale each cycle. */
+  private lastExplain: DispatchExplainSnapshot | undefined;
   /** (good, sellAt) → recent real sales into that market, each as the units
    *  moved and when. Confirmed live twice: THEO-1 sold 40u ELECTRONICS at
    *  X1-XB94-D43 for 35,900c; the very next idle trader (THEO-A) was handed
@@ -338,6 +362,11 @@ export class RouteDispatcher {
     const sold = this.recentVolume(route.good, route.sellAt);
     if (sold <= 0) return base;
     return base / (1 + sold / Math.max(route.volume, 1));
+  }
+
+  /** The last cycle's work list and per-trader rejection reasons (see dispatchExplain.ts). Undefined before the first recompute. */
+  explain(): DispatchExplainSnapshot | undefined {
+    return this.lastExplain;
   }
 
   /** Routes a single trader should fly, honoring a manual override if set. */
@@ -976,12 +1005,18 @@ export class RouteDispatcher {
     // discovery hop. Confirmed live 2026-10-07 13:45-14:11: THEOREM_DEV_2-1/-3 were handed FOOD (+208), COPPER (+61),
     // FABRICS (+167/+179), AMMUNITION (+179) and FERTILIZERS (+100) against a 300c floor, one after another.
     const floorFlat = tuning?.marginFloor ?? 0;
+    const floorDropped: ExplainRoute[] = [];
     for (let i = work.length - 1; i >= 0; i--) {
       const w = work[i]!;
       if (w.sellAt === undefined || w.buyPrice === undefined || w.sellPrice === undefined) continue;
-      if (w.sellPrice - w.buyPrice <= effectiveMarginFloor(floorFlat, w.buyPrice)) work.splice(i, 1);
+      if (w.sellPrice - w.buyPrice <= effectiveMarginFloor(floorFlat, w.buyPrice)) {
+        floorDropped.push(explainRouteOf(w, undefined));
+        work.splice(i, 1);
+      }
     }
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
+    // Per-ship reasons for dispatch_explain: every work item an idle trader was checked against and turned down, and why.
+    const explainRejections = new Map<string, ExplainRejection[]>();
 
     let leavingHome = 0;
     // Units already promised to each (buy market, good) THIS cycle. The ask in
@@ -1286,12 +1321,34 @@ export class RouteDispatcher {
           }
         }
       }
+      // Why THIS trader was refused a work item, in the order scoreItem() checks it. Only ever called for an item
+      // scoreItem() has already turned down, so the final fallthrough is the net-score test.
+      const noteRejected = (w: (typeof work)[number], reason: string): void => {
+        const list = explainRejections.get(t.shipSymbol) ?? [];
+        if (list.length < EXPLAIN_MAX_REJECTIONS) list.push({ key: w.key, good: w.good ?? goodOfKey(w.key), sellAt: w.sellAt, reason });
+        explainRejections.set(t.shipSymbol, list);
+      };
+      const whyRejected = (w: (typeof work)[number]): string => {
+        if (usedKeys.has(w.key)) return "already claimed this cycle";
+        if (isRefused(w)) return "declined by this trader";
+        if (!reachable(w)) {
+          return w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system
+            ? `${w.buySystem} is out of reach from ${t.system}`
+            : `buy market ${w.buyAt} is beyond fuel range from ${t.waypoint}`;
+        }
+        const buyers = (buyKey(w) ? pendingTraders.get(buyKey(w)!) : undefined) ?? 0;
+        if (buyers >= cap) return `${buyers} traders already buying at ${w.buyAt} (cap ${cap})`;
+        if (impactCost(w) === undefined) return `margin gone after ${buyers} buyer(s) at ${w.buyAt}`;
+        return "net score at or below zero after positioning";
+      };
+      const scoredItems: (typeof work)[number][] = [];
       for (const w of leg2Served ? [] : work) {
         const lid = workLegId(w);
         const holder = lid !== undefined ? circuitHeld.get(lid) : undefined;
-        if (holder !== undefined && holder !== t.shipSymbol) continue; // kept for another ship's circuit
+        if (holder !== undefined && holder !== t.shipSymbol) { noteRejected(w, "held for another ship's circuit"); continue; }
         const scored = scoreItem(w);
-        if (!scored) continue;
+        if (!scored) { noteRejected(w, whyRejected(w)); continue; }
+        scoredItems.push(w);
         let score = scored.score;
         let followOn: FollowOn | undefined;
         let circuit: Circuit | undefined;
@@ -1310,6 +1367,7 @@ export class RouteDispatcher {
         }
         if (score > bestScore) { bestScore = score; item = w; itemFollowOn = followOn; itemCircuit = circuit; }
       }
+      for (const w of scoredItems) if (w !== item) noteRejected(w, `outscored by ${item?.key ?? "nothing"}`);
       if (item && crossSystem?.enabled && crossSystem.homeSystem !== undefined && t.system === crossSystem.homeSystem && item.buySystem !== undefined && item.buySystem !== t.system) {
         leavingHome += 1;
       }
@@ -1374,6 +1432,28 @@ export class RouteDispatcher {
       }
     }
     this.assignments = next;
+
+    // Snapshot for dispatch_explain. A route's claimant is whoever holds the same good into the same market this cycle.
+    const claimantOf = (w: (typeof work)[number]): string | undefined => {
+      if (w.good === undefined) return undefined;
+      for (const [ship, a] of next) if (a.good === w.good && (w.sellAt === undefined || a.sellAt === w.sellAt)) return ship;
+      return undefined;
+    };
+    this.lastExplain = {
+      at: now,
+      routes: work.slice(0, EXPLAIN_MAX_ROUTES).map((w) => explainRouteOf(w, claimantOf(w))),
+      floorDropped: floorDropped.slice(0, EXPLAIN_MAX_ROUTES),
+      traders: sorted.map((t): ExplainTrader => {
+        const a = next.get(t.shipSymbol);
+        const assigned = !a ? undefined
+          : a.role === "direct" ? (a.sellAt ? `${a.good}@${a.sellAt}` : a.good)
+          : `${a.good}:${a.role}`;
+        return {
+          ship: t.shipSymbol, system: t.system, waypoint: t.waypoint, busy: t.busy === true, assigned,
+          rejected: explainRejections.get(t.shipSymbol) ?? [],
+        };
+      }),
+    };
 
     if (log) {
       const idleCount = traders.filter((t) => !t.busy && !this.manual.has(t.shipSymbol)).length;
