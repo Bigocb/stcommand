@@ -7,7 +7,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-- [ ] **Metrics follow-ups (raised 2026-10-10).** Shipped the Deck Metrics screen. Not built: mount it in Tower; profit per
+- [ ] **Metrics follow-ups (raised 2026-10-10).** Shipped the Deck and Tower Metrics screens. Not built: profit per
   route (buy and sell are separate ledger rows, so this needs a trip id on both); trader utilization (share of time with
   cargo or flying to a buy market) which needs per-ship state history; contract and mission income (not in the ledger).
 

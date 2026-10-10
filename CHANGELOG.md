@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## Tower: Metrics tab replaces Map (2026-10-10)
+
+Tower's bottom bar swaps Map for Metrics, the same screen as Deck's (`public/shared/metrics.js`) with phone styling in
+`m.css`. The radar map code was removed from `m.js` and `m.html` at the operator's request (not used). Deck keeps its map.
+
 ## Metrics screen in Deck (2026-10-10)
 
 New rail item "Metrics": range buttons (1h, 6h, 24h, 3d), KPI tiles with the change against the window before (net trading,

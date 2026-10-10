@@ -341,3 +341,10 @@ live use.
 ## Admin tab (2026-10-04)
 
 Operator-only **Admin** tab (6th tab-bar button, hidden unless the session says `operator: true`, i.e. the agent is in `OPERATOR_AGENTS`). Content is the shared `public/shared/admin.js` module also used by Deck — Reset / Scoreboard / Timeline / Health / Tenants — styled by `shared/admin.css`.
+
+
+**Update 2026-10-10** — The Map tab is gone (the operator does not use it) and its place in the bottom bar is taken by
+**Metrics**: bar is now Home · Fleet · Metrics · Markets · More. The screen is `public/shared/metrics.js` (the same module
+Deck mounts; see `docs/deck-desktop-design.md` §14), styled by the `.mx-*` block at the end of `m.css`: two-column KPI
+tiles, charts at full width, tables that scroll sideways. The radar code (`renderScope`, pan/zoom, the waypoint sheet) was
+deleted from `m.js`/`m.html`; its CSS is still in `m.css` and can go. Buying a ship still works from Markets > Yards.
