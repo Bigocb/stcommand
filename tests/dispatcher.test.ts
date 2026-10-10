@@ -400,6 +400,19 @@ describe("RouteDispatcher: idle traders and sell-market spreading", () => {
     assert.deepEqual([...new Set(assigned.map((a) => a.sellAt))].sort(), ["X1-A-M1", "X1-A-M2", "X1-A-M3"]);
   });
 
+  it("prices a second buyer by the buy market's own lot size, not a flat per-unit impact", () => {
+    // Same two routes either way; only the buy market's trade volume differs. A thin market (20/lot, 0.225%/unit)
+    // makes the second buyer's ask eat the 3c margin; a deep one (300/lot, 0.015%/unit) leaves most of it.
+    const withVolume = (buyVolume: number) => {
+      const d = new RouteDispatcher();
+      const r = (sellAt: string) => ({ ...route("IRON", sellAt, 3), buyVolume });
+      d.recompute([r("X1-A-M1"), r("X1-A-M2")], traders(2), [], [], [], [], undefined, undefined, undefined, undefined, undefined, { marginFloor: 1 });
+      return d.list().length;
+    };
+    assert.equal(withVolume(20), 1, "thin market: the second buyer is not worth sending");
+    assert.equal(withVolume(300), 2, "deep market: both are");
+  });
+
   it("never puts two traders into the same sell market, which is what collapses a price", () => {
     const d = new RouteDispatcher();
     // Two routes for the same good AND the same destination: only one is work.

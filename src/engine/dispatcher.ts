@@ -77,6 +77,9 @@ export const CROSS_SYSTEM_JUMP_COST_ESTIMATE = 5_000;
  * is the hard backstop.
  */
 export const BUY_IMPACT_PER_UNIT = 0.002;
+// 2026-10-10: this flat figure is the fallback only. It was measured on a 20-unit market (4.5% per lot = 0.225%/unit);
+// where a route carries the buy market's own lot size the per-unit impact is PRICE_IMPACT_PER_LOT / lot size instead (300-unit
+// lots: 0.015%/unit), so a second hauler on a deep market is no longer priced as if it were a thin one.
 
 /** Hard backstop: no more than this many traders are sent to buy the same good
  *  at the same market in one dispatch cycle, whatever the margin says. */
@@ -111,7 +114,7 @@ export const DECLINE_MS = 15 * 60_000;
  */
 export const MAX_LOTS_PER_TRIP = 3;
 
-import { REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
+import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
 import { DEFAULT_MATCH_POLICY, matchShips, type MatchPolicy } from "./matching.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
@@ -840,7 +843,7 @@ export class RouteDispatcher {
     // `sellAt`, only set for a `direct` item: the one case that needs the
     // *whole* round trip to fit a fuel tank, not just the leg to buyAt — see
     // reachable()'s own comment below for the live case this closes.
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; tripSeconds?: number; secPerDist?: number; rawProfit?: number; profitByHold?: Record<string, number> }[] = [];
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; buyVolume?: number; tripSeconds?: number; secPerDist?: number; rawProfit?: number; profitByHold?: Record<string, number> }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -868,7 +871,7 @@ export class RouteDispatcher {
         // undoing the whole point of resorting `routes` above. toAssignment()
         // below still builds the displayed TraderAssignment from the route's
         // real profitPerTrip — only this ranking figure is adjusted.
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, buyVolume: route.buyVolume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance > target.target) {
@@ -912,7 +915,7 @@ export class RouteDispatcher {
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
       // Decayed score here too — see the primary-loop push's own comment.
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, buyVolume: route.buyVolume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
@@ -998,13 +1001,17 @@ export class RouteDispatcher {
     }
     // Extra cost of this trader's units given what is already promised there,
     // or undefined when the extra buyer should not be sent at all.
-    const impactCost = (w: { buyAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number }): number | undefined => {
+    const impactCost = (w: { buyAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; buyVolume?: number }): number | undefined => {
       const k = buyKey(w);
       if (!k || w.buyPrice === undefined || w.volume === undefined) return 0;
       const traders = pendingTraders.get(k) ?? 0;
       if (traders === 0) return 0;
       if (traders >= cap) return undefined;
-      const ask = w.buyPrice * (1 + impact) ** (pendingUnits.get(k) ?? 0);
+      // Per-unit impact follows the market's own lot size (4.5% per lot, the same figure trip slippage uses), so a
+      // 300-unit market is not charged the 20-unit market's 0.2%/unit it was measured on. An explicit tuning value
+      // (tests, an operator override) and a route with no known lot size keep the flat default.
+      const perUnit = tuning?.buyImpactPerUnit === undefined && w.buyVolume && w.buyVolume > 0 ? PRICE_IMPACT_PER_LOT / w.buyVolume : impact;
+      const ask = w.buyPrice * (1 + perUnit) ** (pendingUnits.get(k) ?? 0);
       if (w.sellPrice !== undefined && w.sellPrice - ask < marginFloorPerUnit) return undefined;
       return w.volume * (ask - w.buyPrice);
     };

@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Extra-buyer price impact follows the buy market's lot size
+
+When a second or third trader is sent to the same buy market, the dispatcher predicts the ask will have risen by the units already promised there. That rise used a flat 0.2% per unit, measured on a 20-unit-lot market. A 300-unit-lot market moves about 0.015% per unit (the 4.5%-per-lot figure trip slippage already uses), so deep markets were priced as if thin. The per-unit impact is now `PRICE_IMPACT_PER_LOT / buy market lot size` when the route carries it; an explicit tuning value or a route with no known lot size keeps the flat 0.2%. Tested for a thin and a deep market.
+
 ## 2026-10-10 — A held lot below its loss floor is redirected to a market that clears it
 
 `deliverHeldCargo` only held when the destination's live price fell below the loss floor. THEO-85 (490-unit freighter) sat at MC94-EB3F with 180u EQUIPMENT (cost 2767c, market 2146c) while other markets paid 3,600c+, so the biggest hull idled and the CLOTHING routes in its system went untaken. It now re-pins the lot to the best reachable market that clears the floor (new pure module `src/engine/floorRedirect.ts`, tested), remembers the markets already tried so it cannot bounce, and falls back to the old hold + operator approval when none clears. Not covered: orphaned cargo with no pinned route (the leftover sweep, own system only).
