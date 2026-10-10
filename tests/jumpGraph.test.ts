@@ -24,10 +24,11 @@ describe("findJumpPath", () => {
   });
 
   it("never honors a caller bound above the ceiling", () => {
-    assert.equal(MAX_POSITIONING_HOPS_CEILING, 5);
-    const n = chain([["A", "B"], ["B", "C"], ["C", "D"], ["D", "E"], ["E", "F"], ["F", "G"]]);
-    assert.deepEqual(findJumpPath("A", "F", n, 10), ["A", "B", "C", "D", "E", "F"], "5 hops is the ceiling and is allowed");
-    assert.equal(findJumpPath("A", "G", n, 10), undefined, "6 hops is over the ceiling, whatever the caller asks");
+    assert.equal(MAX_POSITIONING_HOPS_CEILING, 10);
+    const letters = "ABCDEFGHIJKL".split("");
+    const n = chain(letters.slice(1).map((l, i) => [letters[i]!, l] as [string, string]));
+    assert.deepEqual(findJumpPath("A", "K", n, 20), letters.slice(0, 11), "10 hops is the ceiling and is allowed");
+    assert.equal(findJumpPath("A", "L", n, 20), undefined, "11 hops is over the ceiling, whatever the caller asks");
   });
 
   it("terminates on cycles and returns undefined when unreachable", () => {

@@ -8,7 +8,7 @@
  * See the "Cross-System Trading: PRD and Design" doc.
  */
 export const MAX_POSITIONING_HOPS = 3;
-export const MAX_POSITIONING_HOPS_CEILING = 5;
+export const MAX_POSITIONING_HOPS_CEILING = 10;
 
 /**
  * Shortest path from `from` to `to` (inclusive of both ends) over a graph the

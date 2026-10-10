@@ -131,8 +131,8 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "positioningHops",
     name: "Positioning jumps",
-    description: "How many gate jumps a trader may take to reach a route's buy market. A route needing more jumps than this is not offered to a ship. Every jump costs about 5,000 credits and a cooldown before the first sale, so the first trip still has to out-earn the positioning cost. Hard ceiling 5 (set in code); default 3, the old fixed limit. Takes effect on the next dispatch recompute.",
-    value: 3, min: 1, max: 5, step: 1, unit: " jumps",
+    description: "How many gate jumps a trader may take to reach a route's buy market. A route needing more jumps than this is not offered to a ship. Every jump costs about 5,000 credits and a cooldown before the first sale, so the first trip still has to out-earn the positioning cost. Hard ceiling 10 (set in code); default 3, the old fixed limit. Takes effect on the next dispatch recompute.",
+    value: 3, min: 1, max: 10, step: 1, unit: " jumps",
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
