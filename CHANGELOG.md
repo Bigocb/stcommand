@@ -9,9 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
-## 2026-10-10 — Metrics: a Credits + holds chart
+## 2026-10-10 — Metrics: credits plus holds on the Credits chart
 
-The Credits chart shows wallet only, so cargo in transit looked like a drop when a trader bought a load. The engine now records credits plus the estimated value of every hold every five minutes (new table `wealth_samples`, migration 046), and the Metrics view (Deck and Tower) plots that as its own chart, in the same ranges. The series is bucketed by a pure function (`worthByBucket` in engine/metrics.ts, tested). History starts at deploy, so the first day shows a short line.
+The Credits chart shows wallet only, so cargo in transit looked like a drop when a trader bought a load. The engine now records credits plus the estimated value of every hold every five minutes (new table `wealth_samples`, migration 046), and the Metrics view (Deck and Tower) draws it as a dashed second line on the Credits chart, on the same scale, in the same ranges. The series is bucketed by a pure function (`worthByBucket` in engine/metrics.ts, tested). History starts at deploy, so the first day shows a short line.
 
 ## 2026-10-10 — Extra-buyer price impact follows the buy market's lot size
 

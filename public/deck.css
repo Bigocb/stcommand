@@ -477,7 +477,7 @@ td.cp.down { color: var(--bad, #e5675d); }
 .mx .kpi .sub{font-family:var(--mono);font-size:10px;color:var(--dim2)}
 .mx .kpi .v{font-size:18px}
 .mx-charts{flex:0 0 auto;grid-template-columns:1fr 1fr}
-.mx-worth{flex:0 0 auto}
+.mx-line2{fill:none;stroke-width:1.5;stroke-dasharray:4 3;opacity:.9}
 .mx-chart{padding:8px 10px}
 .mx-svg{width:100%;height:auto;display:block}
 .mx-grid{stroke:var(--hair);stroke-width:1}

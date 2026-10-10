@@ -46,11 +46,12 @@ function timeLabel(ms, hours) {
 }
 
 /** A line over equal buckets; `values` may hold nulls (gaps). Single axis, labelled at the ends, hover reads a value. */
-function lineChart(id, buckets, values, hours, color) {
+function lineChart(id, buckets, values, hours, color, second = null) {
   const W = 560, H = 170, L = 46, R = 10, T = 10, B = 22;
   const pts = values.map((v, i) => ({ v, i })).filter((p) => p.v !== null && p.v !== undefined);
   if (pts.length < 2) return `<div class="empty">Not enough data in this range yet.</div>`;
-  let min = Math.min(...pts.map((p) => p.v)), max = Math.max(...pts.map((p) => p.v));
+  const pts2 = second ? second.values.map((v, i) => ({ v, i })).filter((p) => p.v !== null && p.v !== undefined) : [];
+  let min = Math.min(...pts.map((p) => p.v), ...pts2.map((p) => p.v)), max = Math.max(...pts.map((p) => p.v), ...pts2.map((p) => p.v));
   if (min === max) { min -= 1; max += 1; }
   const pad = (max - min) * 0.08; min -= pad; max += pad;
   const x = (i) => L + (i / (values.length - 1 || 1)) * (W - L - R);
@@ -62,10 +63,14 @@ function lineChart(id, buckets, values, hours, color) {
     return `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="mx-grid"/><text x="${L - 6}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" class="mx-axis">${compact(v)}</text>`;
   }).join("");
   const last = pts.at(-1);
+  // The second series, when given: a plain line over the filled first one, drawn to the same scale.
+  const path2 = pts2.length >= 2 ? pts2.map((p, k) => `${k ? "L" : "M"}${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ") : "";
+  const extra = path2 ? `<path d="${path2}" class="mx-line mx-line2" style="stroke:${second.color}"/>` : "";
   return `<svg viewBox="0 0 ${W} ${H}" class="mx-svg" data-chart="${id}" role="img" aria-label="${id}">
     ${grid}
     <path d="${area}" class="mx-area" style="fill:${color}"/>
     <path d="${path}" class="mx-line" style="stroke:${color}"/>
+    ${extra}
     <circle cx="${x(last.i).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="3" style="fill:${color}"/>
     <text x="${L}" y="${H - 6}" class="mx-axis">${timeLabel(buckets[0].t, hours)}</text>
     <text x="${W - R}" y="${H - 6}" text-anchor="end" class="mx-axis">now</text>
@@ -117,10 +122,9 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     </div>
     <div class="kpirow mx-kpis" id="mx-kpis"></div>
     <div class="cols2 mx-charts">
-      <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Credits</span><span class="count" id="mx-wallet-h"></span></div><div class="panel-b mx-chart" id="mx-wallet"></div></div>
+      <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Credits</span><span class="count mx-legend" id="mx-wallet-h"></span></div><div class="panel-b mx-chart" id="mx-wallet"></div></div>
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Net trading per interval</span><span class="count" id="mx-net-h"></span></div><div class="panel-b mx-chart" id="mx-net"></div></div>
     </div>
-    <div class="panel mx-worth"><div class="panel-h"><span class="dot"></span><span class="title">Credits + holds</span><span class="count" id="mx-worth-h"></span></div><div class="panel-b mx-chart" id="mx-worth"></div></div>
     <div class="panel mx-proj"><div class="panel-h"><span class="dot"></span><span class="title">Pace to reset</span><span class="count">straight line at the window's rate</span></div><div class="panel-b" id="mx-proj"></div></div>
     <div class="cols3 mx-tables">
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">By good</span></div><div class="panel-b" style="padding:0" id="mx-goods"></div></div>
@@ -146,12 +150,10 @@ export function mountMetrics(root, { api, netWorth } = {}) {
       kpi("Overhead", `${t.overheadPct}%`, `fuel ${compact(t.fuel)} · jumps ${compact(t.jumps)}`, t.overheadPct > 25 ? "bad" : "", "Fuel and jump costs as a share of gross profit"),
       kpi("Fleet spend", compact(t.shipsBought), `${t.shipsBoughtCount} bought · scrap +${compact(t.scrapProceeds)}`, "", "Ships bought and scrap proceeds in the window; not part of net trading"),
     ].join("");
-    $("mx-wallet-h").textContent = data.walletEnd !== null ? fmt(data.walletEnd) : "";
-    $("mx-wallet").innerHTML = lineChart("Credits over time", data.buckets, data.buckets.map((b) => b.wallet), data.hours, "var(--amber)");
     const worthSeries = data.buckets.map((b) => b.worth ?? null);
     const lastWorth = worthSeries.filter((v) => v !== null).at(-1);
-    $("mx-worth-h").textContent = lastWorth === undefined ? "" : fmt(lastWorth);
-    $("mx-worth").innerHTML = lineChart("Credits plus holds over time", data.buckets, worthSeries, data.hours, "var(--amber)");
+    $("mx-wallet-h").innerHTML = `<span style="color:var(--amber)">credits ${data.walletEnd !== null ? fmt(data.walletEnd) : "—"}</span>${lastWorth === undefined ? "" : ` · <span style="color:var(--ice)">+ holds ${fmt(lastWorth)}</span>`}`;
+    $("mx-wallet").innerHTML = lineChart("Credits over time", data.buckets, data.buckets.map((b) => b.wallet), data.hours, "var(--amber)", { values: worthSeries, color: "var(--ice)" });
     $("mx-net-h").textContent = signed(t.net);
     $("mx-net").innerHTML = barChart("Net trading per interval", data.buckets, data.buckets.map((b) => b.net), data.hours);
 
