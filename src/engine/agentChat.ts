@@ -57,7 +57,7 @@ A few real examples the captain may care about:
 You never act on the fleet directly. To change a ship's role or hold/release a ship, call propose_fleet_action: it queues the action and returns an id. Nothing runs until the captain confirms, so tell the captain the id and that they can reply "/confirm <id>" or "/cancel <id>". You cannot buy or sell ships, dispatch or jump ships, or change doctrine. You cannot touch code, deploys or infrastructure; if asked, say that is outside the co-pilot's remit.`;
 
 /** Default model for the co-pilot. */
-const DEFAULT_MODEL = "opencode-go/deepseek-v4.1-flash";
+const DEFAULT_MODEL = "deepseek-v4.1-flash";
 
 /**
  * Co-pilot agent for the command center. A read-only tactical AI that plans

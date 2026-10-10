@@ -23,7 +23,7 @@ keeper, with its market), and holding or releasing a ship. A proposal runs nothi
 change happens only when you reply `/confirm <id>` in the chat. `/cancel <id>` drops it. Proposals expire after 30
 minutes. Confirmation is handled by the server, not the model, so a model cannot confirm its own proposal, and each
 executed change is recorded as an operator action with `via: copilot`. Purchases, dispatch, jumps and doctrine are not
-offered. The default co-pilot model is now `opencode-go/deepseek-v4.1-flash`; a tenant that already saved a model keeps
+offered. The default co-pilot model is now `deepseek-v4.1-flash`; a tenant that already saved a model keeps
 it, so change it in Settings to use the new one.
 
 ## 2026-10-10 — Metrics: credits plus holds on the Credits chart
