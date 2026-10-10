@@ -267,6 +267,24 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_set_fleet_paused",
+    {
+      description: "Pause (paused=true, HALT) or resume (paused=false, AUTO) the whole fleet. Paused ships finish nothing new: no route starts, no purchase, no dispatch; ships already flying keep flying. Same switch as Deck's AUTO/HALT and Tower's Home toggle.",
+      inputSchema: { paused: z.boolean() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ paused }) => {
+      try {
+        await w.fleet.setPaused(paused);
+        await recordMcpAction(w, paused ? "pause_fleet" : "resume_fleet", undefined, paused ? "fleet halted" : "fleet resumed");
+        return textResult({ ok: true, paused });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_release_ship",
     {
       description: "Release a ship from an operator hold, letting the fleet's automatic controllers resume assigning it work.",

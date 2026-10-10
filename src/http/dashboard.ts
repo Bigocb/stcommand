@@ -46,6 +46,12 @@ function feedMine(body: unknown): boolean | undefined {
  * call, and records it as an operator action so it shows in the play-style history like a manual click would.
  */
 async function executeCopilotAction(w: TenantWorker, action: ProposedAction): Promise<string> {
+  if (action.kind === "pause_fleet" || action.kind === "resume_fleet") {
+    const paused = action.kind === "pause_fleet";
+    await w.fleet.setPaused(paused);
+    await w.store.recordOperatorAction(w.tenantId, paused ? "pause_fleet" : "resume_fleet", undefined, paused ? "fleet halted" : "fleet resumed", { via: "copilot" });
+    return `Done: ${action.summary}.`;
+  }
   if (action.kind === "set_role") {
     await w.fleet.setShipRole(action.shipSymbol, action.role as Parameters<typeof w.fleet.setShipRole>[1], action.keeperMarket);
     await w.store.recordOperatorAction(w.tenantId, "role_change", action.shipSymbol, `${action.shipSymbol} → ${action.role}`, { role: action.role, keeperMarket: action.keeperMarket, via: "copilot" });

@@ -29,6 +29,15 @@ describe("propose_fleet_action", () => {
     assert.equal(a.pendingProposals().length, 1);
   });
 
+  it("queues whole-fleet pause and resume without a ship", async () => {
+    const a = agent();
+    const reply = await propose(a, { kind: "pause_fleet" });
+    assert.match(reply, /Queued: halt the whole fleet/);
+    const pending = a.pendingProposals();
+    assert.equal(pending[0]!.kind, "pause_fleet");
+    assert.equal(pending[0]!.shipSymbol, "");
+  });
+
   it("rejects unknown roles and keepers without a market", async () => {
     const a = agent();
     assert.match(await propose(a, { kind: "set_role", shipSymbol: "THEO-1", role: "admiral" }), /Error: role/);

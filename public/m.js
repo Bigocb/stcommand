@@ -237,7 +237,26 @@ function fleetTabActive() {
 }
 
 subscribe("state", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
-subscribe("bridge", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
+/* Fleet-wide AUTO / HALT, the same switch as Deck's top bar. HALT pauses every ship's loop (they keep
+ * flying what they are on); AUTO resumes. The button shows the state the engine reports, not the one tapped. */
+function renderFleetModes() {
+  const halted = !!fleetStatus.paused;
+  document.querySelectorAll("#fleet-modes button").forEach((b) => b.classList.toggle("on", (b.dataset.mode === "halt") === halted));
+}
+$("fleet-modes").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-mode]");
+  if (!b) return;
+  const halt = b.dataset.mode === "halt";
+  if (halt === !!fleetStatus.paused) return;
+  try {
+    await api("POST", halt ? "/api/fleet/pause" : "/api/fleet/resume", {});
+    await loadBridge();
+    renderFleetModes();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+subscribe("bridge", () => { renderFleetModes(); renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
 subscribe("dispatch", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
 subscribe("approvals", () => { renderTiles(); renderTriage(); });
 

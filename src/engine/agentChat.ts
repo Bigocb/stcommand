@@ -54,7 +54,7 @@ A few real examples the captain may care about:
 - "What's trading in system X?" — if the store has no data for that system, call scan_system_markets to pull live prices, then answer from the fresh data.
 - "How far is it between waypoints?" — call get_waypoint_coords for the system, then get_distance for the leg(s).
 
-You never act on the fleet directly. To change a ship's role or hold/release a ship, call propose_fleet_action: it queues the action and returns an id. Nothing runs until the captain confirms, so tell the captain the id and that they can reply "/confirm <id>" or "/cancel <id>". You cannot buy or sell ships, dispatch or jump ships, or change doctrine. You cannot touch code, deploys or infrastructure; if asked, say that is outside the co-pilot's remit.`;
+You never act on the fleet directly. To change a ship's role or hold/release a ship, call propose_fleet_action (for the whole fleet, pause_fleet or resume_fleet): it queues the action and returns an id. Nothing runs until the captain confirms, so tell the captain the id and that they can reply "/confirm <id>" or "/cancel <id>". You cannot buy or sell ships, dispatch or jump ships, or change doctrine. You cannot touch code, deploys or infrastructure; if asked, say that is outside the co-pilot's remit.`;
 
 /** Default model for the co-pilot. */
 const DEFAULT_MODEL = "deepseek-v4.1-flash";
@@ -67,7 +67,7 @@ const DEFAULT_MODEL = "deepseek-v4.1-flash";
 /** A fleet change the co-pilot has proposed and the captain has not yet confirmed. */
 export interface ProposedAction {
   id: string;
-  kind: "set_role" | "hold" | "release";
+  kind: "set_role" | "hold" | "release" | "pause_fleet" | "resume_fleet";
   shipSymbol: string;
   role?: string;
   keeperMarket?: string;
@@ -122,12 +122,12 @@ export class ChatAgent {
   private proposeTool(): ChatTool {
     return {
       name: "propose_fleet_action",
-      description: "Queue a change to one ship for the captain to confirm: set_role (needs role), hold, or release. Returns an id. Nothing happens until the captain replies /confirm <id>.",
+      description: "Queue a change for the captain to confirm: set_role (needs role), hold or release (one ship), or pause_fleet / resume_fleet (the whole fleet, AUTO/HALT). Returns an id. Nothing happens until the captain replies /confirm <id>.",
       parameters: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["set_role", "hold", "release"] },
-          shipSymbol: { type: "string", description: "e.g. THEO-B1" },
+          kind: { type: "string", enum: ["set_role", "hold", "release", "pause_fleet", "resume_fleet"] },
+          shipSymbol: { type: "string", description: "e.g. THEO-B1; not used for pause_fleet or resume_fleet" },
           role: { type: "string", enum: [...COPILOT_ROLES] },
           keeperMarket: { type: "string", description: "Only for role keeper: the market waypoint to camp" },
         },
@@ -137,7 +137,13 @@ export class ChatAgent {
       execute: async (args) => {
         const kind = args.kind;
         const shipSymbol = typeof args.shipSymbol === "string" ? args.shipSymbol.trim().toUpperCase() : "";
-        if (kind !== "set_role" && kind !== "hold" && kind !== "release") return "Error: kind must be set_role, hold or release";
+        if (kind === "pause_fleet" || kind === "resume_fleet") {
+          const id = randomBytes(3).toString("hex");
+          const summary = kind === "pause_fleet" ? "halt the whole fleet (AUTO/HALT: HALT)" : "resume the whole fleet (AUTO/HALT: AUTO)";
+          this.proposals.set(id, { id, kind, shipSymbol: "", summary, createdAt: Date.now() });
+          return `Queued: ${summary}. Proposal id ${id}. The captain must reply "/confirm ${id}" to run it, or "/cancel ${id}" to drop it.`;
+        }
+        if (kind !== "set_role" && kind !== "hold" && kind !== "release") return "Error: kind must be set_role, hold, release, pause_fleet or resume_fleet";
         if (!/^[A-Z0-9-]{1,40}$/.test(shipSymbol)) return "Error: shipSymbol looks wrong";
         const role = typeof args.role === "string" ? args.role : undefined;
         const keeperMarket = typeof args.keeperMarket === "string" ? args.keeperMarket : undefined;
