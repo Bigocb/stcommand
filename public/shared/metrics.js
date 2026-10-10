@@ -125,6 +125,10 @@ export function mountMetrics(root, { api, netWorth } = {}) {
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Credits</span><span class="count mx-legend" id="mx-wallet-h"></span></div><div class="panel-b mx-chart" id="mx-wallet"></div></div>
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Net trading per interval</span><span class="count" id="mx-net-h"></span></div><div class="panel-b mx-chart" id="mx-net"></div></div>
     </div>
+    <div class="cols2 mx-charts">
+      <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Buying per interval</span><span class="count" id="mx-buy-h"></span></div><div class="panel-b mx-chart" id="mx-buy"></div></div>
+      <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Average price paid per unit</span><span class="count" id="mx-price-h"></span></div><div class="panel-b mx-chart" id="mx-price"></div></div>
+    </div>
     <div class="panel mx-proj"><div class="panel-h"><span class="dot"></span><span class="title">Pace to reset</span><span class="count">straight line at the window's rate</span></div><div class="panel-b" id="mx-proj"></div></div>
     <div class="cols3 mx-tables">
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">By good</span></div><div class="panel-b" style="padding:0" id="mx-goods"></div></div>
@@ -156,6 +160,16 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     $("mx-wallet").innerHTML = lineChart("Credits over time", data.buckets, data.buckets.map((b) => b.wallet), data.hours, "var(--amber)", { values: worthSeries, color: "var(--ice)" });
     $("mx-net-h").textContent = signed(t.net);
     $("mx-net").innerHTML = barChart("Net trading per interval", data.buckets, data.buckets.map((b) => b.net), data.hours);
+    // Buying pattern: what cargo cost per interval, and the average price paid per unit. A rising price line under
+    // steady buying is our own volume pushing the market up; a jump with no buying is the market moving on its own.
+    const buyTotal = data.buckets.reduce((a, b) => a + b.spend, 0);
+    const unitsTotal = data.buckets.reduce((a, b) => a + b.unitsBought, 0);
+    $("mx-buy-h").textContent = `${compact(buyTotal)} · ${compact(unitsTotal)} units`;
+    $("mx-buy").innerHTML = barChart("Buying per interval", data.buckets, data.buckets.map((b) => b.spend), data.hours);
+    const prices = data.buckets.map((b) => b.avgBuy ?? null);
+    const firstP = prices.find((v) => v !== null), lastP = prices.filter((v) => v !== null).at(-1);
+    $("mx-price-h").textContent = firstP === undefined ? "no buys yet" : `${fmt(firstP)} → ${fmt(lastP)} per unit`;
+    $("mx-price").innerHTML = lineChart("Average price paid per unit", data.buckets, prices, data.hours, "var(--amber)");
 
     // Pace to reset
     const target = Number(lsGet("metricsTarget", String(DEFAULT_TARGET))) || DEFAULT_TARGET;

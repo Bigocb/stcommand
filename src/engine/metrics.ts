@@ -43,7 +43,12 @@ export interface MetricsBucket {
   /** Net trading summed from the start of the window to the end of this bucket. */
   cumNet: number;
   revenue: number;
+  /** Credits spent on cargo in this bucket (purchases only; ship buys are not here). */
   spend: number;
+  /** Units of cargo bought in this bucket. */
+  unitsBought: number;
+  /** Average price paid per unit bought in this bucket, or null when nothing was bought. Rising over a window is our own buying pushing the market up. */
+  avgBuy: number | null;
   sells: number;
   /** Credits at the end of the bucket (carried forward when no row carried one), or null before any is known. */
   wallet: number | null;
@@ -145,7 +150,7 @@ export function buildMetrics(rows: readonly LedgerRow[], opts: MetricsOptions): 
   const windowHours = (count * size) / HOUR;
 
   // Buckets: per-bucket totals, then running sums and the wallet carried forward.
-  const buckets: MetricsBucket[] = Array.from({ length: count }, (_, i) => ({ t: from + i * size, net: 0, cumNet: 0, revenue: 0, spend: 0, sells: 0, wallet: null }));
+  const buckets: MetricsBucket[] = Array.from({ length: count }, (_, i) => ({ t: from + i * size, net: 0, cumNet: 0, revenue: 0, spend: 0, unitsBought: 0, avgBuy: null, sells: 0, wallet: null }));
   // The wallet before the window starts, so the line does not begin blank.
   const lastWalletBefore = rows.filter((r) => r.ts < from && r.wallet !== null).sort((a, b) => a.ts - b.ts).at(-1)?.wallet ?? null;
   let wallet: number | null = lastWalletBefore;
@@ -154,13 +159,14 @@ export function buildMetrics(rows: readonly LedgerRow[], opts: MetricsOptions): 
   for (const r of inWindow) {
     const b = buckets[Math.min(count - 1, Math.floor((r.ts - from) / size))]!;
     if (r.type === "SELL") { b.revenue += r.total; b.sells += 1; b.net += r.pnl ?? 0; }
-    else if (r.type === "PURCHASE") b.spend += r.total;
+    else if (r.type === "PURCHASE") { b.spend += r.total; b.unitsBought += r.units; }
     else if (r.type === "REFUEL" || r.type === "JUMP") b.net -= r.total;
     if (r.wallet !== null) lastWalletInBucket[Math.min(count - 1, Math.floor((r.ts - from) / size))] = r.wallet;
   }
   let cum = 0;
   buckets.forEach((b, i) => {
     cum += b.net;
+    b.avgBuy = b.unitsBought > 0 ? rnd(b.spend / b.unitsBought) : null;
     b.net = rnd(b.net); b.cumNet = rnd(cum); b.revenue = rnd(b.revenue); b.spend = rnd(b.spend);
     wallet = lastWalletInBucket[i] ?? wallet;
     b.wallet = wallet;

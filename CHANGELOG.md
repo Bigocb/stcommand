@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Metrics: buying pattern charts
+
+Two new charts on the Metrics tab, over the same range as the others. "Buying per interval" shows credits spent on
+cargo in each interval (ship purchases are left out, they have their own figure). "Average price paid per unit" is
+the price we paid per unit in each interval, with the first and last values in the header. Under steady buying a
+rising price line means our own volume is pushing the market up, which is the pattern to watch for.
+
 ## 2026-10-10 — Co-pilot can propose fleet changes; you confirm each one
 
 The chat co-pilot could only read the fleet. It can now propose two kinds of change: setting a ship's role (including

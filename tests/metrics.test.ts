@@ -8,6 +8,19 @@ const row = (over: Partial<LedgerRow>): LedgerRow => ({ ts: NOW - 1000, ship: "T
 const opts = { now: NOW, hours: 2, bucketMinutes: 60 };
 
 describe("buildMetrics", () => {
+  it("buckets cargo purchases into units and average price paid, so a rising price shows as a line", () => {
+    const m = buildMetrics([
+      row({ type: "PURCHASE", ts: NOW - 2 * H + 1000, total: 1000, units: 10, pnl: null }),
+      row({ type: "PURCHASE", ts: NOW - 2 * H + 2000, total: 1200, units: 10, pnl: null }),
+      row({ type: "PURCHASE", ts: NOW - H + 1000, total: 900, units: 10, pnl: null }),
+      row({ type: "SHIP", ts: NOW - H + 1500, total: 5000, pnl: null, good: "SHIP_LIGHT_HAULER" }),
+    ], opts);
+    assert.deepEqual(m.buckets.map((b) => b.unitsBought), [20, 10]);
+    assert.deepEqual(m.buckets.map((b) => b.spend), [2200, 900]);
+    assert.deepEqual(m.buckets.map((b) => b.avgBuy), [110, 90]);
+  });
+
+
   it("counts realized profit less fuel and jumps as net trading, and keeps ships and scrap out of it", () => {
     const m = buildMetrics([
       row({}),
