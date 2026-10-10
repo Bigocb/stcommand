@@ -2,7 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import { APIError } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
-import { findJumpPath, MAX_POSITIONING_HOPS } from "./jumpGraph.js";
+import { findJumpPath, MAX_POSITIONING_HOPS, MAX_POSITIONING_HOPS_CEILING } from "./jumpGraph.js";
 
 export type Waypoint = components["schemas"]["Waypoint"];
 export type JumpGate = components["schemas"]["JumpGate"];
@@ -292,7 +292,7 @@ export class GalaxyAtlas {
 
   /**
    * Shortest chain of systems from `from` to `to` (both included) over usable
-   * edges, at most MAX_POSITIONING_HOPS jumps, or undefined. Synchronous and
+   * edges, at most the positioning-hops setting jumps, or undefined. Synchronous and
    * cache-only: call warmJumpPath() first to populate the cache.
    */
   jumpPath(from: string, to: string): string[] | undefined {
@@ -301,14 +301,25 @@ export class GalaxyAtlas {
     // whenever a system, gate connection or gate construction status changes, so an answer is never older than the data.
     const key = `${from}>${to}`;
     if (this.pathCache.has(key)) return this.pathCache.get(key)?.slice();
-    const path = findJumpPath(from, to, (s) => this.usableNeighbors(s), MAX_POSITIONING_HOPS);
+    const path = findJumpPath(from, to, (s) => this.usableNeighbors(s), this.positioningHops);
     this.pathCache.set(key, path);
     return path?.slice();
   }
   private readonly pathCache = new Map<string, string[] | undefined>();
+  /** Gate jumps a positioning path may take. Set from the "Positioning jumps" doctrine clause; clamped to the ceiling. */
+  private positioningHops = MAX_POSITIONING_HOPS;
+  get maxPositioningHops(): number {
+    return this.positioningHops;
+  }
+  setPositioningHops(hops: number): void {
+    const next = Math.min(MAX_POSITIONING_HOPS_CEILING, Math.max(1, Math.floor(hops)));
+    if (next === this.positioningHops) return;
+    this.positioningHops = next;
+    this.pathCache.clear();
+  }
 
   /**
-   * Load and verify every gate within MAX_POSITIONING_HOPS of `from`, so that
+   * Load and verify every gate within the positioning-hops setting of `from`, so that
    * jumpPath() can answer for any destination in that neighborhood (what the
    * dispatcher needs to consider multi-hop routes without a per-route warm-up).
    * Bounded like warmJumpPath(): MAX_WARM_SYSTEMS systems per call, and cache-
@@ -320,7 +331,7 @@ export class GalaxyAtlas {
     const visited = new Set<string>([from]);
     let frontier = [from];
     let looked = 0;
-    for (let depth = 0; depth <= MAX_POSITIONING_HOPS && frontier.length > 0 && looked < MAX_WARM_SYSTEMS; depth++) {
+    for (let depth = 0; depth <= this.positioningHops && frontier.length > 0 && looked < MAX_WARM_SYSTEMS; depth++) {
       const next: string[] = [];
       for (const sys of frontier) {
         if (looked >= MAX_WARM_SYSTEMS) break;
@@ -338,7 +349,7 @@ export class GalaxyAtlas {
               .map((jg) => this.refreshGateConstruction(sys, jg.symbol)),
           );
         }
-        if (depth === MAX_POSITIONING_HOPS) continue;
+        if (depth === this.positioningHops) continue;
         for (const n of this.connectedSystems(sys)) {
           if (visited.has(n)) continue;
           visited.add(n);
@@ -354,7 +365,7 @@ export class GalaxyAtlas {
    * Make jumpPath(from, to) answerable: breadth-first, scan each frontier
    * system's gates (cache-aware, so already-known systems cost nothing) and
    * check construction status of the gates it finds, to at most
-   * MAX_POSITIONING_HOPS levels and MAX_WARM_SYSTEMS systems — bounded so a
+   * the positioning-hops setting levels and MAX_WARM_SYSTEMS systems — bounded so a
    * stray request can't turn into an API flood. Returns the path, if any.
    */
   async warmJumpPath(from: string, to: string): Promise<string[] | undefined> {
@@ -364,7 +375,7 @@ export class GalaxyAtlas {
     const visited = new Set<string>([from]);
     let frontier = [from];
     let budget = MAX_WARM_SYSTEMS;
-    for (let depth = 0; depth < MAX_POSITIONING_HOPS && frontier.length > 0 && budget > 0; depth++) {
+    for (let depth = 0; depth < this.positioningHops && frontier.length > 0 && budget > 0; depth++) {
       const next: string[] = [];
       for (const sys of frontier) {
         if (budget-- <= 0) break;

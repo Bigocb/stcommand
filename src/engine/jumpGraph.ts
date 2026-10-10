@@ -1,12 +1,14 @@
 /**
- * Multi-hop jump paths between systems, with a hard cap.
+ * Multi-hop jump paths between systems, with a hard ceiling.
  *
- * The cap is a code constant on purpose, not a setting: it is the one number
- * that bounds how much a mistaken cross-system assignment can burn (a jump is
- * ~5,000-5,700c), so changing it should be a reviewed commit. See the
- * "Cross-System Trading: PRD and Design" doc.
+ * The working limit is the "Positioning jumps" doctrine clause (default 3,
+ * GalaxyAtlas.setPositioningHops()). The ceiling is a code constant on purpose,
+ * not a setting: it bounds how much a mistaken cross-system assignment can burn
+ * (a jump is ~5,000-5,700c), so raising it past this should be a reviewed commit.
+ * See the "Cross-System Trading: PRD and Design" doc.
  */
 export const MAX_POSITIONING_HOPS = 3;
+export const MAX_POSITIONING_HOPS_CEILING = 5;
 
 /**
  * Shortest path from `from` to `to` (inclusive of both ends) over a graph the
@@ -22,8 +24,8 @@ export function findJumpPath(
   neighbors: (system: string) => string[],
   maxHops: number = MAX_POSITIONING_HOPS,
 ): string[] | undefined {
-  // Never honor a larger bound than the constant, whatever a caller passes.
-  const limit = Math.min(maxHops, MAX_POSITIONING_HOPS);
+  // Never honor a larger bound than the ceiling, whatever a caller passes.
+  const limit = Math.min(maxHops, MAX_POSITIONING_HOPS_CEILING);
   if (from === to) return [from];
   const prev = new Map<string, string>();
   const seen = new Set<string>([from]);

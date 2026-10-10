@@ -1655,11 +1655,28 @@ export class FleetManager {
     // something it could ever actually complete.
     const charted = new Set(this.chartedSystems);
     const chain = await this.gateChainGoods();
-    const legs = ((await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [])
-      .filter((l) => charted.has(l.buySystem) && charted.has(l.sellSystem))
+    // Every leg dropped on the way to the route list is counted by reason, so dispatch_explain can say why a route
+    // never reached the dispatcher (routeBuildReport()). Legs the store's own query already drops are not visible here.
+    const drops = new Map<string, number>();
+    const dropSample: { reason: string; good: string; buyAt: string; sellAt: string; profitPerTrip?: number }[] = [];
+    const drop = (reason: string, good: string, buyAt: string, sellAt: string, profitPerTrip?: number): void => {
+      drops.set(reason, (drops.get(reason) ?? 0) + 1);
+      if (dropSample.length < 80) dropSample.push({ reason, good, buyAt, sellAt, profitPerTrip });
+    };
+    const storedLegs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
+    const legs = storedLegs
+      .filter((l) => {
+        if (charted.has(l.buySystem) && charted.has(l.sellSystem)) return true;
+        drop("a market system this tenant has not charted", l.goodSymbol, l.buyAt, l.sellAt);
+        return false;
+      })
       // The gate's own supply chain is not for margin trading (see gateChainGoods()), except a leg that sells the good
       // to a market making another link of the chain from it.
-      .filter((l) => !chain.goods.has(l.goodSymbol) || (chain.sinks.get(l.goodSymbol)?.has(l.sellAt) ?? false));
+      .filter((l) => {
+        if (!chain.goods.has(l.goodSymbol) || (chain.sinks.get(l.goodSymbol)?.has(l.sellAt) ?? false)) return true;
+        drop("the gate's supply chain (kept for construction, not margin trading)", l.goodSymbol, l.buyAt, l.sellAt);
+        return false;
+      });
     // A single purchaseCargo() call is capped at the market's own advertised
     // trade volume — l.volume above, straight from tradeLegs()'s
     // LEAST(b.trade_volume, s.trade_volume) — but that is a per-*transaction*
@@ -1708,7 +1725,7 @@ export class FleetManager {
     // via the canJump predicate passed to it below; runBuy()/runSell()/
     // runHaul() check their own side against the warehouse ship's system
     // independently in trader.ts.
-    return legs
+    const built = legs
       .map((l): DispatchRoute | null => {
         const crossSystem = l.buySystem !== l.sellSystem;
         // Waypoint coordinates are per-system — Math.hypot() between a
@@ -1725,7 +1742,10 @@ export class FleetManager {
         const dist = a && b ? Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y))) : null;
         // A same-system leg with no known coordinates used to price its fuel at 0 and read as pure
         // profit. Without a distance we cannot cost it, so don't offer it.
-        if (!crossSystem && dist === null) return null;
+        if (!crossSystem && dist === null) {
+          drop("same-system leg with no known coordinates", l.goodSymbol, l.buyAt, l.sellAt);
+          return null;
+        }
         const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
         // Real depth beyond a market's own advertised trade volume is not
         // unlimited: each successive lot draws down supply and moves the
@@ -1805,9 +1825,22 @@ export class FleetManager {
           ageMinutes: Math.round((Date.now() - new Date(l.stalestIso).getTime()) / 60_000),
         };
       })
-      .filter((r): r is DispatchRoute => r !== null && r.profitPerTrip > 0)
+      .filter((r): r is DispatchRoute => {
+        if (r === null) return false;
+        if (r.profitPerTrip > 0) return true;
+        drop("not profitable after fuel, slippage and jump costs", r.good, r.buyAt, r.sellAt, r.profitPerTrip);
+        return false;
+      })
       .sort((a, b) => routePerHour(b) - routePerHour(a));
+    this.routeBuild = { at: Date.now(), storedLegs: storedLegs.length, offered: built.length, dropped: Object.fromEntries(drops), sample: dropSample };
+    return built;
   }
+
+  /** The last route-list build: how many stored legs it started from, how many routes it offered, and why the rest were dropped. */
+  routeBuildReport(): typeof this.routeBuild {
+    return this.routeBuild;
+  }
+  private routeBuild: { at: number; storedLegs: number; offered: number; dropped: Record<string, number>; sample: { reason: string; good: string; buyAt: string; sellAt: string; profitPerTrip?: number }[] } | undefined;
 
   /** Refresh a system's waypoints, markets and shipyards (used after jumping/scouting). */
   async surveySystem(systemSymbol: string): Promise<void> {
@@ -7597,6 +7630,8 @@ export class FleetManager {
         return;
       }
       // Centralized route dispatch: recompute distinct per-trader assignments.
+      // The positioning-jump limit is doctrine (the path search and the trader's own messages read it from the galaxy).
+      this.galaxy.setPositioningHops(this.doctrine.value("positioningHops", 3));
       const routes = await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes());
       const [warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets] = await this.timed("computeTargets", () => Promise.all([
         this.computeWarehouseTargets(routes),

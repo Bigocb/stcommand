@@ -310,8 +310,10 @@ export const OPS_TOOLS: OpsTool[] = [
     input: { ship: z.string().optional(), good: z.string().optional(), limit: num(30) },
     async run(ctx, a) {
       const snap = ctx.w.fleet.dispatcher.explain();
-      if (!snap) return { note: "The dispatcher has not completed a cycle since this process started." };
-      return selectExplain(snap, { ship: a.ship, good: a.good, limit: a.limit });
+      // routeBuild explains the route list itself: legs dropped before the dispatcher, by reason, with a sample.
+      const routeBuild = ctx.w.fleet.routeBuildReport();
+      if (!snap) return { note: "The dispatcher has not completed a cycle since this process started.", routeBuild };
+      return { ...selectExplain(snap, { ship: a.ship, good: a.good, limit: a.limit }), routeBuild };
     },
   },
 ];

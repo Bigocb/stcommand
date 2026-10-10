@@ -9,7 +9,6 @@ import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.
 import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
-import { MAX_POSITIONING_HOPS } from "./jumpGraph.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -537,7 +536,7 @@ export class TraderAgent {
   }
 
   /** Systems this ship would cross to get from `fromSystem` to `toSystem`
-   *  (both included), at most MAX_POSITIONING_HOPS jumps over gates verified
+   *  (both included), at most the positioning-hops setting jumps over gates verified
    *  complete at both ends, or undefined. Used for the *positioning* leg —
    *  getting an empty ship to a route's start. The buy->sell leg of a trade
    *  stays single-hop (systemsConnected). */
@@ -574,7 +573,7 @@ export class TraderAgent {
       const path = await this.atlas.warmJumpPath(here, toSystem);
       this.log(path
         ? `cross-system path ${path.join(" -> ")} (${path.length - 1} hop${path.length === 2 ? "" : "s"})`
-        : `no verified gate path from ${here} to ${toSystem} within ${MAX_POSITIONING_HOPS} hops`);
+        : `no verified gate path from ${here} to ${toSystem} within ${this.atlas?.maxPositioningHops ?? 3} hops`);
     } catch (err) {
       this.log(`path check ${here} -> ${toSystem} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -696,7 +695,7 @@ export class TraderAgent {
       const path = this.positioningPath(from, targetSystem);
       if (!path || path.length < 2) {
         this.markRouteUnreachable(targetSystem);
-        throw new Error(`no verified gate path (<= ${MAX_POSITIONING_HOPS} hops) from ${from} to ${targetSystem}`);
+        throw new Error(`no verified gate path (<= ${this.atlas?.maxPositioningHops ?? 3} hops) from ${from} to ${targetSystem}`);
       }
       this.log(`cross-system: hop 1/${path.length - 1} ${from} -> ${path[1]} (en route to ${targetSystem})`);
       await this.jumpToSystem(path[1]!, waypoint, true);
@@ -1263,9 +1262,9 @@ export class TraderAgent {
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
     const crossSystem = buySystem !== sellSystem;
-    if (!this.positioningPath(buySystem, sellSystem)) return `no verified gate path (<= ${MAX_POSITIONING_HOPS} hops) between buy system ${buySystem} and sell system ${sellSystem}`;
+    if (!this.positioningPath(buySystem, sellSystem)) return `no verified gate path (<= ${this.atlas?.maxPositioningHops ?? 3} hops) between buy system ${buySystem} and sell system ${sellSystem}`;
     if (!this.positioningPath(this.systemOf(this.ship.nav.waypointSymbol), buySystem))
-      return `no verified gate path (<= ${MAX_POSITIONING_HOPS} hops) to buy system ${buySystem} from ${this.ship.nav.systemSymbol}`;
+      return `no verified gate path (<= ${this.atlas?.maxPositioningHops ?? 3} hops) to buy system ${buySystem} from ${this.ship.nav.systemSymbol}`;
     if (this.ship.fuel.capacity > 0) {
       // Mirrors viableRoute()'s own check exactly (see its 2026-09-21
       // comment): a leg longer than one tank isn't automatically unflyable
@@ -1315,7 +1314,7 @@ export class TraderAgent {
     // GalaxyAtlas.canJump() is the one place that answers that, backed by a
     // cache FleetManager.tick() refreshes on a slow interval rather than a
     // live call from this hot scoring path.
-    // Up to MAX_POSITIONING_HOPS gate hops between the two markets (the
+    // Up to the positioning-hops setting of gate hops between the two markets (the
     // executor steps one hop per navigateTo(), carrying the cargo along).
     if (!this.positioningPath(buySystem, sellSystem)) return undefined;
     // ...and that this ship can reach the *start* of the leg.

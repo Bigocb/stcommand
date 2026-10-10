@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { findJumpPath, MAX_POSITIONING_HOPS } from "../src/engine/jumpGraph.js";
+import { findJumpPath, MAX_POSITIONING_HOPS, MAX_POSITIONING_HOPS_CEILING } from "../src/engine/jumpGraph.js";
 import { GalaxyAtlas, type GalaxyStore } from "../src/engine/galaxy.js";
 
 const chain = (edges: [string, string][]) => (s: string) =>
@@ -23,9 +23,11 @@ describe("findJumpPath", () => {
     assert.equal(findJumpPath("A", "E", n), undefined, "4 hops is over the cap");
   });
 
-  it("never honors a caller bound above the cap", () => {
-    const n = chain([["A", "B"], ["B", "C"], ["C", "D"], ["D", "E"]]);
-    assert.equal(findJumpPath("A", "E", n, 10), undefined);
+  it("never honors a caller bound above the ceiling", () => {
+    assert.equal(MAX_POSITIONING_HOPS_CEILING, 5);
+    const n = chain([["A", "B"], ["B", "C"], ["C", "D"], ["D", "E"], ["E", "F"], ["F", "G"]]);
+    assert.deepEqual(findJumpPath("A", "F", n, 10), ["A", "B", "C", "D", "E", "F"], "5 hops is the ceiling and is allowed");
+    assert.equal(findJumpPath("A", "G", n, 10), undefined, "6 hops is over the ceiling, whatever the caller asks");
   });
 
   it("terminates on cycles and returns undefined when unreachable", () => {
@@ -65,6 +67,16 @@ describe("GalaxyAtlas.jumpPath / warmJumpPath", () => {
   it("an incomplete gate anywhere on the chain closes the path", async () => {
     const atlas = await atlasWith((g) => g !== "X1-C-GATE");
     assert.equal(await atlas.warmJumpPath("X1-A", "X1-C"), undefined);
+  });
+
+  it("the positioning-hops setting bounds the search, and is clamped to the ceiling", async () => {
+    const atlas = await atlasWith(() => true);
+    assert.equal(atlas.maxPositioningHops, MAX_POSITIONING_HOPS, "the default is the old fixed limit");
+    atlas.setPositioningHops(1);
+    assert.equal(await atlas.warmJumpPath("X1-A", "X1-C"), undefined, "one jump does not reach C through B");
+    atlas.setPositioningHops(99);
+    assert.equal(atlas.maxPositioningHops, MAX_POSITIONING_HOPS_CEILING);
+    assert.deepEqual(await atlas.warmJumpPath("X1-A", "X1-C"), ["X1-A", "X1-B", "X1-C"], "a raised limit finds it again");
   });
 
   it("recordGateNotComplete() reopens the question: the path disappears", async () => {
