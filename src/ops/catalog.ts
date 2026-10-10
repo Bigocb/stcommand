@@ -4,6 +4,7 @@ import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { deadheadFromTrades } from "../engine/deadhead.js";
+import { heapReport, heapStart, heapStop, profileCpu, runtimeStatus } from "./profiler.js";
 import type { OpsTool } from "./types.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
@@ -164,6 +165,23 @@ export const OPS_TOOLS: OpsTool[] = [
       const counts = { covered: 0, enroute: 0, pending: 0 };
       for (const m of rep.markets) if (m.status in counts) counts[m.status as keyof typeof counts]++;
       return { asOf: iso(ctx.now()), counts, duplicates: rep.duplicates, uncoveredPriority: rep.uncoveredPriority, markets: rep.markets };
+    },
+  },
+
+  {
+    name: "profile",
+    title: "Where the server's CPU and memory go",
+    description:
+      "Profile this server process in place. action=status: memory, V8 heap, event-loop delay (is it CPU-bound?). action=cpu (seconds, default 15, max 30): self time by function and by file while it runs. action=heap_start then, minutes later, heap_report: bytes still live that were allocated since the start, by allocating function and call stack (what is growing); heap_stop when done. Read-only apart from the sampling overhead; do not leave the heap sampling running for hours.",
+    input: { action: z.enum(["status", "cpu", "heap_start", "heap_report", "heap_stop"]).optional().default("status"), seconds: num(15) },
+    async run(_ctx, a) {
+      switch (a.action) {
+        case "cpu": return profileCpu(a.seconds);
+        case "heap_start": return heapStart();
+        case "heap_report": return heapReport();
+        case "heap_stop": return heapStop();
+        default: return runtimeStatus();
+      }
     },
   },
 

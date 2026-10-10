@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## ops_profile: see where the server's CPU and memory go (2026-10-10)
+
+New read-only ops tool `profile` (MCP `stcommand_ops_profile`, HTTP `/api/ops/profile`) built on the Node inspector, with the
+summarizing in `src/ops/profiler.ts` (pure, tested). `status` gives memory, V8 heap and event-loop delay; `cpu` profiles for up
+to 30 s and returns self time by function and file; `heap_start` / `heap_report` / `heap_stop` sample allocations and report
+which functions' live bytes grew since the start, with the calling stack. Added after the Render service (0.5 vCPU, 512 MB)
+went from ~3% to ~47% CPU and from ~180 MB to over 400 MB in a day, with core passes that took seconds taking minutes.
+
 ## Tower: Metrics tab replaces Map (2026-10-10)
 
 Tower's bottom bar swaps Map for Metrics, the same screen as Deck's (`public/shared/metrics.js`) with phone styling in
