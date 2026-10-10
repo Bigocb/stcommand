@@ -125,13 +125,15 @@ function table(headers, rows, empty) {
 
 export function mountMetrics(root, { api, netWorth } = {}) {
   let hours = Number(lsGet("metricsHours", "6")) || 6;
+  // "Since reset" shows the whole current universe instead of a rolling window.
+  let sinceReset = lsGet("metricsSince", "") === "reset";
   let data = null;
   let timer = null;
   let loading = false;
   let error = "";
 
   root.innerHTML = `<div class="mx-bar">
-      <div class="mx-ranges" id="mx-ranges">${RANGES.map((r) => `<button data-h="${r.hours}">${r.label}</button>`).join("")}</div>
+      <div class="mx-ranges" id="mx-ranges">${RANGES.map((r) => `<button data-h="${r.hours}">${r.label}</button>`).join("")}<button data-since="reset">Since reset</button></div>
       <span class="mx-note" id="mx-note"></span>
     </div>
     <div class="kpirow mx-kpis" id="mx-kpis"></div>
@@ -158,12 +160,15 @@ export function mountMetrics(root, { api, netWorth } = {}) {
   const $ = (id) => root.querySelector(`#${id}`);
 
   function render() {
-    for (const b of $("mx-ranges").children) b.classList.toggle("on", Number(b.dataset.h) === hours);
+    for (const b of $("mx-ranges").children) {
+      b.classList.toggle("on", b.dataset.since === "reset" ? sinceReset : !sinceReset && Number(b.dataset.h) === hours);
+    }
     if (error) $("mx-note").textContent = error;
     if (!data) return;
     const t = data.totals, p = data.previous;
     const walletChange = data.walletStart !== null && data.walletEnd !== null ? data.walletEnd - data.walletStart : null;
-    $("mx-note").textContent = `${data.hours}h window, ${data.bucketMinutes} min intervals · updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    const span = sinceReset ? `since reset (${data.hours}h)` : `${data.hours}h window`;
+    $("mx-note").textContent = `${span}, ${data.bucketMinutes} min intervals · updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     const vs = (n, b) => { const d = delta(n, b); return d ? `${d} vs previous ${data.hours}h` : "no earlier window to compare"; };
     $("mx-kpis").innerHTML = [
       kpi("Net trading", signed(t.net), vs(t.net, p.net), cls(t.net), "Realized profit on completed sales, less fuel and jumps"),
@@ -232,7 +237,7 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     if (loading) return;
     loading = true;
     try {
-      data = await api("GET", `/api/metrics?hours=${hours}`);
+      data = await api("GET", sinceReset ? "/api/metrics?since=reset" : `/api/metrics?hours=${hours}`);
       error = "";
     } catch (err) {
       error = `Could not load metrics: ${err.message}`;
@@ -243,10 +248,17 @@ export function mountMetrics(root, { api, netWorth } = {}) {
   }
 
   $("mx-ranges").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-h]");
+    const b = e.target.closest("button[data-h], button[data-since]");
     if (!b) return;
-    hours = Number(b.dataset.h);
-    lsSet("metricsHours", String(hours));
+    if (b.dataset.since) {
+      sinceReset = true;
+      lsSet("metricsSince", "reset");
+    } else {
+      sinceReset = false;
+      hours = Number(b.dataset.h);
+      lsSet("metricsHours", String(hours));
+      lsSet("metricsSince", "");
+    }
     data = null;
     render();
     load();

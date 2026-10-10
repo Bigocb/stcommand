@@ -433,11 +433,25 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     try {
-      // 72 h at most: the query reads twice the window, and the server has 512 MB.
-      const hours = Math.min(72, Math.max(1, Number(req.query.hours) || 6));
       const now = Date.now();
-      // Twice the window: the second half is the comparison.
-      const rows = await w.store.ledgerRowsSince(w.tenantId, new Date(now - 2 * hours * 3600_000).toISOString());
+      // ?since=reset: everything since the start of the current universe. The reset is weekly, so the start is the
+      // next scheduled reset less a week. Rows before it belong to the old universe and are never read.
+      const sinceReset = req.query.since === "reset";
+      let hours: number;
+      let rows;
+      if (sinceReset) {
+        const nextReset = Date.parse(resetWatcherStatus()?.nextReset ?? "");
+        if (!Number.isFinite(nextReset)) return res.status(503).json({ error: "the next server reset is not known yet" });
+        const resetStart = nextReset - 7 * 24 * 3600_000;
+        // A week at most: the universe is weekly, and the ledger read is capped either way.
+        hours = Math.min(168, Math.max(1, Math.ceil((now - resetStart) / 3600_000)));
+        rows = await w.store.ledgerRowsSince(w.tenantId, new Date(resetStart).toISOString());
+      } else {
+        // 72 h at most: the query reads twice the window, and the server has 512 MB.
+        hours = Math.min(72, Math.max(1, Number(req.query.hours) || 6));
+        // Twice the window: the second half is the comparison.
+        rows = await w.store.ledgerRowsSince(w.tenantId, new Date(now - 2 * hours * 3600_000).toISOString());
+      }
       const state = w.state.get();
       const holds: Record<string, number> = {};
       for (const s of state.ships ?? []) holds[s.symbol] = s.cargo?.capacity ?? 0;
