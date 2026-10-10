@@ -167,3 +167,24 @@ markets to trade in, not a better scoring formula. Plan for the next reset:
    tour ship in a system (guard removed 2026-10-09), so use it directly; it walks the gates itself. Only fall back to
    hopping with `jump_ship` plus `release_ship` at the far end if the walk stalls. A jump is ~10 minutes of cooldown.
 
+
+## Build out from the markets you already trade, not across the galaxy (2026-10-10, operator)
+
+The positioning limit (the "Positioning jumps" doctrine clause) capped how far an idle trader may be sent to start a
+route. The default of 3 hops left the MC94 cluster (about 25 markets, four traders working them) unable to take its best
+routes from the home cluster, while its own traders sat on second-rate work. The lesson: a system several gate hops
+from anything you trade in should not be the first place you expand into. Expand outward from where your markets already
+are, one hop at a time, and let the cross-system routes follow the markets you have priced.
+
+- **Position by distance, then by value.** Before raising the clause, check the route list for the good routes you
+  can already fly (`dispatch_explain`, `routeBuild`). If the best unclaimed routes sit three or more hops out, the
+  limit is the reason; if they sit in your current cluster, buy traders for that cluster first.
+- **Each hop costs a jump (about 5,000 credits) and a cooldown before the first sale.** A route that needs four jumps
+  has to earn that back on its first trip. The dispatcher already enforces this (the first trip must out-earn the
+  positioning cost), so a raised limit does not mean every far route is offered.
+- **Raise the limit deliberately, for a run.** Operator, 2026-10-10: the clause went to 5 for this run (ceiling 10 in
+  code) to test whether the MC94 and neighbouring routes come alive. Check the rejection reasons afterwards: a route
+  refused as "the first trip does not cover the N-jump positioning cost" is one the limit is correctly keeping out.
+- **Watch the fuel legs at each gate.** A multi-jump route is refused if its relay through any intermediate system's
+  gates is beyond the tank and no known fuel stop covers it. A cluster with no fuel market between its gates stays
+  closed even under a high limit.
