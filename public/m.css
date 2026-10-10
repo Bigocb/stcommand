@@ -609,3 +609,13 @@ body {
 .mx-projgrid input { width: 100%; background: var(--ground); color: var(--bone); border: 1px solid var(--hair-hi); border-radius: 5px; font: inherit; padding: 5px 7px; }
 .mx-chip { display: inline-block; font-size: 10px; background: var(--raised); border: 1px solid var(--hair); border-radius: 4px; padding: 2px 6px; margin: 0 4px 4px 0; }
 .mx-tip { display: none; }
+
+/* Co-pilot (More tab) */
+.cp-log { max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.cp-msg { padding: 8px 10px; border: 1px solid var(--hair); border-radius: 6px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
+.cp-msg.user { align-self: flex-end; max-width: 85%; color: var(--ice); }
+.cp-msg.assistant { align-self: flex-start; max-width: 95%; }
+.cp-actions { margin-bottom: 8px; }
+.cp-proposal { display: flex; gap: 6px; }
+.cp-proposal .btn { flex: 1; }
+.cp-status { font-size: 12px; color: var(--amber); min-height: 16px; margin-bottom: 8px; }

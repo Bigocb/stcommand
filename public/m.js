@@ -96,7 +96,7 @@ function setTab(name) {
   if (name === "metrics") { metricsScreen ??= mountMetrics($("metrics-root"), { api, netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined) }); metricsScreen.show(); }
   else metricsScreen?.hide();
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
-  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); }
+  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); loadCopilot(); }
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -894,6 +894,59 @@ $("deck-stack").addEventListener("touchend", (e) => {
 function marketsTabActive() {
   return document.querySelector('.screen[data-screen="markets"]')?.classList.contains("on") ?? false;
 }
+/* ── Co-pilot (More tab) ───────────────────────────────────
+ * Chat with the tenant's co-pilot. A proposed fleet change comes back with a
+ * "Queued … id abc123" reply; its Confirm/Cancel buttons send "/confirm <id>" or
+ * "/cancel <id>" as ordinary chat messages, which the server handles itself. */
+let cpBusy = false;
+const cpBubble = (role, text) => `<div class="cp-msg ${role}">${escapeHtml(text)}</div>`;
+function renderCopilotActions(reply) {
+  const m = /Queued: .*?id ([0-9a-f]{6})\b/.exec(reply ?? "");
+  $("cp-actions").innerHTML = m
+    ? `<div class="cp-proposal"><button class="btn pri" data-cp="confirm" data-id="${m[1]}">Confirm ${m[1]}</button><button class="btn ghost" data-cp="cancel" data-id="${m[1]}">Cancel</button></div>`
+    : "";
+}
+async function loadCopilot() {
+  try {
+    const { messages } = await api("GET", "/api/chat/history");
+    $("cp-log").innerHTML = (messages ?? []).filter((x) => x.role === "user" || x.role === "assistant").slice(-30)
+      .map((x) => cpBubble(x.role, x.content)).join("") || '<div class="empty">Ask about the fleet, prices or routes.</div>';
+    $("cp-log").scrollTop = $("cp-log").scrollHeight;
+  } catch (e) { $("cp-status").textContent = e.message; }
+}
+async function sendCopilot(message) {
+  if (!message || cpBusy) return;
+  cpBusy = true;
+  $("cp-send").disabled = true;
+  $("cp-status").textContent = "co-pilot is thinking…";
+  $("cp-log").insertAdjacentHTML("beforeend", cpBubble("user", message));
+  try {
+    const res = await api("POST", "/api/chat", { message });
+    $("cp-log").insertAdjacentHTML("beforeend", cpBubble("assistant", res.reply ?? ""));
+    $("cp-log").scrollTop = $("cp-log").scrollHeight;
+    renderCopilotActions(res.reply);
+    $("cp-status").textContent = "";
+  } catch (e) {
+    $("cp-status").textContent = e.message;
+  } finally {
+    cpBusy = false;
+    $("cp-send").disabled = false;
+  }
+}
+$("cp-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = $("cp-input").value.trim();
+  if (!text) return;
+  $("cp-input").value = "";
+  sendCopilot(text);
+});
+$("cp-actions").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-cp]");
+  if (!b) return;
+  $("cp-actions").innerHTML = "";
+  sendCopilot(`/${b.dataset.cp} ${b.dataset.id}`);
+});
+
 function moreTabActive() {
   return document.querySelector('.screen[data-screen="more"]')?.classList.contains("on") ?? false;
 }
