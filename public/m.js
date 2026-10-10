@@ -397,61 +397,18 @@ function fmtEta(iso) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function hullCard(row, extraClass) {
-  const cls = row.stranded ? " crit" : row.job === "unassigned" ? " warn" : "";
-  return `
-    <div class="hull ${extraClass}${extraClass === "front" ? cls : ""}">
-      <div class="hd"><span class="sym">${escapeHtml(row.symbol)}</span><span class="role">${escapeHtml(row.role)}</span></div>
-      ${row.job ? `<div class="job">${row.job === "unassigned" ? "unassigned" : "→ " + escapeHtml(row.job)}</div>` : ""}
-      <div class="gauges">
-        <div class="gauge-row"><span class="g-k">Fuel</span><div class="g-track"><div class="g-fill${row.fuelCap && row.fuel / row.fuelCap < 0.25 ? " red" : ""}" style="width:${row.fuelCap ? (row.fuel / row.fuelCap) * 100 : 0}%"></div></div><span class="g-v">${row.fuel}/${row.fuelCap}</span></div>
-        <div class="gauge-row"><span class="g-k">Hold</span><div class="g-track"><div class="g-fill amber" style="width:${row.cargoCap ? (row.cargo / row.cargoCap) * 100 : 0}%"></div></div><span class="g-v"${row.cargoValue ? ` title="${escapeAttr(cargoValueTitle(row.cargoValue))}"` : ""}>${row.cargoCap ? `${row.cargo}/${row.cargoCap}` : "—"}${cargoValueText(row.cargoValue) ? ` <span class="cv">${escapeHtml(cargoValueText(row.cargoValue))}</span>` : ""}</span></div>
-        <div class="gauge-row"><span class="g-k">Hull</span><div class="g-track"><div class="g-fill${row.condition < 50 ? " red" : ""}" style="width:${row.condition}%"></div></div><span class="g-v">${row.condition}%</span></div>
-      </div>
-      <div class="at">${row.stranded ? "STRANDED · " : ""}${escapeHtml(shortWp(row.waypoint))} · ${escapeHtml((row.nav || "idle").replace(/_/g, " ").toLowerCase())} ${row.cooldown ?? ""}</div>
-    </div>`;
-}
-
-function renderDeck() {
-  const rows = fleetRows();
-  if (!rows.length) {
-    $("deck-stack").innerHTML = '<div class="empty">No ships in the register.</div>';
-    $("deck-note").textContent = "";
-    $("fleet-sheet").hidden = true;
-    return;
-  }
-  if (fleetIndex >= rows.length) fleetIndex = 0;
-  $("deck-note").textContent = `hull ${fleetIndex + 1} of ${rows.length}`;
-
-  let html = "";
-  if (rows.length > 2) html += hullCard(rows[(fleetIndex + 2) % rows.length], "back2");
-  if (rows.length > 1) html += hullCard(rows[(fleetIndex + 1) % rows.length], "back1");
-  html += hullCard(rows[fleetIndex], "front");
-  $("deck-stack").innerHTML = html;
-
-  // The deck always pairs a front card with its sheet; the roster (list)
-  // view doesn't — it starts closed and only opens on a tap, since
-  // showing one ship's action sheet the instant you switch to a screen
-  // meant for scanning every ship at once defeats the point of that view.
-  if (fleetView === "deck" || sheetOpen) renderSheet(rows[fleetIndex]);
-  else $("fleet-sheet").hidden = true;
-  tickCooldowns($("deck-stack"));
-}
-
 /* ── Fleet: roster (list) view ───────────────
- * "Who's assigned to what, all in one place" without swiping the deck
- * card by card — every ship as one compact row, tap to open the same
- * sheet the deck uses. Scales to a large fleet by scrolling, not paging.
+ * "Who's assigned to what, all in one place" — every ship as one compact
+ * row, tap to open its sheet. Scales to a large fleet by scrolling.
  */
-let fleetView = "deck";
 let sheetOpen = false;
 
 function renderFleetView() {
-  // Always keeps fleetIndex in bounds and the sheet in sync, even while
-  // the roster is the visible view — the deck stack itself just stays
-  // hidden underneath, which costs nothing worth avoiding.
-  renderDeck();
-  if (fleetView === "list") renderRoster();
+  renderRoster();
+  // The sheet opens only on a tap, so the list view starts with it closed.
+  const rows = fleetRows();
+  if (sheetOpen && rows.length) renderSheet(rows[fleetIndex]);
+  else $("fleet-sheet").hidden = true;
 }
 
 function renderRoster() {
@@ -497,17 +454,6 @@ function renderRoster() {
   tickCooldowns($("roster-scroll"));
 }
 
-$("fleet-seg").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-view]");
-  if (!b) return;
-  fleetView = b.dataset.view;
-  sheetOpen = false;
-  $("fleet-seg").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-  $("fleet-deck-view").hidden = fleetView !== "deck";
-  $("fleet-roster-view").hidden = fleetView !== "list";
-  renderFleetView();
-});
-
 $("roster-scroll").addEventListener("click", (e) => {
   const g = e.target.closest("button.roster-grp[data-grp]");
   if (g) { toggleCollapsed(g.dataset.grp); renderRoster(); return; }
@@ -541,10 +487,8 @@ function renderSheet(row) {
   if (active && $("sheet-actions").contains(active) && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName)) return;
   sheetShip = row.symbol;
   $("fleet-sheet").hidden = false;
-  // Deck's sheet is a fixed pairing with the front card — no point closing
-  // it there, since the next card just replaces it. List's sheet is a
-  // transient popover over a scan view, so it gets the explicit close.
-  $("sheet-close").hidden = fleetView !== "list";
+  // The fleet sheet is a transient popover over the list, so it gets the explicit close.
+  $("sheet-close").hidden = false;
   $("sheet-who").textContent = row.symbol;
   $("sheet-sub").innerHTML = `${escapeHtml(row.role)} · ${escapeHtml((row.nav || "idle").replace(/_/g, " ").toLowerCase())} · ${escapeHtml(shortWp(row.waypoint))} ${row.cooldown ?? ""}`;
   tickCooldowns($("sheet-sub"));
@@ -888,28 +832,6 @@ $("sheet-handle").addEventListener("click", () => {
   const collapsed = $("sheet-actions").hidden;
   $("sheet-actions").hidden = !collapsed;
   $("sheet-sub").hidden = !collapsed;
-});
-
-function deckStep(delta) {
-  const rows = fleetRows();
-  if (!rows.length) return;
-  fleetIndex = (fleetIndex + delta + rows.length) % rows.length;
-  closeSheetForms();
-  renderFleetView();
-}
-$("deck-prev").addEventListener("click", () => deckStep(-1));
-$("deck-next").addEventListener("click", () => deckStep(1));
-
-// Swipe, in addition to the Prev/Next buttons — a deck should feel
-// swipeable, but a tap target is the accessible/discoverable fallback.
-let deckTouchStartX = null;
-$("deck-stack").addEventListener("touchstart", (e) => { deckTouchStartX = e.touches[0].clientX; }, { passive: true });
-$("deck-stack").addEventListener("touchend", (e) => {
-  if (deckTouchStartX == null) return;
-  const dx = e.changedTouches[0].clientX - deckTouchStartX;
-  deckTouchStartX = null;
-  if (Math.abs(dx) < 40) return;
-  deckStep(dx < 0 ? 1 : -1);
 });
 
 function marketsTabActive() {
