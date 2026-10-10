@@ -53,6 +53,8 @@ function makeFakeApi(agentSymbol: string, credits = 50_000): SpaceTradersAPI {
     getShipyard: unexpected("getShipyard"),
     listAllShips: async () => [],
     getContracts: async () => [],
+    // FleetManager registers a market listener at construction; the fake never fetches markets, so it is a no-op.
+    onMarket: () => {},
   } as unknown as SpaceTradersAPI;
 }
 
@@ -245,6 +247,42 @@ describe("POST /api/chat", () => {
       body: JSON.stringify({ message: "" }),
     });
     assert.equal(res.status, 400);
+  });
+
+  it("/confirm and /cancel run server-side: a proposal runs once, cancel drops it, and the model is never called", async () => {
+    const symbol = `DASH-CONFIRM-${Date.now()}`;
+    const tenant = await findOrCreateTenant(pool, symbol, "st-token-confirm");
+    tenantIds.push(tenant.id);
+    await setTenantLlmConfig(pool, tenant.id, { provider: "openai", model: "gpt-5", apiKey: "sk-test" });
+    const sessionId = await createSession(pool, tenant.id);
+    const confirmCookie = `${SESSION_COOKIE_NAME}=${signSessionCookie(sessionId)}`;
+    const send = async (message: string) => {
+      const r = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: confirmCookie },
+        body: JSON.stringify({ message }),
+      });
+      return { status: r.status, body: (await r.json()) as { reply?: string } };
+    };
+    const worker = await registry.getOrCreate(tenant.id, symbol);
+    const propose = async (kind: string) => {
+      const tool = worker.chat!.getTools().find((t) => t.name === "propose_fleet_action")!;
+      const text = await tool.execute({ kind, shipSymbol: "THEO-TEST" });
+      return /id ([0-9a-f]{6})/.exec(text)![1]!;
+    };
+
+    const confirmId = await propose("hold");
+    const first = await send(`/confirm ${confirmId}`);
+    assert.equal(first.status, 200);
+    assert.match(first.body.reply ?? "", /^(Done|Failed)/);
+    const second = await send(`/confirm ${confirmId}`);
+    assert.match(second.body.reply ?? "", /No pending proposal/);
+
+    const cancelId = await propose("release");
+    const cancelled = await send(`/cancel ${cancelId}`);
+    assert.equal(cancelled.body.reply, `Cancelled ${cancelId}.`);
+    const afterCancel = await send(`/confirm ${cancelId}`);
+    assert.match(afterCancel.body.reply ?? "", /No pending proposal/);
   });
 });
 
