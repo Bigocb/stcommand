@@ -113,11 +113,13 @@ Tune lightly for a small box (`/etc/postgresql/*/main/conf.d/stcommand.conf`): `
 
 ### 4.3 Code
 
+Repository: **https://github.com/Bigocb/stcommand** (private; GitHub owner `Bigocb`). Branch **`main`** is what Render runs. The working branch is `claude/stcommand-ui-parallel-versions-fd5p9q`; the two are kept in step, except that this runbook may be only on the working branch.
+
 ```bash
 sudo useradd --system --create-home --shell /bin/bash stcommand
 sudo -u stcommand git clone https://github.com/bigocb/stcommand.git /home/stcommand/app
 cd /home/stcommand/app
-sudo -u stcommand git checkout main        # Render deploys from main; main and the feature branch are kept identical
+sudo -u stcommand git checkout main        # Render deploys from main. This runbook itself may only exist on claude/stcommand-ui-parallel-versions-fd5p9q until main is next pushed; the code is the same
 sudo -u stcommand npm ci                    # postinstall builds dist/
 ls dist/cli/index.js                        # must exist
 sudo -u stcommand npx tsc --noEmit          # typecheck, expect no output
