@@ -7,6 +7,7 @@ import { buildTriage } from "../engine/triage.js";
 import { setTenantDiscordWebhook, getTenantDiscordWebhook, getTenantDiscordEnabled, setTenantDiscordEnabled, getTenantLlmConfig, clearOnboardingPending } from "../db/tenants.js";
 import { mintMcpKey, listMcpKeys, revokeMcpKey } from "../db/mcpKeys.js";
 import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
+import type { ProposedAction } from "../engine/agentChat.js";
 import { makeTTLCache } from "./cache.js";
 import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
@@ -38,6 +39,24 @@ import { resetWatcherStatus } from "../engine/resetWatcher.js";
 function feedMine(body: unknown): boolean | undefined {
   const m = (body as { mine?: unknown } | undefined)?.mine;
   return typeof m === "boolean" ? m : undefined;
+}
+
+/**
+ * Runs one confirmed co-pilot proposal against the live fleet, through the same fleet methods the dashboard routes
+ * call, and records it as an operator action so it shows in the play-style history like a manual click would.
+ */
+async function executeCopilotAction(w: TenantWorker, action: ProposedAction): Promise<string> {
+  if (action.kind === "set_role") {
+    await w.fleet.setShipRole(action.shipSymbol, action.role as Parameters<typeof w.fleet.setShipRole>[1], action.keeperMarket);
+    await w.store.recordOperatorAction(w.tenantId, "role_change", action.shipSymbol, `${action.shipSymbol} → ${action.role}`, { role: action.role, keeperMarket: action.keeperMarket, via: "copilot" });
+  } else if (action.kind === "hold") {
+    await w.fleet.holdShip(action.shipSymbol);
+    await w.store.recordOperatorAction(w.tenantId, "hold", action.shipSymbol, `${action.shipSymbol} held`, { via: "copilot" });
+  } else {
+    await w.fleet.releaseShip(action.shipSymbol);
+    await w.store.recordOperatorAction(w.tenantId, "release", action.shipSymbol, `${action.shipSymbol} released`, { via: "copilot" });
+  }
+  return `Done: ${action.summary}.`;
 }
 
 export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, galaxyCrawler: GalaxyCrawler): Router {
@@ -2112,6 +2131,17 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const message = String(req.body?.message ?? "").trim();
     if (!message) return res.status(400).json({ error: "message required" });
     try {
+      // "/confirm <id>" and "/cancel <id>" are handled here, not by the model: a confirmation must be the captain's
+      // own click-equivalent, never something a model could be talked into calling.
+      const command = /^\/(confirm|cancel)\s+([0-9a-f]{6})$/i.exec(message);
+      if (command) {
+        const reply = command[1]!.toLowerCase() === "cancel"
+          ? w.chat.cancel(command[2]!.toLowerCase())
+          : await w.chat.confirm(command[2]!.toLowerCase(), (action) => executeCopilotAction(w, action));
+        await w.store.recordChatMessage(w.tenantId, { role: "user", content: message });
+        await w.store.recordChatMessage(w.tenantId, { role: "assistant", content: reply });
+        return res.json({ reply, usage: undefined });
+      }
       const history = (await w.store.chatHistory(w.tenantId, 60)).map((m) => ({
         role: m.role as "user" | "assistant" | "tool",
         content: m.content,

@@ -5,6 +5,7 @@ import type { Store } from "../db/store.js";
 import type { FleetManager } from "./fleet.js";
 import type { MarketSnapshot, TradeOpportunity } from "./market.js";
 import { MarketIntel } from "./market.js";
+import { randomBytes } from "node:crypto";
 
 /** Live-world snapshot the agent's tools read from. */
 export interface ChatAgentContext {
@@ -26,7 +27,7 @@ export interface ChatAgentOptions extends ChatAgentContext {
   apiKey?: string;
   baseUrl?: string;
   agentSymbol?: string;
-  /** Custom tools to add (e.g. future execution tools). */
+  /** Custom tools to add. */
   extraTools?: ChatTool[];
   onEvent?: ChatLLMOptions["onEvent"];
 }
@@ -53,20 +54,41 @@ A few real examples the captain may care about:
 - "What's trading in system X?" — if the store has no data for that system, call scan_system_markets to pull live prices, then answer from the fresh data.
 - "How far is it between waypoints?" — call get_waypoint_coords for the system, then get_distance for the leg(s).
 
-You do not take action on the fleet (no moving ships, no purchases). You only advise.`;
+You never act on the fleet directly. To change a ship's role or hold/release a ship, call propose_fleet_action: it queues the action and returns an id. Nothing runs until the captain confirms, so tell the captain the id and that they can reply "/confirm <id>" or "/cancel <id>". You cannot buy or sell ships, dispatch or jump ships, or change doctrine. You cannot touch code, deploys or infrastructure; if asked, say that is outside the co-pilot's remit.`;
 
 /** Default model for the co-pilot. */
-const DEFAULT_MODEL = "deepseek-v4-flash:0731";
+const DEFAULT_MODEL = "opencode-go/deepseek-v4.1-flash";
 
 /**
  * Co-pilot agent for the command center. A read-only tactical AI that plans
  * and answers from live fleet data. Adding an execution tool later is one
  * object in `tools` — nothing else changes.
  */
+/** A fleet change the co-pilot has proposed and the captain has not yet confirmed. */
+export interface ProposedAction {
+  id: string;
+  kind: "set_role" | "hold" | "release";
+  shipSymbol: string;
+  role?: string;
+  keeperMarket?: string;
+  summary: string;
+  createdAt: number;
+}
+
+/** Proposals expire after this long, so an old "/confirm" never acts on a stale plan. */
+export const PROPOSAL_TTL_MS = 30 * 60_000;
+
+/** Roles the co-pilot may assign; matches the dashboard's manual-role route. */
+export const COPILOT_ROLES = ["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"] as const;
+
+/** Runs a confirmed proposal against the live fleet. Supplied by the route that owns the fleet. */
+export type ProposalExecutor = (action: ProposedAction) => Promise<string>;
+
 export class ChatAgent {
   private readonly llm: ChatLLM;
   private readonly context: ChatAgentContext;
   private readonly tools: ChatTool[];
+  private readonly proposals = new Map<string, ProposedAction>();
 
   constructor(opts: ChatAgentOptions) {
     // No fall-through to a process-wide ST_LLM_API_KEY. The registry only
@@ -91,8 +113,74 @@ export class ChatAgent {
     this.context = { state: opts.state, store: opts.store, fleet: opts.fleet, api: opts.api, tenantId: opts.tenantId };
     this.tools = [
       ...this.baseTools(),
+      this.proposeTool(),
       ...(opts.extraTools ?? []),
     ];
+  }
+
+  /** Queue a fleet change for confirmation. Executes nothing. */
+  private proposeTool(): ChatTool {
+    return {
+      name: "propose_fleet_action",
+      description: "Queue a change to one ship for the captain to confirm: set_role (needs role), hold, or release. Returns an id. Nothing happens until the captain replies /confirm <id>.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["set_role", "hold", "release"] },
+          shipSymbol: { type: "string", description: "e.g. THEO-B1" },
+          role: { type: "string", enum: [...COPILOT_ROLES] },
+          keeperMarket: { type: "string", description: "Only for role keeper: the market waypoint to camp" },
+        },
+        required: ["kind", "shipSymbol"],
+      },
+      readOnly: false,
+      execute: async (args) => {
+        const kind = args.kind;
+        const shipSymbol = typeof args.shipSymbol === "string" ? args.shipSymbol.trim().toUpperCase() : "";
+        if (kind !== "set_role" && kind !== "hold" && kind !== "release") return "Error: kind must be set_role, hold or release";
+        if (!/^[A-Z0-9-]{1,40}$/.test(shipSymbol)) return "Error: shipSymbol looks wrong";
+        const role = typeof args.role === "string" ? args.role : undefined;
+        const keeperMarket = typeof args.keeperMarket === "string" ? args.keeperMarket : undefined;
+        if (kind === "set_role") {
+          if (!role || !(COPILOT_ROLES as readonly string[]).includes(role)) return `Error: role must be one of ${COPILOT_ROLES.join(", ")}`;
+          if (role === "keeper" && !keeperMarket) return "Error: keeper role needs keeperMarket";
+        }
+        const summary = kind === "set_role"
+          ? `set ${shipSymbol} to ${role}${keeperMarket ? ` (keeper at ${keeperMarket})` : ""}`
+          : `${kind} ${shipSymbol}`;
+        const id = randomBytes(3).toString("hex");
+        this.proposals.set(id, { id, kind, shipSymbol, role, keeperMarket, summary, createdAt: Date.now() });
+        return `Queued: ${summary}. Proposal id ${id}. The captain must reply "/confirm ${id}" to run it, or "/cancel ${id}" to drop it.`;
+      },
+    };
+  }
+
+  /** Proposals still waiting for a decision. */
+  pendingProposals(now = Date.now()): ProposedAction[] {
+    this.dropExpired(now);
+    return [...this.proposals.values()];
+  }
+
+  /** Run a queued proposal. Removes it first, so a double confirm cannot run twice. */
+  async confirm(id: string, execute: ProposalExecutor, now = Date.now()): Promise<string> {
+    this.dropExpired(now);
+    const action = this.proposals.get(id);
+    if (!action) return `No pending proposal ${id} (it may have expired or already run).`;
+    this.proposals.delete(id);
+    try {
+      return await execute(action);
+    } catch (err) {
+      return `Failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  /** Drop a queued proposal without running it. */
+  cancel(id: string): string {
+    return this.proposals.delete(id) ? `Cancelled ${id}.` : `No pending proposal ${id}.`;
+  }
+
+  private dropExpired(now: number): void {
+    for (const [id, a] of this.proposals) if (now - a.createdAt > PROPOSAL_TTL_MS) this.proposals.delete(id);
   }
 
   /** Build the tools that read live fleet state. */

@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-10 — Co-pilot can propose fleet changes; you confirm each one
+
+The chat co-pilot could only read the fleet. It can now propose two kinds of change: setting a ship's role (including
+keeper, with its market), and holding or releasing a ship. A proposal runs nothing. The co-pilot returns an id, and the
+change happens only when you reply `/confirm <id>` in the chat. `/cancel <id>` drops it. Proposals expire after 30
+minutes. Confirmation is handled by the server, not the model, so a model cannot confirm its own proposal, and each
+executed change is recorded as an operator action with `via: copilot`. Purchases, dispatch, jumps and doctrine are not
+offered. The default co-pilot model is now `opencode-go/deepseek-v4.1-flash`; a tenant that already saved a model keeps
+it, so change it in Settings to use the new one.
+
 ## 2026-10-10 — Metrics: credits plus holds on the Credits chart
 
 The Credits chart shows wallet only, so cargo in transit looked like a drop when a trader bought a load. The engine now records credits plus the estimated value of every hold every five minutes (new table `wealth_samples`, migration 046), and the Metrics view (Deck and Tower) draws it as a dashed second line on the Credits chart, on the same scale, in the same ranges. The series is bucketed by a pure function (`worthByBucket` in engine/metrics.ts, tested). History starts at deploy, so the first day shows a short line.

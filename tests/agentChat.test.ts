@@ -108,6 +108,6 @@ describe("ChatAgent", () => {
     const names = agent.getTools().map((t) => t.name);
     assert.ok(names.includes("get_fleet_status"));
     assert.ok(names.includes("get_best_trades"));
-    assert.ok(agent.getTools().every((t) => t.readOnly === true));
+    assert.ok(agent.getTools().filter((t) => t.name !== "propose_fleet_action").every((t) => t.readOnly === true));
   });
 });
