@@ -634,6 +634,13 @@ body {
 .cp-composer .btn { flex: 0 0 auto; }
 .cp-status { padding: 0 12px; }
 .cp-msg { margin: 0; }
+.cp-msg { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 15px; line-height: 1.5; white-space: normal; word-break: break-word; }
+.cp-msg p { margin: 0 0 8px; }
+.cp-msg p:last-child, .cp-msg ul:last-child, .cp-msg ol:last-child { margin-bottom: 0; }
+.cp-msg ul, .cp-msg ol { margin: 0 0 8px; padding-left: 20px; }
+.cp-msg li { margin: 2px 0; }
+.cp-msg h4 { margin: 10px 0 4px; font-size: 14px; letter-spacing: 0.02em; color: var(--amber); }
+.cp-msg code { font-family: var(--mono, monospace); font-size: 13px; background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 4px; }
 
 .fleet-modes { margin: 8px 12px 0; }
 .fleet-modes button { flex: 1; }

@@ -21,6 +21,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
+import { renderMarkdown } from "/shared/markdown.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml } from "/shared/domain.js";
 
@@ -919,7 +920,7 @@ function marketsTabActive() {
  * "Queued … id abc123" reply; its Confirm/Cancel buttons send "/confirm <id>" or
  * "/cancel <id>" as ordinary chat messages, which the server handles itself. */
 let cpBusy = false;
-const cpBubble = (role, text) => `<div class="cp-msg ${role}">${escapeHtml(text)}</div>`;
+const cpBubble = (role, text) => `<div class="cp-msg ${role}">${role === "assistant" ? renderMarkdown(text) : escapeHtml(text)}</div>`;
 function renderCopilotActions(reply) {
   const m = /Queued: .*?id ([0-9a-f]{6})\b/.exec(reply ?? "");
   $("cp-actions").innerHTML = m
