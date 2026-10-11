@@ -36,6 +36,8 @@ evidence behind each step. Numbers are from that week; re-measure on a new map.
    Operator rule of thumb (2026-10-07): a market trading **more than 4 goods** is worth a keeper; shipyards always.
    Run one idle ship as `tour` first so every market has a fresh price, then place keepers from that map, moving
    existing probes before buying new ones. Without it, THEOREM_DEV_2 had 13 of 24 markets unseen for 8-10 hours.
+   Start with few keepers; once the wallet passes about 1M, cover every important waypoint (see "Keepers: start minimal,
+   then cover the important waypoints" below).
 
 ## Day 1 onward: hold, do not burst
 
@@ -188,3 +190,31 @@ are, one hop at a time, and let the cross-system routes follow the markets you h
 - **Watch the fuel legs at each gate.** A multi-jump route is refused if its relay through any intermediate system's
   gates is beyond the tank and no known fuel stop covers it. A cluster with no fuel market between its gates stays
   closed even under a high limit.
+
+## Keepers: start minimal, then cover the important waypoints (2026-10-11, operator)
+
+THEOREM's first day ran with almost no keepers and one tour ship that was too slow to keep a whole system fresh. Prices
+went stale: the dispatcher ignores a market price older than the "Intel freshness" clause (90 minutes), so a route whose
+buy or sell market had aged out simply was not offered, and the board showed routes at stale prices. Routes were being
+priced, and some fleet decisions made, on data 50-70 minutes old.
+
+The rule:
+
+1. **Start minimal.** In the first hours cash is better spent on traders, haulers and the gate feeds, so a few keepers
+   (shipyards, plus the markets the first routes use) and one `tour` ship to map the rest is right. Do not buy a probe
+   for every market while cash is the constraint.
+2. **At about 1,000,000 credits, start covering every important waypoint with a keeper.** A probe is cheap (about
+   23-24k at the home yards on 2026-10-11), so twenty of them is under 500k, a small price against the routes stale
+   prices hide. Do it in this order:
+   - markets a trade route actually uses, the best routes first (the Routes board lists them);
+   - every market that trades more than 4 goods, and every shipyard (the standing rule above);
+   - the producers and importers of the gate's materials, so the supply-chain view (`get_chain_health`) stays current;
+   - markets other systems' routes sell into, once cross-system routes are on.
+3. **Raise `keeperCount`** (the "Market keepers" clause) to the number you intend to run, since it caps how many the fleet
+   will station, and approve the keeper-probe purchase requests as they arrive (the "Auto-buy keepers" clause proposes
+   them; each still waits for approval). Move existing probes to uncovered markets before buying new ones.
+4. **Check it worked.** `ops_market_freshness` shows each market's age; the target is every priority market under the
+   intel-freshness window with room to spare. A market that is still stale with a keeper on it points to a stuck probe,
+   not a missing one.
+5. **Keep the tour ship for what keepers cannot reach.** One tour ship still earns its place charting new systems and
+   revisiting markets that have no keeper; it is too slow to be the only source of fresh prices.
