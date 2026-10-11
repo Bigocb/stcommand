@@ -651,24 +651,23 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       // the profit-ranked cut, backfill up to 5 same-system routes that
       // didn't make it, then re-sort the combined set by profit so ranking
       // stays consistent.
-      // Price each route at the biggest hold an idle trader has that the route can use, and say why a route is blocked
-      // when the dispatcher would refuse it. The headline figure used to be the fleet's largest hold, which no idle
-      // trader in that area may have.
+      // Each route also gets the price at the biggest hold of a trader that is free right now, so the board can show
+      // what an idle hull would earn next to the headline (the biggest hold), and whether the dispatcher would refuse it.
       const assignedShips = new Set(w.fleet.dispatcher.list().map((a) => a.shipSymbol));
+      const capacityOf = new Map(w.state.get().ships.map((s) => [s.symbol, s.cargo?.capacity ?? 0]));
       const idleHolds = new Set(
-        w.state.get().ships
-          .filter((s) => !assignedShips.has(s.symbol) && (s.cargo?.capacity ?? 0) > 0)
-          .map((s) => s.cargo.capacity),
+        w.fleet.getShipStatuses()
+          .filter((s) => s.role === "trader" && !s.paused && !assignedShips.has(s.symbol))
+          .map((s) => capacityOf.get(s.symbol) ?? 0)
+          .filter((c) => c > 0),
       );
       allRoutes = allRoutes.map((r) => {
         const profitByHold = r.profitByHold ?? {};
-        const holds = Object.keys(profitByHold).map(Number).filter((h) => idleHolds.has(h)).sort((a, b) => b - a);
-        const holdUsed = holds[0] ?? Math.max(0, ...Object.keys(profitByHold).map(Number));
+        const idleHold = Object.keys(profitByHold).map(Number).filter((h) => idleHolds.has(h)).sort((a, b) => b - a)[0];
         return {
           ...r,
-          holdUsed,
-          holdIsIdle: holds.length > 0,
-          profitAtHold: profitByHold[holdUsed] ?? r.profitPerTrip,
+          idleHold: idleHold ?? null,
+          idleProfit: idleHold !== undefined ? profitByHold[idleHold] ?? null : null,
           blockedBy: w.fleet.dispatcher.sellMarketBlock(r.goodSymbol, r.sellAt) ?? null,
         };
       });
@@ -676,8 +675,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const missingSameSystem = allRoutes
         .filter((r) => !r.crossSystem && !top.includes(r))
         .slice(0, 5);
-      const headline = (r: { profitAtHold?: number; profitPerTrip: number }) => r.profitAtHold ?? r.profitPerTrip;
-      const routes = [...top, ...missingSameSystem].sort((a, b) => headline(b) - headline(a));
+      const routes = [...top, ...missingSameSystem].sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
       // Same ?system= filter as routes/snapshots above — the Yards &
       // outfitting panel shares this endpoint and previously always showed

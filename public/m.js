@@ -982,7 +982,7 @@ function holdLine(r) {
 function renderMarketRoutes() {
   const el = $("mkt-routes");
   if (!marketRoutes.length) { el.innerHTML = '<div class="empty">No profitable routes in fresh snapshots.</div>'; return; }
-  const top = [...marketRoutes].sort((a, b) => (b.profitAtHold ?? b.profitPerTrip ?? 0) - (a.profitAtHold ?? a.profitPerTrip ?? 0)).slice(0, 20);
+  const top = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 20);
   el.innerHTML = top.map((r) => {
     const good = r.goodSymbol;
     // Keyed by good+buyAt+sellAt, not just good — the same good can have
@@ -1001,12 +1001,12 @@ function renderMarketRoutes() {
         }</div>`
       : "";
     const blocked = !assigned && r.blockedBy;
-    const headline = r.profitAtHold ?? r.profitPerTrip;
-    const holdNote = r.holdUsed ? `${r.holdUsed}u hold${r.holdIsIdle ? "" : ", no idle hull this size"}` : "";
+    const idleLine = r.idleHold ? `<div class="rr-legs">idle ${r.idleHold}u hull: ${signed(r.idleProfit)}/trip</div>` : "";
     return `<div class="route-row">
-      <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${signed(headline)}/trip</span></div>
+      <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${signed(r.profitPerTrip)}/trip</span></div>
       ${holdLine(r)}
-      <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${holdNote ? ` · ${holdNote}` : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>
+      ${idleLine}
+      <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>
       ${blocked ? `<div class="rr-legs rr-blocked">Blocked: ${escapeHtml(r.blockedBy)}</div>` : ""}
       <div class="rr-actions">${blocked ? "" : `<button class="btn" data-act="route-toggle" data-key="${escapeHtml(routeKey)}">${openRouteGood === routeKey ? "Close" : "Assign a ship"}</button>`}</div>
       ${blocked ? "" : picker}
