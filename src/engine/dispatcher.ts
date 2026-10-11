@@ -374,6 +374,19 @@ export class RouteDispatcher {
     return this.manual.get(shipSymbol) ?? this.assignments.get(shipSymbol);
   }
 
+  /** Why a (good, sell market) pair is not open to a new trader right now, or undefined when it is. The dispatcher hands
+   *  out one trader per good per sell market, and keeps a second circuit leg for the ship that planned it, so a route
+   *  into a market already in use is blocked whatever its buy market is. */
+  sellMarketBlock(good: string, sellAt: string): string | undefined {
+    for (const a of this.list()) {
+      if (a.good === good && a.sellAt === sellAt) return `${sellAt} is taken by ${a.shipSymbol}`;
+    }
+    for (const [ship, planned] of this.circuits) {
+      if (planned.leg2.good === good && planned.leg2.sellAt === sellAt) return `${sellAt} is held for ${ship}'s circuit`;
+    }
+    return undefined;
+  }
+
   list(): TraderAssignment[] {
     const ships = new Set([...this.assignments.keys(), ...this.manual.keys()]);
     const out: TraderAssignment[] = [];

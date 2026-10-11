@@ -107,6 +107,14 @@ describe("dispatcher explain snapshot", () => {
     assert.equal(d.assignmentFor("FAR"), undefined);
   });
 
+  it("says a sell market is taken once a trader is flying into it, and not before", () => {
+    const d = new RouteDispatcher();
+    assert.equal(d.sellMarketBlock("GOOD", "X1-B-SELL"), undefined);
+    d.recompute([route("GOOD", "X1-B", 5000)], [{ shipSymbol: "T-1", capacity: 40, system: "X1-B", waypoint: "X1-B-BUY" }], [], [], [], [], canJump);
+    assert.match(d.sellMarketBlock("GOOD", "X1-B-SELL")!, /taken by T-1/);
+    assert.equal(d.sellMarketBlock("OTHER", "X1-B-SELL"), undefined, "a different good into the same market is not blocked");
+  });
+
   it("keeps the snapshot from the latest cycle only", () => {
     const d = new RouteDispatcher();
     d.recompute([route("FUEL", "X1-KU72", 6601)], [{ shipSymbol: "T-1", capacity: 40, system: "X1-KU72", waypoint: "X1-KU72-A1" }], [], [], [], [], canJump);

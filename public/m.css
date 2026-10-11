@@ -673,3 +673,4 @@ body {
 .mcp-key-ok { font-size: 11px; margin-top: 6px; min-height: 14px; }
 .mcp-key-reveal { margin-top: 8px; word-break: break-all; font-size: 11px; }
 .mcp-key-reveal code { font-family: var(--mono); color: var(--amber); }
+.rr-blocked { color: var(--red); }
