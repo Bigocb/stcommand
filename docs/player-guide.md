@@ -117,6 +117,75 @@ hour inside a good week is normal.
 > **Rolling windows mix weeks.** Straight after a reset, a 3-day or 1-hour window can include trades from
 > the old universe. For a fair picture of this week, use Since reset.
 
+## Supply chains
+
+Most goods are made from other goods. A market that exports a good needs inputs it imports, and
+those inputs may need inputs of their own.
+
+| Made good | Made from | One step further back |
+|---|---|---|
+| FAB_MATS | IRON, QUARTZ_SAND | IRON comes from IRON_ORE |
+| ADVANCED_CIRCUITRY | ELECTRONICS, MICROPROCESSORS | check chain health for the next step |
+
+- **Supply** is how much of a good a market holds: SCARCE, LIMITED, MODERATE, HIGH, ABUNDANT.
+- **Activity** is how strongly it produces (export) or consumes (import): RESTRICTED, WEAK, GROWING, STRONG.
+
+A producer stays RESTRICTED while any input is SCARCE. Aim to hold every input at HIGH. ABUNDANT costs
+more and makes the market consume more.
+
+A **feed** is a crew that sources a good (by mining or buying) and sells it into a target market. Set its
+stop level to HIGH and it stops itself once the target reaches that supply.
+
+## Circuits
+
+A **circuit** is a pair of trips planned together, so a ship is not empty on the way back:
+
+1. **Leg 1:** buy good A at market X, sell it at market Y.
+2. **Leg 2:** from Y, buy good B and carry it back toward X, then sell it.
+
+The planner only plans leg 2 when it can start within the circuit reach (10 minutes of flying by default).
+Leg 2 is kept for that ship until leg 1's cargo is sold. If leg 2's margin falls to half of what was planned,
+or its market leaves the board, the planner drops it and the ship takes new work.
+
+Doctrine rules that control circuits: *Two-leg circuits* (on, 75 % weight) and *Circuits across a gate*
+(on).
+
+## Building a gate
+
+A gate works only when its construction is finished at both ends. Construction needs materials delivered to
+the gate's market. Each gate has its own list. One gate checked in October needed FAB_MATS 1,600,
+ADVANCED_CIRCUITRY 400 and QUANTUM_STABILIZERS 1. Read your own gate's list from the gate status view first.
+
+1. **Read the gate.** Ask the co-pilot for the system's gate status.
+2. **Read the chain.** Open chain health. Note each producer, its inputs, and the weakest input.
+3. **Feed the inputs.** Start feeds for the weakest inputs, stop level HIGH.
+4. **Protect the chain.** The *Protect the gate's supply chain* rule keeps those inputs out of ordinary
+   trading while the gate is unfinished.
+5. **Buy the finished materials when the producer is ready.** A RESTRICTED producer makes little, and the
+   price climbs as you buy.
+
+> **Refill is slow.** During the October build one market recovered only a few units an hour. Feed the
+> inputs early, from the first hour.
+
+## Walkthrough: a first game
+
+Each step says what you should see, what to do, and what to avoid. The numbers are illustrative.
+
+1. **Hour 0: look before you buy.** Read Home and the fleet list. Find the home system and nearby markets.
+   Avoid buying anything yet.
+2. **Hours 1 to 2: start the traders.** Leave them on AUTO. Avoid moving traders by hand.
+3. **Hours 2 to 3: feed the gate's weakest input.** Start a feed, stop level HIGH. Avoid ABUNDANT.
+4. **Day 1: let the markets breathe.** Check metrics morning and evening. Spread sales. Avoid four sales in
+   a row at one market.
+5. **Day 1, afternoon: watch a circuit.** Read the trader's sheet. Leave it alone; the planner drops leg 2
+   itself if its margin halves.
+6. **Day 2: widen.** When home routes shrink, send a tour ship to a system with many markets, within one or
+   two gate jumps. Keep traders at home until the jump cost is covered.
+7. **Days 2 to 5: deliver the materials.** Buy finished materials in steps when the producer's activity
+   rises. Avoid tight buying loops.
+8. **End of week: score it.** Metrics, Since reset. Compare net trading with wallet change and cargo still
+   held. Note what to change next week.
+
 ## Doctrine reference
 
 Doctrine is the fleet's standing rules. Each has an on/off switch and, for some, a value. Defaults are

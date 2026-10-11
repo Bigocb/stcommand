@@ -123,6 +123,10 @@ pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overfl
     <li><a href="#roles">Ship roles</a></li>
     <li><a href="#moving">Moving ships</a></li>
     <li><a href="#metrics">Reading the metrics</a></li>
+    <li><a href="#chains">Supply chains</a></li>
+    <li><a href="#circuits">Circuits</a></li>
+    <li><a href="#construction">Building a gate</a></li>
+    <li><a href="#walkthrough">Walkthrough: a first game</a></li>
     <li><a href="#doctrine">Doctrine reference</a></li>
     <li><a href="#examples">Worked examples</a></li>
     <li><a href="#mistakes">Common mistakes</a></li>
@@ -257,6 +261,106 @@ pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overfl
 <div class="callout warn">
   <strong>Rolling windows mix weeks</strong>
   A 3-day or 1-hour window can include trades from the old universe straight after a reset. For a fair picture of this week, use <em>Since reset</em>.
+</div>
+
+<h2 id="chains">Supply chains</h2>
+<p>Most goods are made from other goods. A market that <em>exports</em> a good needs inputs it <em>imports</em>, and those inputs may need inputs of their own. The chain runs from raw ore to the finished good.</p>
+<div class="scroll"><table>
+  <tr><th>Made good</th><th>Made from</th><th>Made from (one step further back)</th></tr>
+  <tr><td>FAB_MATS</td><td>IRON, QUARTZ_SAND</td><td>IRON comes from IRON_ORE</td></tr>
+  <tr><td>ADVANCED_CIRCUITRY</td><td>ELECTRONICS, MICROPROCESSORS</td><td>(check the chain health view for the next step)</td></tr>
+</table></div>
+<p>Two words describe every market on a chain:</p>
+<ul>
+  <li><strong>Supply</strong> is how much of a good a market holds: SCARCE, LIMITED, MODERATE, HIGH or ABUNDANT.</li>
+  <li><strong>Activity</strong> is how strongly it produces (for an export) or consumes (for an import): RESTRICTED, WEAK, GROWING or STRONG.</li>
+</ul>
+<div class="callout">
+  <strong>The rule of thumb</strong>
+  A producer stays RESTRICTED while any of its inputs is SCARCE. Aim to hold every input at HIGH. Aiming for ABUNDANT costs more and makes the market consume more, so it needs more input to stay supplied.
+</div>
+<p>Feeds are how you supply an input. A feed is a crew that sources a good, by mining or buying, and sells it into a target market. A feed can stop itself once the target reaches a supply level, so you can set it to HIGH and let it stop.</p>
+
+<h2 id="circuits">Circuits</h2>
+<p>A ship that sells its cargo and drives back empty earns nothing on the way back. A <strong>circuit</strong> fixes that. It is a pair of trips planned together:</p>
+<ol>
+  <li><strong>Leg 1:</strong> buy good A at market X, carry it to market Y and sell it.</li>
+  <li><strong>Leg 2:</strong> from Y, buy good B, which is cheap near Y, and carry it back toward X, then sell it.</li>
+</ol>
+<p>The ship is loaded on both trips. The planner only plans leg 2 when it can start near where leg 1 ends, within the <em>circuit reach</em> (10 minutes of flying by default). Leg 2 is kept for that ship until leg 1's cargo is sold. If leg 2's margin falls to half of what was planned, or the market leaves the board, the planner drops it and the ship takes new work.</p>
+<div class="example">
+  <p class="label">Example (illustrative numbers)</p>
+  <h3>A two-leg circuit</h3>
+  <p>Leg 1 buys CLOTHING at market A for 3,700 a unit and sells it at market B for 4,500. Leg 2 buys COPPER at market B and sells it back near A. The ship earns on the way out and again on the way back, instead of flying the return empty. Check the trader's sheet to see its circuit: the explanation line names both legs.</p>
+</div>
+<p>Two rules control circuits: <em>Two-leg circuits</em> (on, with a 75 % weight) and <em>Circuits across a gate</em> (on, for a circuit that crosses a jump gate). See the doctrine reference.</p>
+
+<h2 id="construction">Building a gate</h2>
+<p>A gate joins two systems. It works only when its construction is finished at both ends, and construction takes materials delivered to the gate's market. Each gate has its own list. In one gate we checked in October, the list was:</p>
+<div class="scroll"><table>
+  <tr><th>Material</th><th class="num">Needed</th></tr>
+  <tr><td>FAB_MATS</td><td class="num">1,600</td></tr>
+  <tr><td>ADVANCED_CIRCUITRY</td><td class="num">400</td></tr>
+  <tr><td>QUANTUM_STABILIZERS</td><td class="num">1</td></tr>
+</table></div>
+<p>Those numbers are an example. Read your own gate's list from the gate status view before you plan anything.</p>
+<ol>
+  <li><strong>Read the gate.</strong> Ask the co-pilot for the gate status of the system. Note which gate is unfinished and what it needs.</li>
+  <li><strong>Read the chain.</strong> Open chain health. For each material it lists the producer market, each input, the cheapest source, and the weakest input. The weakest input is the one to feed first.</li>
+  <li><strong>Feed the inputs.</strong> Start feeds for the weakest inputs, with the stop level set to HIGH.</li>
+  <li><strong>Protect the chain.</strong> The <em>Protect the gate's supply chain</em> rule keeps the inputs out of ordinary trading while the gate is unfinished. Feeds and deliberate moves still work.</li>
+  <li><strong>Buy the finished materials when the market is ready.</strong> A producer that is RESTRICTED makes little. Wait until its activity rises before buying, or the price climbs as you buy.</li>
+</ol>
+<div class="callout warn">
+  <strong>Refill is slow</strong>
+  One market recovered only a few units an hour during the October build. A gate needing a thousand-plus units cannot be bought faster than the market makes them. Feed the inputs early, from the first hour.
+</div>
+
+<h2 id="walkthrough">Walkthrough: a first game</h2>
+<p>This walkthrough follows one week from reset to a first gate. Each step says what you should see, what to do, and what to avoid. The numbers are illustrative.</p>
+<div class="example">
+  <p class="label">Step 1 of 8 · Hour 0</p>
+  <h3>Look before you buy</h3>
+  <p><strong>You see:</strong> a small wallet, a few ships, one home system. <strong>Do:</strong> read Home and the fleet list. Find the home system and the markets nearby. <strong>Avoid:</strong> buying anything yet.</p>
+</div>
+<div class="example">
+  <p class="label">Step 2 of 8 · Hours 1 to 2</p>
+  <h3>Start the traders on the nearest good routes</h3>
+  <p><strong>You see:</strong> the route list. Several goods show a positive profit per trip. <strong>Do:</strong> leave the traders on AUTO and let the dispatcher assign them. <strong>Avoid:</strong> moving traders by hand.</p>
+</div>
+<div class="example">
+  <p class="label">Step 3 of 8 · Hours 2 to 3</p>
+  <h3>Feed the gate's weakest input</h3>
+  <p><strong>You see:</strong> the gate status and chain health for your system. One input is LIMITED or SCARCE. <strong>Do:</strong> start a feed for it and set the stop level to HIGH. <strong>Avoid:</strong> setting it to ABUNDANT.</p>
+</div>
+<div class="example">
+  <p class="label">Step 4 of 8 · Day 1</p>
+  <h3>Let the markets breathe</h3>
+  <p><strong>You see:</strong> profit per trip falling as you sell into the same markets. <strong>Do:</strong> check the metrics once in the morning and once in the evening. Let the sales spread across markets. <strong>Avoid:</strong> four sales in a row at one market.</p>
+</div>
+<div class="example">
+  <p class="label">Step 5 of 8 · Day 1, afternoon</p>
+  <h3>Watch a circuit happen</h3>
+  <p><strong>You see:</strong> a trader's sheet names two legs. <strong>Do:</strong> nothing. The planner drops leg 2 on its own if its margin halves. <strong>Avoid:</strong> overriding the circuit by hand.</p>
+</div>
+<div class="example">
+  <p class="label">Step 6 of 8 · Day 2</p>
+  <h3>Widen to a second system</h3>
+  <p><strong>You see:</strong> the home markets start to look saturated and the route list shrinks. <strong>Do:</strong> find a system with many markets, within one or two gate jumps of home, and send a tour ship there first. <strong>Avoid:</strong> sending traders across the galaxy before their first sale covers the jump cost.</p>
+</div>
+<div class="example">
+  <p class="label">Step 7 of 8 · Days 2 to 5</p>
+  <h3>Deliver the gate's materials</h3>
+  <p><strong>You see:</strong> chain health shows the producer market's ask price and its supply. <strong>Do:</strong> buy the finished materials in steps when the producer's activity rises, and watch the price. <strong>Avoid:</strong> a tight buying loop. Price rises with each lot.</p>
+</div>
+<div class="example">
+  <p class="label">Step 8 of 8 · End of week</p>
+  <h3>Score the week</h3>
+  <p><strong>You see:</strong> Metrics, Since reset. <strong>Do:</strong> read net trading and net per hour, and check the wallet change against cargo still held. Note what to change next week. <strong>Avoid:</strong> drawing conclusions from a rolling 1-hour window.</p>
+</div>
+<div class="callout">
+  <strong>You finished the first week</strong>
+  The fleet keeps running between your visits. Next week, start from the markets you already know and widen one hop at a time.
 </div>
 
 <h2 id="doctrine">Doctrine reference</h2>
