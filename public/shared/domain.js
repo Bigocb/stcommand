@@ -380,3 +380,12 @@ export function skipReasonHtml(r, key, open, cls) {
   const list = open && more.length ? `<ul class="why-list">${more.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : "";
   return `<div class="${cls}">not flying: ${escapeHtml(r.skipReason)}${btn}</div>${list}`;
 }
+
+/** "~3 runs left" for a route (the estimate of back-to-back runs before our own trading closes the margin), as a span
+ *  with the working in its tooltip; amber at 2 or fewer. "" when the server sent no estimate. */
+export function runsLeftHtml(r) {
+  if (r.runsLeft == null) return "";
+  const text = r.runsLeftCapped ? `${r.runsLeft}+ runs left` : r.runsLeft === 0 ? "no runs left" : `~${r.runsLeft} run${r.runsLeft === 1 ? "" : "s"} left`;
+  const cls = !r.runsLeftCapped && r.runsLeft <= 2 ? "runs-left low" : "runs-left";
+  return `<span class="${cls}" title="${escapeAttr(r.runsLeftNote ?? "")}">${text}</span>`;
+}

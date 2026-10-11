@@ -24,7 +24,7 @@ import { mountMetrics } from "/shared/metrics.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml } from "/shared/domain.js";
+import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
@@ -1037,7 +1037,7 @@ function renderMarketRoutes() {
     const idleLine = r.idleHold ? `<div class="rr-legs">idle ${r.idleHold}u hull: ${signed(r.idleProfit)}/trip</div>` : "";
     return `<div class="route-row">
       <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${sortMode === "hour" && r.ratePerHour != null ? `${signed(r.ratePerHour)}/hr` : `${signed(r.profitPerTrip)}/trip`}</span></div>
-      <div class="rr-legs">${r.ratePerHour != null ? `${signed(r.profitPerTrip)}/trip · ${signed(r.ratePerHour)}/hr · ${escapeHtml(tripLabel(r))}` : `${signed(r.profitPerTrip)}/trip`}</div>
+      <div class="rr-legs">${r.ratePerHour != null ? `${signed(r.profitPerTrip)}/trip · ${signed(r.ratePerHour)}/hr · ${escapeHtml(tripLabel(r))}` : `${signed(r.profitPerTrip)}/trip`} · ${runsLeftHtml(r)}</div>
       ${holdLine(r)}
       ${idleLine}
       <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>

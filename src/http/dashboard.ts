@@ -16,6 +16,7 @@ import { paceFromBuckets } from "../engine/pace.js";
 import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
+import { runsLeft } from "../engine/runsLeft.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -643,6 +644,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         profitPerTrip: r.profitPerTrip,
         tripSeconds: r.tripSeconds ?? null,
         ratePerHour: ratePerHour(r.profitPerTrip, r.tripSeconds),
+        ...(() => {
+          const rl = runsLeft({ buyPrice: r.buyPrice, sellPrice: r.sellPrice, units: r.volume, buyVolume: r.buyVolume ?? r.volume, sellVolume: r.sellVolume ?? r.volume, fuelCostPerRun: r.fuelCost });
+          return { runsLeft: rl.runs, runsLeftCapped: rl.capped, runsLeftNote: rl.reason };
+        })(),
         profitByHold: r.profitByHold ?? null,
         crossSystem: r.buySystem !== r.sellSystem,
         ageMinutes: r.ageMinutes,

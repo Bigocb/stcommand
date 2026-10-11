@@ -23,7 +23,7 @@ import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
-import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml } from "/shared/domain.js";
+import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
@@ -1038,7 +1038,7 @@ function renderMarkets() {
       <div class="goodrow">
         <div style="flex:1">
           <div class="name">${escapeHtml(r.goodSymbol)}</div>
-          <div class="route">${escapeHtml(r.buyAt)} → ${escapeHtml(r.sellAt)} · ${sub}</div>
+          <div class="route">${escapeHtml(r.buyAt)} → ${escapeHtml(r.sellAt)} · ${sub} · ${runsLeftHtml(r)}</div>
           ${status}
           ${holdLine(r)}
         </div>

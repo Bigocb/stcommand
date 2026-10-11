@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Routes board: "runs left" hint
+
+Profit per hour assumes a route can be repeated; today's prices showed how long it can't be. THEOREM-A's FOOD run earned
+49.2k, 28.1k, then 2.7k as its own buying and selling closed the margin, and prices did not recover between runs (A1's FOOD
+price kept falling over a 9-minute rest, DRUGS at H57 over 20). `src/engine/runsLeft.ts` estimates how many back-to-back runs
+a route has before the per-unit spread falls to the fuel plus margin floor: the per-lot impact model (4.5% per tradeVolume of
+our units, compounding, no recovery) with a 1.25 correction measured from that FOOD data (7.9-9.4% per 80u run observed vs
+6.0% modelled). On the day's FOOD prices it says 3 runs, as observed. `/api/markets` returns `runsLeft`, `runsLeftCapped` and
+`runsLeftNote`; Tower and Deck show "~3 runs left" (amber at 2 or fewer, tooltip has the working). Display only: it does not
+change the dispatcher's ranking, which still rescores every minute from real prices. It assumes one ship on the route, so
+several traders on one route burn the runs faster.
+
 ## 2026-10-11 — Routes board: "+N more" opens the other traders' reasons
 
 A route turned down by several traders showed the first reason and a plain "(+1 more)". `/api/markets` now returns the rest as
