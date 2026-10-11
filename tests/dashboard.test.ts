@@ -337,6 +337,22 @@ describe("POST /api/contracts/assign + /api/contracts/miners (contract crew)", (
   });
 });
 
+describe("GET /api/trips", () => {
+  it("lists sales with their parsed route and filters by ship", async () => {
+    const store = new Store(pool);
+    const sale = { waypointSymbol: "X1-TEST-B", type: "SELL" as const, tradeSymbol: "DIAMONDS", units: 5, pricePerUnit: 100, total: 500, realizedPnl: 40 };
+    await store.recordLedger(tenantId, { ...sale, shipSymbol: "TR-1", timestamp: new Date().toISOString(), route: "X1-TEST-A>X1-TEST-B auto circuit1" });
+    await store.recordLedger(tenantId, { ...sale, shipSymbol: "TR-2", timestamp: new Date().toISOString() });
+    const all = (await (await get("/api/trips")).json()) as { ships: string[]; trips: { ship: string; route: { buyAt: string; circuit: number } | null }[] };
+    assert.deepEqual(all.ships, ["TR-1", "TR-2"]);
+    assert.equal(all.trips.find((t) => t.ship === "TR-1")?.route?.circuit, 1);
+    assert.equal(all.trips.find((t) => t.ship === "TR-2")?.route, null);
+    const one = (await (await get("/api/trips?ship=TR-1")).json()) as { ships: string[]; trips: { ship: string }[] };
+    assert.deepEqual(one.trips.map((t) => t.ship), ["TR-1"]);
+    assert.deepEqual(one.ships, ["TR-1", "TR-2"], "the filter list still shows every ship");
+  });
+});
+
 describe("GET /api/markets?system= filter", () => {
   // market_snapshots/market_latest are shared galaxy tables (no tenant_id —
   // see migration 001's comment), so this test seeds two distinct,

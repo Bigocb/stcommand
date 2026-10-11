@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Metrics: a Recent trips table, filterable by ship
+
+A new panel on the Metrics screen (Deck and Tower share it) lists the latest sales, newest first: time, ship, good, units,
+the route it closed (buy > sell, with where it actually sold when that differed), how it was chosen (auto / manual, circuit
+leg) and the realized profit. A ship picker narrows it to one ship and is remembered per browser. It follows the screen's
+range (up to 72h). Backed by `GET /api/trips?hours=&ship=&limit=`, which reads the ledger's route tag
+(`parseRouteTag` in `src/engine/routeTag.ts`). Sales from before the route tag shipped show a dash for the route.
+
 ## 2026-10-11 — Ledger: each trade records the route it belonged to
 
 A PURCHASE or SELL row said where it happened but not which trip it was part of, so "what was this ship flying when it

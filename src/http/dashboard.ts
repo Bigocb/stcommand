@@ -17,6 +17,7 @@ import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from ".
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
+import { parseRouteTag } from "../engine/routeTag.js";
 import { contractsOverview } from "./contractsOverview.js";
 
 /**
@@ -478,6 +479,45 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       });
     } catch (err) {
       console.error("[dashboard] /metrics error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  type TripRow = { timestamp: Date; ship_symbol: string; trade_symbol: string; units: number; price_per_unit: number; total: number; realized_pnl: number | null; waypoint_symbol: string; route: string | null };
+
+  /* ── Recent trips ────────────────────────────────────────────
+     One row per sale, newest first, with the route it closed (the ledger's route tag, engine/routeTag.ts). `?ship=`
+     filters to one ship; `ships` lists every ship that sold in the window, for the filter. */
+  router.get("/trips", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    try {
+      const hours = Math.min(72, Math.max(1, Number(req.query.hours) || 6));
+      const ship = typeof req.query.ship === "string" && req.query.ship ? req.query.ship : undefined;
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 60));
+      const sinceIso = new Date(Date.now() - hours * 3600_000).toISOString();
+      const [rows, all] = await Promise.all([
+        w.store.opsLedger(w.tenantId, { ship, type: "SELL", sinceIso, limit }),
+        ship ? w.store.opsLedger(w.tenantId, { type: "SELL", sinceIso, limit: 300 }) : undefined,
+      ]);
+      const ships = [...new Set(((all ?? rows) as TripRow[]).map((r) => r.ship_symbol))].sort();
+      res.json({
+        hours,
+        ships,
+        trips: (rows as TripRow[]).map((r) => ({
+          at: new Date(r.timestamp).toISOString(),
+          ship: r.ship_symbol,
+          good: r.trade_symbol,
+          units: r.units,
+          price: r.price_per_unit,
+          total: r.total,
+          pnl: r.realized_pnl,
+          soldAt: r.waypoint_symbol,
+          route: parseRouteTag(r.route) ?? null,
+        })),
+      });
+    } catch (err) {
+      console.error("[dashboard] /trips error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

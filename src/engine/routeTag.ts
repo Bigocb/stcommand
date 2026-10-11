@@ -19,3 +19,16 @@ export function routeTag(good: string, held: TaggedLeg | undefined, assignment: 
   if (a?.circuit) parts.push(`circuit${a.circuit.leg}`);
   return parts.join(" ");
 }
+
+export interface ParsedRouteTag { buyAt: string; sellAt: string; source?: string; circuit?: number }
+
+/** Read a tag back into its parts ("A>B auto circuit1"); undefined for a missing or unreadable tag. */
+export function parseRouteTag(tag: string | null | undefined): ParsedRouteTag | undefined {
+  if (!tag) return undefined;
+  const [pair, ...rest] = tag.split(" ");
+  const [buyAt, sellAt] = (pair ?? "").split(">");
+  if (!buyAt || !sellAt) return undefined;
+  const circuit = rest.map((p) => /^circuit(\d)$/.exec(p)?.[1]).find((x) => x !== undefined);
+  const source = rest.find((p) => p === "auto" || p === "manual");
+  return { buyAt, sellAt, source, circuit: circuit ? Number(circuit) : undefined };
+}

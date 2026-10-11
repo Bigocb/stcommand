@@ -162,6 +162,8 @@ export function mountMetrics(root, { api, netWorth } = {}) {
   let timer = null;
   let loading = false;
   let error = "";
+  let trips = null;
+  let tripShip = lsGet("metricsTripShip", "");
 
   root.innerHTML = `<div class="mx-bar">
       <div class="mx-ranges" id="mx-ranges">${RANGES.map((r) => `<button data-h="${r.hours}">${r.label}</button>`).join("")}<button data-since="reset">Since reset</button></div>
@@ -184,6 +186,9 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     </div>
     <div class="panel mx-proj"><div class="panel-h"><span class="dot"></span><span class="title">Pace to reset</span><span class="count">straight line at the window's rate</span></div><div class="panel-b" id="mx-proj"></div></div>
     <div class="panel mx-contracts"><div class="panel-h"><span class="dot"></span><span class="title">Contracts</span><span class="count" id="mx-contracts-h"></span></div><div class="panel-b" id="mx-contracts"></div></div>
+    <div class="panel mx-trips"><div class="panel-h"><span class="dot"></span><span class="title">Recent trips</span>
+      <select class="mx-wp-sys" id="mx-trips-ship" aria-label="Filter by ship"><option value="">All ships</option></select>
+      <span class="count" id="mx-trips-h"></span></div><div class="panel-b" style="padding:0" id="mx-trips"></div></div>
     <div class="cols3 mx-tables">
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">By good</span></div><div class="panel-b" style="padding:0" id="mx-goods"></div></div>
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">By ship</span></div><div class="panel-b" style="padding:0" id="mx-ships"></div></div>
@@ -263,9 +268,40 @@ export function mountMetrics(root, { api, netWorth } = {}) {
       data.bySystem.map((s) => [escapeHtml(s.system), signed(s.profit), fmt(s.sells)]), "No completed sales in this range.");
     renderWaypoints(root, data);
     renderContracts(root, data, c);
+    renderTrips();
     $("mx-idle").innerHTML = data.idleTraders.length
       ? data.idleTraders.map((s) => `<span class="mx-chip">${escapeHtml(s)}</span>`).join("")
       : `<span class="sub">Every trader sold something.</span>`;
+  }
+
+  /** Recent sales with the route each closed; a ship filter narrows it. A sale with no tag (before the route was recorded,
+   *  or mined cargo) shows "—" for its route. */
+  function renderTrips() {
+    const sel = $("mx-trips-ship");
+    if (trips) {
+      const ships = trips.ships.includes(tripShip) || !tripShip ? trips.ships : [tripShip, ...trips.ships];
+      sel.innerHTML = `<option value="">All ships</option>${ships.map((s) => `<option value="${escapeHtml(s)}"${s === tripShip ? " selected" : ""}>${escapeHtml(s)}</option>`).join("")}`;
+    }
+    const short = (w) => escapeHtml(String(w ?? "?").replace(/^X1-[A-Z0-9]+-/, ""));
+    const rows = trips?.trips ?? [];
+    $("mx-trips-h").textContent = trips ? `${rows.length} sales · last ${trips.hours}h` : "";
+    $("mx-trips").innerHTML = table(["Time", "Ship", "Good", "Units", "Route", "How", "Profit"],
+      rows.map((t) => [
+        new Date(t.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        escapeHtml(t.ship), escapeHtml(t.good), fmt(t.units),
+        t.route ? `${short(t.route.buyAt)} → ${short(t.route.sellAt)}${t.route.sellAt !== t.soldAt ? ` (sold ${short(t.soldAt)})` : ""}` : "—",
+        t.route ? `${t.route.source ?? ""}${t.route.circuit ? ` · circuit leg ${t.route.circuit}` : ""}` : "",
+        t.pnl === null ? "—" : signed(t.pnl),
+      ]), "No sales in this range.");
+  }
+
+  async function loadTrips() {
+    try {
+      const q = new URLSearchParams({ hours: String(sinceReset ? 72 : Math.min(72, hours)), limit: "80" });
+      if (tripShip) q.set("ship", tripShip);
+      trips = await api("GET", `/api/trips?${q}`);
+    } catch { /* the panel keeps its last rows */ }
+    renderTrips();
   }
 
   async function load() {
@@ -280,7 +316,14 @@ export function mountMetrics(root, { api, netWorth } = {}) {
       loading = false;
       render();
     }
+    loadTrips();
   }
+
+  $("mx-trips-ship").addEventListener("change", (e) => {
+    tripShip = e.target.value;
+    lsSet("metricsTripShip", tripShip);
+    loadTrips();
+  });
 
   $("mx-ranges").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-h], button[data-since]");

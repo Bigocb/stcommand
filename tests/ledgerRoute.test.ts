@@ -26,6 +26,6 @@ describe("ledger route tag", () => {
     await store.recordLedger(tenant, { ...base, timestamp: new Date().toISOString(), route: "X1-A-1>X1-A-2 auto circuit1" });
     await store.recordLedger(tenant, { ...base, timestamp: new Date(Date.now() - 1000).toISOString() });
     const rows = await store.opsLedger(tenant, { sinceIso: new Date(Date.now() - 60_000).toISOString(), limit: 10 });
-    assert.deepEqual(rows.map((r: { route: string | null }) => r.route), ["X1-A-1>X1-A-2 auto circuit1", null]);
+    assert.deepEqual(rows.map((r) => r.route), ["X1-A-1>X1-A-2 auto circuit1", null]);
   });
 });

@@ -18,3 +18,15 @@ describe("routeTag", () => {
     assert.equal(routeTag("DIAMONDS", undefined, undefined), undefined);
   });
 });
+
+import { parseRouteTag } from "../src/engine/routeTag.js";
+describe("parseRouteTag", () => {
+  it("reads the parts back", () => {
+    assert.deepEqual(parseRouteTag("B7>H60 auto circuit1"), { buyAt: "B7", sellAt: "H60", source: "auto", circuit: 1 });
+    assert.deepEqual(parseRouteTag("B7>H60"), { buyAt: "B7", sellAt: "H60", source: undefined, circuit: undefined });
+  });
+  it("is undefined for nothing or rubbish", () => {
+    assert.equal(parseRouteTag(null), undefined);
+    assert.equal(parseRouteTag("B7"), undefined);
+  });
+});
