@@ -26,6 +26,9 @@ several traders on one route burn the runs faster.
 A route turned down by several traders showed the first reason and a plain "(+1 more)". `/api/markets` now returns the rest as
 `skipMore`, and in Tower and Deck "+N more" is a button that opens them as a list under the route (and "hide" closes it).
 
+The "every trader is occupied" reason is collapsed the same way: it now reads "every trader is occupied" with a
+"ship by ship (3)" button that opens one line per trader, instead of repeating the full list under every route.
+
 ## 2026-10-11 — Routes board: "every trader is occupied" says what each trader is doing
 
 The skip reason for an unflown route read "every trader already has work" even when a ship showed `unassigned` in Deck's

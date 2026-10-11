@@ -11,7 +11,7 @@ const snap = (over: Partial<DispatchExplainSnapshot> = {}): DispatchExplainSnaps
 
 test("names the ship flying it, marking a pinned one", () => {
   const s = routeStatus(r, [{ shipSymbol: "T-1", good: "FOOD", buyAt: "B", sellAt: "S", source: "manual" }, { shipSymbol: "T-2", good: "FOOD", buyAt: "B", sellAt: "S2" }], snap(), undefined);
-  assert.deepEqual(s, { flownBy: ["T-1 (pinned)"], reason: null, more: [] });
+  assert.deepEqual(s, { flownBy: ["T-1 (pinned)"], reason: null, more: [], moreLabel: "" });
 });
 test("a blocked sell market is the reason", () => assert.match(routeStatus(r, [], snap(), "S is taken by T-9").reason!, /taken by T-9/));
 test("before the first dispatcher cycle", () => assert.match(routeStatus(r, [], undefined, undefined).reason!, /not run yet/));
@@ -27,6 +27,7 @@ test("a trader's rejection is reported, with a count for more", () => {
   const two = routeStatus(r, [], snap({ traders: [rej("T-1", "a"), rej("T-2", "b"), rej("T-3", "c")] }), undefined);
   assert.equal(two.reason, "T-1: a");
   assert.deepEqual(two.more, ["T-2: b", "T-3: c"]);
+  assert.equal(two.moreLabel, "+2 more");
 });
 test("every trader occupied says what each is doing", () => {
   const traders = [{ ship: "T-1", busy: true, rejected: [] }, { ship: "T-2", busy: false, assigned: "DRUGS", rejected: [] }, { ship: "T-3", busy: false, assigned: "COPPER", rejected: [] }];
@@ -35,10 +36,10 @@ test("every trader occupied says what each is doing", () => {
     { shipSymbol: "T-2", good: "DRUGS", buyAt: "B", sellAt: "S", source: "manual" },
     { shipSymbol: "T-3", good: "COPPER", buyAt: "B", sellAt: "S", source: "auto" },
   ];
-  assert.equal(
-    routeStatus({ good: "X", buyAt: "B", sellAt: "S" }, as, snap({ routes: [{ key: "X", good: "X", buyAt: "B", sellAt: "S", profitPerTrip: 1, score: 1 }], traders }), undefined).reason,
-    "every trader is occupied: T-1 mid-trip with cargo (FOOD), T-2 pinned to DRUGS, T-3 on COPPER",
-  );
+  const st = routeStatus({ good: "X", buyAt: "B", sellAt: "S" }, as, snap({ routes: [{ key: "X", good: "X", buyAt: "B", sellAt: "S", profitPerTrip: 1, score: 1 }], traders }), undefined);
+  assert.equal(st.reason, "every trader is occupied");
+  assert.deepEqual(st.more, ["T-1 mid-trip with cargo (FOOD)", "T-2 pinned to DRUGS", "T-3 on COPPER"]);
+  assert.equal(st.moreLabel, "ship by ship (3)");
 });
 test("rate per hour", () => {
   assert.equal(ratePerHour(600, 600), 3600);

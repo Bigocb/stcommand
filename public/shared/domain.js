@@ -375,7 +375,7 @@ export function skipReasonHtml(r, key, open, cls) {
   if (!r.skipReason) return "";
   const more = r.skipMore ?? [];
   const btn = more.length
-    ? ` <button class="why-more" data-act="why-toggle" data-key="${escapeAttr(key)}" aria-expanded="${open ? "true" : "false"}">${open ? "hide" : `+${more.length} more`}</button>`
+    ? ` <button class="why-more" data-act="why-toggle" data-key="${escapeAttr(key)}" aria-expanded="${open ? "true" : "false"}">${open ? "hide" : escapeHtml(r.skipMoreLabel || `+${more.length} more`)}</button>`
     : "";
   const list = open && more.length ? `<ul class="why-list">${more.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : "";
   return `<div class="${cls}">not flying: ${escapeHtml(r.skipReason)}${btn}</div>${list}`;
