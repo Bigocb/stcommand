@@ -178,7 +178,9 @@ Each step says what you should see, what to do, and what to avoid. The numbers a
    exist until markets are priced, so wait for the route list to fill before starting traders.
    Avoid starting traders blind.
 3. **Hours 1 to 2: start the traders.** Once routes exist, leave them on AUTO. Avoid moving traders by hand.
-4. **Hours 2 to 3: feed the gate's weakest input.** Start a feed, stop level HIGH. Avoid ABUNDANT.
+4. **Hours 2 to 3: start the supply chain early, with miners.** If cash is low, put miners on a feed for the
+   raw inputs behind the gate's weakest input, stop level HIGH. The miners earn now and fill the chain later.
+   Avoid ABUNDANT, and avoid buying the finished materials before the chain can make them.
 5. **Day 1: let the markets breathe.** Check metrics morning and evening. Spread sales. Avoid four sales in
    a row at one market.
 6. **Day 1, afternoon: watch a circuit.** Read the trader's sheet. Leave it alone; the planner drops leg 2
