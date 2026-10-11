@@ -6,13 +6,17 @@ and `docs/TODO.md`/`CHANGELOG.md` for what's in flight or already shipped.
 
 ## This week's fleet and the opening playbook
 
-Current week (reset 2026-10-04, tenant `7e1ea899`, home system X1-JX83, gate X1-JX83-I59 needing 1,600 FAB_MATS +
-400 ADVANCED_CIRCUITRY): the operator did not state a starting layout; what ran was 1 command frigate, 10 mining
-drones (all on one STRIPPED asteroid, CE5D), 6-7 shuttle traders, 1 surveyor and ~26 keeper probes (6 retired on
-2026-10-05). The lesson of the week is in `docs/reset-opening-playbook.md`: feed every input of the gate materials
-from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, never pause contracts (one at a time, 120-230k each for manufactured goods), and let the mission buy only when the
-producer's activity is GROWING or STRONG and the recovery gate (`recoverPct`) allows. Update this section when the
-operator states a layout for a following week.
+Current week (reset 2026-10-11, tenant THEOREM, served from traders.cloutier.work, gate system X1-CM13, gate X1-CM13-I61
+needing 1,600 FAB_MATS + 400 ADVANCED_CIRCUITRY, QUANTUM_STABILIZERS already fulfilled): the layout observed on
+the new server is 2 ships, THEOREM-1 (tour) and THEOREM-2 (keeper), both docked at X1-CM13, with no miners,
+traders or feeds yet. The gate had 0 of 1,600 FAB_MATS and 0 of 400 ADVANCED_CIRCUITRY on 2026-10-11, so no jump
+through X1-CM13 is possible until the materials are delivered. A tour ship can walk that system's markets while
+the gate is closed. A keeper probe purchase at X1-CM13-A2 (21,397c) waits for operator approval, and until that is
+decided the tour ship holds there. The lesson of the earlier week is in `docs/reset-opening-playbook.md`: feed every
+input of the gate materials from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, never pause
+contracts (one at a time, 120-230k each for manufactured goods), and let the mission buy only when the producer's
+activity is GROWING or STRONG and the recovery gate (`recoverPct`) allows. Update this section when the operator
+states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server
 
