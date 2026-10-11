@@ -467,6 +467,10 @@ td.cp.down { color: var(--bad, #e5675d); }
 .pace-spark .pace-zero { stroke: currentColor; stroke-opacity: .25; stroke-width: 1; vector-effect: non-scaling-stroke; }
 
 /* ── Metrics screen (shared/metrics.js) ── */
+/* Every .content view clips (overflow:hidden), which cut the metrics screen off below its second chart row. This view is a
+   long page, so it scrolls; the root must not shrink to fit, or the charts would squash instead of the page scrolling. */
+#view-metrics{overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--hair-hi) transparent}
+#view-metrics > .mx{flex:0 0 auto}
 .mx{display:flex;flex-direction:column;gap:14px;position:relative}
 .mx-bar{display:flex;align-items:center;gap:14px}
 .mx-ranges{display:flex;gap:4px}
