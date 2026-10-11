@@ -2181,6 +2181,7 @@ export class FleetManager {
         new ShipAgent(ship, {
           api: this.api,
           shouldRun: () => !this.paused,
+          trades: false,
           intentFor: () => this.intents.current(ship.symbol),
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
@@ -2529,6 +2530,7 @@ export class FleetManager {
           new ShipAgent(ship, {
             api: this.api,
             shouldRun: () => !this.paused,
+            trades: false,
           intentFor: () => this.intents.current(ship.symbol),
             log: (m) => this.log(`${shipSymbol}: ${m}`),
             recordLedger: this.recordLedger,

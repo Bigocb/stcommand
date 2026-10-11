@@ -25,6 +25,9 @@ const HALT_POLL_MS = 1_000;
 export const TOUR_DRIFT_MAX_UNITS = 500;
 
 export interface AgentOptions {
+  /** Whether this ship may take a trade route when it is empty at a market (the arbitrage step). Miners pass false: a
+   *  miner mines. Defaults to true, so other roles keep their behaviour. */
+  trades?: boolean;
   /** Repair this ship where it stands; forwarded to the shared executor. */
   repairHere?: (shipSymbol: string) => Promise<void>;
   /** Scrap this ship where it stands; forwarded to the shared executor. */
@@ -265,6 +268,7 @@ export class ShipAgent {
   private readonly preferredMiningGood?: AgentOptions["preferredMiningGood"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly getCredits?: AgentOptions["getCredits"];
+  private readonly trades: boolean;
   private readonly ensureSystemCharted?: AgentOptions["ensureSystemCharted"];
   private readonly refreshSystemMarkets?: AgentOptions["refreshSystemMarkets"];
   private readonly marketTourTargets?: AgentOptions["marketTourTargets"];
@@ -368,6 +372,7 @@ export class ShipAgent {
     this.preferredMiningGood = opts.preferredMiningGood;
     this.protectedGoods = opts.protectedGoods;
     this.getCredits = opts.getCredits;
+    this.trades = opts.trades ?? true;
     this.ensureSystemCharted = opts.ensureSystemCharted;
     this.refreshSystemMarkets = opts.refreshSystemMarkets;
     this.marketTourTargets = opts.marketTourTargets;
@@ -1088,7 +1093,7 @@ export class ShipAgent {
     }
 
     // 3. After selling, if empty at a market, run a quick arbitrage route.
-    if (!midMining && this.ship.cargo.units === 0) {
+    if (!midMining && this.ship.cargo.units === 0 && this.trades) {
       const route = this.findArbitrageRouteFrom();
       if (route) {
         this.log(`arbitrage opportunity: ${route.good} ${route.buyAt} → ${route.sellAt}, +${route.profit}c`);
