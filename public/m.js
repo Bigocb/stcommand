@@ -1494,17 +1494,17 @@ function renderMoreMissions() {
       <div class="detail">crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
       ${matRows}
       <div class="detail">Buy pacing — slows buying so the price is not outrun. Blank = default. Lot = units per purchase, gap = minutes between purchases, ceiling = % over the 24h low, recover = wait for the ask to fall back within this % of its pre-lot level.</div>
-      <div class="acts mission-pacing">
-        <span class="detail">lot</span><input type="number" class="mp-lot" min="1" placeholder="default" value="${m.pacing?.buyLotUnits ?? ""}" style="width:56px" aria-label="Units per purchase">
-        <span class="detail">gap min</span><input type="number" class="mp-gap" min="1" placeholder="none" value="${m.pacing?.buyGapMin ?? ""}" style="width:72px" aria-label="Minutes between purchases">
-        <span class="detail">ceiling %</span><input type="number" class="mp-cap" min="1" placeholder="40" value="${m.pacing?.maxInflationPct ?? ""}" style="width:68px" aria-label="Price ceiling percent">
-        <span class="detail" title="Buy the next lot only once the ask is back within this % of its level before the previous lot">recover %</span><input type="number" class="mp-rec" min="1" placeholder="off" value="${m.pacing?.recoverPct ?? ""}" style="width:60px" aria-label="Recovery percent">
-        <span class="detail" title="Hold purchases while credits are under this">cash floor</span><input type="number" class="mp-floor" min="1" placeholder="off" value="${m.pacing?.cashFloor ?? ""}" style="width:80px" aria-label="Cash floor">
-        <span class="detail" title="Resume once credits are back above this (default floor + 25%)">resume</span><input type="number" class="mp-resume" min="1" placeholder="+25%" value="${m.pacing?.cashResume ?? ""}" style="width:80px" aria-label="Cash resume">
-        <button class="btn" data-act="save-pacing" data-wp="${escapeHtml(m.targetWaypoint)}">Save pacing</button>
+      <div class="mission-pacing">
+        <label class="mp-field"><span>lot</span><input type="number" class="mp-lot" min="1" placeholder="default" value="${m.pacing?.buyLotUnits ?? ""}" aria-label="Units per purchase"></label>
+        <label class="mp-field"><span>gap min</span><input type="number" class="mp-gap" min="1" placeholder="none" value="${m.pacing?.buyGapMin ?? ""}" aria-label="Minutes between purchases"></label>
+        <label class="mp-field"><span>ceiling %</span><input type="number" class="mp-cap" min="1" placeholder="40" value="${m.pacing?.maxInflationPct ?? ""}" aria-label="Price ceiling percent"></label>
+        <label class="mp-field" title="Buy the next lot only once the ask is back within this % of its level before the previous lot"><span>recover %</span><input type="number" class="mp-rec" min="1" placeholder="off" value="${m.pacing?.recoverPct ?? ""}" aria-label="Recovery percent"></label>
+        <label class="mp-field" title="Hold purchases while credits are under this"><span>cash floor</span><input type="number" class="mp-floor" min="1" placeholder="off" value="${m.pacing?.cashFloor ?? ""}" aria-label="Cash floor"></label>
+        <label class="mp-field" title="Resume once credits are back above this (default floor + 25%)"><span>resume</span><input type="number" class="mp-resume" min="1" placeholder="+25%" value="${m.pacing?.cashResume ?? ""}" aria-label="Cash resume"></label>
+        <button class="btn mp-save" data-act="save-pacing" data-wp="${escapeHtml(m.targetWaypoint)}">Save pacing</button>
       </div>
       <div class="acts">
-        <input type="number" class="carrier-target" data-wp="${escapeHtml(m.targetWaypoint)}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
+        <input type="number" class="carrier-target" data-wp="${escapeHtml(m.targetWaypoint)}" min="0" value="${target}" aria-label="Crew target">
         <button class="btn" data-act="set-target" data-wp="${escapeHtml(m.targetWaypoint)}">Set crew size</button>
         ${m.paused
           ? `<button class="btn pri" data-act="resume" data-wp="${escapeHtml(m.targetWaypoint)}">Resume</button>`

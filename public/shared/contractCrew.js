@@ -59,10 +59,10 @@ export function crewHtml({ contractId, good, needed, ctx }) {
       }).join("")
     : '<div class="crew-empty">No traders with a hold.</div>';
   const haulActs = `<div class="crew-acts">
-      <button class="crew-go" data-act="crew-assign" data-key="${escapeAttr(key)}" data-good="${escapeAttr(good)}">Assign selected</button>
-      ${assigned.length ? `<button class="crew-go ghost" data-act="crew-release" data-key="${escapeAttr(key)}" data-ships="${escapeAttr(assigned.join(","))}">Release all (${assigned.length})</button>` : ""}
+      <button class="btn pri crew-go" data-act="crew-assign" data-key="${escapeAttr(key)}" data-good="${escapeAttr(good)}">Assign selected</button>
+      ${assigned.length ? `<button class="btn ghost crew-go" data-act="crew-release" data-key="${escapeAttr(key)}" data-ships="${escapeAttr(assigned.join(","))}">Release all (${assigned.length})</button>` : ""}
     </div>`;
-  const haulHead = `<div class="crew-h">Haulers · ${assignedCap}u assigned of ${needed}u still needed${assignedCap > needed ? " · more than needed" : ""}</div>`;
+  const haulHead = `<div class="crew-h">Haulers · ${assignedCap} units of hold assigned, ${needed} still needed${assignedCap > needed ? " (more than needed)" : ""}</div>`;
 
   // Miners: only offered for a good surveys have shown as a deposit.
   const where = fieldsFor(good, fields);
@@ -82,8 +82,8 @@ export function crewHtml({ contractId, good, needed, ctx }) {
       <div class="crew-fields">${fieldBtns}</div>
       ${minerRows}
       <div class="crew-acts">
-        <button class="crew-go" data-act="crew-mine" data-key="${escapeAttr(key)}" data-good="${escapeAttr(good)}" data-field="${escapeAttr(chosenField)}">Send selected to ${escapeHtml(shortWp(chosenField))}</button>
-        ${mining.length ? `<button class="crew-go ghost" data-act="crew-mine-clear" data-key="${escapeAttr(key)}" data-ships="${escapeAttr(mining.join(","))}">Stop mining it (${mining.length})</button>` : ""}
+        <button class="btn pri crew-go" data-act="crew-mine" data-key="${escapeAttr(key)}" data-good="${escapeAttr(good)}" data-field="${escapeAttr(chosenField)}">Send selected to ${escapeHtml(shortWp(chosenField))}</button>
+        ${mining.length ? `<button class="btn ghost crew-go" data-act="crew-mine-clear" data-key="${escapeAttr(key)}" data-ships="${escapeAttr(mining.join(","))}">Stop mining it (${mining.length})</button>` : ""}
       </div>`;
   } else {
     mineHtml = `<div class="crew-note">${escapeHtml(good)} is not a mined deposit in any survey so far, so there is no miner option. Scan fields to find where it occurs.</div>`;

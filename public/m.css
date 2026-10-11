@@ -106,7 +106,17 @@ body {
 .card .amt.amber { color: var(--amber); }
 .card .detail { font-family: var(--mono); font-size: 10.5px; color: var(--dim); line-height: 1.5; }
 .card .exp { font-family: var(--mono); font-size: 9px; color: var(--dim); }
-.card .acts { display: flex; gap: 8px; margin-top: 2px; }
+.card .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
+.card input[type="number"], .card input[type="text"] {
+  min-width: 0; background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
+  font-size: 12px; padding: 8px 10px; border-radius: 3px;
+}
+.card .acts input.carrier-target { width: 72px; }
+/* Buy-pacing form: labelled fields two to a row so nothing runs off the edge of a phone. */
+.mission-pacing { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mission-pacing .mp-field { display: flex; flex-direction: column; gap: 3px; font-family: var(--mono); font-size: 10px; color: var(--dim); min-width: 0; }
+.mission-pacing .mp-field input { width: 100%; box-sizing: border-box; }
+.mission-pacing .mp-save { grid-column: 1 / -1; }
 
 .btn {
   font-family: var(--chrome); font-weight: 600; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
@@ -689,15 +699,13 @@ body {
 .crew { margin: 6px 0 2px; }
 .crew-toggle { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--hair, #333); background: transparent; color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
 .crew-body { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
-.crew-h { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted, #888); margin-top: 6px; }
+.crew-h { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 8px; line-height: 1.4; }
 .crew-ship, .crew-field { display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--hair, #333); background: transparent; color: inherit; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .crew-field { display: inline-flex; margin: 0 4px 4px 0; }
 .crew-ship.on, .crew-field.on { border-color: var(--amber, #d9a400); background: rgba(217,164,0,.12); }
 .crew-ship.mine span:last-child { color: var(--green, #5fd38d); }
 .crew-fields { display: flex; flex-wrap: wrap; }
-.crew-acts { display: flex; gap: 6px; margin-top: 4px; }
-.crew-go { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--amber, #d9a400); background: var(--amber, #d9a400); color: #000; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
-.crew-go.ghost { background: transparent; color: inherit; border-color: var(--hair, #333); }
+.crew-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .crew-empty, .crew-note { font-size: 11px; color: var(--muted, #888); }
 
 .mx-contracts .mx-sub { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted, #888); margin: 14px 0 4px; }

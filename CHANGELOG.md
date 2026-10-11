@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Tower: contract and construction cards fit a phone
+
+The construction buy-pacing form was six inputs and a button in one non-wrapping row, so the last fields ran off the right edge
+of the screen (and the inputs were bright white against the dark theme). It is now a two-column grid of labelled fields with a
+full-width Save button, and card action rows wrap. The contract crew panel uses the app's own button styles, with plain
+wording ("0 units of hold assigned, 2 still needed") instead of capitalised "0U".
+
 ## 2026-10-11 — Contracts in the metrics: what they earn, and what is still owed
 
 Contracts were half in the books. Only a completion payout was recorded (no contract id), the advance paid on accept was
