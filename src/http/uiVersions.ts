@@ -1,5 +1,6 @@
-import { Router } from "express";
-import { existsSync } from "node:fs";
+import { Router, type Response } from "express";
+import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 
 /**
@@ -101,4 +102,61 @@ export function cacheHeaders(path: string): Record<string, string> | undefined {
   // get explicit matches rather than folding into that regex's character class.
   if (/\/(m|deck)\.(css|js)$/.test(path)) return { "Cache-Control": REVALIDATE };
   return undefined;
+}
+
+/**
+ * A short stamp derived from the frontend JS/CSS assets, so the HTML can name
+ * them with `?v=<stamp>` that changes exactly when they change. This is what
+ * makes a deploy visible immediately even behind a CDN that ignores the
+ * origin's `no-cache` — e.g. Cloudflare's default 4-hour Browser Cache TTL,
+ * which rewrites `no-cache` to `max-age=14400` for .js/.css. Changing the URL
+ * on deploy forces both the CDN and the browser to fetch fresh.
+ */
+export function assetStamp(publicDir: string): string {
+  const h = createHash("sha1");
+  const walk = (dir: string): void => {
+    let entries: Dirent[] = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== "vendor") walk(p);
+        continue;
+      }
+      if (!/\.(js|css)$/.test(e.name)) continue;
+      try {
+        const st = statSync(p);
+        h.update(e.name).update(`${st.size}:${Math.floor(st.mtimeMs)}`);
+      } catch {
+        /* ignore unreadable entries */
+      }
+    }
+  };
+  walk(publicDir);
+  return h.digest("hex").slice(0, 10);
+}
+
+/**
+ * Serve an HTML page with every local `.js`/`.css` reference stamped with
+ * `?v=<stamp>`, and `Cache-Control: no-cache`. External (CDN) URLs and
+ * non-js/css assets are left untouched.
+ */
+export function serveHtml(res: Response, file: string, stamp: string): void {
+  let html: string;
+  try {
+    html = readFileSync(file, "utf8");
+  } catch {
+    res.status(404).type("text/plain").send("not found");
+    return;
+  }
+  html = html.replace(
+    /(\s(?:src|href)=")(\/[^"]+\.(?:js|css))(")/g,
+    (_m, pre, url, post) => `${pre}${url}?v=${stamp}${post}`,
+  );
+  res.set("Cache-Control", "no-cache");
+  res.type("html").send(html);
 }
