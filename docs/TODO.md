@@ -7,6 +7,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Look into splitting the front end into its own project (raised 2026-10-11, operator).** Tower and Deck are static
+  files in `public/` served by the engine process, so a front-end-only change redeploys and restarts the server, which
+  drops the live fleet loop for a CSS fix. To look into: (1) serve `public/` from a separate static host (or a separate
+  deploy of the same repo) that talks to the engine over `/api`; (2) what that does to session cookies, CORS and the
+  `/shared` module paths; (3) whether a cheaper step does most of it, such as the engine reading `public/` from disk on
+  each request so a files-only deploy needs no restart; (4) how the two stay version-matched when an API shape changes.
+
 - [ ] **Decision model: evaluate before it does anything (raised 2026-10-11, operator).** The router and the attention feed
   are built and off (CHANGELOG 2026-10-11). To do: (1) get a `TYPESAFE_API_KEY` (access is limited early access; the docs do not
   say how, and Vercel's AI Gateway lists it as `typesafe-ai/jev`); (2) turn on `jevAttention` and `jevRouter` for a week and
