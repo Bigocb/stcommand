@@ -87,6 +87,41 @@ describe("GalaxyAtlas.jumpPath / warmJumpPath", () => {
     assert.equal(atlas.jumpPath("X1-A", "X1-C"), undefined);
   });
 
+  it("a search that runs out of scan budget resumes on the next call instead of stalling on the same cached systems", async () => {
+    // Hub X1-H: 30 dead-end leaves listed before a five-jump chain. The per-call budget (25 new scans) runs out on the
+    // leaves, so the chain is only reached once the leaves are warm and free.
+    const links: Record<string, string[]> = { "X1-H": [] };
+    for (let i = 0; i < 30; i++) {
+      links[`X1-L${i}`] = ["X1-H"];
+      links["X1-H"]!.push(`X1-L${i}`);
+    }
+    const chain = ["X1-C1", "X1-C2", "X1-C3", "X1-C4", "X1-C5"];
+    links["X1-H"]!.push(chain[0]!);
+    chain.forEach((sys, i) => {
+      links[sys] = [i === 0 ? "X1-H" : chain[i - 1]!, ...(chain[i + 1] ? [chain[i + 1]!] : [])];
+    });
+    const topo: Record<string, { waypoints: unknown[]; jumpGates: unknown[] }> = {};
+    for (const [sys, nbrs] of Object.entries(links)) {
+      topo[sys] = {
+        waypoints: [{ symbol: `${sys}-GATE`, type: "JUMP_GATE" }],
+        jumpGates: [{ symbol: `${sys}-GATE`, connections: nbrs.map((n) => `${n}-GATE`) }],
+      };
+    }
+    const store: GalaxyStore = { getSystemTopology: async (s) => topo[s], setSystemTopology: async () => {} };
+    const api = { getConstruction: async () => ({ isComplete: true, materials: [] }) } as any;
+    const atlas = new GalaxyAtlas(api, store);
+    atlas.setPositioningHops(10);
+
+    let path: string[] | undefined;
+    let calls = 0;
+    while (!path && calls < 5) {
+      path = await atlas.warmJumpPath("X1-H", "X1-C5");
+      calls++;
+    }
+    assert.deepEqual(path, ["X1-H", "X1-C1", "X1-C2", "X1-C3", "X1-C4", "X1-C5"]);
+    assert.ok(calls <= 3, `found in ${calls} calls; a budget that keeps re-reading the cache would never get there`);
+  });
+
   it("answers a repeated pair from its cache (one search), hands out copies, and forgets when a gate changes", async () => {
     const atlas = await atlasWith(() => true);
     await atlas.warmJumpPath("X1-A", "X1-C");

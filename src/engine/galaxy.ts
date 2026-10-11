@@ -327,27 +327,21 @@ export class GalaxyAtlas {
    * systems it looked at.
    */
   async warmNeighborhood(from: string): Promise<number> {
-    const MAX_WARM_SYSTEMS = 30;
+    const MAX_NEW_SCANS = 60;
     const visited = new Set<string>([from]);
     let frontier = [from];
-    let looked = 0;
-    for (let depth = 0; depth <= this.positioningHops && frontier.length > 0 && looked < MAX_WARM_SYSTEMS; depth++) {
+    let scanned = 0;
+    for (let depth = 0; depth <= this.positioningHops && frontier.length > 0; depth++) {
       const next: string[] = [];
       for (const sys of frontier) {
-        if (looked >= MAX_WARM_SYSTEMS) break;
-        looked++;
+        if (!this.warmedGateSystems.has(sys)) {
+          if (scanned >= MAX_NEW_SCANS) return scanned;
+          scanned++;
+        }
         try {
-          await this.scanJumpGates(sys);
+          await this.warmSystemGates(sys);
         } catch {
           continue;
-        }
-        const known = this.systems.get(sys);
-        if (known) {
-          await Promise.allSettled(
-            known.jumpGates
-              .filter((jg) => this.gateConstruction.get(jg.symbol) !== true)
-              .map((jg) => this.refreshGateConstruction(sys, jg.symbol)),
-          );
         }
         if (depth === this.positioningHops) continue;
         for (const n of this.connectedSystems(sys)) {
@@ -358,62 +352,70 @@ export class GalaxyAtlas {
       }
       frontier = next;
     }
-    return looked;
+    return scanned;
+  }
+
+  /** Systems whose gates this process has already scanned and checked. Warming skips them for free, so a repeat search
+   *  walks past the cached part of the neighbourhood rather than spending its budget on it again and stopping there. */
+  private readonly warmedGateSystems = new Set<string>();
+
+  /** Scan one system's gates and check their construction, unless this process already has. Throws if the scan fails. */
+  private async warmSystemGates(sys: string): Promise<void> {
+    if (this.warmedGateSystems.has(sys)) return;
+    await this.scanJumpGates(sys);
+    const known = this.systems.get(sys);
+    if (known) {
+      await Promise.allSettled(
+        known.jumpGates
+          .filter((jg) => this.gateConstruction.get(jg.symbol) !== true)
+          .map((jg) => this.refreshGateConstruction(sys, jg.symbol)),
+      );
+    }
+    this.warmedGateSystems.add(sys);
   }
 
   /**
    * Make jumpPath(from, to) answerable: breadth-first, scan each frontier
    * system's gates (cache-aware, so already-known systems cost nothing) and
    * check construction status of the gates it finds, to at most
-   * the positioning-hops setting levels and MAX_WARM_SYSTEMS systems — bounded so a
-   * stray request can't turn into an API flood. Returns the path, if any.
+   * the positioning-hops setting levels. Only systems not yet warmed count against
+   * the per-call budget of new scans, so repeated calls make progress instead of
+   * re-reading the same cached corner — and the budget still bounds API calls per
+   * call. Returns the path, if any.
    */
   async warmJumpPath(from: string, to: string): Promise<string[] | undefined> {
     const existing = this.jumpPath(from, to);
     if (existing) return existing;
-    const MAX_WARM_SYSTEMS = 25;
+    const MAX_NEW_SCANS = 25;
     const visited = new Set<string>([from]);
     let frontier = [from];
-    let budget = MAX_WARM_SYSTEMS;
-    for (let depth = 0; depth < this.positioningHops && frontier.length > 0 && budget > 0; depth++) {
+    let budget = MAX_NEW_SCANS;
+    // Warm one system. Only a system not yet warmed spends budget; once the budget is gone, returns false.
+    const warm = async (sys: string): Promise<boolean> => {
+      if (!this.warmedGateSystems.has(sys)) {
+        if (budget <= 0) return false;
+        budget--;
+      }
+      try {
+        await this.warmSystemGates(sys);
+      } catch {
+        /* unverifiable system: its edges simply stay unusable */
+      }
+      return true;
+    };
+    for (let depth = 0; depth < this.positioningHops && frontier.length > 0; depth++) {
       const next: string[] = [];
       for (const sys of frontier) {
-        if (budget-- <= 0) break;
-        try {
-          await this.scanJumpGates(sys);
-        } catch {
-          continue;
-        }
-        const known = this.systems.get(sys);
-        if (known) {
-          await Promise.allSettled(
-            known.jumpGates
-              .filter((jg) => this.gateConstruction.get(jg.symbol) !== true)
-              .map((jg) => this.refreshGateConstruction(sys, jg.symbol)),
-          );
-        }
+        if (!(await warm(sys))) break;
         for (const n of this.connectedSystems(sys)) {
           if (visited.has(n)) continue;
           visited.add(n);
           next.push(n);
         }
       }
-      // Load + check the next layer's own gates too, so their edges verify.
+      // Warm the next layer's own gates too, so their edges verify.
       for (const sys of next) {
-        if (budget <= 0) break;
-        try {
-          await this.scanJumpGates(sys);
-          const known = this.systems.get(sys);
-          if (known) {
-            await Promise.allSettled(
-              known.jumpGates
-                .filter((jg) => this.gateConstruction.get(jg.symbol) !== true)
-                .map((jg) => this.refreshGateConstruction(sys, jg.symbol)),
-            );
-          }
-        } catch {
-          /* unverifiable system: its edges simply stay unusable */
-        }
+        if (!(await warm(sys))) break;
       }
       const found = this.jumpPath(from, to);
       if (found) return found;

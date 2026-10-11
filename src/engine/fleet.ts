@@ -7451,7 +7451,7 @@ export class FleetManager {
         for (const sys of systems) {
           try {
             const looked = await this.galaxy.warmNeighborhood(sys);
-            this.log(`cross-system: warmed gate caches around ${sys} (${looked} systems checked)`);
+            this.log(`cross-system: warmed gate caches around ${sys} (${looked} new systems scanned)`);
           } catch (err) {
             this.log(`cross-system: warming ${sys} failed: ${err instanceof Error ? err.message : String(err)}`);
           }
