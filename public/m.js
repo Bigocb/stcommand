@@ -8,6 +8,7 @@
  * loadDispatch, the subscribe() reactive slices) — no new fetching layer.
  */
 import { api, onUnauthorized } from "/shared/api.js";
+import { crewHtml, crewAction, loadFields, cachedFields } from "/shared/contractCrew.js";
 import { login, probeSession } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
@@ -1423,6 +1424,17 @@ $("mkt-yards").addEventListener("click", async (e) => {
  * mission and full doctrine editing stay desktop-only for now —
  * this covers the day-to-day accept/decline/toggle actions.
  */
+/** The live data the crew panel reads: ship summaries (role, hold), the dispatcher's assignments, miner preferences, surveyed fields. */
+function crewCtx() {
+  return {
+    summary: fleetStatus.summary ?? [],
+    assignments: dispatchAssignments,
+    minerPrefs: minerPreferences,
+    fields: cachedFields(),
+    miners: (fleetStatus.ships ?? []).filter((s) => s.role === "miner"),
+  };
+}
+
 function renderMoreContracts() {
   $("more-contract-count").textContent = contracts.length;
   const el = $("more-contracts");
@@ -1432,7 +1444,12 @@ function renderMoreContracts() {
     const done = (c.deliver ?? []).every((d) => d.unitsFulfilled >= d.unitsRequired);
     const delivRows = (c.deliver ?? []).map((d) => {
       const pct = d.unitsRequired ? Math.round((d.unitsFulfilled / d.unitsRequired) * 100) : 0;
-      return `<div class="prog-row"><span>${escapeHtml(d.tradeSymbol)} → ${escapeHtml(shortWp(d.destinationSymbol))}</span><span class="pr-pct">${d.unitsFulfilled}/${d.unitsRequired}</span></div><div class="prog-track"><i style="width:${pct}%"></i></div>`;
+      const remaining = Math.max(0, d.unitsRequired - d.unitsFulfilled);
+      // Crew (haulers and miners) only on a contract being worked with something still to deliver.
+      const crew = c.accepted && !c.abandoned && remaining > 0
+        ? crewHtml({ contractId: c.id, good: d.tradeSymbol, needed: remaining, ctx: crewCtx() })
+        : "";
+      return `<div class="prog-row"><span>${escapeHtml(d.tradeSymbol)} → ${escapeHtml(shortWp(d.destinationSymbol))}</span><span class="pr-pct">${d.unitsFulfilled}/${d.unitsRequired}</span></div><div class="prog-track"><i style="width:${pct}%"></i></div>${crew}`;
     }).join("");
     return `<div class="card ${c.accepted && !done ? "info" : ""}">
       <div class="row1"><span class="who">${escapeHtml(c.type)} · ${escapeHtml(c.factionSymbol)}</span><span class="amt">${fmt(total)}c</span></div>
@@ -1842,6 +1859,7 @@ $("more-feeds").addEventListener("click", async (e) => {
 $("more-contracts").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
+  if (await crewAction(b, api, loadProgramme)) return renderMoreContracts();
   const { act, id } = b.dataset;
   b.disabled = true;
   try {

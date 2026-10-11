@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Contracts: assign several ships, and send miners (Tower and Deck)
+
+Only the retired v2-v6 desktop pages could put a ship on a contract, one at a time, and nothing could send miners.
+`public/shared/contractCrew.js` adds a "Crew" toggle to each delivery line of an accepted contract in Tower (More ->
+Contracts) and Deck (Ops -> Contracts): pick any number of traders to haul the good (the panel shows assigned hold against
+units still needed), and, when surveys have shown the good as a mined deposit, pick miners and a field (best share first) to
+send them to. `POST /api/contracts/assign` now takes `shipSymbols` (a ship that cannot take it is reported, not fatal to the
+rest); new `POST /api/contracts/miners` sets each miner's survey preference for the good and pins it to the chosen field, or
+clears the preference. A miner holding contract cargo already delivers it before anything else, so no delivery change was
+needed. Both are logged as `contract_crew` operator actions. Limits: miners only extract what the field's deposits give
+(the preference favours the good in surveys, it does not guarantee yield); several haulers on one good can over-buy, so the
+panel warns when assigned hold exceeds what is still needed; a good with no market (mined only) cannot be hauled.
+
 ## 2026-10-11 — Routes board: "runs left" hint
 
 Profit per hour assumes a route can be repeated; today's prices showed how long it can't be. THEOREM-A's FOOD run earned

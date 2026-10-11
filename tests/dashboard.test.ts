@@ -314,6 +314,29 @@ describe("POST /api/discord", () => {
   });
 });
 
+describe("POST /api/contracts/assign + /api/contracts/miners (contract crew)", () => {
+  it("assign needs ships and a good", async () => {
+    assert.equal((await post("/api/contracts/assign", {})).status, 400);
+    assert.equal((await post("/api/contracts/assign", { shipSymbols: ["NOPE-1"] })).status, 400);
+  });
+
+  it("assign reports each ship it could not take rather than failing silently", async () => {
+    const res = await post("/api/contracts/assign", { shipSymbols: ["NOPE-1", "NOPE-2"], tradeSymbol: "IRON_ORE" });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: string; failed: { ship: string; error: string }[] };
+    assert.deepEqual(body.failed.map((f) => f.ship), ["NOPE-1", "NOPE-2"]);
+    assert.match(body.failed[0]!.error, /not a trader/);
+  });
+
+  it("miners rejects a ship that is not a miner, per ship", async () => {
+    assert.equal((await post("/api/contracts/miners", { tradeSymbol: "IRON_ORE" })).status, 400);
+    const res = await post("/api/contracts/miners", { shipSymbols: ["NOPE-1"], tradeSymbol: "IRON_ORE", field: "X1-TEST-A5" });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { failed: { ship: string; error: string }[] };
+    assert.match(body.failed[0]!.error, /not a miner/);
+  });
+});
+
 describe("GET /api/markets?system= filter", () => {
   // market_snapshots/market_latest are shared galaxy tables (no tenant_id —
   // see migration 001's comment), so this test seeds two distinct,

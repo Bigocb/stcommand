@@ -1135,23 +1135,72 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  /**
+   * Put one or several traders on a contract's good (or take them off with `clear`). Each ship becomes the same manual
+   * contract-buy override a single assignment always was, so several can work one good at once. `shipSymbols` is the
+   * list form; the single `shipSymbol` still works. A ship that cannot take it is reported, not fatal to the others.
+   */
   router.post("/contracts/assign", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    const shipSymbol = String(req.body?.shipSymbol ?? "");
+    const ships: string[] = Array.isArray(req.body?.shipSymbols)
+      ? req.body.shipSymbols.filter((x: unknown): x is string => typeof x === "string" && x.length > 0)
+      : req.body?.shipSymbol ? [String(req.body.shipSymbol)] : [];
     const tradeSymbol = String(req.body?.tradeSymbol ?? "");
-    if (!shipSymbol) return res.status(400).json({ error: "shipSymbol required" });
-    try {
-      if (req.body?.clear) {
-        await w.fleet.setManualDispatch(shipSymbol, undefined);
-      } else {
-        if (!tradeSymbol) return res.status(400).json({ error: "tradeSymbol required" });
-        await w.fleet.assignContractCarrier(shipSymbol, tradeSymbol);
+    if (ships.length === 0) return res.status(400).json({ error: "shipSymbol or shipSymbols required" });
+    if (!req.body?.clear && !tradeSymbol) return res.status(400).json({ error: "tradeSymbol required" });
+    const assigned: string[] = [];
+    const failed: { ship: string; error: string }[] = [];
+    for (const ship of ships) {
+      try {
+        if (req.body?.clear) await w.fleet.setManualDispatch(ship, undefined);
+        else await w.fleet.assignContractCarrier(ship, tradeSymbol);
+        assigned.push(ship);
+        await w.store.recordOperatorAction(w.tenantId, "contract_crew", ship, req.body?.clear ? `${ship}: taken off its contract route` : `${ship}: assigned to carry ${tradeSymbol} for a contract`, { good: tradeSymbol || null });
+      } catch (err) {
+        failed.push({ ship, error: err instanceof Error ? err.message : String(err) });
       }
-      res.json({ ok: true, assignments: w.fleet.dispatcher.list() });
-    } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
+    if (assigned.length === 0) return res.status(400).json({ error: failed[0]?.error ?? "nothing assigned", failed });
+    res.json({ ok: true, assigned, failed, assignments: w.fleet.dispatcher.list() });
+  });
+
+  /**
+   * Send miners after a contract's good: each gets the survey preference for it and, when `field` is given, is pinned to
+   * mine there (the field should be one whose surveys have shown the deposit: GET /api/field-composition). A miner holding
+   * contract cargo already delivers it before anything else (ShipAgent tick), so no delivery wiring is needed. `clear`
+   * removes the preference (the pin stays; release it from the ship sheet).
+   */
+  router.post("/contracts/miners", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const ships: string[] = Array.isArray(req.body?.shipSymbols)
+      ? req.body.shipSymbols.filter((x: unknown): x is string => typeof x === "string" && x.length > 0)
+      : [];
+    const tradeSymbol = String(req.body?.tradeSymbol ?? "");
+    const field = typeof req.body?.field === "string" && req.body.field ? req.body.field : undefined;
+    if (ships.length === 0) return res.status(400).json({ error: "shipSymbols required" });
+    if (!req.body?.clear && !tradeSymbol) return res.status(400).json({ error: "tradeSymbol required" });
+    const roleOf = new Map(w.fleet.getShipStatuses().map((s) => [s.symbol, s.role]));
+    const done: string[] = [];
+    const failed: { ship: string; error: string }[] = [];
+    for (const ship of ships) {
+      try {
+        if (roleOf.get(ship) !== "miner") throw new Error(`${ship} is not a miner`);
+        if (req.body?.clear) {
+          await w.fleet.setMinerPreference(ship, undefined);
+        } else {
+          await w.fleet.setMinerPreference(ship, tradeSymbol);
+          if (field) await w.fleet.mineAt(ship, field);
+        }
+        done.push(ship);
+        await w.store.recordOperatorAction(w.tenantId, "contract_crew", ship, req.body?.clear ? `${ship}: no longer mining for a contract` : `${ship}: mining ${tradeSymbol} for a contract${field ? ` at ${field}` : ""}`, { good: tradeSymbol || null, field: field ?? null });
+      } catch (err) {
+        failed.push({ ship, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    if (done.length === 0) return res.status(400).json({ error: failed[0]?.error ?? "nothing changed", failed });
+    res.json({ ok: true, done, failed, minerPreferences: w.fleet.minerPreferenceList() });
   });
 
   router.get("/construct", async (req, res) => {

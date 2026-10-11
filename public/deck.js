@@ -5,6 +5,7 @@
  * shared/*.js store every other UI version uses, with no new fetching layer.
  */
 import { api, onUnauthorized } from "/shared/api.js";
+import { crewHtml, crewAction, cachedFields } from "/shared/contractCrew.js";
 import { login, probeSession } from "/shared/session.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, activity,
@@ -1462,6 +1463,13 @@ $("mk-keeper-reset").addEventListener("click", async () => {
   } catch (err) { alert(err.message); }
 });
 
+// Contract crew (haulers and miners) controls inside the Contracts panel.
+$("ops-contracts").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-act^='crew-']");
+  if (!b) return;
+  if (await crewAction(b, api, loadProgramme)) renderOps();
+});
+
 /* ── Ops screen (pass 5) ──────────────────────
  * Contracts and construction missions, read-only display.
  */
@@ -1488,6 +1496,9 @@ function renderOps() {
               <div class="meter"><i style="width:${pct}%"></i></div>
               <span style="font-size:10px;color:var(--dim2);min-width:30px;text-align:right">${pct}%</span>
             </div>
+            ${c.accepted && !c.abandoned && d.unitsRequired - d.unitsFulfilled > 0
+              ? crewHtml({ contractId: c.id, good: d.tradeSymbol, needed: d.unitsRequired - d.unitsFulfilled, ctx: { summary: fleetStatus.summary ?? [], assignments: dispatchAssignments, minerPrefs: minerPreferences, fields: cachedFields(), miners: (fleetStatus.ships ?? []).filter((s) => s.role === "miner") } })
+              : ""}
           </div>
         `;
       }).join("");
