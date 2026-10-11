@@ -9,6 +9,28 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Contracts in the metrics: what they earn, and what is still owed
+
+Contracts were half in the books. Only a completion payout was recorded (no contract id), the advance paid on accept was
+never recorded, delivering the goods bought for a contract wrote no row so its cost sat as an unmatched purchase, and
+`buildMetrics` ignored CONTRACT rows entirely, so "Net trading" had no contract income while still carrying the fuel spent
+on contract runs. Nothing showed the credits accepted contracts still owed. On this server contracts were 70.8k of about
+2.75M income over 24h (2.6%), so this is about accuracy, not size.
+
+- **Ledger (migration 049):** `contract_id` on every contract row. New rows: `CONTRACT`/`ADVANCE` on accept,
+  `CONTRACT`/`PAYOUT` on completion, and `DELIVERY` (units, cost basis per unit from the ship's own purchases, null when
+  mined, total 0 because it is not cash) when goods are handed over. Cash formulas are unchanged. Rows from before this
+  carry no id and no advance: their payouts show as "earlier" and the old advances stay missing.
+- **Metrics:** `contracts` block (advances, payouts, completed, units and cost delivered, net, share of income, per-contract
+  lines) and `netInclContracts` = net trading + contract income - cost of goods delivered. **Net trading is unchanged**, so
+  weeks stay comparable; the Metrics screen adds a "Net incl. contracts" tile next to it.
+- **Pipeline** (`src/engine/contractPipeline.ts`): for each accepted unfulfilled contract, what it still owes on completion,
+  progress, cost so far (ledger), estimated cost to finish (units still to buy at the cheapest known market, less what
+  ships already carry), expected net, time left, and warnings (mined-only good, loss, under an hour, abandoned). The owed
+  total is shown beside the realized numbers and is never added to credits or net, because it is not cash yet.
+- **UI:** a Contracts panel on the Metrics screen in Tower and Deck (realized, owed table, earned per contract). Ops tool
+  `contract_money` returns the same for the MCP and HTTP doors.
+
 ## 2026-10-11 — Routes board: every "not flying" reason is collapsed, and reads in plain words
 
 The expandable list only appeared when a route had two or more reasons, so the common single-reason case (one free trader)

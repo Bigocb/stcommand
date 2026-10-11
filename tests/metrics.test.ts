@@ -191,3 +191,60 @@ describe("ledgerReadFrom", () => {
     assert.equal((bounded.walletEnd ?? 0) - (bounded.walletStart ?? 0), 425_000);
   });
 });
+
+describe("buildMetrics contracts", () => {
+  const cRow = (over: Partial<LedgerRow>): LedgerRow => row({ ship: "fleet", waypoint: "", good: null, units: 0, pnl: null, ...over });
+  const advance = (id: string, total: number): LedgerRow => cRow({ type: "CONTRACT", good: "ADVANCE", total, contractId: id });
+  const payout = (id: string | null, total: number): LedgerRow => cRow({ type: "CONTRACT", good: "PAYOUT", total, contractId: id });
+  const delivery = (id: string, units: number, pricePerUnit: number | null): LedgerRow => cRow({ type: "DELIVERY", good: "POLYNUCLEOTIDES", units, total: 0, pricePerUnit, contractId: id });
+
+  it("nets income against the cost of the goods delivered, per contract", () => {
+    const m = buildMetrics([advance("c1", 3107), delivery("c1", 22, 285), payout("c1", 7607)], opts);
+    const t = m.contracts.totals;
+    assert.deepEqual({ advances: t.advances, payouts: t.payouts, income: t.income, completed: t.completed, units: t.unitsDelivered, cost: t.costDelivered, net: t.net },
+      { advances: 3107, payouts: 7607, income: 10714, completed: 1, units: 22, cost: 6270, net: 4444 });
+    assert.deepEqual(m.contracts.byContract, [{ contractId: "c1", advance: 3107, payout: 7607, units: 22, cost: 6270, net: 4444, completed: true }]);
+  });
+
+  it("an old payout row (no id, no ADVANCE marker) still counts as a payout, under 'untracked'", () => {
+    const m = buildMetrics([cRow({ type: "CONTRACT", good: null, total: 54_442 })], opts);
+    assert.equal(m.contracts.totals.payouts, 54_442);
+    assert.equal(m.contracts.byContract[0]!.contractId, "untracked");
+  });
+
+  it("mined cargo is costed at 0", () => {
+    const m = buildMetrics([delivery("c1", 10, null), payout("c1", 5000)], opts);
+    assert.equal(m.contracts.totals.costDelivered, 0);
+    assert.equal(m.contracts.totals.net, 5000);
+  });
+
+  it("the headline net with contracts is trading net plus contract net, and trading net itself is unchanged", () => {
+    const trading = [row({ pnl: 1000, total: 4000 })];
+    const without = buildMetrics(trading, opts);
+    const withContracts = buildMetrics([...trading, advance("c1", 100), delivery("c1", 10, 20), payout("c1", 900)], opts);
+    assert.equal(withContracts.totals.net, without.totals.net, "Net trading must keep its meaning so weeks stay comparable");
+    assert.equal(withContracts.contracts.totals.netInclContracts, without.totals.net + 100 + 900 - 200);
+  });
+
+  it("contract rows never leak into trading figures", () => {
+    const m = buildMetrics([advance("c1", 100), delivery("c1", 10, 20), payout("c1", 900)], opts);
+    assert.equal(m.totals.sells, 0);
+    assert.equal(m.totals.revenue, 0);
+    assert.equal(m.totals.spend, 0);
+  });
+
+  it("contract income is a share of all income and compares with the previous window", () => {
+    const m = buildMetrics([
+      row({ pnl: 100, total: 9000 }), payout("c1", 1000),
+      { ...payout("c0", 400), ts: NOW - 3 * H }, // in the window before this one
+    ], opts);
+    assert.equal(m.contracts.totals.incomeSharePct, 10);
+    assert.equal(m.contracts.previous.income, 400);
+  });
+
+  it("no contract rows means all zeros", () => {
+    const m = buildMetrics([row({})], opts);
+    assert.equal(m.contracts.totals.income, 0);
+    assert.deepEqual(m.contracts.byContract, []);
+  });
+});

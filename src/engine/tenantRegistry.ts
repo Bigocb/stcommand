@@ -427,6 +427,8 @@ export class TenantRegistry {
       log,
       onActivity: recordActivity,
       recordLedger: (e) => store.recordLedger(tenantId, { ...e, walletAfter: api.lastKnownCredits } as never),
+      // What this ship paid for the goods it is handing over; mined cargo has no purchase and is costed at 0.
+      costBasisOf: (shipSymbol, good) => store.lastPurchasePrice(tenantId, shipSymbol, good),
     });
     // Replay the operator's own contract decisions before anything can act on
     // them. These used to live only in memory, so a deploy discarded them and

@@ -699,3 +699,5 @@ body {
 .crew-go { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--amber, #d9a400); background: var(--amber, #d9a400); color: #000; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .crew-go.ghost { background: transparent; color: inherit; border-color: var(--hair, #333); }
 .crew-empty, .crew-note { font-size: 11px; color: var(--muted, #888); }
+
+.mx-contracts .mx-sub { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted, #888); margin: 14px 0 4px; }

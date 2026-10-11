@@ -118,6 +118,37 @@ function renderWaypoints(root, data) {
     "No sales or buys in this range.");
 }
 
+/** Contracts: what they earned in the window, and the pipeline still owed. The owed figure is not cash, so it sits beside the
+ *  realized numbers and is never added to credits or net. */
+function renderContracts(root, data, c) {
+  const $ = (id) => root.querySelector(`#${id}`);
+  const pl = data.contractPipeline;
+  const owed = pl?.totalOwed ?? 0;
+  $("mx-contracts-h").textContent = pl && pl.items.length ? `${pl.items.filter((i) => !i.abandoned).length} open · ${fmt(owed)} owed` : "none open";
+  const stat = (k, v, sub, tone = "") => `<div><div class="k">${k}</div><div class="mv ${tone}">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+  const short = (id) => (id === "untracked" ? "earlier" : String(id).slice(0, 8));
+  const realized = `<div class="mx-projgrid">
+      ${stat("Income", fmt(c.income), `advances ${compact(c.advances)} · payouts ${compact(c.payouts)}`)}
+      ${stat("Completed", fmt(c.completed), `${fmt(c.unitsDelivered)} units delivered`)}
+      ${stat("Cost of goods", compact(c.costDelivered), "cost basis of what was handed over")}
+      ${stat("Contract net", signed(c.net), `${c.incomeSharePct}% of all income`, cls(c.net))}
+      ${stat("Owed on completion", fmt(owed), pl ? `${fmt(pl.totalExpectedNet)} expected net after cost` : "", "")}
+    </div>`;
+  const open = pl && pl.items.length
+    ? table(["Contract", "Owed", "Done", "Cost so far", "To finish", "Exp. net", "Left"],
+        pl.items.map((i) => [
+          `${escapeHtml(i.type.toLowerCase())} ${escapeHtml(short(i.contractId))}${i.warnings.length ? `<div class="sub">${i.warnings.map(escapeHtml).join(" · ")}</div>` : ""}`,
+          fmt(i.owed), `${i.progressPct}%`, compact(i.costSoFar), compact(i.estCostToFinish), signed(i.expectedNet),
+          i.hoursLeft >= 48 ? `${Math.round(i.hoursLeft / 24)}d` : `${i.hoursLeft}h`,
+        ]), "")
+    : `<div class="empty">No accepted contracts waiting on delivery.</div>`;
+  const done = (data.contracts?.byContract ?? []).length
+    ? table(["Contract", "Advance", "Payout", "Units", "Cost", "Net"],
+        data.contracts.byContract.slice(0, 12).map((l) => [escapeHtml(short(l.contractId)) + (l.completed ? "" : " (open)"), fmt(l.advance), fmt(l.payout), fmt(l.units), compact(l.cost), signed(l.net)]), "")
+    : `<div class="empty">No contract money in this range.</div>`;
+  $("mx-contracts").innerHTML = `${realized}<div class="mx-sub">Owed (accepted, not yet paid)</div>${open}<div class="mx-sub">Earned in this range</div>${done}`;
+}
+
 function table(headers, rows, empty) {
   if (!rows.length) return `<div class="empty">${empty}</div>`;
   return `<table><tr>${headers.map((h, i) => `<th${i ? ' class="num"' : ""}>${h}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((c, i) => `<td${i ? ' class="num"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</table>`;
@@ -152,6 +183,7 @@ export function mountMetrics(root, { api, netWorth } = {}) {
       <div class="panel-b" style="padding:0" id="mx-waypoints"></div>
     </div>
     <div class="panel mx-proj"><div class="panel-h"><span class="dot"></span><span class="title">Pace to reset</span><span class="count">straight line at the window's rate</span></div><div class="panel-b" id="mx-proj"></div></div>
+    <div class="panel mx-contracts"><div class="panel-h"><span class="dot"></span><span class="title">Contracts</span><span class="count" id="mx-contracts-h"></span></div><div class="panel-b" id="mx-contracts"></div></div>
     <div class="cols3 mx-tables">
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">By good</span></div><div class="panel-b" style="padding:0" id="mx-goods"></div></div>
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">By ship</span></div><div class="panel-b" style="padding:0" id="mx-ships"></div></div>
@@ -166,6 +198,7 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     if (error) $("mx-note").textContent = error;
     if (!data) return;
     const t = data.totals, p = data.previous;
+    const c = data.contracts?.totals ?? { advances: 0, payouts: 0, income: 0, completed: 0, unitsDelivered: 0, costDelivered: 0, net: 0, netInclContracts: t.net, perHourInclContracts: t.netPerHour, incomeSharePct: 0 };
     const walletChange = data.walletStart !== null && data.walletEnd !== null ? data.walletEnd - data.walletStart : null;
     const span = sinceReset ? `since reset (${data.hours}h)` : `${data.hours}h window`;
     $("mx-note").textContent = `${span}, ${data.bucketMinutes} min intervals · updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
@@ -173,6 +206,7 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     $("mx-kpis").innerHTML = [
       kpi("Net trading", signed(t.net), vs(t.net, p.net), cls(t.net), "Realized profit on completed sales, less fuel and jumps"),
       kpi("Per hour", signed(t.netPerHour), vs(t.netPerHour, p.netPerHour), cls(t.netPerHour)),
+      kpi("Net incl. contracts", signed(c.netInclContracts), `contracts ${signed(c.net)} · ${c.incomeSharePct}% of income`, cls(c.netInclContracts), "Net trading plus contract income (advances and payouts) less the cost of the goods delivered. Net trading above is unchanged so weeks stay comparable."),
       kpi("Credits", walletChange === null ? "—" : signed(walletChange), data.walletEnd !== null ? `now ${fmt(data.walletEnd)} · includes ship buys` : "", cls(walletChange ?? 0), "Wallet change over the window; moves with ship purchases and cargo in transit as well as profit"),
       kpi("Sales", fmt(t.sells), `${fmt(t.units)} units · ${vs(t.sells, p.sells)}`),
       kpi("Profit / sale", signed(t.profitPerSale), `margin ${t.marginPct}% on cost`, cls(t.profitPerSale)),
@@ -228,6 +262,7 @@ export function mountMetrics(root, { api, netWorth } = {}) {
     $("mx-systems").innerHTML = table(["System", "Profit", "Sales"],
       data.bySystem.map((s) => [escapeHtml(s.system), signed(s.profit), fmt(s.sells)]), "No completed sales in this range.");
     renderWaypoints(root, data);
+    renderContracts(root, data, c);
     $("mx-idle").innerHTML = data.idleTraders.length
       ? data.idleTraders.map((s) => `<span class="mx-chip">${escapeHtml(s)}</span>`).join("")
       : `<span class="sub">Every trader sold something.</span>`;

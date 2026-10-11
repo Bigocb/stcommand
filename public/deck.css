@@ -477,7 +477,7 @@ td.cp.down { color: var(--bad, #e5675d); }
 .mx-ranges button{font-family:var(--chrome);font-size:10px;letter-spacing:.1em;text-transform:uppercase;background:var(--panel);color:var(--dim);border:1px solid var(--hair);border-radius:3px;padding:5px 11px;cursor:pointer}
 .mx-ranges button.on{background:var(--amber-dim);color:var(--amber);border-color:var(--amber-glow)}
 .mx-note{font-family:var(--mono);font-size:10px;color:var(--dim2)}
-.mx-kpis{grid-template-columns:repeat(7,1fr)}
+.mx-kpis{grid-template-columns:repeat(8,1fr)}
 .mx .kpi .sub{font-family:var(--mono);font-size:10px;color:var(--dim2)}
 .mx .kpi .v{font-size:18px}
 .mx-charts{flex:0 0 auto;grid-template-columns:1fr 1fr}
@@ -540,3 +540,5 @@ td.cp.down { color: var(--bad, #e5675d); }
 .crew-go { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--amber); background: var(--amber); color: #000; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .crew-go.ghost { background: transparent; color: inherit; border-color: var(--hair); }
 .crew-empty, .crew-note { font-size: 11px; color: var(--dim2); }
+
+.mx-contracts .mx-sub{font-family:var(--chrome);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2);margin:14px 0 4px}

@@ -23,6 +23,10 @@ export interface LedgerRow {
   pnl: number | null;
   /** The agent's credits right after this row, when known. */
   wallet: number | null;
+  /** Per-unit price on the row (a DELIVERY's is the cost basis of the goods handed over; null when mined). Optional so callers that do not read it still type-check. */
+  pricePerUnit?: number | null;
+  /** The contract a CONTRACT or DELIVERY row belongs to (null on rows from before migrations/049). */
+  contractId?: string | null;
 }
 
 export interface MetricsOptions {
@@ -88,6 +92,34 @@ export interface MetricsWaypoint { waypoint: string; system: string; profit: num
 export interface MetricsShip { ship: string; hold: number | null; profit: number; sells: number; profitPerSale: number; profitPerHour: number }
 export interface MetricsSystem { system: string; profit: number; sells: number }
 
+/** Contract money in a window. Cash is recognised when it lands (the advance on accept, the payout on completion); goods
+ *  handed over are costed at their cost basis (a DELIVERY row's per-unit price, 0 when mined), so net = income - that cost. */
+export interface ContractTotals {
+  advances: number;
+  payouts: number;
+  /** advances + payouts */
+  income: number;
+  /** Payout rows: contracts completed in the window. */
+  completed: number;
+  unitsDelivered: number;
+  costDelivered: number;
+  /** income - costDelivered */
+  net: number;
+  /** Net trading (realized profit less fuel and jumps) plus contract net: the headline figure with contracts in it. */
+  netInclContracts: number;
+  perHourInclContracts: number;
+  /** Contract income as a share of all income (sale proceeds + contract income). */
+  incomeSharePct: number;
+}
+/** One contract's money in the window. `contractId` is "untracked" for rows from before contracts were tied to ids. */
+export interface ContractLine { contractId: string; advance: number; payout: number; units: number; cost: number; net: number; completed: boolean }
+
+export interface ContractMetrics {
+  totals: ContractTotals;
+  previous: Pick<ContractTotals, "income" | "net" | "netInclContracts" | "completed">;
+  byContract: ContractLine[];
+}
+
 export interface Metrics {
   hours: number;
   bucketMinutes: number;
@@ -105,6 +137,7 @@ export interface Metrics {
   bySystem: MetricsSystem[];
   /** Traders that made no sale in the window. */
   idleTraders: string[];
+  contracts: ContractMetrics;
 }
 
 const HOUR = 3_600_000;
@@ -156,6 +189,46 @@ function totalsOf(rows: readonly LedgerRow[], hours: number): MetricsTotals {
     overheadPct: profit > 0 ? Math.round(((fuel + jumps) / profit) * 1000) / 10 : 0,
     netPerHour: hours > 0 ? rnd(net / hours) : 0,
   };
+}
+
+const isAdvance = (r: LedgerRow): boolean => r.type === "CONTRACT" && r.good === "ADVANCE";
+
+function contractTotalsOf(rows: readonly LedgerRow[], trading: MetricsTotals, hours: number): ContractTotals {
+  let advances = 0, payouts = 0, completed = 0, unitsDelivered = 0, costDelivered = 0;
+  for (const r of rows) {
+    if (r.type === "CONTRACT") {
+      if (isAdvance(r)) advances += r.total;
+      else { payouts += r.total; completed += 1; }
+    } else if (r.type === "DELIVERY") {
+      unitsDelivered += r.units;
+      costDelivered += r.units * (r.pricePerUnit ?? 0);
+    }
+  }
+  const income = advances + payouts;
+  const net = income - costDelivered;
+  const all = trading.revenue + income;
+  const inclNet = trading.net + net;
+  return {
+    advances: rnd(advances), payouts: rnd(payouts), income: rnd(income), completed, unitsDelivered, costDelivered: rnd(costDelivered), net: rnd(net),
+    netInclContracts: rnd(inclNet), perHourInclContracts: hours > 0 ? rnd(inclNet / hours) : 0,
+    incomeSharePct: all > 0 ? Math.round((income / all) * 1000) / 10 : 0,
+  };
+}
+
+function contractLines(rows: readonly LedgerRow[]): ContractLine[] {
+  const by = new Map<string, ContractLine>();
+  for (const r of rows) {
+    if (r.type !== "CONTRACT" && r.type !== "DELIVERY") continue;
+    const id = r.contractId ?? "untracked";
+    const l = by.get(id) ?? { contractId: id, advance: 0, payout: 0, units: 0, cost: 0, net: 0, completed: false };
+    if (r.type === "DELIVERY") { l.units += r.units; l.cost += r.units * (r.pricePerUnit ?? 0); }
+    else if (isAdvance(r)) l.advance += r.total;
+    else { l.payout += r.total; l.completed = true; }
+    by.set(id, l);
+  }
+  return [...by.values()]
+    .map((l) => ({ ...l, advance: rnd(l.advance), payout: rnd(l.payout), cost: rnd(l.cost), net: rnd(l.advance + l.payout - l.cost) }))
+    .sort((a, b) => b.net - a.net);
 }
 
 export function buildMetrics(rows: readonly LedgerRow[], opts: MetricsOptions): Metrics {
@@ -230,12 +303,19 @@ export function buildMetrics(rows: readonly LedgerRow[], opts: MetricsOptions): 
     .map((w) => ({ ...w, profit: rnd(w.profit), sellRevenue: rnd(w.sellRevenue), buySpend: rnd(w.buySpend) }))
     .sort((a, b) => b.profit - a.profit || b.buySpend - a.buySpend);
   const idleTraders = (opts.traders ?? []).filter((t) => !ships.has(t)).sort();
+  const contractNow = contractTotalsOf(inWindow, totals, windowHours);
+  const contractPrev = contractTotalsOf(inPrevious, prev, windowHours);
 
   return {
     hours, bucketMinutes, from, to: now, buckets, totals,
     previous: { net: prev.net, profit: prev.profit, sells: prev.sells, netPerHour: prev.netPerHour },
     walletStart, walletEnd: buckets.at(-1)?.wallet ?? walletStart,
     byGood, byShip, byWaypoint, bySystem, idleTraders,
+    contracts: {
+      totals: contractNow,
+      previous: { income: contractPrev.income, net: contractPrev.net, netInclContracts: contractPrev.netInclContracts, completed: contractPrev.completed },
+      byContract: contractLines(inWindow),
+    },
   };
 }
 

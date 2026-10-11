@@ -93,13 +93,21 @@ export class ContractManager {
       onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
       recordLedger?: (entry: {
         timestamp: string; shipSymbol: string; waypointSymbol: string;
-        type: string; tradeSymbol?: string; units?: number; pricePerUnit?: number; total: number;
+        type: string; tradeSymbol?: string; units?: number; pricePerUnit?: number; total: number; contractId?: string;
       }) => void;
+      /** Cost basis per unit of a good a ship is carrying (what it paid for it), so a delivery can be costed. Undefined for
+       *  mined or transferred cargo, which is then costed at 0. */
+      costBasisOf?: (shipSymbol: string, good: string) => Promise<number | undefined>;
     } = {},
   ) {}
 
   private say(msg: string): void {
     this.report.log?.(msg);
+  }
+
+  /** Cheapest known unit price for a good, for estimating what finishing a contract will cost. Undefined when no market sells it. */
+  async cheapestPriceFor(tradeSymbol: string): Promise<number | undefined> {
+    return (await this.cheapestMarket(tradeSymbol))?.purchasePrice;
   }
 
   /** Cheapest known market for a good, or undefined if none is known yet
@@ -281,6 +289,7 @@ export class ContractManager {
     const best = scored[0]!.contract;
     await this.api.acceptContract(best.id);
     this.invalidate();
+    this.recordAdvance(best);
     return best;
   }
 
@@ -297,6 +306,17 @@ export class ContractManager {
     return contract;
   }
 
+  /** The credits a contract pays the moment it is accepted. They land in the wallet with no other trace, so without this row the
+   *  ledger understated every contract's income by its advance. */
+  private recordAdvance(c: Contract): void {
+    const advance = c.terms.payment?.onAccepted ?? 0;
+    if (advance <= 0) return;
+    this.report.recordLedger?.({
+      timestamp: new Date().toISOString(), shipSymbol: "fleet", waypointSymbol: "", type: "CONTRACT",
+      tradeSymbol: "ADVANCE", total: advance, contractId: c.id,
+    });
+  }
+
   /** Accept a specific contract by id. */
   async acceptById(contractId: string): Promise<Contract> {
     const active = await this.listActive();
@@ -305,6 +325,7 @@ export class ContractManager {
     if (contract.accepted) return contract;
     await this.api.acceptContract(contractId);
     this.invalidate();
+    this.recordAdvance(contract);
     return { ...contract, accepted: true };
   }
 
@@ -391,6 +412,13 @@ export class ContractManager {
         // took a source read and a timestamp cross-reference. The progress
         // count is the part that matters: it says whether this contract is
         // nearly done or barely started.
+        // The goods leave the hold here, so this is where their cost leaves the books' open positions: a DELIVERY row
+        // (units and cost basis, total 0 because it is not cash) lets the metrics net the contract's income against it.
+        const basis = await this.report.costBasisOf?.(ship.symbol, item.symbol).catch(() => undefined);
+        this.report.recordLedger?.({
+          timestamp: new Date().toISOString(), shipSymbol: ship.symbol, waypointSymbol: del.destinationSymbol, type: "DELIVERY",
+          tradeSymbol: item.symbol, units: toDeliver, pricePerUnit: basis, total: 0, contractId: del.contractId,
+        });
         const done = del.unitsFulfilled + toDeliver;
         this.say(
           `${ship.symbol}: delivered ${toDeliver}u ${item.symbol} to contract ${del.contractId.slice(0, 8)} ` +
@@ -430,7 +458,9 @@ export class ContractManager {
           shipSymbol: "fleet",
           waypointSymbol: "",
           type: "CONTRACT",
+          tradeSymbol: "PAYOUT",
           total: payout,
+          contractId: c.id,
         });
       }
     }

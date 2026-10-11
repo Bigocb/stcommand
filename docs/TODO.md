@@ -7,6 +7,12 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Contracts: follow-ups to the metrics work (raised 2026-10-11).** (1) Goods bought for a contract by one ship and
+  delivered by another are costed from the deliverer's own purchases (`lastPurchasePrice`); a transfer would be costed at
+  0. (2) The estimate of cost to finish ignores a delivery trip's fuel. (3) The week-comparison view should show contract
+  income and the headline net with contracts. (4) Rows from before migration 049 have no advance or delivery rows; no
+  backfill is planned. (5) A contract's opportunity cost (ships tied up that could trade) is not in the numbers.
+
 - [ ] **Test the decision model through OpenRouter (raised 2026-10-11, operator).** Jev access is limited early access, so to
   exercise the router and the attention feed end to end now, add a second `Judge` adapter (`src/engine/openRouterClient.ts`,
   next to `jevClient.ts`) behind the same port; `getJudge()` picks it when `OPENROUTER_API_KEY` is set and no `TYPESAFE_API_KEY`

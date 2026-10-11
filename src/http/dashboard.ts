@@ -17,6 +17,7 @@ import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from ".
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
+import { contractsOverview } from "./contractsOverview.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -468,6 +469,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       res.json({
         ...metrics,
         buckets: metrics.buckets.map((b, i) => ({ ...b, worth: worth[i] ?? null })),
+        // What the accepted contracts still owe us (never part of credits or net: it is not cash yet).
+        contractPipeline: w.contracts ? await contractsOverview({ contracts: w.contracts, store: w.store, tenantId: w.tenantId, ships: state.ships ?? [] }) : null,
         credits: state.agent?.credits ?? 0,
         shipCount: statuses.length,
         traderCount: traders.length,

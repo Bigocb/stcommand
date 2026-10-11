@@ -47,8 +47,10 @@ export interface LedgerEntry {
   timestamp: string;
   shipSymbol: string;
   waypointSymbol: string;
-  type: "PURCHASE" | "SELL" | "REFUEL" | "JUMP" | "SHIP" | "OTHER";
+  type: "PURCHASE" | "SELL" | "REFUEL" | "JUMP" | "SHIP" | "CONTRACT" | "DELIVERY" | "OTHER";
   tradeSymbol?: string;
+  /** The contract a CONTRACT or DELIVERY row belongs to (migrations/049). */
+  contractId?: string;
   units?: number;
   pricePerUnit?: number;
   total: number;
@@ -496,8 +498,8 @@ export class Store {
   async recordLedger(tenantId: string, entry: LedgerEntry): Promise<void> {
     await withTenant(this.pool, tenantId, async (c) => {
       await c.query(
-        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl, wallet_after, universe_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl, wallet_after, universe_key, contract_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
           tenantId,
           entry.timestamp,
@@ -512,6 +514,7 @@ export class Store {
           entry.walletAfter ?? null,
           // This tenant's agent-and-week (src/engine/universe.ts); null until the game's reset date is known.
           tenantUniverse(tenantId) ?? null,
+          entry.contractId ?? null,
         ],
       );
       if (entry.type === "SHIP") {
@@ -667,7 +670,7 @@ export class Store {
   async ledgerRowsSince(tenantId: string, sinceIso: string, limit = 150_000): Promise<import("../engine/metrics.js").LedgerRow[]> {
     return withTenant(this.pool, tenantId, async (c) => {
       const res = await c.query(
-        `SELECT timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, total, realized_pnl, wallet_after
+        `SELECT timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl, wallet_after, contract_id
          FROM ledger WHERE timestamp >= $1 ORDER BY timestamp LIMIT $2`,
         [sinceIso, limit],
       );
@@ -681,7 +684,27 @@ export class Store {
         total: Number(r.total),
         pnl: r.realized_pnl === null ? null : Number(r.realized_pnl),
         wallet: r.wallet_after === null ? null : Number(r.wallet_after),
+        pricePerUnit: r.price_per_unit === null ? null : Number(r.price_per_unit),
+        contractId: r.contract_id ?? null,
       }));
+    });
+  }
+
+  /**
+   * What each contract has earned and cost so far this week (the ledger is scoped to the current universe by row-level
+   * security): advance and payout received, units delivered and the cost basis of those units. One row per contract id.
+   */
+  async contractLedger(tenantId: string): Promise<{ contractId: string; advance: number; payout: number; unitsDelivered: number; costDelivered: number }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(
+        `SELECT contract_id,
+           COALESCE(SUM(total) FILTER (WHERE type = 'CONTRACT' AND COALESCE(trade_symbol, '') = 'ADVANCE'), 0) AS advance,
+           COALESCE(SUM(total) FILTER (WHERE type = 'CONTRACT' AND COALESCE(trade_symbol, '') <> 'ADVANCE'), 0) AS payout,
+           COALESCE(SUM(units) FILTER (WHERE type = 'DELIVERY'), 0) AS units,
+           COALESCE(SUM(units * COALESCE(price_per_unit, 0)) FILTER (WHERE type = 'DELIVERY'), 0) AS cost
+         FROM ledger WHERE contract_id IS NOT NULL GROUP BY contract_id`,
+      );
+      return res.rows.map((r: any) => ({ contractId: r.contract_id, advance: Number(r.advance), payout: Number(r.payout), unitsDelivered: Number(r.units), costDelivered: Number(r.cost) }));
     });
   }
 

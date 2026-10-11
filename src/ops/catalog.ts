@@ -7,6 +7,8 @@ import { deadheadFromTrades } from "../engine/deadhead.js";
 import { selectExplain } from "../engine/dispatchExplain.js";
 import { heapReport, heapStart, heapStop, profileCpu, runtimeStatus } from "./profiler.js";
 import type { OpsTool } from "./types.js";
+import { buildMetrics, bucketMinutesFor } from "../engine/metrics.js";
+import { contractsOverview } from "../http/contractsOverview.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
 const bool = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional();
@@ -92,6 +94,21 @@ export const OPS_TOOLS: OpsTool[] = [
     },
   },
 
+  {
+    name: "contract_money",
+    title: "Contract money: realized and still owed",
+    description:
+      "What contracts have earned and cost over a window (advances and payouts received, units delivered and their cost basis, net per contract, contract income as a share of all income, and the headline net with contracts included), plus the pipeline of accepted contracts still to be paid: what each owes on completion, progress, cost so far, estimated cost to finish, expected net and time left. The owed figure is not cash and is never part of credits or net.",
+    input: { sinceHours: num(24) },
+    async run(ctx, a) {
+      const now = ctx.now();
+      const since = iso(now - a.sinceHours * 3_600_000);
+      const rows = await ctx.w.store.ledgerRowsSince(ctx.w.tenantId, since);
+      const m = buildMetrics(rows, { now, hours: a.sinceHours, bucketMinutes: bucketMinutesFor(a.sinceHours) });
+      const owed = ctx.w.contracts ? await contractsOverview({ contracts: ctx.w.contracts, store: ctx.w.store, tenantId: ctx.w.tenantId, ships: ctx.w.state.get().ships ?? [] }) : null;
+      return { window: { since, hours: a.sinceHours }, realized: m.contracts, owed };
+    },
+  },
   {
     name: "pnl",
     title: "Profit & loss for a window",
