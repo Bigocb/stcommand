@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
+import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve, join } from "node:path";
 
@@ -129,8 +129,10 @@ export function assetStamp(publicDir: string): string {
       }
       if (!/\.(js|css)$/.test(e.name)) continue;
       try {
-        const st = statSync(p);
-        h.update(e.name).update(`${st.size}:${Math.floor(st.mtimeMs)}`);
+        // Hash contents, not mtime: a git pull touches mtimes even when a file
+        // is unchanged, which would churn the stamp (and force a re-fetch) for
+        // no reason. Content changes only when the asset actually changes.
+        h.update(e.name).update(readFileSync(p));
       } catch {
         /* ignore unreadable entries */
       }
