@@ -396,7 +396,7 @@ function jobFor(ship, role) {
     const a = dispatchAssignments.find((x) => x.shipSymbol === shipSymbol);
     if (a) {
       const good = escapeHtml(a.good);
-      if (a.role === "direct") return `route: ${good}${escapeHtml(chainNote(a))}`;
+      if (a.role === "direct") return `route: ${good}${escapeHtml(chainNote(a))}${a.source === "manual" ? " (pinned by you)" : ""}`;
       if (a.role === "contractBuy") return `contract: ${good}`;
       if (a.role === "haul") return `mission: ${good}`;
       if (a.role === "buy") return a.missionBuy ? `mission: ${good}` : `warehouse buy: ${good}`;
@@ -795,6 +795,11 @@ function renderFleetActions(shipRow) {
 
   const st = (fleetStatus.ships ?? []).find((s) => s.symbol === shipRow.symbol);
   const nav = ship.nav?.status ?? "";
+  // A route the operator pinned overrides the dispatcher until cleared, so say so and offer the way back to auto.
+  const pinned = dispatchAssignments.find((a) => a.shipSymbol === shipRow.symbol && a.source === "manual");
+  const pinnedBtn = pinned
+    ? `<button class="btn pri full" data-act="route-clear">Release to auto — ${escapeHtml(pinned.good)} ${escapeHtml(shortWp(pinned.buyAt))} → ${escapeHtml(shortWp(pinned.sellAt))}</button>`
+    : "";
   const holdBtn = st?.paused
     ? `<button class="btn" data-act="release">Release</button>`
     : `<button class="btn" data-act="hold">Hold</button>`;
@@ -836,6 +841,7 @@ function renderFleetActions(shipRow) {
     ${holdBtn}
     ${dockBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
+    ${pinnedBtn}
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
     <button class="btn full" data-act="role-toggle">${fleetRoleOpen ? "Close" : `Change role (${escapeHtml(shipRow.role)})`}</button>
@@ -923,6 +929,12 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
       fleetSendOpen = false;
       await loadBridge();
     } catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "route-clear") {
+    b.disabled = true;
+    try { await api("POST", "/api/dispatch", { shipSymbol: ship, clear: true }); await loadDispatch(); }
+    catch (err) { alert(err.message); }
     return renderFleet();
   }
   if (act === "route-pick") {

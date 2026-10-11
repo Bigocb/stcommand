@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Deck shows a pinned route and can release it
+
+A route the operator assigns by hand (`source: manual`) overrides the dispatcher until cleared, but Deck's ship sheet gave no sign
+of it and no way back: only Tower had "Release to auto". Deck's job line now ends "(pinned by you)" for such a route, and the
+ship sheet has a "Release to auto" button that posts the same `clear` Tower does.
+
 ## 2026-10-11 — Say why a trader is not getting routes
 
 Two traders sat idle next to good routes on the new server and nothing said why: the Routes board only explained blocked
