@@ -26,8 +26,18 @@ test("a trader's rejection is reported, with a count for more", () => {
   assert.equal(routeStatus(r, [], snap({ traders: [rej("T-1", "outscored by MEDICINE")] }), undefined).reason, "T-1: outscored by MEDICINE");
   assert.equal(routeStatus(r, [], snap({ traders: [rej("T-1", "a"), rej("T-2", "b")] }), undefined).reason, "T-1: a (+1 more)");
 });
-test("every trader busy", () =>
-  assert.equal(routeStatus(r, [], snap({ traders: [{ ship: "T-1", busy: true, rejected: [] }] }), undefined).reason, "every trader already has work"));
+test("every trader occupied says what each is doing", () => {
+  const traders = [{ ship: "T-1", busy: true, rejected: [] }, { ship: "T-2", busy: false, assigned: "DRUGS", rejected: [] }, { ship: "T-3", busy: false, assigned: "COPPER", rejected: [] }];
+  const as = [
+    { shipSymbol: "T-1", good: "FOOD", buyAt: "B", sellAt: "S" },
+    { shipSymbol: "T-2", good: "DRUGS", buyAt: "B", sellAt: "S", source: "manual" },
+    { shipSymbol: "T-3", good: "COPPER", buyAt: "B", sellAt: "S", source: "auto" },
+  ];
+  assert.equal(
+    routeStatus({ good: "X", buyAt: "B", sellAt: "S" }, as, snap({ routes: [{ key: "X", good: "X", buyAt: "B", sellAt: "S", profitPerTrip: 1, score: 1 }], traders }), undefined).reason,
+    "every trader is occupied: T-1 mid-trip with cargo (FOOD), T-2 pinned to DRUGS, T-3 on COPPER",
+  );
+});
 test("rate per hour", () => {
   assert.equal(ratePerHour(600, 600), 3600);
   assert.equal(ratePerHour(600, undefined), null);

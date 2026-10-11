@@ -44,7 +44,16 @@ export function routeStatus(
     if (rej) reasons.push(`${t.ship}: ${rej.reason}`);
   }
   if (reasons.length) return { flownBy, reason: reasons.length > 1 ? `${reasons[0]} (+${reasons.length - 1} more)` : reasons[0]! };
-  if (snapshot.traders.length > 0 && snapshot.traders.every((t) => t.busy || t.assigned)) return { flownBy, reason: "every trader already has work" };
+  if (snapshot.traders.length > 0 && snapshot.traders.every((t) => t.busy || t.assigned)) {
+    // Say what each one is doing: cargo aboard means mid-trip (it is re-assigned once the hold is sold), a pin stays until released.
+    const what = snapshot.traders.map((t) => {
+      const mine = assignments.find((a) => a.shipSymbol === t.ship);
+      if (mine?.source === "manual") return `${t.ship} pinned to ${mine.good}`;
+      if (t.busy) return `${t.ship} mid-trip with cargo${mine ? ` (${mine.good})` : ""}`;
+      return `${t.ship} on ${mine?.good ?? t.assigned ?? "another route"}`;
+    });
+    return { flownBy, reason: `every trader is occupied: ${what.join(", ")}` };
+  }
   return { flownBy, reason: "no trader free for it" };
 }
 

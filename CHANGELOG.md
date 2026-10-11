@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Routes board: "every trader is occupied" says what each trader is doing
+
+The skip reason for an unflown route read "every trader already has work" even when a ship showed `unassigned` in Deck's
+Dispatch panel (it was mid-trip with cargo, which counts as busy). It now lists each trader: "THEOREM-A mid-trip with cargo
+(FOOD), THEOREM-1 pinned to DRUGS". A mid-trip ship is re-assigned after it sells; a pin stays until released.
+
 ## 2026-10-11 — Routes board: sort by profit per hour or per trip, who is flying, and why not
 
 The dispatcher ranks by profit per hour of ship time (profit x 600 / round-trip seconds), but both Routes boards listed by
