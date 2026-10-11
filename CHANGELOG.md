@@ -9,6 +9,35 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — A decision model for the co-pilot router and an attention feed (both off, advisory)
+
+Adds TypeSafe's Jev behind a small port, used two ways; both ship switched off and only advise. Jev is a discriminative
+model: given a state and typed questions (yes/no, choice, score) it returns probabilities and a confidence, in well under
+a second, with no text generation.
+
+- **Co-pilot router** (`jevRouter` clause). Classifies the captain's message into an intent and hands the co-pilot only the
+  read tools that kind of question needs. It only narrows, only when sure (default 85%), always keeps the change tool, and
+  with the clause off, a low confidence, an "other" verdict or no model the co-pilot gets every tool as before.
+  `ChatAgent` takes an optional `toolFilter`; a filter that throws or returns nothing means every tool.
+- **Attention feed** (`jevAttention` clause). Ships that need a person's eyes, on Tower's Home and through the new
+  `attention` ops tool and `/api/attention`. Plain rules give the clear cases with a checkable reason: stranded, a hold
+  replayed from saved state at boot (the exact cause of THEOREM-1's stuck tour ship this week), one log line repeated,
+  a long silence, overdue transit, low fuel. With a key, the model is also asked literal yes/no questions about ships
+  that look worth a second opinion, and can add its own flags, each labelled with its probability.
+- **Every answer is logged** to `judge_decisions` (migration 048, per tenant, kept across weeks, pruned at 14 days) and
+  readable through the `judge_decisions` ops tool, so its confidence can be checked against what happened before anything
+  acts on it. Nothing is acted on yet: the router changes which tools the co-pilot sees, the feed changes nothing.
+
+Safeguards, from the provider's own limitations page: counts, minutes and percentages are worked out in code, never asked
+of the model; the state sent is an explicit allow-list of labelled fields; pasted keys in a captain's message are
+redacted; "other"/"nothing" are the first option of each choice because the model leans toward the first; the endpoint is
+fixed to `https://api.typesafe.ai/v1/systemone` (a community write-up names a different host, which must not receive fleet
+state). Without `TYPESAFE_API_KEY` the router passes every tool and the feed shows the rules alone.
+
+New: `src/engine/{judge,jevClient,judgeLive,copilotRouter,copilotRouterLive,attention,attentionFeed}.ts`,
+`migrations/048_judge_decisions.sql`, and tests for each, including one that checks the router's tool table against the
+co-pilot's real tool list.
+
 ## 2026-10-11 — The ledger is kept week over week, keyed by agent and reset date
 
 The weekly cleanup used to delete the ledger, and the metrics screen read it back with no notion of which week a row

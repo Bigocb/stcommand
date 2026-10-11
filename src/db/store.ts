@@ -524,6 +524,43 @@ export class Store {
     });
   }
 
+  // ── Decision-model log (migrations/048) ─────────────────────
+
+  /** Keeps what the decision model answered, one row per question, for checking its calibration later. */
+  async recordJudgeDecisions(tenantId: string, rows: import("../engine/judge.js").DecisionRow[]): Promise<void> {
+    if (rows.length === 0) return;
+    await withTenant(this.pool, tenantId, async (c) => {
+      for (const r of rows) {
+        await c.query(
+          `INSERT INTO judge_decisions (tenant_id, feature, subject, question, answer, confidence, state, model, input_tokens, latency_ms, acted, note)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8, $9, $10, $11, $12)`,
+          [tenantId, r.feature, r.subject.slice(0, 300), r.question, JSON.stringify(r.answer), r.confidence, JSON.stringify(r.state), r.model, r.inputTokens, r.latencyMs, r.acted, r.note ?? null],
+        );
+      }
+    });
+  }
+
+  /** The most recent decisions, newest first, for review. */
+  async recentJudgeDecisions(tenantId: string, f: { feature?: string; sinceIso: string; limit: number }): Promise<Record<string, unknown>[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const args: unknown[] = [f.sinceIso];
+      let where = "at >= $1";
+      if (f.feature) { args.push(f.feature); where += ` AND feature = $${args.length}`; }
+      args.push(f.limit);
+      const r = await c.query(
+        `SELECT at, feature, subject, question, answer, confidence, model, input_tokens, latency_ms, acted, note, outcome
+         FROM judge_decisions WHERE ${where} ORDER BY at DESC LIMIT $${args.length}`,
+        args,
+      );
+      return r.rows;
+    });
+  }
+
+  /** Drops decisions older than `days`, so the log stays small. Returns how many went. */
+  async pruneJudgeDecisions(tenantId: string, days: number): Promise<number> {
+    return withTenant(this.pool, tenantId, async (c) => (await c.query(`DELETE FROM judge_decisions WHERE at < now() - ($1 || ' days')::interval`, [String(days)])).rowCount ?? 0);
+  }
+
   /**
    * Stamps ledger rows that have no universe key yet (written before the key existed, or before the game's reset date was
    * known) with `key`, from `sinceIso` on: the rows of the universe that is current now. Earlier rows keep NULL, which

@@ -143,6 +143,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "jevAttention",
+    name: "Attention feed",
+    description: "A list of ships that need a person's eyes and why, on the home screen. Plain rules flag the clear cases (stranded, a stale hold replayed at boot, a ship repeating one action, a long silence, low fuel); the decision model, when a key is set, is also asked literal yes/no questions about the ships that look worth a second opinion and can flag more. The value is how sure the model must be (percent) for its flag to count. It only advises: nothing is changed, and every answer is logged for checking. Off by default: turn the clause on to use it. Takes effect within a minute.",
+    value: 80, min: 50, max: 99, step: 5, unit: "%",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "jevRouter",
+    name: "Co-pilot router",
+    description: "Reads the captain's message and, when the decision model is sure what kind of question it is, hands the co-pilot only the read tools that question needs: faster and cheaper. The change tool is always kept, and with a low confidence, an unclear message or no model the co-pilot gets every tool, as before. The value is how sure the model must be (percent). Every decision is logged for checking. Off by default: turn the clause on to use it. Takes effect on the next message.",
+    value: 85, min: 50, max: 99, step: 5, unit: "%",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",

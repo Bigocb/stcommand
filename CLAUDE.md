@@ -279,6 +279,25 @@ This matters because fleet overhead (refuels, jump costs — jumps run
 frequently) and in-flight inventory can make the naive gross-totals diff
 look flat or negative even during a genuinely profitable session.
 
+## The decision model (Jev): advisory only, off by default
+
+TypeSafe's Jev answers typed questions about a state with probabilities (`src/engine/judge.ts` is the port,
+`jevClient.ts` the HTTP adapter for `https://api.typesafe.ai/v1/systemone`, key in `TYPESAFE_API_KEY`). Two features use it,
+each behind a doctrine clause that ships off: the co-pilot router (`jevRouter`, `copilotRouter.ts`) and the attention feed
+(`jevAttention`, `attention.ts` / `attentionFeed.ts`). Read before extending it:
+
+- **It only advises.** Nothing it says is acted on without a person or a plain rule; the router can narrow which read tools
+  the co-pilot sees and nothing more. The first use of its confidence to change behaviour must come after the
+  `judge_decisions` log (ops tool `judge_decisions`) shows it is calibrated: the vendor's figures are its own.
+- **Its documented weak spots are ours** (docs.typesafe.ai, "Jev 1.13 limitations"): it is not a calculator, miscounts, treats
+  dates as text, reads literally, leans toward the FIRST option of a choice, and loses accuracy as the state grows. So compute
+  counts, minutes and percentages in code (`ShipFacts`), send a small labelled allow-listed state (`sanitizeState`), ask literal
+  questions, and put the harmless option first.
+- **State leaves the server.** Never add a token, key or credential to a state; free text goes through `redactSecrets`.
+- **The host is fixed.** A community post names `thejevai.com`; the provider's own docs say `api.typesafe.ai`. Do not point it elsewhere.
+- **No model means carry on.** `getJudge()` is undefined without a key; every caller treats that, a failure, or a timeout as
+  "behave exactly as before".
+
 ## Player-facing guidance vs. engineering notes
 
 This file (CLAUDE.md) is read by a Claude Code session working on the

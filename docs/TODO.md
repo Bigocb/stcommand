@@ -7,6 +7,15 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Decision model: evaluate before it does anything (raised 2026-10-11, operator).** The router and the attention feed
+  are built and off (CHANGELOG 2026-10-11). To do: (1) get a `TYPESAFE_API_KEY` (access is limited early access; the docs do not
+  say how, and Vercel's AI Gateway lists it as `typesafe-ai/jev`); (2) turn on `jevAttention` and `jevRouter` for a week and
+  read `judge_decisions`: do high-confidence flags match what happened? (3) only then consider using confidence to act, for
+  example recommending approvals (the provider's "confidence-gated routing" pattern fits our `/confirm` gate); (4) a Deck
+  panel for the attention feed (Tower has one); (5) a way to mark outcomes in `judge_decisions.outcome` so calibration can be
+  scored; (6) the dispatch-loop case (THEO-62: a match every minute that never starts) is not caught by the repeated-line
+  rule because its lines differ, so it needs its own fact.
+
 - [ ] **Finish the week-keyed history (raised 2026-10-11, operator).** The ledger is kept and keyed by agent and reset
   date (CHANGELOG 2026-10-11). Still to do: (1) a week-over-week comparison view in Tower/Deck and an ops tool over
   `Store.ledgerWeeks()`; (2) `activity`, `bucket_ledger` and the wealth samples are still wiped each reset and unkeyed;

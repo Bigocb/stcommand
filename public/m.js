@@ -222,6 +222,30 @@ function renderHomeActivity() {
     </div>`).join("");
 }
 
+/* Needs attention: ships a person should look at, with the reasons (engine/attention.ts). Advisory. Plain rules plus, when a
+ * decision-model key is set, the model's own flags, each labelled so it reads as an opinion with a probability. The whole
+ * section stays hidden until the "Attention feed" clause is on, so the default Home is unchanged. */
+let attention = { enabled: false, items: [] };
+async function loadAttention() {
+  try { attention = await api("GET", "/api/attention"); } catch { return; }
+  renderAttention();
+}
+function renderAttention() {
+  const sec = $("attention-sec");
+  if (!sec) return;
+  sec.hidden = !attention.enabled;
+  if (!attention.enabled) return;
+  $("attention-count").textContent = attention.items.length;
+  const el = $("attention-list");
+  if (!attention.items.length) { el.innerHTML = '<div class="empty">Nothing needs a look.</div>'; return; }
+  el.innerHTML = attention.items.map((it) => `
+    <div class="card ${it.severity === "critical" ? "crit" : it.severity === "warning" ? "warn" : "info"}">
+      <div class="row1"><span class="who">${escapeHtml(it.ship)}</span><span class="amt ${it.severity === "critical" ? "red" : it.severity === "warning" ? "amber" : ""}">${escapeHtml(it.role)}</span></div>
+      ${it.reasons.map((r) => `<div class="detail">${r.by === "model" ? "◇ " : ""}${escapeHtml(r.text)}</div>`).join("")}
+      ${it.suggestion ? `<div class="exp">Suggested: ${escapeHtml(it.suggestion)}</div>` : ""}
+    </div>`).join("");
+}
+
 $("triage-list").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b || b.disabled) return;
@@ -1871,7 +1895,7 @@ function pollTick() {
   // dispatch above it — Home's own Activity section (moved off the More
   // tab, see renderHomeActivity()'s comment) is on the one screen that's
   // always polling, not gated to a tab being open.
-  loadState(); loadBridge(); loadApprovals(); loadDispatch(); loadActivity();
+  loadState(); loadBridge(); loadApprovals(); loadDispatch(); loadActivity(); loadAttention();
   // Feed/mission claims drive the "unassigned" count on Home and every ship card's job, so they
   // refresh on every tick, not only while Fleet or More is open (a feed carrier read "unassigned"
   // until one of those tabs had been visited).

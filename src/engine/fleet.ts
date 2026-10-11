@@ -28,6 +28,10 @@ import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
 import { windDown, type WindDownState } from "./resetWindDown.js";
 import { resetWatcherStatus } from "./resetWatcher.js";
 import { universeKey, parseUniverseKey } from "./universe.js";
+import { AttentionFeed } from "./attentionFeed.js";
+import type { ShipFacts } from "./attention.js";
+import { getJudge } from "./judgeLive.js";
+import { logBuffer } from "../core/logBuffer.js";
 import { getGameResetDate } from "../core/universe.js";
 import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
@@ -453,6 +457,11 @@ export class FleetManager {
   private readonly tenantId?: string;
   private readonly agentSymbol?: string;
   private readonly approvals: ApprovalGate;
+  /** Ships that need a person's eyes, from plain rules plus (with a key) the decision model. Advisory only. */
+  readonly attention: AttentionFeed;
+  /** Ships whose current hold was replayed from saved state at boot rather than placed this session. */
+  private readonly restoredHolds = new Set<string>();
+  private restoringHold = false;
   private readonly discord?: DiscordRelay;
   private readonly galaxy: GalaxyAtlas;
   /**
@@ -538,6 +547,17 @@ export class FleetManager {
     }
     this.tenantId = opts.tenantId;
     this.agentSymbol = opts.agentSymbol;
+    const logStore = opts.store;
+    const logTenant = opts.tenantId;
+    this.attention = new AttentionFeed({
+      facts: () => this.attentionFacts(),
+      judge: getJudge(),
+      policy: () => ({ enabled: this.doctrine.isEnabledOr("jevAttention", false), floor: this.doctrine.value("jevAttention", 80) / 100 }),
+      record: logStore && logTenant ? (rows) => logStore.recordJudgeDecisions(logTenant, rows) : undefined,
+      prune: logStore && logTenant ? async () => { await logStore.pruneJudgeDecisions(logTenant, 14); } : undefined,
+      now: () => Date.now(),
+      log: (m) => this.log(m),
+    });
     this.approvals = new ApprovalGate(this.store, this.tenantId, this.log);
     this.discord = opts.discord;
     this.scheduler = opts.scheduler;
@@ -865,7 +885,12 @@ export class FleetManager {
       // pin was restored.
       if (st.holdWaypoint && !st.minePin) {
         try {
-          await this.holdShip(shipSymbol);
+          this.restoringHold = true;
+          try {
+            await this.holdShip(shipSymbol);
+          } finally {
+            this.restoringHold = false;
+          }
         } catch (err) {
           this.log(`restore hold ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -6134,6 +6159,9 @@ export class FleetManager {
     // operator is the strongest owner, so this always succeeds; preempt:true
     // just makes that explicit rather than relying on precedence math.
     this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
+    // Remember whether this hold came from a replay at boot (the attention feed flags those) or from a person, now.
+    if (this.restoringHold) this.restoredHolds.add(shipSymbol);
+    else this.restoredHolds.delete(shipSymbol);
     this.log(`${shipSymbol}: operator hold at ${here}`);
   }
 
@@ -6669,6 +6697,7 @@ export class FleetManager {
   async releaseShip(shipSymbol: string): Promise<void> {
     if (!this.controlledAgent(shipSymbol)) throw new Error(`ship ${shipSymbol} is not under fleet control`);
     await this.releaseTo(shipSymbol, "operator");
+    this.restoredHolds.delete(shipSymbol);
     // An operator "Release" is also the way to call off a pending sale.
     if (this.scrapTargets.has(shipSymbol)) {
       await this.updateShipManualState(shipSymbol, { scrapAt: null });
@@ -6782,6 +6811,45 @@ export class FleetManager {
               intentVersion: intent.version,
             }
           : {}),
+      };
+    });
+  }
+
+  /**
+   * The per-ship facts the attention feed reasons over (engine/attention.ts): what the ship is doing, and what its own recent
+   * log says. Counts, minutes and percentages are worked out here, in code, because the decision model is not reliable at
+   * arithmetic, counting or dates. Read-only.
+   */
+  attentionFacts(): ShipFacts[] {
+    const now = Date.now();
+    const windowMin = 10;
+    return this.fleetStatusSummary().map((s) => {
+      const ship = this.shipFor(s.symbol);
+      const lines = logBuffer.query({ tenantId: this.tenantId, ship: s.symbol, sinceMs: now - windowMin * 60_000, limit: 300 });
+      const counts = new Map<string, number>();
+      for (const l of lines) counts.set(l.msg, (counts.get(l.msg) ?? 0) + 1);
+      let top: string | null = null;
+      let topN = 0;
+      for (const [msg, n] of counts) if (n > topN) { top = msg; topN = n; }
+      const last = lines.at(-1);
+      const arrival = ship?.nav?.status === "IN_TRANSIT" ? Date.parse(ship.nav.route?.arrival ?? "") : Number.NaN;
+      const held = s.doing === "manual hold";
+      return {
+        symbol: s.symbol, role: s.role, nav: s.nav, doing: s.doing,
+        wants: s.wants, wantsReason: s.wantsReason, wantsSource: s.wantsSource,
+        held,
+        restoredHold: held && this.restoredHolds.has(s.symbol),
+        stranded: s.doing === "stranded",
+        fuelPercent: s.fuelCap > 0 ? (s.fuel / s.fuelCap) * 100 : null,
+        cargoPercent: s.cargoCap > 0 ? (s.cargo / s.cargoCap) * 100 : 0,
+        cooldownSeconds: s.cooldown,
+        secondsPastArrival: Number.isFinite(arrival) && arrival < now ? Math.round((now - arrival) / 1000) : 0,
+        minutesSinceLastLogLine: last ? (now - last.at) / 60_000 : null,
+        mostRepeatedLogLine: top,
+        timesRepeated: topN,
+        repeatWindowMinutes: windowMin,
+        waitingOnApproval: lines.some((l) => /approval pending/i.test(l.msg)),
+        hasRouteAssigned: this.dispatcher.assignmentFor(s.symbol) !== undefined,
       };
     });
   }
@@ -7819,6 +7887,8 @@ export class FleetManager {
    * check delays only the next purchase check.
    */
   private async tickMaintenance(): Promise<void> {
+    // Before the pause check: a halted fleet is when a list of what needs attention matters most. Never throws, throttles itself.
+    await this.attention.refresh();
     if (this.paused) return;
     await this.pass("maintenance", async () => {
       await this.timed("refreshCredits", () => this.refreshCredits());

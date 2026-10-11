@@ -22,7 +22,12 @@ export interface ChatAgentContext {
   tenantId?: string;
 }
 
+/** Chooses which of the agent's tools to expose for one message. It can only narrow: names it does not return are withheld. */
+export type ToolFilter = (message: string, toolNames: string[]) => Promise<string[]>;
+
 export interface ChatAgentOptions extends ChatAgentContext {
+  /** Optional router (engine/copilotRouter.ts). A failure, or no filter, means every tool, exactly as before. */
+  toolFilter?: ToolFilter;
   llm?: ChatLLM;
   model?: string;
   apiKey?: string;
@@ -97,6 +102,7 @@ export class ChatAgent {
   private readonly llm: ChatLLM;
   private readonly context: ChatAgentContext;
   private readonly tools: ChatTool[];
+  private readonly toolFilter?: ToolFilter;
   private readonly proposals = new Map<string, ProposedAction>();
 
   constructor(opts: ChatAgentOptions) {
@@ -119,6 +125,7 @@ export class ChatAgent {
         onEvent: opts.onEvent,
       });
     this.llm = llm;
+    this.toolFilter = opts.toolFilter;
     this.context = { state: opts.state, store: opts.store, fleet: opts.fleet, api: opts.api, tenantId: opts.tenantId };
     this.tools = [
       ...this.baseTools(),
@@ -646,8 +653,24 @@ export class ChatAgent {
       ...history,
       { role: "user", content: userMessage },
     ];
-    const result = await withRetry(() => this.llm.run(messages, this.tools, { signal }));
+    const tools = await this.toolsFor(userMessage);
+    const result = await withRetry(() => this.llm.run(messages, tools, { signal }));
     return result;
+  }
+
+  /**
+   * The tools to hand the model for this message: all of them unless a filter narrows them. The change tool is always kept,
+   * whatever a filter says, and a filter that throws or returns nothing usable means every tool.
+   */
+  private async toolsFor(message: string): Promise<ChatTool[]> {
+    if (!this.toolFilter) return this.tools;
+    try {
+      const names = new Set(await this.toolFilter(message, this.tools.map((t) => t.name)));
+      const picked = this.tools.filter((t) => names.has(t.name) || t.name === "propose_fleet_action");
+      return picked.length > 1 ? picked : this.tools;
+    } catch {
+      return this.tools;
+    }
   }
 
   /** Compose the system prompt with live world context, so the AI always knows where it is. */

@@ -480,6 +480,22 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   /* ── Bridge ──────────────────────────────────────────────────
      Everything the operating view needs in one call: the earning rate, the
      triage queue ranked by cost of inaction, and per-ship earnings. */
+  /* ── Attention feed ──────────────────────────────────────────
+     Ships that need a person's eyes and why (engine/attention.ts). Advisory: plain rules, plus the decision model when a key is
+     set. Empty while the "Attention feed" clause is off. */
+  router.get("/attention", (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const snap = w.fleet.attention.snapshot();
+    res.json({
+      asOf: snap.asOf ? new Date(snap.asOf).toISOString() : null,
+      enabled: snap.enabled,
+      modelConfigured: snap.modelConfigured,
+      count: snap.items.length,
+      items: snap.items,
+    });
+  });
+
   router.get("/bridge", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

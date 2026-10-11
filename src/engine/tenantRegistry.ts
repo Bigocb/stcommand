@@ -6,6 +6,7 @@ import { FleetState } from "./state.js";
 import { ContractManager } from "./contract.js";
 import { FleetManager, type Ship } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
+import { makeToolFilter } from "./copilotRouterLive.js";
 import { NarrativeWriter } from "./narrative.js";
 import { MarketIntel, type MarketSnapshot } from "./market.js";
 import { DiscordRelay } from "./discord.js";
@@ -231,6 +232,7 @@ export class TenantRegistry {
           apiKey: config.apiKey,
           model: config.model,
           baseUrl: config.baseUrl,
+          toolFilter: makeToolFilter({ doctrine: worker.fleet.doctrine, log: (m) => this.log(tenantId, `[copilot] ${m}`), record: (rows) => worker.store.recordJudgeDecisions(worker.tenantId, rows) }),
           onEvent: (e) => this.log(tenantId, `[copilot] ${e.type}: ${e.detail}`),
         })
       : undefined;
@@ -506,6 +508,7 @@ export class TenantRegistry {
           apiKey: llmConfig.apiKey,
           model: llmConfig.model ?? undefined,
           baseUrl: llmConfig.baseUrl ?? undefined,
+          toolFilter: makeToolFilter({ doctrine: fleet.doctrine, log: (m) => log(`[copilot] ${m}`), record: (rows) => store.recordJudgeDecisions(tenantId, rows) }),
           onEvent: (e) => log(`[copilot] ${e.type}: ${e.detail}`),
         })
       : undefined;

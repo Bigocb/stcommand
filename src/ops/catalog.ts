@@ -316,6 +316,28 @@ export const OPS_TOOLS: OpsTool[] = [
       return { ...selectExplain(snap, { ship: a.ship, good: a.good, limit: a.limit }), routeBuild };
     },
   },
+  {
+    name: "attention",
+    title: "Ships that need a person's eyes, and why",
+    description:
+      "The attention feed: each ship that needs looking at, most urgent first, with the reasons. Plain rules raise the clear cases (stranded, a hold replayed from saved state at boot rather than placed this session, a ship repeating one log line, a long silence, overdue transit, low fuel); when a decision-model key is set, literal yes/no questions about the ships that look worth a second opinion can add the model's own flags, each labelled with its probability. Advisory only, switched on by the 'Attention feed' doctrine clause (off returns an empty list). Refreshes about once a minute.",
+    input: {},
+    async run(ctx) {
+      const snap = ctx.w.fleet.attention.snapshot();
+      return { asOf: snap.asOf ? iso(snap.asOf) : null, enabled: snap.enabled, modelConfigured: snap.modelConfigured, askedLastPass: snap.asked, failedLastPass: snap.failed, count: snap.items.length, items: snap.items };
+    },
+  },
+  {
+    name: "judge_decisions",
+    title: "What the decision model answered, for checking its calibration",
+    description:
+      "The decision-model log, newest first: for each answered question the feature (router or attention), what it was about (a ship symbol, or the captain's message with secrets redacted), the question, the model's answer and confidence, whether the answer changed what the engine did (acted) or was only logged, and the model and latency. The vendor's own figures are unverified, so this is the evidence for deciding how far to trust it: compare confidences with what actually happened.",
+    input: { feature: z.enum(["router", "attention"]).optional(), sinceMin: num(240), limit: num(60) },
+    async run(ctx, a) {
+      const rows = await ctx.w.store.recentJudgeDecisions(ctx.w.tenantId, { feature: a.feature, sinceIso: iso(ctx.now() - a.sinceMin * 60_000), limit: Math.min(a.limit, 300) });
+      return { asOf: iso(ctx.now()), returned: rows.length, decisions: rows };
+    },
+  },
 ];
 
 export const OPS_BY_NAME = new Map(OPS_TOOLS.map((t) => [t.name, t]));
