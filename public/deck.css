@@ -520,3 +520,5 @@ td.cp.down { color: var(--bad, #e5675d); }
 .route-sort button.on{background:var(--amber);color:#000;border-color:transparent}
 .route-flying{color:var(--green,#5fd38d)}
 .route-why{color:var(--amber)}
+.why-more{margin-left:4px;padding:0 7px;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.why-list{margin:2px 0 6px 16px;padding:0;font-size:11px;color:var(--amber)}

@@ -368,3 +368,15 @@ export function tripLabel(r) {
   const m = r.tripSeconds / 60;
   return `${m < 10 ? m.toFixed(1) : Math.round(m)} min trip`;
 }
+
+/** The "not flying: ..." text for a route, with a "+N more" button that opens the other traders' reasons underneath.
+ *  `open` is whether this route's list is expanded; `key` identifies the route for the click handler. */
+export function skipReasonHtml(r, key, open, cls) {
+  if (!r.skipReason) return "";
+  const more = r.skipMore ?? [];
+  const btn = more.length
+    ? ` <button class="why-more" data-act="why-toggle" data-key="${escapeAttr(key)}" aria-expanded="${open ? "true" : "false"}">${open ? "hide" : `+${more.length} more`}</button>`
+    : "";
+  const list = open && more.length ? `<ul class="why-list">${more.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : "";
+  return `<div class="${cls}">not flying: ${escapeHtml(r.skipReason)}${btn}</div>${list}`;
+}

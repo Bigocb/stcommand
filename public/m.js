@@ -24,7 +24,7 @@ import { mountMetrics } from "/shared/metrics.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel } from "/shared/domain.js";
+import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
@@ -1003,6 +1003,9 @@ function holdLine(r) {
   return `<div class="rr-holds">${holds.map(([u, p]) => `${u}u ${signed(p)}`).join(" · ")}</div>`;
 }
 
+// Routes whose "+N more" reasons are expanded (per session, like the ship picker's open state).
+const openWhy = new Set();
+
 function renderMarketRoutes() {
   const el = $("mkt-routes");
   // Traders the dispatcher is never offered (held, suspended, claimed): said first, since no route can go to them.
@@ -1039,7 +1042,7 @@ function renderMarketRoutes() {
       ${idleLine}
       <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>
       ${blocked ? `<div class="rr-legs rr-blocked">Blocked: ${escapeHtml(r.blockedBy)}</div>` : ""}
-      ${!assigned && !blocked && r.skipReason ? `<div class="rr-legs rr-why">Not flying: ${escapeHtml(r.skipReason)}</div>` : ""}
+      ${!assigned && !blocked ? skipReasonHtml(r, routeKey, openWhy.has(routeKey), "rr-legs rr-why") : ""}
       <div class="rr-actions">${blocked ? "" : `<button class="btn" data-act="route-toggle" data-key="${escapeHtml(routeKey)}">${openRouteGood === routeKey ? "Close" : "Assign a ship"}</button>`}</div>
       ${blocked ? "" : picker}
     </div>`;
@@ -1371,6 +1374,8 @@ $("mkt-seg").addEventListener("click", (e) => {
 });
 
 $("mkt-routes").addEventListener("click", async (e) => {
+  const why = e.target.closest("button[data-act='why-toggle']");
+  if (why) { const k = why.dataset.key; openWhy.has(k) ? openWhy.delete(k) : openWhy.add(k); return renderMarketRoutes(); }
   const sort = e.target.closest("button[data-act='route-sort']");
   if (sort) { setRouteSort(sort.dataset.mode); return renderMarketRoutes(); }
   const toggle = e.target.closest("button[data-act='route-toggle']");

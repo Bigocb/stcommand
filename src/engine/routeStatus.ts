@@ -14,8 +14,10 @@ export interface RouteRef {
 export interface RouteStatus {
   /** Ships whose current assignment is this exact route (good, buy and sell market). */
   flownBy: string[];
-  /** Why no ship is on it; null while someone is. */
+  /** Why no ship is on it; null while someone is. For a rejection this is the first trader's. */
   reason: string | null;
+  /** The remaining traders' reasons, for the board's "+N more" to open. Empty unless several traders were turned down. */
+  more: string[];
 }
 
 export function routeStatus(
@@ -27,23 +29,23 @@ export function routeStatus(
   const flownBy = assignments
     .filter((a) => a.good === route.good && a.buyAt === route.buyAt && a.sellAt === route.sellAt)
     .map((a) => (a.source === "manual" ? `${a.shipSymbol} (pinned)` : a.shipSymbol));
-  if (flownBy.length) return { flownBy, reason: null };
-  if (blockedBy) return { flownBy, reason: `sell market blocked: ${blockedBy}` };
-  if (!snapshot) return { flownBy, reason: "the dispatcher has not run yet" };
+  if (flownBy.length) return { flownBy, reason: null, more: [] };
+  if (blockedBy) return { flownBy, reason: `sell market blocked: ${blockedBy}`, more: [] };
+  if (!snapshot) return { flownBy, reason: "the dispatcher has not run yet", more: [] };
 
   const item = snapshot.routes.find((r) => r.good === route.good && r.buyAt === route.buyAt && r.sellAt === route.sellAt);
   if (!item) {
     const floor = snapshot.floorDropped.find((r) => r.good === route.good && r.buyAt === route.buyAt && r.sellAt === route.sellAt);
-    return { flownBy, reason: floor ? "under the margin floor" : "not on the dispatcher's list (no open gate, or its sell market is already in use)" };
+    return { flownBy, reason: floor ? "under the margin floor" : "not on the dispatcher's list (no open gate, or its sell market is already in use)", more: [] };
   }
-  if (item.claimedBy) return { flownBy, reason: `held for ${item.claimedBy}` };
+  if (item.claimedBy) return { flownBy, reason: `held for ${item.claimedBy}`, more: [] };
   // A trader was checked against it and turned it down: report the first reason, counting the rest.
   const reasons: string[] = [];
   for (const t of snapshot.traders) {
     const rej = t.rejected.find((r) => r.key === item.key);
     if (rej) reasons.push(`${t.ship}: ${rej.reason}`);
   }
-  if (reasons.length) return { flownBy, reason: reasons.length > 1 ? `${reasons[0]} (+${reasons.length - 1} more)` : reasons[0]! };
+  if (reasons.length) return { flownBy, reason: reasons[0]!, more: reasons.slice(1) };
   if (snapshot.traders.length > 0 && snapshot.traders.every((t) => t.busy || t.assigned)) {
     // Say what each one is doing: cargo aboard means mid-trip (it is re-assigned once the hold is sold), a pin stays until released.
     const what = snapshot.traders.map((t) => {
@@ -52,9 +54,9 @@ export function routeStatus(
       if (t.busy) return `${t.ship} mid-trip with cargo${mine ? ` (${mine.good})` : ""}`;
       return `${t.ship} on ${mine?.good ?? t.assigned ?? "another route"}`;
     });
-    return { flownBy, reason: `every trader is occupied: ${what.join(", ")}` };
+    return { flownBy, reason: `every trader is occupied: ${what.join(", ")}`, more: [] };
   }
-  return { flownBy, reason: "no trader free for it" };
+  return { flownBy, reason: "no trader free for it", more: [] };
 }
 
 /** Profit per hour of ship time, the dispatcher's own yardstick; null when the route has no trip time (cross-system legs). */

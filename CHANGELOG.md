@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Routes board: "+N more" opens the other traders' reasons
+
+A route turned down by several traders showed the first reason and a plain "(+1 more)". `/api/markets` now returns the rest as
+`skipMore`, and in Tower and Deck "+N more" is a button that opens them as a list under the route (and "hide" closes it).
+
 ## 2026-10-11 — Routes board: "every trader is occupied" says what each trader is doing
 
 The skip reason for an unflown route read "every trader already has work" even when a ship showed `unassigned` in Deck's

@@ -23,7 +23,7 @@ import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
-import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel } from "/shared/domain.js";
+import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
@@ -450,6 +450,8 @@ function describeAutomation(r) {
  *  wants/wantsReason/wantsSource. Ported from v6.js's renderAutomationFeed(). */
 let opsSeg = "chain";
 $("mk-routes").addEventListener("click", (e) => {
+  const why = e.target.closest("button[data-act='why-toggle']");
+  if (why) { const k = why.dataset.key; openWhy.has(k) ? openWhy.delete(k) : openWhy.add(k); return renderMarkets(); }
   const b = e.target.closest("button[data-act='route-sort']");
   if (!b) return;
   setRouteSort(b.dataset.mode);
@@ -1013,6 +1015,9 @@ function holdLine(r) {
 /** How many of the dispatcher's routes the Markets tab lists, best first. */
 const ROUTES_SHOWN = 20;
 
+// Routes whose "+N more" reasons are expanded.
+const openWhy = new Set();
+
 function renderMarkets() {
   // Routes panel
   const routesHtml = (() => {
@@ -1026,7 +1031,7 @@ function renderMarkets() {
     return routeSortBar(sortMode) + topRoutes.map((r) => {
       const status = r.flownBy?.length
         ? `<div class="route route-flying">flying: ${r.flownBy.map(escapeHtml).join(", ")}</div>`
-        : r.skipReason ? `<div class="route route-why">not flying: ${escapeHtml(r.skipReason)}</div>` : "";
+        : skipReasonHtml(r, `${r.goodSymbol}|${r.buyAt}|${r.sellAt}`, openWhy.has(`${r.goodSymbol}|${r.buyAt}|${r.sellAt}`), "route route-why");
       const main = sortMode === "hour" && r.ratePerHour != null ? `${signed(r.ratePerHour)}/hr` : `${signed(r.profitPerTrip)}/trip`;
       const sub = r.ratePerHour != null ? `${signed(r.profitPerTrip)}/trip · ${escapeHtml(tripLabel(r))}` : `${signed(r.profitPerTrip)}/trip`;
       return `

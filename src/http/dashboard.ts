@@ -698,7 +698,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
           blockedBy: w.fleet.dispatcher.sellMarketBlock(r.goodSymbol, r.sellAt) ?? null,
           ...(() => {
             const st = routeStatus({ good: r.goodSymbol, buyAt: r.buyAt, sellAt: r.sellAt }, assignmentList, explainSnap, w.fleet.dispatcher.sellMarketBlock(r.goodSymbol, r.sellAt));
-            return { flownBy: st.flownBy, skipReason: st.reason };
+            return { flownBy: st.flownBy, skipReason: st.reason, skipMore: st.more };
           })(),
         };
       });
