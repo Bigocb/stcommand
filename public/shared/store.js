@@ -47,6 +47,8 @@ export let activity = [];
 
 export let marketSnapshots = [];
 export let marketRoutes = [];
+/** Traders the dispatcher is not offered, with the reason (GET /api/markets). */
+export let traderExclusions = [];
 export let marketSystems = [];
 export let tradeRoutes = [];
 export let intel = { shipyards: [], modules: [] };
@@ -259,6 +261,7 @@ export async function loadMarkets(systemFilter = "") {
     const data = await res.json();
     if (data.error) return;
     marketRoutes = data.routes ?? [];
+    traderExclusions = data.traderExclusions ?? [];
     // The map's lane overlay reads the older {cheapestMarket, expensiveMarket}
     // shape; derived here so every version gets it without repeating the map.
     tradeRoutes = marketRoutes.map((r) => ({ cheapestMarket: r.buyAt, expensiveMarket: r.sellAt }));

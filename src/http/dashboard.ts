@@ -675,8 +675,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const capacityOf = new Map(w.state.get().ships.map((s) => [s.symbol, s.cargo?.capacity ?? 0]));
       // Free traders by hold size, so each route can name the free trader that would earn the most from it.
       const freeTraderByHold = new Map<number, string>();
+      const traderExclusions = w.fleet.dispatchExclusions();
+      const excluded = new Set(traderExclusions.map((e) => e.ship));
       for (const s of w.fleet.getShipStatuses()) {
-        if (s.role !== "trader" || s.paused || assignedShips.has(s.symbol)) continue;
+        if (s.role !== "trader" || s.paused || assignedShips.has(s.symbol) || excluded.has(s.symbol)) continue;
         const cap = capacityOf.get(s.symbol) ?? 0;
         if (cap > 0 && !freeTraderByHold.has(cap)) freeTraderByHold.set(cap, s.symbol);
       }
@@ -704,7 +706,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const intel = await w.fleet.getIntel();
       const shipyards = systemFilter ? intel.shipyards.filter((y) => y.systemSymbol === systemFilter) : intel.shipyards;
       const modules = systemFilter ? intel.modules.filter((m) => m.systemSymbol === systemFilter) : intel.modules;
-      res.json({ routes, snapshots, shipyards, modules, systems });
+      res.json({ routes, snapshots, shipyards, modules, systems, traderExclusions });
     } catch (err) {
       console.error("[dashboard] /markets error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

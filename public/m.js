@@ -12,7 +12,7 @@ import { login, probeSession } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
-  marketRoutes, marketSnapshots, contracts, missions, feeds, feedChains, chainHealth, doctrineRules, activity,
+  marketRoutes, traderExclusions, marketSnapshots, contracts, missions, feeds, feedChains, chainHealth, doctrineRules, activity,
   priceGoods, priceWaypointsByGood, pricePoints,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
@@ -1005,9 +1005,13 @@ function holdLine(r) {
 
 function renderMarketRoutes() {
   const el = $("mkt-routes");
-  if (!marketRoutes.length) { el.innerHTML = '<div class="empty">No profitable routes in fresh snapshots.</div>'; return; }
+  // Traders the dispatcher is never offered (held, suspended, claimed): said first, since no route can go to them.
+  const skipped = traderExclusions.length
+    ? `<div class="rr-skipped">${traderExclusions.map((e) => `<div><b>${escapeHtml(e.ship)}</b> not getting routes: ${escapeHtml(e.reason)}</div>`).join("")}</div>`
+    : "";
+  if (!marketRoutes.length) { el.innerHTML = skipped + '<div class="empty">No profitable routes in fresh snapshots.</div>'; return; }
   const top = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 20);
-  el.innerHTML = top.map((r) => {
+  el.innerHTML = skipped + top.map((r) => {
     const good = r.goodSymbol;
     // Keyed by good+buyAt+sellAt, not just good — the same good can have
     // several distinct routes in this list (different buy/sell pairs), and

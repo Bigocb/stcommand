@@ -306,14 +306,16 @@ export const OPS_TOOLS: OpsTool[] = [
     name: "dispatch_explain",
     title: "Why the dispatcher picked what it picked",
     description:
-      "The route dispatcher's last cycle (refreshed about once a minute): the ranked work list with each route's claimant, the routes dropped under the margin floor, and for each trader the reason it was refused each route it was checked against — already claimed, declined, out of reach, buyer cap, margin gone after impact, net score, or outscored by a named route. Filter by ship and/or good to see one ship's or one route's reasons. Busy traders show their assignment without rejections. A route that never reached the work list (no open gate, or its market already being sold into) is not listed.",
+      "The route dispatcher's last cycle (refreshed about once a minute): the ranked work list with each route's claimant, the routes dropped under the margin floor, and for each trader the reason it was refused each route it was checked against — already claimed, declined, out of reach, buyer cap, margin gone after impact, net score, or outscored by a named route. Filter by ship and/or good to see one ship's or one route's reasons. Busy traders show their assignment without rejections. notConsidered lists traders the dispatcher is never offered (held, suspended, claimed by a mission or feed, warehouse) with the reason: check it first when a trader sits idle next to good routes. A route that never reached the work list (no open gate, or its market already being sold into) is not listed.",
     input: { ship: z.string().optional(), good: z.string().optional(), limit: num(30) },
     async run(ctx, a) {
       const snap = ctx.w.fleet.dispatcher.explain();
       // routeBuild explains the route list itself: legs dropped before the dispatcher, by reason, with a sample.
       const routeBuild = ctx.w.fleet.routeBuildReport();
-      if (!snap) return { note: "The dispatcher has not completed a cycle since this process started.", routeBuild };
-      return { ...selectExplain(snap, { ship: a.ship, good: a.good, limit: a.limit }), routeBuild };
+      // Traders the dispatcher is never offered (held, suspended, claimed): they have no per-route rejections to show.
+      const notConsidered = ctx.w.fleet.dispatchExclusions().filter((e) => a.ship === undefined || e.ship === a.ship);
+      if (!snap) return { note: "The dispatcher has not completed a cycle since this process started.", notConsidered, routeBuild };
+      return { ...selectExplain(snap, { ship: a.ship, good: a.good, limit: a.limit }), notConsidered, routeBuild };
     },
   },
   {

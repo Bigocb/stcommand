@@ -29,6 +29,7 @@ import { windDown, type WindDownState } from "./resetWindDown.js";
 import { resetWatcherStatus } from "./resetWatcher.js";
 import { universeKey, parseUniverseKey } from "./universe.js";
 import { AttentionFeed } from "./attentionFeed.js";
+import { dispatchExclusion, type TraderFacts } from "./traderEligibility.js";
 import type { ShipFacts } from "./attention.js";
 import { getJudge } from "./judgeLive.js";
 import { logBuffer } from "../core/logBuffer.js";
@@ -1338,11 +1339,8 @@ export class FleetManager {
     // this every loaded ship lost its assignment each cycle and the fleet page
     // showed it as unassigned.
     return [...this.traders.entries()]
-      .filter(([sym]) => sym !== this.warehouseShip?.shipSymbol)
-      .filter(([sym]) => available.has(sym) || this.shipRegistry.ownerOf(sym)?.owner === "trading")
-      // A sold ship with an empty hold is on its way to be scrapped: it gets no more work (2026-10-09: THEO-27 kept a
-      // CLOTHING assignment and counted as a trader while it sat waiting). A loaded one stays, so its trip is carried.
-      .filter(([sym, a]) => !(this.scrapTargets.has(sym) && (a.getShip().cargo?.units ?? 0) === 0))
+      // The one definition of who is left out, shared with dispatchExclusions() so the reason shown can't disagree.
+      .filter(([sym, a]) => dispatchExclusion(this.traderFacts(sym, a, available)) === undefined)
       .map(([sym, a]) => ({
         shipSymbol: sym,
         capacity: a.getShip().cargo?.capacity ?? 0,
@@ -1360,6 +1358,33 @@ export class FleetManager {
         waypoint: a.getShip().nav.waypointSymbol,
         fuelCapacity: a.getShip().fuel?.capacity ?? 0,
       }));
+  }
+
+  private traderFacts(sym: string, a: TraderAgent, available: Set<string>): TraderFacts {
+    const claim = this.shipRegistry.ownerOf(sym);
+    return {
+      symbol: sym,
+      isWarehouse: sym === this.warehouseShip?.shipSymbol,
+      held: this.isHeld(sym),
+      restoredHold: this.restoredHolds.has(sym),
+      suspended: a.isSuspended(),
+      claimOwner: claim?.owner,
+      claimIntent: Object.values(claim?.intent ?? {}).find((v): v is string => typeof v === "string" && v.length > 0),
+      scrapping: this.scrapTargets.has(sym),
+      cargoUnits: a.getShip().cargo?.units ?? 0,
+      availableForAuto: available.has(sym),
+    };
+  }
+
+  /** Traders the dispatcher is NOT offered, each with the reason, so the routes board can say why a good route sits unassigned. */
+  dispatchExclusions(): { ship: string; reason: string }[] {
+    const available = this.availableFor("auto");
+    const out: { ship: string; reason: string }[] = [];
+    for (const [sym, a] of this.traders) {
+      const reason = dispatchExclusion(this.traderFacts(sym, a, available));
+      if (reason) out.push({ ship: sym, reason });
+    }
+    return out;
   }
 
   /**

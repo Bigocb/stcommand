@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Say why a trader is not getting routes
+
+Two traders sat idle next to good routes on the new server and nothing said why: the Routes board only explained blocked
+sell markets, and the dispatcher's per-route rejections only cover traders it is offered. A trader that is held, suspended,
+claimed by a mission/feed/keeper, the warehouse ship, or marked for scrapping is never offered, so it had no reasons at all.
+`src/engine/traderEligibility.ts` now holds that one decision as a sentence (`dispatchExclusion`), and
+`FleetManager.dispatcherTraders()` filters through it, so the reason shown cannot disagree with what the dispatcher did.
+Shown in `dispatch_explain` (`notConsidered`), `/api/markets` (`traderExclusions`) and a banner at the top of Tower's Routes
+list. The "best free hull" hint no longer names an excluded ship.
+
 ## 2026-10-11 — A decision model for the co-pilot router and an attention feed (both off, advisory)
 
 Adds TypeSafe's Jev behind a small port, used two ways; both ship switched off and only advise. Jev is a discriminative
