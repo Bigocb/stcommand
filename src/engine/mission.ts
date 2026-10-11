@@ -89,6 +89,8 @@ export interface Mission {
 
 interface MissionOptions {
   api: SpaceTradersAPI;
+  /** True while no new purchase may start (reset wind-down). Supplying held material is never blocked. */
+  buysBlocked?: () => boolean;
   store?: Store;
   /** Bound once, like Doctrine — see src/engine/doctrine.ts's class doc comment
    *  for why: this instance belongs to exactly one tenant for its whole
@@ -174,6 +176,7 @@ const ACTIVE_RECONCILE_MS = 30_000;
  */
 export class MissionManager {
   private readonly api: SpaceTradersAPI;
+  private readonly buysBlocked?: () => boolean;
   private readonly store?: Store;
   private readonly tenantId?: string;
   private readonly log: (msg: string) => void;
@@ -220,6 +223,7 @@ export class MissionManager {
 
   constructor(opts: MissionOptions) {
     this.api = opts.api;
+    this.buysBlocked = opts.buysBlocked;
     this.store = opts.store;
     this.tenantId = opts.tenantId;
     this.log = opts.log ?? ((m) => console.log(`[mission] ${m}`));
@@ -833,6 +837,11 @@ export class MissionManager {
       // Free cargo so the carrier can haul the next batch.
       const freshCargo = await this.api.getShipCargo(ship.symbol);
       await this.clearUnrelatedCargo(ship.symbol, neededHeld.mat.tradeSymbol, freshCargo.inventory);
+      return;
+    }
+    // Reset wind-down: a carrier starts no material-sourcing trip. Material already held still goes to the site below.
+    if (t.step === "source" && this.buysBlocked?.()) {
+      t.retryAt = Date.now() + 60_000;
       return;
     }
     if (ship.nav.waypointSymbol !== market && t.step !== "supply") {

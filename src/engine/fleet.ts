@@ -25,6 +25,8 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
+import { windDown, type WindDownState } from "./resetWindDown.js";
+import { resetWatcherStatus } from "./resetWatcher.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { pickCheapestKeeperYard } from "./keeperYard.js";
@@ -555,6 +557,7 @@ export class FleetManager {
       log: (m) => this.log(`mission: ${m}`),
       onActivity: opts.onActivity,
       recordLedger: this.recordLedger,
+      buysBlocked: () => this.windDownBlocksBuys(),
       // Every live read the mission makes is written back into the suspended agent's cached snapshot
       // (noteShipState), which is what the dashboard and fleet status show. Without it a mission carrier froze
       // on its last pre-suspension state: 2026-10-07 THEO-1 read "IN_TRANSIT -> I59 with 20u" for over an hour
@@ -594,6 +597,7 @@ export class FleetManager {
       log: (m) => this.log(`feed: ${m}`),
       onActivity: opts.onActivity,
       recordLedger: this.recordLedger,
+      buysBlocked: () => this.windDownBlocksBuys(),
       getShip: (s) => this.liveShip(s), // same write-back as the mission's getShip above
       estimatedFuelBetween: (a, b) => this.estimatedFuelBetween(a, b),
       canReach: async (shipSymbol, targetWaypoint) => this.canReachTarget(shipSymbol, targetWaypoint),
@@ -1151,6 +1155,20 @@ export class FleetManager {
    * on one path reasoned about different markets than one built on another.
    */
 
+  /** Reset wind-down (src/engine/resetWindDown.ts): the window in which no new purchase may start. */
+  windDownState(): WindDownState {
+    const next = Date.parse(resetWatcherStatus()?.nextReset ?? "");
+    return windDown(Date.now(), Number.isFinite(next) ? next : undefined, {
+      enabled: this.doctrine.isEnabledOr("resetWindDown", false),
+      minutes: this.doctrine.value("resetWindDown", 60),
+    });
+  }
+
+  /** Read by every auto-buyer (traders, ships, feeds, missions) before it starts a purchase. */
+  windDownBlocksBuys(): boolean {
+    return this.windDownState().active;
+  }
+
   private traderOptions(shipSymbol: string): TraderOptions {
     return {
       api: this.api,
@@ -1167,6 +1185,7 @@ export class FleetManager {
         this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
       atlas: this.galaxy,
       shouldRun: () => !this.paused,
+      buysBlocked: () => this.windDownBlocksBuys(),
       // Prefer what this ship itself last paid; fall back to the fleet-wide
       // average for cargo it received by transfer rather than purchase.
       recoverCostBasis: async (good) => {
@@ -2179,6 +2198,7 @@ export class FleetManager {
       this.miners.set(
         ship.symbol,
         new ShipAgent(ship, {
+          buysBlocked: () => this.windDownBlocksBuys(),
           api: this.api,
           shouldRun: () => !this.paused,
           trades: false,
@@ -2208,6 +2228,7 @@ export class FleetManager {
       this.surveyors.set(
         ship.symbol,
         new ShipAgent(ship, {
+          buysBlocked: () => this.windDownBlocksBuys(),
           api: this.api,
           shouldRun: () => !this.paused,
           intentFor: () => this.intents.current(ship.symbol),
@@ -2277,6 +2298,7 @@ export class FleetManager {
         this.keepers.set(
           ship.symbol,
           new ShipAgent(ship, {
+            buysBlocked: () => this.windDownBlocksBuys(),
             api: this.api,
             shouldRun: () => !this.paused,
           intentFor: () => this.intents.current(ship.symbol),
@@ -2312,6 +2334,7 @@ export class FleetManager {
       this.tours.set(
         ship.symbol,
         new ShipAgent(ship, {
+          buysBlocked: () => this.windDownBlocksBuys(),
           api: this.api,
           shouldRun: () => !this.paused,
           intentFor: () => this.intents.current(ship.symbol),
@@ -2528,6 +2551,7 @@ export class FleetManager {
         this.miners.set(
           shipSymbol,
           new ShipAgent(ship, {
+            buysBlocked: () => this.windDownBlocksBuys(),
             api: this.api,
             shouldRun: () => !this.paused,
             trades: false,
@@ -2556,6 +2580,7 @@ export class FleetManager {
         this.surveyors.set(
           shipSymbol,
           new ShipAgent(ship, {
+            buysBlocked: () => this.windDownBlocksBuys(),
             api: this.api,
             shouldRun: () => !this.paused,
           intentFor: () => this.intents.current(ship.symbol),
@@ -2609,6 +2634,7 @@ export class FleetManager {
         this.keepers.set(
           shipSymbol,
           new ShipAgent(ship, {
+            buysBlocked: () => this.windDownBlocksBuys(),
             api: this.api,
             shouldRun: () => !this.paused,
           intentFor: () => this.intents.current(ship.symbol),
@@ -2638,6 +2664,7 @@ export class FleetManager {
         this.tours.set(
           shipSymbol,
           new ShipAgent(ship, {
+            buysBlocked: () => this.windDownBlocksBuys(),
             api: this.api,
             shouldRun: () => !this.paused,
           intentFor: () => this.intents.current(ship.symbol),
@@ -2670,6 +2697,7 @@ export class FleetManager {
         this.explorers.set(
           shipSymbol,
           new ShipAgent(ship, {
+            buysBlocked: () => this.windDownBlocksBuys(),
             api: this.api,
             shouldRun: () => !this.paused,
           intentFor: () => this.intents.current(ship.symbol),
@@ -2970,6 +2998,7 @@ export class FleetManager {
    * known system → no purchase (avoids buying a ship that would sit idle).
    */
   async maybeBuyScout(): Promise<void> {
+    if (this.windDownBlocksBuys()) return;
     if (this.scouts.size > 0) return;
     const scanWanted = this.doctrine.value("sensorScanIntervalMin", 0) > 0;
     if (!scanWanted) {
@@ -3040,6 +3069,7 @@ export class FleetManager {
    * cap to 0 doesn't silently kill the gas-income role.
    */
   async maybeBuySiphoner(): Promise<void> {
+    if (this.windDownBlocksBuys()) return;
     if (this.siphoners.size > 0) return;
     if (this.doctrine.value("siphonTarget", 0) <= 0) return;
     const agent = { credits: await this.cachedCredits() };
@@ -3167,6 +3197,7 @@ export class FleetManager {
 
   /** Purchase the highest-scored affordable ship, if any. */
   async maybeBuyShip(): Promise<void> {
+    if (this.windDownBlocksBuys()) return;
     const agent = { credits: await this.cachedCredits() };
     if (agent.credits < this.minCashReserve() + this.shipBudget()) return;
 
@@ -5136,6 +5167,7 @@ export class FleetManager {
    * for exactly this reason.
    */
   private async purchaseKeeperProbe(waypointSymbol: string, targetMarket: string, price: number, hull: string = "SHIP_PROBE"): Promise<void> {
+    if (this.windDownBlocksBuys()) return;
     // Re-check coverage at the moment of purchase. The target was chosen when
     // the approval was *requested*, possibly minutes earlier, and two request
     // paths (shipyard-triggered and market-triggered) run side by side — so
@@ -7430,6 +7462,8 @@ export class FleetManager {
    * this call themselves.
    */
   private lastNeighborhoodWarm = 0;
+  /** Last wind-down state logged, so the start and end of the window are each logged once. */
+  private lastWindDownActive = false;
   private neighborhoodWarmInFlight = false;
   /** While auto cross-system routes are switched on, keep the gate caches warm
    *  for the neighborhood (<= 3 hops) of the home system and of every system a
@@ -7634,14 +7668,23 @@ export class FleetManager {
       // Centralized route dispatch: recompute distinct per-trader assignments.
       // The positioning-jump limit is doctrine (the path search and the trader's own messages read it from the galaxy).
       this.galaxy.setPositioningHops(this.doctrine.value("positioningHops", 3));
-      const routes = await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes());
-      const [warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets] = await this.timed("computeTargets", () => Promise.all([
-        this.computeWarehouseTargets(routes),
-        this.computeHaulTargets(),
-        this.computeMissionBuyTargets(),
-        this.computeContractBuyTargets(),
-      ]));
-      await this.timed("releaseFulfilledManualContractBuys", () => this.releaseFulfilledManualContractBuys(contractBuyTargets));
+      // Reset wind-down: no new buy work at all. Busy traders keep their sell legs (the dispatcher carries them forward),
+      // and nothing is handed to an empty hull.
+      const winding = this.windDownState();
+      if (winding.active !== this.lastWindDownActive) {
+        this.log(`reset wind-down ${winding.active ? "started" : "ended"}: ${winding.reason}`);
+        this.lastWindDownActive = winding.active;
+      }
+      const routes = winding.active ? [] as DispatchRoute[] : await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes());
+      const [warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets] = winding.active
+        ? [[], [], [], []] as [WarehouseTarget[], HaulTarget[], MissionBuyTarget[], ContractBuyTarget[]]
+        : await this.timed("computeTargets", () => Promise.all([
+          this.computeWarehouseTargets(routes),
+          this.computeHaulTargets(),
+          this.computeMissionBuyTargets(),
+          this.computeContractBuyTargets(),
+        ]));
+      if (!winding.active) await this.timed("releaseFulfilledManualContractBuys", () => this.releaseFulfilledManualContractBuys(contractBuyTargets));
       const traders = this.dispatcherTraders();
       // Precomputed once per tick, not inside reachable()'s hot per-item loop:
       // dispatcher.recompute() itself stays synchronous (it's called from many
@@ -7832,6 +7875,7 @@ export class FleetManager {
       this.miners.delete(sym);
       this.tours.delete(sym);
       const keeper = new ShipAgent(agent.getShip(), {
+        buysBlocked: () => this.windDownBlocksBuys(),
         api: this.api,
         shouldRun: () => !this.paused,
         intentFor: () => this.intents.current(sym),

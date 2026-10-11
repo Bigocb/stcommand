@@ -78,6 +78,8 @@ export interface AgentOptions {
    *  arbitrage buying can spend. Undefined (no fleet wired in, e.g. a bare
    *  test) means unconstrained, matching this class's existing behavior. */
   getCredits?: () => number;
+  /** True while no new purchase may start (reset wind-down). Selling is never blocked. */
+  buysBlocked?: () => boolean;
   /**
    * Chart the given system and re-seed this agent's waypoint positions from it.
    * The registry answers from the live atlas, so a system already loaded needs
@@ -268,6 +270,7 @@ export class ShipAgent {
   private readonly preferredMiningGood?: AgentOptions["preferredMiningGood"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly getCredits?: AgentOptions["getCredits"];
+  private readonly buysBlocked?: AgentOptions["buysBlocked"];
   private readonly trades: boolean;
   private readonly ensureSystemCharted?: AgentOptions["ensureSystemCharted"];
   private readonly refreshSystemMarkets?: AgentOptions["refreshSystemMarkets"];
@@ -372,6 +375,7 @@ export class ShipAgent {
     this.preferredMiningGood = opts.preferredMiningGood;
     this.protectedGoods = opts.protectedGoods;
     this.getCredits = opts.getCredits;
+    this.buysBlocked = opts.buysBlocked;
     this.trades = opts.trades ?? true;
     this.ensureSystemCharted = opts.ensureSystemCharted;
     this.refreshSystemMarkets = opts.refreshSystemMarkets;
@@ -1093,7 +1097,7 @@ export class ShipAgent {
     }
 
     // 3. After selling, if empty at a market, run a quick arbitrage route.
-    if (!midMining && this.ship.cargo.units === 0 && this.trades) {
+    if (!midMining && this.ship.cargo.units === 0 && this.trades && !this.buysBlocked?.()) {
       const route = this.findArbitrageRouteFrom();
       if (route) {
         this.log(`arbitrage opportunity: ${route.good} ${route.buyAt} → ${route.sellAt}, +${route.profit}c`);

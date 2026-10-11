@@ -132,6 +132,8 @@ interface FeedTaskState {
 
 interface FeedOptions {
   api: SpaceTradersAPI;
+  /** True while no new purchase may start (reset wind-down). Selling is never blocked. */
+  buysBlocked?: () => boolean;
   store?: Store;
   tenantId?: string;
   log?: (msg: string) => void;
@@ -279,6 +281,7 @@ const MINE_KEY_SUFFIX = "::mine";
 
 export class FeedManager {
   private readonly api: SpaceTradersAPI;
+  private readonly buysBlocked?: () => boolean;
   private readonly store?: Store;
   private readonly tenantId?: string;
   private readonly log: (msg: string) => void;
@@ -339,6 +342,7 @@ export class FeedManager {
 
   constructor(opts: FeedOptions) {
     this.api = opts.api;
+    this.buysBlocked = opts.buysBlocked;
     this.store = opts.store;
     this.tenantId = opts.tenantId;
     this.log = opts.log ?? ((m) => console.log(`[feed] ${m}`));
@@ -1169,6 +1173,11 @@ export class FeedManager {
         t.market = buyers[0]!.waypoint;
         t.basePrice = buyers[0]!.purchasePrice;
       }
+    }
+    // Reset wind-down: a carrier with a hold to fill starts no sourcing trip. Its own goods still sell above.
+    if (this.buysBlocked?.()) {
+      t.retryAt = Date.now() + 60_000;
+      return;
     }
     if (ship.nav.waypointSymbol !== t.market) {
       await this.dispatchShip?.(ship.symbol, t.market);

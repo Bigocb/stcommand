@@ -97,6 +97,8 @@ export interface TraderOptions {
   recordSale?: (good: string, sellAt: string, units: number) => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
+  /** True while no new purchase may start (reset wind-down). Selling is never blocked. */
+  buysBlocked?: () => boolean;
   /** Apply the cash floor to a balance — `fleet.spendableCredits(live)`.
    *  Separate from getCredits() because the two answer different questions:
    *  getCredits() is the fleet's cached balance, fine for ranking routes,
@@ -228,6 +230,7 @@ export class TraderAgent {
   private readonly releaseRoute?: () => void;
   private readonly recordSale?: TraderOptions["recordSale"];
   private readonly getCredits?: () => number;
+  private readonly buysBlocked?: () => boolean;
   private readonly applyCashFloor?: (credits: number) => number;
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
@@ -350,6 +353,7 @@ export class TraderAgent {
     this.releaseRoute = opts.releaseRoute;
     this.recordSale = opts.recordSale;
     this.getCredits = opts.getCredits;
+    this.buysBlocked = opts.buysBlocked;
     this.applyCashFloor = opts.applyCashFloor;
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
@@ -2595,6 +2599,9 @@ export class TraderAgent {
     const leftoverResult = await this.clearLeftoverCargo();
     if (leftoverResult !== undefined) return leftoverResult;
 
+    // Reset wind-down: an empty hull starts no trip, and a loaded one only sells. A loaded hull with a buy-type
+    // assignment waits here rather than buying more into a hold it must empty before the reset.
+    if (this.buysBlocked?.() && (this.ship.cargo.units === 0 || assignedAtTickStart?.role !== "sell")) return false;
     if (assignedAtTickStart?.role === "buy") return this.runBuy(assignedAtTickStart);
     if (assignedAtTickStart?.role === "sell") return this.runSell(assignedAtTickStart);
     if (assignedAtTickStart?.role === "haul") return this.runHaul(assignedAtTickStart);

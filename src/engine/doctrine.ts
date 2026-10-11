@@ -136,6 +136,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "resetWindDown",
+    name: "Reset wind-down",
+    description: "In the last stretch before the weekly universe reset, stop every new purchase (trades, feeds, missions, ship and probe buys) and let ships only sell what they hold, so the week ends in credits rather than cargo. Trips already under way, including cross-system ones, are not cut short: only new buys stop, so a trip that cannot finish before the reset still runs. Value is how long before the reset the window opens, in minutes. Off by default: turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 60, min: 5, max: 1440, step: 5, unit: " min",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",
