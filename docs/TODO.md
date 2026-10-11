@@ -7,6 +7,19 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Rename the project to tailwinds (raised 2026-10-11, operator; plan only, not started).** `stcommand` appears about 625
+  times in ~70 files; most are harmless, a few are not. Order: (1) safe and mechanical: `package.json` name, README, CONTEXT.md,
+  `docs/`, `guide.html` title, UI titles, and `.mcp.json` (rename the server and fix its URL: it still points at the shut-down
+  `stcommand.onrender.com`); leave CHANGELOG history as written, add one line noting the rename; keep or migrate the
+  `stcommand-cartography-bookmarks` localStorage key so saved bookmarks survive. (2) needs both names for a release: the 65 MCP
+  tools (`stcommand_*` -> `tailwinds_*`, with the old names as aliases, since agents, saved prompts, CLAUDE.md and
+  `PLAYER_INSTRUCTIONS` use them), the `STCOMMAND_MCP_TOKEN` env var (read both), and the `sctk_` key prefix (never invalidate
+  existing keys; a new prefix for new keys is optional, accept both). (3) leave alone or do last in a maintenance window: the
+  `stcommand` Postgres schema, role and `search_path` (invisible to users; `DB_SCHEMA`, `scripts/assert-test-schema.mjs` and the
+  `stcommand_test` schema must change together), and the GitHub repo (redirects work, but session repo scoping, remotes and the
+  dual-push convention in CLAUDE.md reference it; the feature branch name is fixed by the environment). Decisions needed first:
+  rename the tools or only the branding; UI name "Tailwinds" or keep Deck/Tower; rename the schema and repo or not.
+
 - [ ] **Look into splitting the front end into its own project (raised 2026-10-11, operator).** Tower and Deck are static
   files in `public/` served by the engine process, so a front-end-only change redeploys and restarts the server, which
   drops the live fleet loop for a CSS fix. To look into: (1) serve `public/` from a separate static host (or a separate
