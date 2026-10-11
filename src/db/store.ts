@@ -1,5 +1,6 @@
 import type pg from "pg";
-import { withTenant, withPool } from "./pool.js";
+import { withTenant, withTenantUniverse, withTenantAllUniverses, tenantUniverse, withPool } from "./pool.js";
+import { isUniverseKey, universeKey } from "../engine/universe.js";
 import { getCurrentResetDate } from "../core/universe.js";
 
 /**
@@ -495,8 +496,8 @@ export class Store {
   async recordLedger(tenantId: string, entry: LedgerEntry): Promise<void> {
     await withTenant(this.pool, tenantId, async (c) => {
       await c.query(
-        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl, wallet_after)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl, wallet_after, universe_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           tenantId,
           entry.timestamp,
@@ -509,6 +510,8 @@ export class Store {
           entry.total,
           entry.realizedPnl ?? null,
           entry.walletAfter ?? null,
+          // This tenant's agent-and-week (src/engine/universe.ts); null until the game's reset date is known.
+          tenantUniverse(tenantId) ?? null,
         ],
       );
       if (entry.type === "SHIP") {
@@ -518,6 +521,37 @@ export class Store {
           { shipType: entry.tradeSymbol ?? null, yard: entry.waypointSymbol, price: Math.round(entry.total) },
         );
       }
+    });
+  }
+
+  /**
+   * Stamps ledger rows that have no universe key yet (written before the key existed, or before the game's reset date was
+   * known) with `key`, from `sinceIso` on: the rows of the universe that is current now. Earlier rows keep NULL, which
+   * belongs to no known week, so scoped reads never see them. Returns how many rows were stamped.
+   */
+  async adoptLedgerUniverse(tenantId: string, key: string, sinceIso: string): Promise<number> {
+    if (!isUniverseKey(key)) throw new Error(`adoptLedgerUniverse: not a universe key: ${JSON.stringify(key)}`);
+    return withTenantAllUniverses(this.pool, tenantId, async (c) => {
+      const r = await c.query(`UPDATE ledger SET universe_key = $1 WHERE universe_key IS NULL AND timestamp >= $2`, [key, sinceIso]);
+      return r.rowCount ?? 0;
+    });
+  }
+
+  /**
+   * One row per week the ledger has kept for this tenant, newest first: how many rows, the matched (realized) profit, and
+   * the span. This is the week-over-week comparison; every other read is scoped to the current week. The rows from before
+   * the key existed come back with a null key.
+   */
+  async ledgerWeeks(tenantId: string): Promise<{ universeKey: string | null; rows: number; sells: number; matchedPnl: number; firstAt: string; lastAt: string }[]> {
+    return withTenantAllUniverses(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `SELECT universe_key, COUNT(*)::int AS rows,
+                COUNT(*) FILTER (WHERE type = 'SELL' AND realized_pnl IS NOT NULL)::int AS sells,
+                COALESCE(SUM(realized_pnl) FILTER (WHERE type = 'SELL'), 0) AS pnl,
+                MIN(timestamp) AS first_at, MAX(timestamp) AS last_at
+         FROM ledger GROUP BY universe_key ORDER BY MAX(timestamp) DESC`,
+      );
+      return r.rows.map((x: any) => ({ universeKey: x.universe_key, rows: x.rows, sells: x.sells, matchedPnl: Math.round(Number(x.pnl)), firstAt: new Date(x.first_at).toISOString(), lastAt: new Date(x.last_at).toISOString() }));
     });
   }
 
@@ -3242,6 +3276,10 @@ export class Store {
    * just don't need re-entering. Everything below either names a ship
    * symbol from the dead universe or is otherwise meaningless without one.
    */
+  // `ledger` is deliberately NOT here any more: each row carries its universe key (<agent>@<reset date>), every read is
+  // scoped to the current week by the universe_scope policy (migrations/047), and past weeks are kept so they can be
+  // compared (ledgerWeeks()). The cost-basis lookups, which would otherwise find last week's purchase by a ship with
+  // the same symbol, are scoped by the same policy.
   private static readonly TENANT_GAME_TABLES = [
     // feed_missions names a target waypoint and assigned ship symbols from
     // the dead universe — the agent name (and so every THEO-N symbol) is
@@ -3249,7 +3287,7 @@ export class Store {
     // ships it was never configured for.
     "feed_missions",
     "activity", "bucket_ledger", "buckets", "fleet_flags", "fleet_state",
-    "held_route", "ledger", "missions", "pending_approvals", "ship_claims",
+    "held_route", "missions", "pending_approvals", "ship_claims",
     "ship_log", "ship_manifest", "ship_persona", "ship_position_history",
     "ship_state", "state_snapshot", "warehouse", "warehouse_ledger", "warehouse_targets",
   ];
@@ -3283,7 +3321,7 @@ export class Store {
     opts: { endedByReset?: string; kind?: "reset" | "manual"; notes?: string } = {},
   ): Promise<boolean> {
     const n = (v: unknown): number => Math.round(Number(v ?? 0));
-    return withTenant(this.pool, tenantId, async (c) => {
+    const capture = async (c: pg.PoolClient): Promise<boolean> => {
       const snapRow = (await c.query(`SELECT snapshot, updated_at FROM state_snapshot`)).rows[0];
       const snap = (snapRow?.snapshot ?? {}) as {
         agent?: { credits?: number; headquarters?: string };
@@ -3359,7 +3397,12 @@ export class Store {
         ],
       );
       return (insert.rowCount ?? 0) > 0;
-    });
+    };
+    // The ledger numbers must describe the week being captured, not whichever week is current when this runs: at a reset
+    // the fleet's current key may already have moved on. A placeholder date ("current", "unknown") is not a key, so that
+    // capture reads the tenant's current week, as it always did.
+    const week = universeKey(agentSymbol, resetDate);
+    return week ? withTenantUniverse(this.pool, tenantId, week, capture) : withTenant(this.pool, tenantId, capture);
   }
 
   /** One cash/fleet sample for the weekly curve (migration 037). Best-effort. */

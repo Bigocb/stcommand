@@ -443,6 +443,7 @@ export class TenantRegistry {
       contracts,
       store,
       tenantId,
+      agentSymbol,
       log,
       discord,
       scheduler,

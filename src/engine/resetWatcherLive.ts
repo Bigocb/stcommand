@@ -6,7 +6,7 @@ import { Store } from "../db/store.js";
 import { findOrCreateTenant, getTenantToken, listAllTenants } from "../db/tenants.js";
 import type { TenantRegistry } from "./tenantRegistry.js";
 import type { GalaxyCrawler } from "./galaxyCrawler.js";
-import { setCurrentResetDate } from "../core/universe.js";
+import { setCurrentResetDate, setGameResetDate } from "../core/universe.js";
 import { ResetWatcher, setActiveResetWatcher, type ResetWatcherPorts, type TokenProbe } from "./resetWatcher.js";
 
 const CRAWL_KEY = "reset_watcher";
@@ -27,6 +27,7 @@ export function createResetWatcher(
       if (!res.ok) throw new Error(`status ${res.status}`);
       const json = (await res.json()) as { resetDate?: string; serverResets?: { next?: string } };
       if (!json.resetDate) throw new Error("no resetDate in status response");
+      setGameResetDate(json.resetDate); // the live universe: stamps new ledger rows (see core/universe.ts)
       return { resetDate: json.resetDate, nextReset: json.serverResets?.next };
     },
     async getSeenResetDate() {

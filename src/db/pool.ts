@@ -1,4 +1,5 @@
 import pg from "pg";
+import { isUniverseKey } from "../engine/universe.js";
 
 const { Pool } = pg;
 
@@ -95,6 +96,58 @@ export function createPool(connectionString: string): pg.Pool {
   return pool;
 }
 
+
+/**
+ * Each tenant's current universe key (`<agent>@<reset date>`, src/engine/universe.ts), set by the fleet once it knows the
+ * agent and the game's reset date. withTenant() hands it to Postgres as `app.universe_key`, where the ledger's restrictive
+ * `universe_scope` policy (migrations/047) hides every other week's rows. Unknown means no scoping, the behaviour before
+ * the key existed. A process serves one game universe at a time, so this is process state, not per-request.
+ */
+const tenantUniverses = new Map<string, string>();
+
+export function setTenantUniverse(tenantId: string, key: string | undefined): void {
+  if (key !== undefined && isUniverseKey(key)) tenantUniverses.set(tenantId, key);
+  else tenantUniverses.delete(tenantId);
+}
+
+export function tenantUniverse(tenantId: string): string | undefined {
+  return tenantUniverses.get(tenantId);
+}
+
+/**
+ * Which week's ledger rows a transaction may see: the tenant's current universe (the default), one named universe, or
+ * every universe (`null`, for the week-over-week comparison and for stamping rows that have no key yet).
+ */
+type UniverseScope = string | null | undefined;
+
+async function runAsTenant<T>(pool: pg.Pool, tenantId: string, scope: UniverseScope, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  // Postgres won't accept a parameterized value in SET LOCAL, so tenantId gets
+  // string-interpolated below. This is the ONE place in the whole app that
+  // does that, and it's exactly the place where a bug would mean one
+  // tenant's data leaking into another's session — so validate the shape
+  // before it ever reaches a query string, rather than trusting every future
+  // caller to only ever pass a real uuid. The universe key is interpolated for
+  // the same reason, so it gets the same treatment (a strict pattern, or nothing).
+  if (!UUID_RE.test(tenantId)) throw new Error(`withTenant: not a uuid: ${JSON.stringify(tenantId)}`);
+  const universe = scope === undefined ? tenantUniverses.get(tenantId) : scope;
+  if (universe !== null && universe !== undefined && !isUniverseKey(universe)) throw new Error(`withTenant: not a universe key: ${JSON.stringify(universe)}`);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // One round trip for both settings. The universe key is always set, so a pooled connection that last ran under
+    // another key cannot carry it over: empty means "every universe".
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'; SET LOCAL app.universe_key = '${universe ?? ""}'`);
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * Run `fn` with a connection whose Postgres session has `app.tenant_id` set
  * for the duration of one transaction. Every RLS policy in migrations/001_init.sql
@@ -124,28 +177,18 @@ export function createPool(connectionString: string): pg.Pool {
  * If you ever need to inspect tenant-scoped rows by hand, set the GUC first:
  *   SET app.tenant_id = '<tenant uuid>';  -- then SELECT as normal
  */
+export function withTenant<T>(pool: pg.Pool, tenantId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  return runAsTenant(pool, tenantId, undefined, fn);
+}
 
-export async function withTenant<T>(pool: pg.Pool, tenantId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
-  // Postgres won't accept a parameterized value in SET LOCAL, so tenantId gets
-  // string-interpolated below. This is the ONE place in the whole app that
-  // does that, and it's exactly the place where a bug would mean one
-  // tenant's data leaking into another's session — so validate the shape
-  // before it ever reaches a query string, rather than trusting every future
-  // caller to only ever pass a real uuid.
-  if (!UUID_RE.test(tenantId)) throw new Error(`withTenant: not a uuid: ${JSON.stringify(tenantId)}`);
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
-    const result = await fn(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
-    client.release();
-  }
+/** As withTenant(), but reading one named universe's ledger rows, for example the week a run-result describes. */
+export function withTenantUniverse<T>(pool: pg.Pool, tenantId: string, universe: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  return runAsTenant(pool, tenantId, universe, fn);
+}
+
+/** As withTenant(), but across every week the tenant has kept: the comparison view, and stamping rows with no key yet. */
+export function withTenantAllUniverses<T>(pool: pg.Pool, tenantId: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  return runAsTenant(pool, tenantId, null, fn);
 }
 
 /**

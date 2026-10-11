@@ -27,6 +27,9 @@ import type { DiscordRelay } from "./discord.js";
 import { Doctrine, CRITICAL_CONDITION } from "./doctrine.js";
 import { windDown, type WindDownState } from "./resetWindDown.js";
 import { resetWatcherStatus } from "./resetWatcher.js";
+import { universeKey, parseUniverseKey } from "./universe.js";
+import { getGameResetDate } from "../core/universe.js";
+import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { pickCheapestKeeperYard } from "./keeperYard.js";
@@ -240,6 +243,8 @@ export interface FleetOptions {
    *  exactly one tenant for its whole lifetime. See doctrine.ts's class doc
    *  comment for the full reasoning. */
   tenantId?: string;
+  /** This tenant's agent symbol: with the game's reset date it makes the universe key stamped on ledger rows (engine/universe.ts). */
+  agentSymbol?: string;
   recordLedger?: (entry: {
     timestamp: string;
     shipSymbol: string;
@@ -446,6 +451,7 @@ export class FleetManager {
 
   private readonly store?: Store;
   private readonly tenantId?: string;
+  private readonly agentSymbol?: string;
   private readonly approvals: ApprovalGate;
   private readonly discord?: DiscordRelay;
   private readonly galaxy: GalaxyAtlas;
@@ -531,6 +537,7 @@ export class FleetManager {
       };
     }
     this.tenantId = opts.tenantId;
+    this.agentSymbol = opts.agentSymbol;
     this.approvals = new ApprovalGate(this.store, this.tenantId, this.log);
     this.discord = opts.discord;
     this.scheduler = opts.scheduler;
@@ -7645,7 +7652,35 @@ export class FleetManager {
    * exploring, operator holds) sit on the IntentBoard and are committed by
    * the next pass of this loop.
    */
+  /** The universe key this tenant's ledger rows are currently stamped with; undefined until the game's reset date is known. */
+  private universeNow: string | undefined;
+
+  /**
+   * Keep this tenant's universe key (`<agent>@<reset date>`) in step with the game's live reset date. When it changes,
+   * hand it to the database layer, which scopes every ledger read to that week, and stamp any current-week rows written
+   * before the key was known. Best effort: a failure is logged and retried on the next tick, never fatal to the tick.
+   */
+  private async syncUniverse(): Promise<void> {
+    if (!this.tenantId || !this.store || !this.agentSymbol) return;
+    const key = universeKey(this.agentSymbol, getGameResetDate());
+    if (key === this.universeNow) return;
+    try {
+      setTenantUniverse(this.tenantId, key);
+      if (key) {
+        // The week began at the reset: one week before the next scheduled one, else the reset date's own midnight.
+        const next = Date.parse(resetWatcherStatus()?.nextReset ?? "");
+        const startMs = Number.isFinite(next) ? next - 7 * 24 * 3600_000 : Date.parse(parseUniverseKey(key)!.resetDate);
+        const stamped = await this.store.adoptLedgerUniverse(this.tenantId, key, new Date(startMs).toISOString());
+        this.log(`universe ${key}${stamped ? `: stamped ${stamped} earlier ledger rows` : ""}`);
+      }
+      this.universeNow = key;
+    } catch (err) {
+      this.log(`universe ${key ?? "unknown"} not applied: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private async tickCore(): Promise<void> {
+    await this.syncUniverse();
     await this.pass("core", async () => {
       if (this.paused) {
         // Halt stops *automation*, not *recovery*. Rescue is the one thing that

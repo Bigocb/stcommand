@@ -111,14 +111,37 @@ every tenant:
   `ship_manifest`, `ship_persona`, `ship_position_history`,
   `held_route`), contracts/missions/feeds (`missions`, `feed_missions`, `pending_approvals`),
   warehouse (`warehouse`, `warehouse_ledger`, `warehouse_targets`), and
-  financial/activity history (`ledger`, `bucket_ledger`, `buckets`,
+  financial/activity history (`bucket_ledger`, `buckets`,
   `activity`, `state_snapshot`). Deliberately **not** included:
+  `ledger` (kept week over week: see "The ledger is kept, keyed by agent and week" below),
   `doctrine`/`doctrine_fires`/`doctrine_fire_log` (operator-configured
   standing orders — a reset doesn't make a margin-floor setting wrong),
   `chat_messages` (co-pilot conversation log), `sessions` (login state),
   `operator_actions` and `tenants.play_profile` (play-style tracking —
   a role change or manual buy from a dead universe is still a real
   historical data point for comparing play styles across resets).
+
+### The ledger is kept, keyed by agent and week
+
+Operator decision (2026-10-11): the ledger is **not** wiped at a reset, so weeks can be compared. Every ledger row
+carries `universe_key` = `<agent symbol>@<reset date>` (e.g. `THEOREM@2026-10-11`, `src/engine/universe.ts`), the same
+agent-plus-reset-date pairing `run_results` uses. Ship symbols repeat every week, so without the key a row cannot say
+which week it belongs to, and last week's purchase by THEOREM-1 would become this week's cost basis.
+
+- **Scoping is a restrictive row-level-security policy** (`universe_scope`, migrations/047), not a filter in each query.
+  `withTenant()` sets `app.universe_key` from the tenant's current key (`setTenantUniverse()` in `src/db/pool.ts`), so
+  every ledger read is automatically this week's, including cost-basis lookups and readers written later. Use
+  `withTenantUniverse()` to read one named week and `withTenantAllUniverses()` for the comparison view
+  (`Store.ledgerWeeks()`).
+- **The date is the game's live reset date**, `getGameResetDate()` in `src/core/universe.ts`, set on every status poll. It
+  is NOT `getCurrentResetDate()`, which follows the last reset the watcher *handled* and stays on last week's date while
+  the watcher is disabled or lacks an account token.
+- `FleetManager.syncUniverse()` keeps the key current each tick and stamps unkeyed rows from the week's start
+  (`Store.adoptLedgerUniverse()`); earlier unkeyed rows belong to no known week and scoped reads skip them. With the
+  reset date unknown nothing is scoped, the behaviour before keys existed.
+- `captureRunResult()` reads the week it was asked about, so it is right even after the fleet's key has moved on.
+- A superuser or `BYPASSRLS` database role skips the policy. Production's app role must not be one, or tenant isolation
+  is already gone. `tests/ledgerUniverse.test.ts` switches to a plain role so the policy is really exercised.
 
 ### Recovering from a reset — the admin-page tool
 

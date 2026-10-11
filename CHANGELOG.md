@@ -9,6 +9,24 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — The ledger is kept week over week, keyed by agent and reset date
+
+The weekly cleanup used to delete the ledger, and the metrics screen read it back with no notion of which week a row
+came from. On a server where the cleanup had not run, last week's closing wallet was read as this week's starting
+point and the Credits figure showed a loss of about 300,000 that never happened.
+
+Every ledger row now carries `universe_key` (`<agent symbol>@<reset date>`, e.g. `THEOREM@2026-10-11`), the same pairing
+`run_results` uses. A restrictive row-level-security policy (`universe_scope`, migration 047) scopes every ledger read to
+the tenant's current week, so cost basis, earnings and the ops tools can never see another week's rows, including
+readers added later. The weekly cleanup no longer deletes the ledger, `Store.ledgerWeeks()` lists the kept weeks with
+their matched profit, and the run-result capture reads the week it describes. The date comes from the game's live status
+poll, not from the last reset the watcher handled, so it is right while the watcher is disabled. Unkeyed rows from the
+current week are stamped on first boot; older unkeyed rows belong to no week and are skipped. Metrics reads are also
+clamped to the current universe (`ledgerReadFrom`), which still applies while the key is unknown.
+
+New: `src/engine/universe.ts` (the key), `migrations/047_ledger_universe_key.sql`, `tests/universe.test.ts`,
+`tests/ledgerUniverse.test.ts` (runs as a non-bypass role so the policy is exercised), `tests/metrics.test.ts` additions.
+
 ## 2026-10-10 — Dispatcher explain: why a route did or did not get a trader
 
 `stcommand_ops_dispatch_explain` answers "why isn't this route being flown" from the dispatcher's own last cycle

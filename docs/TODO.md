@@ -7,6 +7,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Finish the week-keyed history (raised 2026-10-11, operator).** The ledger is kept and keyed by agent and reset
+  date (CHANGELOG 2026-10-11). Still to do: (1) a week-over-week comparison view in Tower/Deck and an ops tool over
+  `Store.ledgerWeeks()`; (2) `activity`, `bucket_ledger` and the wealth samples are still wiped each reset and unkeyed;
+  (3) let the reset watcher detect a reset and clean up without `ST_ACCOUNT_TOKEN`, so only re-registration needs it
+  (on the new server it stays "disabled" with no token, so the cleanup never ran); (4) rows written before the key
+  existed and before the current week stay unkeyed and invisible, which is intended but worth a one-off backfill if old
+  weeks should be comparable.
+
 - [ ] **Plan infrastructure for gate-free ships (raised 2026-10-10, operator).** The new bulk freighter (THEO-85, bought
   2026-10-10 at MC94-E10B for 3,766,800c; 490 cargo, 4,000 fuel, speed 60) has a hyper/jump drive and does not need gates.
   Everything cross-system today assumes gates: `MAX_POSITIONING_HOPS` (3) and `GalaxyAtlas.jumpPath()`/`canJump()`, the
