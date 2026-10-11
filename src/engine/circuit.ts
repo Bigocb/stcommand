@@ -112,6 +112,14 @@ function closesLoop(leg1: ChainCandidate, c: ChainCandidate, policy: CircuitPoli
 /** Identity of a leg across recomputes (work keys change with what else is on the board). */
 export const legId = (leg: { good: string; buyAt: string; sellAt: string }): string => `${leg.good}|${leg.buyAt}|${leg.sellAt}`;
 
+/**
+ * The first leg of a pair must be the higher-ranked of the two. A circuit adds a second leg to a route worth flying; it must
+ * not make a poor route the excuse for reserving a rich one. On 2026-10-11 THEOREM-11 was sent on PLASTICS (about 10 credits
+ * a trip) as leg 1 to claim EQUIPMENT (score 77k) as leg 2, six minutes before EQUIPMENT left the board; flying EQUIPMENT
+ * first would have taken it. (Operator, 2026-10-11: "the first in the pair needs to have the higher rank".)
+ */
+export const outranks = (c: ChainCandidate, leg1: ChainCandidate): boolean => c.profitPerTrip > leg1.profitPerTrip;
+
 /** Will this leg's margin survive `policy.minLeg2Runs` runs by other traders before ours? True when it carries no price data (not judged). */
 export function leg2Survives(c: ChainCandidate, policy: CircuitPolicy): boolean {
   if (policy.minLeg2Runs <= 0) return true;
@@ -137,6 +145,7 @@ export function bestCircuit(
   for (const c of candidates) {
     if (c.key === leg1.key || c.good === leg1.good) continue;
     if (c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
+    if (outranks(c, leg1)) continue;
     if (!closesLoop(leg1, c, policy)) continue;
     if (ctx.unavailable(c)) continue;
     if (!leg2Survives(c, policy)) continue;
@@ -173,9 +182,10 @@ export function circuitReport(
   penalty = 0,
 ): string {
   const horizon = policy.horizonMinutes * 60;
-  let sameSystem = 0, free = 0, nearSale = 0, nearStart = 0, fading = 0;
+  let sameSystem = 0, free = 0, nearSale = 0, nearStart = 0, fading = 0, higher = 0;
   for (const c of candidates) {
     if (c.key === leg1.key || c.good === leg1.good || c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
+    if (outranks(c, leg1)) { higher += 1; continue; }
     if (!closesLoop(leg1, c, policy)) continue;
     sameSystem += 1;
     if (ctx.unavailable(c)) continue;
@@ -187,7 +197,7 @@ export function circuitReport(
     if (between <= horizon && back <= horizon) nearStart += 1;
   }
   const best = bestCircuit(leg1, candidates, ctx, policy);
-  const pairs = `${sameSystem} legs that close the loop, ${free} free${fading ? ` (${fading} more would not outlast ${policy.minLeg2Runs} runs)` : ""}, ${nearSale} start within ${policy.horizonMinutes}m of the sale, ${nearStart} also end within ${policy.horizonMinutes}m of the start`;
+  const pairs = `${higher ? `${higher} outrank this route so cannot be its second leg, ` : ""}${sameSystem} legs that close the loop, ${free} free${fading ? ` (${fading} more would not outlast ${policy.minLeg2Runs} runs)` : ""}, ${nearSale} start within ${policy.horizonMinutes}m of the sale, ${nearStart} also end within ${policy.horizonMinutes}m of the start`;
   if (!best) return `no circuit (${pairs})`;
   // The circuit's rate is per reference trip with no empty flight to the first buy, so it is put on the route's scale
   // (positioning discount, extra-buyer penalty) before being compared with `ownScore`, the way circuitScore() does.

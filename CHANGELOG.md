@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Circuits: the first leg must be the higher-ranked route of the pair
+
+Operator rule: "the first in the pair needs to have the higher rank". Both live circuits (THEOREM-11 PLASTICS -> EQUIPMENT,
+THEOREM-4 DIAMONDS -> MEDICINE) used a near-worthless first leg to reserve a rich second leg, which the ship then never ran.
+`bestCircuit` now skips any second leg whose profit per trip is above the first leg's (`outranks()` in `src/engine/circuit.ts`),
+and `circuitReport` says how many were skipped ("N outrank this route so cannot be its second leg"). The same pair can still
+form the other way round, with the richer route as leg 1. Fixtures in `tests/circuit.test.ts` and `tests/dispatcherCircuit.test.ts`
+were adjusted so leg 1 outranks leg 2, with new tests for the rule and the report wording.
+
 ## 2026-10-11 — Circuits: never plan a second leg another ship is already buying
 
 The first circuits planned after the new gates (THEOREM-11, THEOREM-4) both failed the same way. Each second leg was a good

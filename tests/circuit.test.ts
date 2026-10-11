@@ -119,7 +119,7 @@ describe("bestCircuit", () => {
 
 describe("return share", () => {
   const leg1 = cand("OUT", "X1-A-10", "X1-A-100", 40_000);
-  const ends = cand("ENDSFAR", "X1-A-102", "X1-A-900", 42_000); // starts by the sale, ends 890s from where leg 1 began
+  const ends = cand("ENDSFAR", "X1-A-102", "X1-A-900", 38_000); // starts by the sale, ends 890s from where leg 1 began
   it("by default a second leg that ends far from the start is not a circuit", () => {
     assert.equal(bestCircuit(leg1, [leg1, ends], ctx(), on), undefined);
   });
@@ -127,12 +127,25 @@ describe("return share", () => {
     const c = bestCircuit(leg1, [leg1, ends], ctx(), { ...on, returnShare: 0 });
     assert.equal(c?.leg2.key, "ENDSFAR");
     assert.equal(c?.cycleSeconds, 300 + 300 + 2); // no return hop in the cycle
-    assert.ok(Math.abs((c?.rate ?? 0) - (82_000 * 600) / 602) < 1e-6);
+    assert.ok(Math.abs((c?.rate ?? 0) - (78_000 * 600) / 602) < 1e-6);
   });
   it("a share between 0 and 1 charges that part of a return that is within reach", () => {
-    const back = cand("BACK", "X1-A-102", "X1-A-30", 42_000); // 20s back
+    const back = cand("BACK", "X1-A-102", "X1-A-30", 38_000); // 20s back
     const half = bestCircuit(leg1, [leg1, back], ctx(), { ...on, returnShare: 0.5 });
     assert.equal(half?.cycleSeconds, 300 + 300 + 2 + 10);
+  });
+});
+
+describe("the first leg is the higher-ranked route", () => {
+  const leg1 = cand("OUT", "X1-A-10", "X1-A-100", 40_000);
+  it("a second leg that outranks the first is not offered", () => {
+    const rich = cand("RICH", "X1-A-102", "X1-A-12", 42_000);
+    assert.equal(bestCircuit(leg1, [leg1, rich], ctx(), on), undefined);
+    assert.equal(bestCircuit(rich, [rich, leg1], ctx(), on)?.leg2.key, "OUT", "the same pair works the other way round");
+  });
+  it("the report says how many outrank the route", () => {
+    const rich = cand("RICH", "X1-A-102", "X1-A-12", 42_000);
+    assert.match(circuitReport(leg1, [leg1, rich], ctx(), on, 40_000), /1 outrank this route so cannot be its second leg/);
   });
 });
 
@@ -253,7 +266,7 @@ describe("circuit minimum gain", () => {
 
   it("the report says when the gain was real but under the minimum", () => {
     const leg1 = cand("A", "X1-A-1", "X1-A-2", 1000);
-    const leg2 = cand("B", "X1-A-2", "X1-A-1", 1100);
+    const leg2 = cand("B", "X1-A-2", "X1-A-1", 950);
     const ctx: CircuitContext = { distanceBetween: () => 0, unavailable: () => false };
     const text = circuitReport(leg1, [leg1, leg2], ctx, pol({ minGain: 100_000 }), 900);
     assert.match(text, /under the minimum/);

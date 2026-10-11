@@ -18,8 +18,10 @@ const route = (good: string, buyAt: string, sellAt: string, profit: number): Dis
 } as unknown as DispatchRoute);
 
 const OUT = route("OUT", "X1-A-10", "X1-A-100", 40_000);
-const BACK = route("BACK", "X1-A-102", "X1-A-12", 42_000);
+const BACK = route("BACK", "X1-A-102", "X1-A-12", 38_000);
 const SOLO = route("SOLO", "X1-A-10", "X1-A-900", 45_000);
+/** A side route worth less than BACK, so a ship that is free to choose between them takes BACK. */
+const LOW = route("SOLO", "X1-A-10", "X1-A-900", 30_000);
 
 const t1 = (over: Record<string, unknown> = {}) => ({ shipSymbol: "T-1", capacity: 40, system: "X1-A", waypoint: "X1-A-10", fuelCapacity: 5000, ...over });
 const t2 = (over: Record<string, unknown> = {}) => ({ shipSymbol: "T-2", capacity: 20, system: "X1-A", waypoint: "X1-A-102", fuelCapacity: 5000, ...over });
@@ -111,25 +113,25 @@ describe("dispatcher circuits", () => {
   it("keeps the second leg from a ship that shows up later, until the plan expires", (t) => {
     t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
     const early = new RouteDispatcher();
-    run(early, 1, [OUT, BACK, SOLO], [t1()]);
+    run(early, 1, [OUT, BACK, LOW], [t1()]);
     t.mock.timers.tick(10 * 60_000);
-    run(early, 1, [OUT, BACK, SOLO], [t1({ busy: true }), t2()]);
+    run(early, 1, [OUT, BACK, LOW], [t1({ busy: true }), t2()]);
     assert.equal(early.assignmentFor("T-2")?.good, "SOLO", "BACK is held for T-1 while its plan is fresh");
 
     const late = new RouteDispatcher();
-    run(late, 1, [OUT, BACK, SOLO], [t1()]);
+    run(late, 1, [OUT, BACK, LOW], [t1()]);
     t.mock.timers.tick(61 * 60_000);
-    run(late, 1, [OUT, BACK, SOLO], [t1({ busy: true }), t2()]);
+    run(late, 1, [OUT, BACK, LOW], [t1({ busy: true }), t2()]);
     assert.equal(late.assignmentFor("T-2")?.good, "BACK", "the held leg is released once the plan has expired");
   });
 
   it("switching the weight back to 0 releases every held leg", (t) => {
     t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
     const d = new RouteDispatcher();
-    run(d, 1, [OUT, BACK, SOLO], [t1()]);
+    run(d, 1, [OUT, BACK, LOW], [t1()]);
     t.mock.timers.tick(60_001);
     const lines: string[] = [];
-    run(d, 0, [OUT, BACK, SOLO], [t1({ busy: true }), t2()], lines);
+    run(d, 0, [OUT, BACK, LOW], [t1({ busy: true }), t2()], lines);
     assert.deepEqual(lines.filter((l) => l.includes("dispatch circuit")).map((l) => l.includes("switched off")), [true], "one line saying the plan was forgotten");
     assert.equal(d.assignmentFor("T-2")?.good, "BACK", "BACK is no longer held for T-1");
   });
@@ -220,7 +222,7 @@ describe("dispatcher circuits", () => {
   });
 
   it("the return share admits a second leg that ends far from where the first began", () => {
-    const FAR_END = route("FAR_END", "X1-A-102", "X1-A-900", 42_000);
+    const FAR_END = route("FAR_END", "X1-A-102", "X1-A-900", 38_000);
     const pick = (share?: number) => {
       const d = new RouteDispatcher();
       d.recompute([OUT, FAR_END], [t1()], [], [], [], [], () => false, distance, undefined, undefined, undefined, { circuitWeight: 1, circuitReturnShare: share });
@@ -397,7 +399,7 @@ describe("circuits do not share a buy market", () => {
     t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
     // Two ships, each with an outbound leg whose best partner buys the same good at the same market (X1-A-102) but sells
     // somewhere different. Without the buy-side hold both circuits would plan it.
-    const BACK_A = route("BACK", "X1-A-102", "X1-A-12", 42_000);
+    const BACK_A = route("BACK", "X1-A-102", "X1-A-12", 38_000);
     const BACK_B = route("BACK", "X1-A-102", "X1-A-14", 41_500);
     const OUT2 = route("OUT2", "X1-A-11", "X1-A-101", 40_000);
     const d = new RouteDispatcher();
