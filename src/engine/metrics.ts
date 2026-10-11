@@ -108,6 +108,22 @@ export interface Metrics {
 }
 
 const HOUR = 3_600_000;
+
+/** A SpaceTraders universe lasts a week; the reset wipes it and starts a different game. */
+const UNIVERSE_MS = 7 * 24 * HOUR;
+
+/**
+ * Where to start reading the ledger for a window of `hours`: twice the window (the second half is the comparison), but
+ * never before the current universe began. Rows from a previous universe are a different game: its wallet, prices and
+ * profits do not belong in this week's numbers, and the "Credits" figure is the wallet at the window's end less the
+ * wallet before it, so last week's closing wallet would read as a loss. The universe began one week before the next
+ * scheduled reset; with that unknown, nothing is clamped.
+ */
+export function ledgerReadFrom(now: number, hours: number, nextResetMs: number | undefined): number {
+  const wanted = now - 2 * hours * HOUR;
+  if (nextResetMs === undefined || !Number.isFinite(nextResetMs)) return wanted;
+  return Math.max(wanted, nextResetMs - UNIVERSE_MS);
+}
 const systemOf = (waypoint: string): string => waypoint.slice(0, waypoint.lastIndexOf("-"));
 const rnd = (n: number): number => Math.round(n);
 

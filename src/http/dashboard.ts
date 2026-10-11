@@ -13,7 +13,7 @@ import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
-import { buildMetrics, bucketMinutesFor, worthByBucket } from "../engine/metrics.js";
+import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 
 /**
@@ -449,8 +449,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       } else {
         // 72 h at most: the query reads twice the window, and the server has 512 MB.
         hours = Math.min(72, Math.max(1, Number(req.query.hours) || 6));
-        // Twice the window: the second half is the comparison.
-        rows = await w.store.ledgerRowsSince(w.tenantId, new Date(now - 2 * hours * 3600_000).toISOString());
+        // Twice the window (the second half is the comparison), but not into the previous universe: its rows would
+        // read as last week's wallet and profits (see ledgerReadFrom).
+        const nextReset = Date.parse(resetWatcherStatus()?.nextReset ?? "");
+        rows = await w.store.ledgerRowsSince(w.tenantId, new Date(ledgerReadFrom(now, hours, Number.isFinite(nextReset) ? nextReset : undefined)).toISOString());
       }
       const state = w.state.get();
       const holds: Record<string, number> = {};

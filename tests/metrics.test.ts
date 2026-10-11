@@ -155,3 +155,39 @@ describe("worthByBucket", () => {
     assert.deepEqual(worthByBucket([0, H], 60, []), [null, null]);
   });
 });
+
+// A reset starts a different game. Rows from the previous universe must not reach this week's windows.
+import { ledgerReadFrom } from "../src/engine/metrics.js";
+
+describe("ledgerReadFrom", () => {
+  const H = 3_600_000;
+  const now = Date.parse("2026-10-11T14:50:00Z");
+  const nextReset = Date.parse("2026-10-18T13:00:00Z"); // the universe began a week earlier: 2026-10-11T13:00Z
+  const universeStart = Date.parse("2026-10-11T13:00:00Z");
+
+  it("reads twice the window when that stays inside the current universe", () => {
+    assert.equal(ledgerReadFrom(now, 0.5, nextReset), now - H, "a 30 min window reads 1 h back, which is after 13:00");
+  });
+
+  it("stops at the universe's start instead of reading last week's rows", () => {
+    assert.equal(ledgerReadFrom(now, 6, nextReset), universeStart, "6 h would reach back to 02:50, before the reset");
+    assert.equal(ledgerReadFrom(now, 72, nextReset), universeStart);
+  });
+
+  it("clamps nothing while the next reset is unknown", () => {
+    assert.equal(ledgerReadFrom(now, 6, undefined), now - 12 * H);
+    assert.equal(ledgerReadFrom(now, 6, Number.NaN), now - 12 * H);
+  });
+
+  it("keeps the Credits figure from reading last week's closing wallet as a loss", () => {
+    // The old universe ended with 900k in the wallet; this one has made 175k -> 600k.
+    const row = (ts: string, wallet: number): LedgerRow => ({ ts: Date.parse(ts), ship: "S-1", waypoint: "X1-A-A1", type: "SELL", good: "G", units: 1, total: 10, pnl: 10, wallet });
+    const rows = [row("2026-10-11T12:00:00Z", 900_000), row("2026-10-11T13:30:00Z", 175_000), row("2026-10-11T14:40:00Z", 600_000)];
+    const opts = { now, hours: 1, bucketMinutes: 10 };
+    const unbounded = buildMetrics(rows, { ...opts, hours: 6, bucketMinutes: 10 });
+    assert.equal(unbounded.walletStart, 900_000, "without the bound the window starts from last week's wallet");
+    const bounded = buildMetrics(rows.filter((r) => r.ts >= ledgerReadFrom(now, 6, nextReset)), { ...opts, hours: 6, bucketMinutes: 10 });
+    assert.equal(bounded.walletStart, 175_000, "bounded, it starts from this universe's first wallet");
+    assert.equal((bounded.walletEnd ?? 0) - (bounded.walletStart ?? 0), 425_000);
+  });
+});
