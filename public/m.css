@@ -655,7 +655,7 @@ body {
 .jump-row .btn { flex: 0 0 auto; }
 
 /* Links to the player guide: sign-in screen and the Tower header. */
-.guide-link, .topguide { font: 600 12px var(--chrome); letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); text-decoration: none; }
+.guide-link, .topguide { font-size: 9.5px; letter-spacing: 0.03em; color: var(--dim); text-decoration: none; }
 .guide-link { display: block; text-align: center; margin-top: 14px; }
 .topguide { margin-left: auto; padding: 4px 2px; }
 .guide-link:hover, .topguide:hover, .guide-link:focus-visible, .topguide:focus-visible { text-decoration: underline; outline: none; }
