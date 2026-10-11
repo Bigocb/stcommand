@@ -1169,6 +1169,15 @@ export class RouteDispatcher {
             : [])
       : [];
     const reservedFollowOns = new Set<string>();
+    // Is another trader already buying this good at this market, whether mid-haul or heading there now? A second leg is
+    // flown minutes after it is planned, and a buyer already on it will have eaten the margin by then. 2026-10-11: both
+    // circuits planned after the staying-power setting was eased had a second leg another ship was buying at the same
+    // market (EQUIPMENT at K100 for THEOREM-11, MEDICINE at K101 for THEOREM-4), and the first was dropped as "no longer on
+    // the board" before it ran. Counts this cycle's assignments so far (carried-forward and manual ones included) and trips
+    // already in flight.
+    const someoneBuying = (c: { good: string; buyAt: string }): boolean =>
+      (pendingTraders.get(`${c.buyAt}|${c.good}`) ?? 0) > 0
+      || [...next.values()].some((a) => a.good === c.good && a.buyAt === c.buyAt && (a.role === "direct" || a.role === "contractBuy"));
     const chainCtx = {
       distanceBetween,
       crossSystemCost: (from: string, to: string): number | undefined => {
@@ -1182,7 +1191,7 @@ export class RouteDispatcher {
         const path = crossSystem?.enabled ? crossSystem.path(from, to) : undefined;
         return path ? path.length - 1 : undefined;
       },
-      unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key) || circuitHeld.has(legId(c)) || circuitBuyHeld.has(buySide(c)),
+      unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key) || circuitHeld.has(legId(c)) || circuitBuyHeld.has(buySide(c)) || someoneBuying(c),
     };
     const candidateByKey = new Map(chainCandidates.map((c) => [c.key, c]));
     // Can this trader take this work, from where it stands? (Hoisted out of the loop so route-first matching can ask it

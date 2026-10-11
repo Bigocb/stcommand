@@ -410,3 +410,28 @@ describe("circuits do not share a buy market", () => {
     assert.ok(held.length <= 2);
   });
 });
+
+describe("circuits and ships already buying the second leg's good", () => {
+  it("a second leg another ship is already heading to buy is not offered, so no circuit is planned on it", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    // T-2 is committed to a route that buys BACK's good at BACK's buy market (and sells it somewhere else).
+    const T2_ROUTE = route("BACK", "X1-A-102", "X1-A-14", 41_500);
+    const d = new RouteDispatcher();
+    run(d, 1, [T2_ROUTE], [t2()]);
+    assert.equal(d.assignmentFor("T-2")?.good, "BACK");
+    t.mock.timers.tick(60_001);
+    // T-1 could circuit OUT -> BACK (102 -> 12), but T-2 is already on its way to buy BACK at X1-A-102.
+    const lines: string[] = [];
+    // T-1 has a small tank, so BACK's buy market (92 away) is out of its reach as a first leg: it can only be a second leg.
+    run(d, 1, [OUT, BACK, T2_ROUTE, SOLO], [t1({ fuelCapacity: 91 }), t2({ busy: true })], lines);
+    assert.ok(d.assignmentFor("T-1"), "T-1 was served this cycle");
+    assert.equal(d.assignmentFor("T-1")?.circuit, undefined, lines.join("\n"));
+    assert.equal(d.assignmentFor("T-2")?.good, "BACK", "T-2 keeps its route");
+  });
+
+  it("without another buyer the same circuit is planned (control)", () => {
+    const d = new RouteDispatcher();
+    run(d, 1, [OUT, BACK, SOLO], [t1(), t2({ waypoint: "X1-A-500" })]);
+    assert.equal(d.assignmentFor("T-1")?.circuit?.leg, 1);
+  });
+});

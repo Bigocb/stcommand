@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Circuits: never plan a second leg another ship is already buying
+
+The first circuits planned after the new gates (THEOREM-11, THEOREM-4) both failed the same way. Each second leg was a good
+another ship was already buying at the same market (EQUIPMENT at K100 for THEOREM-11, while THEOREM-C was buying it there for
+D40; MEDICINE at K101 for THEOREM-4, while THEOREM-D was buying it there for J64). THEOREM-11's first leg (PLASTICS, +540c)
+sold 368s later, and its second leg was dropped as "no longer on the board": the other buyer had already moved the price.
+Its next pick was a contract run, because the route it would have flown, MEDICINE, was by then held for THEOREM-4's circuit.
+A second leg is now not offered when any trader (mid-haul, committed, or manual) already buys that good at that market.
+
 ## 2026-10-11 — Two-leg circuits: stricter planning, no shared buy market, and a lifecycle log
 
 Reviewing the 34 minutes circuits were on (20:22-20:56 UTC, six planned): none ever ran a second leg. Every one was dropped
