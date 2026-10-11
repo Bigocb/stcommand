@@ -51,6 +51,8 @@ export interface LedgerEntry {
   tradeSymbol?: string;
   /** The contract a CONTRACT or DELIVERY row belongs to (migrations/049). */
   contractId?: string;
+  /** The route this trade belonged to, e.g. "B7>H60 auto circuit1" (migrations/050, engine/routeTag.ts). */
+  route?: string;
   units?: number;
   pricePerUnit?: number;
   total: number;
@@ -355,7 +357,7 @@ export class Store {
       if (f.waypoint) add("waypoint_symbol = ?", f.waypoint);
       args.push(f.limit);
       const r = await c.query(
-        `SELECT timestamp, ship_symbol, type, trade_symbol, units, waypoint_symbol, price_per_unit, total, realized_pnl, wallet_after
+        `SELECT timestamp, ship_symbol, type, trade_symbol, units, waypoint_symbol, price_per_unit, total, realized_pnl, wallet_after, route
          FROM ledger WHERE ${where.join(" AND ")} ORDER BY timestamp DESC LIMIT $${args.length}`,
         args,
       );
@@ -498,8 +500,8 @@ export class Store {
   async recordLedger(tenantId: string, entry: LedgerEntry): Promise<void> {
     await withTenant(this.pool, tenantId, async (c) => {
       await c.query(
-        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl, wallet_after, universe_key, contract_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        `INSERT INTO ledger (tenant_id, timestamp, ship_symbol, waypoint_symbol, type, trade_symbol, units, price_per_unit, total, realized_pnl, wallet_after, universe_key, contract_id, route)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           tenantId,
           entry.timestamp,
@@ -515,6 +517,7 @@ export class Store {
           // This tenant's agent-and-week (src/engine/universe.ts); null until the game's reset date is known.
           tenantUniverse(tenantId) ?? null,
           entry.contractId ?? null,
+          entry.route ?? null,
         ],
       );
       if (entry.type === "SHIP") {

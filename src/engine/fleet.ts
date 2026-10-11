@@ -260,6 +260,7 @@ export interface FleetOptions {
     pricePerUnit?: number;
     total: number;
     realizedPnl?: number;
+    route?: string;
   }) => void;
   /** Called for notable events for the live feed. */
   /**

@@ -1,3 +1,4 @@
+import { routeTag } from "./routeTag.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
@@ -61,6 +62,7 @@ export interface TraderOptions {
     pricePerUnit?: number;
     total: number;
     realizedPnl?: number;
+    route?: string;
   }) => void;
   /** Called for notable events for the live feed. */
   onActivity?: (kind: string, detail: string, credits?: number, shipSymbol?: string) => void;
@@ -341,7 +343,12 @@ export class TraderAgent {
     this.symbol = ship.symbol;
     this.api = opts.api;
     this.log = opts.log ?? ((m) => console.log(`[${this.symbol}] ${m}`));
-    this.recordLedger = opts.recordLedger;
+    // Stamp each trade with the route it belongs to (engine/routeTag.ts).
+    this.recordLedger = opts.recordLedger
+      ? (e) => opts.recordLedger!(e.tradeSymbol && (e.type === "PURCHASE" || e.type === "SELL")
+        ? { ...e, route: routeTag(e.tradeSymbol, this.heldRoute.get(e.tradeSymbol), this.assignedRoute?.()) }
+        : e)
+      : undefined;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
     this.getMarketSnapshots = opts.getMarketSnapshots;

@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Ledger: each trade records the route it belonged to
+
+A PURCHASE or SELL row said where it happened but not which trip it was part of, so "what was this ship flying when it
+sold" had to be guessed from neighbouring rows. Trades now carry a `route` tag (`migrations/050_ledger_route.sql`,
+`src/engine/routeTag.ts`), e.g. `X1-CM13-B7>X1-CM13-H60 auto circuit1`: buy and sell waypoints, who chose the route
+(auto / manual) and the circuit leg. The waypoints come from the route pinned when the cargo was bought, so a mid-trip
+reassignment cannot relabel an old trip; the trader stamps the tag in one place, wrapping its `recordLedger`. Read it
+through the `ledger` ops tool. Rows written before this deploy have none, and fuel, jumps, mined cargo and contracts stay untagged.
+
 ## 2026-10-11 — Circuits: the first leg must be the higher-ranked route of the pair
 
 Operator rule: "the first in the pair needs to have the higher rank". Both live circuits (THEOREM-11 PLASTICS -> EQUIPMENT,
