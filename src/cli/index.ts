@@ -3,6 +3,7 @@ import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID } from "../core/rateLimitMonitor.js";
 import { waitForPredecessor } from "../core/instanceGate.js";
 import express from "express";
+import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPool } from "../db/pool.js";
@@ -11,7 +12,7 @@ import { Store } from "../db/store.js";
 import { createGateRouter } from "../http/gate.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
-import { createUiVersionRouter, cacheHeaders } from "../http/uiVersions.js";
+import { createUiVersionRouter, cacheHeaders, assetStamp, serveHtml } from "../http/uiVersions.js";
 import { createAdminRouter } from "../http/admin.js";
 import { createOperatorRouter } from "../http/operator.js";
 import { createCartographyRouter } from "../http/cartography.js";
@@ -176,6 +177,29 @@ async function main(): Promise<void> {
   });
 
   app.use("/api", createDashboardRouter(registry, pool, galaxyCrawler));
+
+  // Serve every HTML page with versioned asset URLs: a deploy changes the
+  // `?v=` on each local .js/.css, so a CDN that ignores the origin's no-cache
+  // (Cloudflare's default 4h Browser Cache TTL) can't pin a browser to
+  // superseded modules. Placed before the UI-version router and the static
+  // middleware so it covers `/`, `/v5`, `/v6`, `/m`, `/deck`, `/admin`,
+  // `/cartography`, `/guide`, and any direct `*.html`.
+  const STAMP = assetStamp(PUBLIC_DIR);
+  const HTML_PAGES = new Set(["v2", "v3", "v4", "v5", "v6", "m", "deck", "admin", "cartography", "guide"]);
+  app.use((req, res, next) => {
+    if (req.method !== "GET") return next();
+    const path = req.path.replace(/\/+$/, "") || "/";
+    let file: string | null = null;
+    if (path === "/") {
+      file = resolve(PUBLIC_DIR, "v6.html");
+    } else {
+      const name = path.slice(1);
+      if (HTML_PAGES.has(name)) file = resolve(PUBLIC_DIR, `${name}.html`);
+      else if (/^[a-z0-9_-]+\.html$/i.test(name)) file = resolve(PUBLIC_DIR, name);
+    }
+    if (!file || !existsSync(file)) return next();
+    serveHtml(res, file, STAMP);
+  });
 
   // Before express.static so /v5 resolves, and so a version that is
   // planned but not yet built answers with something actionable rather than
