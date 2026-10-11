@@ -661,3 +661,15 @@ body {
 .guide-link { display: block; text-align: center; margin-top: 14px; }
 .topguide { margin-left: auto; padding: 4px 2px; }
 .guide-link:hover, .topguide:hover, .guide-link:focus-visible, .topguide:focus-visible { text-decoration: underline; outline: none; }
+
+/* MCP keys in More > Rules. */
+.mcp-keys { padding: 4px 0 12px; }
+.mcp-key-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--hair); font-size: 12px; }
+.mcp-key-row:first-child { border-top: none; }
+.mcp-key-label { font-family: var(--mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-key-meta { color: var(--dim); font-size: 10px; white-space: nowrap; }
+.mcp-key-mint { display: flex; gap: 8px; margin-top: 10px; }
+.mcp-key-mint input { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--bone); background: transparent; border: 1px solid var(--hair); border-radius: 4px; padding: 6px 8px; }
+.mcp-key-ok { font-size: 11px; margin-top: 6px; min-height: 14px; }
+.mcp-key-reveal { margin-top: 8px; word-break: break-all; font-size: 11px; }
+.mcp-key-reveal code { font-family: var(--mono); color: var(--amber); }

@@ -98,7 +98,7 @@ function setTab(name) {
   if (name === "metrics") { metricsScreen ??= mountMetrics($("metrics-root"), { api, netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined) }); metricsScreen.show(); }
   else metricsScreen?.hide();
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
-  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); }
+  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); refreshMcpKeys(); }
   if (name === "copilot") { loadCopilot(); loadCopilotSettings(); }
 }
 $("tabbar").addEventListener("click", (e) => {
@@ -1519,6 +1519,49 @@ function renderMoreFeeds() {
     </div>`;
   }).join("");
 }
+
+/* MCP keys (same endpoints as the desktop Book panel): list with Revoke, and mint one. The raw key is shown once. */
+async function refreshMcpKeys() {
+  const listEl = $("mcp-key-list");
+  if (!listEl) return;
+  try {
+    const { keys } = await api("GET", "/api/mcp-keys");
+    listEl.innerHTML = keys.length ? keys.map((k) => `
+      <div class="mcp-key-row" data-id="${escapeAttr(k.id)}">
+        <span class="mcp-key-label">${escapeHtml(k.label)}${k.revokedAt ? " (revoked)" : ""}</span>
+        <span class="mcp-key-meta">${k.lastUsedAt ? `last used ${new Date(k.lastUsedAt).toLocaleDateString()}` : "never used"}</span>
+        ${k.revokedAt ? "" : `<button class="btn ghost mcp-key-revoke" type="button" data-id="${escapeAttr(k.id)}">Revoke</button>`}
+      </div>`).join("") : '<div class="empty">No keys yet.</div>';
+  } catch (err) { /* engine not ready yet: leave the list as it is */ }
+}
+function mcpKeyMsg(text, ok) {
+  const el = $("mcp-key-ok");
+  el.style.color = ok ? "var(--green)" : "var(--red)";
+  el.textContent = text;
+}
+$("mcp-key-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest(".mcp-key-revoke");
+  if (!btn) return;
+  if (!confirm("Revoke this key? Any MCP client using it stops working immediately.")) return;
+  try {
+    await api("POST", `/api/mcp-keys/${btn.dataset.id}/revoke`, {});
+    await refreshMcpKeys();
+  } catch (err) { mcpKeyMsg(err.message, false); }
+});
+$("mcp-key-mint").addEventListener("click", async () => {
+  const label = $("mcp-key-label").value.trim();
+  if (!label) { mcpKeyMsg("Label required.", false); return; }
+  try {
+    const { key } = await api("POST", "/api/mcp-keys", { label });
+    mcpKeyMsg("Key generated. Copy it now; it will not be shown again.", true);
+    const reveal = $("mcp-key-reveal");
+    reveal.hidden = false;
+    reveal.innerHTML = `<code>${escapeHtml(key)}</code> <button class="btn ghost" id="mcp-key-copy" type="button">Copy</button>`;
+    $("mcp-key-copy").addEventListener("click", () => navigator.clipboard?.writeText(key).catch(() => {}));
+    $("mcp-key-label").value = "";
+    await refreshMcpKeys();
+  } catch (err) { mcpKeyMsg(err.message, false); }
+});
 
 function renderMoreDoctrine() {
   $("more-doctrine-count").textContent = `${doctrineRules.filter((r) => r.enabled).length} / ${doctrineRules.length} on`;
