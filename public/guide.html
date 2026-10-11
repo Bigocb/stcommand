@@ -127,6 +127,7 @@ pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overfl
     <li><a href="#circuits">Circuits</a></li>
     <li><a href="#construction">Building a gate</a></li>
     <li><a href="#walkthrough">Walkthrough: a first game</a></li>
+    <li><a href="#midweek">Scenario: a midweek gate</a></li>
     <li><a href="#doctrine">Doctrine reference</a></li>
     <li><a href="#examples">Worked examples</a></li>
     <li><a href="#mistakes">Common mistakes</a></li>
@@ -366,6 +367,58 @@ pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overfl
 <div class="callout">
   <strong>You finished the first week</strong>
   The fleet keeps running between your visits. Next week, start from the markets you already know and widen one hop at a time.
+</div>
+
+<h2 id="midweek">Scenario: the gate opens midweek</h2>
+<p>It is Wednesday. The gate between your home system and the next system has been under construction since Monday. This is what the week looks like once it opens, and what to do at each step.</p>
+<div class="example">
+  <p class="label">Wednesday, morning</p>
+  <h3>Check both ends of the gate</h3>
+  <p><strong>You see:</strong> the gate status for your system shows the home end complete and the far end still at a percentage. <strong>Do:</strong> wait. A jump needs the gate finished at <em>both</em> ends. <strong>Avoid:</strong> sending a ship to jump early. It will fail and the cooldown is wasted.</p>
+</div>
+<div class="example">
+  <p class="label">Wednesday, midday</p>
+  <h3>The gate is open at both ends</h3>
+  <p><strong>You see:</strong> the gate status shows both ends complete. The new system now appears in the jump planner as reachable, and it is no longer greyed out. <strong>Do:</strong> confirm it with the co-pilot ("Is the gate to the next system open?"). <strong>Avoid:</strong> assuming the route list already has cross-system routes. It does not yet.</p>
+</div>
+<div class="example">
+  <p class="label">Wednesday, afternoon</p>
+  <h3>Price the new system with a tour ship</h3>
+  <p><strong>You see:</strong> the new system's markets are not in the route list, because no one has priced them. <strong>Do:</strong> send a tour ship to the new system with <em>dispatch_tour</em>. Use a tour ship you already have, or buy one if you have the cash. <strong>Avoid:</strong> sending a trader to find prices. A trader without a route is wasted until the markets are known.</p>
+</div>
+<div class="example">
+  <p class="label">Wednesday, evening</p>
+  <h3>Watch the route list grow</h3>
+  <p><strong>You see:</strong> as the tour ship visits each market, routes from the new system appear in the route list, marked with the other system's name. Cross-system routes are allowed to be older than same-system routes (the cross-system freshness window is 360 minutes), so they stay visible longer. <strong>Do:</strong> wait until the tour has visited most of the new system's markets. <strong>Avoid:</strong> starting traders on the first route you see.</p>
+</div>
+<div class="example">
+  <p class="label">Wednesday, night</p>
+  <h3>Let the dispatcher send the first trader, and keep one at home</h3>
+  <p><strong>You see:</strong> an idle trader's explanation lists the cross-system route. If the first trip does not cover the jump cost, the reason says so. <strong>Do:</strong> leave the dispatcher to pick. It keeps at least one trader in the home system (the home reserve), so home routes never go unserved. <strong>Avoid:</strong> sending every trader across at once. Each jump is about 5,000 credits before the first sale.</p>
+</div>
+<div class="example">
+  <p class="label">Thursday</p>
+  <h3>Set the jump limit for the trips you want</h3>
+  <p><strong>You see:</strong> routes that need more jumps than the Positioning jumps rule allows are not offered. The default is 3. <strong>Do:</strong> if a good route in the new system needs 4 jumps and the cost check passes, raise the rule for a short time, then lower it again. <strong>Avoid:</strong> raising it for the whole week without watching the jump cost against matched net.</p>
+</div>
+<div class="example">
+  <p class="label">Thursday, afternoon</p>
+  <h3>Put a keeper on the new system's busiest market</h3>
+  <p><strong>You see:</strong> the new system's prices start going stale, because only the tour ship visits them. <strong>Do:</strong> let auto-buy keepers propose a probe for the busiest market, and approve it. A keeper stays there, so those prices stay fresh. <strong>Avoid:</strong> keeping the tour ship there forever. Once every market is priced and a keeper covers the busiest one, move the tour ship on.</p>
+</div>
+<div class="example">
+  <p class="label">Friday</p>
+  <h3>Try a circuit across the gate</h3>
+  <p><strong>You see:</strong> a trader's sheet names a two-leg circuit that crosses the gate: buy in one system, sell in the other, and carry cargo back on the way home. <strong>Do:</strong> check that the second leg's margin is still at least half of the planned margin, then leave it alone. <strong>Avoid:</strong> overriding the circuit. If the second leg goes off the board, the planner drops it by itself.</p>
+</div>
+<div class="example">
+  <p class="label">Saturday to Sunday</p>
+  <h3>Score the new routes</h3>
+  <p><strong>You see:</strong> Metrics, Since reset, with the top ships. Cross-system trips show in the same table as home trips. <strong>Do:</strong> compare net trading from the new system against the home system, and against the jump cost in the same window. <strong>Avoid:</strong> reading the jump cost as a loss. It is a fixed cost paid before the first sale, and it is worth it only if the trips earn it back.</p>
+</div>
+<div class="callout">
+  <strong>The order that matters</strong>
+  Gate open at both ends, then price the new system, then wait for enough routes, then send traders. Skipping the pricing step is the most common reason a new gate sits unused.
 </div>
 
 <h2 id="doctrine">Doctrine reference</h2>

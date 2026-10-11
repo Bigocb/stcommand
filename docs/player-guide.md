@@ -192,6 +192,38 @@ Each step says what you should see, what to do, and what to avoid. The numbers a
 9. **End of week: score it.** Metrics, Since reset. Compare net trading with wallet change and cargo still
    held. Note what to change next week.
 
+## Scenario: the gate opens midweek
+
+It is Wednesday. The gate between your home system and the next system has been under construction since
+Monday. This is what the week looks like once it opens.
+
+- **Wednesday, morning.** The gate status shows the home end complete and the far end not yet. Wait. A jump
+  needs the gate finished at *both* ends. Sending a ship early wastes the cooldown.
+- **Wednesday, midday.** Both ends are complete. The new system is reachable in the jump planner. Confirm
+  with the co-pilot.
+- **Wednesday, afternoon.** The new system's markets are not in the route list, because no one has priced
+  them. Send a tour ship with `dispatch_tour`. Use one you already have, or buy one if you have the cash.
+- **Wednesday, evening.** Routes from the new system appear as the tour visits each market. Cross-system
+  prices stay valid longer (a 360-minute freshness window), so they stay visible. Wait until most markets
+  are visited before starting traders.
+- **Wednesday, night.** Leave the dispatcher to pick. It keeps at least one trader at home (the home
+  reserve). Each jump costs about 5,000 credits before the first sale, so do not send every trader across
+  at once. An idle trader's explanation says why a cross-system route was refused.
+- **Thursday.** Routes needing more jumps than the Positioning jumps rule allows are not offered (default 3).
+  Raise the rule for a short time if a good route needs one more jump and the cost check passes. Then lower
+  it again. Watch the jump cost against matched net.
+- **Thursday, afternoon.** Only the tour ship visits the new system, so its prices go stale. Approve an
+  auto-buy keeper probe for the busiest market. Once every market is priced and a keeper covers the busiest
+  one, move the tour ship on.
+- **Friday.** A trader's sheet can name a two-leg circuit across the gate. Check that the second leg's
+  margin is at least half the planned margin, then leave it alone. The planner drops it if it goes off the board.
+- **Saturday to Sunday.** Metrics, Since reset. Cross-system trips appear in the same table as home trips.
+  Compare net trading from the new system against the jump cost in the same window. The jump cost is paid
+  before the first sale, so it is only worth it if the trips earn it back.
+
+**The order that matters:** gate open at both ends, then price the new system, then wait for enough routes,
+then send traders. Skipping the pricing step is the most common reason a new gate sits unused.
+
 ## Doctrine reference
 
 Doctrine is the fleet's standing rules. Each has an on/off switch and, for some, a value. Defaults are
