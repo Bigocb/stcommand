@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Routes board: every "not flying" reason is collapsed, and reads in plain words
+
+The expandable list only appeared when a route had two or more reasons, so the common single-reason case (one free trader)
+still showed as a line of text on every row. Every unflown route now shows one "not flying · why?" toggle (with a count when
+there are several) that opens a list, in Tower and Deck. The dispatcher's internal work keys are translated:
+"outscored by EQUIPMENT:contractBuy" reads "outscored by EQUIPMENT contract delivery", "FERTILIZERS@X1-CM13-K100" reads
+"FERTILIZERS into K100".
+
 ## 2026-10-11 — Contracts: assign several ships, and send miners (Tower and Deck)
 
 Only the retired v2-v6 desktop pages could put a ship on a contract, one at a time, and nothing could send miners.

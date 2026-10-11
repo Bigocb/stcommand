@@ -369,16 +369,15 @@ export function tripLabel(r) {
   return `${m < 10 ? m.toFixed(1) : Math.round(m)} min trip`;
 }
 
-/** The "not flying: ..." text for a route, with a "+N more" button that opens the other traders' reasons underneath.
+/** The "not flying" line for a route: collapsed to a single toggle (like the shipyard cards), opening to one line per reason.
  *  `open` is whether this route's list is expanded; `key` identifies the route for the click handler. */
 export function skipReasonHtml(r, key, open, cls) {
   if (!r.skipReason) return "";
-  const more = r.skipMore ?? [];
-  const btn = more.length
-    ? ` <button class="why-more" data-act="why-toggle" data-key="${escapeAttr(key)}" aria-expanded="${open ? "true" : "false"}">${open ? "hide" : escapeHtml(r.skipMoreLabel || `+${more.length} more`)}</button>`
-    : "";
-  const list = open && more.length ? `<ul class="why-list">${more.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : "";
-  return `<div class="${cls}">not flying: ${escapeHtml(r.skipReason)}${btn}</div>${list}`;
+  const all = [r.skipReason, ...(r.skipMore ?? [])];
+  const label = all.length > 1 ? `not flying · why? (${all.length})` : "not flying · why?";
+  const btn = `<button class="why-more" data-act="why-toggle" data-key="${escapeAttr(key)}" aria-expanded="${open ? "true" : "false"}">${label} ${open ? "▴" : "▾"}</button>`;
+  const list = open ? `<ul class="why-list">${all.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : "";
+  return `<div class="${cls}">${btn}</div>${list}`;
 }
 
 /** "~3 runs left" for a route (the estimate of back-to-back runs before our own trading closes the margin), as a span

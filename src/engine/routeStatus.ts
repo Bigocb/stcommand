@@ -45,7 +45,7 @@ export function routeStatus(
   const reasons: string[] = [];
   for (const t of snapshot.traders) {
     const rej = t.rejected.find((r) => r.key === item.key);
-    if (rej) reasons.push(`${t.ship}: ${rej.reason}`);
+    if (rej) reasons.push(`${t.ship}: ${prettyKeys(rej.reason)}`);
   }
   if (reasons.length) return { flownBy, reason: reasons[0]!, more: reasons.slice(1), moreLabel: reasons.length > 1 ? `+${reasons.length - 1} more` : "" };
   if (snapshot.traders.length > 0 && snapshot.traders.every((t) => t.busy || t.assigned)) {
@@ -59,6 +59,19 @@ export function routeStatus(
     return { flownBy, reason: "every trader is occupied", more: what, moreLabel: `ship by ship (${what.length})` };
   }
   return { flownBy, reason: "no trader free for it", more: [], moreLabel: "" };
+}
+
+/**
+ * The dispatcher names work by internal key in its reasons ("outscored by EQUIPMENT:contractBuy",
+ * "outscored by FERTILIZERS@X1-CM13-K100"). Say what those are: a contract delivery, a warehouse buy, a route into one market.
+ */
+export function prettyKeys(text: string): string {
+  return text
+    .replace(/\b([A-Z][A-Z_]+):contractBuy\b/g, "$1 contract delivery")
+    .replace(/\b([A-Z][A-Z_]+):buy\b/g, "$1 warehouse buy")
+    .replace(/\b([A-Z][A-Z_]+):sell\b/g, "$1 warehouse sell")
+    .replace(/\b([A-Z][A-Z_]+):haul\b/g, "$1 mission haul")
+    .replace(/\b([A-Z][A-Z_]+)@X1-[A-Z0-9]+-([A-Z0-9]+)\b/g, "$1 into $2");
 }
 
 /** Profit per hour of ship time, the dispatcher's own yardstick; null when the route has no trip time (cross-system legs). */

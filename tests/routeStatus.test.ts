@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { routeStatus, ratePerHour } from "../src/engine/routeStatus.js";
+import { routeStatus, ratePerHour, prettyKeys } from "../src/engine/routeStatus.js";
 import type { DispatchExplainSnapshot } from "../src/engine/dispatchExplain.js";
 
 const r = { good: "FOOD", buyAt: "B", sellAt: "S" };
@@ -44,4 +44,15 @@ test("every trader occupied says what each is doing", () => {
 test("rate per hour", () => {
   assert.equal(ratePerHour(600, 600), 3600);
   assert.equal(ratePerHour(600, undefined), null);
+});
+
+test("dispatcher work keys read as plain words", () => {
+  assert.equal(prettyKeys("T-1: outscored by EQUIPMENT:contractBuy"), "T-1: outscored by EQUIPMENT contract delivery");
+  assert.equal(prettyKeys("outscored by FERTILIZERS@X1-CM13-K100"), "outscored by FERTILIZERS into K100");
+  assert.equal(prettyKeys("outscored by COPPER:buy"), "outscored by COPPER warehouse buy");
+  assert.equal(prettyKeys("outscored by COPPER"), "outscored by COPPER");
+});
+test("a rejection reason is prettified in the status", () => {
+  const rej = { ship: "T-1", busy: false, rejected: [{ key: "FOOD", good: "FOOD", reason: "outscored by EQUIPMENT:contractBuy" }] };
+  assert.equal(routeStatus(r, [], snap({ traders: [rej] }), undefined).reason, "T-1: outscored by EQUIPMENT contract delivery");
 });
