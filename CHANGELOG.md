@@ -9,6 +9,27 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Two-leg circuits: stricter planning, no shared buy market, and a lifecycle log
+
+Reviewing the 34 minutes circuits were on (20:22-20:56 UTC, six planned): none ever ran a second leg. Every one was dropped
+first ("no longer available" x2, first leg refused x1, manual route x1, switched off x2), two ships had planned the same
+SHIP_PARTS buy market at D40, and the circuits that were planned beat their route alone by a few hundred (rates 1,130-1,735).
+Trading itself did not suffer (about 270k/hour while on, 4k in the 24 minutes of market lull before), so this is about
+circuits not doing their job, not about harm. Circuits stay off by default; when on they now:
+
+- **Plan only a real gain** (`chainCircuitMinGain`, default 1,500, and a quarter of the route's own score): a circuit that
+  barely beats the route alone is no longer planned, so it no longer reserves a second leg and holds a market for nothing.
+  Clause off means no minimum.
+- **Pick second legs that outlast other traders** (`chainCircuitMinRuns`, default 2): the leg must still be profitable after
+  two full runs by others, using the runs-left model (no recovery between runs). Judged only for legs with price data.
+- **Never share a buy market:** a second leg whose good and buy market another circuit already holds is not offered.
+- **Say why a second leg was dropped.** "No longer available" hid two causes; it is now "no longer on the board" (margin or
+  market gone, or taken as another route's sell market) or "still on the board but refused for this ship: <reason>".
+- **Log the whole lifecycle** (`dispatch circuit: <ship> ...`): planned, leg 1 sold (and how long after planning), leg 2
+  served, leg 2 bought and flying, circuit complete (with the time from planning), dropped (with the reason). Counters and
+  the last 120 events are kept in memory and returned by the new ops tool `circuit_log`, which also lists circuits still
+  open and how long each has waited. That is the evidence for whether second legs run at all.
+
 ## 2026-10-11 — Tower: contract and construction cards fit a phone
 
 The construction buy-pacing form was six inputs and a button in one non-wrapping row, so the last fields ran off the right edge

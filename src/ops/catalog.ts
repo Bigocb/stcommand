@@ -336,6 +336,18 @@ export const OPS_TOOLS: OpsTool[] = [
     },
   },
   {
+    name: "circuit_log",
+    title: "Two-leg circuits: how far each got, and why the rest were dropped",
+    description:
+      "The circuit lifecycle since the process started: counters (planned, leg 1 sold, leg 2 served, leg 2 bought and flying, completed, and dropped by reason), the circuits still open with how long ago each was planned, had leg 1 sold and had leg 2 served, and the most recent events with timestamps (planned, leg 1 sold, leg 2 served, leg 2 loaded, completed, dropped with the reason). Use it to answer whether second legs ever run: a circuit that is planned but never served is only a ranking boost. Dropped reasons separate a leg that left the board from one still on it but refused for the ship.",
+    input: { limit: num(40) },
+    async run(ctx, a) {
+      const c = ctx.w.fleet.dispatcher.circuitLog();
+      const events = c.events.slice(-a.limit).map((e) => ({ at: iso(e.at), ship: e.ship, event: e.event, text: e.text }));
+      return { counts: c.counts, open: c.open, events };
+    },
+  },
+  {
     name: "attention",
     title: "Ships that need a person's eyes, and why",
     description:

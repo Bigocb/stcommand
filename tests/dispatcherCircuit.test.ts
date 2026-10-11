@@ -316,3 +316,97 @@ describe("dispatcher circuits", () => {
     });
   });
 });
+
+describe("dispatcher circuit lifecycle log", () => {
+  it("counts a circuit through planned, leg 1 sold, leg 2 served, loaded and completed, with timestamps", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    const lines: string[] = [];
+    run(d, 1, [OUT, BACK, SOLO], [t1(), t2()], lines);
+    assert.equal(d.circuitLog().counts.planned, 1);
+    assert.equal(d.circuitLog().open.length, 1);
+
+    t.mock.timers.tick(60_001);
+    run(d, 1, [OUT, BACK, SOLO], [t1({ busy: true }), t2()], lines); // leg 1 loaded
+    t.mock.timers.tick(60_001);
+    run(d, 1, [OUT, BACK, SOLO], [t1({ waypoint: "X1-A-100" }), t2()], lines); // leg 1 sold, leg 2 served
+    let c = d.circuitLog();
+    assert.equal(c.counts.leg1Sold, 1);
+    assert.equal(c.counts.leg2Served, 1);
+
+    t.mock.timers.tick(60_001);
+    run(d, 1, [OUT, BACK, SOLO], [t1({ busy: true, waypoint: "X1-A-102" }), t2()], lines); // leg 2 bought, flying
+    c = d.circuitLog();
+    assert.equal(c.counts.leg2Loaded, 1);
+
+    t.mock.timers.tick(60_001);
+    run(d, 1, [OUT, BACK, SOLO], [t1({ waypoint: "X1-A-12" }), t2()], lines); // leg 2 sold
+    c = d.circuitLog();
+    assert.equal(c.counts.completed, 1);
+    // The ship is idle again, so the same recompute plans its next circuit: the finished one is gone, a new one is open.
+    assert.equal(c.counts.planned, 2);
+    assert.equal(c.open.length, 1);
+    assert.deepEqual(c.events.slice(0, 5).map((e) => e.event), ["planned", "leg1_sold", "leg2_served", "leg2_loaded", "completed"]);
+    assert.ok(lines.some((l) => l.includes("leg 1 sold") && l.includes("is now eligible")));
+    assert.ok(lines.some((l) => l.includes("circuit complete")));
+  });
+
+  it("a second leg that left the board is dropped as 'no longer on the board', and counted", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, 1, [OUT, BACK, SOLO], [t1()]);
+    t.mock.timers.tick(60_001);
+    run(d, 1, [OUT, BACK, SOLO], [t1({ busy: true })]);
+    t.mock.timers.tick(60_001);
+    const lines: string[] = [];
+    run(d, 1, [OUT, SOLO], [t1({ waypoint: "X1-A-100" })], lines); // BACK is gone from the board
+    const drop = lines.find((l) => l.includes("dropped leg 2"));
+    assert.ok(drop && drop.includes("no longer on the board"), drop);
+    const c = d.circuitLog();
+    assert.equal(c.counts.leg2Served, 0);
+    assert.equal(Object.values(c.counts.dropped).reduce((a, b) => a + b, 0), 1);
+    assert.equal(c.open.length, 0);
+  });
+
+  it("a second leg still on the board but refused for the ship says why", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, 1, [OUT, BACK, SOLO], [t1()]);
+    t.mock.timers.tick(60_001);
+    run(d, 1, [OUT, BACK, SOLO], [t1({ busy: true })]);
+    t.mock.timers.tick(60_001);
+    const lines: string[] = [];
+    // The ship now stands far from BACK's buy market with a tiny tank: still listed, but it cannot reach it.
+    run(d, 1, [OUT, BACK, SOLO], [t1({ waypoint: "X1-A-5000", fuelCapacity: 1 })], lines);
+    const drop = lines.find((l) => l.includes("dropped leg 2"));
+    assert.ok(drop && drop.includes("still on the board but refused for this ship"), drop);
+  });
+
+  it("a switched-off or expired circuit is counted too", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    run(d, 1, [OUT, BACK, SOLO], [t1()]);
+    t.mock.timers.tick(60_001);
+    run(d, 0, [OUT, BACK, SOLO], [t1({ busy: true })]);
+    assert.deepEqual(d.circuitLog().counts.dropped, { "circuits switched off": 1 });
+  });
+});
+
+describe("circuits do not share a buy market", () => {
+  it("a second leg buying where another circuit's second leg buys is not offered", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    // Two ships, each with an outbound leg whose best partner buys the same good at the same market (X1-A-102) but sells
+    // somewhere different. Without the buy-side hold both circuits would plan it.
+    const BACK_A = route("BACK", "X1-A-102", "X1-A-12", 42_000);
+    const BACK_B = route("BACK", "X1-A-102", "X1-A-14", 41_500);
+    const OUT2 = route("OUT2", "X1-A-11", "X1-A-101", 40_000);
+    const d = new RouteDispatcher();
+    run(d, 1, [OUT, OUT2, BACK_A, BACK_B, SOLO], [t1(), t2({ shipSymbol: "T-3", waypoint: "X1-A-11", capacity: 40 })]);
+    const held = [...d.circuitLog().open];
+    const buyers = d.circuitSnapshot() ?? "[]";
+    const plans = JSON.parse(buyers) as [string, { leg2: { good: string; buyAt: string } }][];
+    const buyKeys = plans.map(([, p]) => `${p.leg2.good}|${p.leg2.buyAt}`);
+    assert.equal(new Set(buyKeys).size, buyKeys.length, "no two planned second legs buy the same good at the same market");
+    assert.ok(held.length <= 2);
+  });
+});

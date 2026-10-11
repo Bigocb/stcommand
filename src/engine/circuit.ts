@@ -16,6 +16,7 @@
  */
 
 import type { ChainCandidate } from "./chain.js";
+import { runsLeft } from "./runsLeft.js";
 
 export interface CircuitPolicy {
   /** Share (0..1) of the circuit's gain over the route's own score that is credited. 0 switches the feature off. */
@@ -36,9 +37,23 @@ export interface CircuitPolicy {
   returnShare: number;
   /** Allow a pair that crosses a gate and comes back (leg 1 A->B, leg 2 B->A). Off reproduces same-system-only circuits. */
   crossSystem: boolean;
+  /**
+   * A circuit is only planned when it beats the route alone by at least this much (the same units as a route's score:
+   * credits per reference trip) AND by at least `minGainShare` of the route's own score. Planning one reserves a second leg
+   * for the ship and holds that market back from everyone else, which is only worth it for a real gain: on 2026-10-11 most
+   * planned circuits beat their route by a few hundred. 0 on both reproduces crediting any gain.
+   */
+  minGain: number;
+  minGainShare: number;
+  /**
+   * The second leg must still be profitable after this many full runs by other traders (runsLeft.ts: no recovery between
+   * runs). Leg 2 is flown minutes after it is planned, and on 2026-10-11 every planned second leg left the board before it
+   * ran. Judged only for candidates that carry price data. 0 switches the check off.
+   */
+  minLeg2Runs: number;
 }
 
-export const DEFAULT_CIRCUIT_POLICY: CircuitPolicy = { weight: 0, horizonMinutes: 10, bailoutShare: 0.5, ttlMinutes: 60, minCashShare: 0.5, returnShare: 1, crossSystem: false };
+export const DEFAULT_CIRCUIT_POLICY: CircuitPolicy = { weight: 0, horizonMinutes: 10, bailoutShare: 0.5, ttlMinutes: 60, minCashShare: 0.5, returnShare: 1, crossSystem: false, minGain: 1500, minGainShare: 0.25, minLeg2Runs: 2 };
 
 export interface CircuitContext {
   /** Straight-line distance between two waypoints in one system. */
@@ -97,6 +112,14 @@ function closesLoop(leg1: ChainCandidate, c: ChainCandidate, policy: CircuitPoli
 /** Identity of a leg across recomputes (work keys change with what else is on the board). */
 export const legId = (leg: { good: string; buyAt: string; sellAt: string }): string => `${leg.good}|${leg.buyAt}|${leg.sellAt}`;
 
+/** Will this leg's margin survive `policy.minLeg2Runs` runs by other traders before ours? True when it carries no price data (not judged). */
+export function leg2Survives(c: ChainCandidate, policy: CircuitPolicy): boolean {
+  if (policy.minLeg2Runs <= 0) return true;
+  if (c.buyPrice === undefined || c.sellPrice === undefined || c.units === undefined) return true;
+  const r = runsLeft({ buyPrice: c.buyPrice, sellPrice: c.sellPrice, units: c.units, buyVolume: c.buyVolume ?? c.units, sellVolume: c.sellVolume ?? c.units, fuelCostPerRun: 0 });
+  return r.runs >= policy.minLeg2Runs;
+}
+
 /**
  * The best second leg for `leg1`: starts within the horizon of leg 1's sell market, ends within the horizon of leg 1's
  * buy market, and sells a different good. Same system throughout. Best = highest cycle rate.
@@ -116,6 +139,7 @@ export function bestCircuit(
     if (c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
     if (!closesLoop(leg1, c, policy)) continue;
     if (ctx.unavailable(c)) continue;
+    if (!leg2Survives(c, policy)) continue;
     const betweenSeconds = ctx.distanceBetween(leg1.sellAt, c.buyAt) * c.secPerDist;
     const returnSeconds = ctx.distanceBetween(c.sellAt, leg1.buyAt) * leg1.secPerDist;
     if (!Number.isFinite(betweenSeconds) || !Number.isFinite(returnSeconds)) continue;
@@ -149,12 +173,13 @@ export function circuitReport(
   penalty = 0,
 ): string {
   const horizon = policy.horizonMinutes * 60;
-  let sameSystem = 0, free = 0, nearSale = 0, nearStart = 0;
+  let sameSystem = 0, free = 0, nearSale = 0, nearStart = 0, fading = 0;
   for (const c of candidates) {
     if (c.key === leg1.key || c.good === leg1.good || c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
     if (!closesLoop(leg1, c, policy)) continue;
     sameSystem += 1;
     if (ctx.unavailable(c)) continue;
+    if (!leg2Survives(c, policy)) { fading += 1; continue; }
     free += 1;
     const between = ctx.distanceBetween(leg1.sellAt, c.buyAt) * c.secPerDist;
     const back = ctx.distanceBetween(c.sellAt, leg1.buyAt) * leg1.secPerDist;
@@ -162,12 +187,16 @@ export function circuitReport(
     if (between <= horizon && back <= horizon) nearStart += 1;
   }
   const best = bestCircuit(leg1, candidates, ctx, policy);
-  const pairs = `${sameSystem} legs that close the loop, ${free} free, ${nearSale} start within ${policy.horizonMinutes}m of the sale, ${nearStart} also end within ${policy.horizonMinutes}m of the start`;
+  const pairs = `${sameSystem} legs that close the loop, ${free} free${fading ? ` (${fading} more would not outlast ${policy.minLeg2Runs} runs)` : ""}, ${nearSale} start within ${policy.horizonMinutes}m of the sale, ${nearStart} also end within ${policy.horizonMinutes}m of the start`;
   if (!best) return `no circuit (${pairs})`;
   // The circuit's rate is per reference trip with no empty flight to the first buy, so it is put on the route's scale
   // (positioning discount, extra-buyer penalty) before being compared with `ownScore`, the way circuitScore() does.
   const t = best.leg1.tripSeconds;
   const scored = best.rate * (t / (t + Math.max(0, positioningSeconds))) - penalty;
+  const gain = circuitGain(ownScore, best, positioningSeconds, penalty);
+  if (gain > 0 && gain < minimumGain(ownScore, policy)) {
+    return `circuit gain ${Math.round(gain)} is under the minimum ${Math.round(minimumGain(ownScore, policy))}: best ${best.leg2.good} scores ${Math.round(scored)} vs route ${Math.round(ownScore)} (${pairs})`;
+  }
   return `circuit not better than the route alone: best ${best.leg2.good} scores ${Math.round(scored)} (rate ${Math.round(best.rate)}) vs route ${Math.round(ownScore)} (${Math.round(best.betweenSeconds)}s empty after the sale, ${Math.round(best.returnSeconds)}s back; ${pairs})`;
 }
 
@@ -178,15 +207,26 @@ export function circuitReport(
  * route. Only the part of the circuit above the route's own score is credited, scaled by the weight, so a circuit that
  * is no better than the route alone changes nothing, and weight 0 returns `base`.
  */
-export function circuitScore(base: number, circuit: Circuit | undefined, positioningSeconds: number, penalty: number, policy: CircuitPolicy): number {
-  if (!circuit || policy.weight <= 0) return base;
+export function circuitGain(base: number, circuit: Circuit | undefined, positioningSeconds: number, penalty: number): number {
+  if (!circuit) return 0;
   const t = circuit.leg1.tripSeconds;
   const asCircuit = circuit.rate * (t / (t + Math.max(0, positioningSeconds))) - penalty;
   // A same-system trip's score already charges the flight home. A route across a gate is scored on its one-way time, so
   // its own score hides the empty jump home (as long as the way out); the circuit fills that way back, so it is
   // compared with what the route really earns once the return is counted, and the gain is added to the ranking score.
   const own = crossesGate(circuit.leg1) ? base / 2 : base;
-  return asCircuit > own ? base + policy.weight * (asCircuit - own) : base;
+  return asCircuit - own;
+}
+
+/** The smallest gain worth planning a circuit for, given the route's own score. */
+export const minimumGain = (own: number, policy: CircuitPolicy): number => Math.max(policy.minGain, policy.minGainShare * Math.max(0, own));
+
+export function circuitScore(base: number, circuit: Circuit | undefined, positioningSeconds: number, penalty: number, policy: CircuitPolicy): number {
+  if (!circuit || policy.weight <= 0) return base;
+  const gain = circuitGain(base, circuit, positioningSeconds, penalty);
+  // Only a gain that clears the minimum is credited: a pair that barely beats the route would reserve a second leg for
+  // nothing. Only the part above the route's own score counts, scaled by the weight, and weight 0 returns `base`.
+  return gain > 0 && gain >= minimumGain(base, policy) ? base + policy.weight * gain : base;
 }
 
 export interface Leg2Verdict {

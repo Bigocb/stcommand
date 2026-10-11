@@ -115,6 +115,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "chainCircuitMinGain",
+    name: "Circuit minimum gain",
+    description: "A two-leg circuit is only planned when it beats the route alone by at least this much (credits per reference trip, the same units as a route's score) and by at least a quarter of the route's own score. Planning one reserves a second leg for the ship and holds that market back from everyone else, which is only worth it for a real gain: on 2026-10-11 most planned circuits beat their route by a few hundred. Clause off means no minimum. Only used while Two-leg circuits is on. Takes effect on the next dispatch recompute.",
+    value: 1500, min: 0, max: 50000, step: 250, unit: "c",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "chainCircuitMinRuns",
+    name: "Circuit second-leg staying power",
+    description: "The second leg must still be profitable after this many full runs by other traders (our own buying and selling moves a market about 4.5% per lot and it does not recover within the hour). A second leg is flown minutes after it is planned, and on 2026-10-11 every planned second leg left the board before it ran. A leg that would not outlast this many runs is not offered as a second leg. Clause off means no check. Only used while Two-leg circuits is on. Takes effect on the next dispatch recompute.",
+    value: 2, min: 0, max: 10, step: 1, unit: " runs",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "chainCircuitCrossSystem",
     name: "Circuits across a gate",
     description: "Let a two-leg circuit cross a jump gate and come back: buy A and sell B in another system, then buy near B and sell back near A, so the ship is loaded on the way home instead of jumping back empty. Each leg is ranked with its jump cooldowns (about ten minutes a jump), so the pair has to earn that wait back. Off by default (clause disabled): turn the clause on to use it; it only does anything while Two-leg circuits is on, and the cross-system routes rule decides which gate trips exist at all. Takes effect on the next dispatch recompute.",

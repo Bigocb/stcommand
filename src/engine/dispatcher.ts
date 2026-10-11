@@ -120,6 +120,9 @@ import { DEFAULT_MATCH_POLICY, matchShips, type MatchPolicy } from "./matching.j
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
 import { goodOfKey, type DispatchExplainSnapshot, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
 
+/** How far circuits have got since the process started, and why the rest were dropped (reason text with numbers masked as N). */
+export interface CircuitCounts { planned: number; leg1Sold: number; leg2Served: number; leg2Loaded: number; completed: number; dropped: Record<string, number> }
+
 /** Caps on what one recompute keeps for dispatch_explain, so the snapshot stays a few KB. */
 export const EXPLAIN_MAX_ROUTES = 60;
 export const EXPLAIN_MAX_REJECTIONS = 60;
@@ -299,6 +302,42 @@ export class RouteDispatcher {
   private circuits = new Map<string, PlannedCircuit>();
   /** Why a planned circuit was forgotten outside recompute (release, decline, manual route), logged by the next recompute. */
   private circuitNotes: string[] = [];
+  /** How far each planned circuit has got, with timestamps, for the lifecycle log (in memory: a restart starts it afresh). */
+  private circuitRun = new Map<string, { plannedAt: number; leg1: string; leg2: string; leg1SoldAt?: number; leg2ServedAt?: number; leg2LoadedAt?: number }>();
+  /** Counters over every circuit since the process started: how many got how far, and why the rest were dropped. */
+  private circuitCounts: CircuitCounts = { planned: 0, leg1Sold: 0, leg2Served: 0, leg2Loaded: 0, completed: 0, dropped: {} };
+  /** The last circuit events, newest last, each stamped; the log buffer is shared with everything else and rolls over fast. */
+  private circuitHistory: { at: number; ship: string; event: string; text: string }[] = [];
+  /** Record one circuit event: into the history, and (when `log` is given) the log. `drop` names a reason to count. */
+  private circuitEvent(ship: string, event: string, text: string, nowMs: number, log?: (m: string) => void, drop?: string): void {
+    if (drop !== undefined) {
+      const key = drop.replace(/\d+/g, "N");
+      this.circuitCounts.dropped[key] = (this.circuitCounts.dropped[key] ?? 0) + 1;
+    }
+    this.circuitHistory.push({ at: nowMs, ship, event, text });
+    if (this.circuitHistory.length > 120) this.circuitHistory.splice(0, this.circuitHistory.length - 120);
+    log?.(`dispatch circuit: ${ship} ${text}`);
+  }
+  /** Circuit lifecycle: counters, recent events and the circuits still open, for the ops tool and for checking whether second legs ever run. */
+  circuitLog(): { counts: CircuitCounts; open: { ship: string; leg1: string; leg2: string; plannedMinAgo: number; leg1SoldMinAgo: number | null; leg2ServedMinAgo: number | null }[]; events: { at: number; ship: string; event: string; text: string }[] } {
+    const now = Date.now();
+    const ago = (t: number | undefined) => (t === undefined ? null : Math.round((now - t) / 600) / 100);
+    return {
+      counts: { ...this.circuitCounts, dropped: { ...this.circuitCounts.dropped } },
+      open: [...this.circuitRun.entries()].map(([ship, r]) => ({ ship, leg1: r.leg1, leg2: r.leg2, plannedMinAgo: Math.round((now - r.plannedAt) / 600) / 100, leg1SoldMinAgo: ago(r.leg1SoldAt), leg2ServedMinAgo: ago(r.leg2ServedAt) })),
+      events: [...this.circuitHistory],
+    };
+  }
+  /** Leg 1's cargo has been sold: leg 2 may now be served. Counted and logged once per circuit. */
+  private markLeg1Sold(ship: string, planned: PlannedCircuit, nowMs: number, log?: (m: string) => void): void {
+    if (planned.leg1Sold) return;
+    planned.leg1Sold = true;
+    const run = this.circuitRun.get(ship);
+    if (run) run.leg1SoldAt = nowMs;
+    this.circuitCounts.leg1Sold += 1;
+    const after = run ? ` ${Math.round((nowMs - run.plannedAt) / 1000)}s after it was planned` : "";
+    this.circuitEvent(ship, "leg1_sold", `leg 1 sold${after}; leg 2 ${legId(planned.leg2)} is now eligible`, nowMs, log);
+  }
   /** The last serialized circuits handed to / loaded by the persistence layer, to tell when they changed. */
   private savedCircuits = "[]";
   /** The ranked route list from the last recompute, used to serve live claims. */
@@ -575,6 +614,9 @@ export class RouteDispatcher {
     const planned = this.circuits.get(shipSymbol);
     if (!planned) return;
     this.circuits.delete(shipSymbol);
+    this.circuitRun.delete(shipSymbol);
+    // Logged by the next recompute (this runs outside one), but counted and kept in the history now.
+    this.circuitEvent(shipSymbol, "dropped", `dropped leg 2 ${legId(planned.leg2)} — ${why}`, Date.now(), undefined, why);
     this.circuitNotes.push(`dispatch circuit: ${shipSymbol} dropped leg 2 ${legId(planned.leg2)} — ${why}`);
   }
 
@@ -596,7 +638,7 @@ export class RouteDispatcher {
     // sold, because the commitment that would have noticed the sale is deleted just below.
     const planned = this.circuits.get(shipSymbol);
     if (planned && !planned.leg1Sold) {
-      if (this.committed.get(shipSymbol)?.hadCargo) planned.leg1Sold = true;
+      if (this.committed.get(shipSymbol)?.hadCargo) this.markLeg1Sold(shipSymbol, planned, Date.now());
       else this.forgetCircuit(shipSymbol, "its first leg was refused before it ran");
     }
     this.committed.delete(shipSymbol);
@@ -700,7 +742,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; matchTopN?: number; jumpSeconds?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -785,12 +827,30 @@ export class RouteDispatcher {
     for (const t of sorted) {
       const c = this.committed.get(t.shipSymbol);
       if (!c) continue;
-      if (t.busy) c.hadCargo = true;
-      else if (c.hadCargo) {
+      if (t.busy) {
+        c.hadCargo = true;
+        // A second leg's cargo is aboard: the ship bought leg 2 and is flying it.
+        const flying = this.assignments.get(t.shipSymbol);
+        const run = this.circuitRun.get(t.shipSymbol);
+        if (flying?.circuit?.leg === 2 && run && run.leg2LoadedAt === undefined) {
+          run.leg2LoadedAt = nowMs;
+          this.circuitCounts.leg2Loaded += 1;
+          this.circuitEvent(t.shipSymbol, "leg2_loaded", `leg 2 ${flying.good} ${flying.buyAt} -> ${flying.sellAt} bought and flying (${run.leg2ServedAt !== undefined ? Math.round((nowMs - run.leg2ServedAt) / 1000) : "?"}s after it was served)`, nowMs, log);
+        }
+      } else if (c.hadCargo) {
         this.committed.delete(t.shipSymbol);
         // The trip's cargo is sold: if it was leg 1 of a circuit, leg 2 may now be served.
         const planned = this.circuits.get(t.shipSymbol);
-        if (planned) planned.leg1Sold = true;
+        if (planned) this.markLeg1Sold(t.shipSymbol, planned, nowMs, log);
+        // If the trip that just ended was a circuit's second leg, the circuit is complete.
+        const finished = this.assignments.get(t.shipSymbol);
+        if (finished?.circuit?.leg === 2) {
+          const run = this.circuitRun.get(t.shipSymbol);
+          const cycle = run ? ` in ${Math.round((nowMs - run.plannedAt) / 1000)}s from planning (leg 2 was served ${run.leg2ServedAt !== undefined ? Math.round((nowMs - run.leg2ServedAt) / 1000) : "?"}s ago)` : "";
+          this.circuitCounts.completed += 1;
+          this.circuitRun.delete(t.shipSymbol);
+          this.circuitEvent(t.shipSymbol, "completed", `circuit complete: leg 2 ${finished.good} ${finished.buyAt} -> ${finished.sellAt} sold${cycle}`, nowMs, log);
+        }
         continue;
       }
       const a = this.assignments.get(t.shipSymbol);
@@ -885,7 +945,7 @@ export class RouteDispatcher {
     // `sellAt`, only set for a `direct` item: the one case that needs the
     // *whole* round trip to fit a fuel tank, not just the leg to buyAt — see
     // reachable()'s own comment below for the live case this closes.
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; buyVolume?: number; tripSeconds?: number; secPerDist?: number; rawProfit?: number; profitByHold?: Record<string, number> }[] = [];
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; buyVolume?: number; sellVolume?: number; tripSeconds?: number; secPerDist?: number; rawProfit?: number; profitByHold?: Record<string, number> }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -913,7 +973,7 @@ export class RouteDispatcher {
         // undoing the whole point of resorting `routes` above. toAssignment()
         // below still builds the displayed TraderAssignment from the route's
         // real profitPerTrip — only this ranking figure is adjusted.
-        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, buyVolume: route.buyVolume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, buyVolume: route.buyVolume, sellVolume: route.sellVolume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
       } else if (target.balance < target.target) {
         work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip, buySystem: route.buySystem, buyAt: route.buyAt });
       } else if (target.balance > target.target) {
@@ -957,7 +1017,7 @@ export class RouteDispatcher {
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
       // Decayed score here too — see the primary-loop push's own comment.
-      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, buyVolume: route.buyVolume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
+      work.push({ key, make: (sym) => this.toAssignment(sym, route), profitPerTrip: this.scoreRoute(route), buySystem: route.buySystem, buyAt: route.buyAt, sellAt: route.sellAt, good: route.good, buyPrice: route.buyPrice, sellPrice: route.sellPrice, volume: route.volume, buyVolume: route.buyVolume, sellVolume: route.sellVolume, tripSeconds: route.tripSeconds, secPerDist: route.secPerDist, rawProfit: route.profitPerTrip, profitByHold: route.profitByHold });
     }
 
     // Haul work is independent of the routes list — it's driven entirely by
@@ -1078,23 +1138,34 @@ export class RouteDispatcher {
       horizonMinutes: tuning?.circuitHorizonMin ?? DEFAULT_CIRCUIT_POLICY.horizonMinutes,
       returnShare: Math.min(1, Math.max(0, tuning?.circuitReturnShare ?? DEFAULT_CIRCUIT_POLICY.returnShare)),
       crossSystem: tuning?.circuitCrossSystem ?? DEFAULT_CIRCUIT_POLICY.crossSystem,
+      minGain: Math.max(0, tuning?.circuitMinGain ?? DEFAULT_CIRCUIT_POLICY.minGain),
+      minGainShare: Math.max(0, tuning?.circuitMinGainShare ?? DEFAULT_CIRCUIT_POLICY.minGainShare),
+      minLeg2Runs: Math.max(0, tuning?.circuitMinLeg2Runs ?? DEFAULT_CIRCUIT_POLICY.minLeg2Runs),
     };
     for (const note of this.circuitNotes.splice(0)) log?.(note);
     for (const [ship, planned] of this.circuits) {
       if (circuitPolicy.weight <= 0 || circuitExpired(planned, nowMs, circuitPolicy)) {
         this.circuits.delete(ship);
-        log?.(`dispatch circuit: ${ship} dropped leg 2 ${legId(planned.leg2)} — ${circuitPolicy.weight <= 0 ? "circuits switched off" : "plan expired"}`);
+        this.circuitRun.delete(ship);
+        const why = circuitPolicy.weight <= 0 ? "circuits switched off" : "plan expired";
+        this.circuitEvent(ship, "dropped", `dropped leg 2 ${legId(planned.leg2)} — ${why}`, nowMs, log, why);
       }
     }
     // Second legs kept for a ship that has not served them yet: nobody else is handed or credited them.
     const circuitHeld = new Map<string, string>();
     for (const [ship, planned] of this.circuits) circuitHeld.set(legId(planned.leg2), ship);
+    // Also the BUY side of those second legs. Two circuits planning a second leg at the same buy market (2026-10-11: two
+    // ships both chose SHIP_PARTS at D40, for different sell markets) double the buying there and erode the margin both
+    // were counting on, so a leg whose buy market and good a circuit already holds is not offered as another's second leg.
+    const circuitBuyHeld = new Map<string, string>();
+    const buySide = (l: { good: string; buyAt: string }): string => `${l.good}|${l.buyAt}`;
+    for (const [ship, planned] of this.circuits) circuitBuyHeld.set(buySide(planned.leg2), ship);
     const workLegId = (w: { good?: string; buyAt?: string; sellAt?: string }): string | undefined =>
       w.good !== undefined && w.buyAt !== undefined && w.sellAt !== undefined ? legId({ good: w.good, buyAt: w.buyAt, sellAt: w.sellAt }) : undefined;
     const chainCandidates: ChainCandidate[] = chainPolicy.followOnWeight > 0 || circuitPolicy.weight > 0
       ? work.flatMap((w) =>
           w.sellAt !== undefined && w.buyAt !== undefined && w.buySystem !== undefined && w.good !== undefined && w.tripSeconds && w.secPerDist
-            ? [{ key: w.key, good: w.good, buyAt: w.buyAt, buySystem: w.buySystem, sellAt: w.sellAt, profitPerTrip: w.profitPerTrip, tripSeconds: w.tripSeconds, secPerDist: w.secPerDist }]
+            ? [{ key: w.key, good: w.good, buyAt: w.buyAt, buySystem: w.buySystem, sellAt: w.sellAt, profitPerTrip: w.profitPerTrip, tripSeconds: w.tripSeconds, secPerDist: w.secPerDist, buyPrice: w.buyPrice, sellPrice: w.sellPrice, units: w.volume, buyVolume: w.buyVolume, sellVolume: w.sellVolume }]
             : [])
       : [];
     const reservedFollowOns = new Set<string>();
@@ -1111,7 +1182,7 @@ export class RouteDispatcher {
         const path = crossSystem?.enabled ? crossSystem.path(from, to) : undefined;
         return path ? path.length - 1 : undefined;
       },
-      unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key) || circuitHeld.has(legId(c)),
+      unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key) || circuitHeld.has(legId(c)) || circuitBuyHeld.has(buySide(c)),
     };
     const candidateByKey = new Map(chainCandidates.map((c) => [c.key, c]));
     // Can this trader take this work, from where it stands? (Hoisted out of the loop so route-first matching can ask it
@@ -1337,33 +1408,6 @@ export class RouteDispatcher {
         }
         return { score, penalty, positioning };
       };
-      // A circuit planned for this ship gets exactly one chance at its second leg, and only after the first leg's cargo
-      // was sold. If that leg has gone off the board, lost its margin or become unreachable, the circuit is dropped and
-      // the ship is picked for like any other idle trader.
-      const planned = this.circuits.get(t.shipSymbol);
-      if (planned) {
-        this.circuits.delete(t.shipSymbol);
-        const lid = legId(planned.leg2);
-        circuitHeld.delete(lid);
-        if (!planned.leg1Sold) {
-          log?.(`dispatch circuit: ${t.shipSymbol} dropped leg 2 ${lid} — leg 1 never ran`);
-        } else {
-          const w2 = work.find((w) => workLegId(w) === lid);
-          const s2 = w2 ? scoreItem(w2) : undefined;
-          // Cash free to spend after leg 1's proceeds (the caller passes the wallet less the cash floor).
-          const afford = w2 && tuning?.circuitCash !== undefined && w2.buyPrice !== undefined
-            ? { spendable: tuning.circuitCash, cost: w2.buyPrice * Math.min(w2.volume ?? t.capacity, t.capacity) }
-            : undefined;
-          const verdict = judgeLeg2(planned, s2?.score, circuitPolicy, afford);
-          if (w2 && s2 && verdict.ok) {
-            item = w2;
-            bestScore = s2.score;
-            leg2Served = { score: s2.score, reason: verdict.reason };
-          } else {
-            log?.(`dispatch circuit: ${t.shipSymbol} dropped leg 2 ${lid} — ${verdict.reason}`);
-          }
-        }
-      }
       // Why THIS trader was refused a work item, in the order scoreItem() checks it. Only ever called for an item
       // scoreItem() has already turned down, so the final fallthrough is the net-score test.
       const noteRejected = (w: (typeof work)[number], reason: string): void => {
@@ -1381,6 +1425,42 @@ export class RouteDispatcher {
         if (impactCost(w) === undefined) return `margin gone after ${buyers} buyer(s) at ${w.buyAt}`;
         return "net score at or below zero after positioning";
       };
+      // A circuit planned for this ship gets exactly one chance at its second leg, and only after the first leg's cargo
+      // was sold. If that leg has gone off the board, lost its margin or become unreachable, the circuit is dropped and
+      // the ship is picked for like any other idle trader.
+      const planned = this.circuits.get(t.shipSymbol);
+      if (planned) {
+        this.circuits.delete(t.shipSymbol);
+        const lid = legId(planned.leg2);
+        circuitHeld.delete(lid);
+        circuitBuyHeld.delete(buySide(planned.leg2));
+        if (!planned.leg1Sold) {
+          this.circuitRun.delete(t.shipSymbol);
+          this.circuitEvent(t.shipSymbol, "dropped", `dropped leg 2 ${lid} — leg 1 never ran`, nowMs, log, "leg 1 never ran");
+        } else {
+          const w2 = work.find((w) => workLegId(w) === lid);
+          const s2 = w2 ? scoreItem(w2) : undefined;
+          // Cash free to spend after leg 1's proceeds (the caller passes the wallet less the cash floor).
+          const afford = w2 && tuning?.circuitCash !== undefined && w2.buyPrice !== undefined
+            ? { spendable: tuning.circuitCash, cost: w2.buyPrice * Math.min(w2.volume ?? t.capacity, t.capacity) }
+            : undefined;
+          // "no longer available" hid two different causes, so say which: the leg left the board altogether (its margin
+          // or its market went), or it is still there but this ship may not take it (and why).
+          const verdict = !w2
+            ? { ok: false, reason: "no longer on the board: it is not in this cycle's work list (margin gone, market stale, or taken as another route's sell market)" }
+            : !s2
+              ? { ok: false, reason: `still on the board but refused for this ship: ${whyRejected(w2)}` }
+              : judgeLeg2(planned, s2.score, circuitPolicy, afford);
+          if (w2 && s2 && verdict.ok) {
+            item = w2;
+            bestScore = s2.score;
+            leg2Served = { score: s2.score, reason: verdict.reason };
+          } else {
+            this.circuitRun.delete(t.shipSymbol);
+            this.circuitEvent(t.shipSymbol, "dropped", `dropped leg 2 ${lid} — ${verdict.reason}`, nowMs, log, verdict.reason);
+          }
+        }
+      }
       const scoredItems: (typeof work)[number][] = [];
       for (const w of work) {
         // A ship already on its planned second leg is not scored against the rest: say so for each route it was passed over.
@@ -1446,7 +1526,10 @@ export class RouteDispatcher {
       const made = item.make(t.shipSymbol);
       if (leg2Served && planned) {
         made.circuit = { leg: 2, leg2: { ...planned.leg2, score: Math.round(leg2Served.score) }, explain: leg2Served.reason };
-        log?.(`dispatch circuit: ${t.shipSymbol} leg 2 ${item.key} — ${leg2Served.reason}`);
+        const run = this.circuitRun.get(t.shipSymbol);
+        if (run) run.leg2ServedAt = nowMs;
+        this.circuitCounts.leg2Served += 1;
+        this.circuitEvent(t.shipSymbol, "leg2_served", `leg 2 ${item.key} served — ${leg2Served.reason}`, nowMs, log);
       }
       if (circuitPolicy.weight > 0 && !itemCircuit && !leg2Served && item.sellAt !== undefined) {
         // Why this route got no circuit, so the horizon and return share can be tuned from what the dispatcher sees.
@@ -1459,7 +1542,10 @@ export class RouteDispatcher {
         made.circuit = { leg: 1, leg2: { good: l2.good, buyAt: l2.buyAt, sellAt: l2.sellAt, score: Math.round(l2.profitPerTrip) }, explain: itemCircuit.explain };
         this.circuits.set(t.shipSymbol, { leg2: { good: l2.good, buyAt: l2.buyAt, sellAt: l2.sellAt }, leg2Score: l2.profitPerTrip, at: nowMs });
         circuitHeld.set(legId(l2), t.shipSymbol);
-        log?.(`dispatch circuit: ${t.shipSymbol} ${item.key} — ${itemCircuit.explain}`);
+        circuitBuyHeld.set(buySide(l2), t.shipSymbol);
+        this.circuitRun.set(t.shipSymbol, { plannedAt: nowMs, leg1: item.key, leg2: legId(l2) });
+        this.circuitCounts.planned += 1;
+        this.circuitEvent(t.shipSymbol, "planned", `${item.key} — ${itemCircuit.explain}`, nowMs, log);
       }
       if (itemFollowOn) {
         made.followOn = { good: itemFollowOn.candidate.good, buyAt: itemFollowOn.candidate.buyAt, sellAt: itemFollowOn.candidate.sellAt, score: Math.round(itemFollowOn.score) };

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type CircuitContext, type CircuitPolicy } from "../src/engine/circuit.js";
+import { bestCircuit, circuitExpired, circuitGain, circuitReport, circuitScore, leg2Survives, minimumGain, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type CircuitContext, type CircuitPolicy } from "../src/engine/circuit.js";
 import type { ChainCandidate } from "../src/engine/chain.js";
 
 const cand = (key: string, buyAt: string, sellAt: string, profit: number, extra: Partial<ChainCandidate> = {}): ChainCandidate => ({
@@ -222,5 +222,63 @@ describe("circuitExpired / legId", () => {
   });
   it("identifies a leg by good and both markets", () => {
     assert.equal(legId({ good: "G", buyAt: "X1-A-1", sellAt: "X1-A-2" }), "G|X1-A-1|X1-A-2");
+  });
+});
+
+describe("circuit minimum gain", () => {
+  const pol = (over: Partial<CircuitPolicy> = {}): CircuitPolicy => ({ ...DEFAULT_CIRCUIT_POLICY, weight: 1, ...over });
+  const circuit = (rate: number) => ({ leg1: cand("A", "X1-A-1", "X1-A-2", 1000), leg2: cand("B", "X1-A-2", "X1-A-1", 1000), rate, cycleSeconds: 600, betweenSeconds: 0, returnSeconds: 0, explain: "" });
+
+  it("a gain under the minimum is not credited, so a barely-better circuit changes nothing", () => {
+    assert.equal(circuitScore(10_000, circuit(10_400), 0, 0, pol()), 10_000, "400 over the route is under 1,500");
+    assert.equal(circuitScore(10_000, circuit(12_000), 0, 0, pol()), 10_000, "2,000 clears 1,500 but not a quarter of the route's own 10,000 (2,500)");
+    assert.equal(circuitScore(10_000, circuit(13_000), 0, 0, pol()), 10_000 + 3_000, "3,000 clears both");
+  });
+
+  it("the minimum is the larger of the flat figure and the share of the route's own score", () => {
+    assert.equal(minimumGain(2_000, pol()), 1_500);
+    assert.equal(minimumGain(20_000, pol()), 5_000);
+    assert.equal(minimumGain(20_000, pol({ minGain: 0, minGainShare: 0 })), 0);
+  });
+
+  it("with the minimums at 0 any gain is credited again, as before", () => {
+    const open = pol({ minGain: 0, minGainShare: 0 });
+    assert.equal(circuitScore(10_000, circuit(10_400), 0, 0, open), 10_400);
+  });
+
+  it("circuitGain is the circuit's rate over the route's own score, 0 with no circuit", () => {
+    assert.equal(circuitGain(10_000, circuit(10_400), 0, 0), 400);
+    assert.equal(circuitGain(10_000, undefined, 0, 0), 0);
+  });
+
+  it("the report says when the gain was real but under the minimum", () => {
+    const leg1 = cand("A", "X1-A-1", "X1-A-2", 1000);
+    const leg2 = cand("B", "X1-A-2", "X1-A-1", 1100);
+    const ctx: CircuitContext = { distanceBetween: () => 0, unavailable: () => false };
+    const text = circuitReport(leg1, [leg1, leg2], ctx, pol({ minGain: 100_000 }), 900);
+    assert.match(text, /under the minimum/);
+  });
+});
+
+describe("second leg staying power", () => {
+  const pol = (over: Partial<CircuitPolicy> = {}): CircuitPolicy => ({ ...DEFAULT_CIRCUIT_POLICY, weight: 1, ...over });
+  const priced = (buyPrice: number, sellPrice: number, units = 80, vol = 60) => cand("B", "X1-A-2", "X1-A-1", 5000, { buyPrice, sellPrice, units, buyVolume: vol, sellVolume: vol });
+
+  it("a thin, fast-eroding margin does not qualify, a deep one does", () => {
+    assert.equal(leg2Survives(priced(1700, 1800), pol()), false, "FOOD-like: 100 of margin on 1,700 is gone in a run");
+    assert.equal(leg2Survives(priced(150, 260, 40), pol()), true);
+  });
+
+  it("a leg with no price data is not judged, and 0 switches the check off", () => {
+    assert.equal(leg2Survives(cand("B", "X1-A-2", "X1-A-1", 5000), pol()), true);
+    assert.equal(leg2Survives(priced(1700, 1800), pol({ minLeg2Runs: 0 })), true);
+  });
+
+  it("bestCircuit skips a second leg that would not outlast the other traders", () => {
+    const leg1 = cand("A", "X1-A-1", "X1-A-2", 5000);
+    const ctx: CircuitContext = { distanceBetween: () => 0, unavailable: () => false };
+    assert.equal(bestCircuit(leg1, [leg1, priced(1700, 1800)], ctx, pol()), undefined);
+    assert.ok(bestCircuit(leg1, [leg1, priced(150, 260, 40)], ctx, pol()));
+    assert.ok(bestCircuit(leg1, [leg1, priced(1700, 1800)], ctx, pol({ minLeg2Runs: 0 })));
   });
 });

@@ -23,6 +23,14 @@ export interface ChainCandidate {
   profitPerTrip: number;
   tripSeconds: number;
   secPerDist: number;
+  /** Price and depth data, when the work item has them, so a circuit can judge whether this leg's margin will survive other
+   *  traders (see runsLeft.ts). Absent on items that carry no prices; those are not judged. */
+  buyPrice?: number;
+  sellPrice?: number;
+  /** Units one run carries. */
+  units?: number;
+  buyVolume?: number;
+  sellVolume?: number;
 }
 
 /**
