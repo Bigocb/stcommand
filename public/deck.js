@@ -23,7 +23,7 @@ import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
-import { keeperCoverage, chainHealthHtml } from "/shared/domain.js";
+import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
@@ -449,6 +449,13 @@ function describeAutomation(r) {
 /** Every ship's current automated decision, from fleetStatusSummary()'s own
  *  wants/wantsReason/wantsSource. Ported from v6.js's renderAutomationFeed(). */
 let opsSeg = "chain";
+$("mk-routes").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act='route-sort']");
+  if (!b) return;
+  setRouteSort(b.dataset.mode);
+  renderMarkets();
+});
+
 $("mk-tools-seg").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-seg]");
   if (!b) return;
@@ -1012,19 +1019,28 @@ function renderMarkets() {
     if (!marketRoutes.length) {
       return '<div class="empty">No profitable routes yet.</div>';
     }
-    const sorted = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0));
+    const sortMode = getRouteSort();
+    const sorted = sortRoutes(marketRoutes, sortMode);
     // Top 20, like Tower's Routes list (the panel scrolls).
     const topRoutes = sorted.slice(0, ROUTES_SHOWN);
-    return topRoutes.map((r) => `
+    return routeSortBar(sortMode) + topRoutes.map((r) => {
+      const status = r.flownBy?.length
+        ? `<div class="route route-flying">flying: ${r.flownBy.map(escapeHtml).join(", ")}</div>`
+        : r.skipReason ? `<div class="route route-why">not flying: ${escapeHtml(r.skipReason)}</div>` : "";
+      const main = sortMode === "hour" && r.ratePerHour != null ? `${signed(r.ratePerHour)}/hr` : `${signed(r.profitPerTrip)}/trip`;
+      const sub = r.ratePerHour != null ? `${signed(r.profitPerTrip)}/trip · ${escapeHtml(tripLabel(r))}` : `${signed(r.profitPerTrip)}/trip`;
+      return `
       <div class="goodrow">
         <div style="flex:1">
           <div class="name">${escapeHtml(r.goodSymbol)}</div>
-          <div class="route">${escapeHtml(r.buyAt)} → ${escapeHtml(r.sellAt)}</div>
+          <div class="route">${escapeHtml(r.buyAt)} → ${escapeHtml(r.sellAt)} · ${sub}</div>
+          ${status}
           ${holdLine(r)}
         </div>
-        <div class="profit">${signed(r.profitPerTrip)}</div>
+        <div class="profit">${main}</div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   })();
   const routesEl = $("mk-routes");
   if (routesEl) routesEl.innerHTML = routesHtml;

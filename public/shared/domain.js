@@ -341,3 +341,30 @@ export function isNetworkError(err) {
 }
 
 export const DROPPED_REQUEST_NOTE = "The connection dropped before the server answered. The action may still have gone through; the fleet has been reloaded, so check it before trying again.";
+
+/* ── Routes board sorting ──────────────────────────────────────────────
+   The dispatcher ranks by profit per hour of ship time; the raw route list is by profit per trip. Both views are useful,
+   so the board lets the operator pick, and remembers it (a per-viewer convenience, never required). */
+const ROUTE_SORT_KEY = "stcommand.routeSort";
+export function getRouteSort() {
+  try { return localStorage.getItem(ROUTE_SORT_KEY) === "trip" ? "trip" : "hour"; } catch { return "hour"; }
+}
+export function setRouteSort(mode) {
+  try { localStorage.setItem(ROUTE_SORT_KEY, mode); } catch { /* storage unavailable: the choice just won't persist */ }
+}
+/** Best first. Routes with no trip time sort after the timed ones in "hour" mode. */
+export function sortRoutes(routes, mode) {
+  const key = mode === "trip" ? (r) => r.profitPerTrip ?? 0 : (r) => r.ratePerHour ?? -1;
+  return [...routes].sort((a, b) => key(b) - key(a) || (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0));
+}
+/** The sort toggle's markup; clicks are handled by the caller on [data-act='route-sort']. */
+export function routeSortBar(mode) {
+  const b = (m, label) => `<button class="${mode === m ? "on" : ""}" data-act="route-sort" data-mode="${m}">${label}</button>`;
+  return `<div class="route-sort"><span>Sort by</span>${b("hour", "Profit / hour")}${b("trip", "Profit / trip")}</div>`;
+}
+/** "~35 min trip" / "" for the route's round-trip time. */
+export function tripLabel(r) {
+  if (!r.tripSeconds) return "";
+  const m = r.tripSeconds / 60;
+  return `${m < 10 ? m.toFixed(1) : Math.round(m)} min trip`;
+}

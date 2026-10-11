@@ -515,3 +515,8 @@ td.cp.down { color: var(--bad, #e5675d); }
 .rail-guide{margin-top:auto;text-decoration:none;color:inherit}
 
 .build{font-family:var(--mono);font-size:9.5px;color:var(--dim);letter-spacing:.03em;text-align:center;margin-top:6px}
+.route-sort{display:flex;gap:6px;align-items:center;padding:6px 10px;font-size:11px;color:var(--bone-dim,#888)}
+.route-sort button{padding:2px 9px;border-radius:999px;border:1px solid var(--hair);background:transparent;color:inherit;font:inherit;cursor:pointer}
+.route-sort button.on{background:var(--amber);color:#000;border-color:transparent}
+.route-flying{color:var(--green,#5fd38d)}
+.route-why{color:var(--amber)}

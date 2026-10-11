@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-11 — Routes board: sort by profit per hour or per trip, who is flying, and why not
+
+The dispatcher ranks by profit per hour of ship time (profit x 600 / round-trip seconds), but both Routes boards listed by
+profit per trip, so a short FOOD run it correctly put first looked buried under longer, bigger-per-trip routes (THEOREM-A,
+2026-10-11). `/api/markets` now returns `tripSeconds`, `ratePerHour`, `flownBy` and `skipReason` for each route
+(`src/engine/routeStatus.ts`: the ship on it, marked "(pinned)" when hand-assigned, else the sell-market block, the margin
+floor, a claim, or the first trader rejection from the dispatcher's last cycle). Tower and Deck get a "Profit / hour |
+Profit / trip" toggle (remembered per browser, default per hour), show both figures and the trip time, and Deck now says who
+is flying each route or why none is.
+
 ## 2026-10-11 — Deck shows a pinned route and can release it
 
 A route the operator assigns by hand (`source: manual`) overrides the dispatcher until cleared, but Deck's ship sheet gave no sign

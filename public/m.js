@@ -24,7 +24,7 @@ import { mountMetrics } from "/shared/metrics.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml } from "/shared/domain.js";
+import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel } from "/shared/domain.js";
 
 function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
@@ -1010,8 +1010,9 @@ function renderMarketRoutes() {
     ? `<div class="rr-skipped">${traderExclusions.map((e) => `<div><b>${escapeHtml(e.ship)}</b> not getting routes: ${escapeHtml(e.reason)}</div>`).join("")}</div>`
     : "";
   if (!marketRoutes.length) { el.innerHTML = skipped + '<div class="empty">No profitable routes in fresh snapshots.</div>'; return; }
-  const top = [...marketRoutes].sort((a, b) => (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0)).slice(0, 20);
-  el.innerHTML = skipped + top.map((r) => {
+  const sortMode = getRouteSort();
+  const top = sortRoutes(marketRoutes, sortMode).slice(0, 20);
+  el.innerHTML = skipped + routeSortBar(sortMode) + top.map((r) => {
     const good = r.goodSymbol;
     // Keyed by good+buyAt+sellAt, not just good — the same good can have
     // several distinct routes in this list (different buy/sell pairs), and
@@ -1032,11 +1033,13 @@ function renderMarketRoutes() {
     const blocked = !assigned && r.blockedBy;
     const idleLine = r.idleHold ? `<div class="rr-legs">idle ${r.idleHold}u hull: ${signed(r.idleProfit)}/trip</div>` : "";
     return `<div class="route-row">
-      <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${signed(r.profitPerTrip)}/trip</span></div>
+      <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${sortMode === "hour" && r.ratePerHour != null ? `${signed(r.ratePerHour)}/hr` : `${signed(r.profitPerTrip)}/trip`}</span></div>
+      <div class="rr-legs">${r.ratePerHour != null ? `${signed(r.profitPerTrip)}/trip · ${signed(r.ratePerHour)}/hr · ${escapeHtml(tripLabel(r))}` : `${signed(r.profitPerTrip)}/trip`}</div>
       ${holdLine(r)}
       ${idleLine}
       <div class="rr-legs">${escapeHtml(shortWp(r.buyAt))} → ${escapeHtml(shortWp(r.sellAt))} · margin ${Math.round(r.marginPct ?? 0)}%${r.crossSystem ? " · cross-system" : ""}${assigned ? ` · flying: ${escapeHtml(assigned.shipSymbol)}` : ""}</div>
       ${blocked ? `<div class="rr-legs rr-blocked">Blocked: ${escapeHtml(r.blockedBy)}</div>` : ""}
+      ${!assigned && !blocked && r.skipReason ? `<div class="rr-legs rr-why">Not flying: ${escapeHtml(r.skipReason)}</div>` : ""}
       <div class="rr-actions">${blocked ? "" : `<button class="btn" data-act="route-toggle" data-key="${escapeHtml(routeKey)}">${openRouteGood === routeKey ? "Close" : "Assign a ship"}</button>`}</div>
       ${blocked ? "" : picker}
     </div>`;
@@ -1368,6 +1371,8 @@ $("mkt-seg").addEventListener("click", (e) => {
 });
 
 $("mkt-routes").addEventListener("click", async (e) => {
+  const sort = e.target.closest("button[data-act='route-sort']");
+  if (sort) { setRouteSort(sort.dataset.mode); return renderMarketRoutes(); }
   const toggle = e.target.closest("button[data-act='route-toggle']");
   if (toggle) { openRouteGood = openRouteGood === toggle.dataset.key ? null : toggle.dataset.key; return renderMarketRoutes(); }
   const pick = e.target.closest("button[data-act='assign-ship']");

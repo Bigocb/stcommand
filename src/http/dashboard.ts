@@ -15,6 +15,7 @@ import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
 import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
+import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -640,6 +641,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         marginPct: Math.round(((r.sellPrice - r.buyPrice) / r.buyPrice) * 1000) / 10,
         grossPerTrip: Math.round((r.sellPrice - r.buyPrice) * r.volume),
         profitPerTrip: r.profitPerTrip,
+        tripSeconds: r.tripSeconds ?? null,
+        ratePerHour: ratePerHour(r.profitPerTrip, r.tripSeconds),
         profitByHold: r.profitByHold ?? null,
         crossSystem: r.buySystem !== r.sellSystem,
         ageMinutes: r.ageMinutes,
@@ -682,6 +685,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         const cap = capacityOf.get(s.symbol) ?? 0;
         if (cap > 0 && !freeTraderByHold.has(cap)) freeTraderByHold.set(cap, s.symbol);
       }
+      const explainSnap = w.fleet.dispatcher.explain();
+      const assignmentList = w.fleet.dispatcher.list();
       allRoutes = allRoutes.map((r) => {
         const profitByHold = r.profitByHold ?? {};
         const idleHold = Object.keys(profitByHold).map(Number).filter((h) => freeTraderByHold.has(h)).sort((a, b) => b - a)[0];
@@ -691,9 +696,15 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
           idleProfit: idleHold !== undefined ? profitByHold[idleHold] ?? null : null,
           idleShip: idleHold !== undefined ? freeTraderByHold.get(idleHold) ?? null : null,
           blockedBy: w.fleet.dispatcher.sellMarketBlock(r.goodSymbol, r.sellAt) ?? null,
+          ...(() => {
+            const st = routeStatus({ good: r.goodSymbol, buyAt: r.buyAt, sellAt: r.sellAt }, assignmentList, explainSnap, w.fleet.dispatcher.sellMarketBlock(r.goodSymbol, r.sellAt));
+            return { flownBy: st.flownBy, skipReason: st.reason };
+          })(),
         };
       });
-      const top = allRoutes.slice(0, 25);
+      // The board can sort by profit per trip or per hour, so keep the best 25 of each rather than only the first.
+      const byRate = [...allRoutes].sort((a, b) => (b.ratePerHour ?? -1) - (a.ratePerHour ?? -1)).slice(0, 25);
+      const top = [...new Set([...allRoutes.slice(0, 25), ...byRate])];
       const missingSameSystem = allRoutes
         .filter((r) => !r.crossSystem && !top.includes(r))
         .slice(0, 5);
