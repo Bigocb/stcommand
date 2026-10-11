@@ -59,6 +59,7 @@ How to answer:
 - Lead with the answer in one sentence. Then add only the detail that supports it.
 - For "why is this ship idle or docked", read the ship's doing, cooldown, wants and wantsReason from get_fleet_status or get_ship, and quote them. Do not infer a cause from role or location alone.
 - If the field that would answer the question is missing, say which field is missing, in one line, and what you would need to answer it. Do not guess and do not write a general summary instead.
+- For any "why is this ship doing X" or "why is it stuck" question, call diagnose_ship first. It returns the ship's state, what it is doing, its wallet, and its log lines with failures listed under problems. Quote the problems and the log lines that explain the behaviour. For a sale or purchase that never happens, look for the price, the wallet balance, and the error in the lines.
 - To explain what a ship did or why it did not do something, call get_ship_log first and quote the lines that answer the question. A miner's decisions appear there: "mining at", "arbitrage opportunity", "no mining target found", "relocating", "no mining mount". If the log has no lines for the ship, say so; do not infer a cause.
 - Only discuss ships in this fleet's data. If the captain describes a ship that is not in it, say that it is not in this fleet's data and ask which fleet it belongs to.
 
@@ -342,6 +343,47 @@ export class ChatAgent {
             return JSON.stringify({ lines: [], note: "No matching log lines in the buffer. The buffer is in memory and resets on restart, so older decisions may be gone." });
           }
           return JSON.stringify({ lines: lines.map((l) => `${new Date(l.at).toISOString().slice(11, 19)} ${l.msg}`) });
+        },
+      },
+      {
+        name: "diagnose_ship",
+        description: "One call to explain a ship: its live state, what it is doing now, its cooldown and reason for wanting or not wanting work, its pinned field, the wallet balance, and its recent log lines with errors and failed actions pulled out. Use this first for any 'why is this ship doing X' or 'why is it stuck' question.",
+        parameters: {
+          type: "object",
+          properties: { shipSymbol: { type: "string", description: "Ship symbol, e.g. THEO-17" } },
+          required: ["shipSymbol"],
+        },
+        readOnly: true,
+        execute: async ({ shipSymbol }) => {
+          const symbol = String(shipSymbol);
+          const view = ctx.fleet?.fleetStatusSummary().find((x) => x.symbol === symbol);
+          const pinned = ctx.fleet?.getShipStatuses().find((x) => x.symbol === symbol)?.pinnedField ?? null;
+          let live: unknown = null;
+          if (ctx.api) {
+            try {
+              const ship = await ctx.api.getShip(symbol);
+              live = { nav: ship.nav.status, waypoint: ship.nav.waypointSymbol, system: ship.nav.systemSymbol, flightMode: ship.nav.flightMode, fuel: `${ship.fuel.current}/${ship.fuel.capacity}`, cargo: `${ship.cargo.units}/${ship.cargo.capacity}`, cargoItems: ship.cargo.inventory?.map((i) => `${i.units} ${i.symbol}`) ?? [] };
+            } catch (err) {
+              live = { error: err instanceof Error ? err.message : String(err) };
+            }
+          }
+          const lines = logBuffer.query({ tenantId: ctx.tenantId, ship: symbol, sinceMs: Date.now() - 120 * 60_000, limit: 80 })
+            .map((l) => `${new Date(l.at).toISOString().slice(11, 19)} ${l.msg}`);
+          const problems = lines.filter((l) => /error|insufficient|failed|no mining|relocat|cannot|impossible/i.test(l));
+          return JSON.stringify({
+            ship: symbol,
+            role: view?.role ?? null,
+            doing: view?.doing ?? null,
+            cooldown: view?.cooldown ?? null,
+            wants: view?.wants ?? null,
+            wantsReason: view?.wantsReason ?? null,
+            pinnedField: pinned,
+            credits: ctx.state.get().agent?.credits ?? null,
+            live,
+            problems,
+            recentLogs: lines.slice(-30),
+            note: lines.length === 0 ? "No log lines for this ship in the last 2 hours. The buffer is in memory and resets on restart." : undefined,
+          });
         },
       },
       {
