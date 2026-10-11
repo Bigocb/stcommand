@@ -54,6 +54,12 @@ A few real examples the captain may care about:
 - "What's trading in system X?" — if the store has no data for that system, call scan_system_markets to pull live prices, then answer from the fresh data.
 - "How far is it between waypoints?" — call get_waypoint_coords for the system, then get_distance for the leg(s).
 
+How to answer:
+- Lead with the answer in one sentence. Then add only the detail that supports it.
+- For "why is this ship idle or docked", read the ship's doing, cooldown, wants and wantsReason from get_fleet_status or get_ship, and quote them. Do not infer a cause from role or location alone.
+- If the field that would answer the question is missing, say which field is missing, in one line, and what you would need to answer it. Do not guess and do not write a general summary instead.
+- Only discuss ships in this fleet's data. If the captain describes a ship that is not in it, say that it is not in this fleet's data and ask which fleet it belongs to.
+
 You never act on the fleet directly. To change a ship's role or hold/release a ship, call propose_fleet_action (for the whole fleet, pause_fleet or resume_fleet): it queues the action and returns an id. Nothing runs until the captain confirms, so tell the captain the id and that they can reply "/confirm <id>" or "/cancel <id>". You cannot buy or sell ships, dispatch or jump ships, or change doctrine. You cannot touch code, deploys or infrastructure; if asked, say that is outside the co-pilot's remit.`;
 
 /** Default model for the co-pilot. */
@@ -195,18 +201,18 @@ export class ChatAgent {
     return [
       {
         name: "get_fleet_status",
-        description: "Current fleet status: paused, running, per-ship role/status, and any stranded ships.",
+        description: "Current fleet status: paused, credits, stranded ships, and per ship: role, location, fuel, cargo, cooldown, what it is doing now (doing), and whether it wants work and why (wants, wantsReason). Use doing and wantsReason to explain why a ship is idle.",
         parameters: { type: "object", properties: {} },
         readOnly: true,
         execute: async () => {
           const s = ctx.state.get();
           if (!ctx.fleet) return JSON.stringify({ error: "fleet not ready" });
-          const status = ctx.fleet.getShipStatuses();
+          const ships = ctx.fleet.fleetStatusSummary();
           const stranded = ctx.fleet.getStrandedShips();
           return JSON.stringify({
             paused: ctx.fleet.isPaused(),
             credits: s.agent?.credits ?? null,
-            ships: status,
+            ships,
             stranded,
           });
         },
@@ -319,12 +325,18 @@ export class ChatAgent {
         execute: async ({ shipSymbol }) => {
           if (!ctx.api) return JSON.stringify({ error: "API not available" });
           const ship = await ctx.api.getShip(String(shipSymbol));
+          // The same per-ship view the operator sees: what it is doing, its cooldown, and why it wants or does not want work.
+          const view = ctx.fleet?.fleetStatusSummary().find((x) => x.symbol === ship.symbol);
           return JSON.stringify({
             symbol: ship.symbol,
-            role: ctx.fleet?.getShipStatuses().find((s) => s.symbol === ship.symbol)?.role ?? "idle",
+            role: view?.role ?? "idle",
             nav: ship.nav,
             fuel: ship.fuel,
             cargo: ship.cargo,
+            doing: view?.doing ?? null,
+            cooldown: view?.cooldown ?? null,
+            wants: view?.wants ?? null,
+            wantsReason: view?.wantsReason ?? null,
           });
         },
       },
