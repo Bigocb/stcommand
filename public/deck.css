@@ -519,9 +519,12 @@ td.cp.down { color: var(--bad, #e5675d); }
 .route-sort button{padding:2px 9px;border-radius:999px;border:1px solid var(--hair);background:transparent;color:inherit;font:inherit;cursor:pointer}
 .route-sort button.on{background:var(--amber);color:#000;border-color:transparent}
 .route-flying{color:var(--green,#5fd38d)}
-.route-why{color:var(--amber)}
-.why-more{margin-left:4px;padding:0 7px;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;font:inherit;cursor:pointer}
-.why-list{margin:2px 0 6px 16px;padding:0;font-size:11px;color:var(--amber)}
+.route-why{margin:2px 0 0}
+/* Quiet by default (muted, hairline), amber only while open. */
+.why-more{padding:2px 10px;border-radius:999px;border:1px solid var(--hair);background:transparent;color:var(--dim2);font:inherit;font-size:11px;cursor:pointer}
+.why-more[aria-expanded="true"]{color:var(--amber);border-color:var(--amber)}
+.why-list{margin:4px 0 6px 18px;padding:0;font-size:11px;color:var(--dim2)}
+.why-list li+li{margin-top:2px}
 .runs-left { white-space: nowrap; } .runs-left.low { color: var(--amber, #d9a400); font-weight: 600; }
 
 .crew { margin: 6px 0 2px; }

@@ -15,7 +15,7 @@ The expandable list only appeared when a route had two or more reasons, so the c
 still showed as a line of text on every row. Every unflown route now shows one "not flying · why?" toggle (with a count when
 there are several) that opens a list, in Tower and Deck. The dispatcher's internal work keys are translated:
 "outscored by EQUIPMENT:contractBuy" reads "outscored by EQUIPMENT contract delivery", "FERTILIZERS@X1-CM13-K100" reads
-"FERTILIZERS into K100".
+"FERTILIZERS into K100". The toggle is a quiet muted chip (amber only while open) so the list is not a wall of amber text.
 
 ## 2026-10-11 — Contracts: assign several ships, and send miners (Tower and Deck)
 
