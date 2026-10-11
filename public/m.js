@@ -993,10 +993,11 @@ function renderMarketRoutes() {
     // nothing to do with — it only ever ran one specific K90→J63 leg).
     const routeKey = `${good}|${r.buyAt}|${r.sellAt}`;
     const assigned = dispatchAssignments.find((a) => a.role === "direct" && a.good === good && a.buyAt === r.buyAt && a.sellAt === r.sellAt);
+    const ranked = [...tradersFor()].sort((a, b) => (b.symbol === r.idleShip) - (a.symbol === r.idleShip));
     const picker = openRouteGood === routeKey
       ? `<div class="ship-pick">${
-          tradersFor().length
-            ? tradersFor().map((s) => `<button data-act="assign-ship" data-good="${escapeHtml(good)}" data-buy="${escapeHtml(r.buyAt)}" data-sell="${escapeHtml(r.sellAt)}" data-ship="${escapeHtml(s.symbol)}"><span>${escapeHtml(s.symbol)}</span><span>${s.symbol === assigned?.shipSymbol ? "assigned" : "assign"}</span></button>`).join("")
+          ranked.length
+            ? ranked.map((s) => `<button data-act="assign-ship" data-good="${escapeHtml(good)}" data-buy="${escapeHtml(r.buyAt)}" data-sell="${escapeHtml(r.sellAt)}" data-ship="${escapeHtml(s.symbol)}"><span>${escapeHtml(s.symbol)}${s.symbol === r.idleShip ? " · best free hull" : ""}</span><span>${s.symbol === assigned?.shipSymbol ? "assigned" : "assign"}</span></button>`).join("")
             : '<div class="empty">No trader ships available.</div>'
         }</div>`
       : "";

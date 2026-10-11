@@ -655,19 +655,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       // what an idle hull would earn next to the headline (the biggest hold), and whether the dispatcher would refuse it.
       const assignedShips = new Set(w.fleet.dispatcher.list().map((a) => a.shipSymbol));
       const capacityOf = new Map(w.state.get().ships.map((s) => [s.symbol, s.cargo?.capacity ?? 0]));
-      const idleHolds = new Set(
-        w.fleet.getShipStatuses()
-          .filter((s) => s.role === "trader" && !s.paused && !assignedShips.has(s.symbol))
-          .map((s) => capacityOf.get(s.symbol) ?? 0)
-          .filter((c) => c > 0),
-      );
+      // Free traders by hold size, so each route can name the free trader that would earn the most from it.
+      const freeTraderByHold = new Map<number, string>();
+      for (const s of w.fleet.getShipStatuses()) {
+        if (s.role !== "trader" || s.paused || assignedShips.has(s.symbol)) continue;
+        const cap = capacityOf.get(s.symbol) ?? 0;
+        if (cap > 0 && !freeTraderByHold.has(cap)) freeTraderByHold.set(cap, s.symbol);
+      }
       allRoutes = allRoutes.map((r) => {
         const profitByHold = r.profitByHold ?? {};
-        const idleHold = Object.keys(profitByHold).map(Number).filter((h) => idleHolds.has(h)).sort((a, b) => b - a)[0];
+        const idleHold = Object.keys(profitByHold).map(Number).filter((h) => freeTraderByHold.has(h)).sort((a, b) => b - a)[0];
         return {
           ...r,
           idleHold: idleHold ?? null,
           idleProfit: idleHold !== undefined ? profitByHold[idleHold] ?? null : null,
+          idleShip: idleHold !== undefined ? freeTraderByHold.get(idleHold) ?? null : null,
           blockedBy: w.fleet.dispatcher.sellMarketBlock(r.goodSymbol, r.sellAt) ?? null,
         };
       });
