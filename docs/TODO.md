@@ -7,6 +7,19 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Test the decision model through OpenRouter (raised 2026-10-11, operator).** Jev access is limited early access, so to
+  exercise the router and the attention feed end to end now, add a second `Judge` adapter (`src/engine/openRouterClient.ts`,
+  next to `jevClient.ts`) behind the same port; `getJudge()` picks it when `OPENROUTER_API_KEY` is set and no `TYPESAFE_API_KEY`
+  is. To settle: (1) the adapter asks a chat model the same typed questions and parses a JSON reply into `Answer`s (noul ->
+  probability, choice -> probabilities); a chat model's stated confidence is NOT calibrated like Jev's, so use token logprobs
+  where the chosen model supports them and otherwise treat the numbers as plumbing-only, never as a basis for acting;
+  (2) the host is fixed to `https://openrouter.ai/api/v1` (same rule as Jev's: fleet state must never go to an unverified
+  host) and CLAUDE.md's "host is fixed" note needs the second adapter added; (3) keep `sanitizeState`/`redactSecrets` in front
+  of it unchanged, since state leaves the server; (4) tag every row in `judge_decisions` with the provider and model so
+  OpenRouter results are never read as Jev's calibration; (5) pick a small cheap model and a hard per-minute call cap, as the
+  feed asks about every ship that looks worth a second opinion; (6) this tests plumbing and prompts only: whether the real
+  Jev is calibrated still needs its own key and the week of shadow logging in the item below.
+
 - [ ] **Rename the project to tailwinds (raised 2026-10-11, operator; plan only, not started).** `stcommand` appears about 625
   times in ~70 files; most are harmless, a few are not. Order: (1) safe and mechanical: `package.json` name, README, CONTEXT.md,
   `docs/`, `guide.html` title, UI titles, and `.mcp.json` (rename the server and fix its URL: it still points at the shut-down
