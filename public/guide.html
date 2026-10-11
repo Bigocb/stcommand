@@ -107,10 +107,11 @@ pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overfl
 .site-bar a { color: var(--muted); text-decoration: none; }
 .site-bar a:hover, .site-bar a:focus-visible { color: var(--accent); outline: none; }
 .site-bar .here { color: var(--fg); margin-left: auto; }
+.site-bar .build { font-size: 9.5px; letter-spacing: 0.03em; color: var(--dim); text-transform: none; font-weight: 400; margin-left: 6px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 </style>
 
-<div class="site-bar"><a href="/m">Tower</a><a href="/deck">Deck</a><span class="here">Player guide</span></div>
+<div class="site-bar"><a href="/m">Tower</a><a href="/deck">Deck</a><span class="here">Player guide <span class="build" id="build-label"></span></span></div>
 <div class="wrap">
 <nav class="toc" aria-label="Contents">
   <h2>Contents</h2>
@@ -513,5 +514,6 @@ pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overfl
 </main>
 </div>
 
+<script>fetch("/version.json").then(function(r){return r.json()}).then(function(v){var el=document.getElementById("build-label");if(el)el.textContent=v.build}).catch(function(){});</script>
 </body>
 </html>

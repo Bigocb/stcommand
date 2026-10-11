@@ -2463,3 +2463,6 @@ document.addEventListener("keydown", (e) => {
   if (session.operator) enableAdmin($("rail-admin"));
   boot();
 })();
+
+// Build label: which commit this screen is running (see /version.json).
+fetch("/version.json").then((r) => r.json()).then((v) => { const el = document.getElementById("build-label"); if (el) el.textContent = v.build; }).catch(() => {});

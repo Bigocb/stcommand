@@ -112,6 +112,7 @@ function renderStatusbar() {
 }
 setInterval(renderStatusbar, 30_000);
 startRateLimitIndicator($("sb-time"));
+fetch("/version.json").then((r) => r.json()).then((v) => { $("build-label").textContent = v.build; }).catch(() => {});
 startCooldownTicker();
 
 /* ── home: cockpit tiles ──────────────────── */

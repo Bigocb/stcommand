@@ -196,6 +196,14 @@ async function main(): Promise<void> {
 
   // Public galaxy-crawl viewer — no key, no tenant session, same free-
   // standing pattern as /admin's dedicated route.
+  // Build label for the UIs: the commit this process was built from (Render sets RENDER_GIT_COMMIT), so each
+  // screen can show which version it is. Public and uncached; it reveals only a commit id.
+  const BUILD = (process.env.RENDER_GIT_COMMIT ?? "").slice(0, 7) || "local";
+  app.get("/version.json", (_req, res) => {
+    res.set("Cache-Control", "no-store");
+    res.json({ build: BUILD });
+  });
+
   app.get("/cartography", (_req, res) => {
     res.set(cacheHeaders(resolve(PUBLIC_DIR, "cartography.html")) ?? {});
     res.sendFile(resolve(PUBLIC_DIR, "cartography.html"));

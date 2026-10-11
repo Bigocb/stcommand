@@ -509,3 +509,5 @@ td.cp.down { color: var(--bad, #e5675d); }
 .guide-link{display:block;text-align:center;margin-top:12px;font:600 12px var(--chrome);letter-spacing:.08em;text-transform:uppercase;color:var(--amber);text-decoration:none}
 .guide-link:hover,.guide-link:focus-visible{text-decoration:underline;outline:none}
 .rail-guide{margin-top:auto;text-decoration:none;color:inherit}
+
+.build{font-family:var(--mono);font-size:9.5px;color:var(--dim);letter-spacing:.03em;text-align:center;margin-top:6px}

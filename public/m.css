@@ -654,6 +654,8 @@ body {
 .jump-row.gate-off { opacity: 0.4; }
 .jump-row .btn { flex: 0 0 auto; }
 
+/* Build label: which commit is running. Same grey and size as the clock. */
+.build { font-family: var(--mono); font-size: 9.5px; color: var(--dim); letter-spacing: 0.03em; }
 /* Links to the player guide: sign-in screen and the Tower header. */
 .guide-link, .topguide { font-size: 9.5px; letter-spacing: 0.03em; color: var(--dim); text-decoration: none; }
 .guide-link { display: block; text-align: center; margin-top: 14px; }
