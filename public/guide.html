@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>stcommand Player Guide</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Mono&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: a fixed contents rail beside the chapters on wide screens; one column on a phone. */
+:root {
+  --bg: #f6f3ea;
+  --panel: #ffffff;
+  --fg: #1d1a14;
+  --muted: #6a6254;
+  --hair: rgba(29, 26, 20, 0.12);
+  --accent: #b5620a;
+  --accent-ink: #ffffff;
+  --ok: #2f7d4f;
+  --warn: #a8481c;
+  --tip-bg: rgba(47, 125, 79, 0.08);
+  --warn-bg: rgba(168, 72, 28, 0.08);
+  --code-bg: #ece7d8;
+  --display: "Chakra Petch", "Trebuchet MS", ui-sans-serif, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", ui-sans-serif, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15130f;
+    --panel: #1d1a14;
+    --fg: #f3efe6;
+    --muted: #a39a88;
+    --hair: rgba(243, 239, 230, 0.14);
+    --accent: #ffb020;
+    --accent-ink: #15130f;
+    --ok: #58d68d;
+    --warn: #ff8a5c;
+    --tip-bg: rgba(88, 214, 141, 0.1);
+    --warn-bg: rgba(255, 138, 92, 0.1);
+    --code-bg: #26221a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15130f;
+  --panel: #1d1a14;
+  --fg: #f3efe6;
+  --muted: #a39a88;
+  --hair: rgba(243, 239, 230, 0.14);
+  --accent: #ffb020;
+  --accent-ink: #15130f;
+  --ok: #58d68d;
+  --warn: #ff8a5c;
+  --tip-bg: rgba(88, 214, 141, 0.1);
+  --warn-bg: rgba(255, 138, 92, 0.1);
+  --code-bg: #26221a;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font: 16px/1.6 var(--body); margin: 0; }
+.wrap { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; font-size: 14px; }
+.toc h2 { font: 600 12px var(--display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.toc ol { list-style: none; padding: 0; margin: 0; border-left: 2px solid var(--hair); }
+.toc li a { display: block; padding: 6px 0 6px 14px; color: var(--fg); text-decoration: none; margin-left: -2px; border-left: 2px solid transparent; }
+.toc li a:hover, .toc li a:focus-visible { border-left-color: var(--accent); color: var(--accent); outline: none; }
+main { min-width: 0; }
+h1 { font: 700 40px/1.1 var(--display); letter-spacing: 0.01em; margin: 0 0 8px; text-wrap: balance; }
+.lede { color: var(--muted); font-size: 18px; max-width: 62ch; margin: 0 0 28px; }
+h2 { font: 700 26px/1.2 var(--display); margin: 56px 0 12px; padding-top: 8px; border-top: 1px solid var(--hair); text-wrap: balance; }
+h3 { font: 600 19px/1.3 var(--display); margin: 28px 0 8px; text-wrap: balance; }
+p, li { max-width: 68ch; }
+ul, ol { padding-left: 22px; }
+li { margin: 4px 0; }
+a { color: var(--accent); }
+code, kbd { font: 14px var(--mono); background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+.card { background: var(--panel); border: 1px solid var(--hair); border-radius: 8px; padding: 18px 20px; margin: 18px 0; }
+.quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 18px 0; }
+.quick .card { margin: 0; }
+.step { font: 700 13px var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin: 0 0 6px; }
+.callout { border-left: 4px solid var(--ok); background: var(--tip-bg); padding: 12px 16px; border-radius: 0 6px 6px 0; margin: 18px 0; max-width: 68ch; }
+.callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+.callout strong { font: 700 12px var(--display); letter-spacing: 0.1em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+.callout.warn strong { color: var(--warn); }
+.callout:not(.warn) strong { color: var(--ok); }
+.example { border: 1px dashed var(--hair); border-radius: 8px; padding: 16px 18px; margin: 18px 0; background: var(--panel); }
+.example h3 { margin-top: 0; }
+.example .label { font: 600 12px var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.scroll { overflow-x: auto; margin: 16px 0; border: 1px solid var(--hair); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+th { font: 600 12px var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); background: var(--code-bg); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; font: 14px/1.5 var(--mono); margin: 12px 0; }
+.chip { display: inline-block; font: 600 12px var(--mono); border: 1px solid var(--hair); border-radius: 999px; padding: 2px 9px; margin: 0 4px 4px 0; background: var(--panel); }
+.foot { margin-top: 56px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--hair); padding-top: 16px; }
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .toc { position: static; margin-bottom: 20px; }
+  .toc ol { display: flex; flex-wrap: wrap; gap: 4px 6px; border-left: 0; }
+  .toc li a { padding: 4px 10px; border: 1px solid var(--hair); border-radius: 999px; margin: 0; }
+  .toc li a:hover, .toc li a:focus-visible { border-left-color: var(--hair); }
+  h1 { font-size: 32px; }
+  h2 { font-size: 23px; margin-top: 44px; }
+}
+.site-bar { display: flex; gap: 16px; align-items: baseline; padding: 14px 16px 0; max-width: 1100px; margin: 0 auto; font: 600 13px var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
+.site-bar a { color: var(--muted); text-decoration: none; }
+.site-bar a:hover, .site-bar a:focus-visible { color: var(--accent); outline: none; }
+.site-bar .here { color: var(--fg); margin-left: auto; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="site-bar"><a href="/m">Tower</a><a href="/deck">Deck</a><span class="here">Player guide</span></div>
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#quick-start">Quick start</a></li>
+    <li><a href="#the-game">How the game works</a></li>
+    <li><a href="#tower">Tower: the phone screens</a></li>
+    <li><a href="#deck">Deck: the desktop screens</a></li>
+    <li><a href="#copilot">The co-pilot</a></li>
+    <li><a href="#roles">Ship roles</a></li>
+    <li><a href="#moving">Moving ships</a></li>
+    <li><a href="#metrics">Reading the metrics</a></li>
+    <li><a href="#doctrine">Doctrine reference</a></li>
+    <li><a href="#examples">Worked examples</a></li>
+    <li><a href="#mistakes">Common mistakes</a></li>
+    <li><a href="#glossary">Glossary</a></li>
+  </ol>
+</nav>
+
+<main>
+<h1>stcommand Player Guide</h1>
+<p class="lede">Your fleet trades on its own between your orders. This guide shows you how to read it, steer it, and avoid the expensive mistakes.</p>
+
+<h2 id="quick-start">Quick start</h2>
+<p>Do these five things in your first session. Nothing here spends credits.</p>
+<div class="quick">
+  <div class="card">
+    <p class="step">Step 1</p>
+    <h3>Look at Home</h3>
+    <p>Open Tower's <strong>Home</strong> tab. Note the wallet, the fleet mode, and the activity list. That is the whole fleet in one screen.</p>
+  </div>
+  <div class="card">
+    <p class="step">Step 2</p>
+    <h3>Check the fleet mode</h3>
+    <p>Home has an <strong>AUTO / HALT</strong> switch. AUTO lets the fleet trade. HALT stops every ship from starting new work. Leave it on AUTO unless you have a reason.</p>
+  </div>
+  <div class="card">
+    <p class="step">Step 3</p>
+    <h3>Open one ship</h3>
+    <p>Go to <strong>Fleet</strong> and tap any ship. The sheet shows its role, where it is, its cargo and its fuel.</p>
+  </div>
+  <div class="card">
+    <p class="step">Step 4</p>
+    <h3>Read the metrics</h3>
+    <p>Open <strong>Metrics</strong>. Use the <strong>1h</strong> and <strong>Since reset</strong> buttons to compare short and long windows.</p>
+  </div>
+  <div class="card">
+    <p class="step">Step 5</p>
+    <h3>Ask the co-pilot</h3>
+    <p>Open <strong>Co-pilot</strong> and ask, "What is the fleet doing right now?" It answers from live data. It can change nothing until you confirm.</p>
+  </div>
+</div>
+<div class="callout">
+  <strong>Before you change anything</strong>
+  Read first, act second. Read the fleet status and the last hour of metrics, then decide. Most problems that look urgent settle themselves within a few hours.
+</div>
+
+<h2 id="the-game">How the game works</h2>
+<p>SpaceTraders is a trading game. Ships buy goods at one market, carry them, and sell them at another market where the price is higher. The difference, after fuel and jump fees, is profit.</p>
+<ul>
+  <li><strong>The universe resets every week.</strong> Everything starts again: markets, routes, gates, and your starting credits. Your score for a week is the credits you end with, plus the value of cargo still in your ships.</li>
+  <li><strong>Prices move with stock.</strong> Buying a good pushes its price up at that market, and selling pushes it down. Prices recover slowly, a few percent an hour. Spreading trades over several markets keeps profit up.</li>
+  <li><strong>Gates link systems.</strong> A jump gate lets a ship move to a neighbouring system. A gate works only when its construction is finished at both ends. Each jump costs about 5,000 credits and a cooldown.</li>
+  <li><strong>Fuel is taken up front.</strong> When a flight starts, the game takes its full fuel cost. A ship on a long leg shows the same fuel until it arrives.</li>
+  <li><strong>The fleet runs itself.</strong> Ships keep working between your orders. That is the goal, so act less than you think you need to.</li>
+</ul>
+
+<h2 id="tower">Tower: the phone screens</h2>
+<p>Tower is built for a phone. Its tabs run along the bottom of the screen.</p>
+<div class="scroll"><table>
+  <tr><th>Tab</th><th>What it is for</th></tr>
+  <tr><td><strong>Home</strong></td><td>The wallet, the fleet mode (AUTO / HALT), and the recent activity list.</td></tr>
+  <tr><td><strong>Fleet</strong></td><td>The roster of every ship. Tap one for its sheet: role, location, cargo, fuel, and a jump planner when it can jump.</td></tr>
+  <tr><td><strong>Metrics</strong></td><td>Profit, spending, and the wallet over time, with a table of where profit came from. See <a href="#metrics">Reading the metrics</a>.</td></tr>
+  <tr><td><strong>Markets</strong></td><td>Current prices by market and good. Use it to check a price before you trust a route.</td></tr>
+  <tr><td><strong>Co-pilot</strong></td><td>A chat assistant. It reads fleet data and proposes changes. See <a href="#copilot">The co-pilot</a>.</td></tr>
+  <tr><td><strong>More</strong></td><td>Three sections: <em>Work</em> (contracts, missions, feeds), <em>Fleet</em> (keepers and roles), and <em>Rules</em> (the doctrine switches and values).</td></tr>
+</table></div>
+<div class="callout warn">
+  <strong>Phone shows old screens?</strong>
+  Tower's script can be cached for up to four hours. If a button does nothing or a screen looks out of date, reload the page. If it is still stale, ask the operator to clear the cache.
+</div>
+
+<h3>Changing a doctrine value in Tower</h3>
+<p>Doctrine is the fleet's standing rules. In Tower, open <strong>More</strong>, then <strong>Rules</strong>. Each rule has an on/off switch. A rule with a number also has a value box. Type a new number and leave the box: it saves at once. A value outside the allowed range is refused and the old value comes back.</p>
+
+<h2 id="deck">Deck: the desktop screens</h2>
+<p>Deck is the desktop version of the same information. Use it when you want more detail on one screen: ship lists, route boards, doctrine and operations panels. Anything you can change in Tower, you can change in Deck, and both show the same live state.</p>
+
+<h2 id="copilot">The co-pilot</h2>
+<p>The co-pilot is a chat assistant. It can:</p>
+<ul>
+  <li>Answer questions about the fleet, the markets, the ledger, the metrics and the gates, using live data.</li>
+  <li>Propose a change to a ship or to the whole fleet.</li>
+</ul>
+<p>It cannot run a change on its own. Every change is a <strong>proposal</strong> until you confirm it.</p>
+<div class="example">
+  <p class="label">Example</p>
+  <h3>Holding a ship</h3>
+  <p>You type: <em>"Hold THEO-17 at its market."</em></p>
+  <p>The co-pilot replies with a proposal and an id, for example <code>a1b2c3</code>, and a one-line summary of what would happen.</p>
+  <p>To run it, reply <code>/confirm a1b2c3</code>. To drop it, reply <code>/cancel a1b2c3</code>. A proposal expires after 30 minutes.</p>
+</div>
+<p>Proposals the co-pilot can make today: set a ship's role, hold a ship, release a ship, halt the whole fleet, and resume the whole fleet. More kinds are planned; see <code>docs/copilot-phase-2-plan.md</code>.</p>
+<p><strong>Settings.</strong> The gear icon on the co-pilot screen holds the language model settings: the service address, the model name, and the key. The key is stored only on the server. Never paste it into the chat.</p>
+
+<h2 id="roles">Ship roles</h2>
+<p>Every ship has one role. Changing a role interrupts whatever the ship is doing, so change it only between jobs.</p>
+<div class="scroll"><table>
+  <tr><th>Role</th><th>What it does</th><th>Leave it alone when</th></tr>
+  <tr><td>trader</td><td>Buys and sells on its own, round trip, using the best route it can reach.</td><td>Almost always. The dispatcher picks its routes.</td></tr>
+  <tr><td>miner / siphoner</td><td>Extracts ore or gas for traders and the warehouse.</td><td>It is feeding a trader or a warehouse.</td></tr>
+  <tr><td>surveyor</td><td>Scouts mining sites so miners work faster. Carries no cargo.</td><td>It is surveying.</td></tr>
+  <tr><td>explorer</td><td>Jumps to unvisited systems to chart them. Costs jump fees.</td><td>It is mid-jump.</td></tr>
+  <tr><td>tour</td><td>Visits every market in a system to keep prices fresh.</td><td>It is partway through a system.</td></tr>
+  <tr><td>keeper</td><td>Sits at one market so its prices never go stale.</td><td>Almost always. Keepers stay where they are.</td></tr>
+</table></div>
+
+<h2 id="moving">Moving ships</h2>
+<p>There are three ways to move a ship. Pick by distance.</p>
+<ul>
+  <li><strong>Dispatch</strong> sends a ship to a waypoint in its <em>current</em> system. It stops there.</li>
+  <li><strong>Jump</strong> sends a ship through one gate to a neighbouring system.</li>
+  <li><strong>Tour</strong> sends a ship to a <em>system</em> more than one jump away. It finds the gates itself. Give it a system name, not a waypoint.</li>
+</ul>
+<div class="callout">
+  <strong>Jump planner</strong>
+  On a ship's sheet, the planner lists the systems it can jump to. A row greyed out means that gate is not finished yet, or the ship is moving. Greyed rows cannot be selected.
+</div>
+
+<h2 id="metrics">Reading the metrics</h2>
+<p>Metrics answers one question: is the fleet making money, and where? It has four numbers you will watch.</p>
+<ul>
+  <li><strong>Net trading</strong> is profit from completed sales, less fuel and jump fees. It is the honest figure for how the trading is going.</li>
+  <li><strong>Wallet change</strong> is the real change in credits. It also includes purchases and cargo still held, so it can differ from net trading for a while.</li>
+  <li><strong>Net per hour</strong> is net trading divided by the hours in the window. Compare windows of the same length.</li>
+  <li><strong>Since reset</strong> covers everything since the current universe began. Use it for the week's score.</li>
+</ul>
+<div class="example">
+  <p class="label">Example</p>
+  <h3>A bad hour</h3>
+  <p>The 1-hour chart shows a large red bar. Before you act, check three things: did a ship buy a lot of cargo that is still unsold (the wallet dips but net stays positive); did a sale go below cost on purpose; did jumps cost more than usual. A single bad hour inside a good week is normal.</p>
+</div>
+<div class="callout warn">
+  <strong>Rolling windows mix weeks</strong>
+  A 3-day or 1-hour window can include trades from the old universe straight after a reset. For a fair picture of this week, use <em>Since reset</em>.
+</div>
+
+<h2 id="doctrine">Doctrine reference</h2>
+<p>Doctrine is the set of rules the fleet follows. Each rule has an on/off switch and, for some rules, a value. The table lists the rules a player is most likely to change. Defaults are the values the fleet starts with.</p>
+<div class="scroll"><table>
+  <tr><th>Rule</th><th class="num">Default</th><th>What it does</th></tr>
+  <tr><td>Cash floor</td><td class="num">20,000 c</td><td>Never spend below this balance. Applies to every purchase except fuel.</td></tr>
+  <tr><td>Margin floor</td><td class="num">10 c</td><td>Ignore a route whose profit per unit is below this.</td></tr>
+  <tr><td>Max lots per trip</td><td class="num">6</td><td>How many of a market's trade-volume lots one trip may buy. Higher means bigger trips and more price impact.</td></tr>
+  <tr><td>Loss floor</td><td class="num">15 %</td><td>Refuse to sell cargo below this loss against what it cost.</td></tr>
+  <tr><td>Two-leg circuits</td><td class="num">on, 75 %</td><td>Plan a buy-and-sell pair so the ship is not empty on the way back.</td></tr>
+  <tr><td>Circuit reach</td><td class="num">10 min</td><td>How far apart the two legs of a circuit may be, in flying minutes.</td></tr>
+  <tr><td>Circuits across a gate</td><td class="num">on</td><td>Allow a circuit to cross a jump gate and come back.</td></tr>
+  <tr><td>Best ship for the best routes</td><td class="num">on, 6</td><td>Give the top routes to the ships that would earn the most from them, with travel time counted.</td></tr>
+  <tr><td>Auto cross-system routes</td><td class="num">on</td><td>Let idle traders take routes that start in another system.</td></tr>
+  <tr><td>Positioning jumps</td><td class="num">3 (max 10)</td><td>How many gate jumps a trader may take to reach a route's start. A route needing more is not offered. Each jump costs about 5,000 c. The first trip must out-earn the cost.</td></tr>
+  <tr><td>Follow-on lookahead</td><td class="num">off, 50 %</td><td>Credit a route for the next good trip that can start where it sells.</td></tr>
+  <tr><td>Protect the gate's supply chain</td><td class="num">on</td><td>While a gate is being built, keep the inputs for it out of ordinary trading.</td></tr>
+  <tr><td>Market keepers</td><td class="num">2</td><td>How many ships to station at markets so their prices stay fresh.</td></tr>
+  <tr><td>Auto-buy keepers</td><td class="num">on</td><td>Propose buying a probe to cover an uncovered market. The purchase still needs your approval.</td></tr>
+  <tr><td>Purchase headroom</td><td class="num">100,000 c</td><td>Buy a ship only when credits exceed the cash floor by this much.</td></tr>
+  <tr><td>Intel freshness</td><td class="num">90 min</td><td>Ignore market prices older than this, for both the dispatcher and the traders.</td></tr>
+  <tr><td>Cross-system intel freshness</td><td class="num">360 min</td><td>A longer window for routes that cross a gate, because those markets are expensive to revisit.</td></tr>
+  <tr><td>Dedicated explorers</td><td class="num">0</td><td>Grow the fleet until this many ships are explorers. Off until you set it.</td></tr>
+  <tr><td>Sensor scan</td><td class="num">off</td><td>Run chart scouts on a timer, which spends credits on new scouts.</td></tr>
+  <tr><td>Repair floor</td><td class="num">0.5</td><td>Repair a ship when its worst part drops below this condition, the next time it is docked.</td></tr>
+</table></div>
+<div class="callout warn">
+  <strong>Raise a limit for one purpose, then put it back</strong>
+  A higher positioning limit lets traders reach farther routes, but every extra jump is a fixed cost paid before the first sale. Raise it, watch the jump cost against matched net for a few hours, and lower it if the cost grows faster than the profit.
+</div>
+
+<h2 id="examples">Worked examples</h2>
+
+<div class="example">
+  <p class="label">Example 1</p>
+  <h3>Why is a good route not being flown?</h3>
+  <p>Open the dispatch explanation. Each idle trader lists the reason it was refused each route. Read the reason, not the total.</p>
+  <ul>
+    <li><em>"The first trip does not cover the 3-jump positioning cost."</em> The route is real but too far for its profit. Either leave it, or raise Positioning jumps for a short while.</li>
+    <li><em>"No finished gate path from X to Y within the jump limit."</em> The gates along the way are not all finished. Wait for construction, or work a nearer cluster first.</li>
+    <li><em>"Already claimed this cycle."</em> Another ship has it. Nothing to do.</li>
+  </ul>
+</div>
+
+<div class="example">
+  <p class="label">Example 2</p>
+  <h3>Changing a doctrine value from your phone</h3>
+  <p>Tower, then More, then Rules. Find <em>Positioning jumps</em>. Tap the value box, type <code>4</code>, and leave the box. The new value takes effect on the next dispatch cycle, about a minute later. The Rules list shows the saved number.</p>
+</div>
+
+<div class="example">
+  <p class="label">Example 3</p>
+  <h3>Checking this week's score</h3>
+  <p>Metrics, then tap <em>Since reset</em>. Read <em>Net trading</em> and <em>Net per hour</em>. Compare the top ships in the table. If you want the wallet, read <em>Wallet change</em> and check cargo still held before you draw a conclusion from it.</p>
+</div>
+
+<div class="example">
+  <p class="label">Example 4</p>
+  <h3>A ship at the wrong place</h3>
+  <p>A ship sits far from its market with no route. Check the ship sheet: its role, its fuel, and whether it is mid-jump. A ship that is still flying is not stuck. If it has been idle for an hour with fuel and no route, ask the co-pilot for the reason before changing its role.</p>
+</div>
+
+<h2 id="mistakes">Common mistakes</h2>
+<p>Each of these looked like a fault at first and was normal behaviour.</p>
+<ol>
+  <li><strong>Re-sending a command to a ship already moving.</strong> It wastes the order and can interrupt a good flight.</li>
+  <li><strong>Moving traders by hand.</strong> The dispatcher picks the best route for each idle trader. A manual move usually leaves a better trader idle.</li>
+  <li><strong>Selling a lot into one market at once.</strong> Each sale lowers the price there for a while. Spread sales over markets.</li>
+  <li><strong>Buying faster than a market recovers.</strong> Price rises with each purchase. A tight loop can push the price up 8 to 10 percent per load.</li>
+  <li><strong>Expanding far before the near markets are used.</strong> A ship sent across the galaxy spends its first trip on jump fees. Build out one hop at a time from where your markets already are.</li>
+  <li><strong>Buying probes before traders.</strong> Traders make the money. A probe is for pricing a market you cannot see.</li>
+  <li><strong>Pausing a contract.</strong> Contracts have fixed payouts and deadlines. Pausing one can lose the payout.</li>
+  <li><strong>Routing through an unfinished gate.</strong> A gate works only when its construction is complete at both ends. Greyed rows in the jump planner mean the gate is not ready.</li>
+</ol>
+
+<h2 id="glossary">Glossary</h2>
+<div class="scroll"><table>
+  <tr><th>Word</th><th>Meaning</th></tr>
+  <tr><td>Reset</td><td>The weekly restart of the universe. Everything is regenerated.</td></tr>
+  <tr><td>Gate</td><td>The link between two systems. Finished on both ends before a ship can jump.</td></tr>
+  <tr><td>Positioning</td><td>The cost of moving an idle ship to where a route starts, in jumps and flight time.</td></tr>
+  <tr><td>Circuit</td><td>A two-leg trip where the second leg starts near where the first one sells.</td></tr>
+  <tr><td>Doctrine</td><td>The fleet's standing rules: on/off switches and values.</td></tr>
+  <tr><td>Keeper</td><td>A ship that stays at one market so its prices stay fresh.</td></tr>
+  <tr><td>Feed</td><td>A crew that sources a good and sells it into a market.</td></tr>
+  <tr><td>Approval</td><td>A purchase the fleet wants to make on its own. You approve or reject it.</td></tr>
+  <tr><td>Proposal</td><td>A change the co-pilot queues for you. Nothing happens until you confirm.</td></tr>
+</table></div>
+
+<p class="foot">This guide describes the fleet as it works in the current release. Rule names and defaults can change; the Rules pane in Tower always shows the live values.</p>
+</main>
+</div>
+
+</body>
+</html>

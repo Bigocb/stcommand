@@ -201,6 +201,12 @@ async function main(): Promise<void> {
     res.sendFile(resolve(PUBLIC_DIR, "cartography.html"));
   });
 
+  // Player guide: a static page, no key or session, linked from the sign-in screens and headers.
+  app.get("/guide", (_req, res) => {
+    res.set(cacheHeaders(resolve(PUBLIC_DIR, "guide.html")) ?? {});
+    res.sendFile(resolve(PUBLIC_DIR, "guide.html"));
+  });
+
   // Tower: the mobile app, docs/mobile-app-design.md. A genuinely separate
   // build from the desktop UI versions above (own shell, own manifest, own
   // visual identity) rather than another entry in that family, so it gets
