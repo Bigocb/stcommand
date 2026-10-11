@@ -319,42 +319,47 @@ pre { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overfl
 <h2 id="walkthrough">Walkthrough: a first game</h2>
 <p>This walkthrough follows one week from reset to a first gate. Each step says what you should see, what to do, and what to avoid. The numbers are illustrative.</p>
 <div class="example">
-  <p class="label">Step 1 of 8 · Hour 0</p>
+  <p class="label">Step 1 of 9 · Hour 0</p>
   <h3>Look before you buy</h3>
   <p><strong>You see:</strong> a small wallet, a few ships, one home system. <strong>Do:</strong> read Home and the fleet list. Find the home system and the markets nearby. <strong>Avoid:</strong> buying anything yet.</p>
 </div>
 <div class="example">
-  <p class="label">Step 2 of 8 · Hours 1 to 2</p>
+  <p class="label">Step 2 of 9 · Hour 0 to 1</p>
+  <h3>Send the command ship to price the markets</h3>
+  <p><strong>You see:</strong> the command ship starts as a tour ship. The route list is empty, because no market has been priced yet. <strong>Do:</strong> send the command ship on a tour of the home system with <em>dispatch_tour</em>, and let it visit every market. Each visit records the prices. <strong>Avoid:</strong> starting traders before the home markets are priced, since they have no routes to take. Wait until the route list shows routes.</p>
+</div>
+<div class="example">
+  <p class="label">Step 3 of 9 · Hours 1 to 2</p>
   <h3>Start the traders on the nearest good routes</h3>
   <p><strong>You see:</strong> the route list. Several goods show a positive profit per trip. <strong>Do:</strong> leave the traders on AUTO and let the dispatcher assign them. <strong>Avoid:</strong> moving traders by hand.</p>
 </div>
 <div class="example">
-  <p class="label">Step 3 of 8 · Hours 2 to 3</p>
+  <p class="label">Step 4 of 9 · Hours 2 to 3</p>
   <h3>Feed the gate's weakest input</h3>
   <p><strong>You see:</strong> the gate status and chain health for your system. One input is LIMITED or SCARCE. <strong>Do:</strong> start a feed for it and set the stop level to HIGH. <strong>Avoid:</strong> setting it to ABUNDANT.</p>
 </div>
 <div class="example">
-  <p class="label">Step 4 of 8 · Day 1</p>
+  <p class="label">Step 5 of 9 · Day 1</p>
   <h3>Let the markets breathe</h3>
   <p><strong>You see:</strong> profit per trip falling as you sell into the same markets. <strong>Do:</strong> check the metrics once in the morning and once in the evening. Let the sales spread across markets. <strong>Avoid:</strong> four sales in a row at one market.</p>
 </div>
 <div class="example">
-  <p class="label">Step 5 of 8 · Day 1, afternoon</p>
+  <p class="label">Step 6 of 9 · Day 1, afternoon</p>
   <h3>Watch a circuit happen</h3>
   <p><strong>You see:</strong> a trader's sheet names two legs. <strong>Do:</strong> nothing. The planner drops leg 2 on its own if its margin halves. <strong>Avoid:</strong> overriding the circuit by hand.</p>
 </div>
 <div class="example">
-  <p class="label">Step 6 of 8 · Day 2</p>
+  <p class="label">Step 7 of 9 · Day 2</p>
   <h3>Widen to a second system</h3>
   <p><strong>You see:</strong> the home markets start to look saturated and the route list shrinks. <strong>Do:</strong> find a system with many markets, within one or two gate jumps of home, and send a tour ship there first. <strong>Avoid:</strong> sending traders across the galaxy before their first sale covers the jump cost.</p>
 </div>
 <div class="example">
-  <p class="label">Step 7 of 8 · Days 2 to 5</p>
+  <p class="label">Step 8 of 9 · Days 2 to 5</p>
   <h3>Deliver the gate's materials</h3>
   <p><strong>You see:</strong> chain health shows the producer market's ask price and its supply. <strong>Do:</strong> buy the finished materials in steps when the producer's activity rises, and watch the price. <strong>Avoid:</strong> a tight buying loop. Price rises with each lot.</p>
 </div>
 <div class="example">
-  <p class="label">Step 8 of 8 · End of week</p>
+  <p class="label">Step 9 of 9 · End of week</p>
   <h3>Score the week</h3>
   <p><strong>You see:</strong> Metrics, Since reset. <strong>Do:</strong> read net trading and net per hour, and check the wallet change against cargo still held. Note what to change next week. <strong>Avoid:</strong> drawing conclusions from a rolling 1-hour window.</p>
 </div>

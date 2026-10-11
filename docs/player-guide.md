@@ -173,17 +173,21 @@ Each step says what you should see, what to do, and what to avoid. The numbers a
 
 1. **Hour 0: look before you buy.** Read Home and the fleet list. Find the home system and nearby markets.
    Avoid buying anything yet.
-2. **Hours 1 to 2: start the traders.** Leave them on AUTO. Avoid moving traders by hand.
-3. **Hours 2 to 3: feed the gate's weakest input.** Start a feed, stop level HIGH. Avoid ABUNDANT.
-4. **Day 1: let the markets breathe.** Check metrics morning and evening. Spread sales. Avoid four sales in
+2. **Hour 0 to 1: price the markets with the command ship.** The command ship starts as a tour ship.
+   Send it on a tour of the home system (dispatch_tour). Each market it visits gets priced. No routes
+   exist until markets are priced, so wait for the route list to fill before starting traders.
+   Avoid starting traders blind.
+3. **Hours 1 to 2: start the traders.** Once routes exist, leave them on AUTO. Avoid moving traders by hand.
+4. **Hours 2 to 3: feed the gate's weakest input.** Start a feed, stop level HIGH. Avoid ABUNDANT.
+5. **Day 1: let the markets breathe.** Check metrics morning and evening. Spread sales. Avoid four sales in
    a row at one market.
-5. **Day 1, afternoon: watch a circuit.** Read the trader's sheet. Leave it alone; the planner drops leg 2
+6. **Day 1, afternoon: watch a circuit.** Read the trader's sheet. Leave it alone; the planner drops leg 2
    itself if its margin halves.
-6. **Day 2: widen.** When home routes shrink, send a tour ship to a system with many markets, within one or
+7. **Day 2: widen.** When home routes shrink, send a tour ship to a system with many markets, within one or
    two gate jumps. Keep traders at home until the jump cost is covered.
-7. **Days 2 to 5: deliver the materials.** Buy finished materials in steps when the producer's activity
+8. **Days 2 to 5: deliver the materials.** Buy finished materials in steps when the producer's activity
    rises. Avoid tight buying loops.
-8. **End of week: score it.** Metrics, Since reset. Compare net trading with wallet change and cargo still
+9. **End of week: score it.** Metrics, Since reset. Compare net trading with wallet change and cargo still
    held. Note what to change next week.
 
 ## Doctrine reference
