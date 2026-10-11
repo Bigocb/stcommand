@@ -6,6 +6,7 @@ import type { FleetManager } from "./fleet.js";
 import type { MarketSnapshot, TradeOpportunity } from "./market.js";
 import { MarketIntel } from "./market.js";
 import { randomBytes } from "node:crypto";
+import { logBuffer } from "../core/logBuffer.js";
 
 /** Live-world snapshot the agent's tools read from. */
 export interface ChatAgentContext {
@@ -58,6 +59,7 @@ How to answer:
 - Lead with the answer in one sentence. Then add only the detail that supports it.
 - For "why is this ship idle or docked", read the ship's doing, cooldown, wants and wantsReason from get_fleet_status or get_ship, and quote them. Do not infer a cause from role or location alone.
 - If the field that would answer the question is missing, say which field is missing, in one line, and what you would need to answer it. Do not guess and do not write a general summary instead.
+- To explain what a ship did or why it did not do something, call get_ship_log first and quote the lines that answer the question. A miner's decisions appear there: "mining at", "arbitrage opportunity", "no mining target found", "relocating", "no mining mount". If the log has no lines for the ship, say so; do not infer a cause.
 - Only discuss ships in this fleet's data. If the captain describes a ship that is not in it, say that it is not in this fleet's data and ask which fleet it belongs to.
 
 You never act on the fleet directly. To change a ship's role or hold/release a ship, call propose_fleet_action (for the whole fleet, pause_fleet or resume_fleet): it queues the action and returns an id. Nothing runs until the captain confirms, so tell the captain the id and that they can reply "/confirm <id>" or "/cancel <id>". You cannot buy or sell ships, dispatch or jump ships, or change doctrine. You cannot touch code, deploys or infrastructure; if asked, say that is outside the co-pilot's remit.`;
@@ -311,6 +313,35 @@ export class ChatAgent {
           }
           const dist = Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y)));
           return JSON.stringify({ from: a.symbol, to: b.symbol, system: a.systemSymbol, distance: dist, estimatedFuel: dist });
+        },
+      },
+      {
+        name: "get_ship_log",
+        description: "Recent engine log lines for this tenant, newest last: what a ship decided and did, e.g. 'mining at', 'arbitrage opportunity', 'no mining target found', 'relocating', 'no mining mount', dispatch and navigation lines. Use this to explain why a ship did or did not do something. Optionally filter by ship symbol or text.",
+        parameters: {
+          type: "object",
+          properties: {
+            shipSymbol: { type: "string", description: "Ship symbol, e.g. THEO-17" },
+            text: { type: "string", description: "Optional case-insensitive substring to match" },
+            sinceMin: { type: "number", description: "How far back to look, in minutes (default 60)" },
+            limit: { type: "number", description: "Maximum lines (default 40, max 150)" },
+          },
+        },
+        readOnly: true,
+        execute: async ({ shipSymbol, text, sinceMin, limit }) => {
+          const minutes = Number(sinceMin) > 0 ? Number(sinceMin) : 60;
+          const max = Math.min(Number(limit) > 0 ? Number(limit) : 40, 150);
+          const lines = logBuffer.query({
+            tenantId: ctx.tenantId,
+            ship: shipSymbol ? String(shipSymbol) : undefined,
+            text: text ? String(text) : undefined,
+            sinceMs: Date.now() - minutes * 60_000,
+            limit: max,
+          });
+          if (lines.length === 0) {
+            return JSON.stringify({ lines: [], note: "No matching log lines in the buffer. The buffer is in memory and resets on restart, so older decisions may be gone." });
+          }
+          return JSON.stringify({ lines: lines.map((l) => `${new Date(l.at).toISOString().slice(11, 19)} ${l.msg}`) });
         },
       },
       {
