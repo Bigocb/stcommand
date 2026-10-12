@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Feeds: one collector shuttle can serve several mine feeds into the same market
+
+Operator request: a shuttle parked at a field should be able to collect for more than one feed (iron ore and copper ore into
+H57, say). `setCollector` used to refuse a shuttle already on another feed. It now allows it when the feeds share the target
+market and the field (a shuttle waits at one asteroid and sells at one place); a different market or field is refused with
+the reason, and so is a ship that is a drone on another feed. The shuttle's loop (`stepCollector`) runs once per shared group
+rather than once per feed: it counts every feed's good in its hold, flies when it is nearly full or a part-load has gone
+20 minutes without growing, sells each good under that feed's own sell-gap and force settings, and keeps all the group's goods
+(not just the first) when it clears the hold. It is handed back to the dispatcher only when its last feed lets go (remove or
+pause). The collector's sale now also uses the chunked sell from the entry below, since an 80u hold into a 60u market would have
+failed the same way. Different fields for one shuttle are not supported. Tests: `tests/feedSharedCollector.test.ts`.
+
 ## 2026-10-12 — Feeds: sell a hold bigger than the market's per-sale cap in chunks
 
 THEOREM-D carried 80u IRON_ORE to H57, whose market takes 60u per transaction, and the feed tried to sell all 80 in one

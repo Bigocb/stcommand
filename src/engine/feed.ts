@@ -675,7 +675,7 @@ export class FeedManager {
       this.log(`feed ${good} → ${targetWaypoint}: paused, released ${ship}`);
     }
     feed.assignedShips = [];
-    if (feed.collector) this.resume?.(feed.collector);
+    if (feed.collector && !this.collectorStillUsed(feed.collector, key)) this.resume?.(feed.collector);
     this.tasks.delete(key);
     await this.persist(feed);
   }
@@ -721,6 +721,10 @@ export class FeedManager {
     if (!feed) throw new Error(`no active feed ${good} → ${targetWaypoint}`);
     if (!feed.mine) throw new Error("a collector only applies to a mine feed");
     if (patch.field !== undefined) {
+      const clash = feed.collector && patch.field
+        ? [...this.active.values()].find((o) => o !== feed && o.collector === feed.collector && o.field && o.field !== patch.field)
+        : undefined;
+      if (clash) throw new Error(`${feed.collector} also collects for ${clash.good} at ${clash.field}; one shuttle can only wait at one field`);
       feed.field = patch.field ?? undefined;
       for (const s of feed.assignedShips) {
         if (feed.field) await this.pinMiner?.(s, feed.field);
@@ -731,13 +735,17 @@ export class FeedManager {
       const next = patch.collector ?? undefined;
       if (next) {
         if (feed.assignedShips.includes(next)) throw new Error(`${next} is a drone on this feed, not a shuttle`);
-        // Checked before this feed's own collector field changes, and ignoring this feed's current collector
-        // (re-setting the same ship is a no-op, not a conflict).
-        const others = this.committedShips();
-        if (feed.collector) others.delete(feed.collector);
-        if (others.has(next)) throw new Error(`${next} is already on another feed`);
+        // A shuttle may collect for several mine feeds, but only into the same market from the same field: it waits at one
+        // asteroid and sells at one place. Anything else on a feed is a conflict.
+        for (const other of this.active.values()) {
+          if (other === feed) continue;
+          if (other.assignedShips.includes(next)) throw new Error(`${next} is already on another feed`);
+          if (other.collector !== next) continue;
+          if (other.targetWaypoint !== feed.targetWaypoint) throw new Error(`${next} already collects for a feed into ${other.targetWaypoint}; one shuttle can only serve feeds into the same market`);
+          if (other.field && feed.field && other.field !== feed.field) throw new Error(`${next} already waits at ${other.field}; one shuttle can only serve feeds on the same field`);
+        }
       }
-      if (feed.collector && feed.collector !== next) this.resume?.(feed.collector);
+      if (feed.collector && feed.collector !== next && !this.collectorStillUsed(feed.collector, key)) this.resume?.(feed.collector);
       feed.collector = next;
       if (next) await this.suspend?.(next);
       this.collectorGrewAt.delete(key);
@@ -775,7 +783,7 @@ export class FeedManager {
     }
     this.active.delete(key);
     this.tasks.delete(key);
-    if (feed?.collector) this.resume?.(feed.collector);
+    if (feed?.collector && !this.collectorStillUsed(feed.collector, key)) this.resume?.(feed.collector);
     this.paused.delete(key);
     if (this.tenantId) await this.store?.deleteFeed(this.tenantId, targetWaypoint, good, key.endsWith(MINE_KEY_SUFFIX));
     this.log(`feed ${good} → ${targetWaypoint}: removed`);
@@ -862,8 +870,65 @@ export class FeedManager {
       }
     }
     if (feed.mine && feed.collector && feed.field) {
-      try { await this.stepCollector(feed); } catch (err) { this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector error: ${err instanceof Error ? err.message : String(err)}`); }
+      // One shuttle may serve several feeds into the same market: the first of the group drives it.
+      const group = this.collectorGroup(feed);
+      if (group[0] === feed) try { await this.stepCollector(feed, group); } catch (err) { this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector error: ${err instanceof Error ? err.message : String(err)}`); }
     }
+  }
+
+  /**
+   * Sell `held` units of the feed's good from `sym`. The market caps one sale at its trade volume ("IRON_ORE has a limit
+   * of 60 units per transaction"); a hold bigger than that failed whole, every few seconds, forever (2026-10-12:
+   * THEOREM-D, 80u into a 60u market). The cap is read out of the refusal and the hold sold in chunks of it, each logged
+   * and recorded; anything unsold stays aboard for the next pass. `via` marks a collector's sale in the activity feed.
+   */
+  private async sellHold(sym: string, feed: Feed, held: number, via: string): Promise<{ sold: number; received: number }> {
+    let remaining = held;
+    let cap = held;
+    let sold = 0;
+    let received = 0;
+    while (remaining > 0) {
+      const units = Math.min(remaining, cap);
+      try {
+        const res = await this.api.sellCargo(sym, feed.good, units);
+        this.lastSellAt.set(this.feedKey(feed), Date.now());
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: sym,
+          waypointSymbol: feed.targetWaypoint,
+          type: "SELL",
+          tradeSymbol: feed.good,
+          units,
+          pricePerUnit: res.transaction.pricePerUnit,
+          total: res.transaction.totalPrice,
+        });
+        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${via ? `collector ${sym}` : sym} sold ${units}u @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
+        this.onActivity?.("feed", `${sym} fed ${units}u ${feed.good} into ${feed.targetWaypoint}${via}`, res.transaction.totalPrice, sym);
+        remaining -= units;
+        sold += units;
+        received += res.transaction.totalPrice;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const limit = Number(/limit of (\d+) units? per transaction/i.exec(msg)?.[1]);
+        if (Number.isFinite(limit) && limit > 0 && limit < units) { cap = limit; continue; }
+        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${via ? "collector " : ""}sell failed: ${msg}`);
+        break;
+      }
+    }
+    if (sold > 0 && remaining > 0) this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${sym} sold ${sold}u (${received}c), ${remaining}u left to sell`);
+    return { sold, received };
+  }
+
+  /** Mine feeds that share one collector shuttle: same collector, same target market, same field. */
+  private collectorGroup(feed: Feed): Feed[] {
+    return [...this.active.values()]
+      .filter((f) => f.mine && f.collector === feed.collector && f.targetWaypoint === feed.targetWaypoint && f.field === feed.field && !this.paused.has(this.feedKey(f)))
+      .sort((x, y) => this.feedKey(x).localeCompare(this.feedKey(y)));
+  }
+
+  /** Is `sym` still the collector of some other running feed? A shared collector is released only by its last feed. */
+  private collectorStillUsed(sym: string, exceptKey: string): boolean {
+    return [...this.active.entries()].some(([k, f]) => k !== exceptKey && f.collector === sym && !this.paused.has(k));
   }
 
   /** Free the hold of anything that isn't `keep` — sells for real credits
@@ -1032,42 +1097,7 @@ export class FeedManager {
       // ship that arrived and sold within seconds of another one, i.e.
       // the crew is still bunched even though no sell was blocked).
       this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} arrived with ${held}u, gap clear${feed.force ? " (forced)" : ""} — selling now`);
-      // The market caps one sale at its trade volume ("IRON_ORE has a limit of 60 units per transaction"); a hold bigger
-      // than that failed whole, every few seconds, forever (2026-10-12: THEOREM-D, 80u into a 60u market). Learn the
-      // cap from the refusal and sell the hold in chunks of it.
-      let remaining = held;
-      let cap = held;
-      let soldTotal = 0;
-      let received = 0;
-      while (remaining > 0) {
-        const units = Math.min(remaining, cap);
-        try {
-          const res = await this.api.sellCargo(ship.symbol, feed.good, units);
-          this.lastSellAt.set(this.feedKey(feed), Date.now());
-          this.recordLedger?.({
-            timestamp: new Date().toISOString(),
-            shipSymbol: ship.symbol,
-            waypointSymbol: feed.targetWaypoint,
-            type: "SELL",
-            tradeSymbol: feed.good,
-            units,
-            pricePerUnit: res.transaction.pricePerUnit,
-            total: res.transaction.totalPrice,
-          });
-          this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} sold ${units}u @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
-          this.onActivity?.("feed", `${ship.symbol} fed ${units}u ${feed.good} into ${feed.targetWaypoint}`, res.transaction.totalPrice, ship.symbol);
-          remaining -= units;
-          soldTotal += units;
-          received += res.transaction.totalPrice;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          const limit = Number(/limit of (\d+) units? per transaction/i.exec(msg)?.[1]);
-          if (Number.isFinite(limit) && limit > 0 && limit < units) { cap = limit; continue; }
-          this.log(`feed ${feed.good} → ${feed.targetWaypoint}: sell failed: ${msg}`);
-          break;
-        }
-      }
-      if (soldTotal > 0 && remaining > 0) this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} sold ${soldTotal}u (${received}c), ${remaining}u left to sell`);
+      await this.sellHold(ship.symbol, feed, held, "");
       t.market = undefined;
       const freshCargo = await this.api.getShipCargo(ship.symbol);
       if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, freshCargo.inventory))) await this.releaseFailedCarrier(feed, ship.symbol, t);
@@ -1265,11 +1295,12 @@ export class FeedManager {
   }
 
   /**
-   * The collector shuttle's own loop: sit in orbit at the field; once the hold is (nearly) full of the feed's good,
-   * or a part-load has waited 20 minutes without growing, fly to the target, dock, sell (same sell-gap rule as a
-   * carrier) and come back. Fuel is handled by dispatchShip()'s own refuel logic at markets.
+   * The collector shuttle's own loop: sit in orbit at the field; once the hold is (nearly) full of the group's goods,
+   * or a part-load has waited 20 minutes without growing, fly to the target, dock, sell each good (same sell-gap rule as a
+   * carrier, per feed) and come back. One shuttle serves every feed in `group` (same market, same field), so its hold
+   * may carry several goods at once. Fuel is handled by dispatchShip()'s own refuel logic at markets.
    */
-  private async stepCollector(feed: Feed): Promise<void> {
+  private async stepCollector(feed: Feed, group: Feed[] = [feed]): Promise<void> {
     const sym = feed.collector!;
     const field = feed.field!;
     const key = this.feedKey(feed);
@@ -1281,9 +1312,11 @@ export class FeedManager {
       if (wake !== undefined) this.collectorWakeAt.set(key, wake);
       return;
     }
-    const held = ship.cargo.inventory?.find((i) => i.symbol === feed.good)?.units ?? 0;
+    const heldOf = (f: Feed) => ship.cargo.inventory?.find((i) => i.symbol === f.good)?.units ?? 0;
+    const held = group.reduce((n, f) => n + heldOf(f), 0);
     const nearlyFull = held > 0 && ship.cargo.capacity - ship.cargo.units < 15;
-    const stale = held > 0 && Date.now() - (this.collectorGrewAt.get(key) ?? Date.now()) > 20 * 60_000;
+    const grewAt = Math.max(0, ...group.map((f) => this.collectorGrewAt.get(this.feedKey(f)) ?? 0)) || Date.now();
+    const stale = held > 0 && Date.now() - grewAt > 20 * 60_000;
     const atTarget = ship.nav.waypointSymbol === feed.targetWaypoint;
     if (nearlyFull || stale || (held > 0 && atTarget)) {
       if (!atTarget) {
@@ -1292,23 +1325,21 @@ export class FeedManager {
         return;
       }
       if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(sym);
-      if (!feed.force) {
-        const gapMs = feed.sellGapMs ?? DEFAULT_SELL_GAP_MS;
-        const last = this.lastSellAt.get(key) ?? 0;
-        if (Date.now() - last < gapMs) return;
+      let waiting = false;
+      for (const f of group) {
+        const units = heldOf(f);
+        if (units <= 0) continue;
+        if (!f.force) {
+          const gapMs = f.sellGapMs ?? DEFAULT_SELL_GAP_MS;
+          if (Date.now() - (this.lastSellAt.get(this.feedKey(f)) ?? 0) < gapMs) { waiting = true; continue; }
+        }
+        await this.sellHold(sym, f, units, " (collector)");
+        this.collectorGrewAt.delete(this.feedKey(f));
       }
-      try {
-        const res = await this.api.sellCargo(sym, feed.good, held);
-        this.lastSellAt.set(key, Date.now());
-        this.recordLedger?.({ timestamp: new Date().toISOString(), shipSymbol: sym, waypointSymbol: feed.targetWaypoint, type: "SELL", tradeSymbol: feed.good, units: held, pricePerUnit: res.transaction.pricePerUnit, total: res.transaction.totalPrice });
-        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector ${sym} sold ${held}u @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
-        this.onActivity?.("feed", `${sym} fed ${held}u ${feed.good} into ${feed.targetWaypoint} (collector)`, res.transaction.totalPrice, sym);
-      } catch (err) {
-        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector sell failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      this.collectorGrewAt.delete(key);
+      if (waiting) return;
       const fresh = await this.api.getShipCargo(sym);
-      await this.clearUnrelatedCargo(sym, feed.good, fresh.inventory, ["FUEL"]);
+      const [first, ...rest] = group;
+      await this.clearUnrelatedCargo(sym, first!.good, fresh.inventory, ["FUEL", ...rest.map((f) => f.good)]);
       return;
     }
     if (ship.nav.waypointSymbol !== field) {
