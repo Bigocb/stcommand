@@ -930,7 +930,24 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       routes: await w.fleet.computeDispatchRoutes(),
       assignments: w.fleet.dispatcher.list(),
       minerPreferences: w.fleet.minerPreferenceList(),
+      contractDuty: w.fleet.contractDutyShips(),
     });
+  });
+
+  /** Pin a trader to contract work (any contract), or release it back to ordinary trading. */
+  router.post("/fleet/contract-duty", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const shipSymbol = String(req.body?.shipSymbol ?? "");
+    if (!shipSymbol) return res.status(400).json({ error: "shipSymbol required" });
+    const on = req.body?.on !== false;
+    try {
+      await w.fleet.setContractDuty(shipSymbol, on);
+      await w.store.recordOperatorAction(w.tenantId, "contract_duty", shipSymbol, `${shipSymbol}: ${on ? "pinned to contract work" : "released from contract duty"}`, { on });
+      res.json({ ok: true, contractDuty: w.fleet.contractDutyShips() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   router.post("/dispatch", async (req, res) => {

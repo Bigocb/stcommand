@@ -12,7 +12,7 @@ import { crewHtml, crewAction, loadFields, cachedFields } from "/shared/contract
 import { login, probeSession } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
-  state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, minerPreferences, intel,
+  state, bridge, fleetStatus, approvals, dispatchAssignments, contractDutyShips, dispatchRoutes, minerPreferences, intel,
   marketRoutes, traderExclusions, marketSnapshots, contracts, missions, feeds, feedChains, chainHealth, doctrineRules, activity,
   priceGoods, priceWaypointsByGood, pricePoints,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
@@ -618,6 +618,7 @@ function renderSheet(row) {
     ${cancelSaleBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
     ${row.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
+    ${row.role === "trader" ? `<button class="btn${contractDutyShips.includes(row.symbol) ? " pri" : ""}" data-act="contract-duty">${contractDutyShips.includes(row.symbol) ? "Release from contract duty" : "Contract duty"}</button>` : ""}
     ${manualRoute ? `<button class="btn pri full" data-act="custom-route-clear">Release to auto — ${escapeHtml(manualRoute.good)} ${escapeHtml(shortWp(manualRoute.buyAt))} → ${escapeHtml(shortWp(manualRoute.sellAt))}</button>` : ""}
     ${row.role === "miner" ? `<button class="btn" data-act="miner-pref-toggle">Mining preference</button>` : ""}
     ${row.role === "tour" || row.role === "scout" ? `<button class="btn" data-act="tour-toggle">${row.role === "scout" ? "Send to system" : "Tour another system"}</button>` : ""}
@@ -801,6 +802,12 @@ $("sheet-actions").addEventListener("click", async (e) => {
       customRouteFormOpen = false;
       await loadDispatch();
     } catch (err) { alert(err.message); }
+    return renderFleetView();
+  }
+  if (act === "contract-duty") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/contract-duty", { shipSymbol: ship, on: !contractDutyShips.includes(ship) }); await loadDispatch(); }
+    catch (err) { alert(err.message); }
     return renderFleetView();
   }
   if (act === "custom-route-clear") {

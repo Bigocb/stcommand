@@ -591,6 +591,8 @@ export class RouteDispatcher {
   claim(shipSymbol: string, accept?: (route: DispatchRoute) => boolean): TraderAssignment | undefined {
     const manual = this.manual.get(shipSymbol);
     if (manual) return manual;
+    // A ship on contract duty takes contract work only; it must not pick its own arbitrage route here.
+    if (this.contractDuty.has(shipSymbol)) return this.assignments.get(shipSymbol)?.role === "contractBuy" ? this.assignments.get(shipSymbol) : undefined;
     const taken = this.takenGoods(shipSymbol);
     const route = this.routes.find((r) => !taken.has(r.good) && (accept ? accept(r) : true));
     if (!route) {
@@ -603,6 +605,19 @@ export class RouteDispatcher {
     this.assignments.set(shipSymbol, assignment);
     return assignment;
   }
+
+  /** Ships pinned to contract work: they are given contract-buy jobs (whichever contract needs a good next) and nothing else. */
+  private readonly contractDuty = new Set<string>();
+
+  /** Pin a trader to contract work, or put it back on ordinary trading. */
+  setContractDuty(shipSymbol: string, on: boolean): void {
+    if (!on) { this.contractDuty.delete(shipSymbol); return; }
+    this.contractDuty.add(shipSymbol);
+    const a = this.assignments.get(shipSymbol);
+    if (a && a.role !== "contractBuy") this.assignments.delete(shipSymbol);
+  }
+
+  contractDutyShips(): string[] { return [...this.contractDuty].sort(); }
 
   /** Give up a claim (ship scrapped, role changed, route abandoned). */
   release(shipSymbol: string): void {
@@ -1477,6 +1492,7 @@ export class RouteDispatcher {
           if (w !== item) noteRejected(w, `on a planned circuit leg 2 (${item?.key ?? "?"})`);
           continue;
         }
+        if (this.contractDuty.has(t.shipSymbol) && !w.key.endsWith(":contractBuy")) { noteRejected(w, "this ship is on contract duty (contract work only)"); continue; }
         const lid = workLegId(w);
         const holder = lid !== undefined ? circuitHeld.get(lid) : undefined;
         if (holder !== undefined && holder !== t.shipSymbol) { noteRejected(w, "held for another ship's circuit"); continue; }

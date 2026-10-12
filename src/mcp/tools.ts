@@ -584,6 +584,25 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_set_contract_duty",
+    {
+      title: "Pin a trader to contract work",
+      description: "Pin a trader to contract work in general (not one contract): the dispatcher gives it only contract-buy jobs, whichever accepted contract needs a good next, and never ordinary trading routes. With no contract work it waits. on=false puts it back on ordinary trading. Saved across restarts. To pin a ship to one named contract and good instead, use the contract crew assignment.",
+      inputSchema: { shipSymbol: z.string(), on: z.boolean().default(true) },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol, on }) => {
+      try {
+        await w.fleet.setContractDuty(shipSymbol, on);
+        await recordMcpAction(w, "contract_duty", shipSymbol, `${shipSymbol}: ${on ? "pinned to contract work" : "released from contract duty"}`, { on });
+        return textResult({ ok: true, shipSymbol, on, contractDuty: w.fleet.contractDutyShips() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_scan_fields",
     {
       title: "Survey tour of asteroid fields",

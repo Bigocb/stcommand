@@ -66,6 +66,8 @@ export let doctrineFireShips = new Map();
 
 export let dispatchRoutes = [];
 export let dispatchAssignments = [];
+/** Traders pinned to contract work (any contract), from GET /api/dispatch. */
+export let contractDutyShips = [];
 export let minerPreferences = [];
 
 /* The same empty shape the renderers assume, not null: they read
@@ -314,6 +316,7 @@ export async function loadDispatch() {
     const data = await res.json();
     dispatchRoutes = data.routes ?? [];
     dispatchAssignments = data.assignments ?? [];
+    contractDutyShips = data.contractDuty ?? [];
     minerPreferences = data.minerPreferences ?? [];
     notify("dispatch");
   } catch (e) { console.error(e); }

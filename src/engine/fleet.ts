@@ -867,6 +867,7 @@ export class FleetManager {
         this.log(`restore warehouse ship failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    try { await this.restoreContractDuty(); } catch (err) { this.log(`restore contract duty failed: ${err instanceof Error ? err.message : String(err)}`); }
     try { await this.restoreFieldScans(); } catch (err) { this.log(`restore field scans failed: ${err instanceof Error ? err.message : String(err)}`); }
     for (const [shipSymbol, st] of Object.entries(await this.loadShipManualState())) {
       if (!ships.some((s) => s.symbol === shipSymbol)) continue; // scrapped while we were down
@@ -6282,6 +6283,31 @@ export class FleetManager {
     const had = this.surveyors.get(shipSymbol)?.stopFieldScan() ?? false;
     await this.saveFieldScan(shipSymbol, undefined);
     return had;
+  }
+
+  /** Pin a trader to contract work (whichever contract needs a good next), or put it back on ordinary trading. Saved across restarts. */
+  async setContractDuty(shipSymbol: string, on: boolean): Promise<void> {
+    if (!this.traders.has(shipSymbol)) throw new Error(`${shipSymbol} is not a trader`);
+    this.dispatcher.setContractDuty(shipSymbol, on);
+    if (this.tenantId && this.store) {
+      const list = this.dispatcher.contractDutyShips();
+      if (list.length) await this.store.setFleetFlag(this.tenantId, "contractDuty", JSON.stringify(list));
+      else await this.store.removeFleetFlag(this.tenantId, "contractDuty");
+    }
+    this.log(`${shipSymbol}: ${on ? "pinned to contract work" : "back on ordinary trading"}`);
+  }
+
+  contractDutyShips(): string[] { return this.dispatcher.contractDutyShips(); }
+
+  /** Put back the traders pinned to contract work, for ships that are still traders. */
+  private async restoreContractDuty(): Promise<void> {
+    const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "contractDuty") : undefined;
+    if (!raw) return;
+    try {
+      for (const ship of JSON.parse(raw) as string[]) {
+        if (this.traders.has(ship)) this.dispatcher.setContractDuty(ship, true);
+      }
+    } catch { /* a bad flag leaves everyone on ordinary trading */ }
   }
 
   /** `fieldScans` fleet flag: every looping survey tour, by ship, so a restart does not end it. */

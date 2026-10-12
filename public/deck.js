@@ -8,7 +8,7 @@ import { api, onUnauthorized } from "/shared/api.js";
 import { crewHtml, crewAction, cachedFields } from "/shared/contractCrew.js";
 import { login, probeSession } from "/shared/session.js";
 import {
-  state, bridge, fleetStatus, approvals, dispatchAssignments, dispatchRoutes, activity,
+  state, bridge, fleetStatus, approvals, dispatchAssignments, contractDutyShips, dispatchRoutes, activity,
   marketRoutes, intel,
   systems, marketSnapshots, leaderboard, factions, systemAgents, systemAgentsHistory,
   contracts, missions, feeds, feedChains, chainHealth, minerPreferences, notes,
@@ -897,6 +897,7 @@ function renderFleetActions(shipRow) {
     ${dockBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
     ${shipRow.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
+    ${shipRow.role === "trader" ? `<button class="btn${contractDutyShips.includes(shipRow.symbol) ? " pri" : ""}" data-act="contract-duty" title="Pin this ship to contract work: it buys for whichever contract needs a good next and does no other trading">${contractDutyShips.includes(shipRow.symbol) ? "Release from contract duty" : "Contract duty"}</button>` : ""}
     ${shipRow.role === "surveyor" ? `<button class="btn" data-act="survey-toggle">Survey tour${surveyStatus ? " ●" : ""}</button>` : ""}
     ${pinnedBtn}
     <button class="btn" data-act="repair">Repair</button>
@@ -951,6 +952,12 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
     fleetCustomOpen = false;
     fleetSurveyOpen = false;
     fleetRoleOpen = false;
+    return renderFleet();
+  }
+  if (act === "contract-duty") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/contract-duty", { shipSymbol: ship, on: !contractDutyShips.includes(ship) }); await loadDispatch(); }
+    catch (err) { alert(err.message); }
     return renderFleet();
   }
   if (act === "survey-toggle") {

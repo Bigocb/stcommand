@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Contract duty: pin a trader to contract work in general
+
+Operator request: pin a ship to contract work, not just one contract (the contract crew assignment stays for that). A trader on
+contract duty is given contract-buy jobs only, for whichever accepted contract needs a good next (the dispatcher's existing
+contract-buy work, richest first), and never an ordinary trading route: the dispatcher skips every other kind of work for it
+(logged as "this ship is on contract duty") and `claim()` will not hand it a route of its own. With no contract work it waits.
+Pinning drops an ordinary route it held; a ship mid-haul finishes its cargo as before. It is saved across restarts (fleet flag
+`contractDuty`) and shown on the `/api/dispatch` payload. Controls: a "Contract duty" / "Release from contract duty" button on
+a trader's sheet in Deck and Tower, `POST /api/fleet/contract-duty`, and the `set_contract_duty` tool. One buyer per good per
+cycle still applies, so two pinned ships on the same single contract good share it: the second waits for different work. Tests:
+`tests/contractDuty.test.ts`, and the endpoint in `tests/dashboard.test.ts`. The buttons are not run in a browser here.
+
 ## 2026-10-12 — Deck: start and stop a survey tour from the ship sheet
 
 The looping survey tour had no Deck control (only the `scan_fields` tool). A ship with the surveyor role now has a "Survey tour"

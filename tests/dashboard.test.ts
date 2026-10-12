@@ -337,6 +337,19 @@ describe("POST /api/contracts/assign + /api/contracts/miners (contract crew)", (
   });
 });
 
+describe("POST /api/fleet/contract-duty", () => {
+  it("needs a ship and refuses one that is not a trader", async () => {
+    assert.equal((await post("/api/fleet/contract-duty", {})).status, 400);
+    const res = await post("/api/fleet/contract-duty", { shipSymbol: "NOPE-1", on: true });
+    assert.equal(res.status, 400);
+    assert.match(((await res.json()) as { error: string }).error, /not a trader/);
+  });
+  it("is listed with the dispatch data the Fleet sheets read", async () => {
+    const body = (await (await get("/api/dispatch")).json()) as { contractDuty: string[] };
+    assert.deepEqual(body.contractDuty, []);
+  });
+});
+
 describe("survey tour endpoints", () => {
   it("reports no tour, refuses a ship that is not a surveyor, and needs a ship and fields", async () => {
     const status = (await (await get("/api/fleet/survey-tour?shipSymbol=NOPE-1")).json()) as { progress: unknown };
