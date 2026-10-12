@@ -1183,9 +1183,9 @@ function renderMarkets() {
       const main = sortMode === "hour" && r.ratePerHour != null ? `${signed(r.ratePerHour)}/hr` : `${signed(r.profitPerTrip)}/trip`;
       const sub = r.ratePerHour != null ? `${signed(r.profitPerTrip)}/trip · ${escapeHtml(tripLabel(r))}` : `${signed(r.profitPerTrip)}/trip`;
       return `
-      <div class="goodrow">
+      <div class="goodrow${r.protectedGood ? " protected" : ""}"${r.protectedGood ? ' title="Protected good: reserved for a gate mission or contract. Auto trading skips it; a manual pin can still fly it."' : ""}>
         <div style="flex:1">
-          <div class="name">${escapeHtml(r.goodSymbol)}</div>
+          <div class="name">${escapeHtml(r.goodSymbol)}${r.protectedGood ? ' <span class="prot-tag">protected</span>' : ""}</div>
           <div class="route">${escapeHtml(r.buyAt)} → ${escapeHtml(r.sellAt)} · ${sub} · ${runsLeftHtml(r)}</div>
           ${status}
           ${holdLine(r)}

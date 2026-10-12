@@ -736,11 +736,13 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       }
       const explainSnap = w.fleet.dispatcher.explain();
       const assignmentList = w.fleet.dispatcher.list();
+      const protectedNow = new Set(w.fleet.protectedGoodList());
       allRoutes = allRoutes.map((r) => {
         const profitByHold = r.profitByHold ?? {};
         const idleHold = Object.keys(profitByHold).map(Number).filter((h) => freeTraderByHold.has(h)).sort((a, b) => b - a)[0];
         return {
           ...r,
+          protectedGood: protectedNow.has(r.goodSymbol),
           idleHold: idleHold ?? null,
           idleProfit: idleHold !== undefined ? profitByHold[idleHold] ?? null : null,
           idleShip: idleHold !== undefined ? freeTraderByHold.get(idleHold) ?? null : null,

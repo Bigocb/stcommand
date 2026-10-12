@@ -1179,6 +1179,11 @@ export class FleetManager {
    * sold (or jettisoned, if no market would buy it) before the contract
    * ever got a chance to be fulfilled.
    */
+  /** Goods reserved for a gate mission or contract; the Routes lists mark these (ordinary trading refuses them). */
+  protectedGoodList(): string[] {
+    return [...this.allProtectedGoods()];
+  }
+
   private allProtectedGoods(): Set<string> {
     const out = new Set(this.missions.protectedGoods());
     for (const g of this.contracts?.protectedGoods() ?? []) out.add(g);

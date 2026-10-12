@@ -1268,7 +1268,7 @@ export class TraderAgent {
    */
   private whyNotViable(r: DirectLeg, ignoreProfitFloor = false): string {
     if (r.buyAt === r.sellAt) return "buyAt === sellAt";
-    if (this.protectedGoods?.().has(r.good)) return `protected good ${r.good}`;
+    if (this.refusedGoods().has(r.good)) return `protected good ${r.good}`;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return `dead route ${r.good}@${r.buyAt}`;
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
@@ -1316,7 +1316,7 @@ export class TraderAgent {
 
   private viableRoute(r: DirectLeg, ignoreProfitFloor = false): Route | undefined {
     if (r.buyAt === r.sellAt) return undefined;
-    if (this.protectedGoods?.().has(r.good)) return undefined;
+    if (this.refusedGoods().has(r.good)) return undefined;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return undefined;
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
@@ -1423,7 +1423,7 @@ export class TraderAgent {
    * the same good as free and both take it.
    */
   private freeChoice(): Route | undefined {
-    const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
+    const protectedGoods = this.refusedGoods();
     const reservedGoods = this.reservedGoods?.() ?? new Set<string>();
     const goods = new Set<string>();
     for (const table of this.priceTable.values()) for (const g of table.keys()) goods.add(g);
@@ -1596,7 +1596,7 @@ export class TraderAgent {
     // all). Previously this function had no protectedGoods check whatsoever,
     // so any of them landing in a trader's hold got sold — or jettisoned,
     // if no market would buy it — on the very next tick.
-    const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
+    const protectedGoods = this.refusedGoods();
     const held = new Set<string>((this.ship.cargo.inventory ?? []).filter((i) => i.units > 0).map((i) => i.symbol));
     // A pin must never outlive the cargo it describes: once the good is gone
     // the trip is over, and a stale leg would answer for the next one.
@@ -1880,8 +1880,21 @@ export class TraderAgent {
     return this.applyCashFloor ? this.applyCashFloor(live) : live;
   }
 
+  /**
+   * protectedGoods() minus the good an operator pinned this ship to by hand. A protected good (a gate or contract
+   * material) is kept out of ORDINARY trading, but a manual route is the operator naming that good on purpose
+   * (2026-10-12: THEOREM-11 pinned to ADVANCED_CIRCUITRY D41 -> A4 sat idle, refused as protected). The exemption covers
+   * the pinned good only, and also lets the ship deliver and sweep what it bought.
+   */
+  private refusedGoods(): Set<string> {
+    const out = new Set(this.protectedGoods?.() ?? []);
+    const a = this.assignedRoute?.();
+    if (a?.source === "manual" && a.role === "direct" && a.good) out.delete(a.good);
+    return out;
+  }
+
   private async deliverHeldCargo(): Promise<boolean | undefined> {
-    const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
+    const protectedGoods = this.refusedGoods();
     for (const item of this.ship.cargo.inventory ?? []) {
       if (item.units <= 0 || protectedGoods.has(item.symbol)) continue;
       // The leg it was bought for, not the one the dispatcher wants now — see

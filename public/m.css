@@ -452,6 +452,8 @@ body {
   background: var(--panel); border: 1px solid var(--hair); border-radius: 3px; padding: 10px 12px;
   margin-bottom: 8px;
 }
+.route-row.protected { border-color: var(--amber); }
+.route-row .prot-tag { font-family: var(--mono); font-size: 9px; color: var(--amber); margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; font-weight: 400; }
 .route-row .rr-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .route-row .rr-good { font-family: var(--chrome); font-weight: 600; font-size: 12.5px; }
 .route-row .rr-profit { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--green); }

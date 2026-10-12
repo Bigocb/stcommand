@@ -1048,8 +1048,8 @@ function renderMarketRoutes() {
       : "";
     const blocked = !assigned && r.blockedBy;
     const idleLine = r.idleHold ? `<div class="rr-legs">idle ${r.idleHold}u hull: ${signed(r.idleProfit)}/trip</div>` : "";
-    return `<div class="route-row">
-      <div class="rr-top"><span class="rr-good">${escapeHtml(good)}</span><span class="rr-profit">${sortMode === "hour" && r.ratePerHour != null ? `${signed(r.ratePerHour)}/hr` : `${signed(r.profitPerTrip)}/trip`}</span></div>
+    return `<div class="route-row${r.protectedGood ? " protected" : ""}"${r.protectedGood ? ' title="Protected good: reserved for a gate mission or contract. Auto trading skips it; a manual pin can still fly it."' : ""}>
+      <div class="rr-top"><span class="rr-good">${escapeHtml(good)}${r.protectedGood ? ' <span class="prot-tag">protected</span>' : ""}</span><span class="rr-profit">${sortMode === "hour" && r.ratePerHour != null ? `${signed(r.ratePerHour)}/hr` : `${signed(r.profitPerTrip)}/trip`}</span></div>
       <div class="rr-legs">${r.ratePerHour != null ? `${signed(r.profitPerTrip)}/trip · ${signed(r.ratePerHour)}/hr · ${escapeHtml(tripLabel(r))}` : `${signed(r.profitPerTrip)}/trip`} · ${runsLeftHtml(r)}</div>
       ${holdLine(r)}
       ${idleLine}

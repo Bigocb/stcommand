@@ -257,6 +257,8 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .goodrow{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,199,120,.06);font-size:11.5px}
 .goodrow .name{font-family:var(--mono);color:var(--bone)}
 .goodrow .route{font-size:10px;color:var(--dim)}
+.goodrow.protected{border:1px solid var(--amber);border-radius:3px;padding:6px 8px;margin:2px 0}
+.prot-tag{font-family:var(--mono);font-size:9px;color:var(--amber);margin-left:6px;text-transform:uppercase;letter-spacing:.04em}
 .profit{font-family:var(--mono);font-weight:600;color:var(--green)}
 
 /* Feeds screen (feeder tiers + chains) and Ops' Automation/Notes panels —

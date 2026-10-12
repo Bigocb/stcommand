@@ -1340,3 +1340,22 @@ describe("TraderAgent.deliverHeldCargo: an operator redirect re-pins the held le
     assert.deepEqual(persisted, [], "an auto assignment never overrides the pin the cargo was bought for");
   });
 });
+
+describe("TraderAgent: a manual pin overrides protection for its own good only", () => {
+  const make = (source: "manual" | "auto", role = "direct") =>
+    new TraderAgent(makeShip([]), {
+      api: { getCallCount: () => 0 } as any,
+      assignedRoute: () => ({ shipSymbol: "SHIP-1", good: "ADVANCED_CIRCUITRY", role, buyAt: "X1-A-A1", sellAt: "X1-A-B2", buyPrice: 1, sellPrice: 2, profitPerTrip: 1, source }) as any,
+      protectedGoods: () => new Set(["ADVANCED_CIRCUITRY", "FAB_MATS"]),
+    });
+
+  it("lets a manual direct pin fly the protected good it names, but keeps the others protected", () => {
+    const refused = (make("manual") as any).refusedGoods() as Set<string>;
+    assert.equal(refused.has("ADVANCED_CIRCUITRY"), false);
+    assert.equal(refused.has("FAB_MATS"), true);
+  });
+
+  it("still refuses a protected good on an auto assignment", () => {
+    assert.equal(((make("auto") as any).refusedGoods() as Set<string>).has("ADVANCED_CIRCUITRY"), true);
+  });
+});
