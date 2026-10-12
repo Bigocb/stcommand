@@ -1929,6 +1929,18 @@ function renderFeeds() {
   const carrierCandidates = (fleetStatus.ships ?? []).filter((s) =>
     (s.role === "miner" || s.role === "trader") && !committedElsewhere.has(s.symbol)
   );
+  // The create form's carrier picker: name the ship up front (hold size and contract work shown) instead of letting the
+  // automatic pick take the biggest empty hold.
+  const shipSel = $("feed-ship");
+  if (shipSel && document.activeElement !== shipSel) {
+    const cur = shipSel.value;
+    const holdOf = new Map((state?.ships ?? []).map((sh) => [sh.symbol, sh.cargo?.capacity ?? 0]));
+    shipSel.innerHTML = '<option value="">Carrier: auto</option>' + carrierCandidates.map((c) => {
+      const onContract = contractDutyShips.includes(c.symbol) || dispatchAssignments.some((a) => a.shipSymbol === c.symbol && a.role === "contractBuy");
+      return `<option value="${escapeAttr(c.symbol)}">${escapeHtml(c.symbol)} · ${holdOf.get(c.symbol) ?? 0} hold${onContract ? " · on contract" : ""}</option>`;
+    }).join("");
+    if (carrierCandidates.some((c) => c.symbol === cur)) shipSel.value = cur;
+  }
   el.innerHTML = items.map((f) => {
     const crew = f.assignedShips ?? [];
     const target = f.carrierTarget ?? 1;
@@ -2053,6 +2065,7 @@ async function feedStart() {
     await api("POST", "/api/feeds/start", {
       waypoint, good, carrierTarget: crew, mine, force,
       sellGapMin: sellGapMinRaw === "" ? undefined : Number(sellGapMinRaw),
+      shipSymbol: $("feed-ship")?.value || undefined,
     });
     $("feed-waypoint").value = ""; $("feed-good").value = ""; $("feed-crew").value = "1";
     $("feed-mine").checked = false; $("feed-force").checked = false; $("feed-sell-gap").value = "";

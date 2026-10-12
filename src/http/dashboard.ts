@@ -1393,8 +1393,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const sellGapMin = Number(req.body?.sellGapMin);
     const sellGapMs = Number.isFinite(sellGapMin) && sellGapMin > 0 ? sellGapMin * 60_000 : undefined;
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
+    // `shipSymbol`: name the carrier up front. The feed starts with no crew wanted so its own tick cannot pick one in between,
+    // then the named ship is added (which raises the crew size to cover it).
+    const shipSymbol = typeof req.body?.shipSymbol === "string" && req.body.shipSymbol ? req.body.shipSymbol : undefined;
+    const crewWanted = Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1;
     try {
-      await w.fleet.startFeed(waypoint, good, Number.isFinite(carrierTarget) && carrierTarget > 0 ? carrierTarget : 1, mine, buyAt, force, sellGapMs);
+      await w.fleet.startFeed(waypoint, good, shipSymbol ? 0 : crewWanted, mine, buyAt, force, sellGapMs);
+      if (shipSymbol) {
+        try {
+          await w.fleet.assignFeedCarrier(waypoint, good, shipSymbol, mine);
+          if (crewWanted > 1) await w.fleet.setFeedCarrierTarget(waypoint, good, crewWanted, mine);
+        } catch (err) {
+          await w.fleet.setFeedCarrierTarget(waypoint, good, crewWanted, mine).catch(() => {});
+          throw new Error(`the feed started, but ${shipSymbol} could not be added (${err instanceof Error ? err.message : String(err)}); it will choose its own crew`);
+        }
+      }
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

@@ -1565,6 +1565,7 @@ $("more-chains").addEventListener("click", async (e) => {
 });
 
 function renderMoreFeeds() {
+  refreshFeedShipSelect();
   const el = $("more-feeds");
   if (!feeds.length) { el.innerHTML = '<div class="empty">No feeder tiers.</div>'; return; }
   el.innerHTML = feeds.map((f) => {
@@ -1576,6 +1577,11 @@ function renderMoreFeeds() {
         <span class="amt">${f.paused ? "off" : "on"}</span>
       </div>
       <div class="detail">${f.mine ? "mined" : f.buyAt ? `buy @ ${escapeHtml(shortWp(f.buyAt))}` : "bought"}${f.chainName ? ` · chain: ${escapeHtml(f.chainName)}` : ""} · crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""} · gap ${f.sellGapMs ? `${Math.round(f.sellGapMs / 60_000)}m` : "default"}${f.stopAtSupply ? ` · stop at ${escapeHtml(f.stopAtSupply.toLowerCase())}` : ""}${f.maxLossPerUnit != null ? ` · loss ≤ ${f.maxLossPerUnit}c` : ""}${f.field ? ` · field ${escapeHtml(shortWp(f.field))}` : ""}${f.collector ? ` · collector ${escapeHtml(f.collector)}` : ""}</div>
+      <div class="acts">
+        ${crew.map((c) => `<button class="btn ghost" data-act="remove-carrier" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}" data-ship="${escapeHtml(c)}" title="Take ${escapeHtml(c)} off this feed">${escapeHtml(c)} ✕</button>`).join("")}
+        <select class="assign-carrier" aria-label="Add a carrier ship"><option value="">add ship…</option>${feedCarrierCandidates(f.mine).map((o) => `<option value="${escapeHtml(o.symbol)}">${escapeHtml(o.label)}</option>`).join("")}</select>
+        <button class="btn" data-act="assign" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}">Add</button>
+      </div>
       <div class="acts">
         <input type="number" class="carrier-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}" min="0" value="${target}" style="width:56px" aria-label="Crew target">
         <button class="btn" data-act="set-target" data-wp="${escapeHtml(f.targetWaypoint)}" data-good="${escapeHtml(f.good)}" data-mine="${f.mine ? 1 : 0}">Set crew size</button>
@@ -1810,7 +1816,33 @@ function populateWaypointSelectForGood(sel, good) {
   sel.innerHTML = `<option value="">${good ? "Market…" : "Pick a good first…"}</option>` + options.map((wp) => `<option value="${escapeAttr(wp)}">${escapeHtml(wp)}</option>`).join("");
   if (options.includes(current)) sel.value = current;
 }
+/** Traders and miners a feed could take: not already on a feed, mission or collector. The label gives the hold and flags a ship that
+ *  is on contract work, so the right size lands on the right job (docs/reset-opening-playbook.md). */
+function feedCarrierCandidates(mine) {
+  const taken = new Set([
+    ...feeds.flatMap((f) => [...(f.assignedShips ?? []), ...(f.collector ? [f.collector] : [])]),
+    ...missions.flatMap((m) => m.assignedShips ?? []),
+  ]);
+  const stateBy = new Map((state?.ships ?? []).map((s) => [s.symbol, s]));
+  return (fleetStatus.ships ?? [])
+    .filter((s) => (mine ? s.role === "miner" : s.role === "trader") && !taken.has(s.symbol))
+    .map((s) => {
+      const hold = stateBy.get(s.symbol)?.cargo?.capacity ?? 0;
+      const onContract = contractDutyShips.includes(s.symbol) || dispatchAssignments.some((a) => a.shipSymbol === s.symbol && a.role === "contractBuy");
+      return { symbol: s.symbol, label: `${s.symbol} · ${hold} hold${onContract ? " · on contract" : ""}` };
+    });
+}
+function refreshFeedShipSelect() {
+  const sel = $("feed-ship-input");
+  if (!sel) return;
+  const current = sel.value;
+  const opts = feedCarrierCandidates($("feed-mine-input")?.checked);
+  sel.innerHTML = '<option value="">Carrier: auto</option>' + opts.map((o) => `<option value="${escapeAttr(o.symbol)}">${escapeHtml(o.label)}</option>`).join("");
+  if (opts.some((o) => o.symbol === current)) sel.value = current;
+}
+$("feed-mine-input")?.addEventListener("change", refreshFeedShipSelect);
 function refreshFeedFormSelects() {
+  refreshFeedShipSelect();
   populateGoodSelect($("feed-good-input"));
   populateWaypointSelectForGood($("feed-wp-input"), $("feed-good-input").value);
 }
@@ -1829,7 +1861,8 @@ $("feed-start-btn").addEventListener("click", async () => {
   const btn = $("feed-start-btn");
   btn.disabled = true;
   try {
-    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: 1, mine: mineInput.checked, sellGapMin });
+    const shipSymbol = $("feed-ship-input")?.value || undefined;
+    await api("POST", "/api/feeds/start", { waypoint: wp, good, carrierTarget: 1, mine: mineInput.checked, sellGapMin, shipSymbol });
     wpInput.value = "";
     goodInput.value = "";
     mineInput.checked = false;
@@ -1843,11 +1876,17 @@ $("feed-start-btn").addEventListener("click", async () => {
 $("more-feeds").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b) return;
-  const { act, wp, good, mine } = b.dataset;
+  const { act, wp, good, mine, ship } = b.dataset;
   if (act === "remove" && !confirm(`Remove the feed ${good} → ${wp}? Its crew is released; this isn't just a pause.`)) return;
   b.disabled = true;
   try {
-    if (act === "set-target") {
+    if (act === "assign") {
+      const shipSymbol = b.closest(".acts").querySelector(".assign-carrier")?.value;
+      if (!shipSymbol) { alert("Pick a ship to add"); b.disabled = false; return; }
+      await api("POST", "/api/feeds/assign", { waypoint: wp, good, mine: mine === "1", shipSymbol });
+    } else if (act === "remove-carrier") {
+      await api("POST", "/api/feeds/remove-carrier", { waypoint: wp, good, mine: mine === "1", shipSymbol: ship });
+    } else if (act === "set-target") {
       const input = b.closest(".acts").querySelector(".carrier-target");
       const count = Number(input?.value);
       if (!Number.isFinite(count) || count < 0) { alert("Enter a valid crew size"); return; }

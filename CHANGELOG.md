@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Tower (and Deck) can name a feed's carrier, before and after creating it
+
+Tower had no way to choose a feed's carrier: the Start form had no ship field, and a feed card showed the crew as text with no add or
+remove, so the automatic pick (biggest empty hold) decided. Tower's Start form now has a carrier picker ("Carrier: auto" by default),
+and each feed card lists its crew with a remove button and an "add ship…" picker. Deck's create form gets the same picker (its card
+already had add and remove). Each option shows the ship's hold and flags a ship on contract work ("40 hold · on contract"), so the right
+size can be matched to the job. `POST /api/feeds/start` takes `shipSymbol`: the feed starts wanting no crew (so its own tick cannot pick
+one in between), the named ship is added, and if that fails the feed keeps its normal crew size and the error says so. Tested in
+`tests/dashboard.test.ts`; the Tower/Deck controls are not run in a browser here.
+
 ## 2026-10-12 — Feeds and missions no longer take a ship that is on contract work
 
 A new copper-ore feed into H57 picked its carrier itself and took THEOREM-A, the pinned 80-hold hauler that held a live contract buy,

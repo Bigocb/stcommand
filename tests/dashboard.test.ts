@@ -337,6 +337,18 @@ describe("POST /api/contracts/assign + /api/contracts/miners (contract crew)", (
   });
 });
 
+describe("POST /api/feeds/start with a named carrier", () => {
+  it("starts the feed, refuses a ship it cannot add, and leaves the crew size normal so it picks its own", async () => {
+    const res = await post("/api/feeds/start", { waypoint: "X1-TEST-B", good: "IRON_ORE", shipSymbol: "NOPE-1", carrierTarget: 1 });
+    assert.equal(res.status, 400);
+    assert.match(((await res.json()) as { error: string }).error, /the feed started, but NOPE-1 could not be added/);
+    const feeds = ((await (await get("/api/feeds")).json()) as { feeds: { good: string; carrierTarget: number; assignedShips: string[] }[] }).feeds;
+    const f = feeds.find((x) => x.good === "IRON_ORE");
+    assert.equal(f?.carrierTarget, 1, "crew size restored so the feed can pick its own carrier");
+    assert.deepEqual(f?.assignedShips, []);
+  });
+});
+
 describe("POST /api/fleet/contract-duty", () => {
   it("needs a ship and refuses one that is not a trader", async () => {
     assert.equal((await post("/api/fleet/contract-duty", {})).status, 400);
