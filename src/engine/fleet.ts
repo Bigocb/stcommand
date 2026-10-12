@@ -634,6 +634,7 @@ export class FleetManager {
       pickCarrier: (exclude, targetWaypoint, requireMiner) => this.pickFeedCarrier(new Set([...exclude, ...this.missions.committedShips()]), targetWaypoint, requireMiner),
       suspend: (s) => this.suspendAgent(s),
       resume: (s) => this.resumeAgent(s),
+      releaseHold: async (s) => { if (this.operatorHolds.has(s)) { this.log(`${s}: operator hold dropped, it is a feed collector now`); await this.updateShipManualState(s, { holdWaypoint: null }); } },
       listBuyers: (good, sys) => this.materialBuyers(good, sys),
       discoverBuyers: (good, sys) => this.discoverMaterialBuyers(good, sys),
       sellPriceAt: (wp, good) => this.sellPriceAt(wp, good),

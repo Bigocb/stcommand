@@ -8,6 +8,7 @@ function harness(opts: { cap?: number } = {}) {
   const resumed: string[] = [];
   const sold: { good: string; units: number }[] = [];
   const dispatched: string[] = [];
+  const holdReleases: string[] = [];
   const col: any = {
     symbol: "COL-1",
     nav: { status: "DOCKED", waypointSymbol: "X1-A-H" },
@@ -31,8 +32,9 @@ function harness(opts: { cap?: number } = {}) {
     resume: (s: string) => { resumed.push(s); },
     dispatchShip: async (_s: string, wp: string) => { dispatched.push(wp); },
     pinMiner: async () => {},
+    releaseHold: async (s: string) => { holdReleases.push(s); },
   } as any);
-  return { fm, col, suspended, resumed, sold, dispatched };
+  return { fm, col, suspended, resumed, sold, dispatched, holdReleases };
 }
 
 async function two(h: ReturnType<typeof harness>) {
@@ -87,5 +89,17 @@ describe("one collector for several feeds", () => {
     assert.deepEqual(h.resumed, [], "still collecting for copper");
     await h.fm.remove("X1-A-H", "COPPER_ORE", true);
     assert.deepEqual(h.resumed, ["COL-1"]);
+  });
+});
+
+describe("a collector the operator had parked with a hold", () => {
+  it("has the hold dropped once, so a flight to market is not undone by hold enforcement", async () => {
+    const h = harness();
+    await two(h);
+    for (const g of ["IRON_ORE", "COPPER_ORE"]) await h.fm.setCollector("X1-A-H", g, { field: "X1-A-F", collector: "COL-1" }, true);
+    const [a, b] = await h.fm.list();
+    await (h.fm as any).stepCollector(a, [a, b]);
+    await (h.fm as any).stepCollector(a, [a, b]);
+    assert.deepEqual(h.holdReleases, ["COL-1"]);
   });
 });

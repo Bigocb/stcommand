@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Feeds: a collector shuttle with an operator hold has the hold dropped
+
+THEOREM-25 was parked at the asteroid with `hold_ship` and then made a feed's collector. A hold is re-enforced every tick and
+re-navigates the ship back to the hold waypoint (the same trap documented on `withHoldSuspended`, the THEO-5 incident), so the
+first time the collector flew its load to the market the hold would have dragged it straight back. A feed now drops the operator
+hold on its collector the first time it runs the shuttle (once per process, logged), since the feed owns where the shuttle goes.
+Test in `tests/feedSharedCollector.test.ts`.
+
 ## 2026-10-12 — Mine feeds: a "hand off at N units" setting
 
 Operator request: drones should give their ore to the collector (or sell it) once they hold 10 of the feed's good, not wait for a

@@ -168,6 +168,9 @@ interface FeedOptions {
   pickCarrier?: (exclude: Set<string>, targetWaypoint?: string, requireMiner?: boolean) => Promise<string | undefined>;
   suspend?: (shipSymbol: string) => void | Promise<void>;
   resume?: (shipSymbol: string) => void;
+  /** Drop an operator hold on a ship. A collector parked with a hold would be dragged back to the hold waypoint every
+   *  time it flew to market (the hold is re-enforced each tick), so a feed takes the hold off the shuttle it uses. */
+  releaseHold?: (shipSymbol: string) => Promise<void>;
   /** Set (or clear, with `undefined`) a ship's survey preference — see
    *  ShipAgent.surveyPredicate()'s own comment. A "mine" feed's crew needs
    *  this pointed at `feed.good`, or extraction defaults to "whatever
@@ -300,6 +303,9 @@ export class FeedManager {
   private readonly pickCarrier?: FeedOptions["pickCarrier"];
   private readonly suspend?: FeedOptions["suspend"];
   private readonly resume?: FeedOptions["resume"];
+  private readonly releaseHold?: FeedOptions["releaseHold"];
+  /** Collectors whose operator hold has already been dropped this process. */
+  private readonly holdCleared = new Set<string>();
   private readonly listBuyers?: FeedOptions["listBuyers"];
   private readonly discoverBuyers?: FeedOptions["discoverBuyers"];
   private readonly sellPriceAt?: FeedOptions["sellPriceAt"];
@@ -359,6 +365,7 @@ export class FeedManager {
     this.pickCarrier = opts.pickCarrier;
     this.suspend = opts.suspend;
     this.resume = opts.resume;
+    this.releaseHold = opts.releaseHold;
     this.listBuyers = opts.listBuyers;
     this.discoverBuyers = opts.discoverBuyers;
     this.sellPriceAt = opts.sellPriceAt;
@@ -1323,6 +1330,10 @@ export class FeedManager {
     const sym = feed.collector!;
     const field = feed.field!;
     const key = this.feedKey(feed);
+    if (!this.holdCleared.has(sym)) {
+      this.holdCleared.add(sym);
+      try { await this.releaseHold?.(sym); } catch (err) { this.log(`feed ${feed.good} → ${feed.targetWaypoint}: could not drop the hold on collector ${sym}: ${err instanceof Error ? err.message : String(err)}`); }
+    }
     if (Date.now() < (this.collectorWakeAt.get(key) ?? 0)) return;
     const ship = await this.getShip?.(sym);
     if (!ship) return;
