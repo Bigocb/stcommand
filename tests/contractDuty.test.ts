@@ -51,3 +51,51 @@ describe("contract duty", () => {
     assert.equal(d.assignmentFor("T-1"), undefined);
   });
 });
+
+describe("several ships on one contract good", () => {
+  const need = (n: number) => [{ good: "ALUMINUM_ORE", buyAt: "X1-A-30", buyPrice: 50, needed: n, value: 90_000 }];
+  const duty = (d: RouteDispatcher, ...ships: string[]) => ships.forEach((s) => d.setContractDuty(s, true));
+
+  it("two ships on contract duty split a contract that needs two holds", () => {
+    const d = new RouteDispatcher();
+    duty(d, "T-1", "T-2");
+    run(d, [ship("T-1"), ship("T-2")], need(80));
+    assert.equal(d.assignmentFor("T-1")?.role, "contractBuy");
+    assert.equal(d.assignmentFor("T-2")?.role, "contractBuy");
+    assert.deepEqual([d.assignmentFor("T-1")?.slot, d.assignmentFor("T-2")?.slot].sort(), [1, 2]);
+  });
+
+  it("a contract that needs only one hold goes to one ship; the other waits", () => {
+    const d = new RouteDispatcher();
+    duty(d, "T-1", "T-2");
+    run(d, [ship("T-1"), ship("T-2")], need(40));
+    const roles = [d.assignmentFor("T-1"), d.assignmentFor("T-2")].filter((a) => a?.role === "contractBuy");
+    assert.equal(roles.length, 1);
+  });
+
+  it("a need between one and two holds still gets a second ship (the buy itself is sized to what is left)", () => {
+    const d = new RouteDispatcher();
+    duty(d, "T-1", "T-2");
+    run(d, [ship("T-1"), ship("T-2")], need(50));
+    assert.equal([d.assignmentFor("T-1"), d.assignmentFor("T-2")].filter((a) => a?.role === "contractBuy").length, 2);
+  });
+
+  it("a ship not on contract duty never takes a parallel slot", () => {
+    const d = new RouteDispatcher();
+    duty(d, "T-1");
+    run(d, [ship("T-1"), ship("T-2")], need(80));
+    assert.equal(d.assignmentFor("T-1")?.role, "contractBuy");
+    assert.notEqual(d.assignmentFor("T-2")?.role, "contractBuy");
+  });
+
+  it("a ship already carrying a contract buy counts as its hold, so a need it covers sends nobody else", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    duty(d, "T-1", "T-2");
+    run(d, [ship("T-1")], need(40)); // T-1 gets it
+    assert.equal(d.assignmentFor("T-1")?.role, "contractBuy");
+    t.mock.timers.tick(60_001);
+    run(d, [{ ...ship("T-1"), busy: true } as any, ship("T-2")], need(40)); // T-1 is now flying the cargo
+    assert.notEqual(d.assignmentFor("T-2")?.role, "contractBuy");
+  });
+});

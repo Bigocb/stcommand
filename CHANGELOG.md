@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Contract duty: several ships can buy one contract good at once
+
+Operator idea: pin more than one ship so contracts finish faster. The dispatcher gave out one contract-buy job per good, so a
+second pinned ship just waited. With two or more ships on contract duty it now offers up to one buyer per such ship (max 4,
+`MAX_CONTRACT_SLOTS`, work keys `GOOD:contractBuy`, `GOOD:contractBuy#2`, ...). An extra buyer goes only to a ship on contract
+duty and only while the units already promised do not cover the need: each ship carried forward with a contract buy counts as
+its hold, and each ship assigned this cycle adds its own. The purchase itself is also sized to what is really left: the
+trader's `contractNeeded` now subtracts what other ships on a contract buy for that good already carry, which it did not before
+(it only subtracted the ship's own cargo, harmless with one buyer, an over-buy with two). The check on the old rule found that
+`needed` is units required less units delivered, so cargo in flight was invisible until now. A contract that needs less than one
+hold still goes to a single ship. Residual risk: two ships reaching the market in the same instant can both buy before either's
+cargo shows; the leftover is small and sells. Tests: `tests/contractDuty.test.ts`.
+
 ## 2026-10-12 — Contract duty: pin a trader to contract work in general
 
 Operator request: pin a ship to contract work, not just one contract (the contract crew assignment stays for that). A trader on

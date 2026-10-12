@@ -587,7 +587,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     "stcommand_set_contract_duty",
     {
       title: "Pin a trader to contract work",
-      description: "Pin a trader to contract work in general (not one contract): the dispatcher gives it only contract-buy jobs, whichever accepted contract needs a good next, and never ordinary trading routes. With no contract work it waits. on=false puts it back on ordinary trading. Saved across restarts. To pin a ship to one named contract and good instead, use the contract crew assignment.",
+      description: "Pin a trader to contract work in general (not one contract): the dispatcher gives it only contract-buy jobs, whichever accepted contract needs a good next, and never ordinary trading routes. With no contract work it waits. Two or more pinned ships may buy the same contract good in parallel (up to 4), each only while the ships already on it do not cover what is still needed. on=false puts it back on ordinary trading. Saved across restarts. To pin a ship to one named contract and good instead, use the contract crew assignment.",
       inputSchema: { shipSymbol: z.string(), on: z.boolean().default(true) },
       annotations: { destructiveHint: false, idempotentHint: true },
     },

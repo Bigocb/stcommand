@@ -164,6 +164,16 @@ function explainRouteOf(
  */
 export type TraderRole = "direct" | "buy" | "sell" | "haul" | "contractBuy";
 
+/** Most ships that may buy one contract good at once (slots 1..N), when enough ships are pinned to contract duty. */
+export const MAX_CONTRACT_SLOTS = 4;
+/** Work key of the k-th parallel buyer of a contract good: slot 1 keeps the plain `GOOD:contractBuy` key. */
+export const contractSlotKey = (good: string, slot: number): string => (slot <= 1 ? `${good}:contractBuy` : `${good}:contractBuy#${slot}`);
+/** 0 for any work key that is not a contract buy, else its slot number. */
+export const contractSlotOf = (key: string): number => {
+  const m = /:contractBuy(?:#(\d+))?$/.exec(key);
+  return m ? Number(m[1] ?? 1) : 0;
+};
+
 export interface TraderAssignment {
   shipSymbol: string;
   good: string;
@@ -186,6 +196,8 @@ export interface TraderAssignment {
   /** Informational: this trip is one leg of a two-leg circuit (see circuit.ts). Leg 1 names the leg planned to follow;
    *  leg 2 is that leg being served. The trader does not read it; the dispatcher keeps the second leg for this ship. */
   circuit?: { leg: 1 | 2; leg2: { good: string; buyAt: string; sellAt: string; score: number }; explain: string };
+  /** A "contractBuy" only: which of the parallel buyers for this good it is (1 = the first; 2+ exist only for ships on contract duty). */
+  slot?: number;
 }
 
 /** A good's warehouse state, as input to deciding whether it needs a buy or
@@ -537,11 +549,12 @@ export class RouteDispatcher {
   }
 
   /** No sell/warehouse leg at all — see TraderRole's own comment on why. */
-  private toContractBuyAssignment(shipSymbol: string, target: ContractBuyTarget, priority: number): TraderAssignment {
+  private toContractBuyAssignment(shipSymbol: string, target: ContractBuyTarget, priority: number, slot = 1): TraderAssignment {
     return {
       shipSymbol,
       good: target.good,
       role: "contractBuy",
+      slot,
       buyAt: target.buyAt,
       buyPrice: target.buyPrice,
       profitPerTrip: priority,
@@ -803,8 +816,9 @@ export class RouteDispatcher {
     /** Direct reserves the whole good; buy/sell/haul/contractBuy reserve
      *  just their side, so e.g. a buy trader and a sell trader can hold the
      *  same good at once. */
-    const keyFor = (a: { good: string; role: TraderRole }): string =>
-      a.role === "buy" || a.role === "sell" || a.role === "haul" || a.role === "contractBuy" ? `${a.good}:${a.role}` : a.good;
+    const keyFor = (a: { good: string; role: TraderRole; slot?: number }): string =>
+      a.role === "contractBuy" ? contractSlotKey(a.good, a.slot ?? 1)
+        : a.role === "buy" || a.role === "sell" || a.role === "haul" ? `${a.good}:${a.role}` : a.good;
 
     // Reserve every key a manual override could touch — the operator's good
     // is off-limits to auto-assignment in any role, not just the one they set.
@@ -813,7 +827,7 @@ export class RouteDispatcher {
       usedKeys.add(`${a.good}:buy`);
       usedKeys.add(`${a.good}:sell`);
       usedKeys.add(`${a.good}:haul`);
-      usedKeys.add(`${a.good}:contractBuy`);
+      for (let k = 1; k <= MAX_CONTRACT_SLOTS; k++) usedKeys.add(contractSlotKey(a.good, k));
     }
 
     // Carry forward every busy trader's current assignment, whatever its role.
@@ -960,7 +974,14 @@ export class RouteDispatcher {
     // `sellAt`, only set for a `direct` item: the one case that needs the
     // *whole* round trip to fit a fuel tank, not just the leg to buyAt — see
     // reachable()'s own comment below for the live case this closes.
-    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; buyVolume?: number; sellVolume?: number; tripSeconds?: number; secPerDist?: number; rawProfit?: number; profitByHold?: Record<string, number> }[] = [];
+    // Units already spoken for, per contract good, by ships carrying a contract buy forward (busy ones hold its cargo):
+    // each counts as its hold. The main loop adds every ship it assigns this cycle.
+    const contractPromised = new Map<string, number>();
+    const holdOf = new Map(sorted.map((t) => [t.shipSymbol, t.capacity]));
+    for (const [shipSymbol, a] of next) {
+      if (a.role === "contractBuy") contractPromised.set(a.good, (contractPromised.get(a.good) ?? 0) + (holdOf.get(shipSymbol) ?? 0));
+    }
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number; buySystem?: string; buyAt?: string; sellAt?: string; good?: string; buyPrice?: number; sellPrice?: number; volume?: number; buyVolume?: number; sellVolume?: number; tripSeconds?: number; secPerDist?: number; rawProfit?: number; profitByHold?: Record<string, number>; contractGood?: string; contractNeeded?: number }[] = [];
     for (const route of routes) {
       if (seenGood.has(route.good)) continue;
       seenGood.add(route.good);
@@ -1086,7 +1107,14 @@ export class RouteDispatcher {
       // needed*100 estimate only when it doesn't (e.g. existing tests that
       // construct a target with no `value`).
       const rankPriority = cb.value ?? displayProfit; // outranks an equivalent mission-buy shortfall — contracts have hard deadlines, warehousing doesn't
-      work.push({ key: `${cb.good}:contractBuy`, make: (s) => this.toContractBuyAssignment(s, cb, displayProfit), profitPerTrip: rankPriority });
+      // One buyer per good normally. With ships pinned to contract duty, up to one extra buyer per such ship (max
+      // MAX_CONTRACT_SLOTS) may buy the same good in parallel, each only while the ships already on it do not cover the
+      // units still needed (checked per ship in the loop below), so a contract finishes sooner without over-buying.
+      const dutyShips = sorted.filter((t) => this.contractDuty.has(t.shipSymbol)).length;
+      const slots = Math.max(1, Math.min(MAX_CONTRACT_SLOTS, dutyShips));
+      for (let k = 1; k <= slots; k++) {
+        work.push({ key: contractSlotKey(cb.good, k), make: (s) => this.toContractBuyAssignment(s, cb, displayProfit, k), profitPerTrip: rankPriority - (k - 1) * 0.001, contractGood: cb.good, contractNeeded: cb.needed });
+      }
     }
     // A direct leg at or under the trader's own margin floor is one every trader refuses (whyNotViable() applies the
     // same effectiveMarginFloor to the same doctrine value), so handing it out only burns a recompute and a price-
@@ -1492,7 +1520,13 @@ export class RouteDispatcher {
           if (w !== item) noteRejected(w, `on a planned circuit leg 2 (${item?.key ?? "?"})`);
           continue;
         }
-        if (this.contractDuty.has(t.shipSymbol) && !w.key.endsWith(":contractBuy")) { noteRejected(w, "this ship is on contract duty (contract work only)"); continue; }
+        const slot = contractSlotOf(w.key);
+        const onDuty = this.contractDuty.has(t.shipSymbol);
+        if (onDuty && slot === 0) { noteRejected(w, "this ship is on contract duty (contract work only)"); continue; }
+        if (slot >= 2) {
+          if (!onDuty) { noteRejected(w, "a parallel contract buyer is for ships on contract duty"); continue; }
+          if ((contractPromised.get(w.contractGood ?? "") ?? 0) >= (w.contractNeeded ?? 0)) { noteRejected(w, "the ships already on this contract good cover the units still needed"); continue; }
+        }
         const lid = workLegId(w);
         const holder = lid !== undefined ? circuitHeld.get(lid) : undefined;
         if (holder !== undefined && holder !== t.shipSymbol) { noteRejected(w, "held for another ship's circuit"); continue; }
@@ -1548,6 +1582,7 @@ export class RouteDispatcher {
         continue;
       }
       usedKeys.add(item.key);
+      if (item.contractGood !== undefined) contractPromised.set(item.contractGood, (contractPromised.get(item.contractGood) ?? 0) + t.capacity);
       const made = item.make(t.shipSymbol);
       if (leg2Served && planned) {
         made.circuit = { leg: 2, leg2: { ...planned.leg2, score: Math.round(leg2Served.score) }, explain: leg2Served.reason };

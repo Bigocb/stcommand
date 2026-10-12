@@ -1250,7 +1250,9 @@ export class FleetManager {
       },
       protectedGoods: () => this.allProtectedGoods(),
       deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
-      contractNeeded: (good) => this.contracts?.outstandingUnitsFor(good) ?? Promise.resolve(0),
+      // Units a contract still needs, less what OTHER ships on a contract buy already carry for it: with several buyers on one
+      // good (contract duty), each one's purchase must not count units a fleetmate is already flying in.
+      contractNeeded: async (good) => Math.max(0, ((await this.contracts?.outstandingUnitsFor(good)) ?? 0) - this.contractCargoHeldByOthers(good, shipSymbol)),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       declineRoute: (wholeGood) => this.dispatcher.decline(shipSymbol, wholeGood),
@@ -6298,6 +6300,17 @@ export class FleetManager {
   }
 
   contractDutyShips(): string[] { return this.dispatcher.contractDutyShips(); }
+
+  /** Units of `good` in the holds of other traders that are on a contract-buy assignment for it. */
+  private contractCargoHeldByOthers(good: string, exceptShip: string): number {
+    let n = 0;
+    for (const a of this.dispatcher.list()) {
+      if (a.role !== "contractBuy" || a.good !== good || a.shipSymbol === exceptShip) continue;
+      const held = this.traders.get(a.shipSymbol)?.getShip().cargo?.inventory?.find((i) => i.symbol === good)?.units ?? 0;
+      n += held;
+    }
+    return n;
+  }
 
   /** Put back the traders pinned to contract work, for ships that are still traders. */
   private async restoreContractDuty(): Promise<void> {
