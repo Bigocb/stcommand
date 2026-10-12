@@ -750,6 +750,9 @@ function renderFleet() {
  */
 let fleetSendOpen = false;
 let fleetRouteOpen = false;
+// Custom route: an operator-chosen good with a buy market and a sell market, pinned to the ship (POST /api/dispatch,
+// same body as Tower's form). Assign route above only offers the dispatcher's own top routes.
+let fleetCustomOpen = false;
 let fleetRoleOpen = false;
 let fleetRoleFormRole = null;
 let fleetDetailsOpen = false;
@@ -830,6 +833,20 @@ function renderFleetActions(shipRow) {
         : '<div class="empty">No profitable routes right now.</div>'
     }</div>`;
   }
+  if (fleetCustomOpen) {
+    const waypoints = [...new Set(marketSnapshots.map((m) => m.waypointSymbol))].sort();
+    const opts = waypoints.map((wp) => `<option value="${escapeAttr(wp)}">${escapeHtml(wp)}</option>`).join("");
+    extra += `<div class="role-form">
+      <input class="field-input" id="fleet-custom-good" list="fleet-custom-goods" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+      <datalist id="fleet-custom-goods">${[...new Set(marketSnapshots.map((m) => m.goodSymbol))].sort().map((g) => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
+      <select class="field-select" id="fleet-custom-buy" aria-label="Buy from">${opts}</select>
+      <select class="field-select" id="fleet-custom-sell" aria-label="Sell to">${opts}</select>
+      <div class="sheet-inline-form">
+        <button class="btn pri" data-act="custom-route-assign">Assign</button>
+        <button class="btn" data-act="route-clear">Auto</button>
+      </div>
+    </div>`;
+  }
   if (fleetRoleOpen) {
     const currentRole = fleetRoleFormRole ?? (SHIP_ROLES.includes(shipRow.role) ? shipRow.role : SHIP_ROLES[0]);
     const mismatch = roleMismatchReason(currentRole, ship);
@@ -846,11 +863,14 @@ function renderFleetActions(shipRow) {
   }
   if (fleetDetailsOpen) extra += renderShipDetails(ship);
 
+  // The fleet view re-renders on every poll; keep what is half-typed in the custom route form.
+  const kept = ["fleet-custom-good", "fleet-custom-buy", "fleet-custom-sell"].map((id) => [id, $(id)?.value]);
   el.innerHTML = `
     <button class="btn" data-act="send-toggle">Send to waypoint</button>
     ${holdBtn}
     ${dockBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
+    ${shipRow.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
     ${pinnedBtn}
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
@@ -859,11 +879,13 @@ function renderFleetActions(shipRow) {
     ${jumpPlannerHtml(ship.nav?.waypointSymbol, nav, jumpConnections)}
     ${extra}
   `;
+  for (const [id, v] of kept) { const f = $(id); if (f && v !== undefined && v !== "") f.value = v; }
 }
 
 function resetFleetActionForms() {
   fleetSendOpen = false;
   fleetRouteOpen = false;
+  fleetCustomOpen = false;
   fleetRoleOpen = false;
   fleetRoleFormRole = null;
   fleetDetailsOpen = false;
@@ -881,13 +903,15 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
     try { await api("POST", "/api/fleet/jump", { shipSymbol: ship, waypointSymbol: b.dataset.to }); await loadState(); return renderFleet(); }
     catch (err) { alert(err.message); b.disabled = false; return; }
   }
-  if (act === "send-toggle") { fleetSendOpen = !fleetSendOpen; fleetRouteOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
-  if (act === "route-toggle") { fleetRouteOpen = !fleetRouteOpen; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
+  if (act === "send-toggle") { fleetSendOpen = !fleetSendOpen; fleetRouteOpen = false; fleetCustomOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
+  if (act === "custom-route-toggle") { fleetCustomOpen = !fleetCustomOpen; fleetRouteOpen = false; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
+  if (act === "route-toggle") { fleetRouteOpen = !fleetRouteOpen; fleetCustomOpen = false; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
   if (act === "role-toggle") {
     fleetRoleOpen = !fleetRoleOpen;
     fleetRoleFormRole = null;
     fleetSendOpen = false;
     fleetRouteOpen = false;
+    fleetCustomOpen = false;
     fleetDetailsOpen = false;
     return renderFleet();
   }
@@ -895,6 +919,7 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
     fleetDetailsOpen = !fleetDetailsOpen;
     fleetSendOpen = false;
     fleetRouteOpen = false;
+    fleetCustomOpen = false;
     fleetRoleOpen = false;
     return renderFleet();
   }
@@ -938,6 +963,20 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
       await api("POST", "/api/fleet/dispatch", { shipSymbol: ship, waypointSymbol: wp });
       fleetSendOpen = false;
       await loadBridge();
+    } catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "custom-route-assign") {
+    const good = $("fleet-custom-good")?.value.trim().toUpperCase();
+    const buyAt = $("fleet-custom-buy")?.value;
+    const sellAt = $("fleet-custom-sell")?.value;
+    if (!good || !buyAt || !sellAt) { alert("good, buy market and sell market are all required"); return; }
+    if (buyAt === sellAt) { alert("buy and sell must be different markets"); return; }
+    b.disabled = true;
+    try {
+      await api("POST", "/api/dispatch", { shipSymbol: ship, good, buyAt, sellAt });
+      fleetCustomOpen = false;
+      await loadDispatch();
     } catch (err) { alert(err.message); }
     return renderFleet();
   }

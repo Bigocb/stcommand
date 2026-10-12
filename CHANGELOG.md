@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Deck: a Custom route form (pick the good, the buy market and the sell market)
+
+Deck's ship sheet only had "Assign route", which pins one of the dispatcher's own top routes. The form that lets you name a
+good and a buy and a sell market existed on Tower (and the old desktop) only, and I wrongly told the operator Deck had it.
+Deck's ship sheet now shows a "Custom route" button for traders: good (with the known goods to pick from), buy from, sell to,
+Assign / Auto. It posts the same `POST /api/dispatch` as Tower, so the ship shows "pinned by you" and a release button.
+Half-typed values survive the fleet view's re-renders. Not run in a browser here (Deck needs a live session): checked for syntax and
+against the code it mirrors.
+
 ## 2026-10-12 — Mission: show why a carrier is waiting and when it next looks
 
 A pacing gate (recovery, cash floor, "cannot afford one unit") makes a carrier wait `PACING_RECHECK_MS` (5 minutes) and then
