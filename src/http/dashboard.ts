@@ -1497,7 +1497,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     if (!waypoint || !good) return res.status(400).json({ error: "waypoint and good required" });
     const str = (v: unknown): string | null | undefined => (v === undefined ? undefined : v === null || v === "" ? null : String(v).toUpperCase());
     try {
-      await w.fleet.setFeedCollector(waypoint, good, { field: str(req.body?.field), collector: str(req.body?.collector) }, true);
+      const hand = req.body?.handoffUnits;
+      await w.fleet.setFeedCollector(waypoint, good, {
+        field: str(req.body?.field), collector: str(req.body?.collector),
+        handoffUnits: hand === undefined ? undefined : hand === null || hand === "" ? null : Number(hand),
+      }, true);
       res.json({ ok: true, feeds: await w.fleet.getFeeds() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

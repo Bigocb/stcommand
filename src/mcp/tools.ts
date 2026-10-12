@@ -899,15 +899,16 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
         waypoint: z.string().describe("The feed's target market"),
         good: z.string(),
         field: z.string().nullable().optional().describe("Asteroid waypoint for the drones"),
-        collector: z.string().nullable().optional().describe("Shuttle symbol, not on any other feed"),
+        collector: z.string().nullable().optional().describe("Shuttle symbol; may be shared by other mine feeds into the same market from the same field, not by a feed elsewhere"),
+        handoffUnits: z.number().int().min(1).max(200).nullable().optional().describe("Deliver once a drone holds this many units of the feed's good: hand them to the collector, or (with no collector) fly them to market. null = the default, a nearly full hold. With the collector away the drone keeps mining."),
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ waypoint, good, field, collector }) => {
+    async ({ waypoint, good, field, collector, handoffUnits }) => {
       try {
         // A collector only exists on a mining feed, so this always targets that one.
-        await w.fleet.setFeedCollector(waypoint, good.toUpperCase(), { field: field === undefined ? undefined : field, collector: collector === undefined ? undefined : collector }, true);
-        await recordMcpAction(w, "feed_collector", collector ?? undefined, `feed ${good.toUpperCase()} -> ${waypoint}: field ${field ?? "unchanged"}, collector ${collector ?? "unchanged"}`, { waypoint, good, field, collector });
+        await w.fleet.setFeedCollector(waypoint, good.toUpperCase(), { field: field === undefined ? undefined : field, collector: collector === undefined ? undefined : collector, handoffUnits }, true);
+        await recordMcpAction(w, "feed_collector", collector ?? undefined, `feed ${good.toUpperCase()} -> ${waypoint}: field ${field ?? "unchanged"}, collector ${collector ?? "unchanged"}, hand off at ${handoffUnits === undefined ? "unchanged" : handoffUnits ?? "default"}`, { waypoint, good, field, collector, handoffUnits });
         return textResult({ ok: true, feeds: await w.fleet.getFeeds() });
       } catch (err) {
         return errorResult(err);

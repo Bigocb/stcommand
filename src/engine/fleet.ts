@@ -5838,7 +5838,7 @@ export class FleetManager {
   /** Set (or clear) a feed's own sell-pacing gap override — see
    *  FeedManager.setSellGap()/DEFAULT_SELL_GAP_MS. */
   /** Drone-plus-collector mining on a mine feed: the asteroid the drones are pinned to and the shuttle that collects. */
-  setFeedCollector(waypointSymbol: string, good: string, patch: { field?: string | null; collector?: string | null }, mine?: boolean): Promise<void> {
+  setFeedCollector(waypointSymbol: string, good: string, patch: { field?: string | null; collector?: string | null; handoffUnits?: number | null }, mine?: boolean): Promise<void> {
     return this.feeds.setCollector(waypointSymbol, good, patch, mine);
   }
 

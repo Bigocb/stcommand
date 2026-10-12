@@ -76,6 +76,9 @@ export interface Feed {
    *  endpoint, and flies the full load to `targetWaypoint`. The drones then only mine (no 15-unit round trips).
    *  Suspended from the dispatcher while assigned, like a carrier. */
   collector?: string;
+  /** Mine feeds only: a drone delivers (hands its hold to the collector, or flies to market) once it holds this many units
+   *  of the feed's good, instead of waiting for a nearly full hold. Unset = the old rule: hold at 80% or full. */
+  handoffUnits?: number;
 }
 
 const SUPPLY_RANK: Record<string, number> = { SCARCE: 0, LIMITED: 1, MODERATE: 2, HIGH: 3, ABUNDANT: 4 };
@@ -113,6 +116,7 @@ export interface FeedStartOptions {
   stopAtSupply?: string;
   field?: string;
   collector?: string;
+  handoffUnits?: number;
 }
 
 interface FeedTaskState {
@@ -467,6 +471,7 @@ export class FeedManager {
         stopAtSupply: opts.stopAtSupply ?? persisted.stopAtSupply ?? undefined,
         field: opts.field ?? persisted.field ?? undefined,
         collector: opts.collector ?? persisted.collector ?? undefined,
+        handoffUnits: opts.handoffUnits ?? persisted.handoffUnits ?? undefined,
         chainId: opts.chainId ?? persisted.chainId ?? undefined,
         chainName: opts.chainId !== undefined ? opts.chainName : (persisted.chainName ?? undefined),
         chainOrder: opts.chainId !== undefined ? opts.chainOrder : (persisted.chainOrder ?? undefined),
@@ -503,6 +508,7 @@ export class FeedManager {
       stopAtSupply: opts.stopAtSupply,
       field: opts.field,
       collector: opts.collector,
+      handoffUnits: opts.handoffUnits,
       chainId: opts.chainId,
       chainName: opts.chainName,
       chainOrder: opts.chainOrder,
@@ -592,6 +598,7 @@ export class FeedManager {
       stopAtSupply: f.stopAtSupply ?? undefined,
       field: f.field ?? undefined,
       collector: f.collector ?? undefined,
+      handoffUnits: f.handoffUnits ?? undefined,
       chainId: f.chainId ?? undefined,
       chainName: f.chainName ?? undefined,
       chainOrder: f.chainOrder ?? undefined,
@@ -714,7 +721,7 @@ export class FeedManager {
   }
 
   /** Drone-plus-collector mining on a mine feed: pin the crew to `field` and name the `collector` shuttle (null clears). */
-  async setCollector(targetWaypoint: string, good: string, patch: { field?: string | null; collector?: string | null }, mine?: boolean): Promise<void> {
+  async setCollector(targetWaypoint: string, good: string, patch: { field?: string | null; collector?: string | null; handoffUnits?: number | null }, mine?: boolean): Promise<void> {
     // A collector only applies to a mine feed, so an unqualified call means the mining feed.
     const key = this.resolve(targetWaypoint, good, mine ?? (this.active.has(this.key(targetWaypoint, good, true)) ? true : undefined));
     const feed = this.active.get(key);
@@ -730,6 +737,11 @@ export class FeedManager {
         if (feed.field) await this.pinMiner?.(s, feed.field);
         else await this.unpinMiner?.(s);
       }
+    }
+    if (patch.handoffUnits !== undefined) {
+      const n = patch.handoffUnits;
+      if (n !== null && (!Number.isInteger(n) || n < 1 || n > 200)) throw new Error("handoffUnits must be a whole number from 1 to 200 (or null for the default)");
+      feed.handoffUnits = n ?? undefined;
     }
     if (patch.collector !== undefined) {
       const next = patch.collector ?? undefined;
@@ -751,7 +763,7 @@ export class FeedManager {
       this.collectorGrewAt.delete(key);
     }
     await this.persist(feed);
-    this.log(`feed ${good} → ${targetWaypoint}: field ${feed.field ?? "none"}, collector ${feed.collector ?? "none"}`);
+    this.log(`feed ${good} → ${targetWaypoint}: field ${feed.field ?? "none"}, collector ${feed.collector ?? "none"}, hand off at ${feed.handoffUnits ?? "default (80% full)"}`);
   }
 
   /** Set or clear (null) a feed's loss tolerance and supply stop rule — see Feed.maxLossPerUnit / Feed.stopAtSupply. */
@@ -1036,7 +1048,9 @@ export class FeedManager {
     if (held > 0 && feed.mine && feed.collector && feed.field) {
       // Drone-plus-collector: never fly to market. Hand the hold to the collector when it is here in orbit with
       // room; otherwise keep mining (if there is room) or wait for it.
-      if (holdFreeSpace > 0 && cargo.units < cargo.capacity * 0.8) {
+      const full = holdFreeSpace <= 0;
+      const ready = feed.handoffUnits ? held >= feed.handoffUnits : full || cargo.units >= cargo.capacity * 0.8;
+      if (!ready) {
         // keep filling first — fall through to the mining branch below
       } else {
         const col = await this.getShip?.(feed.collector);
@@ -1060,15 +1074,20 @@ export class FeedManager {
           if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, fresh.inventory))) await this.releaseFailedCarrier(feed, ship.symbol, t);
           return;
         }
-        t.retryAt = Date.now() + 30_000;
-        const k = `${this.feedKey(feed)}|${ship.symbol}`;
-        if (Date.now() - (this.collectorLogAt.get(k) ?? 0) > 10 * 60_000) {
-          this.collectorLogAt.set(k, Date.now());
-          this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} full (${held}u), waiting for collector ${feed.collector} (${col ? `${col.nav.status} at ${col.nav.waypointSymbol}, room ${room}` : "unknown"})`);
+        // An early hand-off setting must not park a drone with room left: with the collector away it just keeps mining.
+        if (!full && feed.handoffUnits) {
+          // fall through to the mining branch below
+        } else {
+          t.retryAt = Date.now() + 30_000;
+          const k = `${this.feedKey(feed)}|${ship.symbol}`;
+          if (Date.now() - (this.collectorLogAt.get(k) ?? 0) > 10 * 60_000) {
+            this.collectorLogAt.set(k, Date.now());
+            this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} full (${held}u), waiting for collector ${feed.collector} (${col ? `${col.nav.status} at ${col.nav.waypointSymbol}, room ${room}` : "unknown"})`);
+          }
+          return;
         }
-        return;
       }
-    } else if (held > 0 && (!feed.mine || holdFreeSpace <= 0)) {
+    } else if (held > 0 && (!feed.mine || holdFreeSpace <= 0 || (feed.handoffUnits !== undefined && held >= feed.handoffUnits))) {
       if (ship.nav.waypointSymbol !== feed.targetWaypoint) {
         await this.dispatchShip?.(ship.symbol, feed.targetWaypoint);
         return;
@@ -1418,6 +1437,7 @@ export class FeedManager {
       stopAtSupply: f.stopAtSupply,
       field: f.field,
       collector: f.collector,
+      handoffUnits: f.handoffUnits,
       chainId: f.chainId,
       chainName: f.chainName,
       chainOrder: f.chainOrder,

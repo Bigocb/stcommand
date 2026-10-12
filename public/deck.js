@@ -1864,6 +1864,7 @@ function renderFeeds() {
         ${f.stopAtSupply ? `<span class="tag" title="Stops sourcing once the target's supply reaches this bucket">stop at ${escapeHtml(f.stopAtSupply.toLowerCase())}</span>` : ""}
         ${f.maxLossPerUnit != null ? `<span class="tag" title="Accepts paying up to this many credits per unit above what the target pays">loss ≤ ${f.maxLossPerUnit}c</span>` : ""}
         ${f.field ? `<span class="tag" title="Drones pinned to this asteroid">field ${escapeHtml(shortWp(f.field))}</span>` : ""}
+        ${f.handoffUnits ? `<span class="tag" title="Drones deliver once they hold this many units">hand off at ${f.handoffUnits}</span>` : ""}
         ${f.collector ? `<span class="tag" title="Shuttle that collects the drones' holds in orbit and carries them to market">collector ${escapeHtml(f.collector)}</span>` : ""}
         <span class="tag ${f.paused ? "paused" : "done"}">${f.paused ? "off" : "on"}</span>
         <span class="fill"></span>
@@ -1901,6 +1902,7 @@ function renderFeeds() {
           <option value="">no collector</option>
           ${(state?.ships ?? []).filter((sh) => (sh.cargo?.capacity ?? 0) >= 20 && !(sh.mounts ?? []).some((m) => /MINING_LASER|GAS_SIPHON/.test(m.symbol))).map((sh) => `<option value="${escapeAttr(sh.symbol)}"${f.collector === sh.symbol ? " selected" : ""}>${escapeHtml(sh.symbol)} (${sh.cargo?.capacity ?? 0})</option>`).join("")}
         </select>
+        <input type="number" class="feed-handoff field-input" min="1" max="200" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}" placeholder="hand off at" value="${f.handoffUnits ?? ""}" style="width:90px;padding:4px 6px" title="A drone delivers once it holds this many units (to the collector, or to market with no collector). Blank = when nearly full" aria-label="Hand off at units">
         <button class="btn" data-act="set-collector" data-wp="${escapeAttr(f.targetWaypoint)}" data-good="${escapeAttr(f.good)}" data-mine="${f.mine ? 1 : 0}" title="Drones stay on the field; the collector takes their holds in orbit and carries them to market">Set collector</button>` : ""}
       </div>
     </div>`;
@@ -1942,7 +1944,8 @@ async function onFeedClick(e) {
       const card = btn.closest(".ops-card");
       const field = card.querySelector(".feed-field").value.trim().toUpperCase();
       const collector = card.querySelector(".feed-collector").value;
-      await api("POST", "/api/feeds/collector", { waypoint: wp, good, mine: mine === "1", field: field || null, collector: collector || null });
+      const hand = card.querySelector(".feed-handoff").value.trim();
+      await api("POST", "/api/feeds/collector", { waypoint: wp, good, mine: mine === "1", field: field || null, collector: collector || null, handoffUnits: hand === "" ? null : Number(hand) });
     } else if (act === "set-sell-gap") {
       const input = btn.closest(".ops-head").querySelector(".sell-gap-min");
       const sellGapMin = input?.value?.trim() ?? "";

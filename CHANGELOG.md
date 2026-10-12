@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Mine feeds: a "hand off at N units" setting
+
+Operator request: drones should give their ore to the collector (or sell it) once they hold 10 of the feed's good, not wait for a
+nearly full hold. New per-feed setting `handoffUnits` (migration 051, 1 to 200, blank = the old rule of 80% or full), set from
+Deck's feed card ("hand off at" next to the collector controls), `POST /api/feeds/collector` and the `set_feed_collector` tool.
+With a collector, the drone hands over at the threshold when the shuttle is there with room; if the shuttle is away and the hold
+has room, the drone keeps mining instead of parking. With no collector, the drone flies to the market at the threshold (more,
+smaller trips, which is what the setting asks for). Counted in units of the feed's own good, not the whole hold, because drones
+jettison the off-target ore. Tests: `tests/feedHandoff.test.ts`.
+
 ## 2026-10-12 — Survey tours can loop (a mining tour), nearest field first, and survive a restart
 
 `scan_fields` took one pass over a list of fields and stopped. Now `loop=true` makes it a mining tour: when every field has
