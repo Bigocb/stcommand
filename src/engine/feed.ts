@@ -306,6 +306,8 @@ export class FeedManager {
   private readonly releaseHold?: FeedOptions["releaseHold"];
   /** Collectors whose operator hold has already been dropped this process. */
   private readonly holdCleared = new Set<string>();
+  /** `feedKey` -> when to next try to infer a collector's missing field. */
+  private readonly fieldInferAt = new Map<string, number>();
   private readonly listBuyers?: FeedOptions["listBuyers"];
   private readonly discoverBuyers?: FeedOptions["discoverBuyers"];
   private readonly sellPriceAt?: FeedOptions["sellPriceAt"];
@@ -769,6 +771,12 @@ export class FeedManager {
       if (next) await this.suspend?.(next);
       this.collectorGrewAt.delete(key);
     }
+    if (feed.collector && !feed.field && !(await this.inferCollectorField(feed))) {
+      const named = feed.collector;
+      feed.collector = undefined;
+      this.resume?.(named);
+      throw new Error("name the asteroid (field) as well: the collector waits there, and the drones are not all at one asteroid to take it from");
+    }
     await this.persist(feed);
     this.log(`feed ${good} → ${targetWaypoint}: field ${feed.field ?? "none"}, collector ${feed.collector ?? "none"}, hand off at ${feed.handoffUnits ?? "default (80% full)"}`);
   }
@@ -888,6 +896,10 @@ export class FeedManager {
         this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${shipSymbol} step error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    if (feed.mine && feed.collector && !feed.field && Date.now() >= (this.fieldInferAt.get(key) ?? 0)) {
+      this.fieldInferAt.set(key, Date.now() + 2 * 60_000); // looks at every drone, so not on every pass
+      await this.inferCollectorField(feed).catch(() => false);
+    }
     if (feed.mine && feed.collector && feed.field) {
       // One shuttle may serve several feeds into the same market: the first of the group drives it.
       const group = this.collectorGroup(feed);
@@ -936,6 +948,29 @@ export class FeedManager {
     }
     if (sold > 0 && remaining > 0) this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${sym} sold ${sold}u (${received}c), ${remaining}u left to sell`);
     return { sold, received };
+  }
+
+  /**
+   * A collector only works with a field: drones hand over, and the shuttle waits, at that one asteroid, and without it every
+   * drone just flies its own load to market (2026-10-12: a collector was set on two feeds with no field, and the drones
+   * ignored it). When the feed names a collector but no field, take the asteroid its drones are all at now and pin them
+   * there. Returns false, leaving the feed as it was, when the drones are not all at one asteroid.
+   */
+  private async inferCollectorField(feed: Feed): Promise<boolean> {
+    if (feed.field) return true;
+    const where = new Set<string>();
+    for (const s of feed.assignedShips) {
+      const sh = await this.getShip?.(s);
+      if (!sh) return false;
+      where.add(sh.nav.waypointSymbol);
+    }
+    if (where.size !== 1) return false;
+    const [field] = [...where];
+    feed.field = field;
+    for (const s of feed.assignedShips) await this.pinMiner?.(s, field!);
+    await this.persist(feed);
+    this.log(`feed ${feed.good} → ${feed.targetWaypoint}: collector ${feed.collector} had no field; using ${field}, where the drones are`);
+    return true;
   }
 
   /** Mine feeds that share one collector shuttle: same collector, same target market, same field. */

@@ -103,3 +103,38 @@ describe("a collector the operator had parked with a hold", () => {
     assert.deepEqual(h.holdReleases, ["COL-1"]);
   });
 });
+
+describe("a collector set without a field", () => {
+  const withDrones = async (where: string[]) => {
+    const pinned: string[] = [];
+    const ships: Record<string, any> = Object.fromEntries(where.map((w, i) => [`D-${i}`, { symbol: `D-${i}`, nav: { status: "IN_ORBIT", waypointSymbol: w }, fuel: { capacity: 80, current: 80 }, cargo: { capacity: 15, units: 0, inventory: [] } }]));
+    const fm = new FeedManager({
+      api: {} as any,
+      getShip: async (s: string) => ships[s],
+      pickCarrier: async () => undefined,
+      suspend: async () => {},
+      resume: () => {},
+      pinMiner: async (s: string, f: string) => { pinned.push(`${s}@${f}`); },
+    } as any);
+    await fm.start("X1-A-H", "IRON_ORE", { mine: true, carrierTarget: 0 });
+    const f = (await fm.list())[0]!;
+    (fm as any).active.get((fm as any).feedKey(f)).assignedShips = Object.keys(ships);
+    return { fm, pinned };
+  };
+
+  it("takes the asteroid its drones are all at, so the drones really use the collector", async () => {
+    const { fm, pinned } = await withDrones(["X1-A-F", "X1-A-F"]);
+    await fm.setCollector("X1-A-H", "IRON_ORE", { collector: "COL-1" }, true);
+    const f = (await fm.list())[0]!;
+    assert.equal(f.field, "X1-A-F");
+    assert.equal(f.collector, "COL-1");
+    assert.deepEqual(pinned, ["D-0@X1-A-F", "D-1@X1-A-F"]);
+  });
+
+  it("is refused, and nothing is left half set, when the drones are not at one asteroid", async () => {
+    const { fm } = await withDrones(["X1-A-F", "X1-A-G"]);
+    await assert.rejects(fm.setCollector("X1-A-H", "IRON_ORE", { collector: "COL-1" }, true), /name the asteroid/);
+    const f = (await fm.list())[0]!;
+    assert.equal(f.collector, undefined);
+  });
+});

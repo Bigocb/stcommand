@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Feeds: a collector with no field was silently ignored by the drones
+
+THEOREM-25 was named collector on the copper and iron ore feeds, but neither feed had a `field`, and the whole collector
+path (drone hand-over, the shuttle's wait and carry) is gated on `collector` AND `field`. With no field every drone behaved as
+before: THEOREM-7 flew its 12u of copper ore to H57 and sold it itself while the collector sat docked at the asteroid. Deck's
+Set collector posts a blank asteroid box as "clear the field", so setting only the shuttle was easy to do and gave no error.
+`setCollector` now fills the field in from where the feed's drones all are (and pins them there), or refuses with "name the
+asteroid (field) as well" and leaves nothing half set when they are not at one asteroid; a feed that already has a collector and
+no field repairs itself the same way, checked at most every 2 minutes (it reads every drone). Tests in
+`tests/feedSharedCollector.test.ts`.
+
 ## 2026-10-12 — Feeds: a collector shuttle with an operator hold has the hold dropped
 
 THEOREM-25 was parked at the asteroid with `hold_ship` and then made a feed's collector. A hold is re-enforced every tick and
