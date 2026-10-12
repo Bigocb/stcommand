@@ -99,3 +99,17 @@ describe("several ships on one contract good", () => {
     assert.notEqual(d.assignmentFor("T-2")?.role, "contractBuy");
   });
 });
+
+describe("onContractWork (what feeds and missions must not take)", () => {
+  it("is true for a pinned ship and for one holding a contract buy, false for an ordinary trader", () => {
+    const d = new RouteDispatcher();
+    d.setContractDuty("T-1", true);
+    run(d, [ship("T-1"), ship("T-2")], CONTRACT);
+    assert.equal(d.onContractWork("T-1"), true, "pinned");
+    assert.equal(d.onContractWork("T-2"), false, "an ordinary trader on a route");
+    d.setContractDuty("T-1", false);
+    assert.equal(d.onContractWork("T-1"), true, "still holds its contract-buy assignment");
+    d.release("T-1");
+    assert.equal(d.onContractWork("T-1"), false);
+  });
+});

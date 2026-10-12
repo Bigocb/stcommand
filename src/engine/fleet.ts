@@ -4570,7 +4570,7 @@ export class FleetManager {
     const available = this.availableFor("mission");
     const candidates: { sym: string; cargo: number; fuelCap: number }[] = [];
     for (const [s, a] of this.miners) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
-    for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
+    for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s) && !this.dispatcher.onContractWork(s)) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
     // A carrier must be able to reach the target on a full tank (it can refuel at
     // markets along the way, but never beyond its tank). Skip ships that can't —
     // otherwise the mission loops on "cannot navigate" forever.
@@ -4614,7 +4614,9 @@ export class FleetManager {
     // selling it wherever it happens to be — or jettisoning it if that fails. Seen live
     // 2026-10-04: a feed claimed THEO-1 30s after it bought 18 SHIP_PLATING (~90k) for C41
     // and headed for H55, which doesn't buy it. Leave loaded traders for the next pass.
-    if (!requireMiner) for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s) && (a.getShip().cargo.units ?? 0) === 0) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
+    // A ship on contract work (pinned to contract duty, or buying for a contract) is not a feed's to take: the biggest empty
+    // hold used to win here, which pulled a pinned hauler off its contract (2026-10-12).
+    if (!requireMiner) for (const [s, a] of this.traders) if (!exclude.has(s) && available.has(s) && !this.dispatcher.onContractWork(s) && (a.getShip().cargo.units ?? 0) === 0) candidates.push({ sym: s, cargo: a.getShip().cargo.capacity, fuelCap: a.getShip().fuel.capacity });
     let reachable = candidates;
     if (targetWaypoint) {
       reachable = [];

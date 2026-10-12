@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Feeds and missions no longer take a ship that is on contract work
+
+A new copper-ore feed into H57 picked its carrier itself and took THEOREM-A, the pinned 80-hold hauler that held a live contract buy,
+instead of the shuttle the operator had freed for it. The automatic carrier pick takes the biggest empty hold among ships the
+dispatcher is not using, and neither contract duty nor a contract-buy assignment counted as "using". `pickFeedCarrier` and
+`pickMissionCarrier` now skip any ship for which `RouteDispatcher.onContractWork()` is true (pinned to contract duty, or holding a
+contract-buy assignment, auto or manual). To choose the carrier yourself, assign it explicitly (Deck's feed card "Add" with a ship
+picked, or `assign_feed_carrier`). The pick still prefers the biggest hold, which is the wrong end for a feed into a 60-unit market
+(see the playbook); not changed here. Test: `tests/contractDuty.test.ts`.
+
 ## 2026-10-12 — Deck/Tower: a drone feed's collector shuttle reads "collector: GOODS → market"
 
 The collector shuttle is not on its feed's crew list, so the Fleet job column and roster showed it as "unassigned". It now reads

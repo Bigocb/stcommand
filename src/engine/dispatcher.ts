@@ -632,6 +632,12 @@ export class RouteDispatcher {
 
   contractDutyShips(): string[] { return [...this.contractDuty].sort(); }
 
+  /** Is this ship on contract work: pinned to contract duty, or holding a contract-buy assignment (auto or manual)? Feeds and
+   *  missions must not take such a ship for their own crew. */
+  onContractWork(shipSymbol: string): boolean {
+    return this.contractDuty.has(shipSymbol) || this.assignments.get(shipSymbol)?.role === "contractBuy" || this.manual.get(shipSymbol)?.role === "contractBuy";
+  }
+
   /** Give up a claim (ship scrapped, role changed, route abandoned). */
   release(shipSymbol: string): void {
     this.assignments.delete(shipSymbol);
