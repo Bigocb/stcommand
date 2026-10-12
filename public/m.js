@@ -122,7 +122,9 @@ function unassignedTraders() {
   // Not idle: a feed/mission carrier (claimFor), or a hold still carrying cargo mid-trade.
   return (state?.ships ?? []).filter(
     (s) => roleBy.get(s.symbol) === "trader" && !dispatchAssignments.some((a) => a.shipSymbol === s.symbol)
-      && (s.cargo?.units ?? 0) === 0 && claimFor(s) == null,
+      && (s.cargo?.units ?? 0) === 0 && claimFor(s) == null
+      // Pinned to contract work with no contract to buy for: waiting, not unassigned.
+      && !contractDutyShips.includes(s.symbol),
   );
 }
 
@@ -392,7 +394,7 @@ function fleetRows() {
       role: st?.role ?? "—",
       manual: !!st?.paused,
       selling: wants.startsWith("scrap"),
-      job: claim ?? (st?.role === "trader" ? (jobLabel(assignment) ?? "unassigned") : null),
+      job: claim ?? (st?.role === "trader" ? (jobLabel(assignment) ?? (contractDutyShips.includes(s.symbol) ? "waiting for contract" : "unassigned")) : null),
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
       cargoValue: state?.cargoValues?.[s.symbol],

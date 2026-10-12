@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Deck/Tower: a trader on contract duty with no contract reads "waiting for contract"
+
+A ship pinned to contract duty with nothing to buy for showed as "unassigned" (and counted in the unassigned badges and the
+"need you" tally). It now reads "waiting for contract" in the Fleet job column, Deck's "wants" line and Tower's roster, and is left
+out of the unassigned counts. Display only (`contractDutyShips` from `GET /api/dispatch`); not run in a browser here.
+
 ## 2026-10-12 — Playbook: put the right size ship on the right job
 
 New section in `docs/reset-opening-playbook.md` (and a one-line pointer in `CLAUDE.md`): this week every 80-unit hauler sat on a feed, the

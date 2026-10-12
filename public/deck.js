@@ -420,6 +420,8 @@ function jobFor(ship, role) {
     const top = [...(ship.cargo?.inventory ?? [])].sort((a, b) => b.units - a.units)[0];
     return `carrying: ${top ? `${top.units} ${escapeHtml(top.symbol)}` : `${cargoUnits} units`}`;
   }
+  // Pinned to contract work and nothing to buy for right now: waiting, not unassigned.
+  if (role === "trader" && contractDutyShips.includes(shipSymbol)) return "waiting for contract";
   return role === "trader" ? "unassigned" : "—";
 }
 
