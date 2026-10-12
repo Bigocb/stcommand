@@ -309,6 +309,17 @@ export class MissionManager {
   }
 
   /** Full list of known missions, newest first. */
+  /** What each carrier of a mission is doing and, when a pacing gate has it waiting, why and when it next looks. */
+  carrierStatus(waypointSymbol: string, now = Date.now()): { ship: string; step: string; material?: string; waiting?: string; nextCheckAt?: string }[] {
+    return [...(this.tasks.get(waypointSymbol) ?? new Map<string, TaskState>())].map(([ship, t]) => ({
+      ship,
+      step: t.step,
+      material: t.currentMaterial,
+      waiting: t.retryAt > now ? t.waitReason : undefined,
+      nextCheckAt: t.retryAt > now ? new Date(t.retryAt).toISOString() : undefined,
+    }));
+  }
+
   async list(): Promise<Mission[]> {
     const rows = this.tenantId ? await this.store?.latestMissions(this.tenantId) : undefined;
     const persisted: Mission[] = (rows ?? []).map((m) => ({
@@ -744,6 +755,7 @@ export class MissionManager {
 
   /** Drive one carrier ship through the supply loop. */
   private async stepCarrier(mission: Mission, shipSymbol: string, t: TaskState): Promise<void> {
+    t.waitReason = undefined;
     const ship = await this.getShip?.(shipSymbol);
     if (!ship) return;
     if (ship.nav.status === "IN_TRANSIT") {
@@ -905,6 +917,7 @@ export class MissionManager {
         const nextBuyAt = this.nextBuyAt.get(gapKey) ?? 0;
         if (Date.now() < nextBuyAt) {
           t.retryAt = nextBuyAt;
+          t.waitReason = `buy gap (${mission.pacing?.buyGapMin} min between purchases)`;
           return;
         }
         // Pacing: cash floor. The gate mission plus subsidised feeds can outrun trading income (2026-10-06: 220k ->
@@ -915,7 +928,8 @@ export class MissionManager {
           const held = this.cashHeld.has(mission.targetWaypoint);
           if ((held && credits < resume) || (!held && credits < floor)) {
             this.cashHeld.add(mission.targetWaypoint);
-            t.retryAt = Date.now() + 5 * 60_000;
+            t.retryAt = Date.now() + PACING_RECHECK_MS;
+            t.waitReason = `cash ${credits}c under the ${held ? resume : floor}c floor`;
             const last = this.cashLogAt.get(mission.targetWaypoint) ?? 0;
             if (Date.now() - last > 30 * 60_000) {
               this.cashLogAt.set(mission.targetWaypoint, Date.now());
@@ -931,11 +945,12 @@ export class MissionManager {
           const before = this.preBuyPrice.get(gapKey);
           const allowed = before !== undefined ? before * (1 + mission.pacing.recoverPct / 100) : Infinity;
           if (!withinRecovery(before, price, mission.pacing.recoverPct)) {
-            t.retryAt = Date.now() + 5 * 60_000;
+            t.retryAt = Date.now() + PACING_RECHECK_MS;
+            t.waitReason = `${material} ask ${price}c, waiting for ${Math.round(allowed)}c (recovery +${mission.pacing.recoverPct}% over ${before}c)`;
             const last = this.recoverLogAt.get(gapKey) ?? 0;
             if (Date.now() - last > 30 * 60_000) {
               this.recoverLogAt.set(gapKey, Date.now());
-              this.log(`mission ${mission.targetWaypoint}: ${material} at ${market} is ${price}c, waiting for it to recover to ${Math.round(allowed)}c (was ${before}c before the last lot, +${mission.pacing.recoverPct}%)`);
+              this.log(`mission ${mission.targetWaypoint}: ${material} at ${market} is ${price}c, waiting for it to recover to ${Math.round(allowed)}c (was ${before}c before the last lot, +${mission.pacing.recoverPct}%); next check ${new Date(t.retryAt).toISOString().slice(11, 19)}`);
             }
             return;
           }
@@ -970,7 +985,8 @@ export class MissionManager {
         const spendable = credits - (mission.pacing?.cashFloor ?? 0);
         const affordable = price > 0 ? Math.floor(spendable / price) : toBuy;
         if (price > 0 && affordable < 1) {
-          t.retryAt = Date.now() + 5 * 60_000;
+          t.retryAt = Date.now() + PACING_RECHECK_MS;
+          t.waitReason = `cannot afford one unit above the ${mission.pacing?.cashFloor ?? 0}c floor`;
           return;
         }
         // Respect the market's per-transaction trade volume limit (e.g. FAB_MATS
@@ -980,6 +996,7 @@ export class MissionManager {
         // A lot larger than the market's per-transaction volume is bought as several transactions in the same stop.
         // Confirmed live 2026-10-07: D44 sells ADVANCED_CIRCUITRY 20u/tx, so a 40u lot bought 20 and THEO-1 flew a
         // ~40 minute round trip half empty. Later chunks stop at the price ceiling or the cash floor.
+        t.waitReason = undefined;
         const lotTarget = Math.max(1, Math.min(toBuy, affordable, lotCap));
         const priceCeiling = firstSeen * (1 + ceiling);
         let bought = 0;
@@ -1116,6 +1133,9 @@ export class MissionManager {
   }
 }
 
+/** How long a carrier waits after a pacing gate (recovery, cash floor, affordability) holds it back before it looks again. */
+export const PACING_RECHECK_MS = 5 * 60_000;
+
 interface TaskState {
   step: "source" | "supply";
   currentMaterial?: string;
@@ -1126,6 +1146,8 @@ interface TaskState {
    *  (persisted on the mission itself, not here — see its own comment). */
   basePrice?: number;
   retryAt: number;
+  /** Why the carrier is holding off, in words, while a pacing gate has it waiting (cleared when it buys). Read by carrierStatus(). */
+  waitReason?: string;
   /** tradeSymbol -> timestamp before which material-selection should skip it
    *  in favor of a different outstanding material. See blockMaterial(). */
   blockedUntil?: Record<string, number>;

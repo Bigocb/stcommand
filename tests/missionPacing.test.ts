@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { MissionManager, withinRecovery, nextChunkWithinCeiling } from "../src/engine/mission.js";
+import { MissionManager, withinRecovery, nextChunkWithinCeiling, PACING_RECHECK_MS } from "../src/engine/mission.js";
 
 // No database: pure state-machine tests of the per-mission buy pacing.
 function harness(opts: { price?: number; tradeVolume?: number } = {}) {
@@ -141,5 +141,30 @@ describe("nextChunkWithinCeiling", () => {
   it("a small chunk moves the ask less than a full lot", () => {
     assert.equal(nextChunkWithinCeiling(1330, 5, 20, 1376), true);
     assert.equal(nextChunkWithinCeiling(1330, 20, 20, 1376), false);
+  });
+});
+
+describe("MissionManager.carrierStatus", () => {
+  it("says why a carrier is waiting and when it next looks", async () => {
+    const h = harness({ tradeVolume: 20, price: 1000 });
+    await h.mgr.startConstruction("X1-A-I1");
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 40, cashFloor: 9_999_500 });
+    const before = Date.now();
+    await h.mgr.tick();
+    const [c] = h.mgr.carrierStatus("X1-A-I1");
+    assert.match(c!.waiting ?? "", /cannot afford one unit/);
+    const next = Date.parse(c!.nextCheckAt ?? "");
+    assert.ok(next >= before + PACING_RECHECK_MS - 1000 && next <= Date.now() + PACING_RECHECK_MS + 1000);
+  });
+
+  it("reports no wait before the carrier has looked, then buys", async () => {
+    const h = harness({ tradeVolume: 20, price: 1000 });
+    await h.mgr.startConstruction("X1-A-I1");
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 5, buyGapMin: 40 });
+    assert.equal(h.mgr.carrierStatus("X1-A-I1")[0]?.waiting, undefined, "nothing waiting before the first look");
+    await h.mgr.tick();
+    assert.deepEqual(h.bought, [5]);
   });
 });

@@ -5697,7 +5697,7 @@ export class FleetManager {
   }
 
   async getMissions() {
-    return (await this.missions.list()).map((m) => ({ ...m, paused: this.missions.isPaused(m.targetWaypoint) }));
+    return (await this.missions.list()).map((m) => ({ ...m, paused: this.missions.isPaused(m.targetWaypoint), carriers: this.missions.carrierStatus(m.targetWaypoint) }));
   }
 
   /** Start a construction-supply mission for a waypoint under construction. */

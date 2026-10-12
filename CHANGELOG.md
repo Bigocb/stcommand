@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Mission: show why a carrier is waiting and when it next looks
+
+A pacing gate (recovery, cash floor, "cannot afford one unit") makes a carrier wait `PACING_RECHECK_MS` (5 minutes) and then
+look again; changing the pacing does not cut that wait short, and the "waiting" log line is only written every 30 minutes,
+so a mission looked stuck when it was only between looks. `get_missions` (and the dashboard's missions endpoint) now return
+`carriers: [{ ship, step, material, waiting, nextCheckAt }]`, where `waiting` says which gate and the numbers (e.g. "FAB_MATS
+ask 1267c, waiting for 1320c (recovery +10% over 1200c)"), and the recovery log line names the next check time.
+The 5 minutes is the same cooldown the mission uses when it re-shops; no reason for that figure was recorded.
+
 ## 2026-10-12 — Fix: Metrics collapsible sections broke the By waypoint panel
 
 The folding code (c475dd9) was inserted into `renderWaypoints` instead of `mountMetrics`, so it referenced `collapsible`
