@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Tower: traders grouped by job, and a Mining segment under More
+
+Tower's Fleet roster now folds traders into Contracts, Routes, Feeds, Mission and Unassigned (the same `jobKind` split Deck uses, each fold collapsible, with its total hold). More has a fourth segment, Mining, which mounts the same sortable mining fields table as Deck (`shared/miningFields.js`) and polls it only while that segment is on screen. Checked the Mining segment in headless Chromium against a stubbed API; the roster grouping was only syntax-checked.
+
 ## 2026-10-12 — A manual pin can fly a protected good; protected routes are marked
 
 THEOREM-11 was pinned to ADVANCED_CIRCUITRY D41 -> A4 (~148k a trip) and sat idle: the trader refused it as "protected good", because the gate mission lists circuitry as a material, and the refusal applied to manual pins too. `TraderAgent.refusedGoods()` now drops the one good a manual direct route names from the protected set, so the pin flies, and the ship can deliver and sweep what it bought. Every other protected good, and every auto assignment, is still refused. The cost is on the operator: that circuitry is gate material the mission still needs.

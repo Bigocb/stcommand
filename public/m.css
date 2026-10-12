@@ -200,6 +200,7 @@ body {
 .roster-row .rr-id .role.sys { color:var(--ice); letter-spacing:.06em; }
 .roster-row .rr-job { flex: 1; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: var(--ice); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .roster-grp { width:100%; display:flex; align-items:center; gap:8px; padding:9px 4px 6px; margin-top:6px; background:none; border:0; border-bottom:1px solid var(--hair); color:var(--bone); font-family:var(--chrome); font-size:10px; letter-spacing:.14em; text-transform:uppercase; cursor:pointer; text-align:left; }
+.roster-grp.sub { padding:6px 4px 4px 18px; margin-top:0; font-size:9.5px; color:var(--dim); border-bottom:0; }
 .roster-grp .chev { color:var(--amber); width:10px; }
 .roster-grp .g-n { color:var(--dim); font-family:var(--mono); letter-spacing:0; }
 .roster-grp .grp-badge { margin-left:auto; font-family:var(--mono); font-size:9px; letter-spacing:0; text-transform:none; padding:1px 6px; border-radius:8px; }
@@ -717,3 +718,13 @@ body {
 .mx-chev::before { content: "▾"; color: var(--amber); display: inline-block; width: 12px; margin-right: 2px; }
 .mx-folded .mx-chev::before { content: "▸"; }
 .mx-folded > .panel-b { display: none; }
+
+/* Mining fields table (shared/miningFields.js) */
+.mx .field-input { background:var(--panel); border:1px solid var(--hair); color:var(--bone); font-family:var(--mono); font-size:11px; padding:5px 8px; border-radius:3px; min-width:0; flex:1; }
+table.mf { border-collapse:collapse; width:100%; font-size:11px; }
+table.mf th { position:sticky; top:0; background:var(--panel); padding:7px 8px; text-align:right; font-family:var(--chrome); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); white-space:nowrap; }
+table.mf th:first-child, table.mf th:last-child { text-align:left; }
+table.mf th.mf-sort { cursor:pointer; }
+table.mf th.mf-sort:hover { color:var(--amber); }
+table.mf td { padding:5px 8px; border-bottom:1px solid var(--hair); white-space:nowrap; }
+table.mf .dim { color:var(--dim); }

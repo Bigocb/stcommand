@@ -22,9 +22,11 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
+import { mountMiningFields } from "/shared/miningFields.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
+import { jobKind, JOB_KINDS } from "/shared/domain.js";
 import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
@@ -80,6 +82,7 @@ $("auth-form").addEventListener("submit", async (e) => {
  * (the ship-card deck) and Map (the radar scope) are built below.
  */
 let metricsScreen = null;
+let miningScreen = null;
 function setTab(name) {
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
@@ -101,6 +104,9 @@ function setTab(name) {
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
   if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); refreshMcpKeys(); }
   if (name === "copilot") { loadCopilot(); loadCopilotSettings(); }
+  // The fields table polls only while visible: stop when leaving More, resume if its Mining segment is open.
+  if (name !== "more") miningScreen?.hide();
+  else if (!$("more-pane-mining").hidden) miningScreen?.show();
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
@@ -479,9 +485,24 @@ function renderRoster() {
       const crit = items.filter(({ r }) => r.stranded).length;
       const warn = items.filter(({ r }) => !r.stranded && r.job === "unassigned").length;
       const badge = crit ? `<span class="grp-badge crit">${crit} stranded</span>` : warn ? `<span class="grp-badge warn">${warn} unassigned</span>` : "";
+      // Traders split further by what they are doing (contracts, routes, feeds, the gate mission), each its own fold.
+      let body;
+      if (isCollapsed) body = "";
+      else if (role === "trader") {
+        body = JOB_KINDS.map((kind) => {
+          const subItems = items.filter(({ r }) => jobKind(r.job) === kind);
+          if (!subItems.length) return "";
+          const key = `trader/${kind}`;
+          const subCollapsed = collapsed.has(key);
+          const holds = subItems.reduce((n, { r }) => n + (r.cargoCap ?? 0), 0);
+          return `<button class="roster-grp sub" data-grp="${escapeAttr(key)}" aria-expanded="${!subCollapsed}">
+            <span class="chev">${subCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(kind)}</span><span class="g-n">${subItems.length}</span><span class="g-n" title="Total hold of these ships">${holds} hold</span>
+          </button>${subCollapsed ? "" : subItems.map(rowHtml).join("")}`;
+        }).join("");
+      } else body = items.map(rowHtml).join("");
       return `<button class="roster-grp" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}">
         <span class="chev">${isCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(role)}</span><span class="g-n">${items.length}</span>${badge}
-      </button>${isCollapsed ? "" : items.map(rowHtml).join("")}`;
+      </button>${body}`;
     }).join("");
   tickCooldowns($("roster-scroll"));
 }
@@ -963,7 +984,10 @@ $("more-seg").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-mseg]");
   if (!b) return;
   document.querySelectorAll("#more-seg button").forEach((x) => x.classList.toggle("on", x === b));
-  for (const seg of ["work", "fleet", "rules"]) $(`more-pane-${seg}`).hidden = seg !== b.dataset.mseg;
+  for (const seg of ["work", "fleet", "mining", "rules"]) $(`more-pane-${seg}`).hidden = seg !== b.dataset.mseg;
+  // The fields table polls only while it is on screen.
+  miningScreen ??= mountMiningFields($("mining-root"), { api });
+  if (b.dataset.mseg === "mining") miningScreen.show(); else miningScreen.hide();
 });
 $("cp-form").addEventListener("submit", (e) => {
   e.preventDefault();
