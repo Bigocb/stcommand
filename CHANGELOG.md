@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Survey tours can loop (a mining tour), nearest field first, and survive a restart
+
+`scan_fields` took one pass over a list of fields and stopped. Now `loop=true` makes it a mining tour: when every field has
+its batches the surveyor starts another lap, so the deposit tallies (read by `get_field_composition` and `ops mining_fields`)
+keep firming up, until `stop=true`. `nearestFirst` (default on) reorders the fields so the ship always flies to the nearest
+unvisited one next from where it is. A looping tour is saved (fleet flag `fieldScans`) and put back on boot for ships that are
+still surveyors; a one-pass tour is not. Progress shows laps and batches per field. The order and lap logic is a pure module,
+`src/engine/surveyTour.ts` (tests: `tests/surveyTour.test.ts`); the surveyor loop in `agent.ts` calls it. Any ship with the
+surveyor role can run a tour; the frigate THEOREM-1 carries a surveyor mount and can be given that role.
+
 ## 2026-10-12 — Ops: `mining_fields`, a listing of minable asteroids with their deposit mix
 
 For choosing where to park drones and a collector, and as the data an automatic chooser will read later. One row per

@@ -1,3 +1,4 @@
+import { nextTourStep, startNextLap, type SurveyTourPlan } from "./surveyTour.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
@@ -309,17 +310,26 @@ export class ShipAgent {
   private inFlight: Promise<unknown> | null = null;
   private surveyedFields = new Set<string>();
   /** Operator-ordered tour of asteroid fields for composition surveys (see surveyScout()). */
-  private scanPlan?: { fields: string[]; perField: number; done: Map<string, number> };
+  private scanPlan?: SurveyTourPlan;
 
-  /** Visit each field in order and take `perField` survey batches at it; surveys are recorded to the field tally. */
-  startFieldScan(fields: string[], perField: number): void {
-    this.scanPlan = { fields: [...fields], perField: Math.max(1, Math.floor(perField)), done: new Map() };
-    this.log(`field scan ordered: ${fields.length} fields × ${this.scanPlan.perField} batches`);
+  /** Visit each field in order and take `perField` survey batches at it; surveys are recorded to the field tally.
+   *  `loop` starts another lap when one finishes, until stopFieldScan() (see engine/surveyTour.ts). */
+  startFieldScan(fields: string[], perField: number, loop = false): void {
+    this.scanPlan = { fields: [...fields], perField: Math.max(1, Math.floor(perField)), loop, laps: 0, done: new Map() };
+    this.log(`field scan ordered: ${fields.length} fields × ${this.scanPlan.perField} batches${loop ? ", looping" : ""}`);
+  }
+
+  /** End the active field scan, if any. Returns whether one was running. */
+  stopFieldScan(): boolean {
+    const had = this.scanPlan !== undefined;
+    this.scanPlan = undefined;
+    if (had) this.log("field scan stopped");
+    return had;
   }
 
   /** Progress of the active field scan, or undefined when none is running. */
-  fieldScanStatus(): { fields: string[]; perField: number; done: Record<string, number> } | undefined {
-    return this.scanPlan ? { fields: this.scanPlan.fields, perField: this.scanPlan.perField, done: Object.fromEntries(this.scanPlan.done) } : undefined;
+  fieldScanStatus(): { fields: string[]; perField: number; loop: boolean; laps: number; done: Record<string, number> } | undefined {
+    return this.scanPlan ? { fields: this.scanPlan.fields, perField: this.scanPlan.perField, loop: this.scanPlan.loop, laps: this.scanPlan.laps, done: Object.fromEntries(this.scanPlan.done) } : undefined;
   }
   /**
    * The waypoint of an extraction session still in progress, or null. Under
@@ -1479,12 +1489,18 @@ export class ShipAgent {
     // already at, so without a plan a scout sits on one rock forever (THEO-18 at CE5D, 2026-10-06).
     if (this.scanPlan) {
       const plan = this.scanPlan;
-      const next = plan.fields.find((f) => (plan.done.get(f) ?? 0) < plan.perField);
-      if (!next) {
+      const step = nextTourStep(plan);
+      if (step.kind === "complete") {
         this.log(`field scan complete: ${plan.fields.map((f) => `${f.slice(f.lastIndexOf("-") + 1)}×${plan.done.get(f) ?? 0}`).join(" ")}`);
         this.scanPlan = undefined;
         return true;
       }
+      if (step.kind === "lap") {
+        this.log(`field scan lap ${step.laps} complete (${plan.fields.length} fields × ${plan.perField}); starting lap ${step.laps + 1}`);
+        startNextLap(plan);
+        return true;
+      }
+      const next = step.field;
       if (this.ship.nav.waypointSymbol !== next) {
         this.log(`field scan: heading to ${next} (${plan.fields.indexOf(next) + 1}/${plan.fields.length})`);
         await this.navigateTo(next);

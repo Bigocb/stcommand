@@ -866,6 +866,7 @@ export class FleetManager {
         this.log(`restore warehouse ship failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    try { await this.restoreFieldScans(); } catch (err) { this.log(`restore field scans failed: ${err instanceof Error ? err.message : String(err)}`); }
     for (const [shipSymbol, st] of Object.entries(await this.loadShipManualState())) {
       if (!ships.some((s) => s.symbol === shipSymbol)) continue; // scrapped while we were down
       if (st.minePin) {
@@ -6263,13 +6264,47 @@ export class FleetManager {
     this.log(`${shipSymbol}: sold — ${station} removed from the keeper priority list (${clean.length} markets remain)`);
   }
 
-  /** Order a survey tour: the ship (role surveyor) flies to each field in turn and takes `perField` batches. */
-  startFieldScan(shipSymbol: string, fields: string[], perField = 3): void {
+  /** Order a survey tour: the ship (role surveyor) flies to each field in turn and takes `perField` batches. A looping tour
+   *  repeats lap after lap and is remembered across restarts (see restoreFieldScans()); a one-pass tour is not. */
+  async startFieldScan(shipSymbol: string, fields: string[], perField = 3, loop = false): Promise<void> {
     const agent = this.surveyors.get(shipSymbol);
     if (!agent) throw new Error(`${shipSymbol} is not a surveyor — set its role to surveyor first (and take it off any feed or mission)`);
     if (agent.isSuspended()) throw new Error(`${shipSymbol} is suspended (feed, mission or rescue) — release it first`);
     if (!fields.length) throw new Error("fields required");
-    agent.startFieldScan(fields.map((f) => f.trim().toUpperCase()), perField);
+    const list = fields.map((f) => f.trim().toUpperCase());
+    agent.startFieldScan(list, perField, loop);
+    await this.saveFieldScan(shipSymbol, loop ? { fields: list, perField, loop: true } : undefined);
+  }
+
+  /** End a surveyor's field scan (a looping one too) and forget it across restarts. */
+  async stopFieldScan(shipSymbol: string): Promise<boolean> {
+    const had = this.surveyors.get(shipSymbol)?.stopFieldScan() ?? false;
+    await this.saveFieldScan(shipSymbol, undefined);
+    return had;
+  }
+
+  /** `fieldScans` fleet flag: every looping survey tour, by ship, so a restart does not end it. */
+  private async saveFieldScan(shipSymbol: string, plan: { fields: string[]; perField: number; loop: boolean } | undefined): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    let all: Record<string, { fields: string[]; perField: number; loop: boolean }> = {};
+    try { all = JSON.parse((await this.store.getFleetFlag(this.tenantId, "fieldScans")) ?? "{}"); } catch { /* start clean */ }
+    if (plan) all[shipSymbol] = plan; else delete all[shipSymbol];
+    if (Object.keys(all).length === 0) await this.store.removeFleetFlag(this.tenantId, "fieldScans");
+    else await this.store.setFleetFlag(this.tenantId, "fieldScans", JSON.stringify(all));
+  }
+
+  /** Put back the looping survey tours a restart interrupted, for ships that are still surveyors. */
+  private async restoreFieldScans(): Promise<void> {
+    const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "fieldScans") : undefined;
+    if (!raw) return;
+    let all: Record<string, { fields: string[]; perField: number; loop: boolean }> = {};
+    try { all = JSON.parse(raw); } catch { return; }
+    for (const [ship, plan] of Object.entries(all)) {
+      const agent = this.surveyors.get(ship);
+      if (!agent) { this.log(`restore field scan ${ship}: no longer a surveyor, leaving it off`); continue; }
+      agent.startFieldScan(plan.fields, plan.perField, plan.loop);
+      this.log(`restored looping survey tour ${ship}: ${plan.fields.length} fields × ${plan.perField}`);
+    }
   }
 
   /** Active field-scan progress for a surveyor, if any. */

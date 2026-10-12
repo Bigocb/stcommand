@@ -1,3 +1,4 @@
+import { orderNearest } from "../engine/surveyTour.js";
 import * as z from "zod";
 import { registerOpsTools } from "../ops/mcp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -586,15 +587,34 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     "stcommand_scan_fields",
     {
       title: "Survey tour of asteroid fields",
-      description: "Order a ship with role surveyor to fly to each listed asteroid in order and take N survey batches there; every batch is recorded to the field tally (read it with stcommand_get_field_composition). Surveys cost only a cooldown, no credits. Legs the fuel can't cruise are drifted. Take the ship off any feed/mission first. Call with no fields to read progress.",
-      inputSchema: { shipSymbol: z.string(), fields: z.array(z.string()).optional(), batchesPerField: z.number().int().min(1).max(10).default(3) },
+      description: "Order a ship with role surveyor to fly to each listed asteroid and take N survey batches there; every batch is recorded to the field tally (read it with stcommand_get_field_composition or stcommand_ops_mining_fields). loop=true makes it a mining tour: when every field has its batches the ship starts another lap, until stop=true, and it survives a server restart. nearestFirst (default true) reorders the fields so the ship always flies to the nearest one next, starting from where it is. Surveys cost only a cooldown, no credits. Legs the fuel can't cruise are drifted. Take the ship off any feed/mission first. Call with no fields to read progress (laps, batches per field).",
+      inputSchema: {
+        shipSymbol: z.string(),
+        fields: z.array(z.string()).optional(),
+        batchesPerField: z.number().int().min(1).max(10).default(3),
+        loop: z.boolean().default(false),
+        stop: z.boolean().default(false),
+        nearestFirst: z.boolean().default(true),
+      },
       annotations: { destructiveHint: false, idempotentHint: false },
     },
-    async ({ shipSymbol, fields, batchesPerField }) => {
+    async ({ shipSymbol, fields, batchesPerField, loop, stop, nearestFirst }) => {
       try {
+        if (stop) {
+          const had = await w.fleet.stopFieldScan(shipSymbol);
+          await recordMcpAction(w, "field_scan", shipSymbol, `${shipSymbol}: survey tour stopped`, { stop: true });
+          return textResult({ ok: true, shipSymbol, stopped: had });
+        }
         if (fields?.length) {
-          w.fleet.startFieldScan(shipSymbol, fields, batchesPerField);
-          await recordMcpAction(w, "field_scan", shipSymbol, `${shipSymbol}: survey tour of ${fields.length} fields`, { fields, batchesPerField });
+          let order = fields;
+          if (nearestFirst) {
+            const st = w.state.get() as { waypoints?: { symbol: string; x: number; y: number }[]; ships?: { symbol: string; nav?: { waypointSymbol?: string } }[] };
+            const coords = new Map((st.waypoints ?? []).map((p) => [p.symbol, { x: p.x, y: p.y }]));
+            const here = st.ships?.find((x) => x.symbol === shipSymbol)?.nav?.waypointSymbol;
+            order = orderNearest(fields.map((f) => f.trim().toUpperCase()), coords, here ? coords.get(here) : undefined);
+          }
+          await w.fleet.startFieldScan(shipSymbol, order, batchesPerField, loop);
+          await recordMcpAction(w, "field_scan", shipSymbol, `${shipSymbol}: ${loop ? "looping " : ""}survey tour of ${order.length} fields`, { fields: order, batchesPerField, loop });
         }
         return textResult({ ok: true, shipSymbol, progress: w.fleet.fieldScanStatus(shipSymbol) ?? "no active scan" });
       } catch (err) {
