@@ -1032,24 +1032,42 @@ export class FeedManager {
       // ship that arrived and sold within seconds of another one, i.e.
       // the crew is still bunched even though no sell was blocked).
       this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} arrived with ${held}u, gap clear${feed.force ? " (forced)" : ""} — selling now`);
-      try {
-        const res = await this.api.sellCargo(ship.symbol, feed.good, held);
-        this.lastSellAt.set(this.feedKey(feed), Date.now());
-        this.recordLedger?.({
-          timestamp: new Date().toISOString(),
-          shipSymbol: ship.symbol,
-          waypointSymbol: feed.targetWaypoint,
-          type: "SELL",
-          tradeSymbol: feed.good,
-          units: held,
-          pricePerUnit: res.transaction.pricePerUnit,
-          total: res.transaction.totalPrice,
-        });
-        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} sold ${held}u @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
-        this.onActivity?.("feed", `${ship.symbol} fed ${held}u ${feed.good} into ${feed.targetWaypoint}`, res.transaction.totalPrice, ship.symbol);
-      } catch (err) {
-        this.log(`feed ${feed.good} → ${feed.targetWaypoint}: sell failed: ${err instanceof Error ? err.message : String(err)}`);
+      // The market caps one sale at its trade volume ("IRON_ORE has a limit of 60 units per transaction"); a hold bigger
+      // than that failed whole, every few seconds, forever (2026-10-12: THEOREM-D, 80u into a 60u market). Learn the
+      // cap from the refusal and sell the hold in chunks of it.
+      let remaining = held;
+      let cap = held;
+      let soldTotal = 0;
+      let received = 0;
+      while (remaining > 0) {
+        const units = Math.min(remaining, cap);
+        try {
+          const res = await this.api.sellCargo(ship.symbol, feed.good, units);
+          this.lastSellAt.set(this.feedKey(feed), Date.now());
+          this.recordLedger?.({
+            timestamp: new Date().toISOString(),
+            shipSymbol: ship.symbol,
+            waypointSymbol: feed.targetWaypoint,
+            type: "SELL",
+            tradeSymbol: feed.good,
+            units,
+            pricePerUnit: res.transaction.pricePerUnit,
+            total: res.transaction.totalPrice,
+          });
+          this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} sold ${units}u @ ${res.transaction.pricePerUnit}c = ${res.transaction.totalPrice}c`);
+          this.onActivity?.("feed", `${ship.symbol} fed ${units}u ${feed.good} into ${feed.targetWaypoint}`, res.transaction.totalPrice, ship.symbol);
+          remaining -= units;
+          soldTotal += units;
+          received += res.transaction.totalPrice;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const limit = Number(/limit of (\d+) units? per transaction/i.exec(msg)?.[1]);
+          if (Number.isFinite(limit) && limit > 0 && limit < units) { cap = limit; continue; }
+          this.log(`feed ${feed.good} → ${feed.targetWaypoint}: sell failed: ${msg}`);
+          break;
+        }
       }
+      if (soldTotal > 0 && remaining > 0) this.log(`feed ${feed.good} → ${feed.targetWaypoint}: ${ship.symbol} sold ${soldTotal}u (${received}c), ${remaining}u left to sell`);
       t.market = undefined;
       const freshCargo = await this.api.getShipCargo(ship.symbol);
       if (!(await this.clearUnrelatedCargo(ship.symbol, feed.good, freshCargo.inventory))) await this.releaseFailedCarrier(feed, ship.symbol, t);

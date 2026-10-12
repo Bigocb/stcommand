@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Feeds: sell a hold bigger than the market's per-sale cap in chunks
+
+THEOREM-D carried 80u IRON_ORE to H57, whose market takes 60u per transaction, and the feed tried to sell all 80 in one
+call every ~5 seconds for at least four minutes ("sell failed: ... has a limit of 60 units per transaction"). It was not the
+sell gap or force: force skipped the gap as designed and the sale itself was refused. The carrier now reads the cap out of
+the refusal (the same pattern trader and siphoner already use) and sells the hold in chunks of it, logging each sale;
+anything unsold stays aboard for the next pass. Test: `tests/feedSellChunks.test.ts`.
+
 ## 2026-10-12 — Deck: a Custom route form (pick the good, the buy market and the sell market)
 
 Deck's ship sheet only had "Assign route", which pins one of the dispatcher's own top routes. The form that lets you name a
