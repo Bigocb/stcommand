@@ -107,27 +107,6 @@ function kpi(label, value, sub, tone = "", title = "") {
 let wpSystem = "";
 function renderWaypoints(root, data) {
   const $ = (id) => root.querySelector(`#${id}`);
-
-  // Collapsible sections (Tower): tap a panel's header to fold its body. Which are folded is remembered per browser.
-  if (collapsible) {
-    let folded = [];
-    try { folded = JSON.parse(lsGet("metricsFolded", "[]")); } catch { /* start with everything open */ }
-    for (const panel of root.querySelectorAll(".panel")) {
-      const head = panel.querySelector(".panel-h");
-      const name = head?.querySelector(".title")?.textContent;
-      if (!head || !name) continue;
-      head.classList.add("mx-fold");
-      head.insertAdjacentHTML("afterbegin", `<span class="mx-chev" aria-hidden="true"></span>`);
-      head.setAttribute("role", "button");
-      panel.classList.toggle("mx-folded", folded.includes(name));
-      head.addEventListener("click", (e) => {
-        if (e.target.closest("select, input, button, a")) return;
-        const on = panel.classList.toggle("mx-folded");
-        folded = on ? [...new Set([...folded, name])] : folded.filter((n) => n !== name);
-        lsSet("metricsFolded", JSON.stringify(folded));
-      });
-    }
-  }
   const systems = [...new Set((data.byWaypoint ?? []).map((w) => w.system))].sort();
   const sel = $("mx-wp-sys");
   if (wpSystem && !systems.includes(wpSystem)) wpSystem = "";
@@ -216,6 +195,27 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">By sell system</span></div><div class="panel-b" style="padding:0" id="mx-systems"></div><div class="panel-h" style="border-top:1px solid var(--hair)"><span class="dot"></span><span class="title">Traders with no sale</span></div><div class="panel-b" id="mx-idle"></div></div>
     </div>`;
   const $ = (id) => root.querySelector(`#${id}`);
+
+  // Collapsible sections (Tower): tap a panel's header to fold its body. Which are folded is remembered per browser.
+  if (collapsible) {
+    let folded = [];
+    try { folded = JSON.parse(lsGet("metricsFolded", "[]")); } catch { /* start with everything open */ }
+    for (const panel of root.querySelectorAll(".panel")) {
+      const head = panel.querySelector(".panel-h");
+      const name = head?.querySelector(".title")?.textContent;
+      if (!head || !name) continue;
+      head.classList.add("mx-fold");
+      head.insertAdjacentHTML("afterbegin", `<span class="mx-chev" aria-hidden="true"></span>`);
+      head.setAttribute("role", "button");
+      panel.classList.toggle("mx-folded", folded.includes(name));
+      head.addEventListener("click", (e) => {
+        if (e.target.closest("select, input, button, a")) return;
+        const on = panel.classList.toggle("mx-folded");
+        folded = on ? [...new Set([...folded, name])] : folded.filter((n) => n !== name);
+        lsSet("metricsFolded", JSON.stringify(folded));
+      });
+    }
+  }
 
   function render() {
     for (const b of $("mx-ranges").children) {

@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Fix: Metrics collapsible sections broke the By waypoint panel
+
+The folding code (c475dd9) was inserted into `renderWaypoints` instead of `mountMetrics`, so it referenced `collapsible`
+out of scope: sections never folded, and the By waypoint panel threw a ReferenceError on every render (Deck and Tower
+both). Moved into `mountMetrics`. Checked in a real browser: 11 panels get a fold header and a tap hides the body.
+
 ## 2026-10-12 — Mission: the price ceiling no longer lets one extra chunk through
 
 The mission's ceiling (`maxInflationPct`, % over the market's trailing-24h low) was checked before a lot and then only
