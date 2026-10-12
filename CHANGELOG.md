@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Deck Mining screen refreshes itself every 30 seconds while open
+
+The table loaded once when the screen opened, so a survey tour that kept adding surveys (B17, B19 and B23 had 6, 3 and 3 within the
+hour) did not show until the screen was reopened. It now reloads quietly every 30 seconds while it is the visible screen and stops when
+you leave it. Not run in a browser here.
+
 ## 2026-10-12 — Deck: a Mining screen, a sortable table of what the field surveys show
 
 New "Mining" item in Deck's left rail. One row per minable asteroid in the home system (the `mining_fields` ops tool): field,

@@ -78,6 +78,7 @@ function setView(name) {
   const viewEl = $(`view-${name}`);
   if (viewEl) viewEl.hidden = false;
   if (name !== "metrics") metricsScreen?.hide();
+  if (name !== "mining") miningScreen?.hide();
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
   if (name === "fleet") renderFleet();

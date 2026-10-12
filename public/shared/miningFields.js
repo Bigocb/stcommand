@@ -80,5 +80,10 @@ export function mountMiningFields(root, { api } = {}) {
     load();
   });
 
-  return { show() { render(); load(); } };
+  // While the screen is open the numbers keep arriving (a survey tour adds a row's worth every few minutes), so refresh quietly.
+  let timer = null;
+  return {
+    show() { render(); load(); clearInterval(timer); timer = setInterval(load, 30_000); },
+    hide() { clearInterval(timer); timer = null; },
+  };
 }
