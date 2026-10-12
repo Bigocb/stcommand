@@ -388,6 +388,9 @@ function jobFor(ship, role) {
     const label = feed.chainName ? `chain: ${escapeHtml(feed.chainName)}` : `feed: ${escapeHtml(feed.good)}`;
     return `${label} → ${escapeHtml(feed.targetWaypoint)}`;
   }
+  // A drone feed's collector shuttle is not on the feed's crew list, so it used to read "unassigned".
+  const served = (feeds ?? []).filter((f) => f.collector === shipSymbol);
+  if (served.length) return `collector: ${escapeHtml([...new Set(served.map((f) => f.good))].join(" + "))} → ${escapeHtml(served[0].targetWaypoint)}`;
   const mission = (missions ?? []).find((m) => m.status !== "complete" && m.assignedShips?.includes(shipSymbol));
   if (mission) {
     const outstanding = (mission.materials ?? []).find((mm) => mm.fulfilled < mm.required);

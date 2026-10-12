@@ -358,6 +358,9 @@ function claimFor(ship) {
     const label = feed.chainName ? `chain: ${feed.chainName}` : `feed: ${feed.good}`;
     return `${label} → ${feed.targetWaypoint}`;
   }
+  // A drone feed's collector shuttle is not on the feed's crew list, so it used to read "unassigned".
+  const served = feeds.filter((f) => f.collector === ship.symbol);
+  if (served.length) return `collector: ${[...new Set(served.map((f) => f.good))].join(" + ")} → ${served[0].targetWaypoint}`;
   const mission = missions.find((m) => m.status !== "complete" && m.assignedShips?.includes(ship.symbol));
   if (mission) {
     const outstanding = (mission.materials ?? []).find((mm) => mm.fulfilled < mm.required);
