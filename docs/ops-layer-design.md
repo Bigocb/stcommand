@@ -49,6 +49,7 @@ documented tools so the answer is one call, not an investigation.
 | `keepers` | Keeper coverage per market: covered / en-route / pending, duplicates (>1 keeper on a market), uncovered priority markets. | 1 |
 | `instances` | Server instances seen recently (heartbeats), which are alive, process uptime, rolling 429 count — "is an old instance still running / are we rate-limited". | 1 |
 | `survey_candidates` | Systems within N gate hops of a system ranked by unpriced markets: market count, shipyards, priced/fresh counts, gate-complete flags. ("Where should the scout go?") | 1 |
+| `mining_fields` | Every minable asteroid in the home system: measured deposit mix (percent by good), survey count and `reliable` flag, never-surveyed list, distance to a target market, and which miners/feeds/collectors use it. `good=` ranks by that deposit. | 1 |
 | `market_freshness` | Every market in a system with goods count, newest snapshot age and keeper status. | 1 |
 | `assignments` | The dispatcher's current assignments incl. manual overrides. | 1 |
 | `timeline` | The fleet's story in time order: role changes (incl. engine-made), ship purchases, approvals, plus everything the operator did. Survives resets; `samples=true` adds the 15-min cash/fleet curve. | 1 |

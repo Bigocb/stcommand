@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Ops: `mining_fields`, a listing of minable asteroids with their deposit mix
+
+For choosing where to park drones and a collector, and as the data an automatic chooser will read later. One row per
+minable waypoint (ASTEROID and ENGINEERED_ASTEROID in the home system; an asteroid base is a market outpost and is left
+out): traits, percent of listed deposits by good (largest first) from the field surveys, how many surveys that rests on
+(`reliable` at 10 or more), straight-line distance to a named `target` market, and which miners are pinned and which
+feeds/collectors use it. `good=` ranks by that deposit's share; `unsurveyed` lists fields with no surveys yet (send a surveyor
+with `scan_fields`). Logic is a pure module, `src/engine/miningFields.ts`, tested in `tests/miningFields.test.ts`; the tool only
+gathers inputs. Distances are straight-line system units, not flight time; only the home system's waypoints are known to it.
+
 ## 2026-10-12 — Feeds: one collector shuttle can serve several mine feeds into the same market
 
 Operator request: a shuttle parked at a field should be able to collect for more than one feed (iron ore and copper ore into

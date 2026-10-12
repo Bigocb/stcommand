@@ -8,6 +8,7 @@ import { selectExplain } from "../engine/dispatchExplain.js";
 import { heapReport, heapStart, heapStop, profileCpu, runtimeStatus } from "./profiler.js";
 import type { OpsTool } from "./types.js";
 import { buildMetrics, bucketMinutesFor } from "../engine/metrics.js";
+import { miningFieldsReport, type FieldWaypoint } from "../engine/miningFields.js";
 import { contractsOverview } from "../http/contractsOverview.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
@@ -267,6 +268,29 @@ export const OPS_TOOLS: OpsTool[] = [
         captured = await ctx.w.store.captureRunResult(ctx.w.tenantId, ctx.w.agentSymbol, a.resetDate ?? "current", { kind: "manual", notes: "manual mid-week capture" });
       }
       return { asOf: iso(ctx.now()), captured, rows: await ctx.w.store.listRunResults(a.limit) };
+    },
+  },
+
+  {
+    name: "mining_fields",
+    title: "Minable asteroid fields: deposit mix, distance, who is on them",
+    description:
+      "Every minable asteroid (ASTEROID and ENGINEERED_ASTEROID) in the home system with its measured deposit mix from our surveys (percent of listed deposits by good, largest first), how many surveys that rests on (`reliable` needs 10+; `surveyed: false` means we have never surveyed it, so send a surveyor with scan_fields), its distance to `target` (e.g. the market the ore goes to) when given, and which miners are pinned and which feeds/collectors use it. Pass `good` to rank by that deposit's share (ties by nearness to `target`), otherwise nearest first. Plain rows so the same data can drive automatic field choice later.",
+    input: { target: z.string().optional(), good: z.string().optional(), sinceHours: num(168) },
+    async run(ctx, a) {
+      const { w } = ctx;
+      const system = w.fleet.homeSystem;
+      const waypoints = ((w.state.get() as { waypoints?: FieldWaypoint[] }).waypoints ?? []).filter((x) => x.symbol.startsWith(`${system}-`));
+      const tallies = await w.store.fieldComposition({ systemSymbol: system, since: iso(ctx.now() - a.sinceHours * 3_600_000) });
+      const pins = w.fleet.getShipStatuses().flatMap((s: { symbol: string; pinnedField?: string }) => (s.pinnedField ? [{ ship: s.symbol, field: s.pinnedField }] : []));
+      const feeds = (await w.fleet.getFeeds()) as { good: string; targetWaypoint: string; field?: string; collector?: string }[];
+      const fields = miningFieldsReport({ waypoints, tallies, pins, feeds, target: a.target, good: a.good });
+      return {
+        system, target: a.target, good: a.good?.toUpperCase(), sinceHours: a.sinceHours,
+        note: "shares are percent of listed deposits across surveys; distance is straight-line in system units. Only the home system's waypoints are known here.",
+        unsurveyed: fields.filter((f) => !f.surveyed).map((f) => f.waypoint),
+        fields,
+      };
     },
   },
 
