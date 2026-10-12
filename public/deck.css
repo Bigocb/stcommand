@@ -546,3 +546,4 @@ td.cp.down { color: var(--bad, #e5675d); }
 .survey-row{display:flex; gap:8px; align-items:center; font-size:11px; cursor:pointer}
 .survey-row .dim{color:var(--dim)}
 .survey-opt{display:flex; gap:4px; align-items:center; font-size:11px; color:var(--dim)}
+tr.grp-row.sub td{padding:6px 12px 4px 28px;background:transparent;font-size:9.5px;color:var(--dim)}

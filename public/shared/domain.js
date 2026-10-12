@@ -388,3 +388,18 @@ export function runsLeftHtml(r) {
   const cls = !r.runsLeftCapped && r.runsLeft <= 2 ? "runs-left low" : "runs-left";
   return `<span class="${cls}" title="${escapeAttr(r.runsLeftNote ?? "")}">${text}</span>`;
 }
+
+/**
+ * What kind of job a trader's `job` text names, for grouping the Fleet table: "Contracts", "Routes", "Feeds", "Mission" or
+ * "Unassigned". Reads the labels jobFor() writes ("route: X", "contract: X", "waiting for contract", "feed: X → M",
+ * "chain: C → M", "collector: X → M", "mission: X @ Y", "carrying: ...", "holding contract cargo: ...").
+ */
+export const JOB_KINDS = ["Contracts", "Routes", "Feeds", "Mission", "Unassigned"];
+export function jobKind(job) {
+  const j = String(job ?? "");
+  if (/^(contract:|waiting for contract|holding contract cargo)/.test(j)) return "Contracts";
+  if (/^(feed:|chain:|collector:)/.test(j)) return "Feeds";
+  if (/^mission:|^warehouse (buy|sell):/.test(j)) return "Mission";
+  if (/^(route:|carrying:)/.test(j)) return "Routes";
+  return "Unassigned";
+}

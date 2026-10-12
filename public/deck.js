@@ -27,7 +27,7 @@ import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDec
 import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
-import { fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
+import { jobKind, JOB_KINDS, fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 startRateLimitIndicator($("tb-conn"));
@@ -666,9 +666,25 @@ function renderFleet() {
       const crit = items.filter((r) => r.stranded).length;
       const warn = items.filter((r) => !r.stranded && r.job === "unassigned").length;
       const badge = crit ? `<span class="grp-badge crit">${crit} stranded</span>` : warn ? `<span class="grp-badge warn">${warn} unassigned</span>` : "";
+      // Traders split further by what they are doing (contracts, routes, feeds, the gate mission), each its own fold, so the
+      // right ships can be seen on the right jobs at a glance.
+      let body;
+      if (isCollapsed) body = "";
+      else if (role === "trader") {
+        body = JOB_KINDS.map((kind) => {
+          const sub = items.filter((r) => jobKind(r.job) === kind);
+          if (!sub.length) return "";
+          const key = `trader/${kind}`;
+          const subCollapsed = collapsed.has(key);
+          const holds = sub.reduce((n, r) => n + (r.cargoCap ?? 0), 0);
+          return `<tr class="grp-row sub" data-grp="${escapeAttr(key)}" aria-expanded="${!subCollapsed}"><td colspan="10">
+            <span class="chev">${subCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(kind)}</span><span class="g-n">${sub.length}</span><span class="g-n" title="Total hold of these ships">${holds} hold</span>
+          </td></tr>${subCollapsed ? "" : sub.map(rowHtml).join("")}`;
+        }).join("");
+      } else body = items.map(rowHtml).join("");
       return `<tr class="grp-row" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}"><td colspan="10">
         <span class="chev">${isCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(role)}</span><span class="g-n">${items.length}</span>${badge}
-      </td></tr>${isCollapsed ? "" : items.map(rowHtml).join("")}`;
+      </td></tr>${body}`;
     }).join("");
   $("fleet-table-rows").innerHTML = tableHTML;
   tickCooldowns($("fleet-table-rows"));

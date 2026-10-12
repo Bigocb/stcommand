@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Deck Fleet: traders are grouped by what they are doing
+
+The Trader group in the Fleet table is split into Contracts, Routes, Feeds, Mission and Unassigned (in that order, empty ones hidden),
+each a fold of its own, with the ship count and the total hold of the ships in it. "Contracts" holds contract buys, ships carrying
+contract cargo and ships waiting on contract duty; "Feeds" holds feed and chain crews and collector shuttles; "Mission" the gate
+carrier and warehouse buy/sell. The grouping reads the job label (`jobKind` in `public/shared/domain.js`, tested in
+`tests/jobKind.test.ts`). Deck only; Tower's roster is unchanged. Not run in a browser here.
+
 ## 2026-10-12 — Tower (and Deck) can name a feed's carrier, before and after creating it
 
 Tower had no way to choose a feed's carrier: the Start form had no ship field, and a feed card showed the crew as text with no add or
