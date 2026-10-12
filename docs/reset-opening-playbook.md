@@ -133,6 +133,32 @@ Rules of thumb to carry forward:
 4. The Tower and Deck route figures price every route at the fleet's biggest hold; read the per-hold line (40u / 80u)
    to know what a shuttle actually earns.
 
+## Put the right size ship on the right job (2026-10-12, operator)
+
+Check this whenever ships are assigned or after a restart reshuffles them: **the big holds should be on the jobs that can fill them,
+the small shuttles on the jobs that cannot.** On 2026-10-12 (THEOREM) every 80-unit hauler (A, C, D, 25) was parked on a feed,
+the gate mission or the collector while the paying routes (ADVANCED_CIRCUITRY ~133k a trip, the 157k ASSAULT_RIFLES contract) were run
+by the 40-unit shuttles. Nothing was broken; it was just the wrong ships.
+
+What decides it:
+
+- **A market's per-sale cap sets how much hold a feed can use.** H57 takes 60 units of IRON_ORE per transaction and E46 sells 60
+  of IRON per buy, so an 80 hold wastes 20 and a 40 hold carries two-thirds of the useful load. Feeds into a 60-unit market want 40-hold
+  shuttles. (A hold bigger than the cap also used to fail the whole sale, fixed 2026-10-12: feeds now sell in chunks.)
+- **A mission carrier is limited by price recovery, not by hold.** It buys one lot per recovery wait, so a big hold does not speed the
+  gate up; do not move a hauler onto it for capacity.
+- **A collector wants room for the drones' loads** (4 drones x ~12 units), which a 40 hold nearly covers.
+- **Routes and contracts scale with hold until the market's lot size bites** (ADVANCED_CIRCUITRY sells 20 a lot at about +4.5%
+  a lot, still well worth 80). Read the per-hold line on the Routes board (40u / 80u), not the headline figure, which prices
+  every route at the fleet's biggest hold.
+- **Contract goods:** put the haulers on contract duty (Deck/Tower ship sheet, or `set_contract_duty`). Two or more pinned ships split
+  a contract that needs more than one hold, in parallel and sized to what is left.
+
+How to check, in a minute: list traders by hold (`get_fleet_status` summary: `cargoCap`) next to their jobs (`get_feeds`,
+`ops_assignments`, the mission carriers). Anything with `cargoCap` 80 on a feed capped at 60 or less, or 40 on a route paying
+six figures a trip, is the wrong way round. Swap with `remove_feed_carrier` / `assign_feed_carrier` while both ships are empty; a
+ship holding cargo should finish its trip first.
+
 ## Open more systems from the start (2026-10-09, operator)
 
 Routes were 100k+ a trip early last week and about 50k a trip by day 6 of this one: eleven traders working the same three

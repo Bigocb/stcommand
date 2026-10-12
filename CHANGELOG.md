@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Playbook: put the right size ship on the right job
+
+New section in `docs/reset-opening-playbook.md` (and a one-line pointer in `CLAUDE.md`): this week every 80-unit hauler sat on a feed, the
+gate mission or the collector while the shuttles ran the six-figure routes and contracts. It records what decides the match (a market's
+per-sale cap limits a feed's useful hold, a mission carrier is limited by price recovery, a collector needs room for the drones'
+loads, routes scale with hold until the lot size bites), how to check it in a minute, and how to swap safely.
+
 ## 2026-10-12 — Contract duty: several ships can buy one contract good at once
 
 Operator idea: pin more than one ship so contracts finish faster. The dispatcher gave out one contract-buy job per good, so a

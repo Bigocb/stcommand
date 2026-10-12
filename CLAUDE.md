@@ -14,7 +14,8 @@ through X1-CM13 is possible until the materials are delivered. A tour ship can w
 the gate is closed. A keeper probe purchase at X1-CM13-A2 (21,397c) waits for operator approval, and until that is
 decided the tour ship holds there. The lesson of the earlier week is in `docs/reset-opening-playbook.md`: feed every
 input of the gate materials from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, never pause
-contracts (one at a time, 120-230k each for manufactured goods), and let the mission buy only when the producer's
+contracts (one at a time, 120-230k each for manufactured goods), and keep the right size ship on the right job (80-unit haulers on
+paying routes and contracts, 40-unit shuttles on feeds into 60-unit markets; see the playbook), and let the mission buy only when the producer's
 activity is GROWING or STRONG and the recovery gate (`recoverPct`) allows. Update this section when the operator
 states a layout for a following week.
 
