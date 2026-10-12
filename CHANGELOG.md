@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Playbook: mine next to where the chain buys its inputs
+
+New section in `docs/reset-opening-playbook.md` from the operator's note: B7 is where the chain buys QUARTZ_SAND and SILICON_CRYSTALS and
+has asteroids B11 (24 units) and B8 (49 units) next door, both with mineral deposits, yet all the drones were on EZ5F by H57. Records
+the steps (list each input's source market, run `mining_fields` with that market as target, survey the nearest fields with a looping
+tour, set up a feed, field and shared collector) and why traits are only a hint. Adds the matching automation item to `docs/TODO.md`.
+
 ## 2026-10-12 — Deck Mining screen refreshes itself every 30 seconds while open
 
 The table loaded once when the screen opened, so a survey tour that kept adding surveys (B17, B19 and B23 had 6, 3 and 3 within the

@@ -159,6 +159,30 @@ How to check, in a minute: list traders by hold (`get_fleet_status` summary: `ca
 six figures a trip, is the wrong way round. Swap with `remove_feed_carrier` / `assign_feed_carrier` while both ships are empty; a
 ship holding cargo should finish its trip first.
 
+## Mine next to where the chain buys its inputs (2026-10-12, operator)
+
+Find the asteroids near the markets where the gate chain's inputs are bought, survey them in the first hours, and put drones on the
+closest rich ones. This week the ore feeds worked because H57, which consumes iron and copper ore, has the engineered asteroid EZ5F
+28 units away. The same was available for the other inputs and went unused: B7 is where the chain buys QUARTZ_SAND (for FAB_MATS) and
+SILICON_CRYSTALS (for the ADVANCED_CIRCUITRY chain), and B11 sits 24 units from it and B8 49 units, both with `MINERAL_DEPOSITS`
+(the trait that carries sand, silicon and ice). Drones working those, selling into B7 or feeding on from there, would have pushed
+that market all week instead of buying its supply down.
+
+How to find them, in a minute:
+
+1. List where each input is bought: `get_chain_health` shows every producer's inputs with their cheapest source market.
+2. For each source market, run the `mining_fields` ops tool (or Deck's Mining screen) with `target=<that market>`, which sorts the
+   fields by distance and shows the surveyed share of each deposit. Anything within about 60 units is next door; the hand-off
+   and any shuttle trip are then a minute or two.
+3. Fields with no surveys show as never surveyed. Send a looping survey tour (Deck: a surveyor's Fleet sheet, Survey tour; or
+   `scan_fields loop=true`) over the nearest ones, nearest first. A field needs about 10 surveys before its shares can be trusted.
+4. The trait is only a hint (EZ5F is "common metal" yet surveys as an even six-way mix), so go by the survey shares.
+5. Then set it up the way EZ5F is: a mine feed into the market that wants the ore, the asteroid as the feed's field, and a collector
+   shuttle (several feeds into one market can share it) with the drones handing over at about 10 units.
+
+Cheap to check at hour 1, expensive to find out on day 3. The same listing is what an automatic field chooser would read, so keep
+its output stable (see `docs/TODO.md`).
+
 ## Open more systems from the start (2026-10-09, operator)
 
 Routes were 100k+ a trip early last week and about 50k a trip by day 6 of this one: eleven traders working the same three

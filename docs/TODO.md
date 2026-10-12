@@ -7,6 +7,12 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Pick mining fields automatically, per input market (raised 2026-10-12, operator).** For every market the gate chain buys
+  an input from, rank minable asteroids by distance and measured deposit share (`miningFieldsReport`, `src/engine/miningFields.ts`,
+  already pure and tested), start a looping survey tour over the nearest unsurveyed ones, and propose a mine feed + field + collector
+  (a proposal the operator approves, like keeper probes). Needs a decision on how many surveys count as enough (the table uses 10)
+  and whether a field already used by another feed is shared or avoided.
+
 - [ ] **Contracts: follow-ups to the metrics work (raised 2026-10-11).** (1) Goods bought for a contract by one ship and
   delivered by another are costed from the deliverer's own purchases (`lastPurchasePrice`); a transfer would be costed at
   0. (2) The estimate of cost to finish ignores a delivery trip's fuel. (3) The week-comparison view should show contract
