@@ -96,7 +96,7 @@ function setTab(name) {
   // More first this session. Confirmed live: a feed carrier's card showed
   // no claim at all on a fresh Fleet-tab visit.
   if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
-  if (name === "metrics") { metricsScreen ??= mountMetrics($("metrics-root"), { api, netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined) }); metricsScreen.show(); }
+  if (name === "metrics") { metricsScreen ??= mountMetrics($("metrics-root"), { api, collapsible: true, netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined) }); metricsScreen.show(); }
   else metricsScreen?.hide();
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
   if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); refreshMcpKeys(); }

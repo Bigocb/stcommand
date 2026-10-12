@@ -107,6 +107,27 @@ function kpi(label, value, sub, tone = "", title = "") {
 let wpSystem = "";
 function renderWaypoints(root, data) {
   const $ = (id) => root.querySelector(`#${id}`);
+
+  // Collapsible sections (Tower): tap a panel's header to fold its body. Which are folded is remembered per browser.
+  if (collapsible) {
+    let folded = [];
+    try { folded = JSON.parse(lsGet("metricsFolded", "[]")); } catch { /* start with everything open */ }
+    for (const panel of root.querySelectorAll(".panel")) {
+      const head = panel.querySelector(".panel-h");
+      const name = head?.querySelector(".title")?.textContent;
+      if (!head || !name) continue;
+      head.classList.add("mx-fold");
+      head.insertAdjacentHTML("afterbegin", `<span class="mx-chev" aria-hidden="true"></span>`);
+      head.setAttribute("role", "button");
+      panel.classList.toggle("mx-folded", folded.includes(name));
+      head.addEventListener("click", (e) => {
+        if (e.target.closest("select, input, button, a")) return;
+        const on = panel.classList.toggle("mx-folded");
+        folded = on ? [...new Set([...folded, name])] : folded.filter((n) => n !== name);
+        lsSet("metricsFolded", JSON.stringify(folded));
+      });
+    }
+  }
   const systems = [...new Set((data.byWaypoint ?? []).map((w) => w.system))].sort();
   const sel = $("mx-wp-sys");
   if (wpSystem && !systems.includes(wpSystem)) wpSystem = "";
@@ -154,7 +175,7 @@ function table(headers, rows, empty) {
   return `<table><tr>${headers.map((h, i) => `<th${i ? ' class="num"' : ""}>${h}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((c, i) => `<td${i ? ' class="num"' : ""}>${c}</td>`).join("")}</tr>`).join("")}</table>`;
 }
 
-export function mountMetrics(root, { api, netWorth } = {}) {
+export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) {
   let hours = Number(lsGet("metricsHours", "6")) || 6;
   // "Since reset" shows the whole current universe instead of a rolling window.
   let sinceReset = lsGet("metricsSince", "") === "reset";

@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Tower metrics: sections fold when you tap their header
+
+Every Metrics panel on Tower (charts, By waypoint, Pace to reset, Contracts, Recent trips, the By good / ship / system
+tables) has a chevron header that folds its body, so the screen can be cut down to the parts you are watching. Which are
+folded is remembered per browser. It is an opt-in (`collapsible`) of the shared `mountMetrics`, so Deck is unchanged.
+Taps on a header's own filter (system or ship picker) do not fold it. The KPI tiles stay visible.
+
 ## 2026-10-11 — Metrics: a Recent trips table, filterable by ship
 
 A new panel on the Metrics screen (Deck and Tower share it) lists the latest sales, newest first: time, ship, good, units,
