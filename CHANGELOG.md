@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Mission: the price ceiling no longer lets one extra chunk through
+
+The mission's ceiling (`maxInflationPct`, % over the market's trailing-24h low) was checked before a lot and then only
+against the price just PAID. A lot is bought in trade-volume chunks, so it always bought one chunk past the ceiling:
+THEOREM-C on 2026-10-12 had a 20% ceiling on a 1,147c baseline (1,376c), paid 1,363c for the first 20 FAB_MATS and then
+1,456c (27% over) for the second. Between chunks the mission now projects the next ask from its own price impact
+(`nextChunkWithinCeiling`, `src/engine/mission.ts`) and stops the lot early, with a log line, if that lands above the ceiling.
+The gate before a lot was already right. Note the baseline is the 24h LOW, not the first price seen.
+
 ## 2026-10-12 — Tower metrics: sections fold when you tap their header
 
 Every Metrics panel on Tower (charts, By waypoint, Pace to reset, Contracts, Recent trips, the By good / ship / system

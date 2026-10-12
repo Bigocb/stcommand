@@ -1,3 +1,4 @@
+import { PRICE_IMPACT_PER_LOT } from "./routeEconomics.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { Store } from "../db/store.js";
@@ -52,6 +53,18 @@ export type MissionKind = "SUPPLY_CONSTRUCTION";
 export function withinRecovery(before: number | undefined, price: number, pct: number): boolean {
   if (before === undefined) return true;
   return price <= before * (1 + pct / 100);
+}
+
+/**
+ * MissionPacing.maxInflationPct, applied between the chunks of one lot. The ceiling was only checked on the price just
+ * PAID, so a lot split into trade-volume chunks always bought one chunk past it (2026-10-12: ceiling 1,376c, chunk 1 at
+ * 1,363c, chunk 2 bought at 1,456c, 27% over its baseline). Our own chunk lifts the next ask by about
+ * PRICE_IMPACT_PER_LOT per trade-volume lot (x1.25 measured), so the next chunk goes ahead only if that projected ask
+ * is still under the ceiling.
+ */
+export function nextChunkWithinCeiling(lastPaid: number, lastUnits: number, tradeVolume: number, ceiling: number): boolean {
+  const lots = Math.max(1, lastUnits) / Math.max(1, tradeVolume);
+  return lastPaid * (1 + PRICE_IMPACT_PER_LOT * 1.25 * lots) <= ceiling;
 }
 
 export interface MissionPacing {
@@ -1009,6 +1022,10 @@ export class MissionManager {
           this.log(`mission ${mission.targetWaypoint}: ${ship.symbol} bought ${units}u ${material} @ ${res.transaction.pricePerUnit}c at ${market}`);
           this.onActivity?.("buy", `${ship.symbol} ${units}u ${material} @ ${res.transaction.pricePerUnit}c at ${market} (mission)`, -res.transaction.totalPrice, ship.symbol);
           if (res.transaction.pricePerUnit >= priceCeiling) break;
+          if (bought < lotTarget && !nextChunkWithinCeiling(res.transaction.pricePerUnit, units, volumeCap, priceCeiling)) {
+            this.log(`mission ${mission.targetWaypoint}: stopping ${material} at ${bought}u of ${lotTarget}u — the next chunk would land above the ${Math.round(priceCeiling)}c ceiling`);
+            break;
+          }
         }
         if (mission.pacing?.buyGapMin) this.nextBuyAt.set(gapKey, Date.now() + mission.pacing.buyGapMin * 60_000);
         if (mission.pacing?.recoverPct) this.preBuyPrice.set(gapKey, price);

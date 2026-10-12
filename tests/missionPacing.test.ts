@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { MissionManager, withinRecovery } from "../src/engine/mission.js";
+import { MissionManager, withinRecovery, nextChunkWithinCeiling } from "../src/engine/mission.js";
 
 // No database: pure state-machine tests of the per-mission buy pacing.
 function harness(opts: { price?: number; tradeVolume?: number } = {}) {
@@ -127,5 +127,19 @@ describe("MissionManager multi-transaction lots", () => {
     await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 40, cashFloor: 9_999_500 });
     await h.mgr.tick();
     assert.deepEqual(h.bought, []);
+  });
+});
+
+describe("nextChunkWithinCeiling", () => {
+  it("stops before the chunk that would land over the ceiling (the 2026-10-12 FAB_MATS case)", () => {
+    // ceiling 1,147 x 1.2; chunk 1 paid 1,363 for 20u at trade volume 20, so the next ask is projected ~1,440
+    assert.equal(nextChunkWithinCeiling(1363, 20, 20, Math.round(1147 * 1.2)), false);
+  });
+  it("lets a chunk go ahead while the projected ask is still under it", () => {
+    assert.equal(nextChunkWithinCeiling(1200, 20, 20, 1376), true);
+  });
+  it("a small chunk moves the ask less than a full lot", () => {
+    assert.equal(nextChunkWithinCeiling(1330, 5, 20, 1376), true);
+    assert.equal(nextChunkWithinCeiling(1330, 20, 20, 1376), false);
   });
 });
