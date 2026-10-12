@@ -17,6 +17,7 @@ import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from ".
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
+import { startSurveyTour } from "../engine/surveyTourControl.js";
 import { parseRouteTag } from "../engine/routeTag.js";
 import { contractsOverview } from "./contractsOverview.js";
 
@@ -1798,6 +1799,47 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const referer = String(req.get("referer") ?? "-").slice(0, 80);
     console.log(`[dashboard] ${action} ${detail} from ${ip} ua="${ua}" referer=${referer}`);
   };
+
+  /* ── Survey tours (Deck's ship sheet) ─────────────────────────
+     A surveyor flies a list of asteroid fields and takes survey batches at each; `loop` repeats it until stopped. The ordering
+     and checks are the same as the MCP tool's (engine/surveyTourControl.ts). */
+  router.get("/fleet/survey-tour", (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const ship = String(req.query.shipSymbol ?? "");
+    res.json({ shipSymbol: ship, progress: w.fleet.fieldScanStatus(ship) ?? null });
+  });
+
+  router.post("/fleet/survey-tour", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const b = req.body ?? {};
+    const shipSymbol = String(b.shipSymbol ?? "");
+    const fields = Array.isArray(b.fields) ? b.fields.map(String) : [];
+    if (!shipSymbol || !fields.length) return res.status(400).json({ error: "shipSymbol and at least one field required" });
+    try {
+      const order = await startSurveyTour(w, {
+        shipSymbol, fields,
+        batchesPerField: Math.min(10, Math.max(1, Math.floor(Number(b.batchesPerField) || 3))),
+        loop: b.loop === true, nearestFirst: b.nearestFirst !== false,
+      });
+      res.json({ ok: true, order, progress: w.fleet.fieldScanStatus(shipSymbol) ?? null });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/fleet/survey-tour/stop", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const shipSymbol = String(req.body?.shipSymbol ?? "");
+    if (!shipSymbol) return res.status(400).json({ error: "shipSymbol required" });
+    try {
+      res.json({ ok: true, stopped: await w.fleet.stopFieldScan(shipSymbol) });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   router.post("/fleet/dispatch", async (req, res) => {
     const w = worker(req);

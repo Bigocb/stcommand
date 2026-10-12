@@ -337,6 +337,19 @@ describe("POST /api/contracts/assign + /api/contracts/miners (contract crew)", (
   });
 });
 
+describe("survey tour endpoints", () => {
+  it("reports no tour, refuses a ship that is not a surveyor, and needs a ship and fields", async () => {
+    const status = (await (await get("/api/fleet/survey-tour?shipSymbol=NOPE-1")).json()) as { progress: unknown };
+    assert.equal(status.progress, null);
+    assert.equal((await post("/api/fleet/survey-tour", {})).status, 400);
+    const res = await post("/api/fleet/survey-tour", { shipSymbol: "NOPE-1", fields: ["X1-TEST-B1"], loop: true });
+    assert.equal(res.status, 400);
+    assert.match(((await res.json()) as { error: string }).error, /not a surveyor/);
+    const stop = (await (await post("/api/fleet/survey-tour/stop", { shipSymbol: "NOPE-1" })).json()) as { stopped: boolean };
+    assert.equal(stop.stopped, false);
+  });
+});
+
 describe("GET /api/trips", () => {
   it("lists sales with their parsed route and filters by ship", async () => {
     const store = new Store(pool);

@@ -540,3 +540,9 @@ td.cp.down { color: var(--bad, #e5675d); }
 .crew-empty, .crew-note { font-size: 11px; color: var(--dim2); }
 
 .mx-contracts .mx-sub{font-family:var(--chrome);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2);margin:14px 0 4px}
+
+/* Survey tour form on the ship sheet */
+.survey-list{max-height:220px; overflow:auto; display:flex; flex-direction:column; gap:2px; border:1px solid var(--hair); border-radius:3px; padding:4px}
+.survey-row{display:flex; gap:8px; align-items:center; font-size:11px; cursor:pointer}
+.survey-row .dim{color:var(--dim)}
+.survey-opt{display:flex; gap:4px; align-items:center; font-size:11px; color:var(--dim)}

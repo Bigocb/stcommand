@@ -1,4 +1,4 @@
-import { orderNearest } from "../engine/surveyTour.js";
+import { startSurveyTour } from "../engine/surveyTourControl.js";
 import * as z from "zod";
 import { registerOpsTools } from "../ops/mcp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -606,14 +606,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
           return textResult({ ok: true, shipSymbol, stopped: had });
         }
         if (fields?.length) {
-          let order = fields;
-          if (nearestFirst) {
-            const st = w.state.get() as { waypoints?: { symbol: string; x: number; y: number }[]; ships?: { symbol: string; nav?: { waypointSymbol?: string } }[] };
-            const coords = new Map((st.waypoints ?? []).map((p) => [p.symbol, { x: p.x, y: p.y }]));
-            const here = st.ships?.find((x) => x.symbol === shipSymbol)?.nav?.waypointSymbol;
-            order = orderNearest(fields.map((f) => f.trim().toUpperCase()), coords, here ? coords.get(here) : undefined);
-          }
-          await w.fleet.startFieldScan(shipSymbol, order, batchesPerField, loop);
+          const order = await startSurveyTour(w, { shipSymbol, fields, batchesPerField, loop, nearestFirst });
           await recordMcpAction(w, "field_scan", shipSymbol, `${shipSymbol}: ${loop ? "looping " : ""}survey tour of ${order.length} fields`, { fields: order, batchesPerField, loop });
         }
         return textResult({ ok: true, shipSymbol, progress: w.fleet.fieldScanStatus(shipSymbol) ?? "no active scan" });

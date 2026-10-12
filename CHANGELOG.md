@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Deck: start and stop a survey tour from the ship sheet
+
+The looping survey tour had no Deck control (only the `scan_fields` tool). A ship with the surveyor role now has a "Survey tour"
+button on its Fleet sheet: a list of the home system's minable fields (nearest this ship first, with surveys taken and the top
+deposit share), "10 least surveyed", batches per field, loop laps, nearest first, and Start; while a tour runs it shows laps and
+batches and a Stop button. Backed by `GET /api/fleet/survey-tour`, `POST /api/fleet/survey-tour` and `/stop`, which share the
+ordering and checks with the MCP tool (`src/engine/surveyTourControl.ts`); the field list comes from the `mining_fields` ops tool.
+Not run in a browser here (Deck needs a live session): checked for syntax and the endpoints are tested. A ship needs the surveyor
+role first (Change role); a trader cannot start a tour.
+
 ## 2026-10-12 — Feeds: a collector with no field was silently ignored by the drones
 
 THEOREM-25 was named collector on the copper and iron ore feeds, but neither feed had a `field`, and the whole collector

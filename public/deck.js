@@ -753,6 +753,13 @@ let fleetRouteOpen = false;
 // Custom route: an operator-chosen good with a buy market and a sell market, pinned to the ship (POST /api/dispatch,
 // same body as Tower's form). Assign route above only offers the dispatcher's own top routes.
 let fleetCustomOpen = false;
+// Survey tour (surveyor ships): pick asteroid fields, then start a one-pass or looping tour. Data comes from the
+// mining_fields ops tool and the tour's own progress; the picks and options live here so the poll's re-render keeps them.
+let fleetSurveyOpen = false;
+let surveyFields = [];
+let surveyStatus = null;
+const surveyPicked = new Set();
+const surveyOpts = { batches: 3, loop: true, nearest: true };
 let fleetRoleOpen = false;
 let fleetRoleFormRole = null;
 let fleetDetailsOpen = false;
@@ -847,6 +854,25 @@ function renderFleetActions(shipRow) {
       </div>
     </div>`;
   }
+  if (fleetSurveyOpen) {
+    const top = (f) => (f.shares?.[0] ? `${f.shares[0].good} ${f.shares[0].percent}%` : "never surveyed");
+    const progress = surveyStatus
+      ? `<div class="empty">${surveyStatus.loop ? "Looping tour" : "Tour"} running: ${surveyStatus.fields.length} fields × ${surveyStatus.perField}${surveyStatus.loop ? `, lap ${surveyStatus.laps + 1}` : ""} — ${Object.values(surveyStatus.done).reduce((a, n) => a + n, 0)} batches this lap. <button class="btn deny" data-act="survey-stop">Stop tour</button></div>`
+      : "";
+    const rows = surveyFields.map((f) => `<label class="survey-row"><input type="checkbox" class="survey-pick" data-field="${escapeAttr(f.waypoint)}"${surveyPicked.has(f.waypoint) ? " checked" : ""}> <span class="mono">${escapeHtml(shortWp(f.waypoint))}</span> <span class="dim">${f.distanceToTarget != null ? `${f.distanceToTarget}u · ` : ""}${f.surveys} surveys · ${escapeHtml(top(f))}</span></label>`).join("");
+    extra += `<div class="role-form survey-form">
+      ${progress}
+      <div class="dtl-h">Fields (nearest to this ship first)</div>
+      <div class="survey-list">${rows || '<div class="empty">No minable fields known.</div>'}</div>
+      <div class="sheet-inline-form"><button class="btn" data-act="survey-low">10 least surveyed</button><button class="btn ghost" data-act="survey-clear">Clear</button></div>
+      <div class="sheet-inline-form">
+        <input type="number" class="field-input survey-batches" min="1" max="10" value="${surveyOpts.batches}" aria-label="Batches per field" title="Survey batches at each field per lap">
+        <label class="survey-opt"><input type="checkbox" class="survey-loop"${surveyOpts.loop ? " checked" : ""}> loop laps</label>
+        <label class="survey-opt"><input type="checkbox" class="survey-nearest"${surveyOpts.nearest ? " checked" : ""}> nearest first</label>
+      </div>
+      <button class="btn pri" data-act="survey-start">Start tour (${surveyPicked.size} fields)</button>
+    </div>`;
+  }
   if (fleetRoleOpen) {
     const currentRole = fleetRoleFormRole ?? (SHIP_ROLES.includes(shipRow.role) ? shipRow.role : SHIP_ROLES[0]);
     const mismatch = roleMismatchReason(currentRole, ship);
@@ -871,6 +897,7 @@ function renderFleetActions(shipRow) {
     ${dockBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
     ${shipRow.role === "trader" ? `<button class="btn" data-act="custom-route-toggle">Custom route</button>` : ""}
+    ${shipRow.role === "surveyor" ? `<button class="btn" data-act="survey-toggle">Survey tour${surveyStatus ? " ●" : ""}</button>` : ""}
     ${pinnedBtn}
     <button class="btn" data-act="repair">Repair</button>
     <button class="btn deny" data-act="sell">Sell / Scrap</button>
@@ -886,6 +913,7 @@ function resetFleetActionForms() {
   fleetSendOpen = false;
   fleetRouteOpen = false;
   fleetCustomOpen = false;
+  fleetSurveyOpen = false;
   fleetRoleOpen = false;
   fleetRoleFormRole = null;
   fleetDetailsOpen = false;
@@ -903,15 +931,16 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
     try { await api("POST", "/api/fleet/jump", { shipSymbol: ship, waypointSymbol: b.dataset.to }); await loadState(); return renderFleet(); }
     catch (err) { alert(err.message); b.disabled = false; return; }
   }
-  if (act === "send-toggle") { fleetSendOpen = !fleetSendOpen; fleetRouteOpen = false; fleetCustomOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
-  if (act === "custom-route-toggle") { fleetCustomOpen = !fleetCustomOpen; fleetRouteOpen = false; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
-  if (act === "route-toggle") { fleetRouteOpen = !fleetRouteOpen; fleetCustomOpen = false; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
+  if (act === "send-toggle") { fleetSendOpen = !fleetSendOpen; fleetRouteOpen = false; fleetSurveyOpen = false; fleetCustomOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
+  if (act === "custom-route-toggle") { fleetCustomOpen = !fleetCustomOpen; fleetRouteOpen = false; fleetSurveyOpen = false; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
+  if (act === "route-toggle") { fleetRouteOpen = !fleetRouteOpen; fleetCustomOpen = false; fleetSurveyOpen = false; fleetSendOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false; return renderFleet(); }
   if (act === "role-toggle") {
     fleetRoleOpen = !fleetRoleOpen;
     fleetRoleFormRole = null;
     fleetSendOpen = false;
     fleetRouteOpen = false;
     fleetCustomOpen = false;
+    fleetSurveyOpen = false;
     fleetDetailsOpen = false;
     return renderFleet();
   }
@@ -920,7 +949,46 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
     fleetSendOpen = false;
     fleetRouteOpen = false;
     fleetCustomOpen = false;
+    fleetSurveyOpen = false;
     fleetRoleOpen = false;
+    return renderFleet();
+  }
+  if (act === "survey-toggle") {
+    fleetSurveyOpen = !fleetSurveyOpen;
+    fleetSendOpen = false; fleetRouteOpen = false; fleetCustomOpen = false; fleetRoleOpen = false; fleetDetailsOpen = false;
+    if (fleetSurveyOpen) {
+      const here = fleetRows().find((r) => r.symbol === ship)?.at;
+      try {
+        const [fieldsRes, status] = await Promise.all([
+          api("GET", `/api/ops/mining_fields${here ? `?target=${encodeURIComponent(here)}` : ""}`),
+          api("GET", `/api/fleet/survey-tour?shipSymbol=${encodeURIComponent(ship)}`),
+        ]);
+        surveyFields = fieldsRes.fields ?? [];
+        surveyStatus = status.progress;
+        if (surveyStatus) { surveyPicked.clear(); for (const f of surveyStatus.fields) surveyPicked.add(f); surveyOpts.loop = surveyStatus.loop; surveyOpts.batches = surveyStatus.perField; }
+      } catch (err) { alert(err.message); }
+    }
+    return renderFleet();
+  }
+  if (act === "survey-low") {
+    surveyPicked.clear();
+    [...surveyFields].sort((a, b) => a.surveys - b.surveys || (a.distanceToTarget ?? 0) - (b.distanceToTarget ?? 0)).slice(0, 10).forEach((f) => surveyPicked.add(f.waypoint));
+    return renderFleet();
+  }
+  if (act === "survey-clear") { surveyPicked.clear(); return renderFleet(); }
+  if (act === "survey-start") {
+    if (!surveyPicked.size) { alert("pick at least one field"); return; }
+    b.disabled = true;
+    try {
+      const res = await api("POST", "/api/fleet/survey-tour", { shipSymbol: ship, fields: [...surveyPicked], batchesPerField: surveyOpts.batches, loop: surveyOpts.loop, nearestFirst: surveyOpts.nearest });
+      surveyStatus = res.progress;
+    } catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "survey-stop") {
+    b.disabled = true;
+    try { await api("POST", "/api/fleet/survey-tour/stop", { shipSymbol: ship }); surveyStatus = null; }
+    catch (err) { alert(err.message); }
     return renderFleet();
   }
   if (act === "jettison") {
@@ -1032,6 +1100,11 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
 });
 
 $("fleet-detail-body").addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.classList.contains("survey-pick")) { if (t.checked) surveyPicked.add(t.dataset.field); else surveyPicked.delete(t.dataset.field); return renderFleet(); }
+  if (t.classList.contains("survey-batches")) { surveyOpts.batches = Math.min(10, Math.max(1, Math.floor(Number(t.value) || 3))); return; }
+  if (t.classList.contains("survey-loop")) { surveyOpts.loop = t.checked; return; }
+  if (t.classList.contains("survey-nearest")) { surveyOpts.nearest = t.checked; return; }
   if (!e.target.classList.contains("role-select")) return;
   fleetRoleFormRole = e.target.value;
   renderFleet();
