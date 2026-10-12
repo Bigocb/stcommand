@@ -547,3 +547,12 @@ td.cp.down { color: var(--bad, #e5675d); }
 .survey-row .dim{color:var(--dim)}
 .survey-opt{display:flex; gap:4px; align-items:center; font-size:11px; color:var(--dim)}
 tr.grp-row.sub td{padding:6px 12px 4px 28px;background:transparent;font-size:9.5px;color:var(--dim)}
+
+/* Mining fields table (shared/miningFields.js) */
+table.mf{border-collapse:collapse; width:100%; font-size:11px}
+table.mf th{position:sticky; top:0; background:var(--sunken); padding:7px 8px; text-align:right; font-family:var(--chrome); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); white-space:nowrap}
+table.mf th:first-child, table.mf th:last-child{text-align:left}
+table.mf th.mf-sort{cursor:pointer}
+table.mf th.mf-sort:hover{color:var(--amber)}
+table.mf td{padding:5px 8px; border-bottom:1px solid var(--hair); white-space:nowrap}
+table.mf .dim{color:var(--dim)}

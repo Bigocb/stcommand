@@ -22,6 +22,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
+import { mountMiningFields } from "/shared/miningFields.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
 import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
@@ -70,6 +71,7 @@ $("auth-form").addEventListener("submit", async (e) => {
  * Overview, Fleet, and Markets screens; others show inert placeholders.
  */
 let metricsScreen = null;
+let miningScreen = null;
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
   document.querySelectorAll(".rail .item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
@@ -105,6 +107,10 @@ function setView(name) {
       netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined),
     });
     metricsScreen.show();
+  }
+  if (name === "mining") {
+    miningScreen ??= mountMiningFields($("mining-root"), { api });
+    miningScreen.show();
   }
   if (name === "doctrine") {
     loadDoctrine();

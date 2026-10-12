@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-12 — Deck: a Mining screen, a sortable table of what the field surveys show
+
+New "Mining" item in Deck's left rail. One row per minable asteroid in the home system (the `mining_fields` ops tool): field,
+distance to a waypoint you type (for example the market the ore goes to), surveys taken (with a warning under 10, and a dash for
+never surveyed), one column per good seen in any survey showing its share of listed deposits (heat-shaded, so the richest cells
+stand out), how many miners and feeds are on the field, and the field's traits. Click any header to sort, again to reverse; never-
+surveyed fields sort last on a share column. Sort and the distance target are remembered per browser. The sort/column logic is a
+pure file, `public/shared/miningSort.js` (tests: `tests/miningSort.test.ts`); the drawing is `public/shared/miningFields.js`. Only
+one field has real survey data until a surveyor tour runs; the screen shows 65 rows with 64 never surveyed. Deck only, not run in a
+browser here.
+
 ## 2026-10-12 — Deck Fleet: traders are grouped by what they are doing
 
 The Trader group in the Fleet table is split into Contracts, Routes, Feeds, Mission and Unassigned (in that order, empty ones hidden),
