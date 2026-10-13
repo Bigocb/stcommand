@@ -113,3 +113,13 @@ describe("onContractWork (what feeds and missions must not take)", () => {
     assert.equal(d.onContractWork("T-1"), false);
   });
 });
+
+describe("contract work stays with pinned ships", () => {
+  it("an unpinned ship does not take a contract buy while a pinned ship is busy and not in the idle list", () => {
+    const d = new RouteDispatcher();
+    d.setContractDuty("T-1", true);
+    run(d, [ship("T-2")]);
+    assert.notEqual(d.assignmentFor("T-2")?.role, "contractBuy");
+    assert.equal(d.assignmentFor("T-2")?.good, "FOOD");
+  });
+});

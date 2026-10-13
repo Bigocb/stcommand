@@ -13,6 +13,10 @@ be useful context; not a complete project history — see `git log` for that.
 
 Tower's feeder-tier form (More > Work), the system and price pickers, bulk scrap's role and the add-carrier picker all drew the browser's white pill, and the feeder row ran off the right edge of a phone. One `select` rule in `m.css` now gives every Tower dropdown the dark fill and amber arrow (replacing the narrower metrics-only rule's job there), and `.mission-start-row` wraps so the four controls and the Start button fit. Checked in headless Chromium at phone width.
 
+## 2026-10-13 — Contract buys stay with the ships pinned to contract duty
+
+A ship pinned to contract duty was not the only one allowed to take a contract buy. The first contract slot was open to any ship, and the slot count only counted pinned ships in the idle list. So when the pinned ship was busy, an unpinned ship (a 490-unit freighter, on a small contract) could take the job. Now, once any ship is pinned, unpinned ships are refused contract buys with the reason "contract work is kept for the ships pinned to contract duty", and the job waits for the pinned ship. Test: `tests/contractDuty.test.ts`.
+
 ## 2026-10-13 — Metrics filter dropdowns restyled
 
 The By waypoint and Recent trips filters (`select.mx-wp-sys`) had no styling, so phones drew the browser's white pill (and, with no options loaded yet, an empty one). They now match the dark panels: dark fill, hair-line border, amber arrow, capped width so they fit beside the panel title. Same rule in `m.css` (Tower) and `deck.css` (Deck). Checked in headless Chromium at phone width.
