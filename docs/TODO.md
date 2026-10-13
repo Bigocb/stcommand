@@ -7,6 +7,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Scout the neighbouring systems once the gate opens (raised 2026-10-13, operator).** Gate X1-CM13-I61 (needs 1,600 FAB_MATS +
+  400 ADVANCED_CIRCUITRY) links to X1-FP91, X1-CK71, X1-CH68, X1-P74 and X1-GR36. First targets: **X1-FP91** (523 away; 92 waypoints,
+  59 asteroids, an engineered asteroid, a gas giant, 2 asteroid bases: the closest copy of home) and **X1-CH68** (994 away; 70 waypoints,
+  45 asteroids, 2 gas giants, 7 orbital stations). Plan: a light freighter to each as a tour ship (`dispatch_tour`), plus an explorer,
+  probably a shuttle, to chart. Only type/coordinates/waypoint types are known from the public API; markets and traits need a ship there.
+  Nothing to do until the gate completes. X1-P74 (274 away, 28 waypoints) is the cheap fallback.
+
 - [ ] **Pick mining fields automatically, per input market (raised 2026-10-12, operator).** For every market the gate chain buys
   an input from, rank minable asteroids by distance and measured deposit share (`miningFieldsReport`, `src/engine/miningFields.ts`,
   already pure and tested), start a looping survey tour over the nearest unsurveyed ones, and propose a mine feed + field + collector
