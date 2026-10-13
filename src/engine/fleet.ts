@@ -1223,6 +1223,7 @@ export class FleetManager {
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
       jumpTo: (sym, wp) => this.jumpToward(sym, wp),
+      warpEnabled: () => this.doctrine.isEnabledOr("warpTours", true),
       scrapHere: async (sym: string) => { await this.scrapShip(sym); },
       findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
         this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),

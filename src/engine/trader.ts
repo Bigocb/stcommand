@@ -10,6 +10,7 @@ import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.
 import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
+import { chooseHopMethod, DEFAULT_WARP_POLICY, warpDriveRange } from "./warpTour.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -72,6 +73,8 @@ export interface TraderOptions {
   getMarketSnapshots?: () => Promise<{ waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[]>;
   /** Multi-system atlas for jump routing between systems. */
   atlas?: GalaxyAtlas;
+  /** Doctrine toggle for warp travel (see warpTour.ts). Off, or absent, means every cross-system leg takes a gate. */
+  warpEnabled?: () => boolean;
   /** Store for runExploreGoal to record module catalogs and shipyard data. */
   store?: import("../db/store.js").Store;
   /** Trade symbols reserved for missions; the trader must never buy/sell these. */
@@ -250,6 +253,7 @@ export class TraderAgent {
   /** Goods the operator approved selling below the floor — consumed by the next sell. */
   private floorOverride = new Set<string>();
   private readonly atlas?: GalaxyAtlas;
+  private readonly warpEnabled?: () => boolean;
   private readonly store?: TraderOptions["store"];
   private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
   private readonly warehouseBalance?: TraderOptions["warehouseBalance"];
@@ -370,6 +374,7 @@ export class TraderAgent {
     this.stopManualRoute = opts.stopManualRoute;
     this.requestApproval = opts.requestApproval;
     this.atlas = opts.atlas;
+    this.warpEnabled = opts.warpEnabled;
     this.store = opts.store;
     this.getWarehouseShip = opts.getWarehouseShip;
     this.warehouseBalance = opts.warehouseBalance;
@@ -699,6 +704,8 @@ export class TraderAgent {
       // restart or a changed gate mid-route can't strand a stale plan. The
       // caller's next tick calls navigateTo() again until the ship arrives.
       const from = this.ship.nav.systemSymbol;
+      // A warp drive goes straight to the real destination, so it skips the gate hop, the jump fee and the cooldown.
+      if (await this.warpTo(targetSystem, waypoint)) return;
       if (this.atlas?.canJump(from, targetSystem)) {
         await this.jumpToSystem(targetSystem, waypoint);
         return;
@@ -811,6 +818,44 @@ export class TraderAgent {
    */
   private assertAt(waypoint: string, action: string): void {
     this.proxy.assertAt(waypoint, action);
+  }
+
+  /**
+   * Warp straight to `waypoint` in `targetSystem` when this ship can: a warp drive is installed, the doctrine toggle is
+   * on, the target is in range and the tank covers the estimate (the decision is warpTour.ts's). Returns false to let
+   * the gate path run. An issued warp is awaited like any in-system flight, so a scheduler-driven trader gets
+   * NavigationPending and resumes on arrival; nothing here needs to repeat that.
+   */
+  private async warpTo(targetSystem: string, waypoint: string): Promise<boolean> {
+    if (!this.atlas || this.ship.nav.status === "IN_TRANSIT") return false;
+    const enabled = this.warpEnabled?.() ?? true;
+    const warpRange = warpDriveRange(this.ship.modules);
+    let distance: number | undefined;
+    if (enabled && warpRange !== undefined) {
+      const [here, there] = await Promise.all([
+        this.atlas.systemCoords(this.ship.nav.systemSymbol),
+        this.atlas.systemCoords(targetSystem),
+      ]);
+      if (here && there) distance = Math.hypot(there.x - here.x, there.y - here.y);
+    }
+    const choice = chooseHopMethod({ ...DEFAULT_WARP_POLICY, enabled }, { warpRange, fuel: this.ship.fuel.current, distance });
+    if (choice.method !== "warp") {
+      if (warpRange !== undefined && enabled) this.log(`not warping to ${targetSystem} (${choice.reason}), using gates`);
+      return false;
+    }
+    await this.ensureInOrbit();
+    try {
+      const res = await this.api.warpShip(this.symbol, waypoint);
+      this.ship = { ...this.ship, nav: res.nav, fuel: res.fuel };
+    } catch (err) {
+      this.log(`warp to ${waypoint} failed, using gates: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+    this.log(`warping to ${waypoint} (${choice.reason}); fuel ${this.ship.fuel.current}`);
+    this.onActivity?.("warp", `warped to ${waypoint}`, undefined, this.symbol);
+    await this.proxy.waitForArrival();
+    await this.refresh();
+    return true;
   }
 
   /**
