@@ -1529,6 +1529,11 @@ export class RouteDispatcher {
         const slot = contractSlotOf(w.key);
         const onDuty = this.contractDuty.has(t.shipSymbol);
         if (onDuty && slot === 0) { noteRejected(w, "this ship is on contract duty (contract work only)"); continue; }
+        // Once any ship is pinned to contract duty, contract buys are its job: an unpinned ship may not take them, even
+        // when the pinned ship is busy and so not in this cycle's idle list (where dutyShips is 0 and slot 1 would
+        // otherwise open to anyone). Seen live 2026-10-13: a 490-unit freighter was handed a small contract while the
+        // ship pinned to it was elsewhere.
+        if (slot >= 1 && !onDuty && this.contractDuty.size > 0) { noteRejected(w, "contract work is kept for the ships pinned to contract duty"); continue; }
         if (slot >= 2) {
           if (!onDuty) { noteRejected(w, "a parallel contract buyer is for ships on contract duty"); continue; }
           if ((contractPromised.get(w.contractGood ?? "") ?? 0) >= (w.contractNeeded ?? 0)) { noteRejected(w, "the ships already on this contract good cover the units still needed"); continue; }
