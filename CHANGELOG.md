@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-13 — Metrics filter dropdowns restyled
+
+The By waypoint and Recent trips filters (`select.mx-wp-sys`) had no styling, so phones drew the browser's white pill (and, with no options loaded yet, an empty one). They now match the dark panels: dark fill, hair-line border, amber arrow, capped width so they fit beside the panel title. Same rule in `m.css` (Tower) and `deck.css` (Deck). Checked in headless Chromium at phone width.
+
 ## 2026-10-12 — Tower: traders grouped by job, and a Mining segment under More
 
 Tower's Fleet roster now folds traders into Contracts, Routes, Feeds, Mission and Unassigned (the same `jobKind` split Deck uses, each fold collapsible, with its total hold). More has a fourth segment, Mining, which mounts the same sortable mining fields table as Deck (`shared/miningFields.js`) and polls it only while that segment is on screen. Checked the Mining segment in headless Chromium against a stubbed API; the roster grouping was only syntax-checked.
