@@ -39,6 +39,7 @@ import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { pickCheapestKeeperYard } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
+import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
 import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -3626,6 +3627,9 @@ export class FleetManager {
     const dest = this.tourDestinations.get(shipSymbol);
     if (!dest) return false;
     const ship = await this.api.getShip(shipSymbol);
+    // A warp is in flight: the ship may already report the destination system while it is still travelling, so only
+    // a ship that has stopped counts as arrived. Gate jumps are instant and never reach this check in transit.
+    if (ship.nav.status === "IN_TRANSIT") return true;
     if (ship.nav.systemSymbol === dest) {
       await this.updateShipManualState(shipSymbol, { tourDestination: null });
       this.log(`${shipSymbol}: arrived in ${dest}, touring in place`);
@@ -3661,6 +3665,14 @@ export class FleetManager {
     const s = ship ?? (await this.api.getShip(shipSymbol));
     if (s.nav.systemSymbol === targetSystem) return false; // arrival is the caller's job, not this primitive's
     if (s.nav.status === "IN_TRANSIT") return true; // already mid-hop, nothing to do this tick
+    // A warp drive skips the gate graph entirely (see warpTour.ts). Anything it can't do falls through to the gate path.
+    const warp = await this.warpHopChoice(s, targetSystem);
+    if (warp.method === "warp") {
+      if (await this.warpToward(shipSymbol, targetSystem, s, warp.reason)) return true;
+    } else if (warpDriveRange(s.modules) !== undefined) {
+      // Only ships with a warp drive get this line; everyone else's gate hop is the normal path and needs no note.
+      this.log(`${shipSymbol}: not warping toward ${targetSystem} (${warp.reason}), using gates`);
+    }
     const path = this.findSystemPath(s.nav.systemSymbol, targetSystem);
     if (!path || path.length < 2) {
       this.log(`${shipSymbol}: no known jump-gate path from ${s.nav.systemSymbol} to ${targetSystem} yet — will retry as more of the galaxy is charted`);
@@ -3715,6 +3727,49 @@ export class FleetManager {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Whether this hop should warp, from the doctrine toggle, the ship's warp drive, its fuel and the distance between
+   * the two systems. The decision itself is pure (warpTour.ts); this just gathers the facts. A ship with no warp drive
+   * skips the coordinate lookups entirely.
+   */
+  private async warpHopChoice(ship: Ship, targetSystem: string): Promise<WarpHopChoice> {
+    const policy: WarpPolicy = { ...DEFAULT_WARP_POLICY, enabled: this.doctrine.isEnabledOr("warpTours", true) };
+    const warpRange = warpDriveRange(ship.modules);
+    const fuel = ship.fuel.current;
+    if (!policy.enabled || warpRange === undefined) return chooseHopMethod(policy, { warpRange, fuel });
+    const [here, there] = await Promise.all([
+      this.galaxy.systemCoords(ship.nav.systemSymbol),
+      this.galaxy.systemCoords(targetSystem),
+    ]);
+    const distance = here && there ? Math.hypot(there.x - here.x, there.y - here.y) : undefined;
+    return chooseHopMethod(policy, { warpRange, fuel, distance });
+  }
+
+  /**
+   * Warp a ship straight to a waypoint in `targetSystem`. Returns true once the warp is issued (the ship is then in
+   * transit and the next tick's advanceTourDispatch() sees it arrive), false when it could not be issued, so the caller
+   * falls back to the gate path. Arrival is charted and surveyed by the usual per-tick sweep of occupied systems, the
+   * same as a ship that gets there any other way, so nothing is done here for it.
+   */
+  private async warpToward(shipSymbol: string, targetSystem: string, ship: Ship, reason: string): Promise<boolean> {
+    const target = pickWarpArrival((await this.galaxy.loadSystem(targetSystem)).waypoints);
+    if (!target) {
+      this.log(`${shipSymbol}: no known waypoint in ${targetSystem} to warp to, using gates`);
+      return false;
+    }
+    try {
+      if (ship.nav.status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);
+      const res = await this.api.warpShip(shipSymbol, target);
+      // The fuel line is the live calibration for WarpPolicy.fuelPerUnit: compare it with the estimate in the reason.
+      this.log(`${shipSymbol} warping to ${target} (${reason}); fuel ${ship.fuel.current} -> ${res.fuel.current}`);
+      this.onActivity?.("warp", `${shipSymbol} warping to ${target}`, undefined, shipSymbol);
+      return true;
+    } catch (err) {
+      this.log(`${shipSymbol}: warp to ${target} failed, using gates: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
   }
 
   /**

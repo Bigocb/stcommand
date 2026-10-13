@@ -986,6 +986,14 @@ export class SpaceTradersAPI {
     }>(`/my/ships/${shipSymbol}/jump`, { waypointSymbol });
   }
 
+  /** Warp to a waypoint in another system. Needs a warp drive module, the ship in orbit, and fuel for the trip. */
+  warpShip(shipSymbol: string, waypointSymbol: string) {
+    return this.client.post<{
+      fuel: components["schemas"]["ShipFuel"];
+      nav: components["schemas"]["ShipNav"];
+    }>(`/my/ships/${shipSymbol}/warp`, { waypointSymbol });
+  }
+
   navigateShip(shipSymbol: string, waypointSymbol: string) {
     return this.client.post<{
       fuel: components["schemas"]["ShipFuel"];

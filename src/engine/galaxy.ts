@@ -43,6 +43,8 @@ export class GalaxyAtlas {
   private readonly store?: GalaxyStore;
   private readonly systems = new Map<string, KnownSystem>();
   private readonly jumps = new Map<string, string>(); // gate symbol -> system symbol
+  /** Galaxy coordinates per system, memoized by systemCoords(). Reset with the process, like everything else here. */
+  private readonly systemCoordCache = new Map<string, { x: number; y: number }>();
 
   constructor(api: SpaceTradersAPI, store?: GalaxyStore) {
     this.api = api;
@@ -637,6 +639,24 @@ export class GalaxyAtlas {
     }
     known.shipyards = shipyards;
     return shipyards;
+  }
+
+  /**
+   * Galaxy coordinates of one system, fetched once and remembered for this process. Warp distance needs these; the
+   * waypoint positions above are relative to their own system and can't give a distance between systems. Returns
+   * undefined when the lookup fails, so the caller falls back to the gate instead of guessing.
+   */
+  async systemCoords(systemSymbol: string): Promise<{ x: number; y: number } | undefined> {
+    const hit = this.systemCoordCache.get(systemSymbol);
+    if (hit) return hit;
+    try {
+      const sys = await this.api.getSystem(systemSymbol);
+      const coords = { x: sys.x, y: sys.y };
+      this.systemCoordCache.set(systemSymbol, coords);
+      return coords;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Return all cached waypoint positions across known systems. */

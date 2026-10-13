@@ -297,6 +297,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "warpTours",
+    name: "Warp tours",
+    description: "Let a tour ship that has a warp drive cross to another system by warp instead of walking the jump-gate graph, when the target is within its warp range and the ship has the fuel for it. Warping costs no jump fee and doesn't wait on a gate. Ships without a warp drive, or targets out of range or short of fuel, keep using gates as before. Turn this off to send every tour through a gate. This value isn't used — only the clause toggle matters.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "exploringEnabled",
     name: "Exploring",
     description: "Master switch for jump-based exploring. Jumps cost real credits — turning this off (via the clause toggle, not this value) stops explorers from starting any new one; a jump already in flight still lands (nothing can recall it), but the ship then just parks at that destination instead of continuing on. On by default, matching today's behavior. This value isn't used — same as warehouseTarget's own master switch.",

@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-13 — Warp tours: a tour ship with a warp drive crosses by warp, not gate
+
+A tour dispatched to another system used to walk the jump-gate graph one hop per tick, paying a jump fee each hop and waiting on each gate. A tour ship with a warp drive now warps straight to a waypoint in the target system when it is within warp range and has the fuel for it (estimated at 1.2 fuel per distance unit, unverified until the first live warp, which logs its real fuel cost). It lands on a market or shipyard if there is one, else a jump gate. Anything else keeps using gates as before: no warp drive, target beyond range, short of fuel, distance not yet known, or the warp call fails. The toggle is the doctrine clause `warpTours` (on by default, so it only changes behaviour for ships with a warp drive). Turn it off to send every tour through a gate. The decision is a pure module (`src/engine/warpTour.ts`, tests in `tests/warpTour.test.ts`); `FleetManager.hopToward()` gathers the facts and acts on it. A warp-in-flight ship is no longer treated as arrived by `advanceTourDispatch()`. Dispatch of a single ship by `dispatch_ship` across systems still uses gates; this change covers tours only. Also set the explorer buy cap (`shipCap:FRAME_EXPLORER`) to 0 so the auto-buyer does not buy explorers.
+
 ## 2026-10-13 — Tower: every dropdown styled, feeder-tier row wraps
 
 Tower's feeder-tier form (More > Work), the system and price pickers, bulk scrap's role and the add-carrier picker all drew the browser's white pill, and the feeder row ran off the right edge of a phone. One `select` rule in `m.css` now gives every Tower dropdown the dark fill and amber arrow (replacing the narrower metrics-only rule's job there), and `.mission-start-row` wraps so the four controls and the Start button fit. Checked in headless Chromium at phone width.
