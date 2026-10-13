@@ -2673,6 +2673,11 @@ export class Store {
     );
   }
 
+  /** Drop a resumable cursor so the next crawl starts over from page 1. */
+  async clearCrawlState(key: string): Promise<void> {
+    await withPool(this.pool, (c) => c.query(`DELETE FROM galaxy_crawl_state WHERE key = $1`, [key]));
+  }
+
   // ── Missions (tenant-scoped) ────────────────────────────────
 
   async recordMission(

@@ -166,6 +166,15 @@ export class GalaxyCrawler {
     this.agentsCrawlPage = 1;
     this.agentsCrawlAccumulator = [];
     this.activity.length = 0;
+    // Drop the persisted systems-scan cursor too. The flags above are
+    // in-memory; the systems pass otherwise resumes from whatever page
+    // galaxy_crawl_state holds, which after a reset points at the dead
+    // universe's last page and makes the pass finish immediately without
+    // scanning the new galaxy. (truncateSharedGalaxyTables() also clears this
+    // when it runs — this is the belt-and-suspenders so a reset that skips the
+    // truncate can't leave the crawl stuck.) Fire-and-forget: a miss just
+    // re-scans one page.
+    void this.store.clearCrawlState("galaxy_systems_crawl").catch(() => {});
     this.recordActivity("Reset detected — galaxy crawl restarting from the beginning");
   }
 

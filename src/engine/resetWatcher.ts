@@ -18,8 +18,11 @@
  * Safety:
  *  - First run ever records the current resetDate as the baseline and does
  *    nothing — deploying this must not itself trigger a wipe.
- *  - Nothing is wiped unless the tenant's token is positively confirmed dead
- *    (a 401 from the game). A network blip or 5xx is "unknown": the tick aborts.
+ *  - Per-tenant game data is wiped only when that tenant's token is positively
+ *    confirmed dead (a 401 from the game). A network blip or 5xx is "unknown":
+ *    the tick aborts. The SHARED galaxy tables (systems/gates/markets) are
+ *    different — they're invalid after every reset regardless of any token — so
+ *    they're truncated once per detected reset even when no token is dead.
  *  - Needs `ST_ACCOUNT_TOKEN`. Without it the watcher still detects and reports
  *    the reset (state `needs_account_token`) but changes nothing.
  *  - `AUTO_RESET_RECOVERY=off` disables acting entirely.
@@ -195,40 +198,53 @@ export class ResetWatcher {
     }
     const dead = tenants.filter((t) => probes.get(t.id) === "dead");
 
-    // Clear the dead universe first, once per reset: the shared tables lie, and
-    // a tenant's old ship/ledger rows would otherwise be read by the new fleet.
-    if (dead.length > 0 && this.cleanedFor !== status.resetDate) {
-      // Scoreboard first: the wipe below destroys the only copy of the week's
-      // numbers. A failed capture holds the wipe for a few ticks (a transient DB
-      // error shouldn't cost the data) but never blocks recovery forever.
-      const endedUniverse = this.current.handledResetDate ?? "unknown";
-      for (const t of dead) {
-        try {
-          const wrote = await this.ports.captureRunResult(t, endedUniverse, status.resetDate);
-          this.log(wrote ? `saved ${t.agentSymbol}'s results for the ${endedUniverse} universe` : `results for ${t.agentSymbol} / ${endedUniverse} already saved`);
-        } catch (err) {
-          const failures = (this.captureFailures.get(t.id) ?? 0) + 1;
-          this.captureFailures.set(t.id, failures);
-          const msg = err instanceof Error ? err.message : String(err);
-          if (failures < MAX_CAPTURE_ATTEMPTS) {
-            this.current.state = "error";
-            this.current.lastError = `capture results ${t.agentSymbol}: ${msg}`;
-            this.log(`saving ${t.agentSymbol}'s results failed (attempt ${failures}/${MAX_CAPTURE_ATTEMPTS}); holding the wipe: ${msg}`);
-            return;
+    // The shared galaxy always changed with the reset — the tables lie about
+    // systems/gates/markets until they're re-crawled — so truncate them (and
+    // restart the crawl) once per reset, REGARDLESS of whether any tenant's
+    // token is confirmed dead. Gating this on `dead.length > 0` was the bug
+    // confirmed live 2026-10-13: a reset where the operator had already
+    // re-registered by hand (so every token was alive) never cleared the shared
+    // tables, leaving last week's systems in place. The per-tenant game-data
+    // wipe stays gated on a dead token, since a live tenant's rows are already
+    // this universe's.
+    if (this.cleanedFor !== status.resetDate) {
+      if (dead.length > 0) {
+        // Scoreboard first: the wipe below destroys the only copy of the week's
+        // numbers. A failed capture holds the wipe for a few ticks (a transient
+        // DB error shouldn't cost the data) but never blocks recovery forever.
+        const endedUniverse = this.current.handledResetDate ?? "unknown";
+        for (const t of dead) {
+          try {
+            const wrote = await this.ports.captureRunResult(t, endedUniverse, status.resetDate);
+            this.log(wrote ? `saved ${t.agentSymbol}'s results for the ${endedUniverse} universe` : `results for ${t.agentSymbol} / ${endedUniverse} already saved`);
+          } catch (err) {
+            const failures = (this.captureFailures.get(t.id) ?? 0) + 1;
+            this.captureFailures.set(t.id, failures);
+            const msg = err instanceof Error ? err.message : String(err);
+            if (failures < MAX_CAPTURE_ATTEMPTS) {
+              this.current.state = "error";
+              this.current.lastError = `capture results ${t.agentSymbol}: ${msg}`;
+              this.log(`saving ${t.agentSymbol}'s results failed (attempt ${failures}/${MAX_CAPTURE_ATTEMPTS}); holding the wipe: ${msg}`);
+              return;
+            }
+            this.log(`saving ${t.agentSymbol}'s results failed ${failures} times; continuing recovery WITHOUT them: ${msg}`);
           }
-          this.log(`saving ${t.agentSymbol}'s results failed ${failures} times; continuing recovery WITHOUT them: ${msg}`);
         }
-      }
-      for (const t of dead) {
-        this.ports.stopWorker(t.id);
-        await this.ports.wipeTenantGameData(t.id);
-        this.current.tenants[t.agentSymbol] = "cleared";
+        for (const t of dead) {
+          this.ports.stopWorker(t.id);
+          await this.ports.wipeTenantGameData(t.id);
+          this.current.tenants[t.agentSymbol] = "cleared";
+        }
       }
       await this.ports.truncateSharedGalaxy();
       this.ports.resetCrawler();
       this.cleanedFor = status.resetDate;
       this.ports.beginUniverse(status.resetDate);
-      this.log(`cleared stale data for ${dead.length} tenant(s) and shared galaxy tables`);
+      this.log(
+        dead.length > 0
+          ? `cleared stale data for ${dead.length} tenant(s) and shared galaxy tables`
+          : "cleared shared galaxy tables (no dead-token tenants to wipe)",
+      );
     }
 
     let allDone = true;
