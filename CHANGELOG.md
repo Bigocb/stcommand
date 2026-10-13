@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-13 — Tower: every dropdown styled, feeder-tier row wraps
+
+Tower's feeder-tier form (More > Work), the system and price pickers, bulk scrap's role and the add-carrier picker all drew the browser's white pill, and the feeder row ran off the right edge of a phone. One `select` rule in `m.css` now gives every Tower dropdown the dark fill and amber arrow (replacing the narrower metrics-only rule's job there), and `.mission-start-row` wraps so the four controls and the Start button fit. Checked in headless Chromium at phone width.
+
 ## 2026-10-13 — Metrics filter dropdowns restyled
 
 The By waypoint and Recent trips filters (`select.mx-wp-sys`) had no styling, so phones drew the browser's white pill (and, with no options loaded yet, an empty one). They now match the dark panels: dark fill, hair-line border, amber arrow, capped width so they fit beside the panel title. Same rule in `m.css` (Tower) and `deck.css` (Deck). Checked in headless Chromium at phone width.

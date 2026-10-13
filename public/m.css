@@ -738,3 +738,17 @@ table.mf .dim { color:var(--dim); }
   background-position: calc(100% - 13px) 55%, calc(100% - 8px) 55%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
 }
 .mx select.mx-wp-sys:focus { outline: 1px solid var(--amber); }
+
+/* Every Tower <select>: dark with our own arrow, not the browser's white pill (they were unstyled wherever a class did not
+   already colour them: the feeder-tier row, the system/price pickers, bulk scrap's role, the add-carrier picker). */
+select, .price-picker select, select.role-select {
+  -webkit-appearance: none; appearance: none; background-color: #04070a; color: var(--bone);
+  border: 1px solid var(--hair-hi); border-radius: 3px; font-family: var(--mono); font-size: 12px;
+  padding: 8px 26px 8px 10px; min-width: 0; text-overflow: ellipsis;
+  background-image: linear-gradient(45deg, transparent 50%, var(--amber) 50%), linear-gradient(135deg, var(--amber) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 55%, calc(100% - 9px) 55%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+}
+select:focus, .price-picker select:focus, select.role-select:focus { outline: 1px solid var(--amber); }
+/* The feeder-tier form has four controls and a button: let them wrap instead of running off the screen edge. */
+.mission-start-row { flex-wrap: wrap; align-items: center; }
+.mission-start-row select { flex: 1 1 110px; }
