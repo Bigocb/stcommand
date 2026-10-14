@@ -15,6 +15,10 @@ describe("planSuspendedRepairs", () => {
     assert.match(d.reason, /0\.17.*flying to X1-CM13-A2/);
   });
 
+  it("docks a ship that is in orbit at a shipyard, rather than sending it to the yard it is already at", () => {
+    assert.deepEqual(one({ nav: "IN_ORBIT", atShipyard: true, waypoint: "X1-CM13-A2" }).action, { kind: "dock" });
+  });
+
   it("repairs a docked ship that is already at a shipyard", () => {
     assert.deepEqual(one({ nav: "DOCKED", atShipyard: true, waypoint: "X1-CM13-A2" }).action, { kind: "repair" });
   });

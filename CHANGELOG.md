@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Suspended repair docks a ship that has reached its yard in orbit
+
+The first live run flew THEOREM-9 to X1-CM13-A2 correctly, but the planner then saw a ship in orbit at a yard as "not at a yard" and sent it there again every pass. Ships in orbit at a shipyard are now docked first, then repaired on the next pass.
+
 ## 2026-10-14 — Suspended miners with a damaged hull are flown to a yard and repaired by the engine; Deck shows condition
 
 A repair was handed to a ship's own agent, and a suspended agent never runs it, so THEOREM-7/-8/-9 sat at condition 0.17 to 0.20 for hours. A new planner (`src/engine/suspendedRepair.ts`, pure, with tests) decides, for each suspended ship below the repair floor, whether to repair it where it docks, fly it to the nearest yard in its system, or wait. FleetManager runs it each maintenance tick, skips operator-held ships, and releases the hull after a successful repair. The floor comes from the doctrine's repair floor. Deck's ship list now shows each ship's condition beside fuel, in red below half.

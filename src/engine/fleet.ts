@@ -8400,7 +8400,8 @@ export class FleetManager {
         nav: ship.nav.status as SuspendedRepairFacts["nav"],
         system,
         waypoint,
-        atShipyard: ship.nav.status === "DOCKED" ? await this.isShipyard(system, waypoint) : false,
+        // In orbit counts too: a ship that has arrived at a yard docks there, rather than flying to it again.
+        atShipyard: ship.nav.status !== "IN_TRANSIT" ? await this.isShipyard(system, waypoint) : false,
         nearestYard: this.nearestShipyard(system),
       });
     }
@@ -8409,6 +8410,15 @@ export class FleetManager {
     for (const d of decisions) {
       if (d.action.kind === "none" || d.action.kind === "wait") continue;
       if (this.suspendedRepairFlights.has(d.shipSymbol)) continue;
+      if (d.action.kind === "dock") {
+        this.log(`${d.shipSymbol}: suspended repair: ${d.reason}`);
+        try {
+          await this.api.dockShip(d.shipSymbol);
+        } catch (err) {
+          this.log(`${d.shipSymbol}: suspended repair dock failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        continue;
+      }
       if (d.action.kind === "repair") {
         this.log(`${d.shipSymbol}: suspended repair: ${d.reason}`);
         try {

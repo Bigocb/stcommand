@@ -36,6 +36,7 @@ export interface SuspendedRepairFacts {
 
 export type SuspendedRepairAction =
   | { kind: "repair" }
+  | { kind: "dock" }
   | { kind: "fly"; yard: string }
   | { kind: "wait" }
   | { kind: "none" };
@@ -61,6 +62,11 @@ function decide(f: SuspendedRepairFacts, policy: SuspendedRepairPolicy): Suspend
   if (!f.suspended) return none("agent is running; it handles its own repair");
   if (f.condition >= policy.floor) return none(`condition ${f.condition.toFixed(2)} is at or above the floor ${policy.floor.toFixed(2)}`);
   if (f.nav === "IN_TRANSIT") return { shipSymbol: f.shipSymbol, action: { kind: "wait" }, reason: "in transit; repair once it docks" };
+  // Arrived at the yard but still in orbit: dock, then repair on the next tick. Without this the ship is sent to the
+  // yard it is already at, every pass, and never repaired.
+  if (f.nav === "IN_ORBIT" && f.atShipyard) {
+    return { shipSymbol: f.shipSymbol, action: { kind: "dock" }, reason: `condition ${f.condition.toFixed(2)}, in orbit at a shipyard: docking` };
+  }
   if (f.nav === "DOCKED" && f.atShipyard) {
     return { shipSymbol: f.shipSymbol, action: { kind: "repair" }, reason: `condition ${f.condition.toFixed(2)}, docked at a shipyard` };
   }
