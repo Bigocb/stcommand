@@ -1758,7 +1758,9 @@ export class TraderAgent {
       // good bought fine (in its own lotSize-sized chunks) and then this
       // sweep tried to sell all 80 in one call, got the trade-volume error,
       // and threw the whole purchase away with nothing recovered.
-      const lotSize = this.priceTable.get(this.ship.nav.waypointSymbol)?.get(item.symbol)?.volume || item.units;
+      // The ship's own lot cap applies to sales as well as buys (shipLotPolicy lotSize).
+      const marketLot = this.priceTable.get(this.ship.nav.waypointSymbol)?.get(item.symbol)?.volume || item.units;
+      const lotSize = effectiveLotSize(marketLot, { lotSize: this.lotSizeCap() });
       let remaining = item.units;
       let totalReceived = 0;
       let soldAny = 0;
