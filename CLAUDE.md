@@ -239,10 +239,11 @@ Measured, not from the game docs; re-verify on a new reset. Raw evidence is in t
 
 ## Dual-push convention
 
-Render only auto-deploys from `main`, but this repo's actual working
-branch is `claude/stcommand-ui-parallel-versions-fd5p9q`. **Every commit
-this session makes must be pushed to both** — pushing only to the
-feature branch strands the commit and nothing deploys.
+The fleet deploys from `main` to a local Linux box (Render is no longer
+used), and this repo's actual working branch is
+`claude/stcommand-ui-parallel-versions-fd5p9q`. **Every commit this session
+makes must be pushed to both** — pushing only to the feature branch strands
+the commit, since the box deploys from `main`.
 
 ## Reporting matched buy/sell P&L (operator ad-hoc requests)
 
