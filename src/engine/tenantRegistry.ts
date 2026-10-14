@@ -452,6 +452,7 @@ export class TenantRegistry {
       discord,
       scheduler,
       recordLedger: (e) => store.recordLedger(tenantId, { ...e, walletAfter: api.lastKnownCredits }),
+      recordMovement: (m) => store.recordShipMovement(tenantId, m),
       onActivity: recordActivity,
       minCashReserve: 20_000,
     });

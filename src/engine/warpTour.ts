@@ -38,6 +38,8 @@ export interface WarpHopChoice {
   reason: string;
   /** Estimated fuel the warp needs (undefined when it wasn't computed). */
   fuelNeeded?: number;
+  /** Galaxy distance the warp covers, echoed from the facts so the caller can log it. */
+  distance?: number;
 }
 
 /** Range of the first installed warp drive module, if any. */
@@ -58,12 +60,13 @@ export function chooseHopMethod(policy: WarpPolicy, facts: WarpHopFacts): WarpHo
   }
   const fuelNeeded = Math.ceil(facts.distance * policy.fuelPerUnit * policy.fuelMargin);
   if (facts.fuel < fuelNeeded) {
-    return { method: "gate", reason: `warp needs about ${fuelNeeded} fuel, has ${facts.fuel}`, fuelNeeded };
+    return { method: "gate", reason: `warp needs about ${fuelNeeded} fuel, has ${facts.fuel}`, fuelNeeded, distance: facts.distance };
   }
   return {
     method: "warp",
     reason: `warp ${Math.round(facts.distance)} units (about ${fuelNeeded} fuel of ${facts.fuel})`,
     fuelNeeded,
+    distance: facts.distance,
   };
 }
 

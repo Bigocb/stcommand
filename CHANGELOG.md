@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Warp and gate-jump history, with an ops tool to read it
+
+Every warp and gate jump is now written to a durable `ship_movements` table (migrations/052), with the ship, distance, tank before and after, credit cost, and the engine path that made it. The log buffer and activity feed forget on restart, and warps were not in the ledger, so there was no way to answer "how much warping versus gates" after a restart. The new ops tool `stcommand_ops_movements` reads it, filtered by ship and kind over a window, with a summary of counts, warp fuel per unit and gate costs. Moves made before this change are not in the table. The rows are kept across the weekly reset, like the ledger.
+
 ## 2026-10-14 — Tour ships stop waiting on a keeper approval after 15 minutes
 
 A tour ship held at a shipyard for any open keeper-probe approval there. An approval that was decided but never bought (the purchase needs a ship docked at the yard to complete) kept the tour ship parked with no end: THEOREM-4 sat at X1-KQ90-ZD8E from 01:51 to 02:16 on 2026-10-14 while the approvals list was empty. The hold now lasts at most 15 minutes per yard (`KEEPER_HOLD_MAX_MS` in `agent.ts`), then the ship tours on and logs that it did. Why the approval was not bought in that window is still open; the hold no longer depends on it.

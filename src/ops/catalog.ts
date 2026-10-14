@@ -148,6 +148,34 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "movements",
+    title: "Warps and gate jumps",
+    description: "Every warp and gate jump the engine made in the window, newest first, kept durably across restarts (table ship_movements). Each warp has the distance, the tank before and after (so the real warp fuel cost is fuel_before - fuel_after, to calibrate WarpPolicy.fuelPerUnit) and the source (trader/tour/fleet). Each jump has its credit cost. `summary` gives counts and totals per kind, so warp-versus-gate use is answered directly. Only moves made from this version on are recorded; earlier moves are not in the table.",
+    input: { ship: z.string().optional(), kind: z.enum(["warp", "jump"]).optional(), sinceHours: num(24), limit: num(500) },
+    async run(ctx, a) {
+      const rows = await ctx.w.store.opsMovements(ctx.w.tenantId, { ship: a.ship, kind: a.kind, sinceIso: iso(ctx.now() - a.sinceHours * 3_600_000), limit: Math.min(a.limit, 2000) });
+      const warps = rows.filter((r) => r.kind === "warp");
+      const jumps = rows.filter((r) => r.kind === "jump");
+      const warpUnits = warps.reduce((t, r) => t + Number(r.distance ?? 0), 0);
+      const warpFuel = warps.reduce((t, r) => t + (Number(r.fuel_before) - Number(r.fuel_after)), 0);
+      const jumpCost = jumps.reduce((t, r) => t + Number(r.cost ?? 0), 0);
+      return {
+        window: { since: iso(ctx.now() - a.sinceHours * 3_600_000), hours: a.sinceHours },
+        summary: {
+          warps: warps.length,
+          gateJumps: jumps.length,
+          warpDistanceUnits: Math.round(warpUnits),
+          warpFuelUsed: warpFuel,
+          warpFuelPerUnit: warpUnits > 0 ? Number((warpFuel / warpUnits).toFixed(3)) : null,
+          gateJumpCost: jumpCost,
+        },
+        returned: rows.length,
+        rows,
+      };
+    },
+  },
+
+  {
     name: "deadhead",
     title: "Loaded vs empty time",
     description: "How much of each ship's time is spent carrying cargo, from the ledger: loaded from a ship's first buy until its hold is sold down, empty otherwise (flying to a buy, docking, repositioning). Per ship: loaded share, trips, realized profit and profit per loaded hour; plus the fleet roll-up. The baseline for the backhaul / follow-on work (docs/backhaul-plan.md). Ledger-only, so a window that opens mid-trip assumes the ship was already loaded.",

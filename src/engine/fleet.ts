@@ -10,7 +10,7 @@ import { MissionManager } from "./mission.js";
 import { FeedManager } from "./feed.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
-import type { Store, CargoIntent, HeldRouteRow } from "../db/store.js";
+import type { Store, CargoIntent, HeldRouteRow, ShipMovement } from "../db/store.js";
 import { ApprovalGate } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
@@ -251,6 +251,8 @@ export interface FleetOptions {
   tenantId?: string;
   /** This tenant's agent symbol: with the game's reset date it makes the universe key stamped on ledger rows (engine/universe.ts). */
   agentSymbol?: string;
+  /** Writes each warp and gate jump to the ship_movements history (see migrations/052). */
+  recordMovement?: (m: ShipMovement) => Promise<void>;
   recordLedger?: (entry: {
     timestamp: string;
     shipSymbol: string;
@@ -326,6 +328,7 @@ export class FleetManager {
   readonly feeds: FeedManager;
   private readonly log: (msg: string) => void;
   private readonly recordLedger: FleetOptions["recordLedger"];
+  private readonly recordMovement: FleetOptions["recordMovement"];
   private readonly onActivity: FleetOptions["onActivity"];
   private readonly minCashReserveDefault: number;
   /** Ships the operator has parked, mirrored in memory from
@@ -525,6 +528,7 @@ export class FleetManager {
     this.log = opts.log ?? ((m) => console.log(`[fleet] ${m}`));
     this.api.setShipObserver?.(this.shipSnapshots);
     this.recordLedger = opts.recordLedger;
+    this.recordMovement = opts.recordMovement;
     this.onActivity = opts.onActivity;
     this.minCashReserveDefault = opts.minCashReserve ?? 20_000;
     this.store = opts.store;
@@ -1222,6 +1226,7 @@ export class FleetManager {
 
   private traderOptions(shipSymbol: string): TraderOptions {
     return {
+      recordMovement: this.recordMovement,
       api: this.api,
       intentFor: () => this.intents.current(shipSymbol),
       log: (m) => this.log(`${shipSymbol}: ${m}`),
@@ -3454,6 +3459,8 @@ export class FleetManager {
     // Same learned-cost feed as TraderAgent.jumpToSystem() — a scout/manual
     // jump through this gate is just as real a data point as a trade one.
     this.galaxy.recordJumpCost(gate, targetSystem, res.transaction.totalPrice);
+    this.recordMovement?.({ at: new Date().toISOString(), shipSymbol, kind: "jump", fromWaypoint: gate, toWaypoint: waypointSymbol, fuelBefore: ship.fuel.current, fuelAfter: ship.fuel.current, cost: res.transaction.totalPrice, source: "fleet" })
+      .catch((err) => this.log(`movement record failed: ${err instanceof Error ? err.message : String(err)}`));
     // The jump itself already succeeded (the ship really moved — everything
     // above this line committed) — a survey failure here (a rate limit, a
     // dropped connection) must not surface as "the jump failed" to whoever
@@ -3677,7 +3684,7 @@ export class FleetManager {
     // A warp drive skips the gate graph entirely (see warpTour.ts). Anything it can't do falls through to the gate path.
     const warp = await this.warpHopChoice(s, targetSystem);
     if (warp.method === "warp") {
-      if (await this.warpToward(shipSymbol, targetSystem, s, warp.reason)) return true;
+      if (await this.warpToward(shipSymbol, targetSystem, s, warp)) return true;
     } else if (warpDriveRange(s.modules) !== undefined) {
       // Only ships with a warp drive get this line; everyone else's gate hop is the normal path and needs no note.
       this.log(`${shipSymbol}: not warping toward ${targetSystem} (${warp.reason}), using gates`);
@@ -3762,17 +3769,21 @@ export class FleetManager {
    * falls back to the gate path. Arrival is charted and surveyed by the usual per-tick sweep of occupied systems, the
    * same as a ship that gets there any other way, so nothing is done here for it.
    */
-  private async warpToward(shipSymbol: string, targetSystem: string, ship: Ship, reason: string): Promise<boolean> {
+  private async warpToward(shipSymbol: string, targetSystem: string, ship: Ship, warp: WarpHopChoice): Promise<boolean> {
     const target = pickWarpArrival((await this.galaxy.loadSystem(targetSystem)).waypoints);
     if (!target) {
       this.log(`${shipSymbol}: no known waypoint in ${targetSystem} to warp to, using gates`);
       return false;
     }
+    const fromWaypoint = ship.nav.waypointSymbol;
+    const fuelBefore = ship.fuel.current;
     try {
       if (ship.nav.status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);
       const res = await this.api.warpShip(shipSymbol, target);
       // The fuel line is the live calibration for WarpPolicy.fuelPerUnit: compare it with the estimate in the reason.
-      this.log(`${shipSymbol} warping to ${target} (${reason}); fuel ${ship.fuel.current} -> ${res.fuel.current}`);
+      this.log(`${shipSymbol} warping to ${target} (${warp.reason}); fuel ${fuelBefore} -> ${res.fuel.current}`);
+      this.recordMovement?.({ at: new Date().toISOString(), shipSymbol, kind: "warp", fromWaypoint, toWaypoint: target, distance: warp.distance, fuelBefore, fuelAfter: res.fuel.current, source: "fleet" })
+        .catch((err) => this.log(`movement record failed: ${err instanceof Error ? err.message : String(err)}`));
       this.onActivity?.("warp", `${shipSymbol} warping to ${target}`, undefined, shipSymbol);
       return true;
     } catch (err) {

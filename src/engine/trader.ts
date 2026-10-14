@@ -11,6 +11,7 @@ import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange } from "./warpTour.js";
+import type { ShipMovement } from "../db/store.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -75,6 +76,8 @@ export interface TraderOptions {
   atlas?: GalaxyAtlas;
   /** Doctrine toggle for warp travel (see warpTour.ts). Off, or absent, means every cross-system leg takes a gate. */
   warpEnabled?: () => boolean;
+  /** Writes each warp and gate jump to the ship_movements history (see migrations/052). */
+  recordMovement?: (m: ShipMovement) => Promise<void>;
   /** Store for runExploreGoal to record module catalogs and shipyard data. */
   store?: import("../db/store.js").Store;
   /** Trade symbols reserved for missions; the trader must never buy/sell these. */
@@ -254,6 +257,7 @@ export class TraderAgent {
   private floorOverride = new Set<string>();
   private readonly atlas?: GalaxyAtlas;
   private readonly warpEnabled?: () => boolean;
+  private readonly recordMovement?: (m: ShipMovement) => Promise<void>;
   private readonly store?: TraderOptions["store"];
   private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
   private readonly warehouseBalance?: TraderOptions["warehouseBalance"];
@@ -375,6 +379,7 @@ export class TraderAgent {
     this.requestApproval = opts.requestApproval;
     this.atlas = opts.atlas;
     this.warpEnabled = opts.warpEnabled;
+    this.recordMovement = opts.recordMovement;
     this.store = opts.store;
     this.getWarehouseShip = opts.getWarehouseShip;
     this.warehouseBalance = opts.warehouseBalance;
@@ -822,6 +827,11 @@ export class TraderAgent {
     this.proxy.assertAt(waypoint, action);
   }
 
+  /** Record one move in the movement history. A failed write is logged, never allowed to break the trip. */
+  private noteMovement(m: ShipMovement): void {
+    this.recordMovement?.(m).catch((err) => this.log(`movement record failed: ${err instanceof Error ? err.message : String(err)}`));
+  }
+
   /**
    * Warp into `targetSystem` when this ship can: a warp drive is installed, the doctrine toggle is on, the target is in
    * range and the tank covers the estimate (the decision is warpTour.ts's). Lands on `waypoint` when given, else on the
@@ -850,10 +860,13 @@ export class TraderAgent {
       this.log(`no known waypoint in ${targetSystem} to warp to, using gates`);
       return false;
     }
+    const fromWaypoint = this.ship.nav.waypointSymbol;
+    const fuelBefore = this.ship.fuel.current;
     await this.ensureInOrbit();
     try {
       const res = await this.api.warpShip(this.symbol, target);
       this.ship = { ...this.ship, nav: res.nav, fuel: res.fuel };
+      this.noteMovement({ at: new Date().toISOString(), shipSymbol: this.symbol, kind: "warp", fromWaypoint, toWaypoint: target, distance: choice.distance, fuelBefore, fuelAfter: res.fuel.current, source: "trader" });
     } catch (err) {
       this.log(`warp to ${target} failed, using gates: ${err instanceof Error ? err.message : String(err)}`);
       return false;
@@ -959,6 +972,7 @@ export class TraderAgent {
       throw err;
     }
     this.ship = { ...this.ship, nav: res.nav };
+    this.noteMovement({ at: new Date().toISOString(), shipSymbol: this.symbol, kind: "jump", fromWaypoint: gate, toWaypoint: remoteGate, fuelBefore: this.ship.fuel.current, fuelAfter: this.ship.fuel.current, cost: res.transaction.totalPrice, source: "trader" });
     // Jumps cost real credits (≈5–8k each) and were previously invisible in
     // the ledger for traders — cross-system routes pay this every leg.
     this.recordLedger?.({

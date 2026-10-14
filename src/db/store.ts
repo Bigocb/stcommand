@@ -43,6 +43,20 @@ import { getCurrentResetDate } from "../core/universe.js";
  * not deferred work.
  */
 
+/** A warp or gate jump the engine made, as recorded in ship_movements. */
+export interface ShipMovement {
+  at: string;
+  shipSymbol: string;
+  kind: "warp" | "jump";
+  fromWaypoint: string;
+  toWaypoint: string;
+  distance?: number;
+  fuelBefore?: number;
+  fuelAfter?: number;
+  cost?: number;
+  source: "trader" | "tour" | "fleet";
+}
+
 export interface LedgerEntry {
   timestamp: string;
   shipSymbol: string;
@@ -498,6 +512,35 @@ export class Store {
   }
 
   // ── Ledger ──────────────────────────────────────────────────
+
+  /** One warp or gate jump, for the ship_movements history (see migrations/052). */
+  async recordShipMovement(tenantId: string, m: ShipMovement): Promise<void> {
+    await withTenant(this.pool, tenantId, async (c) => {
+      await c.query(
+        `INSERT INTO ship_movements (tenant_id, universe_key, at, ship_symbol, kind, from_waypoint, to_waypoint, distance, fuel_before, fuel_after, cost, source)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [tenantId, tenantUniverse(tenantId) ?? null, m.at, m.shipSymbol, m.kind, m.fromWaypoint, m.toWaypoint,
+          m.distance ?? null, m.fuelBefore ?? null, m.fuelAfter ?? null, m.cost ?? null, m.source],
+      );
+    });
+  }
+
+  /** Warps and gate jumps since `sinceIso`, newest first, optionally for one ship or one kind. */
+  async opsMovements(tenantId: string, f: { ship?: string; kind?: "warp" | "jump"; sinceIso: string; limit: number }): Promise<Record<string, unknown>[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const where = ["at >= $1"];
+      const args: unknown[] = [f.sinceIso];
+      if (f.ship) { args.push(f.ship); where.push(`ship_symbol = $${args.length}`); }
+      if (f.kind) { args.push(f.kind); where.push(`kind = $${args.length}`); }
+      args.push(f.limit);
+      const r = await c.query(
+        `SELECT at, ship_symbol, kind, from_waypoint, to_waypoint, distance, fuel_before, fuel_after, cost, source, universe_key
+         FROM ship_movements WHERE ${where.join(" AND ")} ORDER BY at DESC LIMIT $${args.length}`,
+        args,
+      );
+      return r.rows;
+    });
+  }
 
   async recordLedger(tenantId: string, entry: LedgerEntry): Promise<void> {
     await withTenant(this.pool, tenantId, async (c) => {
