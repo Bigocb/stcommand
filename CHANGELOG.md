@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Tower: Co-pilot tab removed for now
+
+The Co-pilot item is gone from Tower's tab bar. Its screen is still in the page but unreachable from the bar, so bringing it back is one button.
+
 ## 2026-10-14 — A restart no longer re-routes traders that are flying a trip
 
 Each trader's trip and its commitment lived only in memory, so every restart made an empty trader that was still flying to its buy market look idle, and the dispatcher handed it the best route again mid-flight (THEOREM-86 and four others, 2026-10-14, after the 01:15 and 01:20 restarts). Trips and commitments are now saved to a per-tenant flag as circuits already were, and restored at boot. Trips saved before this change are lost once, on the first restart after deploying it. Test: `tests/dispatcherCommitments.test.ts`.
