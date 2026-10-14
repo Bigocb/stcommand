@@ -170,6 +170,7 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
       <span class="mx-note" id="mx-note"></span>
     </div>
     <div class="kpirow mx-kpis" id="mx-kpis"></div>
+    <div class="mx-charts-all">
     <div class="cols2 mx-charts">
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Credits</span><span class="count mx-legend" id="mx-wallet-h"></span></div><div class="panel-b mx-chart" id="mx-wallet"></div></div>
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Net trading per interval</span><span class="count" id="mx-net-h"></span></div><div class="panel-b mx-chart" id="mx-net"></div></div>
@@ -177,6 +178,7 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
     <div class="cols2 mx-charts">
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Buying per interval</span><span class="count" id="mx-buy-h"></span></div><div class="panel-b mx-chart" id="mx-buy"></div></div>
       <div class="panel"><div class="panel-h"><span class="dot"></span><span class="title">Average price paid per unit</span><span class="count" id="mx-price-h"></span></div><div class="panel-b mx-chart" id="mx-price"></div></div>
+    </div>
     </div>
     <div class="panel mx-wp">
       <div class="panel-h"><span class="dot"></span><span class="title">By waypoint</span>

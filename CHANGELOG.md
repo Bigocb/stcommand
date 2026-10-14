@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Deck metrics: the four charts finally sit on one line
+
+The real cause of the two-across layout: the metrics screen built two separate chart rows, each its own grid holding two charts, so each pair filled only half the width. Both rows now sit in one container, and Deck lays the four charts out as a single row (two across only below 800px). Tower's layout is unchanged.
+
 ## 2026-10-14 — Deck metrics: chart row pinned to full width
 
 The four metrics charts on Deck were still wrapping to two across on a wide window, with the row only half the page wide. The chart row now takes the full width of the metrics screen, so the four charts sit on one line.
