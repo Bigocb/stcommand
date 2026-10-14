@@ -926,6 +926,7 @@ function renderFleetActions(shipRow) {
   const kept = ["fleet-custom-good", "fleet-custom-buy", "fleet-custom-sell"].map((id) => [id, $(id)?.value]);
   el.innerHTML = `
     <button class="btn" data-act="send-toggle">Send to waypoint</button>
+    <button class="btn" data-act="send-yard" title="Closest known shipyard in this ship's system; held there until released">Send to nearest shipyard</button>
     ${holdBtn}
     ${dockBtn}
     <button class="btn" data-act="route-toggle">Assign route</button>
@@ -1059,6 +1060,16 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
     try {
       await api("POST", "/api/fleet/role", { shipSymbol: ship, role, keeperMarket });
       resetFleetActionForms();
+      await loadBridge();
+    } catch (err) { alert(err.message); }
+    return renderFleet();
+  }
+  if (act === "send-yard") {
+    // Same-system only, like Send to waypoint: the server picks the closest known shipyard in the ship's system.
+    b.disabled = true;
+    try {
+      await api("POST", "/api/fleet/send-to-shipyard", { shipSymbol: ship });
+      fleetSendOpen = false;
       await loadBridge();
     } catch (err) { alert(err.message); }
     return renderFleet();
