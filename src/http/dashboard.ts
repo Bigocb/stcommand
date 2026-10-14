@@ -461,7 +461,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         rows = await w.store.ledgerRowsSince(w.tenantId, new Date(resetStart).toISOString());
       } else {
         // 72 h at most: the query reads twice the window, and the server has 512 MB.
-        hours = Math.min(72, Math.max(1, Number(req.query.hours) || 6));
+        // Half an hour is the live view (see metrics.js LIVE_REFRESH_MS); the rest are whole hours.
+        hours = Math.min(72, Math.max(0.5, Number(req.query.hours) || 6));
         // Twice the window (the second half is the comparison), but not into the previous universe: its rows would
         // read as last week's wallet and profits (see ledgerReadFrom).
         const nextReset = Date.parse(resetWatcherStatus()?.nextReset ?? "");

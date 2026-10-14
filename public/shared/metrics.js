@@ -12,13 +12,17 @@
 import { fmt, signed, escapeHtml } from "/shared/domain.js";
 
 const RANGES = [
+  { hours: 0.5, label: "30m" },
   { hours: 1, label: "1h" },
   { hours: 6, label: "6h" },
   { hours: 24, label: "24h" },
   { hours: 72, label: "3d" },
 ];
 const DEFAULT_TARGET = 25_738_654; // last week's final credits
+// Every window refreshes once a minute; the 30-minute window refreshes every 15 seconds, so it reads as live.
 const REFRESH_MS = 60_000;
+const LIVE_REFRESH_MS = 15_000;
+const refreshMs = () => (!sinceReset && hours <= 0.5 ? LIVE_REFRESH_MS : REFRESH_MS);
 
 const lsGet = (k, d) => { try { return window.localStorage.getItem(k) ?? d; } catch { return d; } };
 const lsSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch { /* private window: fine */ } };
@@ -363,6 +367,7 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
     data = null;
     render();
     load();
+    if (timer) restartTimer();
   });
 
   // Hover: read the value under the pointer from the chart's own buckets.
@@ -384,8 +389,15 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
   });
   root.addEventListener("mouseleave", () => root.querySelector(".mx-tip")?.remove());
 
+  function restartTimer() {
+    clearInterval(timer);
+    timer = setInterval(load, refreshMs());
+  }
+
   return {
-    show() { render(); load(); clearInterval(timer); timer = setInterval(load, REFRESH_MS); },
+    show() { render(); load(); restartTimer(); },
     hide() { clearInterval(timer); timer = null; },
+    // Re-arm after a range change so a 30-minute window picks up the faster refresh (and back to the slow one).
+    restartTimer,
   };
 }

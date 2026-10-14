@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Metrics: a 30-minute live window that refreshes every 15 seconds
+
+The metrics page refreshed every 60 seconds, and its shortest window was one hour. A new 30m window shows the last half hour in two-minute buckets, and refreshes every 15 seconds while it's selected. The other windows still refresh every minute.
+
 ## 2026-10-14 — Suspended repair reads the ship from the server before deciding
 
 After the dock-first fix, THEOREM-9 was docked at X1-CM13-A2 but the planner kept logging "docking": a suspended agent's cached copy still said in orbit, and the planner trusted it. The same stale copy is the likely cause of the repair display problem seen earlier. Suspended, damaged ships are now re-read from the server each pass before the planner decides. This costs one ship read per suspended damaged ship per pass.
