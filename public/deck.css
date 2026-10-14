@@ -509,9 +509,15 @@ td.cp.down { color: var(--bad, #e5675d); }
 .mx-tables table th.num,.mx-tables table td.num{text-align:right;font-family:var(--mono)}
 .mx-chip{display:inline-block;font-family:var(--mono);font-size:10px;background:var(--raised);border:1px solid var(--hair);border-radius:3px;padding:2px 6px;margin:0 4px 4px 0}
 .mx-tip{position:absolute;z-index:5;pointer-events:none;background:var(--raised);border:1px solid var(--hair-hi);border-radius:4px;padding:5px 8px;font-family:var(--mono);font-size:10px;color:var(--bone);white-space:nowrap}
-@media (max-width: 1100px){ .mx-kpis{grid-template-columns:repeat(3,1fr)} .mx-charts{grid-template-columns:1fr 1fr}.cols3{grid-template-columns:1fr} .mx-projgrid{grid-template-columns:repeat(2,1fr)} }
+@media (max-width: 1100px){ .mx-kpis{grid-template-columns:repeat(3,1fr)} .cols3{grid-template-columns:1fr} .mx-projgrid{grid-template-columns:repeat(2,1fr)} }
 .mx-tables .panel{overflow:visible}
 .mx-tables .panel-b{flex:0 0 auto;overflow:visible}
+/* Foldable panels (Tower's collapsible metrics): tap a panel header to open or close it. Same rules as m.css. */
+.mx-fold{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mx-chev::before{content:"\25BE";color:var(--amber);display:inline-block;width:12px;margin-right:2px}
+.mx-folded .mx-chev::before{content:"\25B8"}
+.mx-folded > .panel-b{display:none}
+@media (max-width: 800px){ .mx-charts{grid-template-columns:1fr 1fr} }
 
 .jump-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair, #333); }
 .jump-row .tgt { min-width: 0; font-size: 13px; }

@@ -105,6 +105,8 @@ function setView(name) {
   if (name === "metrics") {
     metricsScreen ??= mountMetrics($("metrics-root"), {
       api,
+      // Same foldable panels as Tower: tap a panel's header to open or close it.
+      collapsible: true,
       netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined),
     });
     metricsScreen.show();

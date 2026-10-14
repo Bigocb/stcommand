@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Deck metrics: four charts on one row, foldable panels like Tower
+
+The four metrics charts sit on one row on Deck and stay four across down to 800px wide (they were two across under 1100px). Deck's metrics panels now fold like Tower's: tap a panel header to open or close it, remembered per browser. The table styling from the previous change is unchanged.
+
 ## 2026-10-14 — "Send to nearest shipyard" on the ship card, and Deck's metrics tables match Tower's
 
 The ship detail card in Tower (the fleet sheet) and on the desktop (the ship detail modal) has a new "Send to nearest shipyard" control. It picks the closest known shipyard in the ship's own system, measured from where the ship is or is heading, and sends it there with the same hold as "Send to waypoint" (it stays until released). Same-system only, like that control; a system with no known yard gets a plain error. The choice is a pure helper (`src/engine/shipyardNearest.ts`) with its own tests. Deck's metrics tables also had no base table styling, so they fell back to browser defaults; they now use Tower's table rules.
