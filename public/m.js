@@ -701,6 +701,7 @@ function renderSheet(row) {
   const manualRoute = dispatchAssignments.find((a) => a.shipSymbol === row.symbol && a.source === "manual");
   $("sheet-actions").innerHTML = `
     <button class="btn" data-act="send-toggle">Send to waypoint</button>
+    <button class="btn" data-act="send-yard">Send to nearest shipyard</button>
     ${holdBtn}
     ${dockBtn}
     ${cancelSaleBtn}
@@ -837,6 +838,17 @@ $("sheet-actions").addEventListener("click", async (e) => {
     return renderFleetView();
   }
 
+  if (act === "send-yard") {
+    // Same-system only, like Send to waypoint: the server picks the closest
+    // known shipyard in the ship's own system and holds it there.
+    b.disabled = true;
+    try {
+      await api("POST", "/api/fleet/send-to-shipyard", { shipSymbol: ship });
+      sendFormOpen = false;
+      await loadBridge();
+    } catch (err) { alert(err.message); }
+    return renderFleetView();
+  }
   if (act === "send-go") {
     const wp = $("send-wp-input")?.value.trim();
     if (!wp) return;

@@ -1920,6 +1920,29 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json({ ok: true, shipSymbol, waypointSymbol });
   });
 
+  /** "Send to nearest shipyard": the same send as /fleet/dispatch, aimed at the closest yard in the ship's own system
+   *  instead of a typed waypoint. Same role branch too: a working ship is held there, an idle one is routed. */
+  router.post("/fleet/send-to-shipyard", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol } = req.body ?? {};
+    if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
+    let pick;
+    try {
+      pick = await w.fleet.nearestShipyardFor(shipSymbol);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+    const waypointSymbol = pick.symbol;
+    const status = w.fleet.getShipStatuses().find((s) => s.symbol === shipSymbol);
+    if (status && status.role !== "idle") {
+      w.fleet.sendShipTo(shipSymbol, waypointSymbol).catch((err) => console.error("[dashboard] send-to-shipyard error", err));
+    } else {
+      w.fleet.routeShipTo(shipSymbol, waypointSymbol).catch((err) => console.error("[dashboard] send-to-shipyard route error", err));
+    }
+    res.json({ ok: true, shipSymbol, waypointSymbol, reason: pick.reason });
+  });
+
   router.post("/fleet/hold", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });

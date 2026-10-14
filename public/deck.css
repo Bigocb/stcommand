@@ -498,6 +498,12 @@ td.cp.down { color: var(--bad, #e5675d); }
 .mx-projgrid .sub{font-family:var(--mono);font-size:10px;color:var(--dim2);margin-top:2px}
 .mx-projgrid input{width:100%;background:var(--sunken);color:var(--bone);border:1px solid var(--hair);border-radius:3px;font:inherit;padding:3px 6px}
 .cols3{display:grid;grid-template-columns:1fr 1.15fr .85fr;gap:14px}
+/* Tables: same look as Tower's (m.css .mx table/th/td), so the two metrics screens match. */
+.mx table{width:100%;border-collapse:collapse;font-size:11px;white-space:nowrap}
+.mx th{text-align:left;font-family:var(--chrome);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:600;padding:7px 10px;border-bottom:1px solid var(--hair)}
+.mx td{padding:8px 10px;border-bottom:1px solid rgba(255,199,120,.06)}
+.mx th.num,.mx td.num{text-align:right;font-variant-numeric:tabular-nums}
+.mx .empty{color:var(--dim);font-size:11px;padding:10px 12px}
 .mx-tables table th.num,.mx-tables table td.num{text-align:right;font-family:var(--mono)}
 .mx-chip{display:inline-block;font-family:var(--mono);font-size:10px;background:var(--raised);border:1px solid var(--hair);border-radius:3px;padding:2px 6px;margin:0 4px 4px 0}
 .mx-tip{position:absolute;z-index:5;pointer-events:none;background:var(--raised);border:1px solid var(--hair-hi);border-radius:4px;padding:5px 8px;font-family:var(--mono);font-size:10px;color:var(--bone);white-space:nowrap}

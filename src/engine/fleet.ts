@@ -40,6 +40,7 @@ import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { pickCheapestKeeperYard } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
+import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
 import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -6225,6 +6226,22 @@ export class FleetManager {
    */
   async routeShipTo(shipSymbol: string, waypointSymbol: string): Promise<void> {
     await this.dispatchShipHop(shipSymbol, waypointSymbol);
+  }
+
+  /**
+   * The shipyard in the ship's own system closest to where it is (or where it is heading). Read-only: the caller
+   * decides whether to fly there. Same-system only, like the Send-to-waypoint control it sits beside — a cross-system
+   * yard is a tour-dispatch job, not a one-leg flight. Throws when the system has no known yard.
+   */
+  async nearestShipyardFor(shipSymbol: string): Promise<NearestYard> {
+    const ship = await this.api.getShip(shipSymbol);
+    const system = ship.nav.systemSymbol;
+    const yards = (this.galaxy.getSystem(system)?.waypoints ?? [])
+      .filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"))
+      .map((w) => ({ symbol: w.symbol, x: w.x, y: w.y }));
+    const pick = nearestShipyard(ship.nav.route.destination, yards);
+    if (!pick) throw new Error(`no known shipyard in ${system}`);
+    return pick;
   }
 
   async dispatchShip(shipSymbol: string, waypointSymbol: string): Promise<void> {

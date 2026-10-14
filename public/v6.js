@@ -5169,6 +5169,10 @@ function openShipDetails(shipSymbol, opts = {}) {
         <span class="tgt"><b>Send to waypoint</b> <span class="d" style="color:var(--dim);font-size:9px">holds it there until released</span></span>
         <input type="text" class="dispatch-wp" placeholder="e.g. ${shipSystem}-A1" style="width:110px;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px" />
         <button class="send-wp" data-ship="${shipSymbol}">Go</button>
+      </div>
+      <div class="jump-row">
+        <span class="tgt"><b>Send to nearest shipyard</b> <span class="d" style="color:var(--dim);font-size:9px">closest yard in ${shipSystem}, holds it there until released</span></span>
+        <button class="send-yard" data-ship="${shipSymbol}">Go</button>
       </div>` : ""}
       ${ship.nav.status !== "IN_TRANSIT" ? `<div class="jump-row">
         <span class="tgt"><b>${docked ? "Docked" : "In orbit"}</b> <span class="d" style="color:var(--dim);font-size:9px">docking/scrapping/trading here requires DOCKED status</span></span>
@@ -5323,6 +5327,17 @@ function openShipDetails(shipSymbol, opts = {}) {
       try {
         await api("POST", "/api/fleet/dispatch", { shipSymbol: b.dataset.ship, waypointSymbol: wp });
         showToastGlobal(`${b.dataset.ship} → ${wp}`);
+        await loadBridge();
+        openShipDetails(b.dataset.ship, { containerId });
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".send-yard").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        const res = await api("POST", "/api/fleet/send-to-shipyard", { shipSymbol: b.dataset.ship });
+        showToastGlobal(`${b.dataset.ship} → ${res.waypointSymbol} (${res.reason})`);
         await loadBridge();
         openShipDetails(b.dataset.ship, { containerId });
       } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }

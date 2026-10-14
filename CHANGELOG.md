@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — "Send to nearest shipyard" on the ship card, and Deck's metrics tables match Tower's
+
+The ship detail card in Tower (the fleet sheet) and on the desktop (the ship detail modal) has a new "Send to nearest shipyard" control. It picks the closest known shipyard in the ship's own system, measured from where the ship is or is heading, and sends it there with the same hold as "Send to waypoint" (it stays until released). Same-system only, like that control; a system with no known yard gets a plain error. The choice is a pure helper (`src/engine/shipyardNearest.ts`) with its own tests. Deck's metrics tables also had no base table styling, so they fell back to browser defaults; they now use Tower's table rules.
+
 ## 2026-10-14 — Tour ships hold only on a live keeper decision; decided rows show on the approvals page
 
 A tour ship held at a yard for any unconsumed keeper-probe row there, including a denied one nothing had yet picked up. The hold now applies only to a pending request, or to an approved purchase that has not been bought yet (the row is consumed once the engine acts on it). A denial holds nothing. Approved or denied rows the engine has not picked up yet now appear under "Decided, waiting for the engine" on Tower's approvals page, so they are no longer invisible. The repeated "denied by operator" lines are gone: the engine logs a fresh denial once, and a cooldown once per denial.
