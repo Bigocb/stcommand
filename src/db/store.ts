@@ -565,7 +565,9 @@ export class Store {
           entry.route ?? null,
         ],
       );
-      if (entry.type === "SHIP") {
+      // A purchase is a positive SHIP row; a repair is the same type with a negative total (fleet.ts repairShip), and
+      // must not show on the timeline as a purchase.
+      if (entry.type === "SHIP" && entry.total > 0) {
         await this.logFleetEvent(
           c, tenantId, "ship_purchased", entry.shipSymbol,
           `bought ${entry.shipSymbol} (${entry.tradeSymbol ?? "?"}) at ${entry.waypointSymbol} for ${Math.round(entry.total)}c`,

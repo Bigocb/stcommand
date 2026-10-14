@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Repairs no longer show on the timeline as ship purchases
+
+A repair is written to the ledger as a SHIP row with a negative total, the same type a purchase uses, and the store logged every SHIP row as a purchase. The timeline showed repairs as "bought ... for -12718c". Only positive SHIP rows are now logged as purchases. This fixes the label only; the repair itself was already recorded correctly. Also corrects a test edit from earlier that had commented out a field.
+
 ## 2026-10-14 — Dispatcher charges a trader's gate jumps to reach the buy market in full
 
 The dispatcher ranked a cross-system route after charging only a third of the jumps a ship needed to reach its buy market, and a single gate jump was not charged at all. A trader's own positioning jumps are now subtracted in full when it is ranked for a route, and a trip the jumps would make unprofitable is not assigned. The route's shown profitPerTrip does not change, so the dashboard still shows one figure per route. Only the ship-specific ranking does. The sell-side exit is not charged, since the next trip pays its own positioning from wherever the ship ends.
