@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Deck metrics: chart row pinned to full width
+
+The four metrics charts on Deck were still wrapping to two across on a wide window, with the row only half the page wide. The chart row now takes the full width of the metrics screen, so the four charts sit on one line.
+
 ## 2026-10-14 — Deck metrics: four charts on one row, foldable panels like Tower
 
 The four metrics charts sit on one row on Deck and stay four across down to 800px wide (they were two across under 1100px). Deck's metrics panels now fold like Tower's: tap a panel header to open or close it, remembered per browser. The table styling from the previous change is unchanged.

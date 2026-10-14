@@ -482,7 +482,7 @@ td.cp.down { color: var(--bad, #e5675d); }
 .mx-kpis{grid-template-columns:repeat(8,1fr)}
 .mx .kpi .sub{font-family:var(--mono);font-size:10px;color:var(--dim2)}
 .mx .kpi .v{font-size:18px}
-.mx-charts{flex:0 0 auto;grid-template-columns:repeat(4,minmax(0,1fr))}
+.mx-charts{flex:0 0 auto;width:100%;box-sizing:border-box;justify-self:stretch;align-self:stretch;grid-template-columns:repeat(4,minmax(0,1fr))}
 .mx-charts .mx-svg{max-height:130px}
 .mx-charts .panel-h{padding:6px 10px}
 .mx-line2{fill:none;stroke-width:1.5;stroke-dasharray:4 3;opacity:.9}
