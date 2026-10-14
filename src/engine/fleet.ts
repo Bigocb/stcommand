@@ -8344,7 +8344,7 @@ export class FleetManager {
   }
 
   /** Priority markets from the configured list that no keeper currently covers. */
-  private async priorityUncovered(): Promise<string[]> {
+  async priorityUncovered(): Promise<string[]> {
     const covered = new Set(this.keeperMarkets.values());
     return (await this.keeperPriorityMarkets()).filter((m) => !covered.has(m));
   }

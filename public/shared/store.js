@@ -103,6 +103,8 @@ export let feedChains = [];
 export let chainHealth = null;
 
 export let approvals = [];
+/** Priority markets still waiting for a ship to dock there (no open ask yet). See the /api/approvals route. */
+export let upcomingApprovals = [];
 
 /** Operator's own persisted scratchpad — {id, body, createdAt}[], newest first. */
 export let notes = [];
@@ -438,7 +440,9 @@ export async function loadProgramme() {
 export async function loadApprovals() {
   try {
     const res = await fetch("/api/approvals");
-    approvals = res.ok ? (await res.json()).approvals ?? [] : [];
+    const body = res.ok ? await res.json() : {};
+    approvals = body.approvals ?? [];
+    upcomingApprovals = body.upcoming ?? [];
     notify("approvals");
   } catch (e) { console.error(e); }
 }

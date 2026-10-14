@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Tower: an Approvals tab for every pending decision
+
+Keeper-probe asks used to reach the operator one at a time, at uneven gaps, because the engine keeps one open request per kind and only raises the next once the current one is decided. Tower now has an Approvals tab (count badge when anything is waiting) that lists every open approval with its cost and expiry, with Approve and Deny. Under it, "Coming up" lists the priority markets still waiting for a ship to dock there, so the gap reads as queued rather than missing. `GET /api/approvals` returns that list as `upcoming`, computed from the keeper priority list minus markets that already have an open ask. The engine's one-request-per-kind rule is unchanged, and the Deck rail still shows the same approvals. Not yet checked at phone width on a device.
+
 ## 2026-10-13 — Warp travel for traders (execution only)
 
 A trader with a warp drive now warps straight to its route's market in another system, when the target is in range and the tank covers the estimate, instead of taking a gate hop. The same `warpTours` toggle and the same decision as the tour ships (`warpTour.ts`) apply, and the trader still lands on the exact waypoint it was sent to. Traders without a warp drive are unchanged. Route ranking is not touched yet: the planner still prices every cross-system trip with the gate fee and cooldown, so a warp-capable trader finishes its trips faster and cheaper than planned. Pricing warp as cheaper is a separate, later change. No trader has a warp drive yet, so this does nothing until one is bought.

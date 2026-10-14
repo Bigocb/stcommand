@@ -228,7 +228,13 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.get("/approvals", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    res.json({ approvals: await w.store.listOpenApprovals(w.tenantId) });
+    const approvals = await w.store.listOpenApprovals(w.tenantId);
+    // Keeper-probe asks pack their target market into shipSymbol ("buyAt|target|hull"). A priority market that already
+    // has an open ask isn't "coming up": it's already on the page. The rest are waiting for a ship to dock there, since
+    // the engine only asks when a ship visits a market (one open request per kind, so the next one can't be queued yet).
+    const asked = new Set(approvals.map((a) => String(a.shipSymbol ?? "").split("|")[1]).filter(Boolean));
+    const upcoming = (await w.fleet.priorityUncovered()).filter((m) => !asked.has(m));
+    res.json({ approvals, upcoming });
   });
 
   router.post("/approvals/:id/decide", async (req, res) => {

@@ -12,7 +12,7 @@ import { crewHtml, crewAction, loadFields, cachedFields } from "/shared/contract
 import { login, probeSession } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
-  state, bridge, fleetStatus, approvals, dispatchAssignments, contractDutyShips, dispatchRoutes, minerPreferences, intel,
+  state, bridge, fleetStatus, approvals, upcomingApprovals, dispatchAssignments, contractDutyShips, dispatchRoutes, minerPreferences, intel,
   marketRoutes, traderExclusions, marketSnapshots, contracts, missions, feeds, feedChains, chainHealth, doctrineRules, activity,
   priceGoods, priceWaypointsByGood, pricePoints,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
@@ -102,6 +102,7 @@ function setTab(name) {
   if (name === "metrics") { metricsScreen ??= mountMetrics($("metrics-root"), { api, collapsible: true, netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined) }); metricsScreen.show(); }
   else metricsScreen?.hide();
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
+  if (name === "approvals") { loadApprovals(); renderApprovalsScreen(); }
   if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); refreshMcpKeys(); }
   if (name === "copilot") { loadCopilot(); loadCopilotSettings(); }
   // The fields table polls only while visible: stop when leaving More, resume if its Mining segment is open.
@@ -255,6 +256,55 @@ function renderAttention() {
     </div>`).join("");
 }
 
+/* ── approvals screen ──────────────────────
+ * Every pending decision in one place, plus the priority markets still waiting for a ship to dock there. The engine
+ * keeps one open request per kind, so the next one only appears after the current one is decided; "Coming up" shows
+ * what is queued behind it, so a click-through doesn't look like a random trickle.
+ */
+const APPROVAL_LABELS = { buyKeeperProbe: "Keeper probe", buyKeeperProbeForMarket: "Keeper probe", buyShip: "Ship purchase" };
+function renderApprovalsScreen() {
+  const n = approvals.length;
+  const badge = $("tab-approvals-count");
+  badge.textContent = n;
+  badge.hidden = n === 0;
+  $("approvals-screen-count").textContent = n;
+  $("approvals-upcoming-count").textContent = upcomingApprovals.length;
+  const list = $("approvals-screen-list");
+  list.innerHTML = n === 0
+    ? '<div class="empty">No approvals waiting.</div>'
+    : approvals.map((a) => `
+      <div class="card warn">
+        <div class="row1"><span class="who">${escapeHtml(APPROVAL_LABELS[a.kind] ?? a.kind)}</span><span class="amt amber">${a.cost != null ? `${escapeHtml(fmt(a.cost))}c` : ""}</span></div>
+        <div class="detail">${escapeHtml(a.detail ?? "")}</div>
+        ${a.expiresAt ? `<div class="exp">auto-decides ${escapeHtml(countdown(a.expiresAt))}</div>` : ""}
+        <div class="acts">
+          <button class="btn pri" data-act="approve" data-id="${escapeHtml(a.id)}">Approve</button><button class="btn deny" data-act="deny" data-id="${escapeHtml(a.id)}">Deny</button>
+        </div>
+      </div>`).join("");
+  const up = $("approvals-upcoming");
+  up.innerHTML = upcomingApprovals.length === 0
+    ? '<div class="empty">Nothing queued behind these.</div>'
+    : upcomingApprovals.map((m) => `
+      <div class="card">
+        <div class="row1"><span class="who">${escapeHtml(m)}</span><span class="amt">Queued</span></div>
+        <div class="detail">Keeper wanted here. A request appears once a ship docks at this market.</div>
+      </div>`).join("");
+}
+async function decideApproval(b) {
+  const decision = b.dataset.act === "approve" ? "approved" : "denied";
+  b.disabled = true;
+  try {
+    await api("POST", `/api/approvals/${b.dataset.id}/decide`, { decision });
+    await loadApprovals();
+  } catch (err) {
+    b.disabled = false;
+  }
+}
+$("approvals-screen-list").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (b && !b.disabled) decideApproval(b);
+});
+
 $("triage-list").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-act]");
   if (!b || b.disabled) return;
@@ -294,7 +344,7 @@ $("fleet-modes").addEventListener("click", async (e) => {
 });
 subscribe("bridge", () => { renderFleetModes(); renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
 subscribe("dispatch", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
-subscribe("approvals", () => { renderTiles(); renderTriage(); });
+subscribe("approvals", () => { renderTiles(); renderTriage(); renderApprovalsScreen(); });
 
 /* ── Fleet: ship-card deck ──────────────────
  * A swipeable deck (tap Prev/Next or swipe) rather than a table — the
