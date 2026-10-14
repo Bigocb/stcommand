@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Suspended repair reads the ship from the server before deciding
+
+After the dock-first fix, THEOREM-9 was docked at X1-CM13-A2 but the planner kept logging "docking": a suspended agent's cached copy still said in orbit, and the planner trusted it. The same stale copy is the likely cause of the repair display problem seen earlier. Suspended, damaged ships are now re-read from the server each pass before the planner decides. This costs one ship read per suspended damaged ship per pass.
+
 ## 2026-10-14 — Suspended repair docks a ship that has reached its yard in orbit
 
 The first live run flew THEOREM-9 to X1-CM13-A2 correctly, but the planner then saw a ship in orbit at a yard as "not at a yard" and sent it there again every pass. Ships in orbit at a shipyard are now docked first, then repaired on the next pass.

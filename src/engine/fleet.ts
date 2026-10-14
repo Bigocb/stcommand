@@ -8387,21 +8387,26 @@ export class FleetManager {
       if (!agent) continue;
       const ship = this.shipFor(s.symbol);
       if (!ship) continue;
-      const system = ship.nav.systemSymbol;
-      const waypoint = ship.nav.waypointSymbol;
-      const condition = this.worstCondition(ship);
       const suspended = agent.isSuspended?.() ?? false;
-      // Cheap checks first: a healthy or running ship needs no yard lookup or API call.
-      if (!suspended || condition >= floor) continue;
+      // Cheap checks first, on the cached copy: a healthy or running ship needs no API call.
+      if (!suspended || this.worstCondition(ship) >= floor) continue;
+      // A suspended agent never refreshes its cache, so a ship that has just docked still reads IN_ORBIT here and the
+      // planner keeps re-sending the dock (seen live: THEOREM-9). Re-read it from the server before deciding.
+      const live = await this.api.getShip(s.symbol);
+      this.noteShipState(s.symbol, live);
+      const system = live.nav.systemSymbol;
+      const waypoint = live.nav.waypointSymbol;
+      const condition = this.worstCondition(live);
+      if (condition >= floor) continue;
       facts.push({
         shipSymbol: s.symbol,
         suspended,
         condition,
-        nav: ship.nav.status as SuspendedRepairFacts["nav"],
+        nav: live.nav.status as SuspendedRepairFacts["nav"],
         system,
         waypoint,
         // In orbit counts too: a ship that has arrived at a yard docks there, rather than flying to it again.
-        atShipyard: ship.nav.status !== "IN_TRANSIT" ? await this.isShipyard(system, waypoint) : false,
+        atShipyard: live.nav.status !== "IN_TRANSIT" ? await this.isShipyard(system, waypoint) : false,
         nearestYard: this.nearestShipyard(system),
       });
     }
