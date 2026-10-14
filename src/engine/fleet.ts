@@ -41,6 +41,7 @@ import { pickCheapestKeeperYard } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
 import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
+import { planSuspendedRepairs, type SuspendedRepairFacts } from "./suspendedRepair.js";
 import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -8109,6 +8110,7 @@ export class FleetManager {
       }
       await this.timed("maybeAssignKeepers", () => this.maybeAssignKeepers());
       await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
+      await this.timed("repairSuspendedShips", () => this.repairSuspendedShips());
       await this.timed("maybeGrowExplorers", () => this.maybeGrowExplorers());
       await this.timed("maybeBuyShip", () => this.maybeBuyShip());
       await this.timed("maybeResolveNewShipRoles", () => this.maybeResolveNewShipRoles());
@@ -8367,6 +8369,65 @@ export class FleetManager {
         reason: `condition ${worst.toFixed(2)} is below the critical floor`,
         source: "repair",
       });
+    }
+  }
+
+  /** Ships whose own agent is suspended with a damaged hull: the engine flies them to a shipyard and repairs them
+   *  itself, since a suspended agent never runs the repair it was given. The decision is planSuspendedRepairs()
+   *  (suspendedRepair.ts); this only gathers facts and acts on the answer. Flights are fire-and-forget so the
+   *  maintenance tick is not held for a whole trip, and a ship with a flight already under way is not sent twice. */
+  private suspendedRepairFlights = new Set<string>();
+  private async repairSuspendedShips(): Promise<void> {
+    const floor = this.doctrine.value("repairConditionFloor", 0.5);
+    const facts: SuspendedRepairFacts[] = [];
+    for (const s of this.getShipStatuses()) {
+      // An operator hold or pin is the operator's decision; never override it here.
+      if (s.paused) continue;
+      const agent = this.controlledAgent(s.symbol);
+      if (!agent) continue;
+      const ship = this.shipFor(s.symbol);
+      if (!ship) continue;
+      const system = ship.nav.systemSymbol;
+      const waypoint = ship.nav.waypointSymbol;
+      const condition = this.worstCondition(ship);
+      const suspended = agent.isSuspended?.() ?? false;
+      // Cheap checks first: a healthy or running ship needs no yard lookup or API call.
+      if (!suspended || condition >= floor) continue;
+      facts.push({
+        shipSymbol: s.symbol,
+        suspended,
+        condition,
+        nav: ship.nav.status as SuspendedRepairFacts["nav"],
+        system,
+        waypoint,
+        atShipyard: ship.nav.status === "DOCKED" ? await this.isShipyard(system, waypoint) : false,
+        nearestYard: this.nearestShipyard(system),
+      });
+    }
+    if (facts.length === 0) return;
+    const decisions = planSuspendedRepairs(facts, { enabled: true, floor });
+    for (const d of decisions) {
+      if (d.action.kind === "none" || d.action.kind === "wait") continue;
+      if (this.suspendedRepairFlights.has(d.shipSymbol)) continue;
+      if (d.action.kind === "repair") {
+        this.log(`${d.shipSymbol}: suspended repair: ${d.reason}`);
+        try {
+          await this.repairShip(d.shipSymbol);
+          // Repaired: hand the hull back to its agent. Nothing else claimed it for repair, so nothing else would.
+          await this.releaseTo(d.shipSymbol, "repair");
+        } catch (err) {
+          this.log(`${d.shipSymbol}: suspended repair failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        continue;
+      }
+      if (d.action.kind === "fly") {
+        const yard = d.action.yard;
+        this.log(`${d.shipSymbol}: suspended repair: ${d.reason}`);
+        this.suspendedRepairFlights.add(d.shipSymbol);
+        this.routeShipTo(d.shipSymbol, yard)
+          .catch((err) => this.log(`${d.shipSymbol}: suspended repair flight to ${yard} failed: ${err instanceof Error ? err.message : String(err)}`))
+          .finally(() => this.suspendedRepairFlights.delete(d.shipSymbol));
+      }
     }
   }
 

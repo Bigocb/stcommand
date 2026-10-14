@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Suspended miners with a damaged hull are flown to a yard and repaired by the engine; Deck shows condition
+
+A repair was handed to a ship's own agent, and a suspended agent never runs it, so THEOREM-7/-8/-9 sat at condition 0.17 to 0.20 for hours. A new planner (`src/engine/suspendedRepair.ts`, pure, with tests) decides, for each suspended ship below the repair floor, whether to repair it where it docks, fly it to the nearest yard in its system, or wait. FleetManager runs it each maintenance tick, skips operator-held ships, and releases the hull after a successful repair. The floor comes from the doctrine's repair floor. Deck's ship list now shows each ship's condition beside fuel, in red below half.
+
 ## 2026-10-14 — Repairs no longer show on the timeline as ship purchases
 
 A repair is written to the ledger as a SHIP row with a negative total, the same type a purchase uses, and the store logged every SHIP row as a purchase. The timeline showed repairs as "bought ... for -12718c". Only positive SHIP rows are now logged as purchases. This fixes the label only; the repair itself was already recorded correctly. Also corrects a test edit from earlier that had commented out a field.

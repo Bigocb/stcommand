@@ -550,6 +550,12 @@ $("notes").addEventListener("click", async (e) => {
   } catch (err) { alert(err.message); b.disabled = false; }
 });
 
+/** Worst (lowest) condition 0..1 across frame, engine and reactor, or null when the ship carries none. */
+function worstCondition(ship) {
+  const vals = ["frame", "engine", "reactor"].map((k) => ship?.[k]?.condition).filter((v) => typeof v === "number");
+  return vals.length ? Math.min(...vals) : null;
+}
+
 function fleetRows() {
   const ships = state?.ships ?? [];
   const strandedBy = new Set((fleetStatus.stranded ?? []).map((s) => s.symbol));
@@ -562,6 +568,8 @@ function fleetRows() {
       cooldown: cooldownHtml(s),
       stranded: strandedBy.has(s.symbol),
       fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
+      // Worst of frame/engine/reactor, the same number the repair floor is measured against (fleet.ts worstCondition()).
+      condition: worstCondition(s),
       cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
       goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
       at: s.nav?.waypointSymbol ?? "",
@@ -657,6 +665,7 @@ function renderFleet() {
         <td>${escapeHtml(row.job)} ${row.cooldown}</td>
         <td${statusClass ? ` class="${statusClass}"` : ""}>${escapeHtml(row.goal)}</td>
         <td class="mono">${fuelPct}%</td>
+        <td class="mono${row.condition !== null && row.condition < 0.5 ? " low" : ""}">${row.condition === null ? "—" : Math.round(row.condition * 100) + "%"}</td>
         <td class="mono">${row.cargo}/${row.cargoCap}</td>
         <td class="mono cv" title="${escapeHtml(cargoValueTitle(row.cargoValue))}">${escapeHtml(cargoValueText(row.cargoValue)) || "—"}</td>
         <td class="mono cp ${cargoProfit(row.cargoValue).tone}" title="Estimated proceeds minus what we paid (cost basis on file)">${escapeHtml(cargoProfit(row.cargoValue).text) || "—"}</td>
@@ -689,12 +698,12 @@ function renderFleet() {
           const key = `trader/${kind}`;
           const subCollapsed = collapsed.has(key);
           const holds = sub.reduce((n, r) => n + (r.cargoCap ?? 0), 0);
-          return `<tr class="grp-row sub" data-grp="${escapeAttr(key)}" aria-expanded="${!subCollapsed}"><td colspan="10">
+          return `<tr class="grp-row sub" data-grp="${escapeAttr(key)}" aria-expanded="${!subCollapsed}"><td colspan="11">
             <span class="chev">${subCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(kind)}</span><span class="g-n">${sub.length}</span><span class="g-n" title="Total hold of these ships">${holds} hold</span>
           </td></tr>${subCollapsed ? "" : sub.map(rowHtml).join("")}`;
         }).join("");
       } else body = items.map(rowHtml).join("");
-      return `<tr class="grp-row" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}"><td colspan="10">
+      return `<tr class="grp-row" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}"><td colspan="11">
         <span class="chev">${isCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(role)}</span><span class="g-n">${items.length}</span>${badge}
       </td></tr>${body}`;
     }).join("");

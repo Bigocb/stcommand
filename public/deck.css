@@ -583,3 +583,6 @@ table.mf .dim{color:var(--dim)}
   background-position:calc(100% - 13px) 55%,calc(100% - 8px) 55%; background-size:5px 5px,5px 5px; background-repeat:no-repeat;
 }
 .mx select.mx-wp-sys:focus{outline:1px solid var(--amber)}
+
+/* Ship condition below half, flagged in the fleet list. */
+#fleet-table td.low{color:var(--red)}
