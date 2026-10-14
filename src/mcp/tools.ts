@@ -4,6 +4,7 @@ import { registerOpsTools } from "../ops/mcp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TenantWorker } from "../engine/tenantRegistry.js";
 import type { ShipType } from "../engine/fleet.js";
+import { normalizeShipLotPolicy, effectiveMaxLots, SHIP_LOT_LIMITS } from "../engine/shipLotPolicy.js";
 import { API_BASE } from "../core/client.js";
 
 /**
@@ -473,6 +474,57 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
           await recordMcpAction(w, "miner_preference", shipSymbol, `${shipSymbol}: preference -> ${good.trim().toUpperCase()}`, { good: good.trim().toUpperCase() });
         }
         return textResult({ ok: true, minerPreferences: w.fleet.minerPreferenceList() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_set_ship_lot_policy",
+    {
+      title: "Set (or clear) a ship's lot size and lot count cap",
+      description: "Cap how big one trade is for a single ship. lotSize caps units per buy call (the market's own tradeVolume still applies if it is smaller). maxLots caps how many of a market's lots one trip may buy, instead of the fleet-wide doctrine maxLotsPerTrip. A trip's volume is min(hold, wallet, lotSize x maxLots), so a smaller lotSize shrinks the whole trip. Pass 0 for a field to go back to its default; clear=true drops both. Omit shipSymbol to list every ship's override and the fleet default. Takes effect on that ship's next route plan. Only a trader's own route planning and buying use it; a ship's route ranking in the dispatcher still uses the fleet defaults.",
+      inputSchema: {
+        shipSymbol: z.string().optional(),
+        lotSize: z.number().int().min(0).max(SHIP_LOT_LIMITS.lotSize.max).optional().describe("Units per buy call, 1 to 1000. 0 = no cap (market tradeVolume applies)."),
+        maxLots: z.number().int().min(0).max(SHIP_LOT_LIMITS.maxLots.max).optional().describe("Market lots per trip, 1 to 12. 0 = the fleet doctrine maxLotsPerTrip."),
+        clear: z.boolean().optional().describe("Drop both overrides for this ship."),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol, lotSize, maxLots, clear }) => {
+      try {
+        const doctrineMaxLots = w.fleet.maxLotsPerTripValue();
+        if (!shipSymbol) {
+          return textResult({
+            doctrineMaxLots,
+            limits: SHIP_LOT_LIMITS,
+            shipLotPolicies: w.fleet.shipLotPolicyList(),
+          });
+        }
+        if (clear) {
+          await w.fleet.setShipLotPolicy(shipSymbol, undefined);
+          await recordMcpAction(w, "lot_policy", shipSymbol, `${shipSymbol}: lot policy cleared`, { lotSize: null, maxLots: null });
+        } else if (lotSize === undefined && maxLots === undefined) {
+          return errorResult("Give lotSize and/or maxLots, or clear=true.");
+        } else {
+          const current = w.fleet.shipLotPolicyList().find((e) => e.shipSymbol === shipSymbol)?.policy;
+          const next = normalizeShipLotPolicy({
+            lotSize: lotSize ?? current?.lotSize ?? 0,
+            maxLots: maxLots ?? current?.maxLots ?? 0,
+          });
+          await w.fleet.setShipLotPolicy(shipSymbol, next);
+          await recordMcpAction(w, "lot_policy", shipSymbol, `${shipSymbol}: lot policy -> ${JSON.stringify(next ?? {})}`, { lotSize: next?.lotSize ?? null, maxLots: next?.maxLots ?? null });
+        }
+        const policy = w.fleet.shipLotPolicyList().find((e) => e.shipSymbol === shipSymbol)?.policy ?? null;
+        return textResult({
+          ok: true,
+          shipSymbol,
+          policy,
+          effectiveMaxLots: effectiveMaxLots(doctrineMaxLots, policy ?? undefined),
+          shipLotPolicies: w.fleet.shipLotPolicyList(),
+        });
       } catch (err) {
         return errorResult(err);
       }

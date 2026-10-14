@@ -42,6 +42,7 @@ import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
 import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
 import { planSuspendedRepairs, type SuspendedRepairFacts } from "./suspendedRepair.js";
+import { effectiveMaxLots, type ShipLotPolicy } from "./shipLotPolicy.js";
 import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -453,6 +454,8 @@ export class FleetManager {
   // can't guarantee. Persisted the same way dispatchManual is (a single
   // fleet_flags JSON blob), restored in init() below.
   private readonly minerPreferences = new Map<string, string>();
+  /** Per-ship lot size / lot count overrides (see shipLotPolicy.ts). Persisted in the `shipLotPolicies` fleet flag. */
+  private readonly shipLotPolicies = new Map<string, ShipLotPolicy>();
 
   /** Throttle for pickFeedCarrier()'s own "no carrier found" diagnostic —
    *  that call happens every feed tick regardless of outcome, so logging
@@ -952,6 +955,17 @@ export class FleetManager {
         this.log(`restore dispatch circuits failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    const lotPolicyFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "shipLotPolicies") : undefined;
+    if (lotPolicyFlag) {
+      try {
+        const all = JSON.parse(lotPolicyFlag) as Record<string, ShipLotPolicy>;
+        for (const [shipSymbol, policy] of Object.entries(all)) {
+          if (ships.some((s) => s.symbol === shipSymbol)) this.shipLotPolicies.set(shipSymbol, policy);
+        }
+      } catch (err) {
+        this.log(`restore ship lot policies failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     const minerPrefFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "minerPreferredGoods") : undefined;
     if (minerPrefFlag) {
       try {
@@ -1295,7 +1309,8 @@ export class FleetManager {
       applyCashFloor: (credits: number) => this.spendableCredits(credits),
       maxLossPct: this.doctrine.value("maxLossPct", 100),
       marginFloor: this.doctrine.value("marginFloor", 0),
-      maxLotsPerTrip: () => this.maxLotsPerTrip(),
+      maxLotsPerTrip: () => effectiveMaxLots(this.maxLotsPerTrip(), this.shipLotPolicies.get(shipSymbol)),
+      lotSizeCap: () => this.shipLotPolicies.get(shipSymbol)?.lotSize,
       recordDoctrineFire: (key) => this.doctrine.recordFire(key, shipSymbol),
       getWarehouseShip: () => this.getWarehouseShip(),
       warehouseBalance: async (good) => {
@@ -1657,6 +1672,31 @@ export class FleetManager {
     else delete all[shipSymbol];
     if (Object.keys(all).length === 0) await this.store?.removeFleetFlag(this.tenantId, "minerPreferredGoods");
     else await this.store?.setFleetFlag(this.tenantId, "minerPreferredGoods", JSON.stringify(all));
+  }
+
+  /** The fleet-wide doctrine maxLotsPerTrip, for showing next to a ship's own override. */
+  maxLotsPerTripValue(): number {
+    return this.maxLotsPerTrip();
+  }
+
+  /** Each ship's lot policy as set by the operator (only ships with an override appear). */
+  shipLotPolicyList(): { shipSymbol: string; policy: ShipLotPolicy }[] {
+    return [...this.shipLotPolicies.entries()].map(([shipSymbol, policy]) => ({ shipSymbol, policy }));
+  }
+
+  /**
+   * Set or clear one ship's lot policy. Persisted the same way setMinerPreference() persists its own map, so it
+   * survives a restart. Pass undefined to drop the ship's override entirely.
+   */
+  async setShipLotPolicy(shipSymbol: string, policy: ShipLotPolicy | undefined): Promise<void> {
+    if (policy) this.shipLotPolicies.set(shipSymbol, policy);
+    else this.shipLotPolicies.delete(shipSymbol);
+    if (!this.tenantId) return;
+    if (this.shipLotPolicies.size === 0) {
+      await this.store?.removeFleetFlag(this.tenantId, "shipLotPolicies");
+      return;
+    }
+    await this.store?.setFleetFlag(this.tenantId, "shipLotPolicies", JSON.stringify(Object.fromEntries(this.shipLotPolicies)));
   }
 
   /** Jump-leg cost estimate for a route computed from raw trade legs — the

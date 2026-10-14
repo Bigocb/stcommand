@@ -13,6 +13,7 @@ import { ShipProxy } from "./shipProxy.js";
 import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange } from "./warpTour.js";
 import type { ShipMovement } from "../db/store.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
+import { effectiveLotSize } from "./shipLotPolicy.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -120,6 +121,8 @@ export interface TraderOptions {
   marginFloor?: number;
   /** Lots of a market's own trade volume one trip may buy (doctrine `maxLotsPerTrip`); read live at each plan. */
   maxLotsPerTrip?: () => number;
+  /** This ship's own cap on units per buy call (its shipLotPolicy lotSize); undefined = the market's tradeVolume alone. Read live at each plan. */
+  lotSizeCap?: () => number | undefined;
   /**
    * How long a price stays usable, in minutes. The dispatcher filters its route
    * list by the same number, so both are reasoning about the same markets.
@@ -243,6 +246,7 @@ export class TraderAgent {
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
   private readonly maxLotsPerTrip: () => number;
+  private readonly lotSizeCap: () => number | undefined;
   private readonly intelMaxAgeMin: () => number;
   private readonly recordDoctrineFire?: TraderOptions["recordDoctrineFire"];
   private readonly stopManualRoute?: TraderOptions["stopManualRoute"];
@@ -373,6 +377,7 @@ export class TraderAgent {
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
     this.maxLotsPerTrip = opts.maxLotsPerTrip ?? (() => MAX_LOTS_PER_TRIP);
+    this.lotSizeCap = opts.lotSizeCap ?? (() => undefined);
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
     this.recordDoctrineFire = opts.recordDoctrineFire;
     this.stopManualRoute = opts.stopManualRoute;
@@ -1142,6 +1147,11 @@ export class TraderAgent {
     return true;
   }
 
+  /** Units per buy call for a route: the smaller market tradeVolume, capped by this ship's own lot policy. */
+  private tradeLotSize(buyVolume: number, sellVolume: number): number {
+    return Math.max(0, effectiveLotSize(Math.min(buyVolume, sellVolume), { lotSize: this.lotSizeCap() }));
+  }
+
   private async exceedsLossFloor(good: string, price: number): Promise<boolean> {
     const cost = await this.costBasis(good);
     if (cost === undefined || cost <= 0) return false;
@@ -1371,7 +1381,7 @@ export class TraderAgent {
     if (!ignoreProfitFloor && margin <= floor) return `margin ${margin}c <= floor ${Math.round(floor)}c`;
     const credits = this.creditsForPlanning();
     const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
-    const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
+    const lotSize = this.tradeLotSize(buy.volume, sell.volume);
     const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * this.maxLotsPerTrip());
     if (volume <= 0 || lotSize <= 0) return `volume=${volume} lotSize=${lotSize} cargo=${this.ship.cargo.capacity} credits=${credits}`;
     const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize, buyVolume: buy.volume, sellVolume: sell.volume };
@@ -1467,7 +1477,7 @@ export class TraderAgent {
     // hold: a market capped at 20u/tx scored the same as a trip that could
     // only ever move 20 units, when the ship could carry — and afford — far
     // more.
-    const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
+    const lotSize = this.tradeLotSize(buy.volume, sell.volume);
     // Capped at a few lots' worth, not the whole hold — see fleet.ts's
     // matching MAX_LOTS_PER_TRIP comment: each lot beyond a market's own
     // depth moves the price further than this leg's flat buy/sell prices
@@ -1518,7 +1528,7 @@ export class TraderAgent {
       // See viableRoute()'s matching comment: the trip's ceiling is the hold
       // and the wallet, capped at a few lots' worth rather than either
       // market's own per-transaction limit OR the whole hold.
-      const lotSize = Math.max(0, Math.min(buy.volume, sell.volume));
+      const lotSize = this.tradeLotSize(buy.volume, sell.volume);
       const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * this.maxLotsPerTrip());
       if (volume <= 0 || lotSize <= 0) continue;
       const candidate: Route = {

@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Per-ship lot size and lot count cap, with an MCP tool
+
+The only trade-size limit was the fleet-wide `maxLotsPerTrip` doctrine rule, so pacing one hull (a thin market, a long positioning leg) meant changing every ship. A new pure module (`src/engine/shipLotPolicy.ts`) holds two optional per-ship fields: `lotSize` caps units per buy call, and `maxLots` replaces the fleet lot count for that ship. A trip's volume is now min(hold, wallet, lotSize × maxLots), so a smaller lotSize shrinks the whole trip. Overrides persist in the `shipLotPolicies` fleet flag and reload at boot. The new `stcommand_set_ship_lot_policy` tool sets, clears or lists them, so automation can use the same knob. Limits: lotSize 1 to 1000, maxLots 1 to 12, and 0 clears a field. Only trader route planning and buying read the overrides; the dispatcher's route ranking still uses fleet defaults.
+
 ## 2026-10-14 — Metrics: a 30-minute live window that refreshes every 15 seconds
 
 The metrics page refreshed every 60 seconds, and its shortest window was one hour. A new 30m window shows the last half hour in two-minute buckets, and refreshes every 15 seconds while it's selected. The other windows still refresh every minute.
