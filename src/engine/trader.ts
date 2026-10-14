@@ -10,7 +10,7 @@ import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.
 import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
-import { chooseHopMethod, DEFAULT_WARP_POLICY, warpDriveRange } from "./warpTour.js";
+import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange } from "./warpTour.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -716,6 +716,8 @@ export class TraderAgent {
         throw new Error(`no verified gate path (<= ${this.atlas?.maxPositioningHops ?? 3} hops) from ${from} to ${targetSystem}`);
       }
       this.log(`cross-system: hop 1/${path.length - 1} ${from} -> ${path[1]} (en route to ${targetSystem})`);
+      // A warp drive covers this hop too when the next system is in range. The route re-plans from wherever the ship lands.
+      if (await this.warpTo(path[1]!)) return;
       await this.jumpToSystem(path[1]!, waypoint, true);
       return;
     }
@@ -821,12 +823,12 @@ export class TraderAgent {
   }
 
   /**
-   * Warp straight to `waypoint` in `targetSystem` when this ship can: a warp drive is installed, the doctrine toggle is
-   * on, the target is in range and the tank covers the estimate (the decision is warpTour.ts's). Returns false to let
-   * the gate path run. An issued warp is awaited like any in-system flight, so a scheduler-driven trader gets
-   * NavigationPending and resumes on arrival; nothing here needs to repeat that.
+   * Warp into `targetSystem` when this ship can: a warp drive is installed, the doctrine toggle is on, the target is in
+   * range and the tank covers the estimate (the decision is warpTour.ts's). Lands on `waypoint` when given, else on the
+   * system's market or shipyard, else any waypoint. Returns false to let the gate path run. An issued warp is awaited
+   * like any in-system flight, so a scheduler-driven trader gets NavigationPending and resumes on arrival.
    */
-  private async warpTo(targetSystem: string, waypoint: string): Promise<boolean> {
+  private async warpTo(targetSystem: string, waypoint?: string): Promise<boolean> {
     if (!this.atlas || this.ship.nav.status === "IN_TRANSIT") return false;
     const enabled = this.warpEnabled?.() ?? true;
     const warpRange = warpDriveRange(this.ship.modules);
@@ -843,16 +845,21 @@ export class TraderAgent {
       if (warpRange !== undefined && enabled) this.log(`not warping to ${targetSystem} (${choice.reason}), using gates`);
       return false;
     }
-    await this.ensureInOrbit();
-    try {
-      const res = await this.api.warpShip(this.symbol, waypoint);
-      this.ship = { ...this.ship, nav: res.nav, fuel: res.fuel };
-    } catch (err) {
-      this.log(`warp to ${waypoint} failed, using gates: ${err instanceof Error ? err.message : String(err)}`);
+    const target = waypoint ?? pickWarpArrival((await this.atlas.loadSystem(targetSystem)).waypoints);
+    if (!target) {
+      this.log(`no known waypoint in ${targetSystem} to warp to, using gates`);
       return false;
     }
-    this.log(`warping to ${waypoint} (${choice.reason}); fuel ${this.ship.fuel.current}`);
-    this.onActivity?.("warp", `warped to ${waypoint}`, undefined, this.symbol);
+    await this.ensureInOrbit();
+    try {
+      const res = await this.api.warpShip(this.symbol, target);
+      this.ship = { ...this.ship, nav: res.nav, fuel: res.fuel };
+    } catch (err) {
+      this.log(`warp to ${target} failed, using gates: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+    this.log(`warping to ${target} (${choice.reason}); fuel ${this.ship.fuel.current}`);
+    this.onActivity?.("warp", `warped to ${target}`, undefined, this.symbol);
     await this.proxy.waitForArrival();
     await this.refresh();
     return true;

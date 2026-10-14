@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Traders warp each hop of a multi-jump route, not only the last
+
+A trader on a route several gates away only tried warp for the whole trip, so a leg inside warp range still took a gate. Each hop of a positioning path now warps when the next system is in range, and takes the gate otherwise. The route re-plans from wherever the ship lands. Live test: THEOREM-86 on its 5-jump route to X1-CH68.
+
 ## 2026-10-14 — Contracts panel lists only the ship assigned to the contract
 
 A trade hold that happened to carry a good an open contract still wanted was labelled "holding contract cargo" in the Contracts list, as if it were on the contract (THEOREM-66 with ELECTRONICS, 2026-10-14). The label now needs the ship to be the contract's assigned buyer (its contract-buy assignment) or pinned to contract duty. The same fix is in Tower, Deck and the desktop view (v6). The contract itself was never assigned to the trade hold; the label was the only thing wrong.
