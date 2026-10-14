@@ -24,6 +24,10 @@ const HALT_POLL_MS = 1_000;
  *  worth it. Chosen to cover the 150-450 unit market spacing seen in X1-FC23 and
  *  X1-YM56 while still treating a ~900-unit hop as out of range. */
 export const TOUR_DRIFT_MAX_UNITS = 500;
+/** Longest a tour ship waits at a yard for a keeper-probe approval to be acted on. An approval that is decided but never
+ *  consumed (no ship could complete the purchase) used to pin the tour ship there indefinitely: THEOREM-4 sat at
+ *  X1-KQ90-ZD8E from 01:51 to 02:16 on 2026-10-14 with no pending request in the approvals list. */
+export const KEEPER_HOLD_MAX_MS = 15 * 60_000;
 
 export interface AgentOptions {
   /** Whether this ship may take a trade route when it is empty at a market (the arbitrage step). Miners pass false: a
@@ -283,6 +287,8 @@ export class ShipAgent {
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly hasPendingKeeperApproval?: AgentOptions["hasPendingKeeperApproval"];
+  /** When this ship started holding at its current yard for a keeper-probe approval, so the hold can be bounded. */
+  private keeperHoldSince?: { waypoint: string; at: number };
   private readonly keeperMarket?: () => string | undefined;
   private readonly keeperPollMs?: (market: string) => number;
   private readonly intentFor?: AgentOptions["intentFor"];
@@ -1693,9 +1699,17 @@ export class ShipAgent {
       // avoids it outright. Denial and auto-approval both close the request
       // too (see ApprovalGate.request()'s own comment), so this is never an
       // indefinite hold.
-      if (this.hasPendingKeeperApproval && yardTargets.includes(standingAt) && (await this.hasPendingKeeperApproval(standingAt))) {
-        this.log(`tour scout: holding at ${standingAt} — keeper probe approval pending`);
-        return true;
+      const holdingForKeeper = !!this.hasPendingKeeperApproval && yardTargets.includes(standingAt) && (await this.hasPendingKeeperApproval(standingAt));
+      if (!holdingForKeeper) {
+        this.keeperHoldSince = undefined;
+      } else {
+        const since = this.keeperHoldSince?.waypoint === standingAt ? this.keeperHoldSince.at : Date.now();
+        this.keeperHoldSince = { waypoint: standingAt, at: since };
+        if (Date.now() - since < KEEPER_HOLD_MAX_MS) {
+          this.log(`tour scout: holding at ${standingAt} — keeper probe approval pending`);
+          return true;
+        }
+        this.log(`tour scout: keeper probe approval at ${standingAt} still open after ${Math.round(KEEPER_HOLD_MAX_MS / 60_000)} min — touring on`);
       }
     }
 
