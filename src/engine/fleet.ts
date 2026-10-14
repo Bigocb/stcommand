@@ -4959,7 +4959,11 @@ export class FleetManager {
       this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbe"),
       this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket"),
     ]);
-    return shipyardRow?.shipSymbol?.split("|")[0] === waypointSymbol || marketRow?.shipSymbol?.split("|")[0] === waypointSymbol;
+    // Hold while a request is pending, or while an approved purchase has not yet been bought (the row is consumed when
+    // the engine acts on it). A denied row holds nothing: there is no purchase to wait for.
+    const holds = (row: { status: string; shipSymbol?: string | null } | undefined) =>
+      !!row && (row.status === "pending" || row.status === "approved" || row.status === "auto_approved") && row.shipSymbol?.split("|")[0] === waypointSymbol;
+    return holds(shipyardRow) || holds(marketRow);
   }
 
   /**
@@ -5103,10 +5107,7 @@ export class FleetManager {
       this.log(`keeper probe purchase at ${waypointSymbol} awaiting operator approval`);
       return;
     }
-    if (approved === false) {
-      this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
-      return;
-    }
+    if (approved === false) return; // ApprovalGate.request() logs a fresh denial once; cooldown repeats stay silent
     await this.purchaseKeeperProbe(waypointSymbol, target, probe.price, probe.type);
   }
 
@@ -5225,10 +5226,7 @@ export class FleetManager {
       this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) awaiting operator approval`);
       return true;
     }
-    if (approved === false) {
-      this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) denied by operator`);
-      return true;
-    }
+    if (approved === false) return true; // ApprovalGate.request() logs a fresh denial once; cooldown repeats stay silent
     await this.purchaseKeeperProbe(best.waypointSymbol, marketWaypoint, best.price, best.hull);
     return true;
   }
@@ -5473,8 +5471,7 @@ export class FleetManager {
     });
     if (approved === undefined) return; // still pending, or already resolved this tick
     if (approved === false) {
-      this.log(`keeper probe purchase at ${waypointSymbol} denied by operator`);
-      return;
+      return; // ApprovalGate.request() logged the denial once when it picked the row up
     }
     await this.purchaseKeeperProbe(waypointSymbol, targetMarket, row.cost, hull);
   }

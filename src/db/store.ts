@@ -3190,6 +3190,18 @@ export class Store {
   }
 
   /** All open approvals across every kind — what the dashboard's Approvals panel lists. */
+  /** Decided rows the engine has not yet picked up (approved or denied, unconsumed): an approved purchase still to be
+   *  bought, or a denial still to be acted on. Shown on the approvals page so nothing is invisible between the two. */
+  async listDecidedApprovals(tenantId: string): Promise<PendingApprovalRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<PendingApprovalDbRow>(
+        `SELECT * FROM pending_approvals WHERE tenant_id = $1 AND status <> 'pending' AND consumed = false ORDER BY created_at ASC`,
+        [tenantId],
+      );
+      return res.rows.map(toPendingApprovalRow);
+    });
+  }
+
   async listOpenApprovals(tenantId: string): Promise<PendingApprovalRow[]> {
     return withTenant(this.pool, tenantId, async (c) => {
       const res = await c.query<PendingApprovalDbRow>(

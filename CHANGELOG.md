@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Tour ships hold only on a live keeper decision; decided rows show on the approvals page
+
+A tour ship held at a yard for any unconsumed keeper-probe row there, including a denied one nothing had yet picked up. The hold now applies only to a pending request, or to an approved purchase that has not been bought yet (the row is consumed once the engine acts on it). A denial holds nothing. Approved or denied rows the engine has not picked up yet now appear under "Decided, waiting for the engine" on Tower's approvals page, so they are no longer invisible. The repeated "denied by operator" lines are gone: the engine logs a fresh denial once, and a cooldown once per denial.
+
 ## 2026-10-14 — Warp and gate-jump history, with an ops tool to read it
 
 Every warp and gate jump is now written to a durable `ship_movements` table (migrations/052), with the ship, distance, tank before and after, credit cost, and the engine path that made it. The log buffer and activity feed forget on restart, and warps were not in the ledger, so there was no way to answer "how much warping versus gates" after a restart. The new ops tool `stcommand_ops_movements` reads it, filtered by ship and kind over a window, with a summary of counts, warp fuel per unit and gate costs. Moves made before this change are not in the table. The rows are kept across the weekly reset, like the ledger.

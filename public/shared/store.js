@@ -105,6 +105,8 @@ export let chainHealth = null;
 export let approvals = [];
 /** Priority markets still waiting for a ship to dock there (no open ask yet). See the /api/approvals route. */
 export let upcomingApprovals = [];
+/** Approved or denied rows the engine has not picked up yet (see listDecidedApprovals in the store). */
+export let decidedApprovals = [];
 
 /** Operator's own persisted scratchpad — {id, body, createdAt}[], newest first. */
 export let notes = [];
@@ -443,6 +445,7 @@ export async function loadApprovals() {
     const body = res.ok ? await res.json() : {};
     approvals = body.approvals ?? [];
     upcomingApprovals = body.upcoming ?? [];
+    decidedApprovals = body.decided ?? [];
     notify("approvals");
   } catch (e) { console.error(e); }
 }

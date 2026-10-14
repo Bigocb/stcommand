@@ -37,6 +37,9 @@ export interface ApprovalRequest {
 const DEFAULT_DENY_COOLDOWN_MS = 15 * 60_000;
 
 export class ApprovalGate {
+  /** Per kind: the denial whose cooldown was last announced, so the cooldown is logged once, not on every tick. */
+  private readonly cooldownNoted = new Map<string, string>();
+
   constructor(
     private readonly store: Store | undefined,
     private readonly tenantId: string | undefined,
@@ -83,7 +86,14 @@ export class ApprovalGate {
     const last = await store.getLastDecidedApproval(tenantId, kind);
     if (last?.status === "denied" && last.decidedAt) {
       const cooldown = opts.denyCooldownMs ?? DEFAULT_DENY_COOLDOWN_MS;
-      if (now - new Date(last.decidedAt).getTime() < cooldown) return false; // still in the "no" window
+      if (now - new Date(last.decidedAt).getTime() < cooldown) {
+        // Said once per denial, not on every tick that asks again during the cooldown.
+        if (this.cooldownNoted.get(kind) !== last.decidedAt) {
+          this.cooldownNoted.set(kind, last.decidedAt);
+          this.log(`approval ${kind} not asked again for ${Math.round(cooldown / 60_000)} min after the denial at ${last.decidedAt}`);
+        }
+        return false; // still in the "no" window
+      }
     }
 
     await store.createPendingApproval(tenantId, kind, opts.shipSymbol, opts.detail, opts.cost, new Date(now + opts.timeoutMs).toISOString());

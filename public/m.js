@@ -12,7 +12,7 @@ import { crewHtml, crewAction, loadFields, cachedFields } from "/shared/contract
 import { login, probeSession } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
-  state, bridge, fleetStatus, approvals, upcomingApprovals, dispatchAssignments, contractDutyShips, dispatchRoutes, minerPreferences, intel,
+  state, bridge, fleetStatus, approvals, upcomingApprovals, decidedApprovals, dispatchAssignments, contractDutyShips, dispatchRoutes, minerPreferences, intel,
   marketRoutes, traderExclusions, marketSnapshots, contracts, missions, feeds, feedChains, chainHealth, doctrineRules, activity,
   priceGoods, priceWaypointsByGood, pricePoints,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
@@ -269,6 +269,15 @@ function renderApprovalsScreen() {
   badge.hidden = n === 0;
   $("approvals-screen-count").textContent = n;
   $("approvals-upcoming-count").textContent = upcomingApprovals.length;
+  $("approvals-decided-count").textContent = decidedApprovals.length;
+  $("approvals-decided").innerHTML = decidedApprovals.length === 0
+    ? '<div class="empty">Nothing decided and waiting.</div>'
+    : decidedApprovals.map((a) => `
+      <div class="card ${a.status === "denied" ? "" : "warn"}">
+        <div class="row1"><span class="who">${escapeHtml(APPROVAL_LABELS[a.kind] ?? a.kind)}</span><span class="amt">${a.status === "denied" ? "Denied" : "Approved"}</span></div>
+        <div class="detail">${escapeHtml(a.detail ?? "")}</div>
+        <div class="exp">${a.status === "denied" ? "The engine will drop this and not ask again for a while." : "Waiting for a ship to buy it. The tour ship holds at the yard until then."}</div>
+      </div>`).join("");
   const list = $("approvals-screen-list");
   list.innerHTML = n === 0
     ? '<div class="empty">No approvals waiting.</div>'
