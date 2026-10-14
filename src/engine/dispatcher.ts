@@ -853,6 +853,15 @@ export class RouteDispatcher {
       for (let i = 0; i + 1 < path.length; i++) total += crossSystem!.hopCost(path[i]!, path[i + 1]!);
       return total;
     };
+    /** Credits a ship pays in gate jumps to get from one system to another: the sum over every hop, or the flat
+     *  estimate for a single gate when cross-system routing is off. Zero for the same system. */
+    const positioningCredits = (from: string | undefined, to: string | undefined): number => {
+      if (from === undefined || to === undefined || from === to) return 0;
+      if (canJump(from, to)) return crossSystem?.enabled ? pathCost([from, to]) : CROSS_SYSTEM_JUMP_COST_ESTIMATE;
+      if (!crossSystem?.enabled) return 0;
+      const path = crossSystem.path(from, to);
+      return path ? pathCost(path) : 0;
+    };
     const next = new Map<string, TraderAssignment>();
 
     /** Direct reserves the whole good; buy/sell/haul/contractBuy reserve
@@ -1491,14 +1500,13 @@ export class RouteDispatcher {
           // route in another system, or a cross-system route, which fleet.ts now gives one): before this, a trip that
           // needed jumps was ranked as if it started the moment the ship picked it.
           if (w.tripSeconds) score *= w.tripSeconds / (w.tripSeconds + positioning);
-          if (crossSystem?.enabled && !canJump(t.system, w.buySystem)) {
-            const path = crossSystem.path(t.system, w.buySystem);
-            if (path) {
-              const share = pathCost(path) / 3;
-              score -= share;
-              penalty += share;
-            }
-          }
+          // The jumps this ship must make to reach the buy market are credits it pays on this trip, so they come off
+          // the score in full. (Previously only a third came off, and a single gate jump came off nothing.) The
+          // route's own profitPerTrip is not changed; this is the ship-specific cost of getting there.
+          const share = positioningCredits(t.system, w.buySystem);
+          score -= share;
+          penalty += share;
+          if (score <= 0) return undefined;
         }
         return { score, penalty, positioning };
       };

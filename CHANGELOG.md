@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — Dispatcher charges a trader's gate jumps to reach the buy market in full
+
+The dispatcher ranked a cross-system route after charging only a third of the jumps a ship needed to reach its buy market, and a single gate jump was not charged at all. A trader's own positioning jumps are now subtracted in full when it is ranked for a route, and a trip the jumps would make unprofitable is not assigned. The route's shown profitPerTrip does not change, so the dashboard still shows one figure per route. Only the ship-specific ranking does. The sell-side exit is not charged, since the next trip pays its own positioning from wherever the ship ends.
+
 ## 2026-10-14 — Deck's ship sheet gets the "Send to nearest shipyard" button
 
 The send-to-nearest-shipyard control shipped on Tower and the older desktop ship card, but not on Deck, which has its own ship sheet. It now sits beside "Send to waypoint" on Deck too.

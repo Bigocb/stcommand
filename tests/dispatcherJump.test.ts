@@ -37,8 +37,9 @@ describe("jump cooldown in the plain route score", () => {
     assert.equal(pick(route("NEAR", "X1-A-2", "X1-A-60", 60_000, "X1-A", 600)), "NEAR");
   });
   it("with the wait set to 0 the cross-system trip is ranked on its trip time alone", () => {
-    // 75k on an 840s trip is ~54k per ten minutes: over the 50k route when the wait is free, ~31k once it is charged
-    const far = route("FAR", "X1-B-1", "X1-B-60", 75_000, "X1-B", 840);
+    // 90k on an 840s trip, less the ~5k jump cost, is ~62k per ten minutes: over the 50k route when the wait is free,
+    // and still ~35k once the wait is charged, so the wait is what moves it
+    const far = route("FAR", "X1-B-1", "X1-B-60", 90_000, "X1-B", 840);
     assert.equal(pick(far, { jumpSeconds: 0 }), "FAR");
     assert.equal(pick(far), "LOCAL");
   });

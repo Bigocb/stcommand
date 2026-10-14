@@ -128,7 +128,7 @@ describe("RouteDispatcher: only assigns reachable direct routes", () => {
     const reachable = {
       good: "CLOTHING", buyAt: "X1-YN70-K90", buySystem: "X1-YN70", buyPrice: 100,
       sellAt: "X1-YN70-A1", sellSystem: "X1-YN70", sellPrice: 200,
-      volume: 10, lotSize: 10, distance: 10, fuelUnits: 10, fuelCost: 0, profitPerTrip: 1000, ageMinutes: 1,
+      volume: 10, lotSize: 10, distance: 10, fuelUnits: 10, fuelCost: 0, profitPerTrip: 50_000  // clears the ~5k gate-jump positioning cost, ageMinutes: 1,
     };
 
     d.recompute([reachable], [{ shipSymbol: "SHIP-1", capacity: 40, system: "X1-S84" }], [], [], [], [], () => true);
