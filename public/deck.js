@@ -417,7 +417,10 @@ function jobFor(ship, role) {
   }
   const held = new Set((ship.cargo?.inventory ?? []).map((i) => i.symbol));
   const wanted = (contracts ?? []).find((c) => c.accepted && !c.fulfilled && !c.abandoned && c.deliver.some((d) => held.has(d.tradeSymbol) && d.unitsFulfilled < d.unitsRequired));
-  if (wanted) {
+  // Only the ship the contract is actually assigned to. Holding a good an open contract wants is not enough: a trade
+  // hold that happens to carry the same good used to be labelled as on the contract.
+  const onContract = contractDutyShips.includes(shipSymbol) || dispatchAssignments.some((x) => x.shipSymbol === shipSymbol && x.role === "contractBuy");
+  if (wanted && onContract) {
     const d = wanted.deliver.find((x) => held.has(x.tradeSymbol));
     return `holding contract cargo: ${escapeHtml(d.tradeSymbol)} (for ${escapeHtml(d.destinationSymbol)})`;
   }
