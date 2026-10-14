@@ -22,7 +22,7 @@ const DEFAULT_TARGET = 25_738_654; // last week's final credits
 // Every window refreshes once a minute; the 30-minute window refreshes every 15 seconds, so it reads as live.
 const REFRESH_MS = 60_000;
 const LIVE_REFRESH_MS = 15_000;
-const refreshMs = () => (!sinceReset && hours <= 0.5 ? LIVE_REFRESH_MS : REFRESH_MS);
+const refreshMs = (windowHours, since) => (!since && windowHours <= 0.5 ? LIVE_REFRESH_MS : REFRESH_MS);
 
 const lsGet = (k, d) => { try { return window.localStorage.getItem(k) ?? d; } catch { return d; } };
 const lsSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch { /* private window: fine */ } };
@@ -391,7 +391,7 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
 
   function restartTimer() {
     clearInterval(timer);
-    timer = setInterval(load, refreshMs());
+    timer = setInterval(load, refreshMs(hours, sinceReset));
   }
 
   return {
