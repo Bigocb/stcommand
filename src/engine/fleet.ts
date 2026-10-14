@@ -40,7 +40,7 @@ import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { pickCheapestKeeperYard } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
-import { RouteDispatcher, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
+import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export interface TradeResult {
@@ -928,6 +928,14 @@ export class FleetManager {
         }
       } catch (err) {
         this.log(`restore manual dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    const commitmentFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "dispatchCommitments") : undefined;
+    if (commitmentFlag) {
+      try {
+        this.dispatcher.restoreCommitments(commitmentFlag);
+      } catch (err) {
+        this.log(`restore dispatch commitments failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     const circuitFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "dispatchCircuits") : undefined;
@@ -7997,6 +8005,16 @@ export class FleetManager {
         { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), matchTopN: this.doctrine.value("routeMatchTopN", 0) },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
+      // Keep each trader's trip and commitment across a restart, so a ship flying to its buy market is not re-routed.
+      const commitmentJson = this.dispatcher.commitmentsSnapshot();
+      if (commitmentJson !== undefined && this.tenantId) {
+        try {
+          if (commitmentJson === EMPTY_COMMITMENTS) await this.store?.removeFleetFlag(this.tenantId, "dispatchCommitments");
+          else await this.store?.setFleetFlag(this.tenantId, "dispatchCommitments", commitmentJson);
+        } catch (err) {
+          this.log(`save dispatch commitments failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       // Keep pending two-leg circuits across a restart (a small per-tenant flag; written only when they change).
       const circuitJson = this.dispatcher.circuitSnapshot();
       if (circuitJson !== undefined && this.tenantId) {

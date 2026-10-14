@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-14 — A restart no longer re-routes traders that are flying a trip
+
+Each trader's trip and its commitment lived only in memory, so every restart made an empty trader that was still flying to its buy market look idle, and the dispatcher handed it the best route again mid-flight (THEOREM-86 and four others, 2026-10-14, after the 01:15 and 01:20 restarts). Trips and commitments are now saved to a per-tenant flag as circuits already were, and restored at boot. Trips saved before this change are lost once, on the first restart after deploying it. Test: `tests/dispatcherCommitments.test.ts`.
+
 ## 2026-10-14 — Traders warp each hop of a multi-jump route, not only the last
 
 A trader on a route several gates away only tried warp for the whole trip, so a leg inside warp range still took a gate. Each hop of a positioning path now warps when the next system is in range, and takes the gate otherwise. The route re-plans from wherever the ship lands. Live test: THEOREM-86 on its 5-jump route to X1-CH68.

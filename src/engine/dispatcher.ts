@@ -88,6 +88,8 @@ export const MAX_TRADERS_PER_BUY_MARKET = 3;
 /** How long an assigned trip may sit without its cargo ever being bought
  *  (positioning jumps included) before the trader is released for new work. */
 export const COMMIT_GRACE_MS = 3 * 60 * 60_000;
+/** commitmentsSnapshot() of a dispatcher with nothing in flight. */
+export const EMPTY_COMMITMENTS = JSON.stringify({ trips: [], committed: [] });
 
 /** How long a leg a trader refused stays out of that trader's picks. */
 export const DECLINE_MS = 15 * 60_000;
@@ -465,6 +467,9 @@ export class RouteDispatcher {
     }
   }
 
+  /** The empty commitments JSON counts as already saved, so a dispatcher with nothing in flight has nothing to write. */
+  private savedCommitments: string | undefined = EMPTY_COMMITMENTS;
+
   /** Planned circuits as JSON, once, when they have changed since the last call (undefined otherwise), so the caller can
    *  persist them across a restart. An empty plan list is "[]". */
   circuitSnapshot(): string | undefined {
@@ -472,6 +477,37 @@ export class RouteDispatcher {
     if (json === this.savedCircuits) return undefined;
     this.savedCircuits = json;
     return json;
+  }
+
+  /** Each auto direct trip and its commitment as JSON, once, when they have changed since the last call (undefined
+   *  otherwise). Without this a restart forgets who is flying where: an empty trader already on its way to the buy market
+   *  looks idle and is handed the best route again, mid-flight. */
+  commitmentsSnapshot(): string | undefined {
+    const trips = [...this.assignments.entries()].filter(([, a]) => a.source === "auto" && a.role === "direct");
+    const json = JSON.stringify({ trips, committed: [...this.committed.entries()] });
+    if (json === this.savedCommitments) return undefined;
+    this.savedCommitments = json;
+    return json;
+  }
+
+  /** Load commitments saved by commitmentsSnapshot(). Malformed rows are skipped; a commitment whose trader is not
+   *  flying a trip is dropped by the next recompute, as it always was. */
+  restoreCommitments(json: string): void {
+    try {
+      const data = JSON.parse(json) as { trips?: unknown; committed?: unknown };
+      for (const row of Array.isArray(data.trips) ? data.trips : []) {
+        const [ship, a] = row as [unknown, TraderAssignment | undefined];
+        if (typeof ship !== "string" || !a || typeof a.good !== "string" || a.role !== "direct") continue;
+        this.assignments.set(ship, a);
+      }
+      for (const row of Array.isArray(data.committed) ? data.committed : []) {
+        const [ship, c] = row as [unknown, { at?: unknown; hadCargo?: unknown } | undefined];
+        if (typeof ship !== "string" || !c || typeof c.at !== "number") continue;
+        this.committed.set(ship, { at: c.at, hadCargo: c.hadCargo === true });
+      }
+    } catch {
+      // unreadable: start empty, as before commitments were saved
+    }
   }
 
   /** Load circuits saved by circuitSnapshot(). Anything malformed is skipped; an expired plan is dropped on the next recompute. */
