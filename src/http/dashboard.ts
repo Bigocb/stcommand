@@ -20,6 +20,7 @@ import { paceRates } from "../ops/pace.js";
 import { galaxyVersion } from "../engine/galaxyVersion.js";
 import { liveRoute } from "./live.js";
 import { approvalsView } from "../engine/approvalsView.js";
+import { attentionView, contractsView, keepersView } from "../engine/liveViews.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
@@ -580,14 +581,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.get("/attention", (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    const snap = w.fleet.attention.snapshot();
-    res.json({
-      asOf: snap.asOf ? new Date(snap.asOf).toISOString() : null,
-      enabled: snap.enabled,
-      modelConfigured: snap.modelConfigured,
-      count: snap.items.length,
-      items: snap.items,
-    });
+    res.json(attentionView(w.fleet));
   });
 
   router.get("/bridge", async (req, res) => {
@@ -940,12 +934,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.get("/keeper/markets", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    res.json({
-      markets: await w.fleet.keeperPriorityMarkets(),
-      stations: w.fleet.keeperStations(),
-      keeperCount: w.fleet.doctrine.value("keeperCount", 0),
-      coverList: await w.fleet.keeperCoverList(),
-    });
+    res.json(await keepersView(w.fleet));
   });
 
   router.post("/keeper/markets", async (req, res) => {
@@ -1154,28 +1143,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w?.contracts) return res.status(503).json({ error: "contracts not ready" });
     try {
-      const contracts = await w.contracts.listActive();
-      res.json({
-        contracts: contracts.map((c) => ({
-          id: c.id,
-          factionSymbol: c.factionSymbol,
-          type: c.type,
-          accepted: c.accepted,
-          fulfilled: c.fulfilled,
-          deadlineToAccept: c.deadlineToAccept ?? c.expiration,
-          deadline: c.terms.deadline,
-          onAccepted: c.terms.payment.onAccepted,
-          onFulfilled: c.terms.payment.onFulfilled,
-          deliver: (c.terms.deliver ?? []).map((d) => ({
-            tradeSymbol: d.tradeSymbol,
-            destinationSymbol: d.destinationSymbol,
-            unitsRequired: d.unitsRequired,
-            unitsFulfilled: d.unitsFulfilled,
-          })),
-          declined: w.contracts!.isDeclined(c.id),
-          abandoned: w.contracts!.isAbandoned(c.id),
-        })),
-      });
+      res.json({ contracts: await contractsView(w.contracts) });
     } catch (err) {
       console.error("[dashboard] /contracts error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

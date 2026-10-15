@@ -2602,8 +2602,9 @@ function pollTick() {
   if (fullRead) loadActivity();
   loadMarkets();
   loadGoods();
-  loadKeepers();
-  loadProgramme();
+  // Keepers and the programme are pushed too while the stream is up.
+  if (fullRead) loadKeepers();
+  if (fullRead) loadProgramme();
 }
 
 setInterval(() => {

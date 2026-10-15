@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-15 — Live feed: attention, programme and keepers pushed too
+
+The last of the 15-second polls moved to the live feed (`GET /api/live`), built from shared views in
+`src/engine/liveViews.ts` so the push and the HTTP routes (`/attention`, `/contracts`, `/keeper/markets`) can't disagree:
+
+- **Attention** (`attention` event): Tower's attention list, checked every 2 s and sent only when it changes (its `asOf`
+  stamp is left out of the comparison).
+- **Programme** (`programme` event): contracts, missions, feeds, feed chains and chain health, checked every 14 s, one
+  check at a time per tenant. A part that fails to build is sent as null and the screen keeps what it had.
+- **Keepers** (`keepers` event): the keeper list, checked every 14 s.
+
+All three are in the connect snapshot. While the feed is connected, Deck and Tower read them in full only once a minute
+as a safety net; before, each screen fetched them every 15 s, and `loadProgramme` rebuilt the dispatch view each time.
+
 ## 2026-10-15 — A system reached by warp is charted
 
 THEOREM-86 warped into X1-GX41 and toured its 26 markets, but GX41 never appeared in Tower's Markets list, best price,

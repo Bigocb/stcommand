@@ -7,6 +7,7 @@ import { LiveFeed } from "./liveFeed.js";
 import { diffShips, shipRow, type ShipRow } from "./shipRows.js";
 import { diffKeyed, emptyDiff } from "./liveDiff.js";
 import { approvalsView } from "./approvalsView.js";
+import { attentionView, keepersView, programmeView } from "./liveViews.js";
 import { ContractManager } from "./contract.js";
 import { FleetManager, type Ship } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
@@ -684,7 +685,9 @@ export class TenantRegistry {
     //  - ships: each ship's live row (kept current by every action response), no game calls;
     //  - fleet: each ship's status and "doing" line, plus stranded ships and the paused flag;
     //  - dispatch: the dispatcher's assignments, contract duty and miner preferences;
-    //  - approvals: two small queries every third tick (6 s), one per tenant however many screens are open.
+    //  - approvals: two small queries every third tick (6 s), one per tenant however many screens are open;
+    //  - attention: Tower's list, from memory, every tick;
+    //  - programme (contracts, missions, feeds, feed chains, chain health) and keepers: every seventh tick (14 s).
     // Each is published only when it changed since the last send. Nothing runs while no screen is connected.
     let lastRows = new Map<string, string>();
     let lastSummary = new Map<string, string>();
@@ -693,6 +696,10 @@ export class TenantRegistry {
     let lastDispatch = "";
     let lastApprovals = "";
     let approvalsBusy = false;
+    let lastAttention = "";
+    let lastProgramme = "";
+    let lastKeepers = "";
+    let slowBusy = false;
     let liveTick = 0;
     // A cooldown's seconds tick down by themselves; compare them in 15-second steps so a cooling ship is resent at most
     // every 15 s instead of on every pass.
@@ -703,6 +710,7 @@ export class TenantRegistry {
     const resetLive = () => {
       lastRows = new Map(); lastSummary = new Map(); lastStatuses = new Map();
       lastFleetFlags = ""; lastDispatch = ""; lastApprovals = ""; liveTick = 0;
+      lastAttention = ""; lastProgramme = ""; lastKeepers = "";
     };
     const liveTimer = setInterval(() => {
       if (!live.subscriberCount) {
@@ -732,6 +740,14 @@ export class TenantRegistry {
           lastDispatch = dispatchJson;
           live.publish("dispatch", dispatch);
         }
+
+        const attention = attentionView(fleet);
+        // asOf moves on every evaluation; only a change in what's on the list is news.
+        const attentionJson = JSON.stringify({ ...attention, asOf: undefined });
+        if (attentionJson !== lastAttention) {
+          lastAttention = attentionJson;
+          live.publish("attention", attention);
+        }
       } catch (err) {
         log(`live diff failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -748,6 +764,19 @@ export class TenantRegistry {
           .catch((err: unknown) => log(`live approvals failed: ${err instanceof Error ? err.message : String(err)}`))
           .finally(() => { approvalsBusy = false; });
       }
+      if (liveTick % 7 === 0 && !slowBusy) {
+        slowBusy = true;
+        Promise.all([programmeView(fleet, contracts), keepersView(fleet)])
+          .then(([programme, keepers]) => {
+            if (!live.subscriberCount) return;
+            const p = JSON.stringify(programme);
+            if (p !== lastProgramme) { lastProgramme = p; live.publish("programme", programme); }
+            const k = JSON.stringify(keepers);
+            if (k !== lastKeepers) { lastKeepers = k; live.publish("keepers", keepers); }
+          })
+          .catch((err: unknown) => log(`live programme/keepers failed: ${err instanceof Error ? err.message : String(err)}`))
+          .finally(() => { slowBusy = false; });
+      }
     }, LIVE_SHIP_DIFF_MS);
     liveTimer.unref?.();
     // What a screen gets when it connects (or can't catch up): every slice in full, as of the latest event. It also
@@ -758,7 +787,12 @@ export class TenantRegistry {
       const statuses = fleet.getShipStatuses();
       const dispatch = dispatchView();
       const approvals = await approvalsView(store, fleet, tenantId);
+      const attention = attentionView(fleet);
+      const [programme, keepers] = await Promise.all([programmeView(fleet, contracts), keepersView(fleet).catch(() => null)]);
       if (lastRows.size === 0) {
+        lastAttention = JSON.stringify({ ...attention, asOf: undefined });
+        lastProgramme = JSON.stringify(programme);
+        lastKeepers = keepers ? JSON.stringify(keepers) : "";
         lastRows = diffShips(new Map(), ships).next;
         lastSummary = diffKeyed(new Map(), summary, (r) => r.symbol, summaryCompare).next;
         lastStatuses = diffKeyed(new Map(), statuses, (r) => r.symbol).next;
@@ -773,6 +807,9 @@ export class TenantRegistry {
         fleet: { summary, ships: statuses, stranded: fleet.getStrandedShips(), paused: fleet.isPaused() },
         dispatch,
         approvals,
+        attention,
+        programme,
+        keepers,
       };
     };
     return {

@@ -19,6 +19,7 @@ import {
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadDoctrine, setDoctrine, loadActivity,
   loadGoods, loadPrices, loadKeepers, jumpConnections,
+  attention as storeAttention,
 } from "/shared/store.js";
 import { startLive, liveConnected } from "/shared/live.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
@@ -243,6 +244,12 @@ async function loadAttention() {
   try { attention = await api("GET", "/api/attention"); } catch { return; }
   renderAttention();
 }
+// The live feed pushes the list when it changes (public/shared/live.js); show it the same way as a poll.
+subscribe("attention", () => {
+  if (!storeAttention) return;
+  attention = storeAttention;
+  renderAttention();
+});
 function renderAttention() {
   const sec = $("attention-sec");
   if (!sec) return;
@@ -2105,11 +2112,12 @@ function pollTick() {
   // Fleet status, approvals and dispatch assignments are pushed too; their full reads also drop to once a minute.
   if (fullRead) { loadBridge(); loadApprovals(); loadDispatch(); }
   if (fullRead) loadActivity();
-  loadAttention();
+  // Attention and the programme (feeds, missions, contracts) are pushed too while the stream is up.
+  if (fullRead) loadAttention();
   // Feed/mission claims drive the "unassigned" count on Home and every ship card's job, so they
-  // refresh on every tick, not only while Fleet or More is open (a feed carrier read "unassigned"
-  // until one of those tabs had been visited).
-  loadProgramme();
+  // refresh on every tick when the stream is down, not only while Fleet or More is open (a feed carrier read
+  // "unassigned" until one of those tabs had been visited).
+  if (fullRead) loadProgramme();
   if (marketsTabActive() || fleetTabActive()) loadMarkets();
   if (marketsTabActive()) loadGoods();
 }

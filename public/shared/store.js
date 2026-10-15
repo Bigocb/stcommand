@@ -338,6 +338,34 @@ export function applyApprovals(d) {
   notify("approvals");
 }
 
+/** The programme sections (contracts, missions, feeds, feed chains, chain health). A null part failed on the server
+ *  this time, so the screen keeps what it had for it. */
+export function applyProgramme(d) {
+  if (!d) return;
+  if (d.contracts) contracts = d.contracts;
+  if (d.missions) missions = d.missions;
+  if (d.feeds) feeds = d.feeds;
+  if (d.chains) feedChains = d.chains;
+  if (d.chainHealth) chainHealth = d.chainHealth;
+  notify("programme");
+}
+
+export function applyKeepers(d) {
+  if (!d) return;
+  keeperMarketsCfg = d.markets ?? keeperMarketsCfg;
+  keeperStationsCfg = d.stations ?? keeperStationsCfg;
+  keeperCoverList = d.coverList === true;
+  notify("keepers");
+}
+
+/** Tower's attention list (GET /api/attention's shape). Kept here so the live feed can hand it to whoever shows it. */
+export let attention = null;
+export function applyAttention(d) {
+  if (!d) return;
+  attention = d;
+  notify("attention");
+}
+
 export async function loadBridge() {
   try {
     const res = await fetch("/api/bridge");
