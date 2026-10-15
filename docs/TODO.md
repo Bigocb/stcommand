@@ -487,6 +487,12 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   tenant count grows enough to matter.
 
 ## Parked ideas — raised, not acted on
+
+- [ ] **Operator "don't fly" on a route.** Let the operator mark a route (good + buy market + sell market) as off-limits,
+  so the dispatcher and traders skip it until the mark is removed. Motivating case: the 2026-10-15 PLATINUM sell price
+  fell 3.5% over six hours; a route that keeps buying into a falling market should be switchable without changing doctrine.
+- [ ] **Buy timing per ship.** Let each ship's purchases follow its own pace (lot size and gap between buys), in the same
+  way the per-ship lot policy works, rather than one fleet-wide pace.
 - [ ] **One tenant session per browser, not per tab.** Surfaced
   2026-09-13 while building "View as" and "+ New agent" on the admin
   page: session auth is a single cookie for the whole browser, so
