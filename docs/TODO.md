@@ -486,6 +486,24 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   **not** to build yet — revisit only after the saturation plan lands or
   tenant count grows enough to matter.
 
+## Experiments — running or recorded
+
+- [ ] **Local-only trader in TS44 (2026-10-15), first trial.** Setup: THEOREM-B0, a light freighter (80 hold), set to
+  reach "system". Result: no local work. Evidence: at 14:05 TS44 had 8 same-system routes (best FOOD 81k a trip); by
+  15:30 no route bought in TS44 at all. The only routes buying there were two LAB_INSTRUMENTS runs into CH68, which are
+  cross-system. B0 was moved to X1-CM13 (10 local routes, best 34k) on a tour order.
+  TS44 attributes: two gates from CH68, CM13, JT85, ZN16, QS15 and RM59; three gates from HR84; gate X1-TS44-A20A
+  complete, linked to TP16, FP91 and CK71. Its shipyards sell only probes and siphon drones, no trading hull. Holds 14
+  keeper ships and no traders.
+  Open question for the pattern: do same-system routes in a system come and go with its market prices, and how fast?
+  Record local-route count and best profit per system at each check, so the sales pattern can be read later.
+- [ ] **Local-only trader for an in-system test (rule for the next trial).** A local ship only gets local work. Before
+  moving one, check the board for same-system routes in its destination, and move it only if the count is above zero.
+
+- [ ] **Warp into gate-locked systems, then trade locally.** Idea from 2026-10-15: a system whose gate is not built can
+  still be entered by warp (we already warp into FY6 and GX41). A warp-capable ship could set up local trading there
+  without any gate spend. Needs a check of which of our known systems have no finished gate and enough local routes.
+
 ## Parked ideas — raised, not acted on
 
 - [ ] **Operator "don't fly" on a route.** Let the operator mark a route (good + buy market + sell market) as off-limits,
