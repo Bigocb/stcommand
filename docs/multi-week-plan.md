@@ -2,7 +2,7 @@
 
 Status: draft, not built. Written 2026-10-15 as a starting point for a plan that spans several weeks, so the fleet can
 build toward something instead of racing for cash each reset. Each section says what the code does today, so the gaps
-are visible.
+are visible. Updated 2026-10-15 with phases, the rollback rule, goals and the season record.
 
 ## Why this is hard
 
@@ -31,6 +31,40 @@ galaxy's shape has to be rebuilt, and the bot currently starts each week with no
 - Every ship's role and position.
 - Keeper placements.
 - The reset-day steps: re-register, run the cleanup, wait for the galaxy crawl.
+
+## Phases
+
+A season is a sequence of weeks. Each week ends in one phase, and that phase decides where the next week starts.
+
+1. **Recover:** re-register, clean up, finish the galaxy crawl, start feeds on the gate's inputs.
+2. **Fund:** trade for cash and buy the right hulls for each job.
+3. **Specialize:** haulers on proven routes, keepers on the markets that matter for trade decisions.
+4. **Cross-system:** routes that cross gates, circuits, and warp tours.
+5. **Build:** the gate and the materials for it.
+
+**Rollback rule:** a reset wipes the gate network and the cross-system routes that depend on it. So if a week ends in
+Cross-system, the next week starts at **Recover**, not at the last phase. Other phases pick up where they left off.
+Goals are not reset by a rollback. A goal that was missed carries forward.
+
+## Goals
+
+Each goal has a week number, a measurable target, and a status (pending, met, or missed).
+
+- Example: "Week 2: cut overhead 5%, status pending."
+- **Overhead** means jump costs, refuels, and fuel, as a share of gross sales. The same breakdown `ops_pnl` already
+  reports, so a target can be measured from data we have. The baseline is taken from the first full week of the season.
+- A missed goal carries forward until it is met or the operator drops it.
+
+## Season record
+
+Each week ends with a record that the next week starts from:
+
+- The phase the week ended in.
+- The goals and their status, with the measured value.
+- A snapshot: fleet by role, cash, reserve, and overhead share.
+
+The next week reads the last record as its starting point. This is how the plan evolves over weeks instead of
+restarting each reset.
 
 ## Proposed plan
 
@@ -62,15 +96,18 @@ galaxy's shape has to be rebuilt, and the bot currently starts each week with no
 
 ## What the code would need
 
-1. **A season plan that survives resets.** A new table, outside `TENANT_GAME_TABLES`, holding the week's goals:
-   target fleet size by role, gate progress target, cash reserve, and the reinvestment split. It would be written
-   by the operator and read by the dispatcher and the auto-buyer.
+1. **A season plan that survives resets.** A new table, outside `TENANT_GAME_TABLES`, holding the phase, goals and
+   season record above. It would be written by the operator and read by the dispatcher and the auto-buyer.
 2. **A reinvestment rule.** Today the only controls are the cash floor (`cashFloor`) and the ship budget
    (`shipBudget`). The plan needs a rule for how much profit goes into ships each week, and when to stop buying.
-3. **Gate continuity across resets.** The gate's materials are delivered from zero each week, so the plan must budget
-   for re-delivering them from day one. This is the hardest part and is not solved here.
+3. **Gate continuity across resets.** A new universe means a new gate, and last week's delivered materials do not
+   count toward it. What carries is the requirement (last week it was 1,600 FAB_MATS and 400 ADVANCED_CIRCUITRY, so
+   plan on something close again), the pacing that kept prices in check, and the target. The game's own gate status
+   is the only real progress count. This is the hardest part and is not solved here.
 4. **Reset-aware targets.** Doctrine values such as `shipCap:*` and `keeperCount` should follow the season plan, not
    stay fixed.
+5. **Phase transitions.** Code that reads the last record, applies the rollback rule, and starts the next week in the
+   right phase.
 
 ## Open decisions
 
