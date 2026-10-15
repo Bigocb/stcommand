@@ -194,7 +194,7 @@ export function mountSeason(root, { api } = {}) {
       <div class="kpirow ss-kpis">
         ${kpi("Season", h(season.season.name), `week ${w.weekNo} · since ${h(when(w.openedAt))}`)}
         ${kpi("Phase", h(phase?.label ?? w.phase), h(phase?.summary ?? ""), "amber")}
-        ${kpi("Profit / hour", compact(m.profitPerHour), live ? `over ${live.hours} h` : "", tone(m.profitPerHour))}
+        ${kpi("Profit / hour", compact(m.profitPerHour), live ? `over ${live.hours} h${live.pace?.sinceReset ? ` · since reset ${compact(live.pace.sinceReset.profitPerHour)}/h over ${live.pace.sinceReset.hours} h` : ""}` : "", tone(m.profitPerHour))}
         ${kpi("Overhead", share(m.overheadShare), "fuel and jumps / sales")}
         ${kpi("Trips", compact(m.trips), `net ${compact(m.netProfit)}`)}
         ${kpi("Goals met", `${met} / ${goals.length}`, "")}

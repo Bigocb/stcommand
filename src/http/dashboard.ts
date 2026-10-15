@@ -16,6 +16,7 @@ import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
 import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
 import { growthPerWeek, hullCapitalAt, type HullEvent } from "../engine/growth.js";
+import { paceRates } from "../ops/pace.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
@@ -499,6 +500,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         growth,
         // What the accepted contracts still owe us (never part of credits or net: it is not cash yet).
         contractPipeline: w.contracts ? await contractsOverview({ contracts: w.contracts, store: w.store, tenantId: w.tenantId, ships: state.ships ?? [] }) : null,
+        // Two rates with their own windows (src/ops/pace.ts), so this page and the season show the same figures.
+        pace: await paceRates(w, now),
         credits: state.agent?.credits ?? 0,
         shipCount: statuses.length,
         traderCount: traders.length,

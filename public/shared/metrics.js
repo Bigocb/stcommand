@@ -109,6 +109,12 @@ function kpi(label, value, sub, tone = "", title = "") {
 }
 
 let wpSystem = "";
+/** A pace rate (src/ops/pace.ts) with its window; "no season" or "not enough time" when there isn't one yet. */
+function paceKpi(label, rate, title) {
+  if (!rate) return kpi(label, "—", "not enough time yet", "", title);
+  return kpi(label, `${signed(rate.profitPerHour)}/h`, `${rate.trips} trips over ${rate.hours} h${rate.weekNo ? ` · week ${rate.weekNo}` : ""}`, cls(rate.profitPerHour), title);
+}
+
 /** Growth of cash plus holds plus hull capital, per day, over the span the samples cover (src/engine/growth.ts). */
 function growthKpi(g) {
   if (!g) return kpi("Growth", "—", "needs two wealth samples in the window", "", "Net worth (cash, holds and the hulls we bought, less scrap) growth per week");
@@ -245,7 +251,9 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
     const vs = (n, b) => { const d = delta(n, b); return d ? `${d} vs previous ${data.hours}h` : "no earlier window to compare"; };
     $("mx-kpis").innerHTML = [
       kpi("Net trading", signed(t.net), vs(t.net, p.net), cls(t.net), "Realized profit on completed sales, less fuel and jumps"),
-      kpi("Per hour", signed(t.netPerHour), vs(t.netPerHour, p.netPerHour), cls(t.netPerHour)),
+      kpi("Per hour (sales)", signed(t.netPerHour), vs(t.netPerHour, p.netPerHour), cls(t.netPerHour), "Net trading (sales profit less fuel and jumps) over this window's hours. The season and the since-reset rate below count trips instead."),
+      paceKpi("Since reset", data.pace?.sinceReset, "Trips closed since the universe started, less each trip's own refuel, jump and positioning costs, per hour of universe time. Scored on the same definition as the season."),
+      paceKpi("This season week", data.pace?.sinceSeason, "Same definition, counted from when the open season week opened. This is what season profit-per-hour goals are scored on."),
       kpi("Net incl. contracts", signed(c.netInclContracts), `contracts ${signed(c.net)} · ${c.incomeSharePct}% of income`, cls(c.netInclContracts), "Net trading plus contract income (advances and payouts) less the cost of the goods delivered. Net trading above is unchanged so weeks stay comparable."),
       kpi("Credits", walletChange === null ? "—" : signed(walletChange), data.walletEnd !== null ? `now ${fmt(data.walletEnd)} · includes ship buys` : "", cls(walletChange ?? 0), "Wallet change over the window; moves with ship purchases and cargo in transit as well as profit"),
       growthKpi(data.growth),

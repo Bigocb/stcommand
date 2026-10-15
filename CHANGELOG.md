@@ -34,6 +34,19 @@ nothing changes until a ship is set. Behaviour:
 Local routes on the board right now: 30 of the 60 (TS44 8, RM59 6, CH68 5, JT85 4, KQ90 2, HR84 2, others 1 each).
 Buying local-only ships at each system's own shipyard is a separate step, not in this change; so is any UI for it.
 
+## 2026-10-15 — Two profit-per-hour rates, each with its window
+
+The Metrics page and the season showed different "per hour" figures for the same week, because each used a different
+window and start. Both are now shown, each labelled:
+
+- **Since reset:** trips closed since the universe started, less each trip's own refuel, jump and positioning costs,
+  per hour of universe time.
+- **This season week:** the same definition, counted from when the open week opened. Season profit-per-hour goals are
+  scored on this one.
+
+Metrics' own "Per hour" is renamed "Per hour (sales)": it counts sales, not trips, so it still differs. The season's
+profit-per-hour tile also shows the since-reset rate. Shared logic is in `src/ops/pace.ts`, and both routes use it.
+
 ## 2026-10-15 — Growth rate: a metric, a season goal, and a tile on Metrics
 
 Growth is now measured as the fleet's net worth grows per week, in percent. Net worth is credits, plus holds, plus the
