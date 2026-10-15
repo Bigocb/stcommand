@@ -205,10 +205,35 @@ export function subscribeConnection(cb) {
 
 /* ── loaders ──────────────────────────────────────────────── */
 
+/* The galaxy (systems, jump connections) is most of the snapshot and rarely changes, so the lean state carries only
+   its version and the galaxy is fetched again only when that version moves: a gate finishing, a new system, a
+   charted waypoint. The cache lives for the page; a reload starts it again. */
+let galaxyCache = { version: null, systems: [], jumpConnections: [] };
+
+async function galaxyFor(version) {
+  if (version === galaxyCache.version) return galaxyCache;
+  try {
+    const res = await fetch("/api/galaxy", { headers: galaxyCache.version ? { "If-None-Match": `"g-${galaxyCache.version}"` } : {} });
+    if (res.status === 304) return galaxyCache;
+    if (!res.ok) return galaxyCache;
+    const g = await res.json();
+    galaxyCache = { version: g.version ?? version, systems: g.systems ?? [], jumpConnections: g.jumpConnections ?? [] };
+  } catch (e) {
+    console.error(e);
+  }
+  return galaxyCache;
+}
+
 export async function loadState() {
   try {
-    const res = await fetch("/api/state");
+    const res = await fetch("/api/state?lean=1");
     const data = await res.json();
+    // A lean answer names the galaxy's version; put the galaxy back in so every screen sees the same state shape.
+    if (res.ok && data.galaxyVersion !== undefined && data.systems === undefined) {
+      const g = await galaxyFor(data.galaxyVersion);
+      data.systems = g.systems;
+      data.jumpConnections = g.jumpConnections;
+    }
     if (!res.ok) {
       // A hard failure (no snapshot to fall back to) must not clobber the
       // last good `state` with this response's `{error: ...}` body — the

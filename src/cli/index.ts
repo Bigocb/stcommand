@@ -10,6 +10,7 @@ import { createPool } from "../db/pool.js";
 import { runMigrations } from "../db/migrate.js";
 import { Store } from "../db/store.js";
 import { createGateRouter } from "../http/gate.js";
+import { gzipJson } from "../http/gzipJson.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
 import { createUiVersionRouter, cacheHeaders, assetStamp, serveHtml } from "../http/uiVersions.js";
@@ -120,6 +121,8 @@ async function main(): Promise<void> {
 
   const app = express();
   app.use(express.json());
+  // JSON responses are gzipped when the browser accepts it (src/http/gzipJson.ts).
+  app.use("/api", gzipJson());
 
   // Render's health check: mounted first, ahead of every other route, so it
   // answers even if something downstream (a tenant boot, the DB pool) is

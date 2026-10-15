@@ -18,6 +18,24 @@ warp had already loaded it into the atlas (to pick an arrival waypoint) and it t
 successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
 heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
 
+## 2026-10-15 — Screens: a lean state poll, the galaxy on its own version, and gzip
+
+Measured on the live server at 183 ships: `get_state` was 6.5 MB and took 12 s, and about 2.8 MB of it was the galaxy's
+system list. Every open Deck or Tower polled the full snapshot every 15 seconds, along with eight other endpoints, and
+nothing was compressed. The CPU was mostly idle (busy about 19%), so the screens were slow because of payload size, not
+computation.
+
+- **Lean state.** `GET /api/state?lean=1` leaves out `systems` and `jumpConnections` and sends `galaxyVersion` instead.
+  The shared loader (`public/shared/store.js`) fetches `GET /api/galaxy` only when that version changes, and puts the
+  galaxy back into the same `state` shape, so screens didn't change. Without `lean=1` the full snapshot is sent, so the
+  older UI versions keep working.
+- **The galaxy changes during the week, so it's versioned, not cached once.** `galaxyVersion`
+  (`src/engine/galaxyVersion.ts`) hashes what the screens draw: systems, waypoints and their traits, and each jump
+  connection with whether its gate is finished. A gate finishing, a newly discovered system or a charted waypoint all
+  change it. `GET /api/galaxy` sends the version as its ETag and answers 304 when the screen already has it.
+- **gzip.** JSON responses under `/api` are gzipped when the browser accepts it (`src/http/gzipJson.ts`, Node's own zlib,
+  no new dependency). Bodies under 1 KB are left alone. Compression runs asynchronously.
+
 ## 2026-10-15 — Systems tab: candidate systems to move a ship into (advisory)
 
 A new Systems tab in Deck lists the systems worth moving a ship into next, with the reasons for each. It's advisory:

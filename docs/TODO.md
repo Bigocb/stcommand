@@ -154,6 +154,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
     dashboard snapshot's two-minute full list through the same copies; drop the separate list.
   - Watch: the per-ship "last updated" ordering (an action response must always beat an older sweep), and that the
     sweep itself never queues behind deferrable work (routine tier, one in flight at a time).
+  - **2026-10-15 reading, 183 ships:** single-ship reads ran 119-153 per five minutes (about 28 a minute, close to a
+    third of the 90-a-minute budget). Every read that could use a sweep copy matched it (100%), but from 19:57 no read
+    could: at 183 ships a sweep is 10 pages at routine priority, and with the budget pegged it doesn't finish in time
+    (`ships` calls waited 11 s on average, 57 s at most). The copies are good; the sweep can't keep up. Before Phase 2,
+    either give the sweep a reserved share of the budget, or skip most single reads by trusting each ship's own last
+    action response (it already returns nav, cargo and fuel) and reading only when an expected change is due (arrival,
+    cooldown end) or a step fails.
 
 - [~] **Rebuild the admin area from scratch (raised 2026-10-04, operator;
   first pass SHIPPED 2026-10-04 as Deck's Admin tabs — see CHANGELOG; remaining:
@@ -485,6 +492,23 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   `explorerCreditFloor` pattern to API capacity. Explicitly recommended
   **not** to build yet — revisit only after the saturation plan lands or
   tenant count grows enough to matter.
+
+## Scaling the fleet past ~180 ships (raised 2026-10-15, operator)
+
+Measured 2026-10-15 at 183 ships: CPU busy about 19%, event-loop delay p99 11 ms, so computation isn't the limit. The
+game budget is (about 90 calls a minute, pegged), and so is the dashboard payload. Step 1 (lean state, galaxy on its own
+version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
+- [ ] **3. One combined poll with versions.** Replace the nine requests each screen makes every 15 s with one endpoint that
+  only resends slices that changed, cached briefly and shared by every open screen.
+- [ ] **4. Spend fewer API calls.** Keeper refresh by price volatility; serve ships from their last action response (see
+  "Batch ship reads" above); stop the full ship-list re-read on a timer.
+- [ ] **State backup.** Each state refresh writes the whole snapshot (galaxy included) to the database
+  (`saveStateSnapshot`). Write the lean snapshot instead, or less often.
+- [ ] **5. Split the web server from the engine** into two processes, joined by Postgres notifications.
+- [ ] **6. Push instead of poll:** small per-ship and per-market views, sent to screens over server-sent events.
+- [ ] **7. Precompute the reports** (per-minute and per-hour summary tables) instead of rescanning the ledger per request.
+- [ ] **8-10. A new engine alongside the old one:** a central planner that hands out the API budget by value, an event
+  log with views built from it, and a migration ship by ship through the existing ownership claims, shadow mode first.
 
 ## Experiments — running or recorded
 

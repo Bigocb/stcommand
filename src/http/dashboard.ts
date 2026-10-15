@@ -17,6 +17,7 @@ import { paceFromBuckets } from "../engine/pace.js";
 import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
 import { growthPerWeek, hullCapitalAt, type HullEvent } from "../engine/growth.js";
 import { paceRates } from "../ops/pace.js";
+import { galaxyVersion } from "../engine/galaxyVersion.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
@@ -219,7 +220,28 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     // must not take the whole state response down.
     const snapshot = w.state.get();
     const cargoValues = await w.fleet.cargoValues(new Map(snapshot.ships.map((sh) => [sh.symbol, sh.cargo]))).catch(() => ({}));
+    // ?lean=1 (the current screens): leave out the galaxy, which is most of the payload and rarely changes, and send
+    // its version instead. A screen fetches GET /galaxy only when the version moves (a gate finishes, a system is
+    // discovered, a waypoint is charted). Without it the full snapshot is sent, for the older UI versions.
+    if (req.query.lean === "1") {
+      const { systems: _systems, jumpConnections: _connections, ...rest } = snapshot;
+      res.json({ ...rest, galaxyVersion: galaxyVersion(snapshot), cargoValues, stale: false });
+      return;
+    }
     res.json({ ...snapshot, cargoValues, stale: false });
+  });
+
+  /** The galaxy part of the snapshot, with its version as the ETag, so a screen that already has it gets a 304. */
+  router.get("/galaxy", (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const snapshot = w.state.get();
+    const version = galaxyVersion(snapshot);
+    const etag = `"g-${version}"`;
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "no-cache");
+    if (req.headers["if-none-match"] === etag) return res.status(304).end();
+    res.json({ version, systems: snapshot.systems, jumpConnections: snapshot.jumpConnections });
   });
 
   /**
