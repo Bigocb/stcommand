@@ -18,6 +18,7 @@ import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from ".
 import { growthPerWeek, hullCapitalAt, type HullEvent } from "../engine/growth.js";
 import { paceRates } from "../ops/pace.js";
 import { galaxyVersion } from "../engine/galaxyVersion.js";
+import { liveRoute } from "./live.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
@@ -230,6 +231,9 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
     res.json({ ...snapshot, cargoValues, stale: false });
   });
+
+  // Live feed (server-sent events): see src/http/live.ts.
+  router.get("/live", liveRoute(worker));
 
   /** The galaxy part of the snapshot, with its version as the ETag, so a screen that already has it gets a 304. */
   router.get("/galaxy", (req, res) => {

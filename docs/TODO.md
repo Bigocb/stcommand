@@ -505,7 +505,9 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
 - [ ] **State backup.** Each state refresh writes the whole snapshot (galaxy included) to the database
   (`saveStateSnapshot`). Write the lean snapshot instead, or less often.
 - [ ] **5. Split the web server from the engine** into two processes, joined by Postgres notifications.
-- [ ] **6. Push instead of poll:** small per-ship and per-market views, sent to screens over server-sent events.
+- [~] **6. Push instead of poll.** First slice SHIPPED 2026-10-15: ships, credits and activity over `GET /api/live`
+  (see CHANGELOG). Next slices: approvals and dispatch, then markets and the rest; each leaves the 15 s poll once it's on
+  the stream. Replaces step 3 (the combined poll).
 - [ ] **7. Precompute the reports** (per-minute and per-hour summary tables) instead of rescanning the ledger per request.
 - [ ] **8-10. A new engine alongside the old one:** a central planner that hands out the API budget by value, an event
   log with views built from it, and a migration ship by ship through the existing ownership claims, shadow mode first.

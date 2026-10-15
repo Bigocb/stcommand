@@ -256,6 +256,42 @@ export async function loadState() {
   }
 }
 
+/* ── live feed (GET /api/live, public/shared/live.js) ─────────
+   The live feed pushes small changes between polls. These apply them to the same `state` and `activity` the polls
+   fill, so every screen keeps reading one shape. A ship the snapshot doesn't have yet (just bought) waits for the
+   next state poll, which brings its full object. */
+const LIVE_SHIP_FIELDS = ["nav", "fuel", "cargo", "cooldown"];
+
+export function applyShipRows(rows = [], removed = []) {
+  if (!state?.ships || (!rows.length && !removed.length)) return;
+  const bySymbol = new Map(rows.map((r) => [r.symbol, r]));
+  const gone = new Set(removed);
+  const ships = state.ships
+    .filter((sh) => !gone.has(sh.symbol))
+    .map((sh) => {
+      const r = bySymbol.get(sh.symbol);
+      if (!r) return sh;
+      const next = { ...sh };
+      for (const f of LIVE_SHIP_FIELDS) if (r[f] !== undefined) next[f] = r[f];
+      return next;
+    });
+  state = { ...state, ships };
+  notify("state");
+}
+
+export function applyCredits(credits) {
+  if (!state?.agent || typeof credits !== "number") return;
+  state = { ...state, agent: { ...state.agent, credits } };
+  notify("state");
+}
+
+/** A new activity entry, newest first like GET /api/activity, keeping the same 100. */
+export function pushActivity(entry) {
+  if (!entry) return;
+  activity = [entry, ...activity].slice(0, 100);
+  notify("activity");
+}
+
 export async function loadBridge() {
   try {
     const res = await fetch("/api/bridge");

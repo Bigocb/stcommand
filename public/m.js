@@ -20,6 +20,7 @@ import {
   loadProgramme, loadDoctrine, setDoctrine, loadActivity,
   loadGoods, loadPrices, loadKeepers, jumpConnections,
 } from "/shared/store.js";
+import { startLive, liveConnected } from "/shared/live.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { seasonCardHtml } from "/shared/season.js";
@@ -58,6 +59,7 @@ function showAuthGate(msg) {
 
 function hideAuthGate() {
   authed = true;
+  startLive();
   $("auth-gate").hidden = true;
   $("app-root").hidden = false;
 }
@@ -2090,12 +2092,19 @@ function boot() {
   loadProgramme(); // Home's unassigned count reads feed/mission claims (claimFor)
   renderStatusbar();
 }
+let pollCount = 0;
 function pollTick() {
   // loadActivity() unconditionally, same as state/bridge/approvals/
   // dispatch above it — Home's own Activity section (moved off the More
   // tab, see renderHomeActivity()'s comment) is on the one screen that's
   // always polling, not gated to a tab being open.
-  loadState(); loadBridge(); loadApprovals(); loadDispatch(); loadActivity(); loadAttention();
+  // While the live feed is connected it pushes ships, credits and activity, so the full state and the activity
+  // list are re-read once a minute (every 4th tick) as a safety net instead of every 15 s.
+  const fullRead = !liveConnected() || ++pollCount % 4 === 1;
+  if (fullRead) loadState();
+  loadBridge(); loadApprovals(); loadDispatch();
+  if (fullRead) loadActivity();
+  loadAttention();
   // Feed/mission claims drive the "unassigned" count on Home and every ship card's job, so they
   // refresh on every tick, not only while Fleet or More is open (a feed carrier read "unassigned"
   // until one of those tabs had been visited).

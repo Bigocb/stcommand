@@ -3,6 +3,8 @@ import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { Client, RateLimiter, SpaceTradersAPI, runWithApiPriority, taskToApiPriority, API_PRIORITY } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
+import { LiveFeed } from "./liveFeed.js";
+import { diffShips, shipRow, type ShipRow } from "./shipRows.js";
 import { ContractManager } from "./contract.js";
 import { FleetManager, type Ship } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
@@ -32,10 +34,16 @@ export interface TenantWorker {
    *  stopped worker (e.g. replaced after a server reset) doesn't keep polling
    *  with its dead token forever. Optional so test doubles need not provide it. */
   stopRefresh?: () => void;
+  /** Small change events pushed to open screens (src/engine/liveFeed.ts, GET /api/live). Optional for test doubles. */
+  live?: LiveFeed;
+  /** The snapshot a screen gets on connect: every ship's live row and the credits, as of `seq`. */
+  liveSnapshot?: () => { seq: number; ships: ShipRow[]; credits: number | null };
 }
 
 /** How often the dashboard snapshot is rebuilt (live agent + the engine's own ship objects). */
 const STATE_REFRESH_MS = 20_000;
+/** How often ship changes are pushed to connected screens (an in-memory comparison, no game calls). */
+const LIVE_SHIP_DIFF_MS = 2_000;
 /** How often the game API's own ship list and the contracts are re-read in full: the ships to catch any the
  *  fleet doesn't drive yet, the contracts because they change rarely. Both are background-priority reads. */
 const FULL_REFRESH_MS = 2 * 60_000;
@@ -348,10 +356,14 @@ export class TenantRegistry {
     api.setPriority?.(0);
     const store = new Store(this.pool);
     const state = new FleetState();
+    const live = new LiveFeed();
     // Optional-assigned: a test's injected fake API is a plain object, not a SpaceTradersAPI.
     if (api) {
       const hooks = api as { onCredits?: (c: number) => void; onCargo?: (s: string, c: Ship["cargo"]) => void };
-      hooks.onCredits = (c) => state.setCredits(c);
+      hooks.onCredits = (c) => {
+        state.setCredits(c);
+        if (live.subscriberCount) live.publish("credits", { credits: c });
+      };
       hooks.onCargo = (sym, cargo) => state.setShipCargo(sym, cargo);
     }
 
@@ -419,6 +431,7 @@ export class TenantRegistry {
       // sell/buy filter (discord.ts) was otherwise dead code, since ship
       // purchases post to Discord directly from fleet.ts and nothing else did.
       discord.postActivity(entry);
+      if (live.subscriberCount) live.publish("activity", entry);
     };
 
     // Contract deliveries and payouts happened in total silence until these
@@ -665,7 +678,34 @@ export class TenantRegistry {
     }, STATE_REFRESH_MS);
     refreshTimer.unref();
 
-    return { tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative, stopRefresh: () => clearInterval(refreshTimer) };
+    // Ship changes for the live feed: every two seconds, while a screen is connected, compare the engine's own
+    // in-memory ships (kept current by every action response) with the last rows sent. No game calls.
+    let lastRows = new Map<string, string>();
+    const liveTimer = setInterval(() => {
+      if (!live.subscriberCount) {
+        lastRows = new Map();
+        return;
+      }
+      try {
+        const { diff, next } = diffShips(lastRows, fleet.currentShips());
+        lastRows = next;
+        if (diff.changed.length || diff.removed.length) live.publish("ships", diff);
+      } catch (err) {
+        log(`live ship diff failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }, LIVE_SHIP_DIFF_MS);
+    liveTimer.unref?.();
+    // What a screen gets when it connects (or can't catch up): every ship's row and the credits, as of the latest event.
+    // It also seeds the diff when this is the first screen, so the next pass sends only what changed after it.
+    const liveSnapshot = () => {
+      const ships = fleet.currentShips();
+      if (lastRows.size === 0) lastRows = diffShips(new Map(), ships).next;
+      return { seq: live.lastSeq, ships: ships.map(shipRow), credits: state.get().agent?.credits ?? null };
+    };
+    return {
+      tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative, live, liveSnapshot,
+      stopRefresh: () => { clearInterval(refreshTimer); clearInterval(liveTimer); },
+    };
   }
 
   private async loadCachedMarkets(store: Store, systemSymbol: string): Promise<MarketSnapshot[]> {

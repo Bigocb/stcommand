@@ -18,6 +18,24 @@ warp had already loaded it into the atlas (to pick an arrival waypoint) and it t
 successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
 heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
 
+## 2026-10-15 — Live feed: ships, credits and activity pushed to the screens
+
+Screens pulled the whole state every 15 seconds. Now the server pushes small changes as they happen, over server-sent
+events (`GET /api/live`), and Deck and Tower apply them to the same shared store.
+
+- **What's pushed:** ship rows (position, fuel, cargo, cooldown) for the ships that changed, credits, and each new
+  activity entry. Ship changes come from comparing the engine's own in-memory ships every two seconds, only while a
+  screen is connected. No game API calls.
+- **Catch-up:** every event has a number and stays in a buffer of the last 1,000. A screen that reconnects (the browser
+  resends the last number on its own) gets only the events it missed; if they've left the buffer, it gets a fresh
+  snapshot. Tower on iPhone reopens the connection when it comes back from the background.
+- **Polling:** while the stream is connected, Deck and Tower re-read the full state and the activity list every fourth
+  tick (once a minute) as a safety net, instead of every 15 s. Everything else still polls as before. Older UI versions
+  are unchanged.
+- **Code:** `src/engine/liveFeed.ts` (hub and buffer), `src/engine/shipRows.ts` (row and diff),
+  `src/http/live.ts` (the endpoint), `public/shared/live.js` (the browser side), and new apply functions in
+  `public/shared/store.js`.
+
 ## 2026-10-15 — Screens: a lean state poll, the galaxy on its own version, and gzip
 
 Measured on the live server at 183 ships: `get_state` was 6.5 MB and took 12 s, and about 2.8 MB of it was the galaxy's

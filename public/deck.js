@@ -20,6 +20,7 @@ import {
   loadMarkets, loadGoods, loadPrices, loadMarketTransactions, loadGalaxy, loadProgramme,
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes, jumpConnections,
 } from "/shared/store.js";
+import { startLive, liveConnected } from "/shared/live.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { mountSeason } from "/shared/season.js";
@@ -51,6 +52,7 @@ function showAuthGate(msg) {
 
 function hideAuthGate() {
   authed = true;
+  startLive();
   $("auth-gate").hidden = true;
   $("app-root").hidden = false;
 }
@@ -2586,13 +2588,17 @@ function boot() {
   renderActivity();
 }
 
+let pollCount = 0;
 function pollTick() {
   if (!$("view-markets").hidden && mktSeg === "systems") loadKnownMarkets();
-  loadState();
+  // While the live feed is connected it pushes ships, credits and activity, so the full state and the activity
+  // list are re-read once a minute (every 4th tick) as a safety net instead of every 15 s.
+  const fullRead = !liveConnected() || ++pollCount % 4 === 1;
+  if (fullRead) loadState();
   loadBridge();
   loadApprovals();
   loadDispatch();
-  loadActivity();
+  if (fullRead) loadActivity();
   loadMarkets();
   loadGoods();
   loadKeepers();
