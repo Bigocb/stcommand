@@ -18,6 +18,17 @@ warp had already loaded it into the atlas (to pick an arrival waypoint) and it t
 successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
 heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
 
+## 2026-10-15 — A held lot below its floor looks for a market within the jump limit, not just one gate away
+
+THEOREM-D bought 80 DRUGS at X1-KQ90-C27B for 4,355 each (348,400) at 12:22, to sell at X1-HR84-H56. Another agent,
+SPECTER, then sold 890 DRUGS there in twelve hours (about 490 in one go at 20:15, walking the price from 4,390 to 1,734),
+and D held below its loss floor for nine hours. Deck showed the hold at about -173k. X1-CM13-H57 paid 4,701, above cost,
+but it is two gates from HR84 and the below-floor redirect only considered markets one gate away.
+
+- The below-floor redirect, and the unreachable-market redirect added earlier today, now consider any market reachable
+  within the positioning-jump limit (`positioningPath`), not only a directly connected system.
+- Live action: D was given a manual route to sell its DRUGS at X1-CM13-H57, cleared once the hold is empty.
+
 ## 2026-10-15 — No trade legs into a system whose gate is unbuilt; stuck cargo is redirected
 
 After X1-GX41 started being charted (earlier today, the warp-charting fix), the dispatcher gave THEOREM-65 (80 FIREARMS,

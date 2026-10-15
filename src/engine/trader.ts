@@ -977,7 +977,7 @@ export class TraderAgent {
     }
     const here = this.ship.nav.systemSymbol;
     const cost = (await this.costBasis(good)) ?? 0;
-    const input = { good, here: leg.sellAt, prices, tried, systemOf: (w: string) => this.systemOf(w), reachable: (sys: string) => this.systemsConnected(here, sys) };
+    const input = { good, here: leg.sellAt, prices, tried, systemOf: (w: string) => this.systemOf(w), reachable: (sys: string) => this.positioningPath(here, sys) !== undefined };
     const pick = (cost > 0 ? pickFloorRedirect({ ...input, cost, maxLossPct: this.maxLossPct }) : undefined)
       ?? pickFloorRedirect({ ...input, cost: 0, maxLossPct: 100 });
     if (!pick) {
@@ -1197,7 +1197,9 @@ export class TraderAgent {
     const here = this.ship.nav.systemSymbol;
     const pick = pickFloorRedirect({
       good, here: leg.sellAt, cost, maxLossPct: this.maxLossPct, prices, tried,
-      systemOf: (w) => this.systemOf(w), reachable: (sys) => this.systemsConnected(here, sys),
+      // Any market within the jump limit, not just one gate away: THEOREM-D held 80 DRUGS below its floor in X1-HR84 for
+      // nine hours on 2026-10-15 while X1-CM13-H57, two gates off, paid above cost.
+      systemOf: (w) => this.systemOf(w), reachable: (sys) => this.positioningPath(here, sys) !== undefined,
     });
     if (!pick) return false;
     const redirected = { ...leg, sellAt: pick.waypoint, sellPrice: pick.price };
