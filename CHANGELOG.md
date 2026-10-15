@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-15 — Tour ships with a trip under way get a faster tick
+
+A tour hop (a warp or a gate leg toward a dispatched system) waited behind the whole fleet for the shared API budget, so one hop could take about 15 minutes of queue time. While a tour has a destination or is in flight, its next tick now runs at trade priority instead of survey priority, and a ship in transit wakes at its arrival time instead of polling before it. The pure rules are in `src/engine/tourPriority.ts`. The `tourHopPriority` doctrine clause turns both on or off, and it's on by default. The cost is a few calls per hop, taken from trader and miner tasks only when the budget is full.
+
 ## 2026-10-15 — A manual or fleet-driven jump refreshes the ship's cached position
 
 The dashboard's fleet table reads each ship's cached snapshot, and a jump didn't update it. THEOREM-86 was jumped to X1-KK70-XB7D and held there, but the table kept showing X1-HR84-I60 while the ship's popup showed the right system. After any jump through `jumpShip()`, the fleet now re-reads that ship once and pushes it into its cache. A failed re-read is logged and the jump still counts as done.

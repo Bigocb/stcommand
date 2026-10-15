@@ -4,11 +4,12 @@ import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
 import { MIN_PREFERRED_SHARE } from "./survey.js";
-import type { Task, TaskResult } from "./scheduler.js";
+import type { Priority, Task, TaskResult } from "./scheduler.js";
 import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
+import { DEFAULT_TOUR_PRIORITY_POLICY, tourNextRunAt, tourTaskPriority, type TourPriorityPolicy, type TourTimingFacts } from "./tourPriority.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -115,6 +116,10 @@ export interface AgentOptions {
    * target selection until the ship actually arrives.
    */
   advanceTourDestination?: () => Promise<boolean>;
+  /** The fleet has a dispatched tour destination for this ship (a multi-hop trip is under way). */
+  hasTourDestination?: () => boolean;
+  /** Doctrine `tourHopPriority`: boost and fast-wake tour ships with a trip under way. Read at each schedule. */
+  tourHopPriority?: () => boolean;
   /** Markets whose snapshots are older than the freshness window — tour these first. */
   staleMarketTargets?: () => Promise<string[]>;
   /** Shipyard waypoints to tour periodically so ship stock stays fresh. */
@@ -281,6 +286,8 @@ export class ShipAgent {
   private readonly refreshSystemMarkets?: AgentOptions["refreshSystemMarkets"];
   private readonly marketTourTargets?: AgentOptions["marketTourTargets"];
   private readonly advanceTourDestination?: AgentOptions["advanceTourDestination"];
+  private readonly hasTourDestination?: AgentOptions["hasTourDestination"];
+  private readonly tourHopPriority?: AgentOptions["tourHopPriority"];
   private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
   private readonly exploreNext?: AgentOptions["exploreNext"];
   private readonly explorersParked?: AgentOptions["explorersParked"];
@@ -397,6 +404,8 @@ export class ShipAgent {
     this.refreshSystemMarkets = opts.refreshSystemMarkets;
     this.marketTourTargets = opts.marketTourTargets;
     this.advanceTourDestination = opts.advanceTourDestination;
+    this.hasTourDestination = opts.hasTourDestination;
+    this.tourHopPriority = opts.tourHopPriority;
     this.staleMarketTargets = opts.staleMarketTargets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
     this.exploreNext = opts.exploreNext;
@@ -2238,18 +2247,36 @@ export class ShipAgent {
     };
   }
 
+  /** Facts for tour scheduling: is a trip under way, and when does a ship in transit land. */
+  private tourTiming(): TourTimingFacts {
+    const ship = this.ship;
+    const inTransit = ship.nav.status === "IN_TRANSIT";
+    const arrival = inTransit ? ship.nav.route?.arrival : undefined;
+    return {
+      hasTourDestination: this.hasTourDestination?.() ?? false,
+      inTransit,
+      arrivalMs: arrival ? Date.parse(arrival) : undefined,
+    };
+  }
+
+  private tourPriorityPolicy(): TourPriorityPolicy {
+    return { ...DEFAULT_TOUR_PRIORITY_POLICY, enabled: this.tourHopPriority?.() ?? false };
+  }
+
   nextTourTask(earliestRunAt = Date.now()): Task {
     // See nextTask()'s comment: not set here, only by external enqueue sites.
+    // The base is 3, alongside surveying and keeping, not 4 with idle telemetry. A tour
+    // is what produces the price intel every trade route is scored from, so
+    // starving it under budget pressure starves trading one cycle later —
+    // and the tour fleet is the only thing that finds new markets at all,
+    // which is the whole point of exploring. Scouts stay at 4: charting an
+    // empty waypoint is genuinely lower value than refreshing a price.
+    // A tour with a trip under way is boosted (tourPriority.ts), so its hops are not stuck behind the fleet.
+    const timing = this.tourTiming();
     return {
       id: `${this.symbol}-tour`,
       shipSymbol: this.symbol,
-      // 3, alongside surveying and keeping, not 4 with idle telemetry. A tour
-      // is what produces the price intel every trade route is scored from, so
-      // starving it under budget pressure starves trading one cycle later —
-      // and the tour fleet is the only thing that finds new markets at all,
-      // which is the whole point of exploring. Scouts stay at 4: charting an
-      // empty waypoint is genuinely lower value than refreshing a price.
-      priority: 3,
+      priority: tourTaskPriority(timing, this.tourPriorityPolicy()).priority as Priority,
       estimatedCalls: 2,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
@@ -2262,7 +2289,7 @@ export class ShipAgent {
         this.inFlight = p;
         try {
           const made = await p;
-          return { actualCalls: this.api.getCallCount() - before, next: this.nextTourTask(Date.now() + (made ? 0 : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextTourTask(tourNextRunAt(Date.now(), made, this.tourTiming(), this.tourPriorityPolicy())) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextTourTask(err.resumeAt) };
