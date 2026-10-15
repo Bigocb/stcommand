@@ -3025,7 +3025,11 @@ export class FleetManager {
 
   /** Scan local shipyards and score available ships by utility per credit. */
   async scanLoadouts(): Promise<ShipScore[]> {
-    const agent = await this.api.getMyAgent();
+    // The cached balance (at most CREDITS_TTL_MS old) is enough to rank hulls; buyShip() reads live before it spends.
+    const agent = { credits: await this.cachedCredits() };
+    // getShipyard() lists stock only while one of our ships is at the yard, so a live read of any other yard returns
+    // no ships and is wasted. 2026-10-15 at 183 ships these reads were 4-6 calls a minute.
+    const occupied = new Set(this.currentShips().filter((s) => s.nav.status !== "IN_TRANSIT").map((s) => s.nav.waypointSymbol));
     const allYards = this.galaxy.listSystems().flatMap((sys) =>
       sys.waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")).map((w) => ({ ...w, systemSymbol: sys.symbol }))
     );
@@ -3075,6 +3079,7 @@ export class FleetManager {
       // everything after it in tick() (keeper purchase resolution included).
       // Try each unrecorded yard at most once per YARD_SCAN_RETRY_MS, and at
       // most MAX_LIVE_YARD_SCANS per pass.
+      if (!occupied.has(yard.symbol)) continue;
       const lastTried = this.yardScanAttempts.get(yard.symbol) ?? 0;
       if (Date.now() - lastTried < YARD_SCAN_RETRY_MS || liveScans >= MAX_LIVE_YARD_SCANS) continue;
       this.yardScanAttempts.set(yard.symbol, Date.now());
@@ -7961,11 +7966,16 @@ export class FleetManager {
   private static readonly SHIPYARD_CACHE_MS = 5 * 60_000;
   /** When each yard was last snapshotted on a dock — see recordShipyardSnapshot(). */
   private readonly shipyardSnapshotAt = new Map<string, number>();
-  private static readonly SHIPYARD_SNAPSHOT_MS = 5 * 60_000;
+  /** 30 minutes: hull stock and prices change slowly, and buyShip() reads the yard live before buying. At 5 minutes the
+   *  keepers parked at yards spent 4-8 calls a minute on it (2026-10-15). */
+  private static readonly SHIPYARD_SNAPSHOT_MS = 30 * 60_000;
   /** Phase 1 of the batched ship reads: compares a periodic GET /my/ships sweep against the single-ship reads the
    *  fleet makes anyway, and logs how often the sweep copy would have been right. Changes no decision. */
   readonly shipSnapshots = new ShipSnapshotBoard();
-  private static readonly SWEEP_INTERVAL_MS = 30_000;
+  /** Off unless SHIP_SWEEP_MS is set. Phase 1 measured what it set out to: every copy the sweep could have served matched
+   *  (100%), but at 183 ships a sweep is 10 calls (12 a minute at 30 s) and could have replaced only 6-26 of ~80 single
+   *  reads per five minutes, so it cost more calls than Phase 2 would save. */
+  private static readonly SWEEP_INTERVAL_MS = Number(process.env.SHIP_SWEEP_MS ?? 0);
   private static readonly SWEEP_SUMMARY_MS = 5 * 60_000;
   private lastSweepSummaryAt = Date.now();
   /** How urgent each loop's own API calls are — see API_PRIORITY. */
@@ -9311,7 +9321,7 @@ export class FleetManager {
     const rest = [
       this.runLoop("feeds", FleetManager.FEEDS_INTERVAL_MS, () => this.tickFeeds()),
       this.runLoop("maintenance", FleetManager.MAINTENANCE_INTERVAL_MS, () => this.tickMaintenance()),
-      this.runLoop("sweep", FleetManager.SWEEP_INTERVAL_MS, () => this.sweepShips()),
+      ...(FleetManager.SWEEP_INTERVAL_MS > 0 ? [this.runLoop("sweep", FleetManager.SWEEP_INTERVAL_MS, () => this.sweepShips())] : []),
     ];
     await Promise.allSettled([core, ...rest]);
     this.running = false;

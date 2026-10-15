@@ -115,9 +115,9 @@ describe("GalaxyAtlas: gate-construction cache", () => {
 
     assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), false);
     complete = true;
-    // Past the recheck interval (an unfinished gate is trusted for a few minutes, see the next test).
+    // Past the recheck interval (an unfinished gate is trusted for 20 minutes, see the next test).
     const realNow = Date.now;
-    Date.now = () => realNow() + 6 * 60_000;
+    Date.now = () => realNow() + 21 * 60_000;
     try {
       assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), true);
     } finally {

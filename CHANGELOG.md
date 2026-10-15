@@ -9,6 +9,23 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-15 — About a quarter of the API budget handed back to the ships
+
+At 183 ships the 90-calls-a-minute budget was pegged. The limiter's own five-minute breakdown showed four spenders that
+bought little:
+
+- **The ship-list sweep** (12 a minute). It only measured whether one `GET /my/ships` sweep could stand in for the
+  single-ship reads. It could (every copy that applied matched), but at 183 ships a sweep is 10 calls and would have
+  replaced only 6-26 of about 80 reads per five minutes. It is now off; `SHIP_SWEEP_MS` turns it back on.
+- **Shipyard snapshots on dock** (4-8 a minute). Keepers parked at yards re-read them every 5 minutes; now every 30.
+  `buyShip()` still reads the yard live before it buys.
+- **The buy pass's live yard scans** (4-6 a minute). A yard lists its stock only while one of our ships is there, so
+  scanning any other yard returned nothing. It now scans only yards where a ship of ours sits, and ranks on the cached
+  credit balance instead of a fresh `GET /my/agent`.
+- **Unfinished gate rechecks** (5-6 a minute). An unfinished gate is re-read every 20 minutes instead of every 5.
+
+Expected total: 25-30 calls a minute moved from overhead to ship turns. The limiter's `top callers` log line shows it.
+
 ## 2026-10-15 — Live feed: attention, programme and keepers pushed too
 
 The last of the 15-second polls moved to the live feed (`GET /api/live`), built from shared views in

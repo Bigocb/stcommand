@@ -34,8 +34,9 @@ export interface GalaxyStore {
   getAllGalaxyGateConstruction?(): Promise<{ gateSymbol: string; isComplete: boolean }[]>;
 }
 
-/** How long an unfinished jump gate's construction status is trusted before it is read again. */
-const GATE_RECHECK_MS = 5 * 60_000;
+/** How long an unfinished jump gate's construction status is trusted before it is read again. An unfinished gate changes only when someone supplies it. At 5 minutes the rechecks cost 5-6 calls a minute
+ *  (2026-10-15); 20 minutes keeps a gate someone else finishes from staying unknown for long. */
+const GATE_RECHECK_MS = 20 * 60_000;
 
 /** Multi-system atlas: caches waypoints, jump gates, and foreign markets. */
 export class GalaxyAtlas {

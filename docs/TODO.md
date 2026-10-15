@@ -500,8 +500,11 @@ game budget is (about 90 calls a minute, pegged), and so is the dashboard payloa
 version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
 - [ ] **3. One combined poll with versions.** Replace the nine requests each screen makes every 15 s with one endpoint that
   only resends slices that changed, cached briefly and shared by every open screen.
-- [ ] **4. Spend fewer API calls.** Keeper refresh by price volatility; serve ships from their last action response (see
-  "Batch ship reads" above); stop the full ship-list re-read on a timer.
+- [~] **4. Spend fewer API calls.** First pass SHIPPED 2026-10-15 (see CHANGELOG): sweep off, shipyard snapshots every
+  30 min, buy-pass yard scans only where a ship is, unfinished gates rechecked every 20 min. Keeper markets already
+  poll by volatility (`keeperCadence.ts`). Next, once the limiter log shows what is left: serve ships from their last
+  action response instead of `GET /my/ships/:id` (~15 a minute; the sweep measured 100% agreement on the copies it
+  could check), and market snapshots (~15 a minute).
 - [ ] **State backup.** Each state refresh writes the whole snapshot (galaxy included) to the database
   (`saveStateSnapshot`). Write the lean snapshot instead, or less often.
 - [ ] **5. Split the web server from the engine** into two processes, joined by Postgres notifications.

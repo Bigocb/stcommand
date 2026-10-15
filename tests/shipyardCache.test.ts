@@ -51,11 +51,13 @@ describe("shipyard reads for purchase checks", () => {
 });
 
 describe("shipyard snapshots on dock", () => {
-  it("snapshots a yard once per five minutes however many ships dock there", async () => {
+  it("snapshots a yard once per thirty minutes however many ships dock there", async () => {
     const { fleet, calls } = fleetCountingYardReads();
     for (let i = 0; i < 5; i += 1) await fleet.recordShipyardSnapshot("X1-A-Y1");
     assert.equal(calls.getShipyard, 1);
-    await later(6 * 60_000, () => fleet.recordShipyardSnapshot("X1-A-Y1"));
+    await later(10 * 60_000, () => fleet.recordShipyardSnapshot("X1-A-Y1"));
+    assert.equal(calls.getShipyard, 1);
+    await later(31 * 60_000, () => fleet.recordShipyardSnapshot("X1-A-Y1"));
     assert.equal(calls.getShipyard, 2);
   });
 
@@ -64,5 +66,29 @@ describe("shipyard snapshots on dock", () => {
     await fleet.recordShipyardSnapshot("X1-A-Y1");
     await (fleet as any).cachedShipyard("X1-A", "X1-A-Y1");
     assert.equal(calls.getShipyard, 1);
+  });
+});
+
+describe("buy-pass yard scans", () => {
+  function fleetWithYards(shipsAt: string[]) {
+    const { fleet, calls } = fleetCountingYardReads();
+    const f = fleet as any;
+    const yard = (symbol: string) => ({ symbol, type: "PLANET", x: 0, y: 0, traits: [{ symbol: "SHIPYARD" }] });
+    f.galaxy = { listSystems: () => [{ symbol: "X1-A", waypoints: [yard("X1-A-Y1"), yard("X1-A-Y2"), yard("X1-A-Y3")] }] };
+    f.cachedCredits = async () => 1_000_000;
+    f.currentShips = () => shipsAt.map((wp, i) => ({ symbol: `S-${i}`, nav: { status: "DOCKED", waypointSymbol: wp } }));
+    return { fleet, calls };
+  }
+
+  it("reads an unrecorded yard live only where one of our ships is, since other yards list no stock", async () => {
+    const { fleet, calls } = fleetWithYards(["X1-A-Y2"]);
+    await fleet.scanLoadouts();
+    assert.equal(calls.getShipyard, 1);
+  });
+
+  it("reads none when no ship is at a yard", async () => {
+    const { fleet, calls } = fleetWithYards([]);
+    await fleet.scanLoadouts();
+    assert.equal(calls.getShipyard, 0);
   });
 });
