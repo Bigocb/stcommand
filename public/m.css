@@ -752,3 +752,18 @@ select:focus, .price-picker select:focus, select.role-select:focus { outline: 1p
 /* The feeder-tier form has four controls and a button: let them wrap instead of running off the screen edge. */
 .mission-start-row { flex-wrap: wrap; align-items: center; }
 .mission-start-row select { flex: 1 1 110px; }
+
+/* Season card (public/shared/season.js seasonCardHtml) */
+.ss-tower { display: flex; flex-direction: column; gap: 6px; }
+.ss-tower .ss-card-h { font-size: 12.5px; }
+.ss-tower .ss-card-m { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.ss-tower .ss-card-l { list-style: none; margin: 0; padding: 0; }
+.ss-tower .ss-card-l li { padding: 4px 0; font-size: 12px; line-height: 1.4; }
+.ss-tower .ss-lbl { font-family: var(--chrome); font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim2, var(--dim)); margin-top: 4px; }
+.ss-tower .ss-dim { color: var(--dim); font-size: 10.5px; }
+.ss-tower .ss-phase { color: var(--amber); }
+.ss-st { font-family: var(--chrome); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 9px; border: 1px solid rgba(255,255,255,.12); color: var(--dim); }
+.ss-st-met { color: var(--green); border-color: rgba(88,214,141,.35); }
+.ss-st-missed { color: var(--red); border-color: rgba(255,97,82,.35); }
+.ss-st-pending { color: var(--amber); border-color: rgba(255,176,32,.35); }
+.ss-st-dropped { text-decoration: line-through; }

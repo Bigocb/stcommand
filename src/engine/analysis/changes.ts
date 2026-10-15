@@ -33,7 +33,8 @@ export function windowMetrics(trips: readonly Trip[], ledger: readonly AnalysisL
   const hours = Math.max(1e-6, (toMs - fromMs) / 3_600_000);
   return {
     fromMs, toMs, trips: closed.length, profit: Math.round(profit), profitPerHour: Math.round(profit / hours),
-    overheadShare: sales > 0 ? round2(overhead / sales) : null,
+    // Four places: overhead is usually a few percent, and two places would round it to whole percents.
+    overheadShare: sales > 0 ? Math.round((overhead / sales) * 10_000) / 10_000 : null,
   };
 }
 

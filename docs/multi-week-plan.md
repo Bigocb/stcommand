@@ -1,8 +1,10 @@
 # Multi-week fleet plan (sketch)
 
-Status: draft, not built. Written 2026-10-15 as a starting point for a plan that spans several weeks, so the fleet can
-build toward something instead of racing for cash each reset. Each section says what the code does today, so the gaps
-are visible. Updated 2026-10-15 with phases, the rollback rule, goals and the season record.
+Status: the season plan itself (phases, goals, week records, the rollback rule) is built: tables `seasons` and
+`season_weeks` (migrations/054), rules in `src/engine/season.ts`, API under `/api/season`, and the Season screen in Deck
+(This week, Insights, Weeks, Plan) with a read-only card on Tower's More screen. Not built yet: the reinvestment rule,
+reset-aware doctrine targets, and the season plan driving the engine. Written 2026-10-15; updated the same day with
+phases, the rollback rule, goals and the season record.
 
 ## Why this is hard
 

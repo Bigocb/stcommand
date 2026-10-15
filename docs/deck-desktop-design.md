@@ -516,3 +516,16 @@ front page's pace figure (realized profit less fuel and jumps); ship purchases a
 "Pace to reset" panel is a straight line at the window's rate against an editable target (default last week's final,
 25,738,654; kept in `localStorage`), using the server's next reset time. Refreshes every 60 s while open. Classes: `.mx-*`
 in `deck.css`.
+
+## §15 Season screen (2026-10-15)
+
+A rail item ("Season", after Metrics) opens `#view-season`, rendered by `public/shared/season.js`
+(`mountSeason(root, { api })`). Tabs, never stacked: **This week** (phase, goals with live status, the week's numbers,
+top suggestions; `GET /api/season`), **Insights** (the analysis report for 6/24/72 h: findings with evidence and
+sample size, best and losing routes, our price impact and recovery, who moved prices, settings changes before/after,
+calibration; `GET /api/ops/analysis`), **Weeks** (every season week and the saved reports, open one inline, save one
+now; `GET /api/ops/findings_history`, `POST /api/analysis/capture`), **Plan** (phase, goals, notes; close the week; end
+the season; `PUT /api/season/week`, `POST /api/season/week/close`, `POST /api/season/end`). Suggestions show the tool
+and arguments that would apply them; nothing applies them. Classes `.ss-*` in `deck.css`, on top of the `.mx` metrics
+styles. The plan model is `src/engine/season.ts`; the analysis is `docs/analysis-engine.md`.
+

@@ -91,6 +91,9 @@ export function clusterTrades(rows: readonly AnalysisLedgerRow[], snapshots: rea
   return clusters;
 }
 
+/** A fraction to four places (a tenth of a percent), so a median of two values doesn't print float noise. */
+const roundShare = (x: number | null): number | null => (x === null ? null : Math.round(x * 10_000) / 10_000);
+
 export interface MarketImpactStat {
   key: string;
   waypoint: string;
@@ -118,7 +121,7 @@ export function summarizeImpact(clusters: readonly TradeCluster[]): MarketImpact
     const recovered = list.filter((c) => !c.censored && c.recoveryMinutes !== null).map((c) => c.recoveryMinutes!);
     out.push({
       key, waypoint: list[0]!.waypoint, good: list[0]!.good, side: list[0]!.side,
-      clusters: list.length, measured: impacts.length, medianImpactPerLot: median(impacts),
+      clusters: list.length, measured: impacts.length, medianImpactPerLot: roundShare(median(impacts)),
       recoverySeen: recovered.length, medianRecoveryMinutes: median(recovered),
       notRecovered: list.filter((c) => c.censored).length,
       units: list.reduce((s, c) => s + c.units, 0),

@@ -161,7 +161,7 @@ describe("settings changes", () => {
 
   it("measures overhead as refuel and jump spend over sales", () => {
     const m = windowMetrics([], oneTrip("S-1", 10), T0, T0 + 60 * 60_000);
-    assert.equal(m.overheadShare, 0.88); // 5300 / 6000
+    assert.equal(m.overheadShare, 0.8833); // 5300 / 6000, to four places
   });
 });
 

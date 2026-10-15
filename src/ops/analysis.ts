@@ -27,3 +27,22 @@ export async function runAnalysis(w: TenantWorker, sinceHours: number, nowMs: nu
   const ourShips = new Set<string>([...w.fleet.fleetStatusSummary().map((s) => s.symbol), ...ledger.map((r) => r.shipSymbol)]);
   return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips });
 }
+
+/**
+ * The same report, reused for up to `ttlMs` per tenant and window. The Season screen and the Tower card read it on
+ * every open; one build reads the ledger, snapshots and market trades, so a burst of page loads shouldn't repeat it.
+ */
+const cache = new Map<string, { at: number; report: AnalysisReport }>();
+
+export async function runAnalysisCached(w: TenantWorker, sinceHours: number, nowMs: number, ttlMs = 60_000): Promise<AnalysisReport> {
+  const hours = Math.round(sinceHours * 4) / 4; // quarter hours, so a window that grows by seconds still hits the cache
+  const key = `${w.tenantId}|${hours}`;
+  const hit = cache.get(key);
+  if (hit && nowMs - hit.at < ttlMs) return hit.report;
+  const report = await runAnalysis(w, hours, nowMs);
+  cache.set(key, { at: nowMs, report });
+  if (cache.size > 200) {
+    for (const [k, v] of cache) if (nowMs - v.at >= ttlMs) cache.delete(k);
+  }
+  return report;
+}

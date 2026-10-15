@@ -104,6 +104,30 @@ export interface AnalysisSnapshotRow {
   activity: string | null;
 }
 
+/** A season of the multi-week plan (migrations/054). */
+export interface SeasonRow {
+  id: number;
+  name: string;
+  startedAt: string;
+  endedAt: string | null;
+  notes: string | null;
+}
+
+/** One week of a season. `goals` and `record` are the shapes in src/engine/season.ts. */
+export interface SeasonWeekRow {
+  id: number;
+  seasonId: number;
+  weekNo: number;
+  universeKey: string | null;
+  phase: string;
+  goals: unknown[];
+  notes: string | null;
+  openedAt: string;
+  closedAt: string | null;
+  record: unknown | null;
+  findingsId: number | null;
+}
+
 export interface LedgerEntry {
   timestamp: string;
   shipSymbol: string;
@@ -715,6 +739,91 @@ export class Store {
         windowStart: new Date(x.window_start).toISOString(), windowEnd: new Date(x.window_end).toISOString(), label: x.label,
         ...(f.withReport ? { report: x.report } : {}),
       }));
+    });
+  }
+
+  // ── Season plan (migrations/054, src/engine/season.ts) ──
+
+  private static mapSeason(x: any): SeasonRow {
+    return { id: Number(x.id), name: x.name, startedAt: new Date(x.started_at).toISOString(), endedAt: x.ended_at ? new Date(x.ended_at).toISOString() : null, notes: x.notes ?? null };
+  }
+
+  private static mapSeasonWeek(x: any): SeasonWeekRow {
+    return {
+      id: Number(x.id), seasonId: Number(x.season_id), weekNo: Number(x.week_no), universeKey: x.universe_key ?? null, phase: x.phase,
+      goals: Array.isArray(x.goals) ? x.goals : [], notes: x.notes ?? null, openedAt: new Date(x.opened_at).toISOString(),
+      closedAt: x.closed_at ? new Date(x.closed_at).toISOString() : null, record: x.record ?? null,
+      findingsId: x.findings_id === null || x.findings_id === undefined ? null : Number(x.findings_id),
+    };
+  }
+
+  /** The tenant's active season (not ended), if any. */
+  async activeSeason(tenantId: string): Promise<SeasonRow | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(`SELECT * FROM seasons WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1`);
+      return r.rows[0] ? Store.mapSeason(r.rows[0]) : undefined;
+    });
+  }
+
+  /** Start a season: ends any active one first. */
+  async startSeason(tenantId: string, name: string, notes?: string): Promise<SeasonRow> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      await c.query(`UPDATE seasons SET ended_at = now() WHERE ended_at IS NULL`);
+      const r = await c.query(`INSERT INTO seasons (tenant_id, name, notes) VALUES ($1, $2, $3) RETURNING *`, [tenantId, name, notes ?? null]);
+      return Store.mapSeason(r.rows[0]);
+    });
+  }
+
+  /** End the active season. */
+  async endSeason(tenantId: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) => c.query(`UPDATE seasons SET ended_at = now() WHERE ended_at IS NULL`));
+  }
+
+  /** Every week of a season, oldest first. */
+  async seasonWeeks(tenantId: string, seasonId: number): Promise<SeasonWeekRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(`SELECT * FROM season_weeks WHERE season_id = $1 ORDER BY week_no ASC`, [seasonId]);
+      return r.rows.map(Store.mapSeasonWeek);
+    });
+  }
+
+  /** Open a week. The universe key is the tenant's current one. */
+  async openSeasonWeek(tenantId: string, w: { seasonId: number; weekNo: number; phase: string; goals: unknown[] }): Promise<SeasonWeekRow> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `INSERT INTO season_weeks (tenant_id, season_id, week_no, universe_key, phase, goals) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (tenant_id, season_id, week_no) DO UPDATE SET week_no = excluded.week_no RETURNING *`,
+        [tenantId, w.seasonId, w.weekNo, tenantUniverse(tenantId) ?? null, w.phase, JSON.stringify(w.goals)],
+      );
+      return Store.mapSeasonWeek(r.rows[0]);
+    });
+  }
+
+  /** Change an open week's phase, goals or notes. */
+  async updateSeasonWeek(tenantId: string, weekId: number, patch: { phase?: string; goals?: unknown[]; notes?: string | null }): Promise<SeasonWeekRow | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const sets: string[] = [];
+      const args: unknown[] = [weekId];
+      if (patch.phase !== undefined) { args.push(patch.phase); sets.push(`phase = $${args.length}`); }
+      if (patch.goals !== undefined) { args.push(JSON.stringify(patch.goals)); sets.push(`goals = $${args.length}`); }
+      if (patch.notes !== undefined) { args.push(patch.notes); sets.push(`notes = $${args.length}`); }
+      if (!sets.length) {
+        const r = await c.query(`SELECT * FROM season_weeks WHERE id = $1`, [weekId]);
+        return r.rows[0] ? Store.mapSeasonWeek(r.rows[0]) : undefined;
+      }
+      const r = await c.query(`UPDATE season_weeks SET ${sets.join(", ")} WHERE id = $1 AND closed_at IS NULL RETURNING *`, args);
+      return r.rows[0] ? Store.mapSeasonWeek(r.rows[0]) : undefined;
+    });
+  }
+
+  /** Close a week with its record and the analysis report saved for it. */
+  async closeSeasonWeek(tenantId: string, weekId: number, f: { goals: unknown[]; record: unknown; findingsId: number | null }): Promise<SeasonWeekRow | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `UPDATE season_weeks SET closed_at = now(), goals = $2, record = $3, findings_id = $4 WHERE id = $1 AND closed_at IS NULL RETURNING *`,
+        [weekId, JSON.stringify(f.goals), JSON.stringify(f.record), f.findingsId],
+      );
+      return r.rows[0] ? Store.mapSeasonWeek(r.rows[0]) : undefined;
     });
   }
 

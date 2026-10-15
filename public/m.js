@@ -22,6 +22,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
+import { seasonCardHtml } from "/shared/season.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
@@ -1837,7 +1838,25 @@ $("bulk-go").addEventListener("click", async () => {
 });
 subscribe("bridge", () => { if (moreTabActive()) renderBulkScrap(); });
 
+/**
+ * Season card (public/shared/season.js): the week's phase, goals and top suggestions, read-only. The plan is edited on
+ * Deck's Season screen. Fetched at most every two minutes: it runs the analysis engine on the server.
+ */
+let seasonCardAt = 0;
+async function renderMoreSeason() {
+  const el = $("more-season");
+  if (!el || Date.now() - seasonCardAt < 120_000) return;
+  seasonCardAt = Date.now();
+  try {
+    el.innerHTML = await seasonCardHtml(api);
+  } catch (err) {
+    el.innerHTML = `<div class="empty">${escapeHtml(err.message || String(err))}</div>`;
+    seasonCardAt = 0;
+  }
+}
+
 function renderMore() {
+  renderMoreSeason();
   renderBulkScrap();
   renderMoreKeepers();
   renderMoreContracts();

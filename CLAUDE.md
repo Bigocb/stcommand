@@ -121,7 +121,7 @@ every tenant:
   `operator_actions` and `tenants.play_profile` (play-style tracking —
   a role change or manual buy from a dead universe is still a real
   historical data point for comparing play styles across resets),
-  `ship_movements`, `action_events` and `analysis_findings` (keyed by
+  `ship_movements`, `action_events`, `analysis_findings`, `seasons` and `season_weeks` (keyed by
   `universe_key`, like the ledger: the analysis engine compares weeks, see
   "The analysis engine" below).
 
@@ -356,6 +356,8 @@ Design and data model: `docs/analysis-engine.md`. Read it before adding a tracke
   before/after on settings changes, calibration), assembled by `report.ts`. `src/ops/analysis.ts` fetches the rows.
   Read it with ops `analysis` (`stcommand_ops_analysis`); save a week's report with `stcommand_capture_findings` so its
   lessons survive the reset (`stcommand_ops_findings_history` reads them back).
+- **UI:** Deck's Season screen (`public/shared/season.js`, docs/deck-desktop-design.md §15) shows the season plan
+  (`src/engine/season.ts`, `/api/season`, migrations/054) next to the reports; Tower has a read-only Season card.
 - **Advisory only.** Findings carry suggestions with the exact tool and arguments, but nothing is applied. A
   before/after comparison is a correlation; it says so with its sample sizes. Using calibration in route ranking comes
   later, behind a doctrine clause that ships off, once the factors prove stable.

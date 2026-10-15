@@ -108,7 +108,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
     },
     findings: findings.slice(0, 40),
     suggestions: rankSuggestions(findings).slice(0, 15),
-    routes: { best: routes.slice(0, LIMIT), worst: [...routes].sort((a, b) => a.netProfit - b.netProfit).slice(0, LIMIT).filter((r) => r.netProfit < 0) },
+    routes: { best: routes.filter((r) => r.netProfit > 0).slice(0, LIMIT), worst: [...routes].sort((a, b) => a.netProfit - b.netProfit).slice(0, LIMIT).filter((r) => r.netProfit < 0) },
     markets: impact.filter((m) => m.measured > 0 || m.notRecovered > 0).slice(0, 20),
     priceMoves: moveStats.slice(0, 20),
     changes: changes.slice(-20),

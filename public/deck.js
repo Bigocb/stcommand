@@ -22,6 +22,7 @@ import {
 } from "/shared/store.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
+import { mountSeason } from "/shared/season.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
@@ -71,6 +72,7 @@ $("auth-form").addEventListener("submit", async (e) => {
  * Overview, Fleet, and Markets screens; others show inert placeholders.
  */
 let metricsScreen = null;
+let seasonScreen = null;
 let miningScreen = null;
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
@@ -78,6 +80,7 @@ function setView(name) {
   const viewEl = $(`view-${name}`);
   if (viewEl) viewEl.hidden = false;
   if (name !== "metrics") metricsScreen?.hide();
+  if (name !== "season") seasonScreen?.hide();
   if (name !== "mining") miningScreen?.hide();
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
@@ -110,6 +113,10 @@ function setView(name) {
       netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined),
     });
     metricsScreen.show();
+  }
+  if (name === "season") {
+    seasonScreen ??= mountSeason($("season-root"), { api });
+    seasonScreen.show();
   }
   if (name === "mining") {
     miningScreen ??= mountMiningFields($("mining-root"), { api });

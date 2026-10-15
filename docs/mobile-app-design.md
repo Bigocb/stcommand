@@ -348,3 +348,11 @@ Operator-only **Admin** tab (6th tab-bar button, hidden unless the session says 
 Deck mounts; see `docs/deck-desktop-design.md` §14), styled by the `.mx-*` block at the end of `m.css`: two-column KPI
 tiles, charts at full width, tables that scroll sideways. The radar code (`renderScope`, pan/zoom, the waypoint sheet) was
 deleted from `m.js`/`m.html`; its CSS is still in `m.css` and can go. Buying a ship still works from Markets > Yards.
+
+## Season card (2026-10-15)
+
+More → Work opens with a read-only Season card (`seasonCardHtml()` in `public/shared/season.js`, styles `.ss-tower` /
+`.ss-st` in `m.css`): season, week and phase, the week's profit per hour, overhead and trips, each goal with its status,
+and the top three suggestions. Fetched at most every two minutes, because it runs the analysis on the server. The plan
+is edited on Deck's Season screen.
+

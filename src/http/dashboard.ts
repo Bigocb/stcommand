@@ -1,5 +1,6 @@
 import { Router, type Request as ExpressRequest } from "express";
 import { createOpsRouter } from "./ops.js";
+import { createAnalysisRouter, createSeasonRouter } from "./season.js";
 import { rateLimitMonitor, INSTANCE_ID } from "../core/rateLimitMonitor.js";
 import type pg from "pg";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
@@ -192,6 +193,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   });
 
   router.use("/ops", createOpsRouter(worker));
+  router.use("/season", createSeasonRouter(worker));
+  router.use("/analysis", createAnalysisRouter(worker));
 
   router.get("/state", async (req, res) => {
     const w = worker(req);
