@@ -6,7 +6,7 @@
  */
 import type { ActionEventRow, AnalysisLedgerRow, AnalysisSnapshotRow } from "../../db/store.js";
 import { calibrate, type Calibration } from "./calibration.js";
-import { growthPerDay, type HullEvent, type WealthPoint } from "../growth.js";
+import { growthPerWeek, type HullEvent, type WealthPoint } from "../growth.js";
 import { changeFindings, changeImpacts, windowMetrics, type ChangeImpact } from "./changes.js";
 import { clusterTrades, impactFindings, latestTradeVolumes, summarizeImpact, type MarketImpactStat } from "./marketImpact.js";
 import { attributePriceMoves, moveFindings, summarizeMoves, type MarketTrade, type MoveStats } from "./priceMoves.js";
@@ -54,7 +54,7 @@ export interface AnalysisReport {
     configChanges: number;
     priceMovesAttributed: number;
     /** Growth of cash plus holds plus hull capital, percent a day (null without enough wealth samples). */
-    growthPerDay: number | null;
+    growthPerWeek: number | null;
   };
   /** The same measures for local-only ships and for cross-system ships, so their profit per hour can be compared. */
   byReach: { local: ReachSummary; cross: ReachSummary };
@@ -125,7 +125,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
       tripsWithEstimate: withEstimate,
       configChanges: changes.length,
       priceMovesAttributed: moves.length,
-      growthPerDay: growthPerDay(input.wealth ?? [], input.hullEvents ?? [], input.fromMs, input.nowMs)?.perDayPct ?? null,
+      growthPerWeek: growthPerWeek(input.wealth ?? [], input.hullEvents ?? [], input.fromMs, input.nowMs)?.perWeekPct ?? null,
     },
     byReach,
     findings: findings.slice(0, 40),

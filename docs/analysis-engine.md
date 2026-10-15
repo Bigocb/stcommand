@@ -115,8 +115,8 @@ Order, each step gated on the previous one showing it is calibrated:
 
 ## Growth
 
-`growthPerDay` (src/engine/growth.ts) is the one growth figure: net worth, meaning credits plus holds (wealth_samples)
-plus hull capital (ship purchases less scrap proceeds from the ledger's SHIP rows), growing in percent a day between the
+`growthPerWeek` (src/engine/growth.ts) is the one growth figure: net worth, meaning credits plus holds (wealth_samples)
+plus hull capital (ship purchases less scrap proceeds from the ledger's SHIP rows), growing in percent a week between the
 first and last sample in the window. Hull capital keeps buying a ship from showing as a loss. Holds move with the market,
-so a window with few samples or a sudden cargo swing can read high or low; the rate needs at least half an hour of samples.
+so a window with few samples or a sudden cargo swing can read high or low; the rate needs at least six hours of samples. A short span scaled up exaggerates every swing, so the figure is weekly.
 

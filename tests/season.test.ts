@@ -73,7 +73,7 @@ describe("goals", () => {
   });
 
   it("reads the measures from an analysis report", () => {
-    const m = metricsFromReport({ summary: { profitPerHour: 10, netProfit: 20, overheadShare: 0.1, positioningCosts: 5, trips: 3, growthPerDay: 2.5 }, calibration: { fleet: { factor: 0.8 } } });
+    const m = metricsFromReport({ summary: { profitPerHour: 10, netProfit: 20, overheadShare: 0.1, positioningCosts: 5, trips: 3, growthPerWeek: 2.5 }, calibration: { fleet: { factor: 0.8 } } });
     assert.deepEqual(m, { profitPerHour: 10, netProfit: 20, overheadShare: 0.1, positioningCosts: 5, trips: 3, estimateAccuracy: 0.8, growth: 2.5 });
   });
 

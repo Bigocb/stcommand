@@ -36,17 +36,18 @@ Buying local-only ships at each system's own shipyard is a separate step, not in
 
 ## 2026-10-15 — Growth rate: a metric, a season goal, and a tile on Metrics
 
-Growth is now measured as the fleet's net worth grows per day, in percent. Net worth is credits, plus holds, plus the
+Growth is now measured as the fleet's net worth grows per week, in percent. Net worth is credits, plus holds, plus the
 hull capital we've put into ships (purchases, less scrap proceeds). Buying a hull moves cash into capital, so it
 doesn't read as a loss; scrapping takes its proceeds back out, so it isn't growth either. The rate is measured over the
-span of the wealth samples in the window (first to last), scaled to a day, and needs at least half an hour of samples.
+span of the wealth samples in the window (first to last), scaled to a week, and needs at least six hours of samples. A
+shorter span scaled up exaggerates every swing: a few hours after a season opens read 88% a day, which is why it's weekly.
 
-- `src/engine/growth.ts` (pure): `hullCapitalAt`, `netWorthSeries`, `growthPerDay`. Tested in `tests/growth.test.ts`.
+- `src/engine/growth.ts` (pure): `hullCapitalAt`, `netWorthSeries`, `growthPerWeek`. Tested in `tests/growth.test.ts`.
 - Metrics (`GET /api/metrics`): a `growth` block for the window, and `netWorth` per interval. The Metrics screen shows a
   Growth tile with the start and end net worth.
-- Analysis report: `summary.growthPerDay`, so the Season screen's Insights shows it too.
-- Season: a new goal measure, "Growth (cash + holds + hulls, per day)", in %/day, higher is better, so a goal such as
-  "at least 3%/day" can be set on the Plan tab. Wealth samples before a week opens are not used.
+- Analysis report: `summary.growthPerWeek`, so the Season screen's Insights shows it too.
+- Season: a new goal measure, "Growth (cash + holds + hulls, per week)", in %/week, higher is better, so a goal such as
+  "at least 10%/week" can be set on the Plan tab. Wealth samples before a week opens are not used.
 
 ## 2026-10-15 — A change to one ship is judged on that ship's trips
 

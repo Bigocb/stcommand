@@ -37,28 +37,28 @@ export function netWorthSeries(points: readonly WealthPoint[], events: readonly 
 }
 
 export interface GrowthRate {
-  /** Percent a day, from the first to the last sample in the window, to two places. */
-  perDayPct: number;
+  /** Percent a week, from the first to the last sample in the window, to two places. */
+  perWeekPct: number;
   startNetWorth: number;
   endNetWorth: number;
   /** The span the rate is measured over, in hours (the samples', not the window's). */
   hours: number;
 }
 
-/** A sample series shorter than this (in hours) says nothing reliable about a rate: holds move with the market. */
-const MIN_SPAN_HOURS = 0.5;
+/** A sample series shorter than this (in hours) says nothing reliable about a rate: holds move with the market, and a short span scaled to a week exaggerates every swing. */
+const MIN_SPAN_HOURS = 6;
 
 /**
- * Growth per day between the first and last sample inside [fromMs, toMs]. Null when there are fewer than two samples,
- * they span less than half an hour, or net worth at the start isn't positive (a rate off nothing means nothing).
+ * Growth per week between the first and last sample inside [fromMs, toMs]. Null when there are fewer than two samples,
+ * they span less than six hours, or net worth at the start isn't positive (a rate off nothing means nothing).
  */
-export function growthPerDay(points: readonly WealthPoint[], events: readonly HullEvent[], fromMs: number, toMs: number): GrowthRate | null {
+export function growthPerWeek(points: readonly WealthPoint[], events: readonly HullEvent[], fromMs: number, toMs: number): GrowthRate | null {
   const inWindow = netWorthSeries(points.filter((p) => p.ts >= fromMs && p.ts <= toMs), events);
   if (inWindow.length < 2) return null;
   const first = inWindow[0]!;
   const last = inWindow[inWindow.length - 1]!;
   const hours = (last.ts - first.ts) / 3_600_000;
   if (hours < MIN_SPAN_HOURS || first.netWorth <= 0) return null;
-  const perDay = ((last.netWorth - first.netWorth) / first.netWorth) * (24 / hours) * 100;
-  return { perDayPct: Math.round(perDay * 100) / 100, startNetWorth: first.netWorth, endNetWorth: last.netWorth, hours: Math.round(hours * 100) / 100 };
+  const perWeek = ((last.netWorth - first.netWorth) / first.netWorth) * (168 / hours) * 100;
+  return { perWeekPct: Math.round(perWeek * 100) / 100, startNetWorth: first.netWorth, endNetWorth: last.netWorth, hours: Math.round(hours * 100) / 100 };
 }

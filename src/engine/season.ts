@@ -30,7 +30,7 @@ export const GOAL_METRICS = {
   positioningCosts: { label: "Positioning costs", unit: "c", better: "lower" },
   trips: { label: "Completed trips", unit: "trips", better: "higher" },
   estimateAccuracy: { label: "Estimate accuracy (realized / expected)", unit: "ratio", better: "higher" },
-  growth: { label: "Growth (cash + holds + hulls, per day)", unit: "%/day", better: "higher" },
+  growth: { label: "Growth (cash + holds + hulls, per week)", unit: "%/week", better: "higher" },
 } as const;
 export type GoalMetric = keyof typeof GOAL_METRICS;
 
@@ -60,7 +60,7 @@ export interface Goal {
 
 /** The numbers goals are measured on, from an analysis report (src/engine/analysis/report.ts). */
 export function metricsFromReport(report: {
-  summary: { profitPerHour: number; netProfit: number; overheadShare: number | null; positioningCosts: number; trips: number; growthPerDay: number | null };
+  summary: { profitPerHour: number; netProfit: number; overheadShare: number | null; positioningCosts: number; trips: number; growthPerWeek: number | null };
   calibration: { fleet: { factor: number | null } };
 }): Record<GoalMetric, number | null> {
   return {
@@ -70,7 +70,7 @@ export function metricsFromReport(report: {
     positioningCosts: report.summary.positioningCosts,
     trips: report.summary.trips,
     estimateAccuracy: report.calibration.fleet.factor,
-    growth: report.summary.growthPerDay,
+    growth: report.summary.growthPerWeek,
   };
 }
 

@@ -15,7 +15,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
 import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
-import { growthPerDay, hullCapitalAt, type HullEvent } from "../engine/growth.js";
+import { growthPerWeek, hullCapitalAt, type HullEvent } from "../engine/growth.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
@@ -488,7 +488,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       // Growth counts hull capital as part of net worth (src/engine/growth.ts). Every purchase this universe, not just
       // the window: the capital is a running total.
       const hullEvents = hullEventsFrom(await w.store.shipLedgerRows(w.tenantId, new Date(0).toISOString()));
-      const growth = growthPerDay(samples, hullEvents, metrics.from, now);
+      const growth = growthPerWeek(samples, hullEvents, metrics.from, now);
       res.json({
         ...metrics,
         buckets: metrics.buckets.map((b, i) => ({

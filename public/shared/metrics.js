@@ -111,10 +111,10 @@ function kpi(label, value, sub, tone = "", title = "") {
 let wpSystem = "";
 /** Growth of cash plus holds plus hull capital, per day, over the span the samples cover (src/engine/growth.ts). */
 function growthKpi(g) {
-  if (!g) return kpi("Growth", "—", "needs two wealth samples in the window", "", "Net worth (cash, holds and the hulls we bought, less scrap) growth per day");
-  const tone = cls(g.perDayPct);
+  if (!g) return kpi("Growth", "—", "needs two wealth samples in the window", "", "Net worth (cash, holds and the hulls we bought, less scrap) growth per week");
+  const tone = cls(g.perWeekPct);
   const sub = `${fmt(g.startNetWorth)} → ${fmt(g.endNetWorth)} over ${g.hours}h`;
-  return kpi("Growth", `${g.perDayPct > 0 ? "+" : ""}${g.perDayPct.toFixed(2)}%/day`, sub, tone, "Net worth growth per day: cash plus holds plus the hulls we bought, less scrap. Buying a ship doesn't count as a loss.");
+  return kpi("Growth", `${g.perWeekPct > 0 ? "+" : ""}${g.perWeekPct.toFixed(2)}%/week`, sub, tone, "Net worth growth per week: cash plus holds plus the hulls we bought, less scrap. Buying a ship doesn't count as a loss.");
 }
 
 function renderWaypoints(root, data) {
