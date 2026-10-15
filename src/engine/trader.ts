@@ -10,7 +10,7 @@ import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.
 import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
-import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange } from "./warpTour.js";
+import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange } from "./warpTour.js";
 import type { ShipMovement } from "../db/store.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
@@ -77,6 +77,10 @@ export interface TraderOptions {
   atlas?: GalaxyAtlas;
   /** Doctrine toggle for warp travel (see warpTour.ts). Off, or absent, means every cross-system leg takes a gate. */
   warpEnabled?: () => boolean;
+  /** The CRUISE fuel the game has reported for a warp between two systems (shared fleet-wide). */
+  knownWarpNeed?: (fromSystem: string, toSystem: string) => number | undefined;
+  /** Record the CRUISE fuel a warp needs, learned from a rejection or a completed warp. */
+  noteWarpNeed?: (fromSystem: string, toSystem: string, cruiseNeed: number, how: string) => void;
   /** Writes each warp and gate jump to the ship_movements history (see migrations/052). */
   recordMovement?: (m: ShipMovement) => Promise<void>;
   /** Store for runExploreGoal to record module catalogs and shipyard data. */
@@ -261,6 +265,8 @@ export class TraderAgent {
   private floorOverride = new Set<string>();
   private readonly atlas?: GalaxyAtlas;
   private readonly warpEnabled?: () => boolean;
+  private readonly knownWarpNeed?: TraderOptions["knownWarpNeed"];
+  private readonly noteWarpNeed?: TraderOptions["noteWarpNeed"];
   private readonly recordMovement?: (m: ShipMovement) => Promise<void>;
   private readonly store?: TraderOptions["store"];
   private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
@@ -384,6 +390,8 @@ export class TraderAgent {
     this.requestApproval = opts.requestApproval;
     this.atlas = opts.atlas;
     this.warpEnabled = opts.warpEnabled;
+    this.knownWarpNeed = opts.knownWarpNeed;
+    this.noteWarpNeed = opts.noteWarpNeed;
     this.recordMovement = opts.recordMovement;
     this.store = opts.store;
     this.getWarehouseShip = opts.getWarehouseShip;
@@ -855,7 +863,14 @@ export class TraderAgent {
       ]);
       if (here && there) distance = Math.hypot(there.x - here.x, there.y - here.y);
     }
-    const choice = chooseHopMethod({ ...DEFAULT_WARP_POLICY, enabled }, { warpRange, fuel: this.ship.fuel.current, distance });
+    const fromSystem = this.ship.nav.systemSymbol;
+    const choice = chooseHopMethod({ ...DEFAULT_WARP_POLICY, enabled }, {
+      warpRange,
+      fuel: this.ship.fuel.current,
+      capacity: this.ship.fuel.capacity,
+      distance,
+      knownCruiseNeed: this.knownWarpNeed?.(fromSystem, targetSystem),
+    });
     if (choice.method !== "warp") {
       if (warpRange !== undefined && enabled) this.log(`not warping to ${targetSystem} (${choice.reason}), using gates`);
       return false;
@@ -868,12 +883,25 @@ export class TraderAgent {
     const fromWaypoint = this.ship.nav.waypointSymbol;
     const fuelBefore = this.ship.fuel.current;
     await this.ensureInOrbit();
+    // The mode the warp is charged at: BURN doubles the fuel (see warpTour.ts WARP_MODE_FUEL_MULTIPLIER).
+    let mode: string | undefined = this.ship.nav.flightMode;
     try {
+      if (choice.flightMode && mode !== choice.flightMode) {
+        const set = await this.api.patchShipNav(this.symbol, choice.flightMode);
+        this.ship = { ...this.ship, nav: set.nav };
+        mode = choice.flightMode;
+      }
       const res = await this.api.warpShip(this.symbol, target);
+      this.noteWarpNeed?.(fromSystem, targetSystem, cruiseNeedFromGame(fuelBefore - res.fuel.current, mode), `warp burned ${fuelBefore - res.fuel.current} at ${mode}`);
       this.ship = { ...this.ship, nav: res.nav, fuel: res.fuel };
       this.noteMovement({ at: new Date().toISOString(), shipSymbol: this.symbol, kind: "warp", fromWaypoint, toWaypoint: target, distance: choice.distance, fuelBefore, fuelAfter: res.fuel.current, source: "trader" });
     } catch (err) {
-      this.log(`warp to ${target} failed, using gates: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      const shortfall = parseFuelShortfall(message);
+      if (shortfall !== undefined) {
+        this.noteWarpNeed?.(fromSystem, targetSystem, cruiseNeedFromGame(fuelBefore + shortfall, mode), `rejected at ${mode}: ${fuelBefore} + ${shortfall} short`);
+      }
+      this.log(`warp to ${target} failed, using gates: ${message}`);
       return false;
     }
     this.log(`warping to ${target} (${choice.reason}); fuel ${this.ship.fuel.current}`);

@@ -39,7 +39,7 @@ import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { pickCheapestKeeperYard } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
-import { chooseHopMethod, DEFAULT_WARP_POLICY, pickWarpArrival, warpDriveRange, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
+import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange, warpRouteKey, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
 import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
 import { planSuspendedRepairs, type SuspendedRepairFacts } from "./suspendedRepair.js";
 import { effectiveMaxLots, type ShipLotPolicy } from "./shipLotPolicy.js";
@@ -456,6 +456,12 @@ export class FleetManager {
   private readonly minerPreferences = new Map<string, string>();
   /** Per-ship lot size / lot count overrides (see shipLotPolicy.ts). Persisted in the `shipLotPolicies` fleet flag. */
   private readonly shipLotPolicies = new Map<string, ShipLotPolicy>();
+  /**
+   * Fuel a warp needs at CRUISE, per direction between two systems, as the game reported it (a rejection's shortfall or
+   * a completed warp's fuel drop). Shared by tour ships and traders, so one failed attempt stops every ship retrying a
+   * warp its tank can't make. In memory only: a restart relearns it with one rejected call.
+   */
+  private readonly warpNeeds = new Map<string, number>();
 
   /** Throttle for pickFeedCarrier()'s own "no carrier found" diagnostic —
    *  that call happens every feed tick regardless of outcome, so logging
@@ -1253,6 +1259,8 @@ export class FleetManager {
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
       jumpTo: (sym, wp) => this.jumpToward(sym, wp),
       warpEnabled: () => this.doctrine.isEnabledOr("warpTours", true),
+      knownWarpNeed: (from: string, to: string) => this.knownWarpNeed(from, to),
+      noteWarpNeed: (from: string, to: string, need: number, how: string) => this.noteWarpNeed(from, to, need, how),
       scrapHere: async (sym: string) => { await this.scrapShip(sym); },
       findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
         this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
@@ -3806,13 +3814,28 @@ export class FleetManager {
     const policy: WarpPolicy = { ...DEFAULT_WARP_POLICY, enabled: this.doctrine.isEnabledOr("warpTours", true) };
     const warpRange = warpDriveRange(ship.modules);
     const fuel = ship.fuel.current;
-    if (!policy.enabled || warpRange === undefined) return chooseHopMethod(policy, { warpRange, fuel });
+    const capacity = ship.fuel.capacity;
+    if (!policy.enabled || warpRange === undefined) return chooseHopMethod(policy, { warpRange, fuel, capacity });
     const [here, there] = await Promise.all([
       this.galaxy.systemCoords(ship.nav.systemSymbol),
       this.galaxy.systemCoords(targetSystem),
     ]);
     const distance = here && there ? Math.hypot(there.x - here.x, there.y - here.y) : undefined;
-    return chooseHopMethod(policy, { warpRange, fuel, distance });
+    const knownCruiseNeed = this.knownWarpNeed(ship.nav.systemSymbol, targetSystem);
+    return chooseHopMethod(policy, { warpRange, fuel, capacity, distance, knownCruiseNeed });
+  }
+
+  /** The CRUISE fuel the game has reported for this warp, if it has. */
+  knownWarpNeed(fromSystem: string, toSystem: string): number | undefined {
+    return this.warpNeeds.get(warpRouteKey(fromSystem, toSystem));
+  }
+
+  /** Remember the CRUISE fuel a warp needs, from a rejection or a completed warp. */
+  noteWarpNeed(fromSystem: string, toSystem: string, cruiseNeed: number, how: string): void {
+    const key = warpRouteKey(fromSystem, toSystem);
+    if (this.warpNeeds.get(key) === cruiseNeed) return;
+    this.warpNeeds.set(key, cruiseNeed);
+    this.log(`warp fuel learned: ${fromSystem} -> ${toSystem} needs ${cruiseNeed} at cruise (${how})`);
   }
 
   /**
@@ -3828,18 +3851,31 @@ export class FleetManager {
       return false;
     }
     const fromWaypoint = ship.nav.waypointSymbol;
+    const fromSystem = ship.nav.systemSymbol;
     const fuelBefore = ship.fuel.current;
+    // The mode the warp is charged at. BURN doubles the fuel, and a tour ship with a full tank is usually left in BURN
+    // by its own in-system legs, which is what made every warp to X1-FY6 fail on 2026-10-15.
+    let mode: string | undefined = ship.nav.flightMode;
     try {
       if (ship.nav.status !== "IN_ORBIT") await this.api.orbitShip(shipSymbol);
+      if (warp.flightMode && mode !== warp.flightMode) {
+        await this.api.patchShipNav(shipSymbol, warp.flightMode);
+        mode = warp.flightMode;
+      }
       const res = await this.api.warpShip(shipSymbol, target);
-      // The fuel line is the live calibration for WarpPolicy.fuelPerUnit: compare it with the estimate in the reason.
+      this.noteWarpNeed(fromSystem, targetSystem, cruiseNeedFromGame(fuelBefore - res.fuel.current, mode), `warp burned ${fuelBefore - res.fuel.current} at ${mode}`);
       this.log(`${shipSymbol} warping to ${target} (${warp.reason}); fuel ${fuelBefore} -> ${res.fuel.current}`);
       this.recordMovement?.({ at: new Date().toISOString(), shipSymbol, kind: "warp", fromWaypoint, toWaypoint: target, distance: warp.distance, fuelBefore, fuelAfter: res.fuel.current, source: "fleet" })
         .catch((err) => this.log(`movement record failed: ${err instanceof Error ? err.message : String(err)}`));
       this.onActivity?.("warp", `${shipSymbol} warping to ${target}`, undefined, shipSymbol);
       return true;
     } catch (err) {
-      this.log(`${shipSymbol}: warp to ${target} failed, using gates: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      const shortfall = parseFuelShortfall(message);
+      if (shortfall !== undefined) {
+        this.noteWarpNeed(fromSystem, targetSystem, cruiseNeedFromGame(fuelBefore + shortfall, mode), `rejected at ${mode}: ${fuelBefore} + ${shortfall} short`);
+      }
+      this.log(`${shipSymbol}: warp to ${target} failed, using gates: ${message}`);
       return false;
     }
   }

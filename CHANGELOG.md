@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-15 — Warp fuel is worked out per flight mode, and learned from the game
+
+Every warp THEOREM-86 tried toward X1-FY6 failed for fuel, though the estimate said it fitted. The ship was in BURN, which its own in-system legs leave it in when the tank is full, and BURN doubles warp fuel: two different distances (about 435 and 581 units) cost 868 and 1,160 fuel, exactly 2x. The warp decision (`src/engine/warpTour.ts`) now picks the mode itself: BURN only when it fits with a quarter tank left over, otherwise CRUISE, and the tour and trader set that mode before warping. The fuel margin on an estimate drops from 1.2 to 1.05, since a rejected warp spends no fuel. When the game rejects a warp with "requires N more fuel", or a warp completes, the real CRUISE need is remembered for that pair of systems and used instead of the estimate, so a warp the tank can never make is not retried every tick. The learned needs are kept in memory and relearned after a restart with one rejected call.
+
 ## 2026-10-15 — Tour ships with a trip under way get a faster tick
 
 A tour hop (a warp or a gate leg toward a dispatched system) waited behind the whole fleet for the shared API budget, so one hop could take about 15 minutes of queue time. While a tour has a destination or is in flight, its next tick now runs at trade priority instead of survey priority, and a ship in transit wakes at its arrival time instead of polling before it. The pure rules are in `src/engine/tourPriority.ts`. The `tourHopPriority` doctrine clause turns both on or off, and it's on by default. The cost is a few calls per hop, taken from trader and miner tasks only when the budget is full.
