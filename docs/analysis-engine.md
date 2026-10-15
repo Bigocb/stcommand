@@ -111,3 +111,4 @@ Order, each step gated on the previous one showing it is calibrated:
 - Market snapshots are as fresh as keepers and tours make them, so recovery times are bounded by read frequency.
 - Other players' trades are only seen when we read a market, so "nobody seen" includes trades we missed.
 - A before/after comparison overlaps everything else that changed in the same window. It is a lead, not a verdict.
+  A change to one ship (its lot policy) is measured on that ship's own trips and costs, not the fleet's.

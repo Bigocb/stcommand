@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-15 — A change to one ship is judged on that ship's trips
+
+The analysis engine reported "After lot_policy:THEOREM-55 changed (null -> {"maxLots":3}), profit per hour went down
+16% (616 trips before, 613 after)". Those were the whole fleet's trips: the comparison mostly measured what the other
+18 traders did in those hours, and its "high" confidence came from their trip count. A settings change that applies to
+one ship (the event's ship, or the ship in a `lot_policy:<ship>` setting) now compares only that ship's trips, refuels
+and jumps, says whose profit per hour it is, and when it fell suggests clearing or restoring that ship's lot policy
+(`stcommand_set_ship_lot_policy`). Doctrine and keeper-list changes are still measured on the fleet.
+
+Measured by hand for the record: THEOREM-55 with maxLots 3 (04:04-11:05 UTC) earned 252c a unit against 210c before,
+but moved 35% fewer units an hour, so its realized profit fell from 541k/h to 423k/h (500k/h over the last 4.6h).
+The cap bit on mid-depth markets (300-unit trips instead of full 480s) and not on the thin ones it was meant for, which
+fill a 490 hold in two lots. The cap was cleared at 11:10 UTC.
+
 ## 2026-10-15 — Season screen: the multi-week plan and the analysis reports in the UI
 
 The season plan from `docs/multi-week-plan.md` now exists in the app, with the analysis engine beside it. New tables `seasons` and `season_weeks` (migration 054, kept across resets) hold a season, each week's phase, goals and notes, and at the end of a week its record. The rules are pure (`src/engine/season.ts`): a week that ends in Cross-system starts the next at Recover; goals can be measured (profit per hour, net trip profit, overhead share, positioning costs, trips, estimate accuracy; an absolute target or a percent change against last week) or tracked by hand; a missed goal, or a hand-tracked one still open, carries forward. Closing a week saves its analysis report, scores the goals and opens the next week from the record. API under `/api/season` and `POST /api/analysis/capture`; season and goal changes are recorded as `config_change` action events. Deck gets a Season rail item with four tabs: This week, Insights (the full analysis report), Weeks (season history and saved reports) and Plan. Tower's More screen gets a read-only Season card. The analysis report is cached for a minute per window, so repeated page loads don't rebuild it. Also: "Best routes" no longer lists losing routes, overhead is reported to a tenth of a percent, and market impact medians no longer print float noise.

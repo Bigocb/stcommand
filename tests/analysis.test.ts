@@ -159,6 +159,23 @@ describe("settings changes", () => {
     assert.equal(changeFindings(impacts, P).length, 0);
   });
 
+  it("measures a change to one ship on that ship's trips only, and suggests clearing its lot policy when it fell", () => {
+    const lot: ActionEventRow = { at: at(360), universeKey: null, kind: "config_change", actor: "operator", subject: "lot_policy:S-1", shipSymbol: "S-1", context: { before: null, after: { maxLots: 3 } } };
+    // Another ship does much better after the change; the fleet would read that as the change helping.
+    const other = [420, 470, 520, 570, 620].flatMap((m) => oneTrip("S-2", m, 900, "X1-C-1>X1-C-2 auto").slice(1));
+    const all = [...rows, ...other];
+    const [c] = changeImpacts([lot], rebuildTrips(all), all, P, T0 + 24 * 3_600_000);
+    assert.equal(c!.ship, "S-1");
+    assert.equal(c!.windowAfter!.trips, 4);
+    assert.ok(c!.profitPerHourChange! < 0);
+    const f = changeFindings([c!], P)[0]!;
+    assert.match(f.headline, /S-1's profit per hour went down/);
+    assert.equal(f.evidence.scope, "S-1");
+    assert.deepEqual(f.suggestion!.args, { shipSymbol: "S-1", clear: true });
+    // The ship is also found from the setting name when the event has none.
+    assert.equal(changeImpacts([{ ...lot, shipSymbol: undefined }], rebuildTrips(all), all, P, T0 + 24 * 3_600_000)[0]!.ship, "S-1");
+  });
+
   it("measures overhead as refuel and jump spend over sales", () => {
     const m = windowMetrics([], oneTrip("S-1", 10), T0, T0 + 60 * 60_000);
     assert.equal(m.overheadShare, 0.8833); // 5300 / 6000, to four places
