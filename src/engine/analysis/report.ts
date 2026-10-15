@@ -6,6 +6,7 @@
  */
 import type { ActionEventRow, AnalysisLedgerRow, AnalysisSnapshotRow } from "../../db/store.js";
 import { calibrate, type Calibration } from "./calibration.js";
+import { growthPerDay, type HullEvent, type WealthPoint } from "../growth.js";
 import { changeFindings, changeImpacts, windowMetrics, type ChangeImpact } from "./changes.js";
 import { clusterTrades, impactFindings, latestTradeVolumes, summarizeImpact, type MarketImpactStat } from "./marketImpact.js";
 import { attributePriceMoves, moveFindings, summarizeMoves, type MarketTrade, type MoveStats } from "./priceMoves.js";
@@ -20,6 +21,9 @@ export interface AnalysisInputs {
   snapshots: readonly AnalysisSnapshotRow[];
   marketTrades: readonly MarketTrade[];
   ourShips: ReadonlySet<string>;
+  /** Credits plus holds over the window, and the hull events (src/engine/growth.ts). Empty means no growth figure. */
+  wealth?: readonly WealthPoint[];
+  hullEvents?: readonly HullEvent[];
 }
 
 export interface RankedSuggestion extends Suggestion {
@@ -39,6 +43,8 @@ export interface AnalysisReport {
     tripsWithEstimate: number;
     configChanges: number;
     priceMovesAttributed: number;
+    /** Growth of cash plus holds plus hull capital, percent a day (null without enough wealth samples). */
+    growthPerDay: number | null;
   };
   findings: Finding[];
   suggestions: RankedSuggestion[];
@@ -105,6 +111,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
       tripsWithEstimate: withEstimate,
       configChanges: changes.length,
       priceMovesAttributed: moves.length,
+      growthPerDay: growthPerDay(input.wealth ?? [], input.hullEvents ?? [], input.fromMs, input.nowMs)?.perDayPct ?? null,
     },
     findings: findings.slice(0, 40),
     suggestions: rankSuggestions(findings).slice(0, 15),

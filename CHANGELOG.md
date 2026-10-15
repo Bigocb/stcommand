@@ -18,6 +18,20 @@ warp had already loaded it into the atlas (to pick an arrival waypoint) and it t
 successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
 heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
 
+## 2026-10-15 — Growth rate: a metric, a season goal, and a tile on Metrics
+
+Growth is now measured as the fleet's net worth grows per day, in percent. Net worth is credits, plus holds, plus the
+hull capital we've put into ships (purchases, less scrap proceeds). Buying a hull moves cash into capital, so it
+doesn't read as a loss; scrapping takes its proceeds back out, so it isn't growth either. The rate is measured over the
+span of the wealth samples in the window (first to last), scaled to a day, and needs at least half an hour of samples.
+
+- `src/engine/growth.ts` (pure): `hullCapitalAt`, `netWorthSeries`, `growthPerDay`. Tested in `tests/growth.test.ts`.
+- Metrics (`GET /api/metrics`): a `growth` block for the window, and `netWorth` per interval. The Metrics screen shows a
+  Growth tile with the start and end net worth.
+- Analysis report: `summary.growthPerDay`, so the Season screen's Insights shows it too.
+- Season: a new goal measure, "Growth (cash + holds + hulls, per day)", in %/day, higher is better, so a goal such as
+  "at least 3%/day" can be set on the Plan tab. Wealth samples before a week opens are not used.
+
 ## 2026-10-15 — A change to one ship is judged on that ship's trips
 
 The analysis engine reported "After lot_policy:THEOREM-55 changed (null -> {"maxLots":3}), profit per hour went down

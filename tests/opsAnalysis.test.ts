@@ -19,6 +19,8 @@ describe("runAnalysis", () => {
         actionEvents: async () => [],
         analysisSnapshots: async (pairs: unknown) => { asked.push(pairs); return []; },
         analysisMarketTransactions: async () => [],
+        wealthSamplesSince: async () => [],
+        shipLedgerRows: async () => [],
       },
       fleet: { fleetStatusSummary: () => [{ symbol: "S-1" }] },
     } as any;

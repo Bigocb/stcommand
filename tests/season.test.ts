@@ -73,7 +73,15 @@ describe("goals", () => {
   });
 
   it("reads the measures from an analysis report", () => {
-    const m = metricsFromReport({ summary: { profitPerHour: 10, netProfit: 20, overheadShare: 0.1, positioningCosts: 5, trips: 3 }, calibration: { fleet: { factor: 0.8 } } });
-    assert.deepEqual(m, { profitPerHour: 10, netProfit: 20, overheadShare: 0.1, positioningCosts: 5, trips: 3, estimateAccuracy: 0.8 });
+    const m = metricsFromReport({ summary: { profitPerHour: 10, netProfit: 20, overheadShare: 0.1, positioningCosts: 5, trips: 3, growthPerDay: 2.5 }, calibration: { fleet: { factor: 0.8 } } });
+    assert.deepEqual(m, { profitPerHour: 10, netProfit: 20, overheadShare: 0.1, positioningCosts: 5, trips: 3, estimateAccuracy: 0.8, growth: 2.5 });
+  });
+
+  it("scores a growth goal like any other: at least its target, higher is better", () => {
+    const g = goal({ metric: "growth", comparator: ">=", target: 3 });
+    assert.equal(evaluateGoal(g, { growth: 3.4 }, false).status, "met");
+    assert.equal(evaluateGoal(g, { growth: 1.2 }, false).status, "pending");
+    assert.equal(evaluateGoal(g, { growth: 1.2 }, true).status, "missed");
+    assert.equal(evaluateGoal(g, { growth: null }, true).status, "missed", "no measure at close is a miss");
   });
 });

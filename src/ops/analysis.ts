@@ -20,12 +20,15 @@ export async function runAnalysis(w: TenantWorker, sinceHours: number, nowMs: nu
     if ((r.type === "PURCHASE" || r.type === "SELL") && r.good && r.waypoint) pairs.set(`${r.waypoint}|${r.good}`, { waypoint: r.waypoint, good: r.good });
   }
   const pairList = [...pairs.values()];
-  const [snapshots, marketTrades] = await Promise.all([
+  const [snapshots, marketTrades, wealthRows, shipRows] = await Promise.all([
     w.store.analysisSnapshots(pairList, sinceIso, nowIso),
     w.store.analysisMarketTransactions(pairList, sinceIso, nowIso),
+    w.store.wealthSamplesSince(w.tenantId, new Date(fromMs).toISOString()),
+    w.store.shipLedgerRows(w.tenantId, new Date(0).toISOString()),
   ]);
+  const hullEvents = shipRows.map((r) => ({ ts: Date.parse(r.timestamp), amount: r.scrap ? -r.total : r.total }));
   const ourShips = new Set<string>([...w.fleet.fleetStatusSummary().map((s) => s.symbol), ...ledger.map((r) => r.shipSymbol)]);
-  return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips });
+  return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips, wealth: wealthRows, hullEvents });
 }
 
 /**

@@ -652,6 +652,17 @@ export class Store {
   }
 
   /** This week's trades, refuels and jumps since `sinceIso`, oldest first, for the analysis engine. */
+  /** Ship purchases (good null or a hull's symbol) and scrap proceeds (good SCRAP), this universe only (RLS). */
+  async shipLedgerRows(tenantId: string, sinceIso: string): Promise<{ timestamp: string; scrap: boolean; total: number }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `SELECT timestamp, trade_symbol, total FROM ledger WHERE type = 'SHIP' AND timestamp >= $1 ORDER BY timestamp ASC LIMIT 20000`,
+        [sinceIso],
+      );
+      return r.rows.map((x: any) => ({ timestamp: new Date(x.timestamp).toISOString(), scrap: x.trade_symbol === "SCRAP", total: Number(x.total ?? 0) }));
+    });
+  }
+
   async analysisLedgerRows(tenantId: string, sinceIso: string, limit = 50000): Promise<AnalysisLedgerRow[]> {
     return withTenant(this.pool, tenantId, async (c) => {
       const r = await c.query(

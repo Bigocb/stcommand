@@ -109,6 +109,14 @@ function kpi(label, value, sub, tone = "", title = "") {
 }
 
 let wpSystem = "";
+/** Growth of cash plus holds plus hull capital, per day, over the span the samples cover (src/engine/growth.ts). */
+function growthKpi(g) {
+  if (!g) return kpi("Growth", "—", "needs two wealth samples in the window", "", "Net worth (cash, holds and the hulls we bought, less scrap) growth per day");
+  const tone = cls(g.perDayPct);
+  const sub = `${fmt(g.startNetWorth)} → ${fmt(g.endNetWorth)} over ${g.hours}h`;
+  return kpi("Growth", `${g.perDayPct > 0 ? "+" : ""}${g.perDayPct.toFixed(2)}%/day`, sub, tone, "Net worth growth per day: cash plus holds plus the hulls we bought, less scrap. Buying a ship doesn't count as a loss.");
+}
+
 function renderWaypoints(root, data) {
   const $ = (id) => root.querySelector(`#${id}`);
   const systems = [...new Set((data.byWaypoint ?? []).map((w) => w.system))].sort();
@@ -240,6 +248,7 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
       kpi("Per hour", signed(t.netPerHour), vs(t.netPerHour, p.netPerHour), cls(t.netPerHour)),
       kpi("Net incl. contracts", signed(c.netInclContracts), `contracts ${signed(c.net)} · ${c.incomeSharePct}% of income`, cls(c.netInclContracts), "Net trading plus contract income (advances and payouts) less the cost of the goods delivered. Net trading above is unchanged so weeks stay comparable."),
       kpi("Credits", walletChange === null ? "—" : signed(walletChange), data.walletEnd !== null ? `now ${fmt(data.walletEnd)} · includes ship buys` : "", cls(walletChange ?? 0), "Wallet change over the window; moves with ship purchases and cargo in transit as well as profit"),
+      growthKpi(data.growth),
       kpi("Sales", fmt(t.sells), `${fmt(t.units)} units · ${vs(t.sells, p.sells)}`),
       kpi("Profit / sale", signed(t.profitPerSale), `margin ${t.marginPct}% on cost`, cls(t.profitPerSale)),
       kpi("Overhead", `${t.overheadPct}%`, `fuel ${compact(t.fuel)} · jumps ${compact(t.jumps)}`, t.overheadPct > 25 ? "bad" : "", "Fuel and jump costs as a share of gross profit"),

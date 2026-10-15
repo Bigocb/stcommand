@@ -112,3 +112,11 @@ Order, each step gated on the previous one showing it is calibrated:
 - Other players' trades are only seen when we read a market, so "nobody seen" includes trades we missed.
 - A before/after comparison overlaps everything else that changed in the same window. It is a lead, not a verdict.
   A change to one ship (its lot policy) is measured on that ship's own trips and costs, not the fleet's.
+
+## Growth
+
+`growthPerDay` (src/engine/growth.ts) is the one growth figure: net worth, meaning credits plus holds (wealth_samples)
+plus hull capital (ship purchases less scrap proceeds from the ledger's SHIP rows), growing in percent a day between the
+first and last sample in the window. Hull capital keeps buying a ship from showing as a loss. Holds move with the market,
+so a window with few samples or a sudden cargo swing can read high or low; the rate needs at least half an hour of samples.
+

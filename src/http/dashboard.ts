@@ -15,6 +15,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
 import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
+import { growthPerDay, hullCapitalAt, type HullEvent } from "../engine/growth.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
@@ -445,6 +446,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   /* ── Financial metrics ───────────────────────────────────────
      What the fleet earned and spent over the last N hours, bucketed for a chart, with breakdowns by good, ship and sell
      system and the window before for comparison. Built from the ledger (engine/metrics.ts). */
+  /** Ship rows as hull events: a purchase adds its price to capital, scrap takes its proceeds back out. */
+  const hullEventsFrom = (rows: { timestamp: string; scrap: boolean; total: number }[]): HullEvent[] =>
+    rows.map((r) => ({ ts: Date.parse(r.timestamp), amount: r.scrap ? -r.total : r.total }));
+
   router.get("/metrics", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
@@ -480,9 +485,18 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const metrics = buildMetrics(rows, { now, hours, bucketMinutes, holds, traders });
       const samples = await w.store.wealthSamplesSince(w.tenantId, new Date(metrics.from).toISOString());
       const worth = worthByBucket(metrics.buckets.map((b) => b.t), bucketMinutes, samples);
+      // Growth counts hull capital as part of net worth (src/engine/growth.ts). Every purchase this universe, not just
+      // the window: the capital is a running total.
+      const hullEvents = hullEventsFrom(await w.store.shipLedgerRows(w.tenantId, new Date(0).toISOString()));
+      const growth = growthPerDay(samples, hullEvents, metrics.from, now);
       res.json({
         ...metrics,
-        buckets: metrics.buckets.map((b, i) => ({ ...b, worth: worth[i] ?? null })),
+        buckets: metrics.buckets.map((b, i) => ({
+          ...b,
+          worth: worth[i] ?? null,
+          netWorth: worth[i] === null || worth[i] === undefined ? null : Math.round(worth[i]! + hullCapitalAt(hullEvents, b.t + bucketMinutes * 60_000)),
+        })),
+        growth,
         // What the accepted contracts still owe us (never part of credits or net: it is not cash yet).
         contractPipeline: w.contracts ? await contractsOverview({ contracts: w.contracts, store: w.store, tenantId: w.tenantId, ships: state.ships ?? [] }) : null,
         credits: state.agent?.credits ?? 0,
