@@ -934,6 +934,13 @@ export class TraderAgent {
    * forever, which is the same loop with an error line instead of a loss.
    */
   private markRouteUnreachable(targetSystem: string): void {
+    // Cargo already aboard for a market in that system would otherwise retry the same jump forever (THEOREM-65 held
+    // 80 FIREARMS for X1-GX41, whose gate is unbuilt, 2026-10-15). Send it to the best market that can be reached.
+    // Checked first: a loaded ship may have no current assignment.
+    for (const [good, held] of this.heldRoute) {
+      if (this.systemOf(held.sellAt) !== targetSystem) continue;
+      this.redirectUnreachable(good).catch((err: unknown) => this.log(`held ${good}: redirect failed: ${err instanceof Error ? err.message : String(err)}`));
+    }
     // Either end. The unreachable system is as often the one a leg starts in
     // as the one it ends in, and retiring only on the sell end left every
     // buy-side case looping.
@@ -943,6 +950,37 @@ export class TraderAgent {
       this.deadRoutes.add(`${leg.good}@${leg.buyAt}`);
       this.unreachableRoutes.add(`${leg.good}@${leg.buyAt}`);
     }
+  }
+
+  /**
+   * Re-pins a held lot whose sell market can't be reached to the best market that can: first one that clears the loss
+   * floor (the same pick as a below-floor redirect), else the best price reachable at all. A sale below the floor then
+   * goes through the usual hold-or-approve rule when the ship gets there.
+   */
+  private async redirectUnreachable(good: string): Promise<void> {
+    const leg = this.heldRoute.get(good);
+    if (!leg) return;
+    const tried = this.floorRedirectTried.get(good) ?? new Set<string>();
+    tried.add(leg.sellAt);
+    this.floorRedirectTried.set(good, tried);
+    const prices = new Map<string, number>();
+    for (const [wp, table] of this.priceTable) {
+      const g = table.get(good);
+      if (g && g.sell > 0) prices.set(wp, g.sell);
+    }
+    const here = this.ship.nav.systemSymbol;
+    const cost = (await this.costBasis(good)) ?? 0;
+    const input = { good, here: leg.sellAt, prices, tried, systemOf: (w: string) => this.systemOf(w), reachable: (sys: string) => this.systemsConnected(here, sys) };
+    const pick = (cost > 0 ? pickFloorRedirect({ ...input, cost, maxLossPct: this.maxLossPct }) : undefined)
+      ?? pickFloorRedirect({ ...input, cost: 0, maxLossPct: 100 });
+    if (!pick) {
+      this.log(`held ${good}: ${leg.sellAt} can't be reached and no other known market buys it within reach`);
+      return;
+    }
+    const redirected = { ...leg, sellAt: pick.waypoint, sellPrice: pick.price };
+    this.heldRoute.set(good, redirected);
+    await this.persistHeldRoute?.(good, { buyAt: redirected.buyAt, sellAt: redirected.sellAt, buyPrice: redirected.buyPrice, sellPrice: redirected.sellPrice, lotSize: redirected.lotSize }, cost);
+    this.log(`held ${good}: ${leg.sellAt} can't be reached, delivering to ${pick.waypoint} at ${pick.price}c instead`);
   }
 
   /**

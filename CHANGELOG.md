@@ -18,6 +18,22 @@ warp had already loaded it into the atlas (to pick an arrival waypoint) and it t
 successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
 heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
 
+## 2026-10-15 — No trade legs into a system whose gate is unbuilt; stuck cargo is redirected
+
+After X1-GX41 started being charted (earlier today, the warp-charting fix), the dispatcher gave THEOREM-65 (80 FIREARMS,
+about 232k) and THEOREM-25 (80 ALUMINUM) routes that sold in GX41. GX41's gate is still under construction, so neither
+could jump in: each sat at its own gate logging "no verified gate path … to X1-GX41" every 30 seconds. Profit per hour
+fell to about 614k (after fuel and jumps) over the hour these two were stuck.
+
+- **Cause:** the dispatcher's jump check (`GalaxyAtlas.canJump`) only looks at the gate on our side. GX41 was invisible to
+  route planning until it was charted, so the gap never showed before.
+- **Fix:** a new `canJumpInto()` also refuses when every gate in the destination is known to be unfinished. A gate whose
+  status isn't known yet doesn't block, so routes that worked before still do. The dispatcher's jump check, its path
+  shortcut, and the cross-system trip cost and hop count now use it. Explorers keep the near-side check on purpose.
+- **Stuck cargo:** when a trader can't reach the market its held cargo was bought for, it now redirects the lot to the
+  best reachable market: first one that clears the loss floor, else the best price reachable. Before, it retried the
+  same jump forever. A sale below the floor still goes through the usual hold-or-approve rule.
+
 ## 2026-10-15 — Live feed: ships, credits and activity pushed to the screens
 
 Screens pulled the whole state every 15 seconds. Now the server pushes small changes as they happen, over server-sent

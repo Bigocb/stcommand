@@ -273,6 +273,20 @@ export class GalaxyAtlas {
   }
 
   /**
+   * canJump(), plus the far end: false when every gate in `toSystem` is known to be unfinished, since a ship can't jump
+   * into a gate still under construction. A far gate whose status isn't known yet doesn't block, so this only differs
+   * from canJump() where the answer is certain. The dispatcher uses it for trade legs: on 2026-10-15 THEOREM-65 and
+   * THEOREM-25 bought cargo to sell in X1-GX41, whose gate is unbuilt, and sat at their gates unable to jump.
+   */
+  canJumpInto(fromSystem: string, toSystem: string): boolean {
+    if (!this.canJump(fromSystem, toSystem)) return false;
+    const far = this.systems.get(toSystem);
+    const farGates = far?.waypoints.filter((w) => w.type === "JUMP_GATE") ?? [];
+    if (farGates.length === 0) return true;
+    return !farGates.every((w) => this.gateConstruction.get(w.symbol) === false);
+  }
+
+  /**
    * True if one jump from `a` to `b` is usable right now: a's gate toward b is
    * cached complete AND b's own gate is cached complete (a jump needs both
    * ends built). An unloaded b can't be verified, so reads false until

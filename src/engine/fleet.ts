@@ -1784,7 +1784,7 @@ export class FleetManager {
   }
 
   private crossSystemTripCostUncached(buySystem: string, sellSystem: string): number {
-    if (this.galaxy.canJump(buySystem, sellSystem)) return this.crossSystemLegCost(buySystem, sellSystem);
+    if (this.galaxy.canJumpInto(buySystem, sellSystem)) return this.crossSystemLegCost(buySystem, sellSystem);
     const path = this.galaxy.jumpPath(buySystem, sellSystem);
     if (!path || path.length < 3) return this.crossSystemLegCost(buySystem, sellSystem);
     let total = 0;
@@ -1798,7 +1798,7 @@ export class FleetManager {
     const memo = this.hopsMemo.get(key);
     if (memo !== undefined) return memo;
     let hops: number;
-    if (this.galaxy.canJump(fromSystem, toSystem)) hops = 1;
+    if (this.galaxy.canJumpInto(fromSystem, toSystem)) hops = 1;
     else {
       const path = this.galaxy.jumpPath(fromSystem, toSystem);
       hops = path && path.length >= 2 ? path.length - 1 : 1;
@@ -8175,7 +8175,8 @@ export class FleetManager {
         haulTargets,
         missionBuyTargets,
         contractBuyTargets,
-        (from, to) => this.galaxy.canJump(from, to),
+        // Both ends: a leg into a system whose gate is known unfinished can't be flown (galaxy.canJumpInto()).
+        (from, to) => this.galaxy.canJumpInto(from, to),
         (a, b) => this.estimatedFuelBetween(a, b),
         (m) => this.log(m),
         (system, from, to, capacity) => {
@@ -8185,7 +8186,7 @@ export class FleetManager {
         },
         {
           enabled: this.doctrine.isEnabledOr("autoCrossSystemRoutes", false),
-          path: (a, b) => (this.galaxy.canJump(a, b) ? [a, b] : this.galaxy.jumpPath(a, b)),
+          path: (a, b) => (this.galaxy.canJumpInto(a, b) ? [a, b] : this.galaxy.jumpPath(a, b)),
           hopCost: (a, b) => this.crossSystemLegCost(a, b),
           homeSystem: this.systemSymbol,
           homeReserve: 1,
