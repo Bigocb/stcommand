@@ -3489,6 +3489,10 @@ export class FleetManager {
     }
     this.log(`${shipSymbol} jumping ${gate} -> ${waypointSymbol}`);
     const res = await this.api.jumpShip(shipSymbol, waypointSymbol);
+    // The ship has moved. Refresh the cache now, or the dashboard keeps showing the gate it left until the ship's
+    // agent next syncs, and an operator-held ship's agent may not sync at all (seen live: THEOREM-86 showed HR84-I60
+    // while it sat at KK70-XB7D).
+    await this.refreshShipCache(shipSymbol);
     this.recordLedger?.({
       timestamp: new Date().toISOString(),
       shipSymbol,
@@ -7272,6 +7276,18 @@ export class FleetManager {
     const agent = this.controlledAgent(shipSymbol);
     if (agent) agent.adoptShip?.(ship);
     else if (this.idleShips.has(shipSymbol)) this.idleShips.set(shipSymbol, ship);
+  }
+
+  /**
+   * Re-read one ship from the game and push it into its cache. Used right after a fleet-driven action has moved the
+   * ship. A failure is logged, not thrown: the action itself already succeeded, and the next sync corrects the cache.
+   */
+  private async refreshShipCache(shipSymbol: string): Promise<void> {
+    try {
+      this.noteShipState(shipSymbol, await this.api.getShip(shipSymbol));
+    } catch (err) {
+      this.log(`${shipSymbol}: cache refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /** A live getShip() whose result also refreshes the fleet's cached snapshot (noteShipState). */

@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-15 — A manual or fleet-driven jump refreshes the ship's cached position
+
+The dashboard's fleet table reads each ship's cached snapshot, and a jump didn't update it. THEOREM-86 was jumped to X1-KK70-XB7D and held there, but the table kept showing X1-HR84-I60 while the ship's popup showed the right system. After any jump through `jumpShip()`, the fleet now re-reads that ship once and pushes it into its cache. A failed re-read is logged and the jump still counts as done.
+
 ## 2026-10-14 — Per-ship lot size and lot count cap, with an MCP tool
 
 The only trade-size limit was the fleet-wide `maxLotsPerTrip` doctrine rule, so pacing one hull (a thin market, a long positioning leg) meant changing every ship. A new pure module (`src/engine/shipLotPolicy.ts`) holds two optional per-ship fields: `lotSize` caps units per buy call, and `maxLots` replaces the fleet lot count for that ship. A trip's volume is now min(hold, wallet, lotSize × maxLots), so a smaller lotSize shrinks the whole trip. Overrides persist in the `shipLotPolicies` fleet flag and reload at boot. The new `stcommand_set_ship_lot_policy` tool sets, clears or lists them, so automation can use the same knob. Limits: lotSize 1 to 1000, maxLots 1 to 12, and 0 clears a field. Only trader route planning and buying read the overrides; the dispatcher's route ranking still uses fleet defaults.
