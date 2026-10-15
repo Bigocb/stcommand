@@ -504,7 +504,9 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
   30 min, buy-pass yard scans only where a ship is, unfinished gates rechecked every 20 min. Keeper markets already
   poll by volatility (`keeperCadence.ts`). Next, once the limiter log shows what is left: serve ships from their last
   action response instead of `GET /my/ships/:id` (~15 a minute; the sweep measured 100% agreement on the copies it
-  could check), and market snapshots (~15 a minute).
+  could check), and market snapshots (~15 a minute). The keeper market cadence (`marketSignatures`) is in memory too,
+  so after every deploy each keeper polls at the 5-minute floor until its market sits still again; seed it from
+  `market_snapshots` (when each market's prices last changed).
 - [ ] **State backup.** Each state refresh writes the whole snapshot (galaxy included) to the database
   (`saveStateSnapshot`). Write the lean snapshot instead, or less often.
 - [ ] **5. Split the web server from the engine** into two processes, joined by Postgres notifications.

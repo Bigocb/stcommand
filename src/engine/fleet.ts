@@ -5084,6 +5084,12 @@ export class FleetManager {
     // Every dock at a shipyard took a fresh snapshot, so ships parked at or cycling through the same yard re-read
     // it every few minutes between them (15-20 per five minutes). Once per yard per SHIPYARD_SNAPSHOT_MS is plenty
     // for stock that rotates slowly.
+    // The clock is in memory, so a restart used to re-read every yard on its next dock (57 reads in the first five
+    // minutes after the 2026-10-15 deploy). Start it from the stored inventory's own time instead.
+    if (!this.shipyardSnapshotAt.has(waypointSymbol)) {
+      const stored = (await this.storedYardTimes()).get(waypointSymbol);
+      if (stored !== undefined) this.shipyardSnapshotAt.set(waypointSymbol, stored);
+    }
     const last = this.shipyardSnapshotAt.get(waypointSymbol) ?? 0;
     if (Date.now() - last < FleetManager.SHIPYARD_SNAPSHOT_MS) return;
     this.shipyardSnapshotAt.set(waypointSymbol, Date.now());
@@ -5096,6 +5102,24 @@ export class FleetManager {
     } catch (err) {
       // ignore: shipyard may not be scannable
     }
+  }
+
+  private yardTimes: Promise<Map<string, number>> | undefined;
+  /** When each yard's stored inventory was last written, read once per process. Empty without a store or on failure. */
+  private storedYardTimes(): Promise<Map<string, number>> {
+    this.yardTimes ??= (async () => {
+      const out = new Map<string, number>();
+      try {
+        for (const r of (await this.store?.shipyardInventory()) ?? []) {
+          const t = Date.parse(r.timestamp);
+          if (Number.isFinite(t) && t > (out.get(r.waypointSymbol) ?? 0)) out.set(r.waypointSymbol, t);
+        }
+      } catch {
+        /* no stored times: each yard is read on its next dock, as before */
+      }
+      return out;
+    })();
+    return this.yardTimes;
   }
 
   /** True while a keeper-probe request that would buy AT exactly this

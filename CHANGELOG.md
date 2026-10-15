@@ -23,6 +23,8 @@ bought little:
   scanning any other yard returned nothing. It now scans only yards where a ship of ours sits, and ranks on the cached
   credit balance instead of a fresh `GET /my/agent`.
 - **Unfinished gate rechecks** (5-6 a minute). An unfinished gate is re-read every 20 minutes instead of every 5.
+- **Yard reads after a deploy.** The 30-minute yard clock was in memory, so the first five minutes after a restart
+  re-read 57 yards. It now starts from the stored inventory's timestamp.
 
 Expected total: 25-30 calls a minute moved from overhead to ship turns. The limiter's `top callers` log line shows it.
 

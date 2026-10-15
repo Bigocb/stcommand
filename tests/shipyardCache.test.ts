@@ -92,3 +92,22 @@ describe("buy-pass yard scans", () => {
     assert.equal(calls.getShipyard, 0);
   });
 });
+
+describe("shipyard snapshot clock after a restart", () => {
+  it("starts from the stored inventory's time, so a fresh process doesn't re-read a recently stored yard", async () => {
+    const { fleet, calls } = fleetCountingYardReads();
+    const recent = new Date(Date.now() - 10 * 60_000).toISOString();
+    const old = new Date(Date.now() - 40 * 60_000).toISOString();
+    (fleet as any).store = {
+      shipyardInventory: async () => [
+        { waypointSymbol: "X1-A-Y1", timestamp: recent },
+        { waypointSymbol: "X1-A-Y2", timestamp: old },
+      ],
+      recordShipyardInventory: async () => {},
+    };
+    await fleet.recordShipyardSnapshot("X1-A-Y1");
+    assert.equal(calls.getShipyard, 0);
+    await fleet.recordShipyardSnapshot("X1-A-Y2");
+    assert.equal(calls.getShipyard, 1);
+  });
+});
