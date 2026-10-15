@@ -18,8 +18,9 @@ import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { IDLE_STEP, Pending, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
-import { ShipSnapshotBoard, describeSnapshotSummary } from "./shipSnapshots.js";
-import { KEEPER_POLL_MIN_MS, keeperPollDelayMs } from "./keeperCadence.js";
+import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
+import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
+import { KEEPER_POLL_MIN_MS, cadenceSeeds, keeperPollDelayMs, marketSignature } from "./keeperCadence.js";
 import { cargoValue, cargoSignature, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
@@ -544,7 +545,9 @@ export class FleetManager {
     this.api = opts.api;
     this.contracts = opts.contracts;
     this.log = opts.log ?? ((m) => console.log(`[fleet] ${m}`));
-    this.api.setShipObserver?.(this.shipSnapshots);
+    // The measurement sweep's board only listens while the sweep runs; the ship book always does (shadow mode).
+    this.api.setShipObserver?.(FleetManager.SWEEP_INTERVAL_MS > 0 ? combineShipObservers(this.shipSnapshots, this.shipBook) : this.shipBook);
+    this.api.setShipSource?.((symbol) => this.shipBook.serve(symbol));
     this.recordLedger = opts.recordLedger;
     this.recordMovement = opts.recordMovement;
     this.recordActionEvent = opts.recordActionEvent;
@@ -2294,11 +2297,31 @@ export class FleetManager {
     return out;
   }
 
+  private cadenceSeeded = false;
+  /**
+   * Start the keeper cadence from stored snapshots, once per process, in the background. Until it lands a market reads
+   * as unseen (the 5-minute floor), as before. A market already seen live this process keeps its live entry.
+   */
+  private seedMarketCadence(): void {
+    if (this.cadenceSeeded || !this.store?.marketSnapshotsSince) return;
+    this.cadenceSeeded = true;
+    const since = new Date(Date.now() - 3 * 3_600_000).toISOString();
+    void this.store.marketSnapshotsSince(since).then((rows) => {
+      let n = 0;
+      for (const [wp, seed] of cadenceSeeds(rows)) {
+        if (this.marketSignatures.has(wp)) continue;
+        this.marketSignatures.set(wp, seed);
+        n += 1;
+      }
+      this.log(`keeper cadence: seeded ${n} markets from ${rows.length} stored snapshots`);
+    }).catch((err) => this.log(`keeper cadence seed failed: ${err instanceof Error ? err.message : String(err)}`));
+  }
+
   /** Per market: the last price/supply signature seen and when it last differed. Fed by every snapshot from any ship. */
   private readonly marketSignatures = new Map<string, { sig: string; changedAt: number }>();
 
   private noteMarketSignature(waypointSymbol: string, goods: readonly { symbol: string; purchasePrice: number; sellPrice: number; supply?: string }[]): void {
-    const sig = goods.map((g) => `${g.symbol}:${g.purchasePrice}:${g.sellPrice}:${g.supply ?? ""}`).join("|");
+    const sig = marketSignature(goods);
     const prev = this.marketSignatures.get(waypointSymbol);
     if (!prev || prev.sig !== sig) this.marketSignatures.set(waypointSymbol, { sig, changedAt: Date.now() });
   }
@@ -2312,6 +2335,7 @@ export class FleetManager {
    * working keeps its fast cadence. 30 is well inside the 90-minute intel window (snapshotMaxAgeMin).
    */
   keeperPollMs(waypointSymbol: string): number {
+    this.seedMarketCadence();
     const seen = this.marketSignatures.get(waypointSymbol);
     if (!seen) return KEEPER_POLL_MIN_MS;
     return keeperPollDelayMs(Date.now() - seen.changedAt);
@@ -8002,6 +8026,9 @@ export class FleetManager {
   private static readonly SWEEP_INTERVAL_MS = Number(process.env.SHIP_SWEEP_MS ?? 0);
   private static readonly SWEEP_SUMMARY_MS = 5 * 60_000;
   private lastSweepSummaryAt = Date.now();
+  /** Answers step-start ship reads from what the fleet already knows; shadow-only until the `shipBook` clause is on. */
+  readonly shipBook = new ShipBook();
+  private lastShipBookSummaryAt = Date.now();
   /** How urgent each loop's own API calls are — see API_PRIORITY. */
   private static readonly LOOP_API_PRIORITY: Record<string, number> = {
     core: API_PRIORITY.ROUTINE,
@@ -8295,6 +8322,7 @@ export class FleetManager {
   private async tickMaintenance(): Promise<void> {
     // Before the pause check: a halted fleet is when a list of what needs attention matters most. Never throws, throttles itself.
     await this.attention.refresh();
+    this.syncShipBook();
     if (this.paused) return;
     await this.pass("maintenance", async () => {
       await this.timed("refreshCredits", () => this.refreshCredits());
@@ -9364,6 +9392,16 @@ export class FleetManager {
     if (Date.now() - this.lastSweepSummaryAt >= FleetManager.SWEEP_SUMMARY_MS) {
       this.lastSweepSummaryAt = Date.now();
       this.log(describeSnapshotSummary(this.shipSnapshots.takeSummary()));
+    }
+  }
+
+  /** Apply the `shipBook` clause (on = serve, value = age limit in seconds) and log the book's summary every five minutes. */
+  private syncShipBook(): void {
+    const serve = this.doctrine.isEnabledOr("shipBook", false);
+    this.shipBook.setPolicy({ serve, maxAgeMs: this.doctrine.value("shipBook", DEFAULT_SHIP_BOOK_POLICY.maxAgeMs / 1000) * 1000 });
+    if (Date.now() - this.lastShipBookSummaryAt >= FleetManager.SWEEP_SUMMARY_MS) {
+      this.lastShipBookSummaryAt = Date.now();
+      this.log(describeShipBookSummary(this.shipBook.takeSummary(), serve));
     }
   }
 

@@ -254,7 +254,9 @@ export class ShipProxy {
   }
 
   async refresh(): Promise<void> {
-    this.ship = await this.api.getShip(this.ship.symbol);
+    // The ship book answers when it holds a trusted copy and its doctrine clause is on (see shipBook.ts).
+    const booked = this.api.bookedShip?.(this.ship.symbol);
+    this.ship = booked ?? (await this.api.getShip(this.ship.symbol));
   }
 
   /**

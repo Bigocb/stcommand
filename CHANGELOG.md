@@ -9,6 +9,25 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-15 — Ship book (shadow) and keeper cadence that survives a deploy
+
+The rest of step 4 of the scaling plan, prepared so it can be switched on once it has proved itself:
+
+- **Ship book** (`src/engine/shipBook.ts`). Every ship step starts with `GET /my/ships/:id`, about 15 calls a minute.
+  The game only changes a ship when we act on it, and each action's answer carries what it changed, so the book keeps
+  each ship's last full read and folds every action response into it (`nav`, `fuel`, `cargo`, `cooldown`). A ship is
+  marked unknown while an action is in flight, after one that fails or isn't on the known list (mount installs, scrap,
+  repair), and when it is a transfer's receiving ship. Transit arrival and cooldown expiry are applied from their stored
+  times. Contract delivery and construction supply, which name the ship in the body, are folded in too.
+  It runs in **shadow** from this deploy: each real read is compared with what the book would have served, and every
+  five minutes the log carries `ship book (shadow): N reads · M could have been served, K matched (x%) · mismatches …`.
+  The `shipBook` doctrine clause (off) lets it serve; its value is the age limit (300 s), so every ship is still read for
+  real at least that often.
+- **Keeper cadence after a restart.** The cadence (5 to 30 minutes by how long a market has sat still) lived only in
+  memory, so after each deploy every keeper polled at the 5-minute floor for up to 90 minutes. It now starts from the
+  last three hours of `market_snapshots`: each market's latest signature and when its prices last moved. Market
+  signatures no longer depend on the order the goods are listed in.
+
 ## 2026-10-15 — About a quarter of the API budget handed back to the ships
 
 At 183 ships the 90-calls-a-minute budget was pegged. The limiter's own five-minute breakdown showed four spenders that

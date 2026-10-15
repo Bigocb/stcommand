@@ -1878,6 +1878,18 @@ export class Store {
    * every recordMarkets() call already writes here regardless of why the
    * snapshot was taken.
    */
+  /** Every market snapshot row since `sinceIso`, slimmed to what the keeper cadence seed needs (see cadenceSeeds()). */
+  async marketSnapshotsSince(sinceIso: string): Promise<{ waypoint: string; good: string; ts: number; purchasePrice: number; sellPrice: number; supply: string }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ waypoint_symbol: string; good_symbol: string; ts: Date; purchase_price: number; sell_price: number; supply: string }>(
+        `SELECT waypoint_symbol, good_symbol, timestamp AS ts, purchase_price, sell_price, supply
+         FROM market_snapshots WHERE timestamp >= $1::timestamptz`,
+        [sinceIso],
+      );
+      return res.rows.map((r) => ({ waypoint: r.waypoint_symbol, good: r.good_symbol, ts: r.ts.getTime(), purchasePrice: Number(r.purchase_price), sellPrice: Number(r.sell_price), supply: r.supply }));
+    });
+  }
+
   async marketPriceHistory(waypointSymbol: string, goodSymbol: string, limit = 50): Promise<MarketRow[]> {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{

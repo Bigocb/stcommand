@@ -17,6 +17,23 @@
 export interface ShipObserver {
   onShipRead(symbol: string, ship: unknown): void;
   onShipAction(symbol: string): void;
+  /** Before an action request is sent, with every ship it touches (see shipsTouched). Returns a token for onShipActionDone. */
+  onShipActionStart?(symbols: readonly string[]): number;
+  /** After the action answered successfully. Not called when it failed or never answered. */
+  onShipActionDone?(token: number, primary: string | undefined, action: string | undefined, data: unknown): void;
+}
+
+/** Several observers on the one client hook. */
+export function combineShipObservers(...observers: ShipObserver[]): ShipObserver {
+  return {
+    onShipRead: (symbol, ship) => observers.forEach((o) => o.onShipRead(symbol, ship)),
+    onShipAction: (symbol) => observers.forEach((o) => o.onShipAction(symbol)),
+    onShipActionStart: (symbols) => {
+      const tokens = observers.map((o) => o.onShipActionStart?.(symbols) ?? 0);
+      return tokens.find((t) => t > 0) ?? 0;
+    },
+    onShipActionDone: (token, primary, action, data) => observers.forEach((o) => o.onShipActionDone?.(token, primary, action, data)),
+  };
 }
 
 interface Fingerprint {

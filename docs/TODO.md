@@ -502,11 +502,11 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
   only resends slices that changed, cached briefly and shared by every open screen.
 - [~] **4. Spend fewer API calls.** First pass SHIPPED 2026-10-15 (see CHANGELOG): sweep off, shipyard snapshots every
   30 min, buy-pass yard scans only where a ship is, unfinished gates rechecked every 20 min. Keeper markets already
-  poll by volatility (`keeperCadence.ts`). Next, once the limiter log shows what is left: serve ships from their last
-  action response instead of `GET /my/ships/:id` (~15 a minute; the sweep measured 100% agreement on the copies it
-  could check), and market snapshots (~15 a minute). The keeper market cadence (`marketSignatures`) is in memory too,
-  so after every deploy each keeper polls at the 5-minute floor until its market sits still again; seed it from
-  `market_snapshots` (when each market's prices last changed).
+  poll by volatility (`keeperCadence.ts`). Second pass SHIPPED 2026-10-15: the ship book in
+  shadow (doctrine `shipBook`, off) and the keeper cadence seeded from stored snapshots. **Next:** read a few
+  `ship book (shadow)` lines; turn `shipBook` on if the match rate is ~100% and the mismatches are explained, then
+  watch `ship <- ShipProxy.refresh` fall in the limiter's top callers. After that, market snapshots (~15 a minute)
+  are the largest overhead left.
 - [ ] **State backup.** Each state refresh writes the whole snapshot (galaxy included) to the database
   (`saveStateSnapshot`). Write the lean snapshot instead, or less often.
 - [ ] **5. Split the web server from the engine** into two processes, joined by Postgres notifications.

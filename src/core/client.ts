@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ShipObserver } from "../engine/shipSnapshots.js";
+import { shipsTouched } from "../engine/shipBook.js";
 import type { paths } from "./schema.js";
 import type { components } from "./schema.js";
 // Only used for the proxied path — see request()'s own comment on why a
@@ -564,6 +565,14 @@ export class Client {
     if (this.fatalAuthError) throw new APIError(this.fatalAuthError, 401, "TOKEN_RESET_MISMATCH");
 
     const caller = callerOf();
+    // Tell the ship book an action is under way before it is sent: if it fails or never answers, its effect is unknown.
+    const touched = req.method !== "GET" && this.shipObserver?.onShipActionStart ? shipsTouched(req.method, req.path, req.body) : undefined;
+    let actionToken = 0;
+    if (touched && (touched.primary || touched.others.length > 0)) {
+      try {
+        actionToken = this.shipObserver!.onShipActionStart!([...(touched.primary ? [touched.primary] : []), ...touched.others]);
+      } catch { /* an observer must never fail the request it is watching */ }
+    }
     let attempt = 0;
     for (;;) {
       // Boot (priority 0) always wins; otherwise the calling context's own
@@ -653,6 +662,11 @@ export class Client {
         throw new APIError(err.message, res.status, err.code, json);
       }
       this.observeShip(req, json);
+      if (touched && actionToken > 0) {
+        try {
+          this.shipObserver?.onShipActionDone?.(actionToken, touched.primary, touched.action, (json as { data?: unknown } | undefined)?.data);
+        } catch { /* see above */ }
+      }
       return json as T;
     }
   }
@@ -784,6 +798,18 @@ export class SpaceTradersAPI {
   /** See Client.setShipObserver. */
   setShipObserver(observer: ShipObserver | undefined): void {
     this.client.setShipObserver(observer);
+  }
+
+  private shipSource: ((symbol: string) => unknown) | undefined;
+
+  /** Where bookedShip() looks (the fleet's ShipBook). */
+  setShipSource(source: ((symbol: string) => unknown) | undefined): void {
+    this.shipSource = source;
+  }
+
+  /** The ship from the fleet's ship book when it may stand in for a read (see ShipBook.serve), else undefined. */
+  bookedShip(shipSymbol: string): components["schemas"]["Ship"] | undefined {
+    return this.shipSource?.(shipSymbol) as components["schemas"]["Ship"] | undefined;
   }
 
   getMyAgent() {
