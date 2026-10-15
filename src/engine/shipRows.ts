@@ -7,16 +7,49 @@
  */
 import type { Ship } from "./state.js";
 
-export interface ShipRow {
+/** A route end as the screens use it: which waypoint, and where it is (the map draws a ship between the two). */
+export interface RouteEnd {
   symbol: string;
-  nav: Ship["nav"];
-  fuel: Ship["fuel"];
-  cargo: Ship["cargo"];
-  cooldown: Ship["cooldown"];
+  x: number;
+  y: number;
 }
 
+/**
+ * The live parts of a ship, trimmed to what the screens read. Left out: a cargo item's name and description (the
+ * screen keeps them from the ship it already has), a route end's type and system, the fuel-consumption record and
+ * the cooldown's ship symbol. That is about a third of the full objects' size.
+ */
+export interface ShipRow {
+  symbol: string;
+  nav: {
+    status: Ship["nav"]["status"];
+    flightMode: Ship["nav"]["flightMode"];
+    systemSymbol: string;
+    waypointSymbol: string;
+    route?: { origin?: RouteEnd; destination?: RouteEnd; departureTime?: string; arrival?: string };
+  };
+  fuel: { current: number; capacity: number };
+  cargo: { capacity: number; units: number; inventory: { symbol: string; units: number }[] };
+  cooldown?: { totalSeconds: number; remainingSeconds: number; expiration?: string };
+}
+
+const end = (w: { symbol: string; x: number; y: number } | undefined): RouteEnd | undefined => (w ? { symbol: w.symbol, x: w.x, y: w.y } : undefined);
+
 export function shipRow(s: Ship): ShipRow {
-  return { symbol: s.symbol, nav: s.nav, fuel: s.fuel, cargo: s.cargo, cooldown: s.cooldown };
+  const r = s.nav?.route;
+  return {
+    symbol: s.symbol,
+    nav: {
+      status: s.nav?.status,
+      flightMode: s.nav?.flightMode,
+      systemSymbol: s.nav?.systemSymbol,
+      waypointSymbol: s.nav?.waypointSymbol,
+      route: r ? { origin: end(r.origin), destination: end(r.destination), departureTime: r.departureTime, arrival: r.arrival } : undefined,
+    },
+    fuel: { current: s.fuel?.current ?? 0, capacity: s.fuel?.capacity ?? 0 },
+    cargo: { capacity: s.cargo?.capacity ?? 0, units: s.cargo?.units ?? 0, inventory: (s.cargo?.inventory ?? []).map((i) => ({ symbol: i.symbol, units: i.units })) },
+    cooldown: s.cooldown ? { totalSeconds: s.cooldown.totalSeconds, remainingSeconds: s.cooldown.remainingSeconds, expiration: s.cooldown.expiration } : undefined,
+  };
 }
 
 /** What a screen needs to apply: rows that are new or changed, and ships that are gone. */

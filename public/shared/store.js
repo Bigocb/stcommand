@@ -273,6 +273,11 @@ export function applyShipRows(rows = [], removed = []) {
       if (!r) return sh;
       const next = { ...sh };
       for (const f of LIVE_SHIP_FIELDS) if (r[f] !== undefined) next[f] = r[f];
+      // The live row leaves out a cargo item's name and description; keep the ones this ship already had.
+      if (r.cargo?.inventory && sh.cargo?.inventory) {
+        const known = new Map(sh.cargo.inventory.map((i) => [i.symbol, i]));
+        next.cargo = { ...r.cargo, inventory: r.cargo.inventory.map((i) => ({ ...(known.get(i.symbol) ?? {}), ...i })) };
+      }
       return next;
     });
   state = { ...state, ships };

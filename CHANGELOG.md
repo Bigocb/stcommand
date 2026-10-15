@@ -53,6 +53,10 @@ events (`GET /api/live`), and Deck and Tower apply them to the same shared store
 - **Polling:** while the stream is connected, Deck and Tower re-read the full state and the activity list every fourth
   tick (once a minute) as a safety net, instead of every 15 s. Everything else still polls as before. Older UI versions
   are unchanged.
+- **Trimmed rows (follow-up):** a ship row now carries only what the screens read: route ends as symbol and x/y (the map
+  draws a ship between them), departure and arrival, fuel current and capacity, cargo items as symbol and units, and the
+  cooldown without its ship symbol. THEOREM-7's row in the live stream went from about 1.6 KB to 630 bytes. The browser
+  keeps each cargo item's name and description from the ship it already has.
 - **Code:** `src/engine/liveFeed.ts` (hub and buffer), `src/engine/shipRows.ts` (row and diff),
   `src/http/live.ts` (the endpoint), `public/shared/live.js` (the browser side), and new apply functions in
   `public/shared/store.js`.

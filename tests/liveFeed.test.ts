@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import express from "express";
 import type { Server } from "node:http";
 import { LiveFeed } from "../src/engine/liveFeed.js";
-import { diffShips } from "../src/engine/shipRows.js";
+import { diffShips, shipRow } from "../src/engine/shipRows.js";
 import { liveRoute } from "../src/http/live.js";
 
 const ship = (symbol: string, over: Record<string, unknown> = {}) => ({
@@ -57,6 +57,30 @@ describe("ship rows", () => {
     const a = diffShips(new Map(), [ship("S-1", { cooldown: { shipSymbol: "S-1", totalSeconds: 70, remainingSeconds: 60, expiration: "2026-10-15T00:01:00Z" } })]);
     const b = diffShips(a.next, [ship("S-1", { cooldown: { shipSymbol: "S-1", totalSeconds: 70, remainingSeconds: 40, expiration: "2026-10-15T00:01:00Z" } })]);
     assert.equal(b.diff.changed.length, 0);
+  });
+});
+
+describe("ship row trim", () => {
+  it("keeps what the screens read and drops the rest, for about a third of the size", () => {
+    const full = ship("S-1", {
+      nav: {
+        status: "IN_TRANSIT", waypointSymbol: "X1-A-2", systemSymbol: "X1-A", flightMode: "BURN",
+        route: {
+          origin: { symbol: "X1-A-1", type: "PLANET", systemSymbol: "X1-A", x: 1, y: 2 },
+          destination: { symbol: "X1-A-2", type: "MOON", systemSymbol: "X1-A", x: 30, y: 40 },
+          departureTime: "2026-10-15T00:00:00Z", arrival: "2026-10-15T00:01:00Z",
+        },
+      },
+      fuel: { current: 24, capacity: 80, consumed: { amount: 56, timestamp: "2026-10-15T00:00:00Z" } },
+      cargo: { capacity: 15, units: 6, inventory: [{ symbol: "COPPER_ORE", name: "Copper Ore", description: "A valuable ore used in the production of copper and other alloys.", units: 6 }] },
+    });
+    const row = shipRow(full);
+    assert.deepEqual(row.nav.route!.destination, { symbol: "X1-A-2", x: 30, y: 40 }, "the map's interpolation needs symbol, x and y");
+    assert.equal(row.nav.route!.arrival, "2026-10-15T00:01:00Z");
+    assert.deepEqual(row.cargo.inventory, [{ symbol: "COPPER_ORE", units: 6 }]);
+    assert.deepEqual(row.fuel, { current: 24, capacity: 80 });
+    const fullRow = { symbol: full.symbol, nav: full.nav, fuel: full.fuel, cargo: full.cargo, cooldown: full.cooldown };
+    assert.ok(JSON.stringify(row).length < JSON.stringify(fullRow).length * 0.7);
   });
 });
 
