@@ -33,6 +33,11 @@ fell to about 614k (after fuel and jumps) over the hour these two were stuck.
 - **Stuck cargo:** when a trader can't reach the market its held cargo was bought for, it now redirects the lot to the
   best reachable market: first one that clears the loss floor, else the best price reachable. Before, it retried the
   same jump forever. A sale below the floor still goes through the usual hold-or-approve rule.
+- **Trader too (follow-up):** the trader had its own one-sided check, so THEOREM-25 still tried the jump into GX41 once
+  (the game refused: "Destination jump gate X1-GX41-I60 is under construction"). That check also decides which markets
+  a redirect may pick. The trader now uses `canJumpInto()` as well, for its jump, its one-hop path and its reachability.
+  Live after the fix: THEOREM-65 redirected 80 FIREARMS to X1-HR84-J63 at 3,605c (bought at 2,900c); THEOREM-25
+  redirected 80 ALUMINUM back to X1-GJ35-AF1Z at 72c (bought at 141c, about 5.5k lost, so subject to the floor rule).
 
 ## 2026-10-15 — Live feed: ships, credits and activity pushed to the screens
 

@@ -581,8 +581,15 @@ export class TraderAgent {
    *  construction-complete. No atlas wired at all reads as "cross-system
    *  never reachable" — the same conservative default a standalone trader
    *  (no dispatcher, no atlas) already had before gate-awareness existed. */
+  /** One jump is possible: both gates, where the atlas can tell (canJumpInto), else the near gate (older test atlases). */
+  private jumpable(fromSystem: string, toSystem: string): boolean {
+    if (!this.atlas) return false;
+    return typeof this.atlas.canJumpInto === "function" ? this.atlas.canJumpInto(fromSystem, toSystem) : this.atlas.canJump(fromSystem, toSystem);
+  }
+
   private systemsConnected(fromSystem: string, toSystem: string): boolean {
-    return fromSystem === toSystem || (this.atlas?.canJump(fromSystem, toSystem) ?? false);
+    // Both ends: a system whose gate is known unfinished can't be jumped into (GalaxyAtlas.canJumpInto()).
+    return fromSystem === toSystem || this.jumpable(fromSystem, toSystem);
   }
 
   /** Systems this ship would cross to get from `fromSystem` to `toSystem`
@@ -595,7 +602,7 @@ export class TraderAgent {
     // A directly connected pair keeps the long-standing one-hop rule (source
     // gate cached complete); only a farther pair needs the verified-both-ends
     // multi-hop search.
-    if (this.atlas?.canJump(fromSystem, toSystem)) return [fromSystem, toSystem];
+    if (this.jumpable(fromSystem, toSystem)) return [fromSystem, toSystem];
     return this.atlas?.jumpPath?.(fromSystem, toSystem);
   }
 
@@ -740,7 +747,7 @@ export class TraderAgent {
       const from = this.ship.nav.systemSymbol;
       // A warp drive goes straight to the real destination, so it skips the gate hop, the jump fee and the cooldown.
       if (await this.warpTo(targetSystem, waypoint)) return;
-      if (this.atlas?.canJump(from, targetSystem)) {
+      if (this.jumpable(from, targetSystem)) {
         await this.jumpToSystem(targetSystem, waypoint);
         return;
       }
