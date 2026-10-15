@@ -5,6 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TenantWorker } from "../engine/tenantRegistry.js";
 import type { ShipType } from "../engine/fleet.js";
 import { normalizeShipLotPolicy, effectiveMaxLots, SHIP_LOT_LIMITS } from "../engine/shipLotPolicy.js";
+import { runAnalysis } from "../ops/analysis.js";
 import { API_BASE } from "../core/client.js";
 
 /**
@@ -525,6 +526,31 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
           effectiveMaxLots: effectiveMaxLots(doctrineMaxLots, policy ?? undefined),
           shipLotPolicies: w.fleet.shipLotPolicyList(),
         });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_capture_findings",
+    {
+      title: "Save an analysis report so its lessons survive the reset",
+      description: "Run the analysis engine over the last sinceHours (same report as stcommand_ops_analysis) and save it to analysis_findings with an optional label (for example \"end of week\"). Saved reports are kept across the weekly reset, so goods' price impact, recovery times and estimate bias can be compared week to week even though the market tables are wiped. Read them back with stcommand_ops_findings_history.",
+      inputSchema: {
+        sinceHours: z.number().min(1).max(24 * 8).optional().describe("Window in hours, default 24"),
+        label: z.string().max(200).optional(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    async ({ sinceHours, label }) => {
+      try {
+        const hours = sinceHours ?? 24;
+        const now = Date.now();
+        const report = await runAnalysis(w, hours, now);
+        const id = await w.store.saveAnalysisFindings(w.tenantId, { windowStart: report.window.from, windowEnd: report.window.to, label, report });
+        await recordMcpAction(w, "capture_findings", undefined, `analysis saved (#${id}, ${hours}h${label ? `, ${label}` : ""})`, { id, hours, label: label ?? null });
+        return textResult({ ok: true, id, window: report.window, summary: report.summary, findings: report.findings.length, suggestions: report.suggestions.length });
       } catch (err) {
         return errorResult(err);
       }

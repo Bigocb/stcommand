@@ -10,6 +10,7 @@ import type { OpsTool } from "./types.js";
 import { buildMetrics, bucketMinutesFor } from "../engine/metrics.js";
 import { miningFieldsReport, type FieldWaypoint } from "../engine/miningFields.js";
 import { contractsOverview } from "../http/contractsOverview.js";
+import { runAnalysis } from "./analysis.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
 const bool = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional();
@@ -172,6 +173,28 @@ export const OPS_TOOLS: OpsTool[] = [
         returned: rows.length,
         rows,
       };
+    },
+  },
+
+  {
+    name: "analysis",
+    title: "What worked, what didn't, and why",
+    description:
+      "The analysis engine over a window (docs/analysis-engine.md): every trip rebuilt from the ledger and joined with the estimate the bot chose it on, per-route results (best and worst, profit per trip and per loaded hour, positioning cost), how hard our own trades move each market and how long it takes to recover, who caused each big price move (us, another agent, or nobody seen), what each settings change was followed by (a correlation with its sample size, not proof), calibration factors (realized over estimated profit, the first step to prediction), and ranked findings with suggested actions (exact tool and arguments where one exists; advisory only, nothing is applied). Estimates exist only for trips from the 2026-10-15 deploy on.",
+    input: { sinceHours: num(24) },
+    async run(ctx, a) {
+      return runAnalysis(ctx.w, Math.min(Math.max(1, a.sinceHours), 24 * 8), ctx.now());
+    },
+  },
+
+  {
+    name: "findings_history",
+    title: "Saved analysis reports",
+    description: "Analysis reports saved with stcommand_capture_findings (table analysis_findings), newest first. Kept across the weekly reset, so last week's lessons can be compared with this week's. Pass id for one full report; without it, only the headers.",
+    input: { id: z.coerce.number().optional(), limit: num(20) },
+    async run(ctx, a) {
+      const rows = await ctx.w.store.listAnalysisFindings(ctx.w.tenantId, { id: a.id, limit: a.limit, withReport: a.id !== undefined });
+      return { returned: rows.length, rows };
     },
   },
 

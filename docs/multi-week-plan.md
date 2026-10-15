@@ -94,6 +94,12 @@ restarting each reset.
 - Finish the gate, then scale the trading fleet.
 - Each reset returns to a known plan, not a restart.
 
+## Evidence for the plan
+
+The analysis engine (`docs/analysis-engine.md`) is how a week's lessons reach the next week: capture a report at the end
+of each week with `stcommand_capture_findings`, and start the next week's plan from it. Goals in the season record are
+measured with the same numbers (profit per hour, overhead share, estimate accuracy).
+
 ## What the code would need
 
 1. **A season plan that survives resets.** A new table, outside `TENANT_GAME_TABLES`, holding the phase, goals and

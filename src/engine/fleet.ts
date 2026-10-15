@@ -10,7 +10,8 @@ import { MissionManager } from "./mission.js";
 import { FeedManager } from "./feed.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
-import type { Store, CargoIntent, HeldRouteRow, ShipMovement } from "../db/store.js";
+import type { Store, CargoIntent, HeldRouteRow, ShipMovement, ActionEventRecord } from "../db/store.js";
+import { configChangeEvent, keeperListChange } from "./actionEvents.js";
 import { ApprovalGate } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
@@ -256,6 +257,8 @@ export interface FleetOptions {
   agentSymbol?: string;
   /** Writes each warp and gate jump to the ship_movements history (see migrations/052). */
   recordMovement?: (m: ShipMovement) => Promise<void>;
+  /** One decision or change for the analysis engine (action_events, docs/analysis-engine.md). */
+  recordActionEvent?: (e: ActionEventRecord) => Promise<void>;
   recordLedger?: (entry: {
     timestamp: string;
     shipSymbol: string;
@@ -332,6 +335,7 @@ export class FleetManager {
   private readonly log: (msg: string) => void;
   private readonly recordLedger: FleetOptions["recordLedger"];
   private readonly recordMovement: FleetOptions["recordMovement"];
+  private readonly recordActionEvent: FleetOptions["recordActionEvent"];
   private readonly onActivity: FleetOptions["onActivity"];
   private readonly minCashReserveDefault: number;
   /** Ships the operator has parked, mirrored in memory from
@@ -540,6 +544,7 @@ export class FleetManager {
     this.api.setShipObserver?.(this.shipSnapshots);
     this.recordLedger = opts.recordLedger;
     this.recordMovement = opts.recordMovement;
+    this.recordActionEvent = opts.recordActionEvent;
     this.onActivity = opts.onActivity;
     this.minCashReserveDefault = opts.minCashReserve ?? 20_000;
     this.store = opts.store;
@@ -593,6 +598,9 @@ export class FleetManager {
     // observed in practice — but it's honest to say it exists now, where it
     // provably didn't before.
     this.doctrine = new Doctrine(opts.store, opts.tenantId);
+    // Every doctrine edit (dashboard or MCP) becomes a config_change event with its before and after values.
+    this.doctrine.onChange = (key, before, after) =>
+      this.recordAction(configChangeEvent({ setting: `doctrine:${key}`, before, after, atIso: new Date().toISOString() }));
     this.galaxy = new GalaxyAtlas(this.api, opts.store);
     this.registry = new Registry(this.galaxy);
     this.missions = new MissionManager({
@@ -1249,6 +1257,7 @@ export class FleetManager {
   private traderOptions(shipSymbol: string): TraderOptions {
     return {
       recordMovement: this.recordMovement,
+      recordAction: (e: ActionEventRecord) => this.recordAction(e),
       api: this.api,
       intentFor: () => this.intents.current(shipSymbol),
       log: (m) => this.log(`${shipSymbol}: ${m}`),
@@ -1682,6 +1691,12 @@ export class FleetManager {
     else await this.store?.setFleetFlag(this.tenantId, "minerPreferredGoods", JSON.stringify(all));
   }
 
+  /** Write one action event. A failed write is logged, never allowed to break what triggered it. Null is ignored. */
+  recordAction(e: ActionEventRecord | null): void {
+    if (!e) return;
+    this.recordActionEvent?.(e).catch((err) => this.log(`action event record failed: ${err instanceof Error ? err.message : String(err)}`));
+  }
+
   /** The fleet-wide doctrine maxLotsPerTrip, for showing next to a ship's own override. */
   maxLotsPerTripValue(): number {
     return this.maxLotsPerTrip();
@@ -1697,6 +1712,10 @@ export class FleetManager {
    * survives a restart. Pass undefined to drop the ship's override entirely.
    */
   async setShipLotPolicy(shipSymbol: string, policy: ShipLotPolicy | undefined): Promise<void> {
+    this.recordAction(configChangeEvent({
+      setting: `lot_policy:${shipSymbol}`, shipSymbol, before: this.shipLotPolicies.get(shipSymbol) ?? null, after: policy ?? null,
+      atIso: new Date().toISOString(),
+    }));
     if (policy) this.shipLotPolicies.set(shipSymbol, policy);
     else this.shipLotPolicies.delete(shipSymbol);
     if (!this.tenantId) return;
@@ -8604,6 +8623,13 @@ export class FleetManager {
     const clean = [...new Set(markets.map((m) => m.trim().toUpperCase()).filter((m) => m.length > 0))];
     const before = await this.keeperPriorityMarkets();
     if (this.tenantId) await this.store?.setFleetFlag(this.tenantId, "keeperMarkets", JSON.stringify(clean));
+    const change = keeperListChange(before, clean);
+    if (change.added.length || change.removed.length) {
+      this.recordAction(configChangeEvent({
+        setting: "keeper_markets", before: { count: before.length }, after: change, atIso: new Date().toISOString(),
+        reason: `keeper list: +${change.added.length} -${change.removed.length} (now ${change.count})`,
+      }));
+    }
     for (const m of clean) {
       if (before.includes(m)) continue; // already on the list — nothing new to check
       try {

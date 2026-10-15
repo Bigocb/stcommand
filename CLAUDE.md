@@ -120,7 +120,10 @@ every tenant:
   `chat_messages` (co-pilot conversation log), `sessions` (login state),
   `operator_actions` and `tenants.play_profile` (play-style tracking —
   a role change or manual buy from a dead universe is still a real
-  historical data point for comparing play styles across resets).
+  historical data point for comparing play styles across resets),
+  `ship_movements`, `action_events` and `analysis_findings` (keyed by
+  `universe_key`, like the ledger: the analysis engine compares weeks, see
+  "The analysis engine" below).
 
 ### The ledger is kept, keyed by agent and week
 
@@ -338,6 +341,24 @@ follow-on lookahead (`src/engine/chain.ts`, `docs/backhaul-plan.md`) and the tra
 - **Explainable.** Return or log a one-line reason for each decision.
 - **Tested in isolation,** plus one test at the seam where the caller uses it.
 - **Callers stay thin.** The dispatcher, trader and dashboard call the module; they don't hold its logic.
+
+## The analysis engine: what worked, what didn't, and why
+
+Design and data model: `docs/analysis-engine.md`. Read it before adding a tracked action or an analysis.
+
+- **Tracking:** `action_events` (migrations/053) holds what the raw tables don't: the estimate a trader chose a route
+  on (`trip_planned`), what the trip made (`trip_closed`, same `correlation_id`), and every settings change with its
+  before and after (`config_change`: doctrine via `Doctrine.onChange`, per-ship lot policy, keeper list). Builders are
+  pure (`src/engine/actionEvents.ts`); writes go through `FleetManager.recordAction()`, which never lets a failed write
+  break the action. Don't duplicate what the ledger, `market_snapshots`, `market_transactions`, `operator_actions` or
+  `fleet_events` already hold: the analysis joins them.
+- **Analysis:** pure modules in `src/engine/analysis/` (trips, market impact and recovery, price-move attribution,
+  before/after on settings changes, calibration), assembled by `report.ts`. `src/ops/analysis.ts` fetches the rows.
+  Read it with ops `analysis` (`stcommand_ops_analysis`); save a week's report with `stcommand_capture_findings` so its
+  lessons survive the reset (`stcommand_ops_findings_history` reads them back).
+- **Advisory only.** Findings carry suggestions with the exact tool and arguments, but nothing is applied. A
+  before/after comparison is a correlation; it says so with its sample sizes. Using calibration in route ranking comes
+  later, behind a doctrine clause that ships off, once the factors prove stable.
 
 ## Docs to keep current
 

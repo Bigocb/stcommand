@@ -11,7 +11,8 @@ import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
 import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange } from "./warpTour.js";
-import type { ShipMovement } from "../db/store.js";
+import type { ShipMovement, ActionEventRecord } from "../db/store.js";
+import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
 
@@ -81,6 +82,8 @@ export interface TraderOptions {
   knownWarpNeed?: (fromSystem: string, toSystem: string) => number | undefined;
   /** Record the CRUISE fuel a warp needs, learned from a rejection or a completed warp. */
   noteWarpNeed?: (fromSystem: string, toSystem: string, cruiseNeed: number, how: string) => void;
+  /** One decision for the analysis engine: a trip planned (with its estimate) or closed (with its result). */
+  recordAction?: (e: ActionEventRecord) => void;
   /** Writes each warp and gate jump to the ship_movements history (see migrations/052). */
   recordMovement?: (m: ShipMovement) => Promise<void>;
   /** Store for runExploreGoal to record module catalogs and shipyard data. */
@@ -267,6 +270,13 @@ export class TraderAgent {
   private readonly warpEnabled?: () => boolean;
   private readonly knownWarpNeed?: TraderOptions["knownWarpNeed"];
   private readonly noteWarpNeed?: TraderOptions["noteWarpNeed"];
+  private readonly recordAction?: TraderOptions["recordAction"];
+  /**
+   * The trip each held good belongs to, for the analysis engine's trip_planned/trip_closed pair: its correlation id,
+   * when its first lot was bought, and what has been sold so far (a sale cut short by the loss floor resumes on a later
+   * tick, so the totals carry over). In memory: a trip in flight across a restart closes with no start time.
+   */
+  private readonly trips = new Map<string, { id: string; startedAtMs?: number; buyAt?: string; sellAt?: string; soldUnits: number; revenue: number; cost: number }>();
   private readonly recordMovement?: (m: ShipMovement) => Promise<void>;
   private readonly store?: TraderOptions["store"];
   private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
@@ -392,6 +402,7 @@ export class TraderAgent {
     this.warpEnabled = opts.warpEnabled;
     this.knownWarpNeed = opts.knownWarpNeed;
     this.noteWarpNeed = opts.noteWarpNeed;
+    this.recordAction = opts.recordAction;
     this.recordMovement = opts.recordMovement;
     this.store = opts.store;
     this.getWarehouseShip = opts.getWarehouseShip;
@@ -1706,6 +1717,7 @@ export class TraderAgent {
     // the trip is over, and a stale leg would answer for the next one.
     for (const good of [...this.heldRoute.keys()]) {
       if (held.has(good)) continue;
+      this.trips.delete(good);
       this.heldRoute.delete(good); this.floorRedirectTried.delete(good);
       await this.clearPersistedHeldRoute?.(good);
     }
@@ -2099,6 +2111,7 @@ export class TraderAgent {
       // floor left real cargo in the hold, and deleting the pin here would
       // hand it to clearLeftoverCargo()'s sweep instead of retrying this
       // same route (and its already-verified sellAt) on the next tick.
+      this.noteTripSale(item.symbol, leg, soldAny, totalReceived, paid, remaining <= 0);
       if (remaining <= 0) {
         this.heldRoute.delete(item.symbol); this.floorRedirectTried.delete(item.symbol);
         await this.clearPersistedHeldRoute?.(item.symbol);
@@ -2106,6 +2119,40 @@ export class TraderAgent {
       return true;
     }
     return undefined;
+  }
+
+  /**
+   * The first lot of a trip was bought: open its trip record and log what the route was expected to earn. A top-off
+   * of a good already held belongs to the trip already open.
+   */
+  private notePlannedTrip(route: Route, bought: number, totalPaid: number): void {
+    if (this.trips.has(route.good)) return;
+    const now = Date.now();
+    const id = tripId(this.symbol, route.good, now);
+    this.trips.set(route.good, { id, startedAtMs: now, buyAt: route.buyAt, sellAt: route.sellAt, soldUnits: 0, revenue: 0, cost: 0 });
+    this.recordAction?.(tripPlannedEvent({
+      shipSymbol: this.symbol, good: route.good, buyAt: route.buyAt, sellAt: route.sellAt,
+      buyPrice: route.buyPrice, sellPrice: route.sellPrice, units: route.volume,
+      profit: this.routeProfit(route), tripCost: this.tripCost(route.buyAt, route.sellAt),
+      lotSize: route.lotSize, buyVolume: route.buyVolume, sellVolume: route.sellVolume,
+      source: this.isManualLegFor(route.good) ? "manual" : "auto", maxLots: this.maxLotsPerTrip(),
+    }, id, new Date(now).toISOString(), { units: bought, avgPrice: bought > 0 ? totalPaid / bought : 0 }));
+  }
+
+  /** Add a sale to its trip; once the hold is sold down, log what the trip made and close it. */
+  private noteTripSale(good: string, leg: { buyAt?: string; sellAt: string }, units: number, revenue: number, cost: number, done: boolean): void {
+    const now = Date.now();
+    const trip = this.trips.get(good) ?? { id: tripId(this.symbol, good, now), buyAt: leg.buyAt, sellAt: leg.sellAt, soldUnits: 0, revenue: 0, cost: 0 };
+    trip.soldUnits += units;
+    trip.revenue += revenue;
+    trip.cost += cost;
+    this.trips.set(good, trip);
+    if (!done) return;
+    this.trips.delete(good);
+    this.recordAction?.(tripClosedEvent({
+      shipSymbol: this.symbol, good, sellAt: leg.sellAt, buyAt: trip.buyAt ?? leg.buyAt,
+      unitsSold: trip.soldUnits, revenue: trip.revenue, cost: trip.cost, startedAtMs: trip.startedAtMs,
+    }, trip.id, new Date(now).toISOString(), now));
   }
 
   private async runArbitrage(assigned: TraderAssignment | undefined): Promise<boolean> {
@@ -2250,6 +2297,7 @@ export class TraderAgent {
         if (route.sellPrice - lastPrice < effectiveMarginFloor(this.marginFloor, lastPrice)) break;
       }
       if (bought <= 0) return true;
+      this.notePlannedTrip(route, bought, totalPaid);
       // Stop here. The sell is a separate reconciled step — deliverHeldCargo()
       // picks the trip up next tick from the pin just recorded, and gets to
       // the market by arriving there rather than by falling through a

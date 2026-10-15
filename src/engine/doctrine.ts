@@ -418,6 +418,12 @@ export class Doctrine {
   ) {}
 
   /**
+   * Called after a rule's value, enabled flag or adoption actually changes (set(), setAdopted()), with the before and
+   * after. FleetManager records it as a config_change action event for the analysis engine.
+   */
+  onChange?: (key: string, before: { value: number; enabled: boolean; adopted: boolean }, after: { value: number; enabled: boolean; adopted: boolean }) => void;
+
+  /**
    * Record that a rule actually changed a decision — a route rejected for
    * margin, a sale blocked for loss, a price treated as stale. Deliberately
    * explicit, called from the specific engine call sites where that's true
@@ -590,6 +596,9 @@ export class Doctrine {
     const enabled = patch.enabled === undefined ? currentEnabled : patch.enabled;
     this.cache.set(key, { value, enabled, adopted });
     if (this.store && this.tenantId) await this.store.setDoctrine(this.tenantId, key, value, enabled, adopted);
+    if (value !== currentValue || enabled !== currentEnabled) {
+      this.onChange?.(key, { value: currentValue, enabled: currentEnabled, adopted }, { value, enabled, adopted });
+    }
     return base ? { ...base, value, enabled } : this.dynamicRule(key, value, enabled);
   }
 
@@ -617,8 +626,13 @@ export class Doctrine {
     if (!base && !override) throw new Error(`unknown policy: ${key}`);
     const value = override?.value ?? initialValue ?? base?.value ?? 4;
     const enabled = override?.enabled ?? base?.enabled ?? true;
+    const wasAdopted = this.isAdopted(key, base);
+    const beforeValue = override?.value ?? base?.value ?? 4;
     this.cache.set(key, { value, enabled, adopted });
     if (this.store && this.tenantId) await this.store.setDoctrine(this.tenantId, key, value, enabled, adopted);
+    if (wasAdopted !== adopted || beforeValue !== value) {
+      this.onChange?.(key, { value: beforeValue, enabled, adopted: wasAdopted }, { value, enabled, adopted });
+    }
     if (!adopted) return undefined;
     return base ? { ...base, value, enabled } : this.dynamicRule(key, value, enabled);
   }

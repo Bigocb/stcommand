@@ -235,6 +235,14 @@ subsystems with their own accept/fulfill lifecycles, each feeding demand
 into the same `RouteDispatcher` via `contractBuy`/`haul` assignments
 rather than running their own independent ship-picking logic.
 
+## Tracking and analysis
+
+Decisions and changes the raw tables don't capture are written to `action_events` (a trip's estimate and result, settings
+changes with before/after), kept across resets like the ledger. Pure modules in `src/engine/analysis/` join those with
+the ledger, market snapshots and other agents' trades into ranked findings: routes by real profit, our price impact and
+market recovery, price-move attribution, before/after on settings changes, and calibration factors. Read-only, advisory,
+exposed as the ops `analysis` tool; a week's report can be saved to `analysis_findings`. Design: `docs/analysis-engine.md`.
+
 ## What's deliberately not covered here
 
 This is a map of the shape, not an exhaustive reference — the real

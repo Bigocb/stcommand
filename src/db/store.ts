@@ -57,6 +57,53 @@ export interface ShipMovement {
   source: "trader" | "tour" | "fleet";
 }
 
+/** One decision or change for the analysis engine (migrations/053, docs/analysis-engine.md). */
+export interface ActionEventRecord {
+  at: string;
+  kind: string;
+  actor: "engine" | "operator" | "mcp";
+  shipSymbol?: string;
+  good?: string;
+  waypoint?: string;
+  correlationId?: string;
+  subject?: string;
+  expected?: Record<string, unknown>;
+  observed?: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  reason?: string;
+}
+
+/** A stored action event, as the analysis engine reads it back. */
+export interface ActionEventRow extends ActionEventRecord {
+  universeKey: string | null;
+}
+
+/** A ledger row as the analysis engine reads it: trades plus the trip costs (refuels, jumps). */
+export interface AnalysisLedgerRow {
+  timestamp: string;
+  shipSymbol: string;
+  type: string;
+  good: string | null;
+  waypoint: string | null;
+  units: number;
+  pricePerUnit: number;
+  total: number;
+  realizedPnl: number | null;
+  route: string | null;
+}
+
+/** A market snapshot row as the analysis engine reads it. */
+export interface AnalysisSnapshotRow {
+  timestamp: string;
+  waypoint: string;
+  good: string;
+  purchasePrice: number;
+  sellPrice: number;
+  tradeVolume: number;
+  supply: string | null;
+  activity: string | null;
+}
+
 export interface LedgerEntry {
   timestamp: string;
   shipSymbol: string;
@@ -539,6 +586,135 @@ export class Store {
         args,
       );
       return r.rows;
+    });
+  }
+
+  // ── Action tracking and analysis (migrations/053, docs/analysis-engine.md) ──
+
+  /** One decision or change. Kept across resets; universe_key says which week. */
+  async recordActionEvent(tenantId: string, e: ActionEventRecord): Promise<void> {
+    await withTenant(this.pool, tenantId, async (c) => {
+      await c.query(
+        `INSERT INTO action_events (tenant_id, universe_key, at, kind, actor, ship_symbol, good, waypoint, correlation_id, subject, expected, observed, context, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [tenantId, tenantUniverse(tenantId) ?? null, e.at, e.kind, e.actor, e.shipSymbol ?? null, e.good ?? null, e.waypoint ?? null,
+          e.correlationId ?? null, e.subject ?? null,
+          e.expected ? JSON.stringify(e.expected) : null, e.observed ? JSON.stringify(e.observed) : null,
+          e.context ? JSON.stringify(e.context) : null, e.reason ?? null],
+      );
+    });
+  }
+
+  /** Action events since `sinceIso`, oldest first, optionally by kind or ship. Every week: filter on universeKey to narrow. */
+  async actionEvents(tenantId: string, f: { sinceIso: string; kinds?: string[]; ship?: string; limit?: number }): Promise<ActionEventRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const where = ["at >= $1"];
+      const args: unknown[] = [f.sinceIso];
+      if (f.kinds?.length) { args.push(f.kinds); where.push(`kind = ANY($${args.length})`); }
+      if (f.ship) { args.push(f.ship); where.push(`ship_symbol = $${args.length}`); }
+      args.push(Math.min(Math.max(1, Math.floor(f.limit ?? 5000)), 50000));
+      const r = await c.query(
+        `SELECT at, universe_key, kind, actor, ship_symbol, good, waypoint, correlation_id, subject, expected, observed, context, reason
+           FROM action_events WHERE ${where.join(" AND ")} ORDER BY at ASC LIMIT $${args.length}`,
+        args,
+      );
+      return r.rows.map((x: any) => ({
+        at: new Date(x.at).toISOString(), universeKey: x.universe_key, kind: x.kind, actor: x.actor,
+        shipSymbol: x.ship_symbol ?? undefined, good: x.good ?? undefined, waypoint: x.waypoint ?? undefined,
+        correlationId: x.correlation_id ?? undefined, subject: x.subject ?? undefined,
+        expected: x.expected ?? undefined, observed: x.observed ?? undefined, context: x.context ?? undefined, reason: x.reason ?? undefined,
+      }));
+    });
+  }
+
+  /** This week's trades, refuels and jumps since `sinceIso`, oldest first, for the analysis engine. */
+  async analysisLedgerRows(tenantId: string, sinceIso: string, limit = 50000): Promise<AnalysisLedgerRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `SELECT timestamp, ship_symbol, type, trade_symbol, waypoint_symbol, units, price_per_unit, total, realized_pnl, route
+           FROM ledger WHERE timestamp >= $1 AND type IN ('PURCHASE', 'SELL', 'REFUEL', 'JUMP') AND ship_symbol IS NOT NULL
+          ORDER BY timestamp ASC LIMIT $2`,
+        [sinceIso, limit],
+      );
+      return r.rows.map((x: any) => ({
+        timestamp: new Date(x.timestamp).toISOString(), shipSymbol: x.ship_symbol, type: x.type, good: x.trade_symbol ?? null,
+        waypoint: x.waypoint_symbol ?? null, units: Number(x.units ?? 0), pricePerUnit: Number(x.price_per_unit ?? 0),
+        total: Number(x.total ?? 0), realizedPnl: x.realized_pnl === null || x.realized_pnl === undefined ? null : Number(x.realized_pnl),
+        route: x.route ?? null,
+      }));
+    });
+  }
+
+  /** Market snapshots for the given (waypoint, good) pairs in a window, oldest first. Shared galaxy data. */
+  async analysisSnapshots(pairs: { waypoint: string; good: string }[], sinceIso: string, untilIso: string, limit = 50000): Promise<AnalysisSnapshotRow[]> {
+    if (!pairs.length) return [];
+    const wps = pairs.map((p) => p.waypoint);
+    const goods = pairs.map((p) => p.good);
+    const res = await withPool(this.pool, (c) =>
+      c.query(
+        `SELECT ms.timestamp, ms.waypoint_symbol, ms.good_symbol, ms.purchase_price, ms.sell_price, ms.trade_volume, ms.supply, ms.activity
+           FROM market_snapshots ms
+           JOIN unnest($1::text[], $2::text[]) AS p(wp, good) ON ms.waypoint_symbol = p.wp AND ms.good_symbol = p.good
+          WHERE ms.timestamp >= $3 AND ms.timestamp <= $4
+          ORDER BY ms.timestamp ASC LIMIT $5`,
+        [wps, goods, sinceIso, untilIso, limit],
+      ),
+    );
+    return res.rows.map((x: any) => ({
+      timestamp: new Date(x.timestamp).toISOString(), waypoint: x.waypoint_symbol, good: x.good_symbol,
+      purchasePrice: Number(x.purchase_price), sellPrice: Number(x.sell_price), tradeVolume: Number(x.trade_volume ?? 0),
+      supply: x.supply ?? null, activity: x.activity ?? null,
+    }));
+  }
+
+  /** Every agent's trades seen at the given (waypoint, good) pairs in a window, oldest first. Shared galaxy data. */
+  async analysisMarketTransactions(pairs: { waypoint: string; good: string }[], sinceIso: string, untilIso: string, limit = 50000): Promise<{ timestamp: string; waypoint: string; good: string; shipSymbol: string; type: string; units: number; pricePerUnit: number }[]> {
+    if (!pairs.length) return [];
+    const res = await withPool(this.pool, (c) =>
+      c.query(
+        `SELECT mt.timestamp, mt.waypoint_symbol, mt.trade_symbol, mt.ship_symbol, mt.type, mt.units, mt.price_per_unit
+           FROM market_transactions mt
+           JOIN unnest($1::text[], $2::text[]) AS p(wp, good) ON mt.waypoint_symbol = p.wp AND mt.trade_symbol = p.good
+          WHERE mt.timestamp >= $3 AND mt.timestamp <= $4
+          ORDER BY mt.timestamp ASC LIMIT $5`,
+        [pairs.map((p) => p.waypoint), pairs.map((p) => p.good), sinceIso, untilIso, limit],
+      ),
+    );
+    return res.rows.map((x: any) => ({
+      timestamp: new Date(x.timestamp).toISOString(), waypoint: x.waypoint_symbol, good: x.trade_symbol, shipSymbol: x.ship_symbol,
+      type: x.type, units: Number(x.units), pricePerUnit: Number(x.price_per_unit),
+    }));
+  }
+
+  /** Save an analysis report so its lessons survive the reset (analysis_findings). Returns the new row id. */
+  async saveAnalysisFindings(tenantId: string, f: { windowStart: string; windowEnd: string; label?: string; report: unknown }): Promise<number> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `INSERT INTO analysis_findings (tenant_id, universe_key, window_start, window_end, label, report)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [tenantId, tenantUniverse(tenantId) ?? null, f.windowStart, f.windowEnd, f.label ?? null, JSON.stringify(f.report)],
+      );
+      return Number(r.rows[0].id);
+    });
+  }
+
+  /** Saved analysis reports, newest first. `withReport` includes the full report (else just the header). */
+  async listAnalysisFindings(tenantId: string, f: { limit?: number; id?: number; withReport?: boolean } = {}): Promise<{ id: number; capturedAt: string; universeKey: string | null; windowStart: string; windowEnd: string; label: string | null; report?: unknown }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const args: unknown[] = [];
+      let where = "";
+      if (f.id !== undefined) { args.push(f.id); where = `WHERE id = $1`; }
+      args.push(Math.min(Math.max(1, Math.floor(f.limit ?? 20)), 200));
+      const r = await c.query(
+        `SELECT id, captured_at, universe_key, window_start, window_end, label${f.withReport ? ", report" : ""}
+           FROM analysis_findings ${where} ORDER BY captured_at DESC LIMIT $${args.length}`,
+        args,
+      );
+      return r.rows.map((x: any) => ({
+        id: Number(x.id), capturedAt: new Date(x.captured_at).toISOString(), universeKey: x.universe_key,
+        windowStart: new Date(x.window_start).toISOString(), windowEnd: new Date(x.window_end).toISOString(), label: x.label,
+        ...(f.withReport ? { report: x.report } : {}),
+      }));
     });
   }
 
