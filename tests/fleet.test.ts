@@ -732,6 +732,30 @@ describe("FleetManager.getIntel", () => {
   });
 });
 
+describe("FleetManager.chartOccupiedSystems", () => {
+  // 2026-10-15: a warp loads its target system before leaving (to pick an arrival waypoint), so X1-GX41 was in the
+  // atlas but never marked charted, and every charted-scoped view hid it while THEOREM-86 toured it.
+  it("charts a system a ship sits in even when the atlas already has it loaded", async () => {
+    const fleet = new FleetManager({ api: {} as any } as any);
+    const charted: string[] = [];
+    (fleet as any).galaxy = {
+      listSystems: () => [{ symbol: "X1-GX41" }, { symbol: "X1-CM13" }],
+      loadSystem: async () => ({ waypoints: [] }),
+      scanJumpGates: async () => {},
+      allPositions: () => [],
+    };
+    (fleet as any).registry = { noteTopologyChanged: () => {} };
+    (fleet as any).chartedSystems = new Set(["X1-CM13"]);
+    (fleet as any).getShipStatuses = () => [{ symbol: "S-1" }, { symbol: "S-2" }];
+    (fleet as any).shipFor = (sym: string) => ({ nav: { systemSymbol: sym === "S-1" ? "X1-GX41" : "X1-CM13" } });
+    (fleet as any).markSystemCharted = async (sys: string) => { charted.push(sys); };
+
+    await (fleet as any).chartOccupiedSystems();
+
+    assert.deepEqual(charted, ["X1-GX41"], "the loaded-but-uncharted system is charted; the charted one is left alone");
+  });
+});
+
 describe("FleetManager.markSystemCharted", () => {
   // Confirmed live 2026-09-19: X1-TX45 was successfully surveyed (26
   // markets, 3 shipyards, durably written to shipyard_inventory) three

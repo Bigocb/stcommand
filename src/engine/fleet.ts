@@ -2155,7 +2155,10 @@ export class FleetManager {
     const systems = new Set<string>();
     for (const s of this.getShipStatuses()) {
       const sys = this.shipFor(s.symbol)?.nav?.systemSymbol;
-      if (sys && !known.has(sys)) systems.add(sys);
+      // Loaded is not charted: a warp loads its target before leaving (to pick an arrival waypoint), so a system can be
+      // in the atlas without ever being marked charted. 2026-10-15: X1-GX41, reached by warp, stayed out of every
+      // charted-scoped view (markets, best price, shipyards, routes) while THEOREM-86 toured it.
+      if (sys && (!known.has(sys) || !this.chartedSystems.has(sys))) systems.add(sys);
     }
     if (systems.size === 0) return;
     await Promise.allSettled(
@@ -3884,6 +3887,8 @@ export class FleetManager {
       const res = await this.api.warpShip(shipSymbol, target);
       this.noteWarpNeed(fromSystem, targetSystem, cruiseNeedFromGame(fuelBefore - res.fuel.current, mode), `warp burned ${fuelBefore - res.fuel.current} at ${mode}`);
       this.log(`${shipSymbol} warping to ${target} (${warp.reason}); fuel ${fuelBefore} -> ${res.fuel.current}`);
+      // A gate jump charts its destination (exploreSystem, hopToward); a warp has to do the same.
+      await this.markSystemCharted(targetSystem);
       this.recordMovement?.({ at: new Date().toISOString(), shipSymbol, kind: "warp", fromWaypoint, toWaypoint: target, distance: warp.distance, fuelBefore, fuelAfter: res.fuel.current, source: "fleet" })
         .catch((err) => this.log(`movement record failed: ${err instanceof Error ? err.message : String(err)}`));
       this.onActivity?.("warp", `${shipSymbol} warping to ${target}`, undefined, shipSymbol);

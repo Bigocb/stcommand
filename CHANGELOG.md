@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-15 — A system reached by warp is charted
+
+THEOREM-86 warped into X1-GX41 and toured its 26 markets, but GX41 never appeared in Tower's Markets list, best price,
+shipyard inventory or the dispatcher's routes. Those views only show systems the tenant has charted. A gate jump marks
+its destination charted; a warp didn't, and the every-tick catch-all (`chartOccupiedSystems`) skipped GX41 because the
+warp had already loaded it into the atlas (to pick an arrival waypoint) and it treated "loaded" as "charted". Now a
+successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
+heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
+
 ## 2026-10-15 — A change to one ship is judged on that ship's trips
 
 The analysis engine reported "After lot_policy:THEOREM-55 changed (null -> {"maxLots":3}), profit per hour went down
