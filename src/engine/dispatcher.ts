@@ -117,6 +117,7 @@ export const DECLINE_MS = 15 * 60_000;
 export const MAX_LOTS_PER_TRIP = 3;
 
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
+import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
 import { DEFAULT_MATCH_POLICY, matchShips, type MatchPolicy } from "./matching.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
@@ -752,7 +753,7 @@ export class RouteDispatcher {
    */
   recompute(
     routes: DispatchRoute[],
-    traders: { shipSymbol: string; capacity: number; busy?: boolean; system?: string; waypoint?: string; fuelCapacity?: number }[],
+    traders: { shipSymbol: string; capacity: number; busy?: boolean; system?: string; waypoint?: string; fuelCapacity?: number; reach?: ShipReach }[],
     warehouseTargets: WarehouseTarget[] = [],
     haulTargets: HaulTarget[] = [],
     missionBuyTargets: MissionBuyTarget[] = [],
@@ -1309,6 +1310,9 @@ export class RouteDispatcher {
     /** Why this trader cannot take this work from where it stands, or undefined when it can. Cross-system reasons name
      *  the guard that failed, so dispatch_explain says which one blocks a route. */
     const whyUnreachable = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): string | undefined => {
+      // A local-only ship (reach "system") never leaves its system, whatever the route's gate distance: see shipReach.ts.
+      const outside = routeOutsideReach(t.reach, t.system, { buySystem: w.buySystem, sellSystem: w.sellAt !== undefined ? systemOfWaypoint(w.sellAt) : undefined });
+      if (outside !== undefined) return outside;
       if (w.buySystem === undefined || t.system === undefined) return undefined;
       if (w.buySystem !== t.system) {
         if (!canJump(t.system, w.buySystem)) {
@@ -1402,6 +1406,9 @@ export class RouteDispatcher {
       const firstSet = new Set(matched.order);
       loopOrder = [...first, ...sorted.filter((t) => !firstSet.has(t.shipSymbol))];
     }
+    // Cross-system ships choose first, so a local-only ship (reach "system") gets only what is still unclaimed after
+    // them, and its in-system routes never take a cross-system one away. Within each group the order is unchanged.
+    loopOrder = [...loopOrder.filter((t) => t.reach !== "system"), ...loopOrder.filter((t) => t.reach === "system")];
     for (const t of loopOrder) {
       const manual = this.manual.get(t.shipSymbol);
       if (manual) {

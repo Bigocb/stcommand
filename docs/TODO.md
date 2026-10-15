@@ -462,6 +462,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   by hand via the dashboard, and see whether the price actually moves the
   way the theory predicts before spending effort automating it.
 
+## UI organization — revisit
+
+- [ ] Revisit how the UI is organized now that the fleet has grown many new surfaces (Season, growth, reach,
+  analysis, admin panels). Open questions: where reach ("local only" per ship) and the local route list show in Deck
+  and Tower, whether Season and Analysis belong together, and whether Metrics should carry growth and reach splits.
+  Decide the layout before adding more screens.
+
 ## Design docs written, no implementation decision made
 
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task

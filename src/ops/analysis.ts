@@ -28,7 +28,8 @@ export async function runAnalysis(w: TenantWorker, sinceHours: number, nowMs: nu
   ]);
   const hullEvents = shipRows.map((r) => ({ ts: Date.parse(r.timestamp), amount: r.scrap ? -r.total : r.total }));
   const ourShips = new Set<string>([...w.fleet.fleetStatusSummary().map((s) => s.symbol), ...ledger.map((r) => r.shipSymbol)]);
-  return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips, wealth: wealthRows, hullEvents });
+  const localShips = new Set(w.fleet.shipReachList().map((e) => e.shipSymbol));
+  return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips, wealth: wealthRows, hullEvents, localShips });
 }
 
 /**

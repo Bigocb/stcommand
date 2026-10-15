@@ -22,7 +22,7 @@ describe("runAnalysis", () => {
         wealthSamplesSince: async () => [],
         shipLedgerRows: async () => [],
       },
-      fleet: { fleetStatusSummary: () => [{ symbol: "S-1" }] },
+      fleet: { fleetStatusSummary: () => [{ symbol: "S-1" }], shipReachList: () => [] },
     } as any;
     const r = await runAnalysis(w, 6, now);
     assert.deepEqual(asked[0], [{ waypoint: "X1-A-1", good: "FOOD" }, { waypoint: "X1-A-2", good: "FOOD" }]);

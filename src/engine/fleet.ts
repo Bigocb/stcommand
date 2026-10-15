@@ -44,6 +44,7 @@ import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShor
 import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
 import { planSuspendedRepairs, type SuspendedRepairFacts } from "./suspendedRepair.js";
 import { effectiveMaxLots, type ShipLotPolicy } from "./shipLotPolicy.js";
+import type { ShipReach } from "./shipReach.js";
 import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -460,6 +461,8 @@ export class FleetManager {
   private readonly minerPreferences = new Map<string, string>();
   /** Per-ship lot size / lot count overrides (see shipLotPolicy.ts). Persisted in the `shipLotPolicies` fleet flag. */
   private readonly shipLotPolicies = new Map<string, ShipLotPolicy>();
+  /** Per-ship reach: "system" keeps a ship to routes inside its own system (shipReach.ts). Persisted in `shipReach`. */
+  private readonly shipReach = new Map<string, ShipReach>();
   /**
    * Fuel a warp needs at CRUISE, per direction between two systems, as the game reported it (a rejection's shortfall or
    * a completed warp's fuel drop). Shared by tour ships and traders, so one failed attempt stops every ship retrying a
@@ -969,6 +972,17 @@ export class FleetManager {
         this.log(`restore dispatch circuits failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    const reachFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "shipReach") : undefined;
+    if (reachFlag) {
+      try {
+        const all = JSON.parse(reachFlag) as Record<string, ShipReach>;
+        for (const [shipSymbol, reach] of Object.entries(all)) {
+          if (ships.some((s) => s.symbol === shipSymbol) && reach === "system") this.shipReach.set(shipSymbol, reach);
+        }
+      } catch (err) {
+        this.log(`restore ship reach failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     const lotPolicyFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "shipLotPolicies") : undefined;
     if (lotPolicyFlag) {
       try {
@@ -1328,6 +1342,7 @@ export class FleetManager {
       marginFloor: this.doctrine.value("marginFloor", 0),
       maxLotsPerTrip: () => effectiveMaxLots(this.maxLotsPerTrip(), this.shipLotPolicies.get(shipSymbol)),
       lotSizeCap: () => this.shipLotPolicies.get(shipSymbol)?.lotSize,
+      reach: () => this.shipReach.get(shipSymbol),
       recordDoctrineFire: (key) => this.doctrine.recordFire(key, shipSymbol),
       getWarehouseShip: () => this.getWarehouseShip(),
       warehouseBalance: async (good) => {
@@ -1382,7 +1397,7 @@ export class FleetManager {
    * fleet's most profitable route away for hours behind a ship parked at a
    * building site, doing nothing with it.
    */
-  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean; system: string; waypoint: string; fuelCapacity: number }[] {
+  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean; system: string; waypoint: string; fuelCapacity: number; reach?: ShipReach }[] {
     // "auto" is the weakest owner in ShipRegistry's precedence, so
     // availableFor("auto") answers exactly "not held, not suspended, not
     // committed to a mission/warehouse/keeper claim" — same intent as the
@@ -1412,6 +1427,7 @@ export class FleetManager {
         // galaxy regardless of whether that ship can reach it — see
         // dispatcher.ts's assignment loop.
         system: a.getShip().nav.systemSymbol,
+        reach: this.shipReach.get(sym),
         // Same-system reachability alone isn't enough — see
         // dispatcher.ts's distanceBetween param for the live DRAGOM-3 case
         // (a route 99 units off with an 80-unit tank) this pair closes.
@@ -1724,6 +1740,31 @@ export class FleetManager {
       return;
     }
     await this.store?.setFleetFlag(this.tenantId, "shipLotPolicies", JSON.stringify(Object.fromEntries(this.shipLotPolicies)));
+  }
+
+  /** Each ship's reach as set by the operator (only local-only ships appear; everything else is "any"). */
+  shipReachList(): { shipSymbol: string; reach: ShipReach }[] {
+    return [...this.shipReach.entries()].map(([shipSymbol, reach]) => ({ shipSymbol, reach }));
+  }
+
+  /**
+   * Set one ship's reach. "system" keeps it to its own system's routes; "any" (or undefined) puts it back on
+   * cross-system work. Persisted like the lot policies, and logged as a config change so the analysis can compare it.
+   */
+  async setShipReach(shipSymbol: string, reach: ShipReach | undefined): Promise<void> {
+    const before = this.shipReach.get(shipSymbol) ?? "any";
+    const after = reach ?? "any";
+    this.recordAction(configChangeEvent({
+      setting: `reach:${shipSymbol}`, shipSymbol, before, after, atIso: new Date().toISOString(),
+    }));
+    if (reach === "system") this.shipReach.set(shipSymbol, reach);
+    else this.shipReach.delete(shipSymbol);
+    if (!this.tenantId) return;
+    if (this.shipReach.size === 0) {
+      await this.store?.removeFleetFlag(this.tenantId, "shipReach");
+      return;
+    }
+    await this.store?.setFleetFlag(this.tenantId, "shipReach", JSON.stringify(Object.fromEntries(this.shipReach)));
   }
 
   /** Jump-leg cost estimate for a route computed from raw trade legs — the

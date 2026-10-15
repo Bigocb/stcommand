@@ -18,6 +18,22 @@ warp had already loaded it into the atlas (to pick an arrival waypoint) and it t
 successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
 heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
 
+## 2026-10-15 — Local-only ships (reach "system")
+
+A ship can now be set to local-only (`stcommand_set_ship_reach`, reach "system"). It only takes routes whose buy and
+sell markets are both in the system it sits in, so it never flies a gate or pays positioning. Default is "any", so
+nothing changes until a ship is set. Behaviour:
+
+- The dispatcher hands cross-system routes out first, then gives local-only ships what is still unclaimed. A local
+  assignment never takes a cross-system route away, and local ships are never ranked against cross-system routes.
+- The trader refuses a local-only leg in its own route planning too, so a hand-assigned cross-system route is rejected.
+- The analysis report splits trips, profit per hour and overhead between local-only and cross-system ships
+  (`byReach`), so the two fleets can be compared.
+- Each change is logged as a config change (`reach:<ship>`) for the before/after analysis.
+
+Local routes on the board right now: 30 of the 60 (TS44 8, RM59 6, CH68 5, JT85 4, KQ90 2, HR84 2, others 1 each).
+Buying local-only ships at each system's own shipyard is a separate step, not in this change; so is any UI for it.
+
 ## 2026-10-15 — Growth rate: a metric, a season goal, and a tile on Metrics
 
 Growth is now measured as the fleet's net worth grows per day, in percent. Net worth is credits, plus holds, plus the

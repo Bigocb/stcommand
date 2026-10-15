@@ -10,7 +10,7 @@ import { growthPerDay, type HullEvent, type WealthPoint } from "../growth.js";
 import { changeFindings, changeImpacts, windowMetrics, type ChangeImpact } from "./changes.js";
 import { clusterTrades, impactFindings, latestTradeVolumes, summarizeImpact, type MarketImpactStat } from "./marketImpact.js";
 import { attributePriceMoves, moveFindings, summarizeMoves, type MarketTrade, type MoveStats } from "./priceMoves.js";
-import { rebuildTrips, summarizeRoutes, tripFindings, tripNetAll, type RouteStats } from "./trips.js";
+import { rebuildTrips, summarizeRoutes, tripFindings, tripNetAll, type RouteStats, type Trip } from "./trips.js";
 import { DEFAULT_ANALYSIS_POLICY, round2, type AnalysisPolicy, type Finding, type Suggestion } from "./types.js";
 
 export interface AnalysisInputs {
@@ -24,6 +24,16 @@ export interface AnalysisInputs {
   /** Credits plus holds over the window, and the hull events (src/engine/growth.ts). Empty means no growth figure. */
   wealth?: readonly WealthPoint[];
   hullEvents?: readonly HullEvent[];
+  /** Ships set to local-only (reach "system"); every other ship in the ledger counts as cross-system. */
+  localShips?: ReadonlySet<string>;
+}
+
+export interface ReachSummary {
+  ships: number;
+  trips: number;
+  netProfit: number;
+  profitPerHour: number;
+  overheadShare: number | null;
 }
 
 export interface RankedSuggestion extends Suggestion {
@@ -46,6 +56,8 @@ export interface AnalysisReport {
     /** Growth of cash plus holds plus hull capital, percent a day (null without enough wealth samples). */
     growthPerDay: number | null;
   };
+  /** The same measures for local-only ships and for cross-system ships, so their profit per hour can be compared. */
+  byReach: { local: ReachSummary; cross: ReachSummary };
   findings: Finding[];
   suggestions: RankedSuggestion[];
   routes: { best: RouteStats[]; worst: RouteStats[] };
@@ -94,6 +106,8 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
     ...changeFindings(changes, policy),
   ].sort((a, b) => b.weight - a.weight);
 
+  const byReach = reachSummaries(trips, ledger, input.localShips ?? new Set(), input.fromMs, input.nowMs);
+
   const notes: string[] = [];
   const withEstimate = closed.filter((t) => t.expectedProfit !== null).length;
   if (closed.length && withEstimate === 0) notes.push("No trip in this window has a recorded estimate yet (tracking started 2026-10-15), so estimate accuracy and calibration are empty.");
@@ -113,6 +127,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
       priceMovesAttributed: moves.length,
       growthPerDay: growthPerDay(input.wealth ?? [], input.hullEvents ?? [], input.fromMs, input.nowMs)?.perDayPct ?? null,
     },
+    byReach,
     findings: findings.slice(0, 40),
     suggestions: rankSuggestions(findings).slice(0, 15),
     routes: { best: routes.filter((r) => r.netProfit > 0).slice(0, LIMIT), worst: [...routes].sort((a, b) => a.netProfit - b.netProfit).slice(0, LIMIT).filter((r) => r.netProfit < 0) },
@@ -122,4 +137,17 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
     calibration: { fleet: calibration.fleet, routes: calibration.routes.slice(0, 20), goods: calibration.goods.slice(0, 20) },
     notes,
   };
+}
+
+/** Trips and profit per hour split by reach: a ship in `local` is local-only, every other ship is cross-system. */
+export function reachSummaries(trips: readonly Trip[], ledger: readonly AnalysisLedgerRow[], local: ReadonlySet<string>, fromMs: number, toMs: number): { local: ReachSummary; cross: ReachSummary } {
+  const summarize = (inGroup: (ship: string) => boolean): ReachSummary => {
+    const t = trips.filter((x) => inGroup(x.shipSymbol));
+    const l = ledger.filter((x) => inGroup(x.shipSymbol));
+    const m = windowMetrics(t, l, fromMs, toMs);
+    const ships = new Set(t.map((x) => x.shipSymbol));
+    for (const r of l) ships.add(r.shipSymbol);
+    return { ships: ships.size, trips: m.trips, netProfit: m.profit, profitPerHour: m.profitPerHour, overheadShare: m.overheadShare };
+  };
+  return { local: summarize((ship) => local.has(ship)), cross: summarize((ship) => !local.has(ship)) };
 }

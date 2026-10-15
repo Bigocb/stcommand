@@ -37,7 +37,7 @@ before(async () => {
   pool = await appPool();
   tenant = (await admin.query<{ id: string }>(`INSERT INTO tenants (agent_symbol, token_enc, token_iv) VALUES ($1, '\\x00', '\\x00') RETURNING id`, [`TEST-SEASON-${Date.now()}`])).rows[0]!.id;
   const store = new Store(pool);
-  const w = { tenantId: tenant, store, fleet: { recordAction: (e: unknown) => { if (e) actions.push(e); }, fleetStatusSummary: () => [] } } as any;
+  const w = { tenantId: tenant, store, fleet: { recordAction: (e: unknown) => { if (e) actions.push(e); }, fleetStatusSummary: () => [], shipReachList: () => [] } } as any;
   const app = express();
   app.use(express.json());
   app.use("/api/season", createSeasonRouter(() => w));

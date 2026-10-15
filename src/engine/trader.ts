@@ -15,6 +15,7 @@ import type { ShipMovement, ActionEventRecord } from "../db/store.js";
 import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
+import { routeOutsideReach, type ShipReach } from "./shipReach.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -130,6 +131,8 @@ export interface TraderOptions {
   maxLotsPerTrip?: () => number;
   /** This ship's own cap on units per buy call (its shipLotPolicy lotSize); undefined = the market's tradeVolume alone. Read live at each plan. */
   lotSizeCap?: () => number | undefined;
+  /** This ship's reach (shipReach.ts): "system" keeps it to routes inside its own system. Read live at each plan. */
+  reach?: () => ShipReach | undefined;
   /**
    * How long a price stays usable, in minutes. The dispatcher filters its route
    * list by the same number, so both are reasoning about the same markets.
@@ -254,6 +257,7 @@ export class TraderAgent {
   private readonly marginFloor: number;
   private readonly maxLotsPerTrip: () => number;
   private readonly lotSizeCap: () => number | undefined;
+  private readonly reach: () => ShipReach | undefined;
   private readonly intelMaxAgeMin: () => number;
   private readonly recordDoctrineFire?: TraderOptions["recordDoctrineFire"];
   private readonly stopManualRoute?: TraderOptions["stopManualRoute"];
@@ -394,6 +398,7 @@ export class TraderAgent {
     this.marginFloor = opts.marginFloor ?? 10;
     this.maxLotsPerTrip = opts.maxLotsPerTrip ?? (() => MAX_LOTS_PER_TRIP);
     this.lotSizeCap = opts.lotSizeCap ?? (() => undefined);
+    this.reach = opts.reach ?? (() => undefined);
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
     this.recordDoctrineFire = opts.recordDoctrineFire;
     this.stopManualRoute = opts.stopManualRoute;
@@ -1381,8 +1386,15 @@ export class TraderAgent {
    * capability, affordability, dead/protected goods — still applies; those
    * are hard constraints, not a profitability policy.
    */
+  /** Why a local-only ship (reach "system") may not take this leg, or undefined. See shipReach.ts. */
+  private outsideReach(r: DirectLeg): string | undefined {
+    return routeOutsideReach(this.reach(), this.ship.nav.systemSymbol, { buySystem: this.systemOf(r.buyAt), sellSystem: this.systemOf(r.sellAt) });
+  }
+
   private whyNotViable(r: DirectLeg, ignoreProfitFloor = false): string {
     if (r.buyAt === r.sellAt) return "buyAt === sellAt";
+    const outside = this.outsideReach(r);
+    if (outside !== undefined) return outside;
     if (this.refusedGoods().has(r.good)) return `protected good ${r.good}`;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return `dead route ${r.good}@${r.buyAt}`;
     const buySystem = this.systemOf(r.buyAt);
@@ -1431,6 +1443,7 @@ export class TraderAgent {
 
   private viableRoute(r: DirectLeg, ignoreProfitFloor = false): Route | undefined {
     if (r.buyAt === r.sellAt) return undefined;
+    if (this.outsideReach(r) !== undefined) return undefined;
     if (this.refusedGoods().has(r.good)) return undefined;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return undefined;
     const buySystem = this.systemOf(r.buyAt);

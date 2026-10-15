@@ -482,6 +482,30 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_set_ship_reach",
+    {
+      title: "Keep a ship to its own system (local-only) or put it back on cross-system work",
+      description: "reach \"system\" makes a ship local-only: it only takes routes whose buy and sell markets are both in the system it sits in, so it never flies a gate or pays positioning. The dispatcher hands cross-system routes out first and gives local ships what is left, so a local ship never takes a cross-system route away. reach \"any\" (the default) puts it back on cross-system work. Omit shipSymbol to list every local-only ship. Takes effect on the next dispatch cycle (about a minute).",
+      inputSchema: {
+        shipSymbol: z.string().optional(),
+        reach: z.enum(["system", "any"]).optional().describe("\"system\" = local only; \"any\" = default, cross-system allowed."),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol, reach }) => {
+      try {
+        if (!shipSymbol) return textResult({ localOnlyShips: w.fleet.shipReachList() });
+        if (reach === undefined) return errorResult("Give reach: \"system\" or \"any\".");
+        await w.fleet.setShipReach(shipSymbol, reach === "any" ? undefined : "system");
+        await recordMcpAction(w, "reach", shipSymbol, `${shipSymbol}: reach -> ${reach}`, { reach });
+        return textResult({ ok: true, shipSymbol, reach, localOnlyShips: w.fleet.shipReachList() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_set_ship_lot_policy",
     {
       title: "Set (or clear) a ship's lot size and lot count cap",
