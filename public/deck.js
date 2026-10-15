@@ -2595,9 +2595,10 @@ function pollTick() {
   // list are re-read once a minute (every 4th tick) as a safety net instead of every 15 s.
   const fullRead = !liveConnected() || ++pollCount % 4 === 1;
   if (fullRead) loadState();
-  loadBridge();
-  loadApprovals();
-  loadDispatch();
+  // Fleet status, approvals and dispatch assignments are pushed too; their full reads also drop to once a minute.
+  if (fullRead) loadBridge();
+  if (fullRead) loadApprovals();
+  if (fullRead) loadDispatch();
   if (fullRead) loadActivity();
   loadMarkets();
   loadGoods();

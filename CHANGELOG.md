@@ -18,6 +18,24 @@ warp had already loaded it into the atlas (to pick an arrival waypoint) and it t
 successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
 heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
 
+## 2026-10-15 — Live feed: fleet status, dispatch assignments and approvals pushed too
+
+Three more slices moved from the 15-second poll to the live feed (`GET /api/live`):
+
+- **Fleet status** (`fleet` event): each ship's status and "doing" line, as per-ship diffs, plus stranded ships and the
+  paused flag when they change. A cooldown's seconds are compared in 15-second steps, so a cooling ship isn't resent on
+  every pass.
+- **Dispatch** (`dispatch` event): the assignments, contract-duty ships and miner preferences, when they change. The route
+  list behind them was rebuilt on every `/api/dispatch` request (every 15 s per screen); now the screen refetches it only
+  when the assignments change, at most once a minute.
+- **Approvals** (`approvals` event): the server checks open and decided approvals every 6 s while a screen is connected
+  (one check per tenant, however many screens are open), and pushes them when they change, so a new approval shows within
+  seconds. The view is shared with `GET /api/approvals` (`src/engine/approvalsView.ts`).
+- The snapshot a screen gets on connect now carries all six slices. While the stream is up, Deck and Tower re-read the
+  bridge, approvals and dispatch once a minute as a safety net. The bridge's hourly aggregates (rate, earnings, triage)
+  now refresh once a minute instead of every 15 s.
+- `src/engine/liveDiff.ts` is the keyed diff the fleet slice uses.
+
 ## 2026-10-15 — A held lot below its floor looks for a market within the jump limit, not just one gate away
 
 THEOREM-D bought 80 DRUGS at X1-KQ90-C27B for 4,355 each (348,400) at 12:22, to sell at X1-HR84-H56. Another agent,

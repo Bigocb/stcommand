@@ -297,6 +297,47 @@ export function pushActivity(entry) {
   notify("activity");
 }
 
+/** Rows keyed by symbol, with changed rows replaced or added and removed ones dropped (order kept, new rows last). */
+function mergeRows(rows, diff) {
+  if (!diff) return rows;
+  const changed = new Map((diff.changed ?? []).map((r) => [r.symbol, r]));
+  const gone = new Set(diff.removed ?? []);
+  const out = rows.filter((r) => !gone.has(r.symbol)).map((r) => changed.get(r.symbol) ?? r);
+  const have = new Set(out.map((r) => r.symbol));
+  for (const r of changed.values()) if (!have.has(r.symbol)) out.push(r);
+  return out;
+}
+
+/** Fleet status from the live feed: per-ship summary and status diffs, and stranded/paused when they change. A
+ *  snapshot carries the full lists instead (arrays rather than diffs). */
+export function applyFleet(d) {
+  if (!d) return;
+  const full = Array.isArray(d.summary);
+  const summary = full ? d.summary : mergeRows(fleetStatus.summary ?? [], d.summary);
+  const ships = Array.isArray(d.ships) ? d.ships : mergeRows(fleetStatus.ships ?? [], d.ships);
+  const stranded = d.stranded ?? fleetStatus.stranded ?? [];
+  const paused = d.paused ?? fleetStatus.paused ?? false;
+  fleetStatus = { ...fleetStatus, paused, ships, stranded, summary };
+  bridge = { ...bridge, paused, shipStatus: ships, stranded, summary };
+  notify("bridge");
+}
+
+export function applyDispatch(d) {
+  if (!d) return;
+  dispatchAssignments = d.assignments ?? dispatchAssignments;
+  contractDutyShips = d.contractDuty ?? contractDutyShips;
+  minerPreferences = d.minerPreferences ?? minerPreferences;
+  notify("dispatch");
+}
+
+export function applyApprovals(d) {
+  if (!d) return;
+  approvals = d.approvals ?? [];
+  decidedApprovals = d.decided ?? [];
+  upcomingApprovals = d.upcoming ?? [];
+  notify("approvals");
+}
+
 export async function loadBridge() {
   try {
     const res = await fetch("/api/bridge");

@@ -90,7 +90,7 @@ describe("GET /api/live", () => {
   const live = new LiveFeed();
   before(async () => {
     const app = express();
-    app.get("/api/live", liveRoute(() => ({ live, liveSnapshot: () => ({ seq: live.lastSeq, ships: [], credits: 1000 }) })));
+    app.get("/api/live", liveRoute(() => ({ live, liveSnapshot: async () => ({ seq: live.lastSeq, ships: [], credits: 1000 }) })));
     await new Promise<void>((r) => { server = app.listen(0, () => r()); });
     const addr = server.address();
     base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;

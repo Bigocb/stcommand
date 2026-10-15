@@ -19,6 +19,7 @@ import { growthPerWeek, hullCapitalAt, type HullEvent } from "../engine/growth.j
 import { paceRates } from "../ops/pace.js";
 import { galaxyVersion } from "../engine/galaxyVersion.js";
 import { liveRoute } from "./live.js";
+import { approvalsView } from "../engine/approvalsView.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { routeStatus, ratePerHour } from "../engine/routeStatus.js";
 import { runsLeft } from "../engine/runsLeft.js";
@@ -259,15 +260,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.get("/approvals", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    const approvals = await w.store.listOpenApprovals(w.tenantId);
-    // Decided but not yet picked up by the engine: shown so a decision never disappears into the gap before it acts.
-    const decided = await w.store.listDecidedApprovals(w.tenantId);
-    // Keeper-probe asks pack their target market into shipSymbol ("buyAt|target|hull"). A priority market that already
-    // has an open ask isn't "coming up": it's already on the page. The rest are waiting for a ship to dock there, since
-    // the engine only asks when a ship visits a market (one open request per kind, so the next one can't be queued yet).
-    const asked = new Set([...approvals, ...decided].map((a) => String(a.shipSymbol ?? "").split("|")[1]).filter(Boolean));
-    const upcoming = (await w.fleet.priorityUncovered()).filter((m) => !asked.has(m));
-    res.json({ approvals, decided, upcoming });
+    res.json(await approvalsView(w.store, w.fleet, w.tenantId));
   });
 
   router.post("/approvals/:id/decide", async (req, res) => {

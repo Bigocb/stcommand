@@ -5,6 +5,8 @@ import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { LiveFeed } from "./liveFeed.js";
 import { diffShips, shipRow, type ShipRow } from "./shipRows.js";
+import { diffKeyed, emptyDiff } from "./liveDiff.js";
+import { approvalsView } from "./approvalsView.js";
 import { ContractManager } from "./contract.js";
 import { FleetManager, type Ship } from "./fleet.js";
 import { ChatAgent } from "./agentChat.js";
@@ -37,7 +39,7 @@ export interface TenantWorker {
   /** Small change events pushed to open screens (src/engine/liveFeed.ts, GET /api/live). Optional for test doubles. */
   live?: LiveFeed;
   /** The snapshot a screen gets on connect: every ship's live row and the credits, as of `seq`. */
-  liveSnapshot?: () => { seq: number; ships: ShipRow[]; credits: number | null };
+  liveSnapshot?: () => Promise<{ seq: number; ships: ShipRow[]; credits: number | null; [slice: string]: unknown }>;
 }
 
 /** How often the dashboard snapshot is rebuilt (live agent + the engine's own ship objects). */
@@ -678,29 +680,100 @@ export class TenantRegistry {
     }, STATE_REFRESH_MS);
     refreshTimer.unref();
 
-    // Ship changes for the live feed: every two seconds, while a screen is connected, compare the engine's own
-    // in-memory ships (kept current by every action response) with the last rows sent. No game calls.
+    // The live feed's slices, compared every two seconds while a screen is connected, all from memory except approvals:
+    //  - ships: each ship's live row (kept current by every action response), no game calls;
+    //  - fleet: each ship's status and "doing" line, plus stranded ships and the paused flag;
+    //  - dispatch: the dispatcher's assignments, contract duty and miner preferences;
+    //  - approvals: two small queries every third tick (6 s), one per tenant however many screens are open.
+    // Each is published only when it changed since the last send. Nothing runs while no screen is connected.
     let lastRows = new Map<string, string>();
+    let lastSummary = new Map<string, string>();
+    let lastStatuses = new Map<string, string>();
+    let lastFleetFlags = "";
+    let lastDispatch = "";
+    let lastApprovals = "";
+    let approvalsBusy = false;
+    let liveTick = 0;
+    // A cooldown's seconds tick down by themselves; compare them in 15-second steps so a cooling ship is resent at most
+    // every 15 s instead of on every pass.
+    const summaryCompare = (r: ReturnType<typeof fleet.fleetStatusSummary>[number]) =>
+      ({ ...r, cooldown: Math.ceil(r.cooldown / 15), doing: r.doing.startsWith("cooldown ") ? "cooldown" : r.doing });
+    const fleetFlags = () => JSON.stringify({ stranded: fleet.getStrandedShips(), paused: fleet.isPaused() });
+    const dispatchView = () => ({ assignments: fleet.dispatcher.list(), contractDuty: fleet.contractDutyShips(), minerPreferences: fleet.minerPreferenceList() });
+    const resetLive = () => {
+      lastRows = new Map(); lastSummary = new Map(); lastStatuses = new Map();
+      lastFleetFlags = ""; lastDispatch = ""; lastApprovals = ""; liveTick = 0;
+    };
     const liveTimer = setInterval(() => {
       if (!live.subscriberCount) {
-        lastRows = new Map();
+        resetLive();
         return;
       }
+      liveTick++;
       try {
-        const { diff, next } = diffShips(lastRows, fleet.currentShips());
-        lastRows = next;
-        if (diff.changed.length || diff.removed.length) live.publish("ships", diff);
+        const ships = diffShips(lastRows, fleet.currentShips());
+        lastRows = ships.next;
+        if (!emptyDiff(ships.diff)) live.publish("ships", ships.diff);
+
+        const summary = diffKeyed(lastSummary, fleet.fleetStatusSummary(), (r) => r.symbol, summaryCompare);
+        const statuses = diffKeyed(lastStatuses, fleet.getShipStatuses(), (r) => r.symbol);
+        lastSummary = summary.next;
+        lastStatuses = statuses.next;
+        const flags = fleetFlags();
+        const flagsChanged = flags !== lastFleetFlags;
+        lastFleetFlags = flags;
+        if (!emptyDiff(summary.diff) || !emptyDiff(statuses.diff) || flagsChanged) {
+          live.publish("fleet", { summary: summary.diff, ships: statuses.diff, ...(flagsChanged ? JSON.parse(flags) : {}) });
+        }
+
+        const dispatch = dispatchView();
+        const dispatchJson = JSON.stringify(dispatch);
+        if (dispatchJson !== lastDispatch) {
+          lastDispatch = dispatchJson;
+          live.publish("dispatch", dispatch);
+        }
       } catch (err) {
-        log(`live ship diff failed: ${err instanceof Error ? err.message : String(err)}`);
+        log(`live diff failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (liveTick % 3 === 0 && !approvalsBusy) {
+        approvalsBusy = true;
+        approvalsView(store, fleet, tenantId)
+          .then((view) => {
+            const json = JSON.stringify(view);
+            if (json !== lastApprovals && live.subscriberCount) {
+              lastApprovals = json;
+              live.publish("approvals", view);
+            }
+          })
+          .catch((err: unknown) => log(`live approvals failed: ${err instanceof Error ? err.message : String(err)}`))
+          .finally(() => { approvalsBusy = false; });
       }
     }, LIVE_SHIP_DIFF_MS);
     liveTimer.unref?.();
-    // What a screen gets when it connects (or can't catch up): every ship's row and the credits, as of the latest event.
-    // It also seeds the diff when this is the first screen, so the next pass sends only what changed after it.
-    const liveSnapshot = () => {
+    // What a screen gets when it connects (or can't catch up): every slice in full, as of the latest event. It also
+    // seeds the comparisons when this is the first screen, so the next pass sends only what changed after it.
+    const liveSnapshot = async () => {
       const ships = fleet.currentShips();
-      if (lastRows.size === 0) lastRows = diffShips(new Map(), ships).next;
-      return { seq: live.lastSeq, ships: ships.map(shipRow), credits: state.get().agent?.credits ?? null };
+      const summary = fleet.fleetStatusSummary();
+      const statuses = fleet.getShipStatuses();
+      const dispatch = dispatchView();
+      const approvals = await approvalsView(store, fleet, tenantId);
+      if (lastRows.size === 0) {
+        lastRows = diffShips(new Map(), ships).next;
+        lastSummary = diffKeyed(new Map(), summary, (r) => r.symbol, summaryCompare).next;
+        lastStatuses = diffKeyed(new Map(), statuses, (r) => r.symbol).next;
+        lastFleetFlags = fleetFlags();
+        lastDispatch = JSON.stringify(dispatch);
+        lastApprovals = JSON.stringify(approvals);
+      }
+      return {
+        seq: live.lastSeq,
+        ships: ships.map(shipRow),
+        credits: state.get().agent?.credits ?? null,
+        fleet: { summary, ships: statuses, stranded: fleet.getStrandedShips(), paused: fleet.isPaused() },
+        dispatch,
+        approvals,
+      };
     };
     return {
       tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative, live, liveSnapshot,

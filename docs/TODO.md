@@ -506,8 +506,9 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
   (`saveStateSnapshot`). Write the lean snapshot instead, or less often.
 - [ ] **5. Split the web server from the engine** into two processes, joined by Postgres notifications.
 - [~] **6. Push instead of poll.** First slice SHIPPED 2026-10-15: ships, credits and activity over `GET /api/live`
-  (see CHANGELOG). Next slices: approvals and dispatch, then markets and the rest; each leaves the 15 s poll once it's on
-  the stream. Replaces step 3 (the combined poll).
+  (see CHANGELOG); fleet status, dispatch and approvals followed the same day. Next: Tower's attention list, feeds and
+  missions, keepers. Markets stay polled while the Markets tab is open; reports (Metrics, Season, Systems) keep their
+  minute refresh until step 7. Replaces step 3 (the combined poll).
 - [ ] **7. Precompute the reports** (per-minute and per-hour summary tables) instead of rescanning the ledger per request.
 - [ ] **8-10. A new engine alongside the old one:** a central planner that hands out the API budget by value, an event
   log with views built from it, and a migration ship by ship through the existing ownership claims, shadow mode first.

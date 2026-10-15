@@ -33,8 +33,11 @@ export function liveRoute(worker: (req: Request) => Pick<TenantWorker, "live" | 
     const missed = Number.isFinite(lastId) ? live.since(lastId) : undefined;
     if (missed) for (const e of missed) send(e.seq, e.type, e.data);
     else {
-      const snap = w.liveSnapshot();
-      send(snap.seq, "snapshot", snap);
+      // Events published while the snapshot is being built arrive through the subscription above and may repeat what
+      // the snapshot has; applying a row twice is harmless.
+      w.liveSnapshot()
+        .then((snap) => send(snap.seq, "snapshot", snap))
+        .catch((err: unknown) => res.write(`event: error\ndata: ${JSON.stringify({ error: err instanceof Error ? err.message : String(err) })}\n\n`));
     }
     const heartbeat = setInterval(() => res.write(": ping\n\n"), heartbeatMs);
     heartbeat.unref?.();
