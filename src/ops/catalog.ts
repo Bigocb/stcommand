@@ -380,7 +380,7 @@ export const OPS_TOOLS: OpsTool[] = [
     title: "Candidate systems to move a ship into (advisory)",
     description:
       "Systems ranked by how good they are to trade in next, with the reasons: gate hops from our ships, whether the gates are finished, profitable same-system routes and their best trip profit, and whether a yard sells a trading hull. A system nobody has surveyed is listed as a survey target, since its markets and yards are unknown until a ship visits. Criteria are the defaults in engine/systems/candidates.ts; override any with the inputs. Advisory only: nothing is moved or bought.",
-    input: { maxHops: num(2), minLocalRoutes: num(1), requireHullYard: z.boolean().default(false) },
+    input: { maxHops: num(2), minLocalRoutes: num(1), requireHullYard: z.preprocess((v) => v === true || v === "1" || v === "true", z.boolean()).default(false) },
     async run(ctx, a) {
       const result = await systemCandidates(ctx.w, { ...DEFAULT_CANDIDATE_POLICY, maxHops: a.maxHops, minLocalRoutes: a.minLocalRoutes, requireHullYard: a.requireHullYard });
       return result;
