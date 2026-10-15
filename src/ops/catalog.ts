@@ -1,4 +1,6 @@
 import * as z from "zod";
+import { systemCandidates } from "./systems.js";
+import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
@@ -370,6 +372,18 @@ export const OPS_TOOLS: OpsTool[] = [
         .sort((x, y) => Number(y.gateComplete !== false) - Number(x.gateComplete !== false) || y.unpriced - x.unpriced || x.hops - y.hops)
         .slice(0, Math.min(a.limit, 50));
       return { from: a.from, maxHops: a.maxHops, note: "Ranked: reachable first, then most unpriced markets, then nearest. gateComplete=false means a gate in that system is still under construction.", candidates: rows };
+    },
+  },
+
+  {
+    name: "systems_candidates",
+    title: "Candidate systems to move a ship into (advisory)",
+    description:
+      "Systems ranked by how good they are to trade in next, with the reasons: gate hops from our ships, whether the gates are finished, profitable same-system routes and their best trip profit, and whether a yard sells a trading hull. A system nobody has surveyed is listed as a survey target, since its markets and yards are unknown until a ship visits. Criteria are the defaults in engine/systems/candidates.ts; override any with the inputs. Advisory only: nothing is moved or bought.",
+    input: { maxHops: num(2), minLocalRoutes: num(1), requireHullYard: z.boolean().default(false) },
+    async run(ctx, a) {
+      const result = await systemCandidates(ctx.w, { ...DEFAULT_CANDIDATE_POLICY, maxHops: a.maxHops, minLocalRoutes: a.minLocalRoutes, requireHullYard: a.requireHullYard });
+      return result;
     },
   },
 

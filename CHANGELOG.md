@@ -18,6 +18,20 @@ warp had already loaded it into the atlas (to pick an arrival waypoint) and it t
 successful warp charts its target, and the catch-all charts any occupied system missing from the charted set. GX41
 heals on the first tick after deploy; the price snapshots 86 took are already stored and appear then.
 
+## 2026-10-15 — Systems tab: candidate systems to move a ship into (advisory)
+
+A new Systems tab in Deck lists the systems worth moving a ship into next, with the reasons for each. It's advisory:
+nothing is moved or bought.
+
+- **Criteria** (defaults in `src/engine/systems/candidates.ts`, overridable per request): within 2 gate hops of our ships;
+  every gate finished; at least one profitable same-system route; a yard that sells a trading hull is a plus and can be
+  required.
+- **Unknown is not no:** a system nobody has surveyed is listed under "To survey", since its markets and yards are unknown
+  until a ship visits. It's never ranked as a candidate.
+- **Each verdict** carries one line per decision. Candidates are ranked by score; exclusions say which rule removed them.
+- **Where it reads from:** the galaxy graph, gate status, shipyard listings and the dispatcher's current routes.
+- Also available as the ops tool `systems_candidates` (HTTP `/api/ops/systems_candidates`, MCP `stcommand_ops_systems_candidates`).
+
 ## 2026-10-15 — Local-only ships (reach "system")
 
 A ship can now be set to local-only (`stcommand_set_ship_reach`, reach "system"). It only takes routes whose buy and

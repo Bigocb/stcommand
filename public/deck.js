@@ -23,6 +23,7 @@ import {
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { mountSeason } from "/shared/season.js";
+import { mountSystems } from "/shared/systems.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
@@ -73,6 +74,7 @@ $("auth-form").addEventListener("submit", async (e) => {
  */
 let metricsScreen = null;
 let seasonScreen = null;
+let systemsScreen = null;
 let miningScreen = null;
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
@@ -81,6 +83,7 @@ function setView(name) {
   if (viewEl) viewEl.hidden = false;
   if (name !== "metrics") metricsScreen?.hide();
   if (name !== "season") seasonScreen?.hide();
+  if (name !== "systems") systemsScreen?.hide();
   if (name !== "mining") miningScreen?.hide();
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
@@ -117,6 +120,10 @@ function setView(name) {
   if (name === "season") {
     seasonScreen ??= mountSeason($("season-root"), { api });
     seasonScreen.show();
+  }
+  if (name === "systems") {
+    systemsScreen ??= mountSystems($("systems-root"), { api });
+    systemsScreen.show();
   }
   if (name === "mining") {
     miningScreen ??= mountMiningFields($("mining-root"), { api });
