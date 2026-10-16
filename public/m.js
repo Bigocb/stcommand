@@ -1722,6 +1722,7 @@ function renderMoreMissions() {
         ${m.paused
           ? `<button class="btn pri" data-act="resume" data-wp="${escapeHtml(m.targetWaypoint)}">Resume</button>`
           : `<button class="btn deny" data-act="pause" data-wp="${escapeHtml(m.targetWaypoint)}">Stop</button>`}
+        <button class="btn" data-act="remove" data-wp="${escapeHtml(m.targetWaypoint)}" title="Delete this mission from the board (crew released)">Remove</button>
       </div>
     </div>`;
   }).join("");
@@ -1988,6 +1989,7 @@ $("more-missions").addEventListener("click", async (e) => {
   if (!b) return;
   const { act, wp } = b.dataset;
   if (act === "pause" && !confirm(`Stop the construction mission at ${wp}? The crew will be released; you can resume later.`)) return;
+  if (act === "remove" && !confirm(`Remove the construction mission at ${wp}? It is deleted from the board and its crew released. Whatever was already delivered stays on the gate, and you can start the mission again later.`)) return;
   b.disabled = true;
   try {
     if (act === "set-target") {

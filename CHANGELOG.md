@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — A construction mission can be removed, not only paused
+
+A gate mission started by accident (the operator was only checking a gate) stayed on the board for good: the UI could pause
+it but nothing could delete it, so X1-FY6-I54 sat at 0 of 1,600 FAB_MATS as clutter. Added `MissionManager.remove()`
+(releases the crew exactly as `pause()` does, drops the mission's in-memory state including its pacing timers, then deletes
+the stored row with `Store.deleteMission()`, tenant-scoped), `FleetManager.removeMission()`, `POST /api/missions/remove`,
+the MCP tool `stcommand_remove_mission`, and a **Remove** button (with a confirm) on the mission cards in Deck and Tower.
+The game's own construction site keeps whatever was delivered, so starting the mission again later resumes from its real
+progress, and removing a mission that does not exist changes nothing and says so. The older v2-v6 pages were not given the button.
+Tests: `tests/mission.test.ts` ("MissionManager.remove", including a persistence test that another tenant's mission at the
+same waypoint is untouched and that a restart does not bring it back). One test in that file, "falls back to a different
+outstanding material...", already failed before this change and still does.
+
 ## 2026-10-16 — A contract delivery in another system is flown, not skipped as "out of range"
 
 `THEOREM-AE` held 80 MACHINERY at X1-CM13-E46 for a contract at X1-KQ90-EA5E and logged "contract delivery ... is out of

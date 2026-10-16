@@ -111,6 +111,43 @@ function makeCountingApi(materials: { tradeSymbol: string; required: number; ful
   return { api, calls };
 }
 
+describe("MissionManager.remove", () => {
+  it("deletes a mission from the list, releases its crew, and says whether there was anything to delete", async () => {
+    const resumed: string[] = [];
+    const mgr = new MissionManager({
+      api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]),
+      suspend: () => {},
+      resume: (s) => resumed.push(s),
+    });
+    await mgr.startConstruction("X1-A-I1");
+    await mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    assert.equal(mgr.committedShips().has("SHIP-1"), true);
+    assert.equal(await mgr.remove("X1-A-I1"), true);
+    assert.equal((await mgr.list()).some((m) => m.targetWaypoint === "X1-A-I1"), false, "gone from the board");
+    assert.deepEqual(resumed, ["SHIP-1"], "the carrier is handed back to autonomy");
+    assert.equal(mgr.committedShips().has("SHIP-1"), false, "and no longer committed, so it can be claimed elsewhere");
+    assert.equal(mgr.isPaused("X1-A-I1"), false, "no stale paused flag left behind for a later restart of the same waypoint");
+    assert.equal(await mgr.remove("X1-A-I1"), false, "removing it again is a harmless no-op that reports nothing was there");
+  });
+
+  it("only touches the mission asked for", async () => {
+    const mgr = new MissionManager({ api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]), suspend: () => {}, resume: () => {} });
+    await mgr.startConstruction("X1-A-I1");
+    await mgr.startConstruction("X1-B-I2");
+    await mgr.remove("X1-A-I1");
+    assert.deepEqual((await mgr.list()).map((m) => m.targetWaypoint), ["X1-B-I2"]);
+  });
+
+  it("a paused mission can be removed too, and starting it again afterwards begins fresh (not paused)", async () => {
+    const mgr = new MissionManager({ api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]), suspend: () => {}, resume: () => {} });
+    await mgr.startConstruction("X1-A-I1");
+    await mgr.pause("X1-A-I1");
+    assert.equal(await mgr.remove("X1-A-I1"), true);
+    await mgr.startConstruction("X1-A-I1");
+    assert.equal((await mgr.list()).find((m) => m.targetWaypoint === "X1-A-I1")?.paused, false);
+  });
+});
+
 describe("MissionManager API cost per tick", () => {
   it("a paused mission does not re-read its site on every tick", async () => {
     // Pausing a mission used to give back no API budget at all: the paused
@@ -394,6 +431,19 @@ after(async () => {
 });
 
 describe("MissionManager persistence", () => {
+  it("remove() deletes the stored record, so a fresh process does not bring the mission back; other tenants are untouched", async () => {
+    const mk = (tenantId: string) => new MissionManager({ api: makeApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]), store, tenantId, suspend: () => {}, resume: () => {} });
+    const a = mk(tenantA), b = mk(tenantB);
+    await a.startConstruction("X1-A-R1");
+    await b.startConstruction("X1-A-R1"); // same waypoint under another tenant
+    assert.equal(await a.remove("X1-A-R1"), true);
+    assert.equal((await store.latestMissions(tenantA)).some((m) => m.targetWaypoint === "X1-A-R1"), false, "gone from the database");
+    assert.equal((await store.latestMissions(tenantB)).some((m) => m.targetWaypoint === "X1-A-R1"), true, "the other tenant's mission is not touched");
+    const fresh = new MissionManager({ api: makeApi([]), store, tenantId: tenantA, suspend: () => {} });
+    assert.equal((await fresh.list()).some((m) => m.targetWaypoint === "X1-A-R1"), false, "a restart does not resurrect it");
+    assert.equal(await fresh.remove("X1-A-R1"), false);
+  });
+
   it("startConstruction persists the new mission, findable via list()", async () => {
     const mgr = new MissionManager({
       api: makeApi([{ tradeSymbol: "FAB_MATS", required: 4000, fulfilled: 0 }]),

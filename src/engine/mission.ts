@@ -551,6 +551,29 @@ export class MissionManager {
     await this.persist(mission);
   }
 
+  /**
+   * Delete a mission entirely (operator-initiated), as opposed to pausing it: it stops being listed, its crew is released to autonomy,
+   * and its stored record goes. The game's own construction site keeps whatever was delivered, so starting the mission again later
+   * picks up from the site's real progress. Returns false when there was no such mission (nothing is changed then).
+   * Why this exists: a mission can be started by accident (checking a gate), and pausing one leaves it on the board forever.
+   */
+  async remove(waypointSymbol: string): Promise<boolean> {
+    const known = (await this.list()).some((m) => m.targetWaypoint === waypointSymbol);
+    if (!known) return false;
+    if (this.active.has(waypointSymbol)) await this.pause(waypointSymbol); // releases the crew and cancels its tasks before the record goes
+    this.active.delete(waypointSymbol);
+    this.paused.delete(waypointSymbol);
+    this.tasks.delete(waypointSymbol);
+    this.lastReconcile.delete(waypointSymbol);
+    this.preAssignDiscoverRetry.delete(waypointSymbol);
+    this.cashHeld.delete(waypointSymbol);
+    this.cashLogAt.delete(waypointSymbol);
+    for (const m of [this.nextBuyAt, this.preBuyPrice, this.recoverLogAt]) for (const k of [...m.keys()]) if (k.startsWith(`${waypointSymbol}|`)) m.delete(k);
+    if (this.tenantId) await this.store?.deleteMission(this.tenantId, waypointSymbol);
+    this.log(`mission ${waypointSymbol}: removed`);
+    return true;
+  }
+
   /** Resume a paused mission. */
   async resumeMission(waypointSymbol: string): Promise<void> {
     if (!this.paused.delete(waypointSymbol)) return;

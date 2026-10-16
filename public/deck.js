@@ -1872,6 +1872,7 @@ function renderOps() {
               ${m.paused
                 ? '<button class="btn" data-mact="resume">Resume</button>'
                 : '<button class="btn deny" data-mact="pause">Stop</button>'}
+              <button class="btn" data-mact="remove" title="Delete this mission from the board (crew released). Starting it again later picks up from the gate's real progress.">Remove</button>
             </div>
           </div>
         </div>
@@ -1907,6 +1908,7 @@ $("ops-missions").addEventListener("click", async (e) => {
   if (!wp) return;
   const act = b.dataset.mact;
   if (act === "pause" && !confirm(`Stop the construction mission at ${wp}? The crew will be released; you can resume later.`)) return;
+  if (act === "remove" && !confirm(`Remove the construction mission at ${wp}? It is deleted from the board and its crew released. Whatever was already delivered stays on the gate, and you can start the mission again later.`)) return;
   b.disabled = true;
   try {
     if (act === "save-pacing") {

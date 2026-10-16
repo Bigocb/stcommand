@@ -6040,6 +6040,11 @@ export class FleetManager {
     await this.missions.pause(waypointSymbol);
   }
 
+  /** Delete a construction mission (not just pause it): crew released, record removed. Throws if there is no such mission. */
+  async removeMission(waypointSymbol: string): Promise<void> {
+    if (!(await this.missions.remove(waypointSymbol))) throw new Error(`no mission at ${waypointSymbol}`);
+  }
+
   /** Resume a paused construction mission. */
   async resumeMission(waypointSymbol: string): Promise<void> {
     await this.missions.resumeMission(waypointSymbol);

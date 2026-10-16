@@ -917,6 +917,25 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_remove_mission",
+    {
+      title: "Remove a construction mission",
+      description: "Delete a construction mission from the board (not just pause it): its crew is released to autonomy and its record is removed. The game's construction site keeps whatever was already delivered, so starting the mission again later picks up from the site's real progress. Use it for a mission started by accident or one that is finished and no longer wanted.",
+      inputSchema: { waypoint: z.string() },
+      annotations: { destructiveHint: true, idempotentHint: false },
+    },
+    async ({ waypoint }) => {
+      try {
+        await w.fleet.removeMission(waypoint);
+        await recordMcpAction(w, "mission_remove", waypoint, `removed mission ${waypoint}`);
+        return textResult({ ok: true, waypoint, removed: true, missions: await w.fleet.getMissions() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_resume_mission",
     {
       title: "Resume a construction mission",

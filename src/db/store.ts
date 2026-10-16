@@ -3103,6 +3103,11 @@ export class Store {
     });
   }
 
+  /** Delete a construction mission's record (operator-initiated). Its progress lives on the game's construction site, so nothing there is lost. */
+  async deleteMission(tenantId: string, targetWaypoint: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) => c.query(`DELETE FROM missions WHERE target_waypoint = $1`, [targetWaypoint]));
+  }
+
   /** Mark a mission complete. */
   async completeMission(tenantId: string, targetWaypoint: string): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>

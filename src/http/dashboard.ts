@@ -1311,6 +1311,19 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json({ ok: true, missions: await w.fleet.getMissions() });
   });
 
+  router.post("/missions/remove", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    if (!waypoint) return res.status(400).json({ error: "waypoint required" });
+    try {
+      await w.fleet.removeMission(waypoint);
+      res.json({ ok: true, missions: await w.fleet.getMissions() });
+    } catch (err) {
+      res.status(404).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/missions/resume", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
