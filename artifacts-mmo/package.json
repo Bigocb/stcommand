@@ -1,0 +1,13 @@
+{
+  "name": "artifacts-mmo",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Bot + visual front end for Artifacts MMO (https://artifactsmmo.com). Separate from the stcommand engine; never imported by it.",
+  "scripts": {
+    "test": "node --test --import tsx tests/*.test.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "fetch-data": "node fetch-data.mjs",
+    "web": "node web/serve.mjs"
+  }
+}
