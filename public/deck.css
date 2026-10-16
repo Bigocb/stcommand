@@ -356,6 +356,7 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .grp-hidden{display:none !important}
 .route-bars{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}
 .mgrid.one-row{grid-template-rows:minmax(0,1fr)}
+.cols2.one-col{grid-template-columns:minmax(0,1fr)}
 
 /* ── 3D map (deck-map.js) — v6's engine, Deck's palette ── */
 .map-wrap{position:relative;overflow:hidden;min-height:0;border:1px solid var(--hair);border-radius:6px;

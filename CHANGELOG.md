@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — Contracts move to Trade; the rest of that tab is Missions
+
+Contracts are now a tab under Trade (second, after Routes) in Deck and Tower, since they are paid hauling work, and
+Industry's old "Contracts & missions" tab is now just Missions (Tower's "Construction" heading is renamed to match).
+Deck's contracts and missions panels are separate full-width tabs; Tower's contracts list and mission list are separate
+sections. A group whose remembered last tab no longer exists opens its first tab. Layout in
+docs/deck-desktop-design.md §16 and docs/mobile-app-design.md.
+
 ## 2026-10-16 — Keepers stop reading shipyards at waypoints that have none
 
 Keepers call `recordShipyardSnapshot()` for every market they poll, not only the ones with a shipyard, and a read of a

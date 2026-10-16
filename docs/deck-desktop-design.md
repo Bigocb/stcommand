@@ -540,8 +540,8 @@ command palette lists every "Group › Tab".
 |---|---|---|
 | Overview | What needs me right now? | Overview |
 | Fleet | What are my ships doing? | Ships · Mining · Miner preference · Yards |
-| Trade | Where is the money? | Routes (All / Local / Cross-system filter) · Prices · Keepers · Markets by system · Local placement · Dispatch |
-| Industry | What are we building or supplying? | Supply chain · Contracts & missions · Feeds |
+| Trade | Where is the money? | Routes (All / Local / Cross-system filter) · Contracts · Prices · Keepers · Markets by system · Local placement · Dispatch |
+| Industry | What are we building or supplying? | Supply chain · Missions · Feeds |
 | Map | Where is everything? | Map |
 | Insights | How are we doing over time? | Metrics · Season · Notes |
 | Settings | What rules is the fleet following? | Doctrine · Automation · Admin (operator only) · Guide (link) |
@@ -550,7 +550,7 @@ How a tab maps onto the old screens: each tab is an existing view, narrowed. `se
 and hides that panel's own segment bar (the sub-nav replaces it); `hide` hides panels of the same view that belong to
 another tab; `oneRow` collapses a two-row grid so the panel left gives the full height. So Markets' Routes and Dispatch
 panels became separate tabs, Ops split three ways (Supply chain to Industry, Notes to Insights, Automation to Settings),
-and Contracts + Missions became their own tab. No screen was rewritten.
+and Contracts + Missions became separate tabs (Contracts under Trade, Missions under Industry; 2026-10-16, operator). No screen was rewritten.
 
 Decided: Map stays top level; Notes sit with Season under Insights; Routes comes before Dispatch (Dispatch is rarely
 used). Tower got the same groups on its bottom bar on 2026-10-16 (docs/mobile-app-design.md, "Navigation groups"). Still to

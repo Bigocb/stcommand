@@ -131,13 +131,14 @@ const NAV_GROUPS = [
   ] },
   { key: "trade", label: "Trade", tabs: [
     { key: "routes", label: "Routes", screen: "markets", seg: "routes" },
+    { key: "contracts", label: "Contracts", screen: "more", pane: "work", only: ["more-sec-contracts"] },
     { key: "prices", label: "Prices", screen: "markets", seg: "prices" },
     { key: "keepers", label: "Keepers", screen: "more", pane: "fleet", only: ["more-sec-keepers"] },
     { key: "bysystem", label: "By system", screen: "markets", seg: "systems" },
   ] },
   { key: "industry", label: "Industry", tabs: [
     { key: "chain", label: "Supply chain", screen: "more", pane: "work", only: ["more-sec-chain"] },
-    { key: "contracts", label: "Contracts", screen: "more", pane: "work", only: ["more-sec-contracts"] },
+    { key: "missions", label: "Missions", screen: "more", pane: "work", only: ["more-sec-missions"] },
     { key: "feeds", label: "Feeds", screen: "more", pane: "work", only: ["more-sec-feeds"] },
   ] },
   { key: "more", label: "More", tabs: [

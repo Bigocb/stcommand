@@ -368,8 +368,8 @@ because a phone can't hold seven. Each item's screens are tabs in a scrollable s
 |---|---|
 | Overview | Home · Approvals (the pending count is on the Overview item and on its own tab) |
 | Fleet | Ships · Mining · Yards · Scrap |
-| Trade | Routes (All / Local / Cross-system filter) · Prices · Keepers · By system |
-| Industry | Supply chain · Contracts (with Construction) · Feeds |
+| Trade | Routes (All / Local / Cross-system filter) · Contracts · Prices · Keepers · By system |
+| Industry | Supply chain · Missions (construction) · Feeds |
 | More | Metrics · Season · Doctrine · Keys · Admin (operator only) |
 
 Each tab is an existing screen, narrowed: More's old Work / Fleet / Mining / Rules panes now hold wrapped sections

@@ -145,7 +145,8 @@ function setView(name) {
  * Seven rail items, each answering one question (docs/deck-desktop-design.md §16, operator 2026-10-16). A group's
  * screens are tabs in the sub-nav under the top bar. A tab is an existing view, optionally narrowed: `seg` picks a tab
  * of a segmented panel (and hides that panel's own segment bar, since the sub-nav replaces it), `hide` hides panels of
- * the view that belong to another tab, and `oneRow` lets a two-row grid give the remaining panel the full height.
+ * the view that belong to another tab, `oneRow` lets a two-row grid give the remaining panel the full height, and
+ * `oneCol` does the same for a two-column row.
  */
 const NAV_GROUPS = [
   { key: "overview", label: "Overview", ic: "◎", tabs: [{ key: "overview", label: "Overview", view: "overview" }] },
@@ -157,6 +158,7 @@ const NAV_GROUPS = [
   ] },
   { key: "trade", label: "Trade", ic: "₡", tabs: [
     { key: "routes", label: "Routes", view: "markets", seg: ["mk-mkt-seg", "routes"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
+    { key: "contracts", label: "Contracts", view: "ops", hide: ["ops-row1", "ops-panel-missions"], oneCol: "ops-row2" },
     { key: "prices", label: "Prices", view: "markets", seg: ["mk-mkt-seg", "prices"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
     { key: "keepers", label: "Keepers", view: "markets", seg: ["mk-mkt-seg", "keeper"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
     { key: "bysystem", label: "Markets by system", view: "markets", seg: ["mk-mkt-seg", "systems"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
@@ -165,7 +167,7 @@ const NAV_GROUPS = [
   ] },
   { key: "industry", label: "Industry", ic: "⇄", tabs: [
     { key: "chain", label: "Supply chain", view: "ops", seg: ["ops-seg", "chain"], hide: ["ops-row2"] },
-    { key: "contracts", label: "Contracts & missions", view: "ops", hide: ["ops-row1"] },
+    { key: "missions", label: "Missions", view: "ops", hide: ["ops-row1", "ops-panel-contracts"], oneCol: "ops-row2" },
     { key: "feeds", label: "Feeds", view: "feeds" },
   ] },
   { key: "map", label: "Map", ic: "✦", tabs: [{ key: "map", label: "Map", view: "map" }] },
@@ -215,9 +217,11 @@ function openTab(groupKey, tabKey) {
   navLsSet(`deckTab:${groupKey}`, tab.key);
   document.querySelectorAll(".grp-hidden").forEach((el) => el.classList.remove("grp-hidden"));
   document.querySelectorAll(".mgrid.one-row").forEach((el) => el.classList.remove("one-row"));
+  document.querySelectorAll(".cols2.one-col").forEach((el) => el.classList.remove("one-col"));
   setView(tab.view);
   for (const id of tab.hide ?? []) $(id)?.classList.add("grp-hidden");
   if (tab.oneRow) $(tab.oneRow)?.classList.add("one-row");
+  if (tab.oneCol) $(tab.oneCol)?.classList.add("one-col");
   if (tab.seg) {
     const [bar, value] = tab.seg;
     $(bar)?.classList.add("grp-hidden");
