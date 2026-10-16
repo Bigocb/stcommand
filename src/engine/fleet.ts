@@ -1280,7 +1280,9 @@ export class FleetManager {
       log: (m) => this.log(`${shipSymbol}: ${m}`),
       recordLedger: this.recordLedger,
       onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
-      recordMarket: (wp) => this.recordMarketSnapshot(wp),
+      // Traders price their buys off the snapshot, so they only skip one taken in the last minute (the duplicate a dock
+      // and an explicit record a moment apart used to cost).
+      recordMarket: (wp) => this.recordMarketSnapshot(wp, { maxAgeMs: 60_000 }),
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
       jumpTo: (sym, wp) => this.jumpToward(sym, wp),
@@ -2341,11 +2343,29 @@ export class FleetManager {
     return keeperPollDelayMs(Date.now() - seen.changedAt);
   }
 
+  /**
+   * Whether a snapshot of this market taken now would be a re-read of one we already hold. One rule for every reader:
+   * a snapshot younger than the market's keeper cadence (5 minutes for a market that moved recently, up to 30 for one
+   * that has sat still) is still good, with 20% slack so a keeper polling on that cadence isn't skipped by seconds.
+   * `maxAgeMs` overrides the cadence (traders pass a minute). Doctrine `marketSnapshotReuse` off reads every time.
+   * Measured 2026-10-16: tour ships and keepers recorded 112 markets per five minutes, and a dock followed by an explicit
+   * record read the same market twice in a few seconds.
+   */
+  private marketSnapshotFresh(waypointSymbol: string, maxAgeMs?: number): boolean {
+    if (!this.doctrine.isEnabledOr("marketSnapshotReuse", true)) return false;
+    const at = Date.parse(this.registry.market(waypointSymbol)?.fetchedAt ?? "");
+    if (!Number.isFinite(at)) return false;
+    const limit = maxAgeMs ?? this.keeperPollMs(waypointSymbol) * 0.8;
+    return Date.now() - at < limit;
+  }
+
   /** Snapshot current market prices at a waypoint if it has a MARKETPLACE trait.
-   *  Called whenever a ship docks so the dashboard stays current. */
-  async recordMarketSnapshot(waypointSymbol: string): Promise<void> {
+   *  Called whenever a ship docks so the dashboard stays current. Skipped when the snapshot we hold is still fresh
+   *  (see marketSnapshotFresh()). */
+  async recordMarketSnapshot(waypointSymbol: string, opts: { maxAgeMs?: number } = {}): Promise<void> {
     const systemSymbol = this.registry.systemOf(waypointSymbol);
     if (!this.registry.isMarket(waypointSymbol)) return;
+    if (this.marketSnapshotFresh(waypointSymbol, opts.maxAgeMs)) return;
     try {
       const market = await this.api.getMarket(systemSymbol, waypointSymbol);
       const goods = market.tradeGoods ?? [];

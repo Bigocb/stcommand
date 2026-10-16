@@ -195,3 +195,28 @@ describe("sellAllCargo chunks around a market's real per-transaction limit", () 
     assert.deepEqual(calls, [13, 6, 6, 1], "first tries the whole hold, then re-chunks to the limit the market reported back");
   });
 });
+
+describe("sellAllCargo only offers goods the market trades", () => {
+  it("doesn't spend a call trying to sell residue the market doesn't list", async () => {
+    const sold: string[] = [];
+    const ship = {
+      symbol: "MINER-1",
+      nav: { status: "DOCKED", waypointSymbol: "X1-A-H56", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date(0).toISOString() } },
+      cargo: { capacity: 15, units: 15, inventory: [{ symbol: RESIDUE, units: 8 }, { symbol: SELLABLE, units: 7 }] },
+      fuel: { current: 80, capacity: 80 },
+      cooldown: { remainingSeconds: 0 },
+      mounts: [], modules: [],
+    } as unknown as Ship;
+    const api = {
+      getCallCount: () => 0,
+      sellCargo: async (_s: string, good: string, units: number) => {
+        sold.push(good);
+        return { cargo: { capacity: 15, units: 8, inventory: [{ symbol: RESIDUE, units: 8 }] }, transaction: { pricePerUnit: 61, totalPrice: 61 * units } };
+      },
+    };
+    const agent = new ShipAgent(ship, { api } as never);
+    (agent as never as { withRegistry(r: Registry): unknown }).withRegistry(world());
+    await (agent as never as { sellAllCargo(at: string): Promise<void> }).sellAllCargo("X1-A-H56");
+    assert.deepEqual(sold, [SELLABLE]);
+  });
+});

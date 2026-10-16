@@ -171,6 +171,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "marketSnapshotReuse",
+    name: "Reuse fresh market snapshots",
+    description: "A ship docking at a market used to read its prices every time, even when another ship had read them a minute before. With this on, a snapshot younger than the market's keeper cadence (5 minutes for a market whose prices moved recently, up to 30 for one that has sat still) is reused instead. Traders only reuse one taken in the last minute, since they price their buys from it. Turn it off to read on every dock, as before. On by default. Takes effect at once.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "shipBook",
     name: "Serve ship reads from the ship book",
     description: "Each ship step starts by reading its ship from the game, the largest single use of the API budget. The game only changes a ship when we act on it, and each action's answer carries what it changed, so the fleet can keep each ship's state itself and skip most of those reads. The book always runs in shadow, comparing what it would have served with every real read; its five-minute log line ('ship book (shadow)') shows how often it would have been right. Turn the clause on to let it serve. The value is the age limit: every ship is still read for real at least this often. Off by default. Takes effect within a minute.",

@@ -2007,13 +2007,25 @@ export class ShipAgent {
     this.proxy.assertAt(expectedAt, "sell cargo");
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
     const inventory = [...this.ship.cargo.inventory];
+    // Goods this market doesn't trade. Each attempt to sell one cost an API call and failed ("is not listed at
+    // market"): on 2026-10-16 three miners tried ICE_WATER, QUARTZ_SAND and SILICON_CRYSTALS at X1-CM13-H57 on every
+    // trip. They stay aboard for a market that buys them, or dumpUnsellableCargo() once nothing in range does. With no
+    // snapshot of the market, every good is tried, as before.
+    const listed = this.registry.market(expectedAt)?.tradeGoods;
+    const known = listed && Object.keys(listed).length > 0 ? listed : undefined;
+    const skipped: string[] = [];
     for (const item of inventory) {
       if (protectedGoods.has(item.symbol)) {
         this.log(`keeping ${item.symbol} (reserved for mission)`);
         continue;
       }
+      if (known && !known[item.symbol]) {
+        skipped.push(item.symbol);
+        continue;
+      }
       await this.sellCargoInLots(item.symbol, item.units);
     }
+    if (skipped.length) this.log(`not selling ${skipped.join(", ")} at ${expectedAt}: not traded there`);
   }
 
   /**

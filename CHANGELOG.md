@@ -9,6 +9,21 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — Miners stop offering goods a market doesn't trade; market snapshots reused while fresh
+
+- **Miner sales.** A miner sold its whole hold item by item at the market it picked, including goods that market
+  doesn't trade, and each refusal ("Trade good ICE_WATER is not listed at market X1-CM13-H57") cost an API call:
+  THEOREM-7, -8 and -2A did it on every trip. `sellAllCargo()` now skips goods missing from the market's snapshot; they
+  stay aboard for a market that buys them, or are dumped once nothing in range does. With no snapshot, every good is
+  tried as before.
+- **Market snapshots.** Once the ship book freed budget, tour ships and keepers spent it re-reading markets (112 per five
+  minutes from `ShipAgent.recordMarket`), and a dock followed by an explicit record read the same market twice within
+  seconds. `recordMarketSnapshot()` now reuses a snapshot younger than the market's keeper cadence (5 minutes for one
+  whose prices moved recently, up to 30 for one that has sat still; 20% slack so keepers aren't skipped). Traders only
+  reuse one from the last minute, since they price their buys from it. Doctrine `marketSnapshotReuse` (on) turns it
+  off. Measured earlier (2026-10-08): markets tick about every 30 minutes, a price that moves does so about every 27
+  minutes, and only 12% of snapshots taken 5 minutes apart differed.
+
 ## 2026-10-16 — Systems tab says what it is for, and scrolls
 
 The Systems tab in Deck is for placing a local-only trader (reach "system"), and it now says so: the title reads
