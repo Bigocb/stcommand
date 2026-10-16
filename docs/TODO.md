@@ -475,6 +475,15 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   (docs/deck-desktop-design.md §16), and a Local / Cross-system filter on Routes. Next: Tower's bottom bar on the same
   groups (Overview · Fleet · Trade · Industry · More), and a local-only (reach) control in Fleet's ship detail.
 
+## Someday (operator ideas, not scheduled)
+
+- [ ] **Systems tab: "what if we started from here?" (raised 2026-10-16, someday, not today).** Let the operator pick a
+  different starting system on the Systems (Local placement) tab and see the candidates as if our ships were there.
+  Today gate hops are measured from every system we have a ship in (`src/ops/systems.ts`, multi-source search). The
+  pure judge (`src/engine/systems/candidates.ts`) needs no change: pass an optional `from` system to
+  `systemCandidates()` that replaces the set of starting systems for the hop count (and the "we're here" flag), plus a
+  system picker on the tab. Advisory only, like the rest of the tab.
+
 ## Design docs written, no implementation decision made
 
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task
