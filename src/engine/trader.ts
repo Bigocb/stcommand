@@ -2803,6 +2803,17 @@ export class TraderAgent {
         // dispatchShipHop). nextHopToward() returning undefined means no
         // known fuel stop gets any closer — a route that really can't work,
         // not just one not tried yet.
+        // A delivery in another system is not a range question: waypoint coordinates are local to their own
+        // system, so comparing them across systems measures nothing, and the skip below left cargo sitting
+        // (2026-10-16: THEOREM-AE held 80 MACHINERY in X1-CM13 for a contract at X1-KQ90-EA5E, logging "out of
+        // range" every 30 s). navigateTo() already walks the gate path one hop per call; the in-system range
+        // guard applies once the ship is in the destination's system.
+        if (this.systemOf(result) !== this.ship.nav.systemSymbol) {
+          this.log(`delivering cargo → ${result} (another system, one gate hop per tick)`);
+          await this.navigateTo(result);
+          await this.refresh();
+          return true;
+        }
         if (this.ship.fuel.capacity > 0 && this.distBetween(this.ship.nav.waypointSymbol, result) > this.ship.fuel.capacity) {
           const hop = this.nextHopToward(result);
           if (!hop) {

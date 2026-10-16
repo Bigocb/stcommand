@@ -80,6 +80,27 @@ describe("TraderAgent.tick: contract delivery priority", () => {
     assert.equal(made, true);
   });
 
+  it("walks a contract delivery in another system by gate instead of skipping it as out of range", async () => {
+    // 2026-10-16: THEOREM-AE held 80 MACHINERY for a contract in another system and logged "out of range even via
+    // known fuel stops" every tick, because waypoint coordinates (local to each system) were compared across systems.
+    const ship = makeShip([{ symbol: "MACHINERY", units: 5 }]);
+    let navigated: string | undefined;
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      deliverCargo: async () => "X1-B-B1",
+    });
+    trader.withWorld([
+      { symbol: "X1-A-A1", x: 0, y: 0 },
+      { symbol: "X1-B-B1", x: 9000, y: 9000 },
+    ]);
+    (trader as any).navigateTo = async (wp: string) => { navigated = wp; };
+
+    const made = await trader.tick();
+
+    assert.equal(navigated, "X1-B-B1", "a cross-system delivery must be handed to navigateTo, which walks the gate path");
+    assert.equal(made, true);
+  });
+
   it("does not mutate dispatcher assignment when the assigned direct route is rejected", async () => {
     const ship = makeShip();
     let claimed = false;

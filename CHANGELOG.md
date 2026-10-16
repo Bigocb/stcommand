@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — A contract delivery in another system is flown, not skipped as "out of range"
+
+`THEOREM-AE` held 80 MACHINERY at X1-CM13-E46 for a contract at X1-KQ90-EA5E and logged "contract delivery ... is out of
+range even via known fuel stops; skipping for now" every 30 seconds, so the cargo sat. The delivery branch in
+`TraderAgent.tick()` compared the ship's waypoint coordinates with the destination's against the fuel capacity, but a
+waypoint's x/y are local to its own system, so across systems that distance means nothing and always failed. A delivery
+in another system now goes straight to `navigateTo()`, which already walks the gate path one hop per tick; the in-system
+range guard (and its multi-hop fuel stops) applies once the ship is in the destination's system. Topping the tank up by
+hand did not help, which is how the cause was found. Test: `tests/trader.test.ts` (fails without the change).
+
 ## 2026-10-16 — The Routes board lists the multi-hop routes the fleet actually flies
 
 Reported: on Tower's Routes tab none of the listed routes was being flown, and only 7 were cross-system. The board kept a
