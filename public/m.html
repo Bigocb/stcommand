@@ -40,6 +40,8 @@
     <a class="topguide" href="/guide">Guide</a>
   </div>
 
+  <div class="subnav" id="subnav" hidden></div>
+
   <main class="body">
     <div class="screen on" data-screen="home">
       <div class="home-scroll">
@@ -130,8 +132,11 @@
           <button data-mseg="rules">Rules</button>
         </div>
         <div id="more-pane-work">
+        <div id="more-sec-season">
         <div class="sec-h">Season</div>
         <div id="more-season" class="card ss-tower"></div>
+        </div>
+        <div id="more-sec-contracts">
         <div class="sec-h">Contracts <span class="n" id="more-contract-count">0</span></div>
         <div id="more-contracts"></div>
         <div class="sec-h">Construction</div>
@@ -140,11 +145,15 @@
           <button class="btn pri" id="mission-start-btn">Start</button>
         </div>
         <div id="more-missions"></div>
+        </div>
+        <div id="more-sec-chain">
         <div class="sec-h">Gate supply chain</div>
         <div id="more-chain" class="chain-health"></div>
+        </div>
+        <div id="more-sec-feeds">
         <div class="sec-h">Feeder chains</div>
         <div id="more-chains"></div>
-        <div class="detail">Build a new chain on desktop — Ops tab, Feeder chains panel.</div>
+        <div class="detail">Build a new chain on desktop — Industry › Feeds.</div>
         <div class="sec-h">Feeder tiers</div>
         <div class="mission-start-row">
           <select id="feed-good-input"><option value="">Good…</option></select>
@@ -156,7 +165,9 @@
         </div>
         <div id="more-feeds"></div>
         </div>
+        </div>
         <div id="more-pane-fleet" hidden>
+        <div id="more-sec-keepers">
         <div class="sec-h">Keeper stations <span class="n" id="more-keeper-count">0</span></div>
         <div class="detail">Markets that get a stationed keeper, one waypoint per line. Only listed markets ask for a keeper when a ship docks there.</div>
         <div class="doc-row">
@@ -169,6 +180,8 @@
           <button class="btn ghost" id="more-keeper-reset">Default</button>
         </div>
         <div id="more-keeper-stations"></div>
+        </div>
+        <div id="more-sec-scrap">
         <div class="sec-h">Bulk scrap <span class="n" id="more-bulk-count">0 selected</span></div>
         <div class="detail">Pick ships, then Scrap. Each flies to the nearest shipyard and is scrapped there (permanent). The credits come back as scrap value.</div>
         <div class="mission-start-row">
@@ -179,10 +192,14 @@
         <div id="bulk-list"></div>
         <div class="mission-start-row"><button class="btn deny" id="bulk-go">Scrap selected</button></div>
         </div>
+        </div>
         <div id="more-pane-mining" hidden><div class="mx" id="mining-root"></div></div>
         <div id="more-pane-rules" hidden>
+        <div id="more-sec-doctrine">
         <div class="sec-h">Doctrine <span class="n" id="more-doctrine-count">0</span></div>
         <div id="more-doctrine"></div>
+        </div>
+        <div id="more-sec-keys">
         <div class="sec-h">MCP keys</div>
         <div class="mcp-keys" id="mcp-keys">
           <div id="mcp-key-list"></div>
@@ -192,6 +209,7 @@
           </div>
           <div class="mcp-key-ok" id="mcp-key-ok"></div>
           <div class="mcp-key-reveal" id="mcp-key-reveal" hidden></div>
+        </div>
         </div>
         </div>
       </div>
@@ -228,15 +246,10 @@
     </div>
   </main>
 
-  <nav class="tabbar" id="tabbar">
-    <button class="on" data-tab="home"><span class="dot"></span>Home</button>
-    <button data-tab="fleet"><span class="dot"></span>Fleet</button>
-    <button data-tab="metrics"><span class="dot"></span>Metrics</button>
-    <button data-tab="markets"><span class="dot"></span>Markets</button>
-    <button data-tab="approvals"><span class="dot"></span>Approvals <span class="n" id="tab-approvals-count" hidden>0</span></button>
-    <button data-tab="more"><span class="dot"></span>More</button>
-    <button data-tab="admin" id="tab-admin" hidden><span class="dot"></span>Admin</button>
-  </nav>
+  <!-- Five groups, built from NAV_GROUPS in m.js (docs/mobile-app-design.md, "Navigation groups"). -->
+  <nav class="tabbar" id="tabbar"></nav>
+  <!-- Marker only: enableAdmin() unhides it for an operator, which shows the Admin tab under More. -->
+  <span id="tab-admin" hidden style="display:none !important"></span>
 </div>
 
 <script type="module" src="/m.js"></script>

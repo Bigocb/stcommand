@@ -553,5 +553,5 @@ panels became separate tabs, Ops split three ways (Supply chain to Industry, Not
 and Contracts + Missions became their own tab. No screen was rewritten.
 
 Decided: Map stays top level; Notes sit with Season under Insights; Routes comes before Dispatch (Dispatch is rarely
-used). Next: Tower gets the same groups on its bottom bar as Overview · Fleet · Trade · Industry · More (Map, Insights,
-Settings under More), and the per-ship local-only setting gets a control in Fleet's ship detail.
+used). Tower got the same groups on its bottom bar on 2026-10-16 (docs/mobile-app-design.md, "Navigation groups"). Still to
+do: a control for the per-ship local-only setting in Fleet's ship detail.

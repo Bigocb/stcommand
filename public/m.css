@@ -105,6 +105,8 @@ body {
 .card .amt.red { color: var(--red); }
 .card .amt.amber { color: var(--amber); }
 .card .detail { font-family: var(--mono); font-size: 10.5px; color: var(--dim); line-height: 1.5; }
+/* Hint lines placed straight in a screen (not in a card) had no style and rendered at the page's default size. */
+.more-scroll .detail, .mkt-scroll .detail { font-family: var(--mono); font-size: 10.5px; color: var(--dim); line-height: 1.5; margin: 6px 0; }
 .card .exp { font-family: var(--mono); font-size: 9px; color: var(--dim); }
 .card .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
 .card input[type="number"], .card input[type="text"] {
@@ -528,6 +530,31 @@ body {
 .tabbar button .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--dim); }
 .tabbar button.on { color: var(--amber); }
 .tabbar button.on .dot { background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }
+
+.tabbar button { position: relative; }
+.tabbar button .n {
+  position: absolute; top: -3px; left: calc(50% + 10px); min-width: 14px; padding: 0 4px; border-radius: 7px;
+  background: var(--amber); color: #1a1200; font-size: 8px; font-weight: 700; letter-spacing: 0; line-height: 14px; text-align: center;
+}
+
+/* ── sub-nav: the current group's tabs, under the top bar (m.js NAV_GROUPS) ── */
+.subnav {
+  flex: 0 0 auto; display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--hair);
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.subnav::-webkit-scrollbar { display: none; }
+.subnav[hidden] { display: none; }
+.subnav button {
+  flex: 0 0 auto; background: none; border: none; border-bottom: 2px solid transparent; color: var(--dim);
+  font-family: var(--chrome); font-weight: 600; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 10px 10px 8px; white-space: nowrap;
+}
+.subnav button.on { color: var(--amber); border-bottom-color: var(--amber); }
+.subnav button .n {
+  display: inline-block; min-width: 14px; padding: 0 4px; margin-left: 3px; border-radius: 7px; background: var(--amber);
+  color: #1a1200; font-size: 8px; font-weight: 700; letter-spacing: 0; line-height: 14px; text-align: center;
+}
+.grp-hidden { display: none !important; }
 
 /* ── auth gate ── */
 .auth-gate { align-items: center; justify-content: center; background: var(--ground); z-index: 10; }

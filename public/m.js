@@ -30,7 +30,7 @@ import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jobKind, JOB_KINDS } from "/shared/domain.js";
-import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
+import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, routeScope, getRouteScope, setRouteScope, routeScopeBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
@@ -72,7 +72,7 @@ $("auth-form").addEventListener("submit", async (e) => {
   try {
     const who = await login(token);
     hideAuthGate();
-    if (who?.operator) enableAdmin($("tab-admin"));
+    if (who?.operator) { enableAdmin($("tab-admin")); renderNav(); }
     boot();
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
@@ -91,7 +91,6 @@ function setTab(name) {
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
   document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.dataset.screen === name));
-  document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   // loadMarkets() on "fleet" too: the sheet's Custom route form reads
   // marketSnapshots for its buy/sell dropdowns, same staleness fix as
   // desktop's own loadViewData() comment for its Fleet tab's Job column.
@@ -113,10 +112,89 @@ function setTab(name) {
   if (name !== "more") miningScreen?.hide();
   else if (!$("more-pane-mining").hidden) miningScreen?.show();
 }
+/* ── Navigation groups ─────────────────────
+ * Five bottom-bar items, the same groups as Deck's rail (docs/mobile-app-design.md, "Navigation groups"). A group's
+ * screens are tabs in the sub-nav under the top bar. Each tab is an existing screen, optionally narrowed: `pane` opens
+ * one of More's panes, `only` shows just those sections of it, and `seg` picks a Markets segment; the screen's own
+ * segment bar is hidden, since the sub-nav replaces it. Map, Insights and Settings live under More; Tower has no Map.
+ */
+const NAV_GROUPS = [
+  { key: "overview", label: "Overview", tabs: [
+    { key: "home", label: "Home", screen: "home" },
+    { key: "approvals", label: "Approvals", screen: "approvals", badge: true },
+  ] },
+  { key: "fleet", label: "Fleet", tabs: [
+    { key: "ships", label: "Ships", screen: "fleet" },
+    { key: "mining", label: "Mining", screen: "more", pane: "mining" },
+    { key: "yards", label: "Yards", screen: "markets", seg: "yards" },
+    { key: "scrap", label: "Scrap", screen: "more", pane: "fleet", only: ["more-sec-scrap"] },
+  ] },
+  { key: "trade", label: "Trade", tabs: [
+    { key: "routes", label: "Routes", screen: "markets", seg: "routes" },
+    { key: "prices", label: "Prices", screen: "markets", seg: "prices" },
+    { key: "keepers", label: "Keepers", screen: "more", pane: "fleet", only: ["more-sec-keepers"] },
+    { key: "bysystem", label: "By system", screen: "markets", seg: "systems" },
+  ] },
+  { key: "industry", label: "Industry", tabs: [
+    { key: "chain", label: "Supply chain", screen: "more", pane: "work", only: ["more-sec-chain"] },
+    { key: "contracts", label: "Contracts", screen: "more", pane: "work", only: ["more-sec-contracts"] },
+    { key: "feeds", label: "Feeds", screen: "more", pane: "work", only: ["more-sec-feeds"] },
+  ] },
+  { key: "more", label: "More", tabs: [
+    { key: "metrics", label: "Metrics", screen: "metrics" },
+    { key: "season", label: "Season", screen: "more", pane: "work", only: ["more-sec-season"] },
+    { key: "doctrine", label: "Doctrine", screen: "more", pane: "rules", only: ["more-sec-doctrine"] },
+    { key: "keys", label: "Keys", screen: "more", pane: "rules", only: ["more-sec-keys"] },
+    { key: "admin", label: "Admin", screen: "admin", adminOnly: true },
+  ] },
+];
+const navGet = (k) => { try { return window.localStorage.getItem(k); } catch { return null; } };
+const navSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch { /* private window: fine */ } };
+let currentGroup = "overview";
+let currentTab = "home";
+
+const groupTabs = (key) => (NAV_GROUPS.find((g) => g.key === key)?.tabs ?? []).filter((t) => !t.adminOnly || $("tab-admin")?.hidden === false);
+
+function renderNav() {
+  const pending = approvals.length;
+  $("tabbar").innerHTML = NAV_GROUPS.map((g) => `<button${g.key === currentGroup ? ' class="on"' : ""} data-group="${g.key}"><span class="dot"></span>${g.label}${g.key === "overview" && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join("");
+  const tabs = groupTabs(currentGroup);
+  const sub = $("subnav");
+  sub.hidden = tabs.length <= 1;
+  sub.innerHTML = tabs.map((t) => `<button${t.key === currentTab ? ' class="on"' : ""} data-tab="${t.key}">${t.label}${t.badge && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join("");
+}
+
+/** Open one tab of one group: the screen, narrowed to the pane, sections and segment that tab is about. */
+function openTab(groupKey, tabKey) {
+  const tabs = groupTabs(groupKey);
+  const tab = tabs.find((t) => t.key === tabKey) ?? tabs.find((t) => t.key === navGet(`towerTab:${groupKey}`)) ?? tabs[0];
+  if (!tab) return;
+  currentGroup = groupKey;
+  currentTab = tab.key;
+  navSet(`towerTab:${groupKey}`, tab.key);
+  document.querySelectorAll(".grp-hidden").forEach((el) => el.classList.remove("grp-hidden"));
+  // A screen that fails to render (a bad API answer) must not leave the navigation stuck on the previous tab.
+  try { setTab(tab.screen); } catch (err) { console.error(err); }
+  if (tab.pane) {
+    $("more-seg").classList.add("grp-hidden");
+    $("more-seg").querySelector(`[data-mseg="${tab.pane}"]`)?.click();
+    if (tab.only) document.querySelectorAll(`#more-pane-${tab.pane} > [id^="more-sec-"]`).forEach((el) => el.classList.toggle("grp-hidden", !tab.only.includes(el.id)));
+  }
+  if (tab.seg) {
+    $("mkt-seg").classList.add("grp-hidden");
+    $("mkt-seg").querySelector(`[data-seg="${tab.seg}"]`)?.click();
+  }
+  renderNav();
+}
 $("tabbar").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-tab]");
-  if (b) setTab(b.dataset.tab);
+  const b = e.target.closest("button[data-group]");
+  if (b) openTab(b.dataset.group);
 });
+$("subnav").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-tab]");
+  if (b) openTab(currentGroup, b.dataset.tab);
+});
+renderNav();
 
 /* ── status bar clock ── */
 function renderStatusbar() {
@@ -274,9 +352,7 @@ function renderAttention() {
 const APPROVAL_LABELS = { buyKeeperProbe: "Keeper probe", buyKeeperProbeForMarket: "Keeper probe", buyShip: "Ship purchase" };
 function renderApprovalsScreen() {
   const n = approvals.length;
-  const badge = $("tab-approvals-count");
-  badge.textContent = n;
-  badge.hidden = n === 0;
+  renderNav();
   $("approvals-screen-count").textContent = n;
   $("approvals-upcoming-count").textContent = upcomingApprovals.length;
   $("approvals-decided-count").textContent = decidedApprovals.length;
@@ -1135,8 +1211,13 @@ function renderMarketRoutes() {
     : "";
   if (!marketRoutes.length) { el.innerHTML = skipped + '<div class="empty">No profitable routes in fresh snapshots.</div>'; return; }
   const sortMode = getRouteSort();
-  const top = sortRoutes(marketRoutes, sortMode).slice(0, 20);
-  el.innerHTML = skipped + routeSortBar(sortMode) + top.map((r) => {
+  // Local = buy and sell in one system (what a local-only ship can fly); cross-system = everything else.
+  const scope = getRouteScope();
+  const scoped = scope === "all" ? marketRoutes : marketRoutes.filter((r) => routeScope(r) === scope);
+  const top = sortRoutes(scoped, sortMode).slice(0, 20);
+  const bars = routeScopeBar(scope, marketRoutes) + routeSortBar(sortMode);
+  if (!top.length) { el.innerHTML = skipped + bars + `<div class="empty">No ${scope === "local" ? "local" : "cross-system"} routes right now.</div>`; return; }
+  el.innerHTML = skipped + bars + top.map((r) => {
     const good = r.goodSymbol;
     // Keyed by good+buyAt+sellAt, not just good — the same good can have
     // several distinct routes in this list (different buy/sell pairs), and
@@ -1497,6 +1578,8 @@ $("mkt-seg").addEventListener("click", (e) => {
 $("mkt-routes").addEventListener("click", async (e) => {
   const why = e.target.closest("button[data-act='why-toggle']");
   if (why) { const k = why.dataset.key; openWhy.has(k) ? openWhy.delete(k) : openWhy.add(k); return renderMarketRoutes(); }
+  const scopeBtn = e.target.closest("button[data-act='route-scope']");
+  if (scopeBtn) { setRouteScope(scopeBtn.dataset.scope); return renderMarketRoutes(); }
   const sort = e.target.closest("button[data-act='route-sort']");
   if (sort) { setRouteSort(sort.dataset.mode); return renderMarketRoutes(); }
   const toggle = e.target.closest("button[data-act='route-toggle']");
@@ -2149,6 +2232,6 @@ document.addEventListener("visibilitychange", () => {
   const session = await probeSession();
   if (!session.authenticated) return showAuthGate();
   hideAuthGate();
-  if (session.operator) enableAdmin($("tab-admin"));
+  if (session.operator) { enableAdmin($("tab-admin")); renderNav(); }
   boot();
 })();

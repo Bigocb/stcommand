@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — Tower navigation regrouped to match Deck
+
+Tower's bottom bar (Home · Fleet · Metrics · Markets · Approvals · More) is now five items: Overview, Fleet, Trade,
+Industry, More, with the group's screens as tabs in a scrollable bar under the top bar. Overview holds Home and
+Approvals (the pending count shows on the Overview item and the tab); Fleet holds Ships, Mining, Yards and Scrap; Trade
+holds Routes, Prices, Keepers and By system; Industry holds Supply chain, Contracts and Feeds; More holds Metrics, Season,
+Doctrine, Keys and Admin. Routes gets the same All / Local / Cross-system filter as Deck. Nothing was rewritten: More's
+panes were split into wrapped sections and each tab shows its own. Hint lines that sat outside a card, with no style,
+are now styled. Map, Local placement and Dispatch aren't in Tower. Layout in docs/mobile-app-design.md.
+
 ## 2026-10-16 — Deck navigation regrouped into seven
 
 Deck's rail had thirteen items. It now has seven, each one question, with the screens as tabs under the top bar:

@@ -472,8 +472,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 ## UI organization — revisit
 
 - [~] Revisit how the UI is organized. Deck SHIPPED 2026-10-16: seven rail groups with sub-tabs
-  (docs/deck-desktop-design.md §16), and a Local / Cross-system filter on Routes. Next: Tower's bottom bar on the same
-  groups (Overview · Fleet · Trade · Industry · More), and a local-only (reach) control in Fleet's ship detail.
+  (docs/deck-desktop-design.md §16), and a Local / Cross-system filter on Routes. Tower's bottom bar followed on 2026-10-16
+  (Overview · Fleet · Trade · Industry · More). Next: a local-only (reach) control in Fleet's ship detail on both, Local
+  placement and Dispatch in Tower if wanted, and a way into the Co-pilot screen (it has none).
 
 ## Design docs written, no implementation decision made
 

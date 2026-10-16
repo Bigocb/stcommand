@@ -356,3 +356,25 @@ More → Work opens with a read-only Season card (`seasonCardHtml()` in `public/
 and the top three suggestions. Fetched at most every two minutes, because it runs the analysis on the server. The plan
 is edited on Deck's Season screen.
 
+
+## Navigation groups (2026-10-16)
+
+The bottom bar had Home · Fleet · Metrics · Markets · Approvals · More (and Admin for an operator), with More holding
+four segments. It now follows Deck's seven groups (docs/deck-desktop-design.md §16), folded to five bottom-bar items
+because a phone can't hold seven. Each item's screens are tabs in a scrollable sub-nav under the top bar, built from
+`NAV_GROUPS` in `m.js`.
+
+| Bottom bar | Tabs |
+|---|---|
+| Overview | Home · Approvals (the pending count is on the Overview item and on its own tab) |
+| Fleet | Ships · Mining · Yards · Scrap |
+| Trade | Routes (All / Local / Cross-system filter) · Prices · Keepers · By system |
+| Industry | Supply chain · Contracts (with Construction) · Feeds |
+| More | Metrics · Season · Doctrine · Keys · Admin (operator only) |
+
+Each tab is an existing screen, narrowed: More's old Work / Fleet / Mining / Rules panes now hold wrapped sections
+(`more-sec-*`), a tab shows only its own section, and the screen's own segment bar is hidden since the sub-nav replaces
+it. Each group remembers its last tab. A screen that fails to render doesn't strand the navigation on the previous tab.
+
+Not in Tower: Map (Tower has none; Deck keeps it as a top-level item), Local placement (the Systems tab) and Dispatch.
+The Co-pilot screen is still in the markup but, as before, has no entry point.
