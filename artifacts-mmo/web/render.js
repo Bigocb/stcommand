@@ -62,8 +62,12 @@ export function draw(canvas, s) {
     }
     if (sc >= 56 && t.code && t.kind !== 'blocked') {
       ctx.fillStyle = 'rgba(255,255,255,.92)';
-      ctx.font = `600 ${Math.max(10, Math.round(sc * 0.14))}px system-ui, sans-serif`;
-      ctx.fillText(cap(t.code).slice(0, 14), sx + sc / 2, sy + sc - 9);
+      const label = cap(t.code);
+      let fs = Math.max(10, Math.round(sc * 0.14));
+      ctx.font = `600 ${fs}px system-ui, sans-serif`;
+      const tw = ctx.measureText(label).width;
+      if (tw > sc - 8) { fs = Math.max(8, Math.floor(fs * (sc - 8) / tw)); ctx.font = `600 ${fs}px system-ui, sans-serif`; }
+      ctx.fillText(label, sx + sc / 2, sy + sc - 9);
     }
     ctx.globalAlpha = 1;
     if (s.highlights.has(t.key)) {

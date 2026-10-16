@@ -33,7 +33,11 @@ function setLayer(l) {
 }
 function select(rec) {
   state.selected = rec;
-  if (rec) ui.showPanel(state.model, rec, gotoTransition); else ui.hidePanel();
+  if (rec) {
+    ui.showPanel(state.model, rec, gotoTransition);
+    const v = state.view;
+    if (box.width <= 640 && box.height * 0.5 < (rec.y - v.cy) * v.scale + box.height / 2 + v.scale) state.view = { ...v, cy: rec.y + (box.height * 0.25) / v.scale };
+  } else ui.hidePanel();
 }
 function gotoTransition(t) {
   setLayer(t.layer);

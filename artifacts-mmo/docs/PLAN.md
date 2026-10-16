@@ -25,3 +25,12 @@ E planner: per-character task scheduler (goal: skill/XP/gold per hour) built on 
 
 ## Definition of done per workstream
 Report: files created, public API (signatures), tests run + result, what was verified against real data, known gaps. Keep the report under 300 words.
+
+## Status log
+- 2026-10-16 phase 1 done and PM-verified (46 tests, typecheck clean, viewer screenshots reviewed at 1280 and 390 px). Committed on the feature branch only.
+- Open assumptions to confirm with a real account: base HP 120+5/level (B); 4-neighbour movement, no diagonals (C); move cooldown = rounded Euclidean tiles, min 1 (A); XP penalty direction = player level minus monster level (B).
+
+## Phase 2 (running)
+- E planner (src/planner/): pure per-character scheduler built on A+B+C: given character state + goal policy, returns the next action with a one-line reason and the predicted cooldown; covers fight-for-XP, gather, craft-to-level, bank trips, rest, task loop.
+- F economy (src/economy/): pure crafting/GE profitability from items.json, npc_items.json and a price snapshot passed in; plus a fetcher for public GE orders/history.
+Phase 3 (needs account token via env): G live wiring (poll /my/characters into the viewer, WebSocket later), H run loop with dry-run mode.
