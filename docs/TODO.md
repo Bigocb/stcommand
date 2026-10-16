@@ -544,6 +544,26 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
 
 ## Parked ideas — raised, not acted on
 
+- [ ] **Gate staging: build a gate in an unreachable system from a warp-capable relay ship (operator idea, 2026-10-16,
+  "for the future").** For a gate whose system can't be entered by jump (GX41-I60 is the case in hand), station a
+  warp-capable ship outside the system as a staging point:
+  1. **Spread the buying across source systems**, so each producer's price is bumped a little instead of one market
+     ratcheting. This also attacks the real limit: FAB_MATS refills only a few units an hour per market (see the 2026-10-05
+     notes in CLAUDE.md and docs/reset-opening-playbook.md), so total units an hour grows with the number of producers fed
+     in parallel, not just the price.
+  2. **Haulers deliver into the staging ship** the way the warehouse did (a designated ship per material with per-good
+     targets). The warehouse code is parked, not deleted: `/api/warehouse/*`, the store tables and per-good targets, and
+     the dispatcher's warehouse paths are still there, inert behind the retired doctrine rules (CHANGELOG 2026-10-05,
+     "Warehousing parked"; restoring is deleting the keys from `RETIRED_POLICIES` and re-adding the panels).
+  3. **When it is loaded, the relay warps straight to the gate waypoint, supplies the construction, and warps out.**
+     Run it so the next load is already waiting when it returns, or a second relay alternates: no idle time on either side.
+  Open questions for whoever builds it: which of our hulls can warp (needs a warp drive; THEOREM-86 does, and the heavy
+  freighter THEOREM-55 has a 490 hold and 4,000 fuel); warp fuel in and out per trip (the flight-mode-aware warp math is
+  in `fleet.ts`/`warpTour.ts`) and whether the target system sells fuel for the return; hold size against 2,000 units
+  (about 5 trips at 400, one at 2,000 isn't possible); whether supplying the gate needs the ship docked or in orbit at
+  the gate waypoint; and the timing against the weekly reset (a gate only pays if it opens early enough: see the 2026-10-16
+  GX41 analysis).
+
 - [ ] **Operator "don't fly" on a route.** Let the operator mark a route (good + buy market + sell market) as off-limits,
   so the dispatcher and traders skip it until the mark is removed. Motivating case: the 2026-10-15 PLATINUM sell price
   fell 3.5% over six hours; a route that keeps buying into a falling market should be switchable without changing doctrine.
