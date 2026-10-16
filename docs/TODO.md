@@ -544,6 +544,19 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
 
 ## Parked ideas — raised, not acted on
 
+- [ ] **Gate payback metric: the latest day a gate is still worth opening (operator, 2026-10-16).** Gates can't be opened
+  in the first hours after a reset (cash, materials, and for an unreachable system the relay), so the question per gate is
+  how late is too late. Per gate: `cost` (materials at the spread-buying price, see below), `uplift` (extra profit per
+  hour once it is open), `payback = cost / uplift`, **open-by = reset - wind-down(1 h) - payback**, and the cost of delay
+  is `uplift x 24` a day. Worth it when the earliest feasible opening (start + build time) is before open-by; the slack is
+  the difference. Net value of opening at hour h of the week is `uplift x (167 - h) - cost`. Worked for GX41 on 2026-10-16
+  (cost about 4.15M, one relay, reset Sun 13:00 UTC): at 150k/h open by about hour 139 (Sat morning), 250k/h by hour 150
+  (Sat evening), 400k/h by hour 157; opening on day 3 is worth about +10M at 150k/h and +20M at 250k/h, on day 5 about +3M
+  and +8M. Cost model: greedy spread over every producer, each tradeVolume lot raising that market's price about 4.5%
+  (3.5-5.6% measured), which came to 4.15M against 4.84M from the single cheapest market. Build it as a pure module with a
+  policy (wind-down hours, price impact), tested, shown on the Systems tab next to each gate-locked system, with `uplift`
+  taken from the cross-system routes the gate would open (price gaps against connected systems, less jump cost).
+
 - [ ] **Gate staging: build a gate in an unreachable system from a warp-capable relay ship (operator idea, 2026-10-16,
   "for the future").** For a gate whose system can't be entered by jump (GX41-I60 is the case in hand), station a
   warp-capable ship outside the system as a staging point:
