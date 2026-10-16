@@ -1730,6 +1730,8 @@ describe("FleetManager.recordShipyardSnapshot auto-buys a keeper probe", () => {
       store: opts.store,
       tenantId: opts.tenantId,
     });
+    // The galaxy lists the yard with its SHIPYARD trait: recordShipyardSnapshot() only reads waypoints that have one.
+    (fleet as any).galaxy = { getSystem: () => ({ waypoints: [{ symbol: "X1-A-YARD", traits: [{ symbol: "SHIPYARD" }] }] }) };
     (fleet as any).store = opts.store; // recordShipyardInventory below is on Store, not the api
     if (opts.store) {
       opts.store.recordShipyardInventory = async (...args: unknown[]) => { calls.recordShipyardInventory.push(String(args[1])); };

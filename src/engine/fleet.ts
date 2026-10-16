@@ -5128,9 +5128,11 @@ export class FleetManager {
     // Keepers call this for every market they poll, but only a waypoint with the SHIPYARD trait has a yard to read: for
     // the rest getShipyard() is a wasted call that fails. Measured 2026-10-16: 66 of these in the five minutes after a
     // restart (the stored inventory has nothing for them, so no time to seed from), and 25-48 per five minutes before the
-    // 30-minute spacing. An unknown system reads as before.
+    // 30-minute spacing. Only a waypoint known to carry the SHIPYARD trait is read; one whose traits aren't known yet is
+    // skipped and tried again on the next visit (no clock is set).
     const listed = this.galaxy.getSystem(systemSymbol)?.waypoints.find((w) => w.symbol === waypointSymbol);
-    if (listed && !listed.traits.some((t) => t.symbol === "SHIPYARD")) return;
+    const hasYard = listed ? listed.traits.some((t) => t.symbol === "SHIPYARD") : this.registry.isShipyard(waypointSymbol);
+    if (!hasYard) return;
     // Every dock at a shipyard took a fresh snapshot, so ships parked at or cycling through the same yard re-read
     // it every few minutes between them (15-20 per five minutes). Once per yard per SHIPYARD_SNAPSHOT_MS is plenty
     // for stock that rotates slowly.
