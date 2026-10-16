@@ -1266,6 +1266,18 @@ export class FleetManager {
     });
   }
 
+  /**
+   * Whether the dispatcher could fly a trade leg between these two systems: one open jump (both gates built), or, with
+   * cross-system routes on, a chain of open jumps within the positioning limit. The same test the dispatcher itself is
+   * given (see the recompute call), so a screen that lists routes agrees with what gets assigned. The Routes board used
+   * the single-jump test only and so hid every multi-hop route the fleet was actually flying (2026-10-16: 7 cross-system
+   * routes shown while traders flew many more, and none of the listed ones was ever "flown").
+   */
+  canFlyBetween(from: string, to: string): boolean {
+    if (this.galaxy.canJumpInto(from, to)) return true;
+    return this.doctrine.isEnabledOr("autoCrossSystemRoutes", false) && this.galaxy.jumpPath(from, to) !== undefined;
+  }
+
   /** Read by every auto-buyer (traders, ships, feeds, missions) before it starts a purchase. */
   windDownBlocksBuys(): boolean {
     return this.windDownState().active;

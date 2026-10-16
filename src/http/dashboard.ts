@@ -751,8 +751,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       // home at all — not "not yet", genuinely disconnected — that no ship
       // could ever be assigned to, reading as "ignored" rather than
       // "impossible".
-      const galaxy = w.fleet.getGalaxy();
-      allRoutes = allRoutes.filter((r) => !r.crossSystem || galaxy.canJump(r.buySystem, r.sellSystem));
+      // Same reachability the dispatcher flies by, multi-hop paths included (see FleetManager.canFlyBetween()).
+      allRoutes = allRoutes.filter((r) => !r.crossSystem || w.fleet.canFlyBetween(r.buySystem, r.sellSystem));
       // Filtered before the top-N cut below, not after — otherwise a system
       // whose best routes don't crack the fleet-wide top 25 would show up
       // nearly empty even though it has plenty of its own profitable routes.

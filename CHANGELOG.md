@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — The Routes board lists the multi-hop routes the fleet actually flies
+
+Reported: on Tower's Routes tab none of the listed routes was being flown, and only 7 were cross-system. The board kept a
+cross-system route only when the two systems were one jump apart (`galaxy.canJump`), while the dispatcher assigns
+multi-hop routes (a chain of open gates, within the positioning limit) whenever `autoCrossSystemRoutes` is on. So every
+route two or three gates away, which is most of what traders were flying (HR84 to KQ90 FABRICS at about 168k a trip, for
+one), was hidden, and what was left was mostly same-system routes the dispatcher had already decided against. The board now
+uses `FleetManager.canFlyBetween()`: one open jump (both ends built), or with cross-system routes on a path of open jumps,
+which is the test the dispatcher is handed. Checked against the dispatcher's own list that day: its top 30 routes were all
+unclaimed because every trader was already committed to a trip, which the board now explains per route ("every trader is
+occupied").
+
 ## 2026-10-16 — Tower no longer rebuilds its buttons under your finger
 
 Reported as Tower feeling slightly slower and the approvals "hanging" after a tap. The server was fine (event-loop delay
