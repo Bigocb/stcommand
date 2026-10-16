@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — Systems tab says what it is for, and scrolls
+
+The Systems tab in Deck is for placing a local-only trader (reach "system"), and it now says so: the title reads
+"Systems · local trader placement", a line under it explains the score (same-system routes, gate hops from our ships, a
+yard selling a trading hull) and why systems we already trade in stay listed (a local trader can work alongside the
+cross-system fleet there), and those systems carry a "we're here" tag. The tab had no scroll and no row styles in Deck;
+it now scrolls like Metrics and its rows are laid out.
+
 ## 2026-10-15 — Ship book (shadow) and keeper cadence that survives a deploy
 
 The rest of step 4 of the scaling plan, prepared so it can be switched on once it has proved itself:

@@ -473,6 +473,20 @@ td.cp.down { color: var(--bad, #e5675d); }
    long page, so it scrolls; the root must not shrink to fit, or the charts would squash instead of the page scrolling. */
 #view-metrics{overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--hair-hi) transparent}
 #view-metrics > .mx{flex:0 0 auto}
+#view-systems{overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--hair-hi) transparent}
+#view-systems > .mx{flex:0 0 auto}
+#view-systems .panel{flex:0 0 auto}
+#view-systems .panel-b{overflow:visible}
+.mx-purpose{font-size:12px;line-height:1.5;color:var(--dim);max-width:900px}
+.mx-sys{padding:8px 0;border-bottom:1px solid var(--hair)}
+.mx-sys:last-child{border-bottom:0}
+.mx-sys-h{display:flex;align-items:center;gap:8px}
+.mx-sys-name{font-family:var(--mono);font-size:12px;color:var(--bone)}
+.mx-sys-score{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--amber)}
+.mx-sys-tag{margin-left:auto;font-family:var(--chrome);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.mx-sys-here{font-family:var(--chrome);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);background:var(--amber-dim);border-radius:3px;padding:1px 6px}
+.mx-sys-facts{font-family:var(--mono);font-size:10px;color:var(--dim);margin-top:3px}
+.mx-sys-why{margin:4px 0 0 16px;padding:0;font-size:11px;color:var(--dim2)}
 .mx{display:flex;flex-direction:column;gap:14px;position:relative}
 .mx-bar{display:flex;align-items:center;gap:14px}
 .mx-ranges{display:flex;gap:4px}
