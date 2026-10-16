@@ -34,3 +34,12 @@ Report: files created, public API (signatures), tests run + result, what was ver
 - E planner (src/planner/): pure per-character scheduler built on A+B+C: given character state + goal policy, returns the next action with a one-line reason and the predicted cooldown; covers fight-for-XP, gather, craft-to-level, bank trips, rest, task loop.
 - F economy (src/economy/): pure crafting/GE profitability from items.json, npc_items.json and a price snapshot passed in; plus a fetcher for public GE orders/history.
 Phase 3 (needs account token via env): G live wiring (poll /my/characters into the viewer, WebSocket later), H run loop with dry-run mode.
+
+## Requirement added 2026-10-16: play by hand AND by automation
+Operator wants every character controllable from the UI as well as run by the planner.
+Design rules:
+- One command layer. UI clicks, planner decisions and scripts all produce the same `Command` objects (move, fight, rest, gather, craft, equip, bank, npc, ge, task...) and go through one executor that owns the API client, limiter and cooldown tracker. No path bypasses it, so rate limits and cooldown waits are enforced once.
+- Per-character mode: `manual` (executes only queued UI commands), `auto` (planner decides), `assist` (planner proposes, operator approves, like stcommand approvals). Switching mode never interrupts an action already in flight; a manual command on an auto character pauses auto for that character until released.
+- The token lives only in the server process (env). The browser never sees it. UI talks to the local server over HTTP + SSE (state, cooldown timers, action log).
+- UI controls: click a tile = "go here" (route preview with seconds, using planRoute), per-character action bar (fight, rest, gather, craft, bank deposit, GE), cooldown ring on each marker, action log, mode switch, a global pause. Dry-run flag logs commands without sending them.
+Workstreams (after phase 2 reports): G server+executor+command model (src/control/), H UI controls on the Atlas (web/), then live smoke test with the real account.
