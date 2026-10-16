@@ -509,6 +509,12 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
   are the largest overhead left.
 - [ ] **State backup.** Each state refresh writes the whole snapshot (galaxy included) to the database
   (`saveStateSnapshot`). Write the lean snapshot instead, or less often.
+- [ ] **Market book: fold our own trades into stored prices (potential next step, raised 2026-10-16).** Every buy and
+  sell response already carries the new price for that good (`transaction.pricePerUnit`, and the market's price after
+  our lot). Write it into the registry snapshot and `market_latest` so prices stay fresh with no extra calls. Hold
+  until the snapshot reuse (`marketSnapshotReuse`, shipped 2026-10-16) has been measured: if market reads are already
+  low, this matters less. Care: a response gives one good's price, not the whole market, so it must update that good
+  only and must not reset the market's snapshot age (or the reuse rule would skip a full read the market needs).
 - [ ] **5. Split the web server from the engine** into two processes, joined by Postgres notifications.
 - [~] **6. Push instead of poll.** First slice SHIPPED 2026-10-15: ships, credits and activity over `GET /api/live`
   (see CHANGELOG); fleet status, dispatch and approvals followed the same day, then Tower's attention list, the programme
