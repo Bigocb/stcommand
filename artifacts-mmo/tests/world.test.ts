@@ -36,17 +36,18 @@ test('blocked tiles are routed around; 4-neighbour by default, diagonals opt-in'
 });
 
 test('unreachable gives a reason', () => {
-  const ix = fixture([tile(0, 0), tile(1, 0, { acc: 'blocked' }), tile(2, 0)]);
-  const r = planRoute(ix, 1, 3);
-  assert.equal(r.ok, false);
+  const m = [tile(0, 0), tile(1, 0, { acc: 'blocked' }), tile(2, 0)];
+  const r = planRoute(fixture(m), m[0]!.map_id, m[2]!.map_id);
+  assert.equal(r.ok, false); assert.match((r as { reason: string }).reason, /unreachable/);
 });
 
 test('conditional tile needs its achievement', () => {
   const cond: Condition[] = [{ code: 'tasks_farmer', operator: 'achievement_unlocked', value: 1 }];
-  const ix = fixture([tile(0, 0), tile(1, 0, { acc: 'conditional', accC: cond }), tile(2, 0)]);
-  const no = planRoute(ix, 1, 3);
+  const m = [tile(0, 0), tile(1, 0, { acc: 'conditional', accC: cond }), tile(2, 0)];
+  const ix = fixture(m); const [s0, , s2] = [m[0]!.map_id, 0, m[2]!.map_id];
+  const no = planRoute(ix, s0, s2);
   assert.equal(no.ok, false); assert.match((no as { reason: string }).reason, /achievement tasks_farmer/);
-  const yes = planRoute(ix, 1, 3, { achievements: ['tasks_farmer'] });
+  const yes = planRoute(ix, s0, s2, { achievements: ['tasks_farmer'] });
   assert.ok(yes.ok); assert.equal(yes.seconds, 10);
 });
 
@@ -62,8 +63,8 @@ test('transitions: cost 5s, cross layers, gated by cost/has_item', () => {
 });
 
 test('restricted tiles do not connect to normal tiles by walking', () => {
-  const ix = fixture([tile(0, 0), tile(1, 0, { acc: 'restricted' })]);
-  assert.equal(planRoute(ix, 1, 2).ok, false);
+  const m = [tile(0, 0), tile(1, 0, { acc: 'restricted' })];
+  assert.equal(planRoute(fixture(m), m[0]!.map_id, m[1]!.map_id).ok, false);
 });
 
 test('checkCondition operators', () => {
