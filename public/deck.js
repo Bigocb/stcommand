@@ -31,6 +31,7 @@ import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDec
 import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
+import { routeScope, getRouteScope, setRouteScope, routeScopeBar } from "/shared/domain.js";
 import { jobKind, JOB_KINDS, fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
@@ -80,7 +81,9 @@ let systemsScreen = null;
 let miningScreen = null;
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
-  document.querySelectorAll(".rail .item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
+  // Called directly (palette, a ship link) as well as through openTab(): keep the rail on a group that shows this view.
+  if (!groupHasView(currentGroup, name)) currentGroup = NAV_GROUPS.find((g) => groupHasView(g.key, name))?.key ?? currentGroup;
+  renderRail();
   const viewEl = $(`view-${name}`);
   if (viewEl) viewEl.hidden = false;
   if (name !== "metrics") metricsScreen?.hide();
@@ -138,10 +141,100 @@ function setView(name) {
   }
 }
 
+/* ── Navigation groups ─────────────────────
+ * Seven rail items, each answering one question (docs/deck-desktop-design.md §16, operator 2026-10-16). A group's
+ * screens are tabs in the sub-nav under the top bar. A tab is an existing view, optionally narrowed: `seg` picks a tab
+ * of a segmented panel (and hides that panel's own segment bar, since the sub-nav replaces it), `hide` hides panels of
+ * the view that belong to another tab, and `oneRow` lets a two-row grid give the remaining panel the full height.
+ */
+const NAV_GROUPS = [
+  { key: "overview", label: "Overview", ic: "◎", tabs: [{ key: "overview", label: "Overview", view: "overview" }] },
+  { key: "fleet", label: "Fleet", ic: "⛴", tabs: [
+    { key: "ships", label: "Ships", view: "fleet" },
+    { key: "mining", label: "Mining", view: "mining" },
+    { key: "minerpref", label: "Miner preference", view: "markets", seg: ["mk-tools-seg", "minerpref"], hide: ["mk-panel-markets"], oneRow: "mk-grid" },
+    { key: "yards", label: "Yards", view: "markets", seg: ["mk-mkt-seg", "yards"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
+  ] },
+  { key: "trade", label: "Trade", ic: "₡", tabs: [
+    { key: "routes", label: "Routes", view: "markets", seg: ["mk-mkt-seg", "routes"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
+    { key: "prices", label: "Prices", view: "markets", seg: ["mk-mkt-seg", "prices"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
+    { key: "keepers", label: "Keepers", view: "markets", seg: ["mk-mkt-seg", "keeper"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
+    { key: "bysystem", label: "Markets by system", view: "markets", seg: ["mk-mkt-seg", "systems"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
+    { key: "placement", label: "Local placement", view: "systems" },
+    { key: "dispatch", label: "Dispatch", view: "markets", seg: ["mk-tools-seg", "dispatch"], hide: ["mk-panel-markets"], oneRow: "mk-grid" },
+  ] },
+  { key: "industry", label: "Industry", ic: "⇄", tabs: [
+    { key: "chain", label: "Supply chain", view: "ops", seg: ["ops-seg", "chain"], hide: ["ops-row2"] },
+    { key: "contracts", label: "Contracts & missions", view: "ops", hide: ["ops-row1"] },
+    { key: "feeds", label: "Feeds", view: "feeds" },
+  ] },
+  { key: "map", label: "Map", ic: "✦", tabs: [{ key: "map", label: "Map", view: "map" }] },
+  { key: "insights", label: "Insights", ic: "∿", tabs: [
+    { key: "metrics", label: "Metrics", view: "metrics" },
+    { key: "season", label: "Season", view: "season" },
+    { key: "notes", label: "Notes", view: "ops", seg: ["ops-seg", "notes"], hide: ["ops-row2"] },
+  ] },
+  { key: "settings", label: "Settings", ic: "§", tabs: [
+    { key: "doctrine", label: "Doctrine", view: "doctrine" },
+    { key: "automation", label: "Automation", view: "ops", seg: ["ops-seg", "automation"], hide: ["ops-row2"] },
+    { key: "admin", label: "Admin", view: "admin", adminOnly: true },
+    { key: "guide", label: "Guide", href: "/guide" },
+  ] },
+];
+const navLsGet = (k) => { try { return window.localStorage.getItem(k); } catch { return null; } };
+const navLsSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch { /* private window: fine */ } };
+let currentGroup = "overview";
+let currentTab = "overview";
+
+function adminEnabled() { return $("rail-admin")?.hidden === false; }
+function groupTabs(key) {
+  const g = NAV_GROUPS.find((x) => x.key === key);
+  return (g?.tabs ?? []).filter((t) => !t.adminOnly || adminEnabled());
+}
+function groupHasView(key, view) { return groupTabs(key).some((t) => t.view === view); }
+
+function renderRail() {
+  const host = $("rail-groups");
+  if (!host) return;
+  host.innerHTML = NAV_GROUPS.map((g) => `<button class="item${g.key === currentGroup ? " active" : ""}" data-group="${g.key}"><div class="ic">${g.ic}</div>${escapeHtml(g.label)}</button>`).join("");
+  const tabs = groupTabs(currentGroup);
+  const sub = $("subnav");
+  sub.hidden = tabs.length <= 1;
+  sub.innerHTML = tabs.map((t) => t.href
+    ? `<a class="subnav-tab" href="${escapeAttr(t.href)}">${escapeHtml(t.label)}</a>`
+    : `<button class="subnav-tab${t.key === currentTab ? " on" : ""}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`).join("");
+}
+
+/** Open one tab of one group: the view, narrowed to the panels and segment that tab is about. */
+function openTab(groupKey, tabKey) {
+  const tabs = groupTabs(groupKey);
+  const tab = tabs.find((t) => t.key === tabKey && !t.href) ?? tabs.find((t) => t.key === navLsGet(`deckTab:${groupKey}`) && !t.href) ?? tabs.find((t) => !t.href);
+  if (!tab) return;
+  currentGroup = groupKey;
+  currentTab = tab.key;
+  navLsSet(`deckTab:${groupKey}`, tab.key);
+  document.querySelectorAll(".grp-hidden").forEach((el) => el.classList.remove("grp-hidden"));
+  document.querySelectorAll(".mgrid.one-row").forEach((el) => el.classList.remove("one-row"));
+  setView(tab.view);
+  for (const id of tab.hide ?? []) $(id)?.classList.add("grp-hidden");
+  if (tab.oneRow) $(tab.oneRow)?.classList.add("one-row");
+  if (tab.seg) {
+    const [bar, value] = tab.seg;
+    $(bar)?.classList.add("grp-hidden");
+    $(bar)?.querySelector(`[data-seg="${value}"]`)?.click();
+  }
+  renderRail();
+}
+
 $("rail").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-view]");
-  if (btn) setView(btn.dataset.view);
+  const btn = e.target.closest("button[data-group]");
+  if (btn) openTab(btn.dataset.group);
 });
+$("subnav").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-tab]");
+  if (btn) openTab(currentGroup, btn.dataset.tab);
+});
+renderRail();
 
 /* ── Topbar rendering ──────────────────────
  * Credits, rate, ships, connection status, AUTO/HALT toggle.
@@ -486,6 +579,8 @@ let opsSeg = "chain";
 $("mk-routes").addEventListener("click", (e) => {
   const why = e.target.closest("button[data-act='why-toggle']");
   if (why) { const k = why.dataset.key; openWhy.has(k) ? openWhy.delete(k) : openWhy.add(k); return renderMarkets(); }
+  const sc = e.target.closest("button[data-act='route-scope']");
+  if (sc) { setRouteScope(sc.dataset.scope); return renderMarkets(); }
   const b = e.target.closest("button[data-act='route-sort']");
   if (!b) return;
   setRouteSort(b.dataset.mode);
@@ -1214,10 +1309,15 @@ function renderMarkets() {
       return '<div class="empty">No profitable routes yet.</div>';
     }
     const sortMode = getRouteSort();
-    const sorted = sortRoutes(marketRoutes, sortMode);
+    // Local = buy and sell in one system (what a local-only ship can fly); cross-system = everything else.
+    const scope = getRouteScope();
+    const scoped = scope === "all" ? marketRoutes : marketRoutes.filter((r) => routeScope(r) === scope);
+    const sorted = sortRoutes(scoped, sortMode);
     // Top 20, like Tower's Routes list (the panel scrolls).
     const topRoutes = sorted.slice(0, ROUTES_SHOWN);
-    return routeSortBar(sortMode) + topRoutes.map((r) => {
+    const bars = `<div class="route-bars">${routeScopeBar(scope, marketRoutes)}${routeSortBar(sortMode)}</div>`;
+    if (!topRoutes.length) return bars + `<div class="empty">No ${scope === "local" ? "local" : "cross-system"} routes right now.</div>`;
+    return bars + topRoutes.map((r) => {
       const status = r.flownBy?.length
         ? `<div class="route route-flying">flying: ${r.flownBy.map(escapeHtml).join(", ")}</div>`
         : skipReasonHtml(r, `${r.goodSymbol}|${r.buyAt}|${r.sellAt}`, openWhy.has(`${r.goodSymbol}|${r.buyAt}|${r.sellAt}`), "route route-why");
@@ -2622,22 +2722,21 @@ document.addEventListener("visibilitychange", () => {
  * navigation this pass — see docs' own "what happens after" notes on
  * every prior spec doc, which all named this as the final scoped piece.
  */
-const CMDK_SECTIONS = [
-  { key: "overview", label: "Overview" },
-  { key: "fleet", label: "Fleet" },
-  { key: "markets", label: "Markets" },
-  { key: "map", label: "Map" },
-  { key: "ops", label: "Ops" },
-  { key: "doctrine", label: "Doctrine" },
-];
+/** Every tab of every group, "Group › Tab" (just the group for a one-tab group). */
+function cmdkSections() {
+  return NAV_GROUPS.flatMap((g) => groupTabs(g.key).filter((t) => !t.href).map((t) => ({
+    key: `${g.key} ${t.key}`,
+    label: g.tabs.length > 1 ? `${g.label} › ${t.label}` : g.label,
+    run: () => openTab(g.key, t.key),
+  })));
+}
 let cmdkSelected = 0;
 
 function cmdkItems(query) {
   const q = query.trim().toLowerCase();
-  const adminOn = document.getElementById("rail-admin")?.hidden === false;
-  const sections = [...CMDK_SECTIONS, ...(adminOn ? [{ key: "admin", label: "Admin" }] : [])]
+  const sections = cmdkSections()
     .filter((s) => !q || s.label.toLowerCase().includes(q) || s.key.includes(q))
-    .map((s) => ({ tag: "section", label: s.label, run: () => setView(s.key) }));
+    .map((s) => ({ tag: "section", label: s.label, run: s.run }));
   const ships = (state?.ships ?? [])
     .filter((s) => !q || s.symbol.toLowerCase().includes(q))
     .slice(0, 8)

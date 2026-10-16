@@ -347,6 +347,15 @@ tr.grp-row .grp-badge.warn{color:var(--amber);border:1px solid var(--amber)}
 .adm-shell .panel-h .seg{flex:0 1 auto;max-width:520px}
 .adm-shell .panel-h .seg button{padding:6px 14px}
 .rail .item[hidden]{display:none}
+/* Navigation groups (deck.js NAV_GROUPS): the sub-nav under the top bar holds the current group's tabs. */
+.subnav{display:flex;gap:4px;padding:8px 16px 0;border-bottom:1px solid var(--hair);flex:0 0 auto;overflow-x:auto;scrollbar-width:thin}
+.subnav[hidden]{display:none}
+.subnav-tab{font-family:var(--chrome);font-weight:600;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:7px 12px 9px;border:none;border-bottom:2px solid transparent;background:none;color:var(--dim);cursor:pointer;white-space:nowrap;text-decoration:none}
+.subnav-tab:hover{color:var(--ice)}
+.subnav-tab.on{color:var(--amber);border-bottom-color:var(--amber)}
+.grp-hidden{display:none !important}
+.route-bars{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center}
+.mgrid.one-row{grid-template-rows:minmax(0,1fr)}
 
 /* ── 3D map (deck-map.js) — v6's engine, Deck's palette ── */
 .map-wrap{position:relative;overflow:hidden;min-height:0;border:1px solid var(--hair);border-radius:6px;

@@ -362,6 +362,24 @@ export function routeSortBar(mode) {
   const b = (m, label) => `<button class="${mode === m ? "on" : ""}" data-act="route-sort" data-mode="${m}">${label}</button>`;
   return `<div class="route-sort"><span>Sort by</span>${b("hour", "Profit / hour")}${b("trip", "Profit / trip")}</div>`;
 }
+/* Routes board scope: local (buy and sell in the same system, what a local-only ship can fly) or cross-system. */
+const ROUTE_SCOPE_KEY = "stcommand.routeScope";
+const sysOf = (wp) => String(wp ?? "").slice(0, String(wp ?? "").lastIndexOf("-"));
+/** "local" when both markets are in one system, else "cross". */
+export function routeScope(r) { return sysOf(r.buyAt) && sysOf(r.buyAt) === sysOf(r.sellAt) ? "local" : "cross"; }
+export function getRouteScope() {
+  try { const v = localStorage.getItem(ROUTE_SCOPE_KEY); return v === "local" || v === "cross" ? v : "all"; } catch { return "all"; }
+}
+export function setRouteScope(scope) {
+  try { localStorage.setItem(ROUTE_SCOPE_KEY, scope); } catch { /* storage unavailable: the choice just won't persist */ }
+}
+/** The scope toggle's markup, with counts; clicks are handled by the caller on [data-act='route-scope']. */
+export function routeScopeBar(scope, routes) {
+  const n = { all: routes.length, local: routes.filter((r) => routeScope(r) === "local").length };
+  n.cross = n.all - n.local;
+  const b = (m, label) => `<button class="${scope === m ? "on" : ""}" data-act="route-scope" data-scope="${m}">${label} ${n[m]}</button>`;
+  return `<div class="route-sort"><span>Show</span>${b("all", "All")}${b("local", "Local")}${b("cross", "Cross-system")}</div>`;
+}
 /** "~35 min trip" / "" for the route's round-trip time. */
 export function tripLabel(r) {
   if (!r.tripSeconds) return "";

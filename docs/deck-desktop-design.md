@@ -529,3 +529,29 @@ the season; `PUT /api/season/week`, `POST /api/season/week/close`, `POST /api/se
 and arguments that would apply them; nothing applies them. Classes `.ss-*` in `deck.css`, on top of the `.mx` metrics
 styles. The plan model is `src/engine/season.ts`; the analysis is `docs/analysis-engine.md`.
 
+
+## §16 Navigation groups (2026-10-16)
+
+The rail grew to thirteen items, so it was regrouped into seven, each answering one question (operator, 2026-10-16).
+A group's screens are tabs in the sub-nav under the top bar. The groups are data (`NAV_GROUPS` in `deck.js`); the
+command palette lists every "Group › Tab".
+
+| Rail | Question | Tabs (first is the default; the last one opened is remembered per group) |
+|---|---|---|
+| Overview | What needs me right now? | Overview |
+| Fleet | What are my ships doing? | Ships · Mining · Miner preference · Yards |
+| Trade | Where is the money? | Routes (All / Local / Cross-system filter) · Prices · Keepers · Markets by system · Local placement · Dispatch |
+| Industry | What are we building or supplying? | Supply chain · Contracts & missions · Feeds |
+| Map | Where is everything? | Map |
+| Insights | How are we doing over time? | Metrics · Season · Notes |
+| Settings | What rules is the fleet following? | Doctrine · Automation · Admin (operator only) · Guide (link) |
+
+How a tab maps onto the old screens: each tab is an existing view, narrowed. `seg` picks a tab of a segmented panel
+and hides that panel's own segment bar (the sub-nav replaces it); `hide` hides panels of the same view that belong to
+another tab; `oneRow` collapses a two-row grid so the panel left gives the full height. So Markets' Routes and Dispatch
+panels became separate tabs, Ops split three ways (Supply chain to Industry, Notes to Insights, Automation to Settings),
+and Contracts + Missions became their own tab. No screen was rewritten.
+
+Decided: Map stays top level; Notes sit with Season under Insights; Routes comes before Dispatch (Dispatch is rarely
+used). Next: Tower gets the same groups on its bottom bar as Overview · Fleet · Trade · Industry · More (Map, Insights,
+Settings under More), and the per-ship local-only setting gets a control in Fleet's ship detail.

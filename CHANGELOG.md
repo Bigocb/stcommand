@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — Deck navigation regrouped into seven
+
+Deck's rail had thirteen items. It now has seven, each one question, with the screens as tabs under the top bar:
+Overview; Fleet (Ships, Mining, Miner preference, Yards); Trade (Routes, Prices, Keepers, Markets by system, Local
+placement, Dispatch); Industry (Supply chain, Contracts & missions, Feeds); Map; Insights (Metrics, Season, Notes);
+Settings (Doctrine, Automation, Admin, Guide). Ops is gone: its parts moved to Industry, Insights and Settings. Each group
+remembers its last tab, and the command palette lists every tab. Routes also gains an All / Local / Cross-system filter,
+local meaning both markets in one system (what a local-only ship can fly). Layout and mapping in
+docs/deck-desktop-design.md §16. Tower is unchanged for now.
+
 ## 2026-10-16 — Miners stop offering goods a market doesn't trade; market snapshots reused while fresh
 
 - **Miner sales.** A miner sold its whole hold item by item at the market it picked, including goods that market

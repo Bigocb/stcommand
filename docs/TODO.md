@@ -471,10 +471,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## UI organization — revisit
 
-- [ ] Revisit how the UI is organized now that the fleet has grown many new surfaces (Season, growth, reach,
-  analysis, admin panels). Open questions: where reach ("local only" per ship) and the local route list show in Deck
-  and Tower, whether Season and Analysis belong together, and whether Metrics should carry growth and reach splits.
-  Decide the layout before adding more screens.
+- [~] Revisit how the UI is organized. Deck SHIPPED 2026-10-16: seven rail groups with sub-tabs
+  (docs/deck-desktop-design.md §16), and a Local / Cross-system filter on Routes. Next: Tower's bottom bar on the same
+  groups (Overview · Fleet · Trade · Industry · More), and a local-only (reach) control in Fleet's ship detail.
 
 ## Design docs written, no implementation decision made
 

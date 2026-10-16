@@ -32,19 +32,11 @@
   <div class="shell">
     <div class="rail" id="rail">
       <div class="mark"></div>
-      <button class="item active" data-view="overview"><div class="ic">◎</div>Overview</button>
-      <button class="item" data-view="fleet"><div class="ic">⛴</div>Fleet</button>
-      <button class="item" data-view="markets"><div class="ic">₡</div>Markets</button>
-      <button class="item" data-view="map"><div class="ic">✦</div>Map</button>
-      <button class="item" data-view="ops"><div class="ic">☰</div>Ops</button>
-      <button class="item" data-view="feeds"><div class="ic">⇄</div>Feeds</button>
-      <button class="item" data-view="doctrine"><div class="ic">§</div>Doctrine</button>
-      <button class="item" data-view="metrics"><div class="ic">∿</div>Metrics</button>
-      <button class="item" data-view="season"><div class="ic">◷</div>Season</button>
-      <button class="item" data-view="systems"><div class="ic">◎</div>Systems</button>
-      <button class="item" data-view="mining"><div class="ic">⛏</div>Mining</button>
-      <button class="item" data-view="admin" id="rail-admin" hidden><div class="ic">⚙</div>Admin</button>
-      <a class="item rail-guide" href="/guide" title="Player guide"><div class="ic">?</div>Guide</a>
+      <!-- Seven groups, each one question (docs/deck-desktop-design.md §16). The rail is built from NAV_GROUPS in
+           deck.js; each group's screens are tabs in the sub-nav under the top bar. -->
+      <div id="rail-groups" style="display:contents"></div>
+      <!-- Marker only: enableAdmin() unhides it for an operator, which shows the Admin tab under Settings. -->
+      <span id="rail-admin" hidden style="display:none !important"></span>
       <div class="build" id="build-label"></div>
     </div>
     <div class="main">
@@ -59,6 +51,7 @@
         <div class="modes" id="tb-modes"><span data-mode="auto">AUTO</span><span data-mode="halt">HALT</span></div>
         <div class="kbd" id="cmdk-trigger" title="Open command palette">⌘K</div>
       </div>
+      <div class="subnav" id="subnav" hidden></div>
       <div class="body3">
         <div class="content" id="view-overview">
           <div class="kpirow" id="ov-kpis"></div>
@@ -115,12 +108,12 @@
 
         <!-- Markets screen (pass 3) -->
         <div class="content" id="view-markets" hidden>
-          <div class="mgrid">
+          <div class="mgrid" id="mk-grid">
             <!-- Routes / Yards / Prices panel — segmented like Tower's own
                  Markets tab, since all three are "what's the market doing"
                  reads rather than write tools (Dispatch/Keeper
                  below stay as separate always-visible panels). -->
-            <div class="panel" style="grid-column:1 / -1">
+            <div class="panel" id="mk-panel-markets" style="grid-column:1 / -1">
               <div class="panel-h">
                 <span class="dot"></span>
                 <div class="seg" id="mk-mkt-seg">
@@ -180,7 +173,7 @@
             </div>
             <!-- Row 2: Dispatch / Miner preference as tabs of one full-height panel (operator 2026-10-06: two rows
                  per page, and a long list gets the whole row, not a strip inside a stacked panel). -->
-            <div class="panel" style="grid-column:1 / -1">
+            <div class="panel" id="mk-panel-tools" style="grid-column:1 / -1">
               <div class="panel-h">
                 <span class="dot"></span>
                 <div class="seg" id="mk-tools-seg">
@@ -250,7 +243,7 @@
         <div class="content" id="view-ops" hidden>
           <!-- Two rows only: Deck is a fixed-height dashboard, a third row is unreachable (operator, 2026-10-06).
                Row 1 is a segmented panel (chain / automation / notes); row 2 is Contracts + Missions. -->
-          <div class="panel" style="flex:1 1 0;min-height:0;display:flex;flex-direction:column">
+          <div class="panel" id="ops-row1" style="flex:1 1 0;min-height:0;display:flex;flex-direction:column">
             <div class="panel-h">
               <span class="dot"></span>
               <div class="seg" id="ops-seg">
@@ -270,7 +263,7 @@
               <div id="notes" style="overflow:auto;flex:1"></div>
             </div>
           </div>
-          <div class="cols2" style="flex:1 1 0;min-height:0">
+          <div class="cols2" id="ops-row2" style="flex:1 1 0;min-height:0">
             <div class="panel" style="min-height:0;display:flex;flex-direction:column">
               <div class="panel-h"><span class="dot"></span><span class="title">Contracts</span></div>
               <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-contracts"></div>
