@@ -9,6 +9,23 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — Tower no longer rebuilds its buttons under your finger
+
+Reported as Tower feeling slightly slower and the approvals "hanging" after a tap. The server was fine (event-loop delay
+about 11 ms, CPU about 16%, memory steady) and nothing in the browser grows (activity is capped at 100, ship rows are
+replaced in place). The cause was churn: the live feed pushes ship rows, credits and activity several times a second, and
+every push re-rendered Home, replacing the Approve and Deny buttons, so a tap could land on a node that had just been
+swapped out, and a decision in flight came back as fresh enabled buttons. Also, a catch-up after the phone woke applied up
+to 1,000 events back to back, re-rendering on each. Measured on a simulated minute of live traffic: 150 replacements of
+the Approve button and about 190 ms of work, now none and about 3 ms.
+
+- **State and activity updates are coalesced** to one notification per 500 ms (`public/shared/store.js`); approvals,
+  doctrine and the rest are still delivered at once. Deck benefits too.
+- **An unchanged render is skipped** (`setHtml` in `public/shared/domain.js`) for Home's tiles, triage and activity, the
+  approvals lists, the roster, and the tab bars, so buttons and scroll position are left alone.
+- **A decision in flight stays disabled** through any re-render until the server answers, then the list refreshes, so a
+  second tap can't send it twice.
+
 ## 2026-10-16 — Contracts move to Trade; the rest of that tab is Missions
 
 Contracts are now a tab under Trade (second, after Routes) in Deck and Tower, since they are paid hauling work, and

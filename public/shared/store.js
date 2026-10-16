@@ -180,6 +180,19 @@ export function subscribe(slice, cb) {
  * render paths, and a broken panel should not blank the rest of the page.
  */
 function notify(slice) {
+  // The live feed pushes ship rows, credits and activity several times a second. Each one re-rendered every screen
+  // that reads them, and a catch-up after the phone woke applied up to a thousand events back to back. These two are
+  // coalesced to one notification per BATCH_MS; everything else (approvals, doctrine, ...) is delivered at once.
+  if (BATCHED_SLICES.has(slice)) {
+    if (!batchTimers.has(slice)) batchTimers.set(slice, setTimeout(() => { batchTimers.delete(slice); deliver(slice); }, BATCH_MS));
+    return;
+  }
+  deliver(slice);
+}
+const BATCHED_SLICES = new Set(["state", "activity"]);
+const BATCH_MS = 500;
+const batchTimers = new Map();
+function deliver(slice) {
   for (const cb of subscribers.get(slice) ?? []) {
     try { cb(); } catch (err) { console.error(`subscriber for "${slice}" failed`, err); }
   }

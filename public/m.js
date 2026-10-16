@@ -29,7 +29,7 @@ import { mountMiningFields } from "/shared/miningFields.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
-import { jobKind, JOB_KINDS } from "/shared/domain.js";
+import { jobKind, JOB_KINDS, setHtml } from "/shared/domain.js";
 import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, routeScope, getRouteScope, setRouteScope, routeScopeBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
@@ -158,11 +158,11 @@ const groupTabs = (key) => (NAV_GROUPS.find((g) => g.key === key)?.tabs ?? []).f
 
 function renderNav() {
   const pending = approvals.length;
-  $("tabbar").innerHTML = NAV_GROUPS.map((g) => `<button${g.key === currentGroup ? ' class="on"' : ""} data-group="${g.key}"><span class="dot"></span>${g.label}${g.key === "overview" && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join("");
+  setHtml($("tabbar"), NAV_GROUPS.map((g) => `<button${g.key === currentGroup ? ' class="on"' : ""} data-group="${g.key}"><span class="dot"></span>${g.label}${g.key === "overview" && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join(""));
   const tabs = groupTabs(currentGroup);
   const sub = $("subnav");
   sub.hidden = tabs.length <= 1;
-  sub.innerHTML = tabs.map((t) => `<button${t.key === currentTab ? ' class="on"' : ""} data-tab="${t.key}">${t.label}${t.badge && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join("");
+  setHtml(sub, tabs.map((t) => `<button${t.key === currentTab ? ' class="on"' : ""} data-tab="${t.key}">${t.label}${t.badge && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join(""));
 }
 
 /** Open one tab of one group: the screen, narrowed to the pane, sections and segment that tab is about. */
@@ -227,12 +227,12 @@ function renderTiles() {
   const trend = pace ? { up: " ▲", down: " ▼", flat: "" }[paceTrend(pace)] : "";
   const wph = walletPlusHolds(state?.agent?.credits ?? bridge.credits ?? 0, state?.cargoValues);
 
-  $("home-tiles").innerHTML = `
+  setHtml($("home-tiles"), `
     <div class="tile"><div class="k">Credits</div><div class="v">${fmt(state?.agent?.credits ?? bridge.credits ?? 0)}</div></div>
     <div class="tile"><div class="k">Credits + holds</div><div class="v">${fmt(wph.total)}${wph.partial ? "+" : ""}</div><div class="sub">holds ~${fmt(wph.holds)}</div></div>
     <div class="tile"><div class="k">Rate</div><div class="v ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h avg ${signed(pace.perHour3h)} · net trading</div>${paceSparkline(pace.series)}` : ""}</div>
     <div class="tile"><div class="k">Fleet</div><div class="v">${ships.length}<span class="sub"> hulls</span></div><div class="sub">${stranded} stranded · ${unassigned} unassigned</div></div>
-  `;
+  `);
   $("tb-note").textContent = stranded + unassigned + approvals.length > 0
     ? `${approvals.length + stranded + unassigned} need you`
     : "all clear";
@@ -246,6 +246,14 @@ function renderTiles() {
  * since Tower's Fleet screen, not Home, is where full per-ship job detail
  * belongs once it's built).
  */
+/** Approvals whose decision is on its way to the server: their buttons stay disabled through any re-render. */
+const deciding = new Set();
+function approvalButtons(id) {
+  const d = deciding.has(String(id)) ? " disabled" : "";
+  const sid = escapeHtml(id);
+  return `<button class="btn pri" data-act="approve" data-id="${sid}"${d}>Approve</button><button class="btn deny" data-act="deny" data-id="${sid}"${d}>Deny</button>`;
+}
+
 function triageItems() {
   const items = [];
   for (const a of approvals) {
@@ -276,18 +284,18 @@ function renderTriage() {
   const items = triageItems();
   $("triage-count").textContent = items.length;
   const el = $("triage-list");
-  if (!items.length) { el.innerHTML = '<div class="empty">Nothing waiting on you.</div>'; return; }
-  el.innerHTML = items.map((it) => `
+  if (!items.length) { setHtml(el, '<div class="empty">Nothing waiting on you.</div>'); return; }
+  setHtml(el, items.map((it) => `
     <div class="card ${it.cls}">
       <div class="row1"><span class="who">${escapeHtml(it.who)}</span><span class="amt ${it.cls === "crit" ? "red" : it.cls === "warn" ? "amber" : ""}">${escapeHtml(it.amt)}</span></div>
       <div class="detail">${escapeHtml(it.detail)}</div>
       ${it.exp ? `<div class="exp">${escapeHtml(it.exp)}</div>` : ""}
       <div class="acts">
         ${it.kind === "approval"
-          ? `<button class="btn pri" data-act="approve" data-id="${escapeHtml(it.id)}">Approve</button><button class="btn deny" data-act="deny" data-id="${escapeHtml(it.id)}">Deny</button>`
+          ? approvalButtons(it.id)
           : `<button class="btn ghost" disabled>Reassign — Fleet tab soon</button>`}
       </div>
-    </div>`).join("");
+    </div>`).join(""));
 }
 
 // Mining/scanning fires constantly and drowns out everything else in a
@@ -307,12 +315,12 @@ function renderHomeActivity() {
   const el = $("home-activity");
   if (!el) return;
   const rows = activity.filter((a) => !ACTIVITY_HIDDEN_KINDS.has(a.kind)).slice(0, 20);
-  if (!rows.length) { el.innerHTML = '<div class="empty">No activity yet.</div>'; return; }
-  el.innerHTML = rows.map((a) => `
+  if (!rows.length) { setHtml(el, '<div class="empty">No activity yet.</div>'); return; }
+  setHtml(el, rows.map((a) => `
     <div class="act-row">
       <div class="when">${fmtTime(a.timestamp)}</div>
       <div class="txt">${escapeHtml(a.detail)}${a.credits == null ? "" : ` <span class="amt ${a.credits < 0 ? "neg" : "pos"}">${signed(a.credits)}</span>`}</div>
-    </div>`).join("");
+    </div>`).join(""));
 }
 
 /* Needs attention: ships a person should look at, with the reasons (engine/attention.ts). Advisory. Plain rules plus, when a
@@ -357,16 +365,16 @@ function renderApprovalsScreen() {
   $("approvals-screen-count").textContent = n;
   $("approvals-upcoming-count").textContent = upcomingApprovals.length;
   $("approvals-decided-count").textContent = decidedApprovals.length;
-  $("approvals-decided").innerHTML = decidedApprovals.length === 0
+  setHtml($("approvals-decided"), decidedApprovals.length === 0
     ? '<div class="empty">Nothing decided and waiting.</div>'
     : decidedApprovals.map((a) => `
       <div class="card ${a.status === "denied" ? "" : "warn"}">
         <div class="row1"><span class="who">${escapeHtml(APPROVAL_LABELS[a.kind] ?? a.kind)}</span><span class="amt">${a.status === "denied" ? "Denied" : "Approved"}</span></div>
         <div class="detail">${escapeHtml(a.detail ?? "")}</div>
         <div class="exp">${a.status === "denied" ? "The engine will drop this and not ask again for a while." : "Waiting for a ship to buy it. The tour ship holds at the yard until then."}</div>
-      </div>`).join("");
+      </div>`).join(""));
   const list = $("approvals-screen-list");
-  list.innerHTML = n === 0
+  setHtml(list, n === 0
     ? '<div class="empty">No approvals waiting.</div>'
     : approvals.map((a) => `
       <div class="card warn">
@@ -374,26 +382,35 @@ function renderApprovalsScreen() {
         <div class="detail">${escapeHtml(a.detail ?? "")}</div>
         ${a.expiresAt ? `<div class="exp">auto-decides ${escapeHtml(countdown(a.expiresAt))}</div>` : ""}
         <div class="acts">
-          <button class="btn pri" data-act="approve" data-id="${escapeHtml(a.id)}">Approve</button><button class="btn deny" data-act="deny" data-id="${escapeHtml(a.id)}">Deny</button>
+          ${approvalButtons(a.id)}
         </div>
-      </div>`).join("");
+      </div>`).join(""));
   const up = $("approvals-upcoming");
-  up.innerHTML = upcomingApprovals.length === 0
+  setHtml(up, upcomingApprovals.length === 0
     ? '<div class="empty">Nothing queued behind these.</div>'
     : upcomingApprovals.map((m) => `
       <div class="card">
         <div class="row1"><span class="who">${escapeHtml(m)}</span><span class="amt">Queued</span></div>
         <div class="detail">Keeper wanted here. A request appears once a ship docks at this market.</div>
-      </div>`).join("");
+      </div>`).join(""));
 }
+/** Send a decision. The id stays in `deciding` until the server has answered, so a re-render in between (the live feed
+ *  pushes several a second) can't bring the buttons back enabled and invite a second tap. */
 async function decideApproval(b) {
+  const id = b.dataset.id;
   const decision = b.dataset.act === "approve" ? "approved" : "denied";
-  b.disabled = true;
+  deciding.add(String(id));
+  renderTriage();
+  renderApprovalsScreen();
   try {
-    await api("POST", `/api/approvals/${b.dataset.id}/decide`, { decision });
+    await api("POST", `/api/approvals/${id}/decide`, { decision });
     await loadApprovals();
   } catch (err) {
-    b.disabled = false;
+    /* the buttons come back below so the decision can be tried again */
+  } finally {
+    deciding.delete(String(id));
+    renderTriage();
+    renderApprovalsScreen();
   }
 }
 $("approvals-screen-list").addEventListener("click", (e) => {
@@ -401,17 +418,9 @@ $("approvals-screen-list").addEventListener("click", (e) => {
   if (b && !b.disabled) decideApproval(b);
 });
 
-$("triage-list").addEventListener("click", async (e) => {
-  const b = e.target.closest("button[data-act]");
-  if (!b || b.disabled) return;
-  const decision = b.dataset.act === "approve" ? "approved" : "denied";
-  b.disabled = true;
-  try {
-    await api("POST", `/api/approvals/${b.dataset.id}/decide`, { decision });
-    await loadApprovals();
-  } catch (err) {
-    b.disabled = false;
-  }
+$("triage-list").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act='approve'], button[data-act='deny']");
+  if (b && !b.disabled) decideApproval(b);
 });
 
 function fleetTabActive() {
@@ -601,7 +610,7 @@ function renderFleetView() {
 function renderRoster() {
   const rows = fleetRows();
   $("roster-hd").textContent = `${rows.length} hull${rows.length === 1 ? "" : "s"}`;
-  if (!rows.length) { $("roster-scroll").innerHTML = '<div class="empty">No ships in the register.</div>'; return; }
+  if (!rows.length) { setHtml($("roster-scroll"), '<div class="empty">No ships in the register.</div>'); return; }
   const collapsed = loadCollapsed();
   const groups = new Map();
   rows.forEach((r, i) => {
@@ -626,7 +635,7 @@ function renderRoster() {
       </span>
     </button>`;
   };
-  $("roster-scroll").innerHTML = [...groups.entries()]
+  setHtml($("roster-scroll"), [...groups.entries()]
     .sort((a, b) => roleRank(a[0]) - roleRank(b[0]) || a[0].localeCompare(b[0]))
     .map(([role, items]) => {
       const isCollapsed = collapsed.has(role);
@@ -652,7 +661,7 @@ function renderRoster() {
       return `<button class="roster-grp" data-grp="${escapeAttr(role)}" aria-expanded="${!isCollapsed}">
         <span class="chev">${isCollapsed ? "▸" : "▾"}</span><span class="g-name">${escapeHtml(role)}</span><span class="g-n">${items.length}</span>${badge}
       </button>${body}`;
-    }).join("");
+    }).join(""));
   tickCooldowns($("roster-scroll"));
 }
 

@@ -362,6 +362,19 @@ export function routeSortBar(mode) {
   const b = (m, label) => `<button class="${mode === m ? "on" : ""}" data-act="route-sort" data-mode="${m}">${label}</button>`;
   return `<div class="route-sort"><span>Sort by</span>${b("hour", "Profit / hour")}${b("trip", "Profit / trip")}</div>`;
 }
+/**
+ * Set an element's HTML only when it changed since the last call through here. A live screen re-renders on every pushed
+ * update; replacing identical markup throws away the buttons under a finger (a tap that lands on a node that was just
+ * replaced is lost), resets scroll and costs a layout, so an unchanged render is left alone. Use it only for elements
+ * that nothing else writes to.
+ */
+export function setHtml(el, html) {
+  if (!el || el.__html === html) return false;
+  el.innerHTML = html;
+  el.__html = html;
+  return true;
+}
+
 /* Routes board scope: local (buy and sell in the same system, what a local-only ship can fly) or cross-system. */
 const ROUTE_SCOPE_KEY = "stcommand.routeScope";
 const sysOf = (wp) => String(wp ?? "").slice(0, String(wp ?? "").lastIndexOf("-"));
