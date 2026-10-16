@@ -15,7 +15,10 @@ function fleetCountingYardReads() {
       return { symbol, ships: [], shipTypes: [] };
     },
   } as any;
-  return { fleet: new FleetManager({ api, log: () => {} }), calls };
+  const fleet = new FleetManager({ api, log: () => {} });
+  // The galaxy lists X1-A-MARKET1 as a plain market (no SHIPYARD trait); every other waypoint is unlisted, so it reads as before.
+  (fleet as any).galaxy = { getSystem: (sys: string) => (sys === "X1-A" ? { waypoints: [{ symbol: "X1-A-MARKET1", traits: [{ symbol: "MARKETPLACE" }] }, { symbol: "X1-A-Y1", traits: [{ symbol: "SHIPYARD" }] }] } : undefined) };
+  return { fleet, calls };
 }
 
 async function later<T>(ms: number, fn: () => Promise<T>): Promise<T> {
@@ -108,6 +111,23 @@ describe("shipyard snapshot clock after a restart", () => {
     await fleet.recordShipyardSnapshot("X1-A-Y1");
     assert.equal(calls.getShipyard, 0);
     await fleet.recordShipyardSnapshot("X1-A-Y2");
+    assert.equal(calls.getShipyard, 1);
+  });
+});
+
+describe("shipyard snapshots only for waypoints that have a shipyard", () => {
+  it("doesn't call the API for a plain market a keeper polls", async () => {
+    const { fleet, calls } = fleetCountingYardReads();
+    await fleet.recordShipyardSnapshot("X1-A-MARKET1");
+    assert.equal(calls.getShipyard, 0);
+    await fleet.recordShipyardSnapshot("X1-A-Y1");
+    assert.equal(calls.getShipyard, 1);
+  });
+
+  it("reads as before when the system isn't loaded, so its traits are unknown", async () => {
+    const { fleet, calls } = fleetCountingYardReads();
+    (fleet as any).galaxy = { getSystem: () => undefined };
+    await fleet.recordShipyardSnapshot("X1-A-MARKET1");
     assert.equal(calls.getShipyard, 1);
   });
 });

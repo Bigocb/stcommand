@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-16 — Keepers stop reading shipyards at waypoints that have none
+
+Keepers call `recordShipyardSnapshot()` for every market they poll, not only the ones with a shipyard, and a read of a
+waypoint with no yard is a call that fails. After the 30-minute spacing went in, the limiter still showed 66 of them in
+the five minutes after a restart (nothing is stored for a non-yard, so nothing to seed the clock from) and 25 to 48 per
+five minutes before that. The call is now skipped when the loaded galaxy lists the waypoint without the SHIPYARD trait;
+a waypoint in a system that isn't loaded is read as before. Found while checking the market-snapshot reuse: market reads
+that window were 117 per five minutes (127 to 165 before), but it included the boot, so a clean window is still to come.
+
 ## 2026-10-16 — Tower navigation regrouped to match Deck
 
 Tower's bottom bar (Home · Fleet · Metrics · Markets · Approvals · More) is now five items: Overview, Fleet, Trade,
