@@ -1,0 +1,7 @@
+[
+  { "name": "Aldric", "x": 0, "y": 0, "layer": "overworld", "hp": 120, "max_hp": 120 },
+  { "name": "Brisa", "x": 2, "y": 1, "layer": "overworld", "hp": 80, "max_hp": 140 },
+  { "name": "Cob", "x": 1, "y": -4, "layer": "underground", "hp": 200, "max_hp": 200 },
+  { "name": "Dunya", "x": 4, "y": 1, "layer": "overworld", "hp": 35, "max_hp": 150 },
+  { "name": "Eira", "x": 6, "y": 12, "layer": "overworld", "hp": 160, "max_hp": 160 }
+]

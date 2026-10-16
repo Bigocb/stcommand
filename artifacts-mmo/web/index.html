@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Artifacts Atlas</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <h1 class="brand"><span class="brand-mark" aria-hidden="true">✦</span> Artifacts <em>Atlas</em></h1>
+  <div class="search">
+    <label class="sr" for="q">Search monsters, resources, items</label>
+    <input id="q" type="search" placeholder="Search monster, resource or item" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="results">
+    <ul id="results" role="listbox" hidden></ul>
+  </div>
+  <div class="layers" role="radiogroup" aria-label="Map layer" id="layers"></div>
+</header>
+<main class="stage">
+  <canvas id="map" tabindex="0" aria-label="World map. Arrow keys move the cursor, plus and minus zoom, Enter opens details."></canvas>
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+  <div class="zoom">
+    <button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit map">⤢</button>
+  </div>
+  <details class="legend" id="legend"><summary>Legend</summary><ul id="legendList"></ul></details>
+  <ul class="chars" id="chars" aria-label="Characters"></ul>
+  <aside id="panel" class="panel" hidden aria-live="polite">
+    <button class="close" id="pclose" aria-label="Close details">×</button>
+    <div id="pbody"></div>
+  </aside>
+</main>
+<script type="module" src="main.js"></script>
+</body>
+</html>
