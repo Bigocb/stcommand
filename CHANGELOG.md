@@ -9,6 +9,24 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-17 — Route cool-off after a disappointing trip, and siphon drones as a last-resort keeper hull
+
+Two things from "more losses in the last hour" and "no approval request in the queue".
+
+**Losses.** The last hour was net positive (matched trading about +2.7M), but the red bar on Tower's per-interval chart was
+real: THEOREM-55 ran FABRICS EC8X > FC9E four times in four minutes with ~490-unit holds. Its own buying took the buy price
+1878 -> 2319 and its own selling took the sell price 2226 -> 1680; trip 3 lost 161k. The sell-volume discount in
+`scoreRoute` only softens ranking, and the 15% loss floor is checked after each lot, so nothing stopped the next trip on
+the same route. New pure module `src/engine/routeHeat.ts` plus doctrine clause `routeCoolOffMin` (default 30 min, on): a trip
+that made under 40% of its planned profit, or lost money, rests that exact good + buy + sell route until the market has
+had time to recover. The trader reports each closed trip (`recordTrip`), the dispatcher drops resting routes before ranking
+and logs which and why. Switch the clause off (or 0) for the old behaviour. Tests: `tests/routeHeat.test.ts` and a seam
+test in `tests/dispatcher.test.ts`.
+
+**Missing approval.** No keeper request was ever raised for X1-HM60-FC4A: HM60's only yard stocks SHIP_BULK_FREIGHTER and
+SHIP_SIPHON_DRONE, and the keeper hull list was probe / surveyor / mining drone only. A siphon drone is now the last
+resort in `KEEPER_HULL_PREFERENCE` (still behind the other three), so the request appears in Approvals once `main` is deployed.
+
 ## 2026-10-17 — A crashed market price no longer exempts a lot from the loss floor (2.55M lost on VIRAL_AGENTS)
 
 Reported as the last hour's growth reading about -400,000 on THEOREM. The hour's matched trading was +85k against ~477k of

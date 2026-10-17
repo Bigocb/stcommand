@@ -116,6 +116,7 @@ export const DECLINE_MS = 15 * 60_000;
  */
 export const MAX_LOTS_PER_TRIP = 3;
 
+import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
@@ -381,6 +382,22 @@ export class RouteDispatcher {
     list.push({ units, at: Date.now() });
     this.recentSales.set(key, list);
   }
+
+  /** Closed trips, newest last, for the route cool-off (routeHeat.ts). Only the last few hours matter. */
+  private readonly closedTrips: RouteTrip[] = [];
+
+  /** Called by a trader when a trip closes, with what it promised and what it made. */
+  recordTrip(t: { good: string; buyAt: string; sellAt: string; promised: number; made: number }): void {
+    const now = Date.now();
+    this.closedTrips.push({ ...t, at: now });
+    while (this.closedTrips.length && (this.closedTrips.length > 200 || this.closedTrips[0]!.at < now - 6 * 3_600_000)) this.closedTrips.shift();
+  }
+
+  /** Why this exact route is resting after a disappointing trip, or undefined. `minutes` 0 = off. */
+  routeCoolOff(good: string, buyAt: string, sellAt: string, minutes = this.coolOffMin): string | undefined {
+    return coolOffReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { ...DEFAULT_HEAT_POLICY, minutes });
+  }
+  private coolOffMin = 0;
 
   /** Units sold into this (good, sellAt) market within the recent window.
    *  Prunes anything older as a side effect, so a market's fatigue fades
@@ -813,7 +830,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -840,6 +857,15 @@ export class RouteDispatcher {
     // this.routes) matters: the per-good selection loops below read
     // `routes` directly, not `this.routes` — this.routes only backs
     // claim()'s own direct reads.
+    this.coolOffMin = Math.max(0, tuning?.coolOffMin ?? 0);
+    if (this.coolOffMin > 0) {
+      const open = routes.filter((r) => !this.routeCoolOff(r.good, r.buyAt, r.sellAt));
+      if (open.length !== routes.length) {
+        const rested = routes.filter((r) => !open.includes(r)).map((r) => `${r.good} ${r.buyAt}>${r.sellAt} (${this.routeCoolOff(r.good, r.buyAt, r.sellAt)})`);
+        console.log(`[dispatcher] route cool-off skips ${rested.length}: ${[...new Set(rested)].slice(0, 5).join("; ")}`);
+        routes = open;
+      }
+    }
     routes = [...routes].sort((a, b) => this.scoreRoute(b) - this.scoreRoute(a));
     this.routes = routes;
 

@@ -112,6 +112,8 @@ export interface TraderOptions {
    *  market recently before offering it (or a competing market) to another
    *  idle trader — see RouteDispatcher.recordSale()'s own comment. */
   recordSale?: (good: string, sellAt: string, units: number) => void;
+  /** A trip closed: what it was planned to earn and what it made, so the dispatcher can rest a route that disappointed (routeHeat.ts). */
+  recordTrip?: (trip: { good: string; buyAt: string; sellAt: string; promised: number; made: number }) => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
   /** True while no new purchase may start (reset wind-down). Selling is never blocked. */
@@ -250,6 +252,7 @@ export class TraderAgent {
   private readonly claimRoute?: TraderOptions["claimRoute"];
   private readonly releaseRoute?: () => void;
   private readonly recordSale?: TraderOptions["recordSale"];
+  private readonly recordTrip?: TraderOptions["recordTrip"];
   private readonly getCredits?: () => number;
   private readonly buysBlocked?: () => boolean;
   private readonly applyCashFloor?: (credits: number) => number;
@@ -280,7 +283,7 @@ export class TraderAgent {
    * when its first lot was bought, and what has been sold so far (a sale cut short by the loss floor resumes on a later
    * tick, so the totals carry over). In memory: a trip in flight across a restart closes with no start time.
    */
-  private readonly trips = new Map<string, { id: string; startedAtMs?: number; buyAt?: string; sellAt?: string; soldUnits: number; revenue: number; cost: number }>();
+  private readonly trips = new Map<string, { id: string; startedAtMs?: number; buyAt?: string; sellAt?: string; soldUnits: number; revenue: number; cost: number; promised?: number }>();
   private readonly recordMovement?: (m: ShipMovement) => Promise<void>;
   private readonly store?: TraderOptions["store"];
   private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
@@ -391,6 +394,7 @@ export class TraderAgent {
     this.claimRoute = opts.claimRoute;
     this.releaseRoute = opts.releaseRoute;
     this.recordSale = opts.recordSale;
+    this.recordTrip = opts.recordTrip;
     this.getCredits = opts.getCredits;
     this.buysBlocked = opts.buysBlocked;
     this.applyCashFloor = opts.applyCashFloor;
@@ -2192,7 +2196,7 @@ export class TraderAgent {
     if (this.trips.has(route.good)) return;
     const now = Date.now();
     const id = tripId(this.symbol, route.good, now);
-    this.trips.set(route.good, { id, startedAtMs: now, buyAt: route.buyAt, sellAt: route.sellAt, soldUnits: 0, revenue: 0, cost: 0 });
+    this.trips.set(route.good, { id, startedAtMs: now, buyAt: route.buyAt, sellAt: route.sellAt, soldUnits: 0, revenue: 0, cost: 0, promised: this.routeProfit(route) });
     this.recordAction?.(tripPlannedEvent({
       shipSymbol: this.symbol, good: route.good, buyAt: route.buyAt, sellAt: route.sellAt,
       buyPrice: route.buyPrice, sellPrice: route.sellPrice, units: route.volume,
@@ -2212,6 +2216,8 @@ export class TraderAgent {
     this.trips.set(good, trip);
     if (!done) return;
     this.trips.delete(good);
+    const buyAt = trip.buyAt ?? leg.buyAt;
+    if (buyAt && trip.promised !== undefined) this.recordTrip?.({ good, buyAt, sellAt: leg.sellAt, promised: trip.promised, made: trip.revenue - trip.cost });
     this.recordAction?.(tripClosedEvent({
       shipSymbol: this.symbol, good, sellAt: leg.sellAt, buyAt: trip.buyAt ?? leg.buyAt,
       unitsSold: trip.soldUnits, revenue: trip.revenue, cost: trip.cost, startedAtMs: trip.startedAtMs,

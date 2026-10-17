@@ -185,6 +185,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "routeCoolOffMin",
+    name: "Route cool-off",
+    description: "After a trip that made less than 40% of what it was planned to earn (or lost money), that exact good and buy-to-sell route is skipped for this many minutes, so the market can recover from our own buying and selling instead of being run again straight away. Off = today's behaviour. Takes effect within a minute.",
+    value: 30, min: 5, max: 180, step: 5, unit: " min",
+    enabled: true, enforced: true, category: "risk", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",

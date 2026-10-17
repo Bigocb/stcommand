@@ -754,3 +754,30 @@ describe("RouteDispatcher: loaded traders after a restart", () => {
     assert.equal(a?.role, "direct");
   });
 });
+
+describe("RouteDispatcher: a route that disappointed rests (routeHeat)", () => {
+  const route = (good: string, sellAt: string, profit: number, buyAt = "X1-A-BUY") => ({
+    good, buyAt, buySystem: "X1-A", buyPrice: 100,
+    sellAt, sellSystem: "X1-A", sellPrice: 100 + profit,
+    volume: 40, lotSize: 40, distance: 10, fuelUnits: 10, fuelCost: 0,
+    profitPerTrip: profit, ageMinutes: 1,
+  });
+  const bad = { good: "IRON", buyAt: "X1-A-BUY", sellAt: "X1-A-M1", promised: 1000, made: -500 };
+
+  it("skips the exact route after a losing trip when the clause is on, and takes the next best", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    d.recordTrip(bad);
+    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700)], [{ shipSymbol: "T1", capacity: 40 }], [], [], [], [], undefined, undefined, undefined, undefined, undefined, { coolOffMin: 30 });
+    assert.equal(d.list()[0]!.sellAt, "X1-A-M2");
+    assert.match(d.routeCoolOff("IRON", "X1-A-BUY", "X1-A-M1") ?? "", /resting/);
+  });
+
+  it("clause off (0) reproduces today's ranking", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    d.recordTrip(bad);
+    d.recompute([route("IRON", "X1-A-M1", 900), route("IRON", "X1-A-M2", 700)], [{ shipSymbol: "T1", capacity: 40 }]);
+    assert.equal(d.list()[0]!.sellAt, "X1-A-M1");
+  });
+});

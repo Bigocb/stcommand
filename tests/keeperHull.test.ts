@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { pickKeeperHull } from "../src/engine/fleet.js";
+import { keeperHullLabel, pickKeeperHull } from "../src/engine/fleet.js";
 
 describe("pickKeeperHull: keeper purchase fallback", () => {
   it("prefers a probe when the yard sells one", () => {
@@ -15,6 +15,13 @@ describe("pickKeeperHull: keeper purchase fallback", () => {
   it("falls back to a surveyor, then a mining drone", () => {
     assert.equal(pickKeeperHull([{ type: "SHIP_MINING_DRONE", price: 1 }, { type: "SHIP_SURVEYOR", price: 2 }])?.type, "SHIP_SURVEYOR");
     assert.equal(pickKeeperHull([{ type: "SHIP_EXPLORER", price: 9 }, { type: "SHIP_MINING_DRONE", price: 1 }])?.type, "SHIP_MINING_DRONE");
+  });
+
+  it("uses a siphon drone as the last resort when a yard sells nothing else keeper-capable", () => {
+    const hit = pickKeeperHull([{ type: "SHIP_BULK_FREIGHTER", price: 366000 }, { type: "SHIP_SIPHON_DRONE", price: 48000 }]);
+    assert.equal(hit?.type, "SHIP_SIPHON_DRONE");
+    assert.equal(keeperHullLabel("SHIP_SIPHON_DRONE"), "siphon drone");
+    assert.equal(pickKeeperHull([{ type: "SHIP_SIPHON_DRONE", price: 1 }, { type: "SHIP_MINING_DRONE", price: 2 }])?.type, "SHIP_MINING_DRONE");
   });
 
   it("returns nothing when no keeper-capable hull is sold", () => {

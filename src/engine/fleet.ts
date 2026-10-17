@@ -166,8 +166,11 @@ export function fuelChainReaches(
 }
 
 /** Hulls a keeper can be bought as, best first. A probe is ideal; where a
- *  yard doesn't sell one, a surveyor and then a mining drone stand in. */
-export const KEEPER_HULL_PREFERENCE = ["SHIP_PROBE", "SHIP_SURVEYOR", "SHIP_MINING_DRONE"];
+ *  yard doesn't sell one, a surveyor, a mining drone and then a siphon drone
+ *  stand in (2026-10-17: X1-HM60's only yard stocked a siphon drone and a bulk
+ *  freighter, so FC4A never got a request; the operator had already made a
+ *  siphon drone a keeper there by hand, THEOREM-F5). Always behind the approvals gate. */
+export const KEEPER_HULL_PREFERENCE = ["SHIP_PROBE", "SHIP_SURVEYOR", "SHIP_MINING_DRONE", "SHIP_SIPHON_DRONE"];
 
 /** Does a keeper-probe approval row (`shipSymbol` packed "shipyard|targetMarket|hull") aim at this target market? */
 export function keeperRequestTargets(rowShipSymbol: string | null | undefined, target: string): boolean {
@@ -213,7 +216,7 @@ export function pickKeeperHull(stock: { type: string; price: number }[]): { type
 }
 
 export function keeperHullLabel(type: string): string {
-  return type === "SHIP_PROBE" ? "probe" : type === "SHIP_SURVEYOR" ? "surveyor" : type === "SHIP_MINING_DRONE" ? "mining drone" : type;
+  return type === "SHIP_PROBE" ? "probe" : type === "SHIP_SURVEYOR" ? "surveyor" : type === "SHIP_MINING_DRONE" ? "mining drone" : type === "SHIP_SIPHON_DRONE" ? "siphon drone" : type;
 }
 
 /** Roles assignable via setShipRole() — every real role except the two that aren't a ship-agent type (`warehouse` is a designation on top of whatever role a ship already has; `idle` just means no agent claims it). */
@@ -1348,6 +1351,7 @@ export class FleetManager {
       claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
       releaseRoute: () => this.dispatcher.release(shipSymbol),
       recordSale: (good, sellAt, units) => this.dispatcher.recordSale(good, sellAt, units),
+      recordTrip: (trip) => this.dispatcher.recordTrip(trip),
       // Already floor-adjusted — see spendableCredits()'s own comment. This
       // one is the fleet's cached balance, which is right for ranking routes
       // and wrong for committing to a purchase.
@@ -8323,7 +8327,7 @@ export class FleetManager {
           homeReserve: 1,
           gateFor: (from, to) => this.galaxy.gatesTo(from, to)[0],
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), matchTopN: this.doctrine.value("routeMatchTopN", 0) },
+        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), matchTopN: this.doctrine.value("routeMatchTopN", 0), coolOffMin: this.doctrine.value("routeCoolOffMin", 0) },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
       // Keep each trader's trip and commitment across a restart, so a ship flying to its buy market is not re-routed.
