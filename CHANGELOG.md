@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-17 — A crashed market price no longer exempts a lot from the loss floor (2.55M lost on VIRAL_AGENTS)
+
+Reported as the last hour's growth reading about -400,000 on THEOREM. The hour's matched trading was +85k against ~477k of
+jumps and fuel, and one ship explains the rest of the bleed: THEOREM-BC bought 108u VIRAL_AGENTS at ~35,000c (3.83M),
+sold 36u at QD90-A1 for 28-33k, held the other 72u for an hour, then sold them in four 18u lots at **1c each**
+(realized -638,625 per lot, -2.55M together). Cause, `trader.ts`: the "dust lot" exemption (units x live price <= 2,000c,
+meant for 3u of FUEL) was judged on the market's *current* price, so a market that crashed to 1c made 72 units worth 72c,
+"dust", and both the pre-sale floor check and the redirect-to-a-better-market step were skipped. The mid-sale guard did
+stop each tick after one lot, but the next tick passed the dust test again. `isDustLot()` now uses the larger of the live
+price and the cost basis, so a lot is dust only if it was cheap to begin with. Regression test in `tests/trader.test.ts`
+(fails on the old code). Still open: why A1's VIRAL_AGENTS price fell to 1c, and that the 72 units were held an hour
+before the dump (see docs/TODO.md).
+
 ## 2026-10-17 — Keeper requests say why they were not raised, and a failed yard read no longer blocks the retry
 
 Reported on THEOREM: a tour ship reached the only shipyard in HM60 and no keeper request appeared, and two keeper markets

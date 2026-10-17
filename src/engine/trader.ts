@@ -1261,8 +1261,11 @@ export class TraderAgent {
    * whatever the market pays.
    */
   static readonly DUST_LOT_CREDITS = 2_000;
-  private isDustLot(units: number, price: number): boolean {
-    return units * price <= TraderAgent.DUST_LOT_CREDITS;
+  private async isDustLot(good: string, units: number, price: number): Promise<boolean> {
+    // Judged by what the lot cost, not by what the market offers now: a crashed price (THEOREM-BC, 2026-10-17: 72u
+    // VIRAL_AGENTS, ~35,000c each, offered 1c) made 72c "dust" and walked the floor out of the way, 2.55M lost in four sales.
+    const cost = await this.costBasis(good);
+    return units * Math.max(price, cost ?? 0) <= TraderAgent.DUST_LOT_CREDITS;
   }
 
   /**
@@ -1844,7 +1847,7 @@ export class TraderAgent {
     if (this.ship.nav.status !== "DOCKED") return undefined;
     try {
       const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
-      if (live !== undefined && !this.isManualLegFor(item.symbol) && !this.isDustLot(item.units, live) && (await this.exceedsLossFloor(item.symbol, live))) {
+      if (live !== undefined && !this.isManualLegFor(item.symbol) && !(await this.isDustLot(item.symbol, item.units, live)) && (await this.exceedsLossFloor(item.symbol, live))) {
         if (!(await this.floorSaleApproved(item.symbol, item.units, live, this.heldCost.get(item.symbol)))) return true;
       }
       // A single sellCargo() call is capped at the market's own advertised
@@ -2104,7 +2107,7 @@ export class TraderAgent {
 
       await this.ensureDocked();
       const live = await this.liveSellPrice(leg.sellAt, item.symbol);
-      if (live !== undefined && !this.isManualLegFor(item.symbol) && !this.isDustLot(item.units, live) && (await this.exceedsLossFloor(item.symbol, live))) {
+      if (live !== undefined && !this.isManualLegFor(item.symbol) && !(await this.isDustLot(item.symbol, item.units, live)) && (await this.exceedsLossFloor(item.symbol, live))) {
         // Try another market that clears the floor before holding: a stuck hull earns nothing.
         const moved = await this.redirectBelowFloor(item.symbol, leg);
         if (moved) return true;

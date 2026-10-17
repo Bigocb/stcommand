@@ -436,6 +436,37 @@ describe("TraderAgent: a manually-pinned direct route bypasses the loss floor, n
   });
 });
 
+// 2026-10-17: THEOREM-BC sold 72u VIRAL_AGENTS (~35,000c cost each) at 1c, 2.55M lost, because a 1c market made the whole
+// lot "dust" (units x live price <= 2,000) and the dust exemption skipped the loss floor. Dust is judged by cost now.
+describe("TraderAgent: a crashed market price does not turn an expensive lot into dust", () => {
+  function docked(price: number, cost: number, units: number) {
+    const ship = makeShip([{ symbol: "VIRAL_AGENTS", units }]);
+    ship.nav = { status: "DOCKED", waypointSymbol: "X1-A-A2", systemSymbol: "X1-A" } as any;
+    let sold = false;
+    const trader = new TraderAgent(ship, {
+      api: {
+        getCallCount: () => 0,
+        getShip: async () => ship,
+        getMarket: async () => ({ tradeGoods: [{ symbol: "VIRAL_AGENTS", sellPrice: price }] } as any),
+        sellCargo: async () => { sold = true; return { cargo: { ...ship.cargo, units: 0, inventory: [] }, transaction: { pricePerUnit: price, totalPrice: price * units } } as any; },
+      } as any,
+      maxLossPct: 15,
+    });
+    (trader as any).heldCost.set("VIRAL_AGENTS", cost);
+    return { trader, wasSold: () => sold };
+  }
+  it("holds 18u bought at 35,000c when the market offers 1c", async () => {
+    const { trader, wasSold } = docked(1, 35_000, 18);
+    await trader.tick();
+    assert.equal(wasSold(), false);
+  });
+  it("still sells a genuinely tiny lot below its floor", async () => {
+    const { trader, wasSold } = docked(60, 85, 3);   // 3u FUEL-sized: ~255c at cost
+    await trader.tick();
+    assert.equal(wasSold(), true);
+  });
+});
+
 describe("TraderAgent.discoverPrices: reachability", () => {
   it("picks a same-system market without ever calling getConstruction", async () => {
     const ship = makeShip();
