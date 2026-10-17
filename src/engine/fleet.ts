@@ -5144,7 +5144,7 @@ export class FleetManager {
     // skipped and tried again on the next visit (no clock is set).
     const listed = this.galaxy.getSystem(systemSymbol)?.waypoints.find((w) => w.symbol === waypointSymbol);
     const hasYard = listed ? listed.traits.some((t) => t.symbol === "SHIPYARD") : this.registry.isShipyard(waypointSymbol);
-    if (!hasYard) return;
+    if (!hasYard) { this.keeperNote(`noyard:${waypointSymbol}`, `shipyard read skipped at ${waypointSymbol}: the galaxy cache does not list a SHIPYARD trait there yet (a keeper request cannot be raised from this visit)`); return; }
     // Every dock at a shipyard took a fresh snapshot, so ships parked at or cycling through the same yard re-read
     // it every few minutes between them (15-20 per five minutes). Once per yard per SHIPYARD_SNAPSHOT_MS is plenty
     // for stock that rotates slowly.
@@ -5157,15 +5157,34 @@ export class FleetManager {
     const last = this.shipyardSnapshotAt.get(waypointSymbol) ?? 0;
     if (Date.now() - last < FleetManager.SHIPYARD_SNAPSHOT_MS) return;
     this.shipyardSnapshotAt.set(waypointSymbol, Date.now());
+    let yard: Awaited<ReturnType<SpaceTradersAPI["getShipyard"]>>;
     try {
-      const yard = await this.api.getShipyard(systemSymbol, waypointSymbol);
+      yard = await this.api.getShipyard(systemSymbol, waypointSymbol);
       this.shipyardReads.set(waypointSymbol, { at: Date.now(), yard });
       await this.store?.recordShipyardInventory(systemSymbol, waypointSymbol, yard.ships ?? []);
       this.onActivity?.("shipyard", `snapshot ${waypointSymbol} (${(yard.ships ?? []).length} ships)`, 0);
+    } catch (err) {
+      // A failed read used to vanish here and, because the clock above was already set, also blocked every retry for 30 minutes,
+      // along with the keeper request that follows the read. Say so, and let the next dock try again.
+      this.shipyardSnapshotAt.delete(waypointSymbol);
+      this.keeperNote(`yarderr:${waypointSymbol}`, `shipyard read failed at ${waypointSymbol}: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    try {
       await this.maybeRequestKeeperProbe(waypointSymbol, yard.ships ?? []);
     } catch (err) {
-      // ignore: shipyard may not be scannable
+      // The read worked (the clock stays), but the keeper check threw: it used to be swallowed without a word.
+      this.keeperNote(`keepererr:${waypointSymbol}`, `keeper check failed after reading ${waypointSymbol}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  private keeperNoteAt = new Map<string, number>();
+  /** Why a keeper request was NOT raised, logged at most once per key per 30 minutes (these checks run on every dock). */
+  private keeperNote(key: string, message: string): void {
+    const last = this.keeperNoteAt.get(key) ?? 0;
+    if (Date.now() - last < 30 * 60_000) return;
+    this.keeperNoteAt.set(key, Date.now());
+    this.log(`keeper: ${message}`);
   }
 
   private yardTimes: Promise<Map<string, number>> | undefined;
@@ -5323,10 +5342,10 @@ export class FleetManager {
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
     this.keeperPriorityMarketsCache = await this.keeperPriorityMarkets();
     const target = this.nearestUncoveredKeeperMarket(waypointSymbol);
-    if (!target) return; // nothing on the priority list needs covering from here
+    if (!target) { this.keeperNote(`notarget:${waypointSymbol}`, `no keeper request from yard ${waypointSymbol}: it and every priority market in its system already have a keeper`); return; } // nothing on the priority list needs covering from here
     const probe = pickKeeperHull(ships.map((s) => ({ type: s.type, price: s.purchasePrice })));
-    if (!probe) return; // this yard stocks no usable keeper hull right now
-    if (!this.canAfford(probe.price)) return;
+    if (!probe) { this.keeperNote(`nohull:${waypointSymbol}`, `no keeper request from yard ${waypointSymbol} for ${target}: it stocks no ${KEEPER_HULL_PREFERENCE.join("/")} (stock: ${ships.map((s) => s.type).join(", ") || "nothing listed"})`); return; } // this yard stocks no usable keeper hull right now
+    if (!this.canAfford(probe.price)) { this.keeperNote(`afford:${waypointSymbol}`, `no keeper request from yard ${waypointSymbol} for ${target}: ${keeperHullLabel(probe.type)} costs ${probe.price}c, more than the spendable credits`); return; }
 
     // One request at a time fleet-wide (kind is a single fixed string), same
     // pattern maybeBuyShip()'s "buyShip" already uses — avoids flooding the
@@ -5430,8 +5449,8 @@ export class FleetManager {
       if (pick) break;
     }
     const best = pick ? { waypointSymbol: pick.waypointSymbol, price: pick.purchasePrice, hull: pick.shipType } : undefined;
-    if (!best) return false; // no shipyard in this system has a cached keeper hull in stock right now
-    if (!this.canAfford(best.price)) return false;
+    if (!best) { this.keeperNote(`mnohull:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: no yard in ${marketSystem} has a stored ${KEEPER_HULL_PREFERENCE.join("/")} (${yards.filter((y) => y.systemSymbol === marketSystem).length} stored yard rows in that system; a yard is stored only when one of our ships reads it)`); return false; } // no shipyard in this system has a cached keeper hull in stock right now
+    if (!this.canAfford(best.price)) { this.keeperNote(`mafford:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: ${keeperHullLabel(best.hull)} at ${best.waypointSymbol} costs ${best.price}c, more than the spendable credits`); return false; }
 
     const shipSymbol = `${best.waypointSymbol}|${marketWaypoint}|${best.hull}`;
     // Live bug, 2026-09-21: ApprovalGate.request() dedups by KIND only — it
@@ -5500,7 +5519,10 @@ export class FleetManager {
     if (!this.store || !this.tenantId) return;
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
     const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
-    if (existing) return; // something's already in flight — resolvePendingKeeperProbeApproval() owns resolving it
+    if (existing) {   // something's already in flight — resolvePendingKeeperProbeApproval() owns resolving it
+      this.keeperNote("queue-blocked", `keeper queue is waiting on one open request (${existing.status}: ${existing.detail ?? existing.shipSymbol}); no other market gets a request until it is bought, denied or expires`);
+      return;
+    }
     const priority = await this.keeperPriorityMarkets();
     const covered = new Set(this.keeperMarkets.values());
     // Walk the uncovered markets in priority order until one actually asks (or buys). A market that cannot be
@@ -5698,7 +5720,10 @@ export class FleetManager {
       // step every other purchase call site in this file already does
       // before its own purchaseShip() call.
       const candidate = this.fleetStatusSummary().find((s) => s.waypoint === waypointSymbol)?.symbol;
-      if (!candidate) return;
+      if (!candidate) {
+        this.keeperNote(`nocand:${waypointSymbol}`, `approved keeper purchase for ${targetMarket} cannot run: it must be bought at ${waypointSymbol} and none of our ships is there. It stays open, and blocks every other request of this kind, until a ship docks there`);
+        return;
+      }
       try {
         const live = await this.api.getShip(candidate);
         if (live.nav.waypointSymbol !== waypointSymbol) return;

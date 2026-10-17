@@ -9,6 +9,26 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-17 — Keeper requests say why they were not raised, and a failed yard read no longer blocks the retry
+
+Reported on THEOREM: a tour ship reached the only shipyard in HM60 and no keeper request appeared, and two keeper markets
+the operator queued there never turned into requests. The keeper checks returned silently in every case, so the cause
+could not be read from the logs. Two changes:
+
+- **Why-not lines.** The checks now log (`keeper: ...`, at most once per key per 30 minutes) when no request is raised
+  and why: the yard has no keeper hull in stock (with its stock listed), the stored yard rows for the system hold none,
+  the hull is too expensive, every candidate market is already covered, the galaxy cache lists no SHIPYARD trait at the
+  waypoint (the read is skipped), or the queue is waiting on one open request. That last case is the likely reason a
+  queue never fires: only one request of a kind is open at a time, and an approved purchase has to be made by a ship docked
+  at its yard, so an approved request for a yard no ship returns to holds every other market behind it. The line names
+  that request and says what it needs.
+- **A failed yard read retries.** `recordShipyardSnapshot()` set its 30-minute clock before the read and swallowed any
+  error, so one failed read (and the keeper check that follows it) was skipped for half an hour with no trace. A failed
+  read now clears the clock and is logged; an error in the keeper check after a good read is logged and keeps the clock.
+
+Not changed: which hulls count (probe, surveyor, mining drone, in that order; an ore hound is deliberately not one).
+The root cause of the HM60 case is not established; the new lines should name it the next time it happens.
+
 ## 2026-10-16 — A construction mission can be removed, not only paused
 
 A gate mission started by accident (the operator was only checking a gate) stayed on the board for good: the UI could pause
