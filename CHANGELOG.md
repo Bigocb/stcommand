@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-18 — Wind-down: keepers can find their yard, and traders are queued before the deadline
+
+Two defects that explain why the 2026-10-18 wind-down left 215 hulls (192 keepers, all 23 traders), found by reading the code against that week's saved timeline:
+
+- **Keepers.** `sellShip()` found a yard only from the galaxy table's SHIPYARD waypoint traits, which are known for far fewer waypoints than the yards the fleet has actually stood at and read.
+  A keeper is bought at a yard in its own system and never leaves it, so it always had a yard, but most were refused "no known shipyard". `sellShip()` now falls back to the stored
+  `shipyard_inventory` (same system, then one completed gate away: `storedYardFor` in `windDownScrap.ts`). All 26 ships that were scrapped were already standing at a yard waypoint.
+- **Traders.** A trader only ever entered the retire queue by selling its hold empty inside the window, so a trader that never sold out (holding below its floor, in flight, cargo left) was never queued, and
+  the 15-minute deadline, which exists for exactly such ships, never reached it. Traders are now queued from `TRADER_SEED_MIN` (20) minutes before the reset: a loaded one waits for its own sale or the
+  deadline (`shouldRetire`), an empty one goes at once.
+
+Tests: `tests/windDownScrap.test.ts`. Not verified live: the next reset is the test, and the wind-down record from the entry below will say whether every ship was sent and where any refusal came from.
+
 ## 2026-10-18 — The reset wind-down now keeps its own record
 
 On 2026-10-18 the wind-down opened on time (11:00 UTC) but scrapped only 26 of 239 ships (215 hulls were left at the reset), and nothing survived to say why: its log lines are in memory and the

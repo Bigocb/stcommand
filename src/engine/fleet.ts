@@ -20,7 +20,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
 import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
-import { WindDownScrapper, shipsToRetire, shouldRetire, retireReasonKey, windDownSummary } from "./windDownScrap.js";
+import { WindDownScrapper, shipsToRetire, shouldRetire, retireReasonKey, windDownSummary, storedYardFor, TRADER_SEED_MIN } from "./windDownScrap.js";
 import { KEEPER_POLL_MIN_MS, cadenceSeeds, keeperPollDelayMs, marketSignature } from "./keeperCadence.js";
 import { cargoValue, cargoSignature, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
@@ -6608,7 +6608,7 @@ export class FleetManager {
     // the ship's real, current system has one.
     const ship = await this.api.getShip(shipSymbol);
     this.noteShipState(shipSymbol, ship);
-    const yard = this.nearestShipyardForSale(ship.nav.systemSymbol);
+    const yard = this.nearestShipyardForSale(ship.nav.systemSymbol) ?? (await this.storedShipyardForSale(ship.nav.systemSymbol));
     if (!yard) {
       const known = this.galaxy.getSystem(ship.nav.systemSymbol);
       const detail = !known
@@ -8594,6 +8594,14 @@ export class FleetManager {
    * executor (runRepairGoal()) has no equivalent and would fail outright on
    * a cross-system yard.
    */
+  /** A yard the fleet has seen (shipyard_inventory) in this system or one completed gate away: the fallback when the galaxy table's waypoint traits show none (see storedYardFor). */
+  private async storedShipyardForSale(systemSymbol: string): Promise<string | undefined> {
+    const yards = (await this.store?.shipyardInventory()) ?? [];
+    if (!yards.length) return undefined;
+    const adjacent = this.galaxy.connectedSystems(systemSymbol).filter((c) => this.galaxy.canJump(systemSymbol, c));
+    return storedYardFor(systemSymbol, yards, adjacent);
+  }
+
   private nearestShipyardForSale(systemSymbol: string): string | undefined {
     const local = this.nearestShipyard(systemSymbol);
     if (local) return local;
@@ -8682,7 +8690,8 @@ export class FleetManager {
       // Seeded while the window is open, so a ship that joins mid-window is caught too. Idempotent: a
       // Set, and the drain below removes whatever it retires. Selling is what the sell-out trigger
       // watches for; this sweep is what catches the ships that never sell at all.
-      for (const symbol of shipsToRetire(this.getShipStatuses(), this.retireQueue, FleetManager.RETIRE_PER_TICK)) {
+      const untilReset = (Date.parse(resetWatcherStatus()?.nextReset ?? "") - Date.now()) / 60_000;
+      for (const symbol of shipsToRetire(this.getShipStatuses(), this.retireQueue, FleetManager.RETIRE_PER_TICK, Number.isFinite(untilReset) && untilReset <= TRADER_SEED_MIN)) {
         this.retireQueue.add(symbol);
       }
       for (const symbol of this.windDownScrapper.take()) this.retireQueue.add(symbol);

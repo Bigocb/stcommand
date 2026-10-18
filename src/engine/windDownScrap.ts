@@ -28,6 +28,26 @@ import type { ShipObserver } from "./shipSnapshots.js";
 export const SCRAP_DEADLINE_MIN = 15;
 
 /**
+ * In the last stretch before the reset the traders are queued as well. A trader only ever entered the queue by selling its hold EMPTY inside the window, so a trader that never
+ * sold out (it was holding below its loss floor, was mid-flight, or simply had cargo left) was never queued, and the deadline above, which exists for exactly such ships, never
+ * reached it: on 2026-10-18 all 23 traders were still there at the reset. Five minutes ahead of the deadline, so a loaded trader is queued and held by shouldRetire() until its
+ * own sale or the deadline, and an empty one goes at once.
+ */
+export const TRADER_SEED_MIN = SCRAP_DEADLINE_MIN + 5;
+
+/**
+ * Where to scrap a ship from the yards the fleet has actually seen (shipyard_inventory), for when the galaxy's waypoint traits do not show one. 2026-10-18: keepers are bought at a yard
+ * in their own system and never leave it, so each had a yard in its system, yet most were refused "no known shipyard" because sellShip() looked only at the galaxy table's SHIPYARD
+ * traits, which are filled in for far fewer waypoints than the yards the fleet has stood at and read. Same system first, then a system one completed gate away (`adjacent`).
+ */
+export function storedYardFor(system: string, yards: readonly { systemSymbol: string; waypointSymbol: string }[], adjacent: readonly string[]): string | undefined {
+  const here = yards.find((y) => y.systemSymbol === system);
+  if (here) return here.waypointSymbol;
+  for (const a of adjacent) { const y = yards.find((v) => v.systemSymbol === a); if (y) return y.waypointSymbol; }
+  return undefined;
+}
+
+/**
  * Every ship that is not a trader, up to `limit`, excluding the ones already on their way to a yard.
  *
  * A trader is the one role left out, and not as a special case: traders are the ships that still
@@ -38,9 +58,11 @@ export function shipsToRetire(
   ships: readonly { symbol: string; role: string }[],
   alreadyQueued: ReadonlySet<string>,
   limit: number,
+  /** Traders too: set in the last TRADER_SEED_MIN minutes (see below). */
+  includeTraders = false,
 ): string[] {
   return ships
-    .filter((s) => s.role !== "trader" && !alreadyQueued.has(s.symbol))
+    .filter((s) => (includeTraders || s.role !== "trader") && !alreadyQueued.has(s.symbol))
     .slice(0, limit)
     .map((s) => s.symbol);
 }
