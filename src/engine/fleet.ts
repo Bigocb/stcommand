@@ -20,6 +20,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
 import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
+import { WindDownScrapper, shipsToRetire, shouldRetire } from "./windDownScrap.js";
 import { KEEPER_POLL_MIN_MS, cadenceSeeds, keeperPollDelayMs, marketSignature } from "./keeperCadence.js";
 import { cargoValue, cargoSignature, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
@@ -549,7 +550,13 @@ export class FleetManager {
     this.contracts = opts.contracts;
     this.log = opts.log ?? ((m) => console.log(`[fleet] ${m}`));
     // The measurement sweep's board only listens while the sweep runs; the ship book always does (shadow mode).
-    this.api.setShipObserver?.(FleetManager.SWEEP_INTERVAL_MS > 0 ? combineShipObservers(this.shipSnapshots, this.shipBook) : this.shipBook);
+    // The wind-down scrapper goes in BOTH branches: it is not part of the sweep, and dropping it whenever the
+    // sweep is off would silently disable retirement (nothing else reads its queue, so the loss would be invisible).
+    this.api.setShipObserver?.(
+      FleetManager.SWEEP_INTERVAL_MS > 0
+        ? combineShipObservers(this.shipSnapshots, this.shipBook, this.windDownScrapper)
+        : combineShipObservers(this.shipBook, this.windDownScrapper),
+    );
     this.api.setShipSource?.((symbol) => this.shipBook.serve(symbol));
     this.recordLedger = opts.recordLedger;
     this.recordMovement = opts.recordMovement;
@@ -8098,10 +8105,25 @@ export class FleetManager {
    *  (100%), but at 183 ships a sweep is 10 calls (12 a minute at 30 s) and could have replaced only 6-26 of ~80 single
    *  reads per five minutes, so it cost more calls than Phase 2 would save. */
   private static readonly SWEEP_INTERVAL_MS = Number(process.env.SHIP_SWEEP_MS ?? 0);
+  /**
+   * How many ships the reset wind-down sends to a yard per tick. Each one costs a live ship read
+   * (sellShip() does its own), so the fleet drains over a few minutes rather than stalling a single
+   * pass — and strictly one at a time, which matters: releaseKeeperStationForSale() rewrites the
+   * shared keeper priority list on every sale and two of those overlapping would lose an update.
+   */
+  private static readonly RETIRE_PER_TICK = 2;
   private static readonly SWEEP_SUMMARY_MS = 5 * 60_000;
   private lastSweepSummaryAt = Date.now();
   /** Answers step-start ship reads from what the fleet already knows; shadow-only until the `shipBook` clause is on. */
   readonly shipBook = new ShipBook();
+  /** Ships that sold out inside the reset wind-down window, for the next tick to retire (windDownScrap.ts). */
+  readonly windDownScrapper = new WindDownScrapper();
+  /**
+   * Ships the wind-down has decided to retire: seeded once per tick with every non-trader while the
+   * window is open, and added to as ships sell out. Drained by retireNonTraders(); a ship that is
+   * still holding cargo stays in here until its own agent sells or the deadline passes.
+   */
+  private readonly retireQueue = new Set<string>();
   private lastShipBookSummaryAt = Date.now();
   /** How urgent each loop's own API calls are — see API_PRIORITY. */
   private static readonly LOOP_API_PRIORITY: Record<string, number> = {
@@ -8356,6 +8378,10 @@ export class FleetManager {
       // Same precedence ShipRegistry already enforces (operator > rescue).
       this.timedSync("proposeOperatorHolds", () => this.proposeOperatorHolds());
       this.timedSync("proposeScrapGoals", () => this.proposeScrapGoals());
+      // Reset wind-down retirement (windDownScrap.ts). Awaited but bounded: it sends at most
+      // RETIRE_PER_TICK ships a tick, so the fleet drains over a few minutes instead of stalling
+      // one pass, and never two at once (releaseKeeperStationForSale() rewrites a shared flag).
+      await this.timed("retireNonTraders", () => this.retireNonTraders());
       // Resolve this pass's proposals to one intent per ship. Purely local: no
       // API calls, no awaiting a ship. A busy ship keeps an earning goal unless
       // something strictly more urgent preempts it — see intent.ts.
@@ -8626,6 +8652,64 @@ export class FleetManager {
         reason: `sold by the operator, flying to ${yard} to be scrapped`,
         source: "operator",
       });
+    }
+  }
+
+  /**
+   * Reset wind-down retirement: ships with no work left are flown to the nearest known shipyard and
+   * scrapped before the reset, so the week ends in credits rather than hulls. See windDownScrap.ts
+   * for the two triggers (the window opening for every non-trader, and any sale that empties a hold).
+   *
+   * Level-triggered, like proposeOperatorHolds(): the queue is re-derived every tick and the
+   * already-retiring set shrinks naturally as sellShip() claims each hull, so nothing has to remember
+   * what it has already done. Role-general: "not a trader" covers every ShipRole there is, so a fleet
+   * with miners, siphoners or surveyors behaves exactly as this one does.
+   *
+   * Uses the same sellShip() the operator's Sell button and the MCP tool use — a third caller of that
+   * path, not a second implementation of flying to a yard.
+   */
+  private async retireNonTraders(): Promise<void> {
+    const window = this.windDownState();
+    if (window.active) {
+      // Seeded while the window is open, so a ship that joins mid-window is caught too. Idempotent: a
+      // Set, and the drain below removes whatever it retires. Selling is what the sell-out trigger
+      // watches for; this sweep is what catches the ships that never sell at all.
+      for (const symbol of shipsToRetire(this.getShipStatuses(), this.retireQueue, FleetManager.RETIRE_PER_TICK)) {
+        this.retireQueue.add(symbol);
+      }
+      for (const symbol of this.windDownScrapper.take()) this.retireQueue.add(symbol);
+    } else if (this.retireQueue.size > 0) {
+      // The reset has passed (or the clause was switched off mid-window): nothing more to do, and
+      // the universe that held these ships is gone.
+      this.retireQueue.clear();
+      return;
+    } else {
+      // Nothing queued and no window: drop anything the observer caught outside it, so a stray sale
+      // can never leave a ship queued for a window that is not open.
+      this.windDownScrapper.take();
+      return;
+    }
+
+    const next = Date.parse(resetWatcherStatus()?.nextReset ?? "");
+    const minutesLeft = Number.isFinite(next) ? (next - Date.now()) / 60_000 : Number.POSITIVE_INFINITY;
+
+    let sent = 0;
+    for (const symbol of [...this.retireQueue]) {
+      if (sent >= FleetManager.RETIRE_PER_TICK) break;
+      if (this.scrapTargets.has(symbol)) { this.retireQueue.delete(symbol); continue; } // already flying there
+      if (this.operatorHolds.has(symbol)) continue; // deliberately parked by the operator, not ours to sell
+      const decision = shouldRetire(this.shipFor(symbol)?.cargo.units ?? 0, minutesLeft);
+      if (!decision.retire) continue; // loaded: stays queued until its own sale, or the deadline
+      this.retireQueue.delete(symbol);
+      sent += 1;
+      try {
+        const yard = await this.sellShip(symbol);
+        this.log(`${symbol}: retired in reset wind-down → ${yard} (${decision.reason})`);
+      } catch (err) {
+        // No known shipyard in its system or one gate-hop away. It keeps working; queued again.
+        this.log(`${symbol}: could not be retired: ${err instanceof Error ? err.message : String(err)}`);
+        this.retireQueue.add(symbol);
+      }
     }
   }
 
