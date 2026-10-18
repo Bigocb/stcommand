@@ -58,6 +58,85 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   // All readOnlyHint/idempotentHint: true, per docs/mcp-server-plan.md §4.
 
   server.registerTool(
+    "stcommand_get_opening_tasks",
+    {
+      description: "List all opening automation tasks for the current tenant, including their current status, step index, and triggered state.",
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async () => textResult({ tasks: await w.store.listOpeningTasks(w.tenantId) }),
+  );
+
+  server.registerTool(
+    "stcommand_get_opening_templates",
+    {
+      description: "List all saved opening automation templates available to the tenant.",
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async () => textResult({ templates: await w.store.listOpeningTemplates(w.tenantId) }),
+  );
+
+  server.registerTool(
+    "stcommand_add_opening_template",
+    {
+      description: "Create or update an opening automation template. A template is a named set of tasks that can be applied to a new universe reset.",
+      inputSchema: {
+        name: z.string().describe("Unique name for the template"),
+        tasks: z.array(z.any()).describe("Array of task specifications. Each task requires a key, name, trigger, and steps."),
+      },
+    },
+    async ({ name, tasks }) => {
+      try {
+        await w.store.saveOpeningTemplate(w.tenantId, name, tasks);
+        await recordMcpAction(w, "save_opening_template", undefined, `saved template ${name}`, { name });
+        return textResult({ ok: true, name });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_add_opening_task",
+    {
+      description: "Add or update a specific opening automation task for the current tenant.",
+      inputSchema: {
+        task: z.object({
+          key: z.string().describe("Unique identifier for the task (1-24 chars, alphanumeric)"),
+          name: z.string().describe("Human-readable name"),
+          trigger: z.any().describe("Trigger condition (e.g. { kind: 'always' } or { kind: 'cashAtLeast', credits: 100000 })"),
+          steps: z.array(z.any()).describe("Sequential steps to execute (e.g. buyShip, setRole)"),
+        }),
+      },
+    },
+    async ({ task }) => {
+      try {
+        await w.store.addOpeningTask(w.tenantId, task);
+        await recordMcpAction(w, "add_opening_task", undefined, `added task ${task.key}`, { key: task.key });
+        return textResult({ ok: true, key: task.key });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_cancel_opening_task",
+    {
+      description: "Cancel a queued or active opening automation task by its ID.",
+      inputSchema: { id: z.number().int().describe("The numeric ID of the task to cancel") },
+    },
+    async ({ id }) => {
+      try {
+        await w.store.cancelOpeningTask(w.tenantId, id);
+        await recordMcpAction(w, "cancel_opening_task", undefined, `cancelled task ${id}`, { id });
+        return textResult({ ok: true, id });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_get_state",
     {
       description: "Full current fleet/agent state snapshot — credits, ships, contracts, totals. Same data the dashboard's own live view reads.",
@@ -65,6 +144,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     },
     async () => textResult(w.state.get()),
   );
+
 
   server.registerTool(
     "stcommand_get_gate_status",
