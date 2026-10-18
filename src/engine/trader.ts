@@ -13,6 +13,7 @@ import { ShipProxy } from "./shipProxy.js";
 import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange } from "./warpTour.js";
 import type { ShipMovement, ActionEventRecord } from "../db/store.js";
 import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
+import { nextLotDecision } from "./lotGuard.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
 import { routeOutsideReach, type ShipReach } from "./shipReach.js";
@@ -1255,6 +1256,19 @@ export class TraderAgent {
   }
 
   /**
+   * Between lots of one sale: would the NEXT lot fetch less than the loss floor? Reads the market's price now (each lot moves it,
+   * sometimes by a quarter) rather than trusting the last lot's own price, which is the price before its own impact (lotGuard.ts).
+   * Returns the reason to stop, or undefined to go on. Goods with no cost basis are not held back.
+   */
+  private async nextLotBlock(good: string, waypoint: string, lastPrice: number, prevPrice: number | undefined): Promise<string | undefined> {
+    const cost = await this.costBasis(good);
+    if (cost === undefined || cost <= 0) return undefined;
+    const quote = await this.liveSellPrice(waypoint, good);
+    const d = nextLotDecision({ floor: cost * (1 - this.maxLossPct / 100), quote, lastPrice, prevPrice });
+    return d.ok ? undefined : d.reason;
+  }
+
+  /**
    * Whether a held lot is so small that the loss floor is not worth honouring:
    * a ship holding cargo counts as busy, so the dispatcher gives it no route,
    * and the leftover sweep returns "did work" every tick while it refuses the
@@ -1872,6 +1886,7 @@ export class TraderAgent {
       let totalReceived = 0;
       let soldAny = 0;
       let firstLot = true;
+      let prevLotPrice: number | undefined;
       while (remaining > 0) {
         const lot = firstLot ? this.firstSellLot(lotSize, remaining) : Math.min(lotSize, remaining);
         firstLot = false;
@@ -1898,6 +1913,11 @@ export class TraderAgent {
           this.recordDoctrineFire?.("maxLossPct");
           this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
           break;
+        }
+        if (remaining > 0 && !this.isManualLegFor(item.symbol)) {
+          const why = await this.nextLotBlock(item.symbol, this.ship.nav.waypointSymbol, sold.transaction.pricePerUnit, prevLotPrice);
+          prevLotPrice = sold.transaction.pricePerUnit;
+          if (why) { this.recordDoctrineFire?.("maxLossPct"); this.log(`holding remaining ${remaining}u ${item.symbol}: ${why}`); break; }
         }
       }
       this.log(`cleared leftover ${soldAny}u ${item.symbol} at ${this.ship.nav.waypointSymbol} (${totalReceived}c)`);
@@ -2130,6 +2150,7 @@ export class TraderAgent {
       let totalReceived = 0;
       let soldAny = 0;
       let firstLot = true;
+      let prevLotPrice: number | undefined;
       while (remaining > 0) {
         const lot = firstLot ? this.firstSellLot(lotSize, remaining) : Math.min(lotSize, remaining);
         firstLot = false;
@@ -2162,6 +2183,11 @@ export class TraderAgent {
           this.recordDoctrineFire?.("maxLossPct");
           this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
           break;
+        }
+        if (remaining > 0 && !this.isManualLegFor(item.symbol)) {
+          const why = await this.nextLotBlock(item.symbol, leg.sellAt, sold.transaction.pricePerUnit, prevLotPrice);
+          prevLotPrice = sold.transaction.pricePerUnit;
+          if (why) { this.recordDoctrineFire?.("maxLossPct"); this.log(`holding remaining ${remaining}u ${item.symbol}: ${why}`); break; }
         }
       }
       // The buy happened on an earlier tick, so the cost basis comes from

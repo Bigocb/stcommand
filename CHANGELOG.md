@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-18 — Judge each next lot of a sale by the market's price now
+
+THEOREM-64 lost about 523k on one VIRAL_AGENTS trip (X1-KQ90-C16D to X1-QD90-A1): bought 80u at 31,127c, then sold in lots of 18 into a thin market,
+27,294c for lot one and 20,428c for lot two, twice in 33 minutes (-192,587c on the second lot each time). The between-lot guard in
+`deliverHeldCargo` and `clearLeftoverCargo` compared the price the lot just sold had fetched with the loss floor, but that is the price BEFORE the lot's own
+impact; the next lot's price is the market's price after it, which a thin market drops by a quarter in one lot. The guard only ever fired after the damaging
+lot had gone.
+
+Now `nextLotBlock` reads the market's sell price between lots and `src/engine/lotGuard.ts` (pure, `tests/lotGuard.test.ts`) stops the pass when the next lot
+would fetch less than the floor; if the market cannot be read it assumes the last lot's drop repeats (a quarter when there is no earlier lot). Seam test:
+`tests/lotGuardSeam.test.ts` (fails on the old code). Not changed: the 15% `maxLossPct` allowance itself (lot one at 27,294c was within it, a 12% loss), and
+route choice: the plan promised 41,081c at the sink and the market paid 27k at arrival.
+
 ## 2026-10-17 — Route cool-off after a disappointing trip, and siphon drones as a last-resort keeper hull
 
 Two things from "more losses in the last hour" and "no approval request in the queue".
