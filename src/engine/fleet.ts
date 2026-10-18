@@ -8218,6 +8218,10 @@ export class FleetManager {
     await this.tickCore();
     await this.tickFeeds();
     await this.tickMaintenance();
+    if (this.tenantId && this.store) {
+      const runner = new OpeningRunner(this.store);
+      await runner.run(this.tenantId);
+    }
   }
 
   /**
