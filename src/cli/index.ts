@@ -188,13 +188,13 @@ async function main(): Promise<void> {
   // middleware so it covers `/`, `/v5`, `/v6`, `/m`, `/deck`, `/admin`,
   // `/cartography`, `/guide`, and any direct `*.html`.
   const STAMP = assetStamp(PUBLIC_DIR);
-  const HTML_PAGES = new Set(["v2", "v3", "v4", "v5", "v6", "m", "deck", "admin", "cartography", "guide"]);
+  const HTML_PAGES = new Set(["m", "deck", "admin", "cartography", "guide"]);
   app.use((req, res, next) => {
     if (req.method !== "GET") return next();
     const path = req.path.replace(/\/+$/, "") || "/";
     let file: string | null = null;
     if (path === "/") {
-      file = resolve(PUBLIC_DIR, "v6.html");
+      file = resolve(PUBLIC_DIR, "deck.html");
     } else {
       const name = path.slice(1);
       if (HTML_PAGES.has(name)) file = resolve(PUBLIC_DIR, `${name}.html`);
@@ -262,7 +262,7 @@ async function main(): Promise<void> {
   });
 
   app.use(express.static(PUBLIC_DIR, {
-    index: "v6.html",
+    index: "deck.html",
     // See cacheHeaders(): HTML must not be cached or a browser pins itself
     // to superseded modules after a deploy; fonts and shared modules must
     // be, or every version re-downloads them on every load.
