@@ -105,3 +105,19 @@ export class WindDownScrapper implements ShipObserver {
     return out;
   }
 }
+
+/**
+ * The wind-down's own record, kept past the reset. The server log that would have said why most of the fleet was not retired on 2026-10-18 (26 scrapped of 239,
+ * 215 hulls left at the reset) is in memory and was wiped by the reset restart, so the decisions are written to fleet_events, which survives (ops timeline,
+ * kinds retire_dispatched, retire_failed, wind_down_summary).
+ */
+/** A failure message with the system and waypoint names taken out, so the same reason on different ships counts as one. */
+export function retireReasonKey(message: string): string {
+  return message.replace(/X1-[A-Z0-9]+(?:-[A-Z0-9]+)?/g, "<place>").replace(/\d+/g, "#").slice(0, 120);
+}
+export interface RetireStats { dispatched: number; failed: number; reasons: ReadonlyMap<string, number> }
+/** One line for the timeline: where the wind-down stands. */
+export function windDownSummary(s: RetireStats & { queued: number; remaining: number; flying: number; minutesLeft: number }): string {
+  const top = [...s.reasons].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${n}x ${k}`).join("; ") || "none";
+  return `wind-down, ${Math.max(0, Math.round(s.minutesLeft))} min to reset: ${s.remaining} non-trader hulls left, ${s.queued} queued, ${s.flying} flying to a yard, ${s.dispatched} sent, ${s.failed} refused (top reasons: ${top})`;
+}

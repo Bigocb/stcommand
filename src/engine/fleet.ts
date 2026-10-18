@@ -20,7 +20,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
 import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
-import { WindDownScrapper, shipsToRetire, shouldRetire } from "./windDownScrap.js";
+import { WindDownScrapper, shipsToRetire, shouldRetire, retireReasonKey, windDownSummary } from "./windDownScrap.js";
 import { KEEPER_POLL_MIN_MS, cadenceSeeds, keeperPollDelayMs, marketSignature } from "./keeperCadence.js";
 import { cargoValue, cargoSignature, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
@@ -8127,6 +8127,11 @@ export class FleetManager {
    * still holding cargo stays in here until its own agent sells or the deadline passes.
    */
   private readonly retireQueue = new Set<string>();
+  /** What the wind-down has done this window, for its timeline line (windDownSummary): sent, refused, and why. Cleared when the window is over. */
+  private retireStats = { dispatched: 0, failed: 0, reasons: new Map<string, number>() };
+  private readonly retireFailedNoted = new Set<string>();
+  private lastWindDownNoteAt = 0;
+  private static readonly WIND_DOWN_NOTE_MS = 10 * 60_000;
   private lastShipBookSummaryAt = Date.now();
   /** How urgent each loop's own API calls are — see API_PRIORITY. */
   private static readonly LOOP_API_PRIORITY: Record<string, number> = {
@@ -8685,6 +8690,7 @@ export class FleetManager {
       // The reset has passed (or the clause was switched off mid-window): nothing more to do, and
       // the universe that held these ships is gone.
       this.retireQueue.clear();
+      this.retireStats = { dispatched: 0, failed: 0, reasons: new Map() }; this.retireFailedNoted.clear(); this.lastWindDownNoteAt = 0;
       return;
     } else {
       // Nothing queued and no window: drop anything the observer caught outside it, so a stray sale
@@ -8708,11 +8714,27 @@ export class FleetManager {
       try {
         const yard = await this.sellShip(symbol);
         this.log(`${symbol}: retired in reset wind-down → ${yard} (${decision.reason})`);
+        this.retireStats.dispatched += 1;
+        if (this.tenantId) void this.store?.recordFleetNote(this.tenantId, "retire_dispatched", symbol, `${symbol}: sent to ${yard} to be scrapped (${decision.reason})`, { yard, minutesLeft: Math.round(minutesLeft) });
       } catch (err) {
         // No known shipyard in its system or one gate-hop away. It keeps working; queued again.
-        this.log(`${symbol}: could not be retired: ${err instanceof Error ? err.message : String(err)}`);
+        const why = err instanceof Error ? err.message : String(err);
+        this.log(`${symbol}: could not be retired: ${why}`);
         this.retireQueue.add(symbol);
+        this.retireStats.failed += 1;
+        const key = retireReasonKey(why);
+        this.retireStats.reasons.set(key, (this.retireStats.reasons.get(key) ?? 0) + 1);
+        if (this.tenantId && !this.retireFailedNoted.has(symbol)) {   // once per ship: the first refusal says why it will not leave
+          this.retireFailedNoted.add(symbol);
+          void this.store?.recordFleetNote(this.tenantId, "retire_failed", symbol, `${symbol}: could not be retired: ${why}`, { minutesLeft: Math.round(minutesLeft) });
+        }
       }
+    }
+    if (this.tenantId && Date.now() - this.lastWindDownNoteAt >= FleetManager.WIND_DOWN_NOTE_MS) {
+      this.lastWindDownNoteAt = Date.now();
+      const remaining = this.getShipStatuses().filter((s) => s.role !== "trader").length;
+      void this.store?.recordFleetNote(this.tenantId, "wind_down_summary", undefined, windDownSummary({ ...this.retireStats, queued: this.retireQueue.size, remaining, flying: this.scrapTargets.size, minutesLeft }),
+        { queued: this.retireQueue.size, remaining, flying: this.scrapTargets.size, dispatched: this.retireStats.dispatched, failed: this.retireStats.failed, minutesLeft: Math.round(minutesLeft) });
     }
   }
 

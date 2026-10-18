@@ -3843,6 +3843,11 @@ export class Store {
     return week ? withTenantUniverse(this.pool, tenantId, week, capture) : withTenant(this.pool, tenantId, capture);
   }
 
+  /** One free-form line on the fleet timeline (fleet_events, which survives the weekly reset). Best-effort: never throws. */
+  async recordFleetNote(tenantId: string, kind: string, shipSymbol: string | undefined, detail: string, meta?: Record<string, unknown>): Promise<void> {
+    try { await withTenant(this.pool, tenantId, (c) => this.logFleetEvent(c, tenantId, kind, shipSymbol, detail, meta)); } catch { /* history only */ }
+  }
+
   /** One cash/fleet sample for the weekly curve (migration 037). Best-effort. */
   async recordRunTimeline(
     tenantId: string,

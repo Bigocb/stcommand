@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { SCRAP_DEADLINE_MIN, WindDownScrapper, shouldRetire, shipsToRetire } from "../src/engine/windDownScrap.js";
@@ -166,4 +166,15 @@ describe("fleet.ts wiring", () => {
     assert.ok(body, "retireNonTraders not found");
     assert.match(body[0], /await this\.sellShip\(/, "must reuse sellShip(), not fly a ship to a yard itself");
   });
+});
+
+import { retireReasonKey, windDownSummary } from "../src/engine/windDownScrap.js";
+test("wind-down record: the same refusal on different ships and systems is one reason, and the summary says where things stand", () => {
+  const a = retireReasonKey("no known shipyard in X1-AB12 or one gate-hop away (14 waypoint(s) known there, none carry a SHIPYARD trait)");
+  const b = retireReasonKey("no known shipyard in X1-QD90 or one gate-hop away (31 waypoint(s) known there, none carry a SHIPYARD trait)");
+  assert.equal(a, b); assert.match(a, /^no known shipyard in <place> or one gate-hop away \(# waypoint/);
+  const line = windDownSummary({ dispatched: 26, failed: 140, reasons: new Map([[a, 120], ["ship S is in transit", 20]]), queued: 150, remaining: 192, flying: 4, minutesLeft: 61.4 });
+  assert.match(line, /61 min to reset: 192 non-trader hulls left, 150 queued, 4 flying to a yard, 26 sent, 140 refused/);
+  assert.match(line, /120x no known shipyard/);
+  assert.match(windDownSummary({ dispatched: 0, failed: 0, reasons: new Map(), queued: 0, remaining: 0, flying: 0, minutesLeft: -3 }), /0 min to reset.*top reasons: none/);
 });

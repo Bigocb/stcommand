@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-18 — The reset wind-down now keeps its own record
+
+On 2026-10-18 the wind-down opened on time (11:00 UTC) but scrapped only 26 of 239 ships (215 hulls were left at the reset), and nothing survived to say why: its log lines are in memory and the
+reset restarts the process. Now, while the window is open, `retireNonTraders` writes to `fleet_events` (which survives the reset; read with the ops timeline and `resetDate`):
+`retire_dispatched` for each ship it sends to a yard, `retire_failed` once per ship with the refusal (usually "no known shipyard in <system> or one gate-hop away"), and a
+`wind_down_summary` every 10 minutes (hulls left, queued, flying to a yard, sent, refused, top reasons: `windDownSummary` / `retireReasonKey` in `windDownScrap.ts`, tests in
+`tests/windDownScrap.test.ts`). No behaviour change to what gets retired: the point is that next week's reset says why. Suspects, not yet shown: keepers (probes) sit in systems where
+no yard is known or reachable, or they are sent but never leave their station (all 26 scraps were ships already at a yard waypoint).
+
 ## 2026-10-18 — The timeline calls a scrap a scrap
 
 Scrapping a ship writes a SHIP ledger row with a positive total (the credits received), the same shape as a purchase, and the timeline turned every such row into
