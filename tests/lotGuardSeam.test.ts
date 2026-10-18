@@ -44,3 +44,46 @@ describe("selling in lots: the next lot is judged by the market's price now", ()
     assert.deepEqual(sold, [18]);
   });
 });
+
+describe("a lot held below its floor", () => {
+  function held(live: number) {
+    const ship = { symbol: "S-1", nav: { status: "DOCKED", waypointSymbol: "X1-Q-A1", systemSymbol: "X1-Q" }, cargo: { capacity: 80, units: 8, inventory: [{ symbol: "VIRAL_AGENTS", units: 8 }] }, fuel: { current: 100, capacity: 100 } } as unknown as Ship;
+    let reads = 0, sold = 0; const asked: string[] = []; let answer: boolean | undefined;
+    const t = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship,
+        getMarket: async () => { reads++; return { tradeGoods: [{ symbol: "VIRAL_AGENTS", purchasePrice: 99_999, sellPrice: live, tradeVolume: 18 }] }; },
+        sellCargo: async (_s: string, _g: string, lot: number) => { sold += lot; return { cargo: { capacity: 80, units: 0, inventory: [] }, transaction: { pricePerUnit: live, totalPrice: live * lot } }; } } as any,
+      assignedRoute: () => undefined, getCredits: () => 1_000_000, getMarketSnapshots: async () => [],
+      requestApproval: async (kind: string) => { asked.push(kind); return answer; },
+    });
+    t.withWorld([{ symbol: "X1-Q-A1", x: 0, y: 0 }]);
+    (t as any).ensureDocked = async () => {};
+    (t as any).redirectBelowFloor = async () => false;
+    (t as any).heldCost.set("VIRAL_AGENTS", 31_127);
+    (t as any).heldRoute.set("VIRAL_AGENTS", { good: "VIRAL_AGENTS", buyAt: "X1-Q-B1", sellAt: "X1-Q-A1", buyPrice: 31_127, sellPrice: 41_081, lotSize: 18 });
+    return { t, reads: () => reads, sold: () => sold, asked, answer: (a: boolean | undefined) => { answer = a; } };
+  }
+
+  it("is not re-read every tick: the market is read once a minute while it is held", async () => {
+    const h = held(11_975);
+    await (h.t as any).deliverHeldCargo(); await (h.t as any).deliverHeldCargo(); await (h.t as any).deliverHeldCargo();
+    assert.equal(h.reads(), 1, "three ticks, one market read");
+    assert.equal(h.sold(), 0);
+    (h.t as any).floorRecheckAt.set("VIRAL_AGENTS", 0);   // a minute later
+    await (h.t as any).deliverHeldCargo();
+    assert.equal(h.reads(), 2);
+  });
+
+  it("asks the operator after five minutes, sells only when approved, and keeps holding on a denial", async () => {
+    const h = held(11_975);
+    await (h.t as any).deliverHeldCargo();
+    assert.deepEqual(h.asked, [], "not before five minutes");
+    (h.t as any).heldBelowFloorSince.set("VIRAL_AGENTS", Date.now() - 6 * 60_000); (h.t as any).floorRecheckAt.set("VIRAL_AGENTS", 0);
+    h.answer(undefined); await (h.t as any).deliverHeldCargo();
+    assert.deepEqual(h.asked, ["sellBelowFloor:S-1:VIRAL_AGENTS"]); assert.equal(h.sold(), 0, "still waiting");
+    (h.t as any).floorRecheckAt.set("VIRAL_AGENTS", 0); h.answer(false); await (h.t as any).deliverHeldCargo();
+    assert.equal(h.sold(), 0, "denied: held");
+    (h.t as any).floorRecheckAt.set("VIRAL_AGENTS", 0); h.answer(true); await (h.t as any).deliverHeldCargo();
+    assert.equal(h.sold(), 8, "approved: sold");
+  });
+});

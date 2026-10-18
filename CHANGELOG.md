@@ -22,6 +22,15 @@ would fetch less than the floor; if the market cannot be read it assumes the las
 `tests/lotGuardSeam.test.ts` (fails on the old code). Not changed: the 15% `maxLossPct` allowance itself (lot one at 27,294c was within it, a 12% loss), and
 route choice: the plan promised 41,081c at the sink and the market paid 27k at arrival.
 
+## 2026-10-18 — A lot held below its loss floor now asks the operator, and stops hammering the market
+
+Found while looking at the VIRAL_AGENTS loss above: `TraderOptions.requestApproval` and `floorSaleApproved()` were written so that a lot held below its floor for five
+minutes raises a `sellBelowFloor:<ship>:<good>` approval (the 2026-10-06 THEO-30 incident, 50 minutes with nothing surfacing the decision), but `fleet.ts` never
+passed `requestApproval`, so no trader could ever ask. THEOREM-64 held 8u at 11,975c against a cost of 31,127c for 20 minutes and nothing showed in Approvals.
+`traderOptions()` now passes `(kind, o) => this.approvals.request(kind, o)` (`tests/floorApprovalWiring.test.ts`). Also: the hold line and the market read ran on every
+tick (9 to 34 a minute, 152 lines in 20 minutes); now the hold is logged and the market read once a minute, sooner when the price moves 3% (`FLOOR_HOLD_RECHECK_MS`,
+seam tests in `tests/lotGuardSeam.test.ts`). An approved sale still sells at whatever the market pays, by the operator's choice.
+
 ## 2026-10-17 — Route cool-off after a disappointing trip, and siphon drones as a last-resort keeper hull
 
 Two things from "more losses in the last hour" and "no approval request in the queue".

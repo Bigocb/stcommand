@@ -228,6 +228,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** How often a halted agent re-checks whether the fleet has resumed. */
 /** How long a trader holds a lot below its loss floor before asking the operator for a decision. */
 const HOLD_BEFORE_FLOOR_APPROVAL_MS = 5 * 60_000;
+/** How long a lot held below its floor waits before the market is read (and the hold is logged) again. */
+const FLOOR_HOLD_RECHECK_MS = 60_000;
 
 /** A leftover lot worth at least this many credits is never jettisoned after a failed sale; it is held until a market takes it. */
 const JETTISON_MAX_VALUE = 1_000;
@@ -1186,6 +1188,9 @@ export class TraderAgent {
 
   /** Markets already tried for a lot held below its floor, so a redirect cannot bounce between two. Cleared on sale. */
   private floorRedirectTried = new Map<string, Set<string>>();
+  /** Held below the floor: when the market may be read again, and the last hold line said (so it is not repeated every tick). */
+  private floorRecheckAt = new Map<string, number>();
+  private floorHoldNoted = new Map<string, { at: number; live: number }>();
 
   /** Re-pins a held lot to another reachable market that clears the loss floor (floorRedirect.ts). True when it moved. */
   private async redirectBelowFloor(good: string, leg: DirectLeg & { lotSize: number }): Promise<boolean> {
@@ -1223,8 +1228,15 @@ export class TraderAgent {
    */
   private async floorSaleApproved(good: string, units: number, live: number, cost: number | undefined): Promise<boolean> {
     if (this.floorOverride.has(good)) { this.floorOverride.delete(good); this.heldBelowFloorSince.delete(good); return true; }
-    this.recordDoctrineFire?.("maxLossPct");
-    this.log(`holding ${units}u ${good}: live sell ${live}c is below loss floor (cost ${cost}c)`);
+    // Said once a minute (or when the price moves), and the market is not read again for a minute: this used to run every tick,
+    // 9 to 34 log lines a minute and a market read each time for a lot that was simply being held (THEOREM-64, 8u VIRAL_AGENTS, 2026-10-18).
+    const noted = this.floorHoldNoted.get(good);
+    if (!noted || Date.now() - noted.at >= FLOOR_HOLD_RECHECK_MS || Math.abs(live - noted.live) > noted.live * 0.03) {
+      this.recordDoctrineFire?.("maxLossPct");
+      this.log(`holding ${units}u ${good}: live sell ${live}c is below loss floor (cost ${cost}c)`);
+      this.floorHoldNoted.set(good, { at: Date.now(), live });
+    }
+    this.floorRecheckAt.set(good, Date.now() + FLOOR_HOLD_RECHECK_MS);
     const since = this.heldBelowFloorSince.get(good) ?? Date.now();
     this.heldBelowFloorSince.set(good, since);
     if (!this.requestApproval || Date.now() - since < HOLD_BEFORE_FLOOR_APPROVAL_MS) return false;
@@ -1864,6 +1876,7 @@ export class TraderAgent {
     await this.ensureDocked();
     if (this.ship.nav.status !== "DOCKED") return undefined;
     try {
+      if (Date.now() < (this.floorRecheckAt.get(item.symbol) ?? 0)) return true;   // held below the floor a moment ago: not read again yet
       const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
       if (live !== undefined && !this.isManualLegFor(item.symbol) && !(await this.isDustLot(item.symbol, item.units, live)) && (await this.exceedsLossFloor(item.symbol, live))) {
         if (!(await this.floorSaleApproved(item.symbol, item.units, live, this.heldCost.get(item.symbol)))) return true;
@@ -2129,6 +2142,7 @@ export class TraderAgent {
         return true;
       }
 
+      if (Date.now() < (this.floorRecheckAt.get(item.symbol) ?? 0)) return true;   // held below the floor a moment ago: not read again yet
       await this.ensureDocked();
       const live = await this.liveSellPrice(leg.sellAt, item.symbol);
       if (live !== undefined && !this.isManualLegFor(item.symbol) && !(await this.isDustLot(item.symbol, item.units, live)) && (await this.exceedsLossFloor(item.symbol, live))) {

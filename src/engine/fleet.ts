@@ -1316,6 +1316,9 @@ export class FleetManager {
         this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
       atlas: this.galaxy,
       shouldRun: () => !this.paused,
+      // A lot held below its loss floor asks the operator after five minutes (trader.ts floorSaleApproved). Never wired until 2026-10-18, so the
+      // approval was never raised and a stuck lot looped silently (THEOREM-64, 8u VIRAL_AGENTS).
+      requestApproval: (kind, o) => this.approvals.request(kind, o),
       buysBlocked: () => this.windDownBlocksBuys(),
       // Prefer what this ship itself last paid; fall back to the fleet-wide
       // average for cargo it received by transfer rather than purchase.
