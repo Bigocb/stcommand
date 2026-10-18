@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { SCRAP_DEADLINE_MIN, WindDownScrapper, shouldRetire, shipsToRetire } from "../src/engine/windDownScrap.js";
 import type { ShipRole } from "../src/engine/shipRegistry.js";
 
@@ -124,5 +125,45 @@ describe("WindDownScrapper", () => {
     s.onShipActionDone(2, "THEO-2", "sell", { cargo: { units: 0 } });
     s.onShipActionDone(3, "THEO-1", "sell", { cargo: { units: 0 } });
     assert.deepEqual(s.take().sort(), ["THEO-1", "THEO-2"]);
+  });
+});
+
+/**
+ * The wiring, checked where it can fail silently.
+ *
+ * fleet.ts installs its observers through one conditional expression — the sweep board only when the
+ * sweep runs, the ship book always. A new observer added to only one branch is disabled the moment the
+ * other branch is taken, and nothing anywhere would say so: the only reader of WindDownScrapper's queue
+ * is retireNonTraders(), so a dropped observer looks exactly like a fleet with nothing to retire.
+ * tests/scrapWiring.test.ts guards the same class of mistake for scrapHere, for the same reason.
+ */
+describe("fleet.ts wiring", () => {
+  const src = readFileSync(new URL("../src/engine/fleet.ts", import.meta.url), "utf8");
+
+  it("passes the scrapper to combineShipObservers in every branch of the sweep conditional", () => {
+    const call = /this\.api\.setShipObserver\?\.\(([\s\S]*?)\);/.exec(src);
+    assert.ok(call, "setShipObserver call not found — did fleet.ts move it?");
+    // Split the ternary explicitly. Slicing only on "?" leaves BOTH branches in the tail, and a regex
+    // then happily matches the branch it was not aimed at — a version of this test passed against a
+    // deliberately-broken sweep-on branch until it was written this way.
+    const body = call[1]!;
+    const q = body.indexOf("?");
+    const colon = body.indexOf(":", q);
+    assert.ok(q > -1 && colon > q, "expected a ternary in the setShipObserver argument");
+    const sweepOn = body.slice(q + 1, colon);
+    const sweepOff = body.slice(colon + 1);
+    assert.match(sweepOn, /combineShipObservers\([^)]*windDownScrapper/, "sweep-on branch is missing the scrapper");
+    assert.match(sweepOff, /combineShipObservers\([^)]*windDownScrapper/, "sweep-off branch is missing the scrapper");
+  });
+
+  it("drains the scrapper from the tick, not from a request path", () => {
+    assert.match(src, /await this\.timed\("retireNonTraders", \(\) => this\.retireNonTraders\(\)\)/, "retireNonTraders is not called from the tick");
+    assert.match(src, /this\.windDownScrapper\.take\(\)/, "nothing drains the scrapper's queue");
+  });
+
+  it("retires through sellShip(), the same path the operator's Sell button uses", () => {
+    const body = /private async retireNonTraders\(\)[\s\S]*?\n  \}/.exec(src);
+    assert.ok(body, "retireNonTraders not found");
+    assert.match(body[0], /await this\.sellShip\(/, "must reuse sellShip(), not fly a ship to a yard itself");
   });
 });
