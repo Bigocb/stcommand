@@ -117,6 +117,7 @@ export const DECLINE_MS = 15 * 60_000;
 export const MAX_LOTS_PER_TRIP = 3;
 
 import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
+import { ROUNDS_WINDOW_MIN, roundsReason } from "./routeRounds.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
@@ -393,11 +394,14 @@ export class RouteDispatcher {
     while (this.closedTrips.length && (this.closedTrips.length > 200 || this.closedTrips[0]!.at < now - 6 * 3_600_000)) this.closedTrips.shift();
   }
 
-  /** Why this exact route is resting after a disappointing trip, or undefined. `minutes` 0 = off. */
+  /** Why this exact route is resting after a disappointing trip or too many trips on it, or undefined. `minutes` 0 = off
+   *  for the cool-off; the round limit is read from `roundsMax`, so the two clauses switch on independently. */
   routeCoolOff(good: string, buyAt: string, sellAt: string, minutes = this.coolOffMin): string | undefined {
-    return coolOffReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { ...DEFAULT_HEAT_POLICY, minutes });
+    return coolOffReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { ...DEFAULT_HEAT_POLICY, minutes }) ??
+      roundsReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { maxRounds: this.roundsMax, windowMin: ROUNDS_WINDOW_MIN });
   }
   private coolOffMin = 0;
+  private roundsMax = 0;
 
   /** Units sold into this (good, sellAt) market within the recent window.
    *  Prunes anything older as a side effect, so a market's fatigue fades
@@ -830,7 +834,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -858,7 +862,10 @@ export class RouteDispatcher {
     // `routes` directly, not `this.routes` — this.routes only backs
     // claim()'s own direct reads.
     this.coolOffMin = Math.max(0, tuning?.coolOffMin ?? 0);
-    if (this.coolOffMin > 0) {
+    this.roundsMax = Math.max(0, tuning?.roundsMax ?? 0);
+    // Either clause rests a route, so either one being on needs this pass to run; with both at 0 it is skipped exactly as
+    // before, and coolOffReason() returns undefined at 0 minutes.
+    if (this.coolOffMin > 0 || this.roundsMax > 0) {
       const open = routes.filter((r) => !this.routeCoolOff(r.good, r.buyAt, r.sellAt));
       if (open.length !== routes.length) {
         const rested = routes.filter((r) => !open.includes(r)).map((r) => `${r.good} ${r.buyAt}>${r.sellAt} (${this.routeCoolOff(r.good, r.buyAt, r.sellAt)})`);
