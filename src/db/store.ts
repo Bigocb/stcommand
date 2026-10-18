@@ -1,3 +1,4 @@
+import { shipLedgerEvent } from "../engine/shipLedgerEvent.js";
 import type pg from "pg";
 import { withTenant, withTenantUniverse, withTenantAllUniverses, tenantUniverse, withPool } from "./pool.js";
 import { isUniverseKey, universeKey } from "../engine/universe.js";
@@ -861,15 +862,9 @@ export class Store {
           entry.route ?? null,
         ],
       );
-      // A purchase is a positive SHIP row; a repair is the same type with a negative total (fleet.ts repairShip), and
-      // must not show on the timeline as a purchase.
-      if (entry.type === "SHIP" && entry.total > 0) {
-        await this.logFleetEvent(
-          c, tenantId, "ship_purchased", entry.shipSymbol,
-          `bought ${entry.shipSymbol} (${entry.tradeSymbol ?? "?"}) at ${entry.waypointSymbol} for ${Math.round(entry.total)}c`,
-          { shipType: entry.tradeSymbol ?? null, yard: entry.waypointSymbol, price: Math.round(entry.total) },
-        );
-      }
+      // A purchase and a scrap are both positive SHIP rows (the credits paid, the credits received); a repair is the same type with a negative total and is no event.
+      const ev = shipLedgerEvent(entry);
+      if (ev) await this.logFleetEvent(c, tenantId, ev.kind, entry.shipSymbol, ev.detail, ev.meta);
     });
   }
 

@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-18 — The timeline calls a scrap a scrap
+
+Scrapping a ship writes a SHIP ledger row with a positive total (the credits received), the same shape as a purchase, and the timeline turned every such row into
+a `ship_purchased` event: the reset wind-down that scrapped 26 ships on 2026-10-18 (11:03 to 12:59 UTC) read as "bought THEOREM-3E (SCRAP) ... for 16241c" 26 times.
+New scraps are now `ship_scrapped` events ("scrapped X at Y for Nc", `shipLedgerEvent` in `src/engine/shipLedgerEvent.ts`, `tests/shipLedgerEvent.test.ts`) and Admin's
+Timeline has a "Scrapped" filter. Rows already written keep the old wording (their trade symbol, SCRAP, still tells them apart).
+
 ## 2026-10-18 — Deck: Insights > Weeks (the weekly record, no longer admin-only)
 
 The record of each finished week (final cash, wallet change, matched trading net, ships, trades, and on click the roles, top ships and goods, spend and doctrine in force: the

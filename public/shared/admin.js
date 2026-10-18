@@ -127,6 +127,7 @@ const KIND_GROUPS = {
   "": "All",
   "role_change,mcp_role_change": "Roles",
   "ship_purchased,manual_buy,mcp_buy": "Purchases",
+  "ship_scrapped": "Scrapped",
   "approval_requested,approval_decided": "Approvals",
 };
 
