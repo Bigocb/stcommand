@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-18 — Deck: start a gate mission from the Missions panel
+
+The Deck's Industry > Missions panel only listed running missions, with a red Stop/Remove for each, and "No construction missions." when there were none: a mission could
+only be started through the MCP tool. It now ends with a "Start a gate construction mission" row: a list of the home system's known unfinished gates (new
+`GET /api/missions/gates`, from the galaxy data) or a typed waypoint, and a "Start mission" button (`POST /api/missions/start`, which already existed), with a
+confirm. Checked in a browser against a mock for the control and its gate list; not against a live server.
+
 ## 2026-10-18 — Judge each next lot of a sale by the market's price now
 
 THEOREM-64 lost about 523k on one VIRAL_AGENTS trip (X1-KQ90-C16D to X1-QD90-A1): bought 80u at 31,127c, then sold in lots of 18 into a thin market,

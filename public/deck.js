@@ -1879,13 +1879,50 @@ function renderOps() {
       `;
     }).join("");
   })();
+  // Starting a mission was only possible through the MCP tool: the panel listed running missions (and only a red Stop/Remove for them) and nothing else.
+  const startHtml = `
+    <div class="mission-start" style="padding:10px 14px;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--hair)">
+      <div class="ops-sub" style="padding:0">Start a gate construction mission. The crew then buys and delivers the gate's materials. Pick a known gate or type a waypoint.</div>
+      <div class="mk-toolbar" style="padding:0;align-items:flex-end">
+        <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">Gate
+          <select class="field-input ms-gate" aria-label="Known gate">${missionGateOptions()}</select></label>
+        <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">or waypoint
+          <input class="field-input ms-wp" type="text" placeholder="X1-AB12-I61" aria-label="Gate waypoint" /></label>
+        <button class="btn pri" data-mstart="1">Start mission</button>
+      </div>
+    </div>`;
   const missionsEl = $("ops-missions");
   // Don't rebuild the cards under someone who is typing into a pacing field (the programme data refreshes every 15 s).
-  if (missionsEl && !missionsEl.contains(document.activeElement)) missionsEl.innerHTML = missionsHtml;
+  if (missionsEl && !missionsEl.contains(document.activeElement)) missionsEl.innerHTML = missionsHtml + startHtml;
 
   renderAutomationFeed();
   renderNotes();
 }
+
+/* ── Start a mission (Ops → Missions) ── */
+var missionGates = { system: "", gates: [] };
+async function loadMissionGates() {
+  try { missionGates = await api("GET", "/api/missions/gates"); } catch { /* the typed waypoint still works */ }
+  if (!$("ops-missions")?.contains(document.activeElement)) renderOps();
+}
+function missionGateOptions() {
+  const open = (missionGates.gates ?? []).filter((g) => g.complete !== true && !g.hasMission);
+  if (!open.length) return '<option value="">no unfinished gate known' + (missionGates.system ? " in " + escapeHtml(missionGates.system) : "") + "</option>";
+  return open.map((g) => `<option value="${escapeAttr(g.gate)}">${escapeHtml(g.gate)}${g.complete === false ? " (under construction)" : " (state unknown)"}</option>`).join("");
+}
+setInterval(loadMissionGates, 60_000); loadMissionGates();
+$("ops-missions").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-mstart]");
+  if (!b) return;
+  const box = b.closest(".mission-start"), wp = (box.querySelector(".ms-wp").value.trim() || box.querySelector(".ms-gate").value).toUpperCase();
+  if (!wp) { alert("No gate to start a mission at: pick one or type a waypoint."); return; }
+  if (!confirm(`Start the construction mission at ${wp}? A crew will start buying and delivering its materials.`)) return;
+  b.disabled = true;
+  try { await api("POST", "/api/missions/start", { waypoint: wp }); await loadProgramme(); await loadMissionGates(); }
+  catch (err) { alert(err.message); }
+  b.disabled = false;
+  renderOps();
+});
 
 /* ── Mission pacing / pause / resume (Ops → Missions) ── */
 /** Next onlyMaterials list after flipping one material between buying and held: the set of outstanding materials

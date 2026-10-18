@@ -1288,6 +1288,19 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json({ missions: await w.fleet.getMissions() });
   });
 
+  /** The jump gates the galaxy data knows in the home system, for the Deck's "Start a gate mission" control (a mission is started by gate waypoint). */
+  router.get("/missions/gates", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const system = w.state.get().systemSymbol ?? "";
+    const missions = await w.fleet.getMissions();
+    const gates = system ? w.fleet.getGalaxy().gateStatusFor(system) : [];
+    res.json({
+      system,
+      gates: gates.map((g) => ({ gate: g.gate, complete: g.complete === true ? true : g.complete === false ? false : null, connections: g.connections.length, hasMission: missions.some((m) => m.targetWaypoint === g.gate && m.status !== "complete") })),
+    });
+  });
+
   router.post("/missions/start", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
