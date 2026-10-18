@@ -7,6 +7,25 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Opening automation: queued tasks and saved templates, run by the reset automation (raised 2026-10-18, operator).** Today the first hours of a
+  week are done by hand: the command ship tours until there are good routes, then trades to build cash; once it has sold its cargo, buy one contract
+  ship and one tour ship; then the gate feeds and mission pacing (`docs/reset-opening-playbook.md`). The operator wants the reset automation to run
+  that opening at the start of next week, and the same tool usable in the middle of a week. Shape agreed so far:
+  (1) a **task list** the operator can add to before the reset (like the plan list in the Artifacts game): each task has a trigger ("when the command
+  ship has sold its hold", "when cash passes N", "when a route over N a trip exists", "when FAB_MATS has a price") and an action (set a ship's role, buy
+  a named ship type at the cheapest yard, assign a ship to contract duty, start a feed, set mission pacing, set a doctrine value);
+  (2) **saved templates**: a named set of such tasks (for example "Standard opening") that can be picked and applied in one go, copied, and edited;
+  (3) it carries over the reset: the template chosen before the reset is applied by the reset recovery once the new agent is registered and the first
+  ships exist.
+  Design notes: build it as a pure module (`src/engine/openingTasks.ts`) with a policy object, like `chain.ts` and `pace.ts` (CLAUDE.md "Build new
+  logic as self-contained modules"): trigger and action are data, the evaluator takes the fleet facts and returns what is due plus a one-line reason, and
+  a caller applies it; ship ships behind a doctrine clause that is off, and an off clause must change nothing. Every spending action goes through the
+  existing approval gate unless the template marks it pre-approved with a cash cap. Re-checks and retries must be safe (CLAUDE.md "check the fleet
+  before acting": read state first, and never re-issue after an error until a read shows it did not happen), so a task carries a done marker keyed by
+  the universe (`<agent>@<reset date>`). Store tasks and templates in tables kept across the reset (like `doctrine`), not in the wiped game tables.
+  Open questions for the operator: how a template names "the right ship" (by type, hold size, or yard price ceiling); whether a task may be created by
+  the co-pilot as well as by hand; whether the first version should be a fixed checklist with on/off switches before the full trigger language.
+
 - [ ] **Thin-market sinks: size and gate a trade by the destination's depth (raised 2026-10-18, operator).** THEOREM-64 lost ~523k on VIRAL_AGENTS
   (X1-KQ90-C16D to X1-QD90-A1): bought 80u at 31,127c on a plan that priced the sink at 41,081c, then sold into a market that paid 27,294c for the first
   18 units and 20,428c for the next 18 (about a quarter off per lot), twice. The between-lot guard and the unwired below-floor approval are fixed
