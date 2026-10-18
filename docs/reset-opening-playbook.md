@@ -285,5 +285,5 @@ Result: 151,637,627 credits at the end (the previous week ended at 36.2M), match
   with the refund in view (scrap pays part of a hull's price; a probe costs about 23k).
 - **One route lost money:** VIRAL_AGENTS X1-KQ90-C16D to X1-QD90-A1 lost 1.96M over 4 trips against an estimate of +2.3M. The floor
   approval is now wired in (see the CHANGELOG, 2026-10-17/18); `maxLossPct` is 10.
-- **Check the opening before changing roles.** This week the command ship was switched from tour to trader at 15:34 UTC with 20 of 31
-  home-system markets never priced. Keep it on tour until the map is read.
+- **Operator's opening (2026-10-18):** the command ship tours only until there are good routes, then goes to `trader` to build cash for the
+  fleet; once it has sold its cargo, buy one ship for contracts and one for touring (the tour ship then maps the rest). Cash first, map second.

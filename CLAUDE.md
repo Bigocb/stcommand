@@ -16,8 +16,8 @@ The 2026-10-11 week (X1-CM13) ended with 151,637,627 credits, 215 ships and 20,4
 `docs/reset-opening-playbook.md` for what that week taught. The rules of that playbook stand: feed every input of the gate
 materials from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, never pause contracts (one at a time,
 120-230k each for manufactured goods), keep the right size ship on the right job (80-unit haulers on paying routes and
-contracts, 40-unit shuttles on feeds into 60-unit markets), keep the command ship as `tour` until every market in the home
-system has one price read, and let the mission buy only when the producer's activity is GROWING or STRONG and the recovery
+contracts, 40-unit shuttles on feeds into 60-unit markets), the opening is: the command ship tours until there are good routes, then trades to build cash; with the
+proceeds buy one ship for contracts and one for touring (operator, 2026-10-18); and let the mission buy only when the producer's activity is GROWING or STRONG and the recovery
 gate (`recoverPct`) allows. Update this section when the operator states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server
