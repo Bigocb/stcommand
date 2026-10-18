@@ -7,6 +7,19 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Thin-market sinks: size and gate a trade by the destination's depth (raised 2026-10-18, operator).** THEOREM-64 lost ~523k on VIRAL_AGENTS
+  (X1-KQ90-C16D to X1-QD90-A1): bought 80u at 31,127c on a plan that priced the sink at 41,081c, then sold into a market that paid 27,294c for the first
+  18 units and 20,428c for the next 18 (about a quarter off per lot), twice. The between-lot guard and the unwired below-floor approval are fixed
+  (CHANGELOG 2026-10-18); what is not is that the planner sends 80 to 225-unit holds of expensive goods into markets that cannot absorb them. VIRAL_AGENTS
+  cost roughly 3.3M over two days on two ships (THEOREM-BC 2026-10-17, 2.55M). Facts to start from: `ops_analysis` already measures impact per lot per market
+  (`medianImpactPerLot`; VIRAL_AGENTS@X1-QD90-A1 sell 0.25, never recovered; JEWELRY on the same sink earned 37% of its estimate), and the route model's
+  calibration factors are advisory only. Options: (1) cap a trip's units by the sink's measured per-lot impact so the expected average fill, not the top
+  quote, clears the margin; (2) skip a sink whose last measured impact per lot is over a limit and has not recovered; (3) size by capital at risk (a 2.5M
+  hold against a thin market is a 12% swing); (4) fewer lots (`maxLotsPerTrip`, now 6) for expensive goods. Build it as a pure module with a doctrine
+  clause that ships off, like `routeHeat.ts` (CLAUDE.md "Build new logic as self-contained modules"). Also worth fixing while there: `ops_analysis`
+  `routes.worst` omits a trip with units still held, so this loss was missing from it.
+  Related, done: loss floor `maxLossPct` set to 10% on 2026-10-18 (was 15%).
+
 - [ ] **Scout the neighbouring systems once the gate opens (raised 2026-10-13, operator).** Gate X1-CM13-I61 (needs 1,600 FAB_MATS +
   400 ADVANCED_CIRCUITRY) links to X1-FP91, X1-CK71, X1-CH68, X1-P74 and X1-GR36. First targets: **X1-FP91** (523 away; 92 waypoints,
   59 asteroids, an engineered asteroid, a gas giant, 2 asteroid bases: the closest copy of home) and **X1-CH68** (994 away; 70 waypoints,
