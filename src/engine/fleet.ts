@@ -1372,6 +1372,8 @@ export class FleetManager {
       maxLossPct: this.doctrine.value("maxLossPct", 100),
       marginFloor: this.doctrine.value("marginFloor", 0),
       maxLotsPerTrip: () => effectiveMaxLots(this.maxLotsPerTrip(), this.shipLotPolicies.get(shipSymbol)),
+      // Percent per lot; 0 when the clause is off, whatever its value says — the trader treats 0 as "guards off".
+      buyGuardImpactPct: () => (this.doctrine.isEnabledOr("buyGuardImpactPct", false) ? this.doctrine.value("buyGuardImpactPct", 0) : 0),
       lotSizeCap: () => this.shipLotPolicies.get(shipSymbol)?.lotSize,
       reach: () => this.shipReach.get(shipSymbol),
       recordDoctrineFire: (key) => this.doctrine.recordFire(key, shipSymbol),
