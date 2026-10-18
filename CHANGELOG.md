@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-18 — A refused lot is retried at the market's cap; a trader no longer loops on "limit of N units per transaction"
+
+"Per hour is down, nobody is selling." THEOREM-1, the fleet's top earner (1.67M of the day's 2.7M), logged `trader error: ... SHIP_PLATING has a limit of 8 units per transaction`
+every 11 seconds from at least 20:58 UTC (251 lines in the log buffer, and it was still going 70 minutes after its last sale at 20:36), holding 9u it could not sell. The market's cap
+is its live trade volume, which moves with trading (SHIP_PLATING at D44 was 6, then 8, 9, and back to 8), so the 9u lot planned from an earlier read was one unit over. The feeds and
+the miners already retried at the size the market names (`feed.ts`, `agent.ts sellCargoInLots`); the trader's two sell loops and its buy loop did not, so the error went up, the tick
+ended, and the same lot was tried again. `transactionLimit.ts` reads the cap out of the message; the trader's sell loops (the held-leg sale and the leftover sweep) and its buy loop now
+retry at that size, pin the smaller lot on the held route, and let any other error surface as before (`tests/transactionLimit.test.ts`). A refused buy bought nothing, so retrying it is
+safe. Also seen while looking, not changed: THEOREM-7 held 20u ADVANCED_CIRCUITRY below its loss floor for 30+ minutes (the floor approval was denied, correctly, and a ship holding cargo
+is not given a route, so it sat idle), and THEOREM-6 was on an operator hold.
+
 ## 2026-10-18 — Wind-down: keepers can find their yard, and traders are queued before the deadline
 
 Two defects that explain why the 2026-10-18 wind-down left 215 hulls (192 keepers, all 23 traders), found by reading the code against that week's saved timeline:

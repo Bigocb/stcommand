@@ -16,6 +16,7 @@ import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { nextLotDecision } from "./lotGuard.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
+import { lotAfterRefusal } from "./transactionLimit.js";
 import { routeOutsideReach, type ShipReach } from "./shipReach.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -1894,7 +1895,7 @@ export class TraderAgent {
       // and threw the whole purchase away with nothing recovered.
       // The ship's own lot cap applies to sales as well as buys (shipLotPolicy lotSize).
       const marketLot = this.priceTable.get(this.ship.nav.waypointSymbol)?.get(item.symbol)?.volume || item.units;
-      const lotSize = effectiveLotSize(marketLot, { lotSize: this.lotSizeCap() });
+      let lotSize = effectiveLotSize(marketLot, { lotSize: this.lotSizeCap() });
       let remaining = item.units;
       let totalReceived = 0;
       let soldAny = 0;
@@ -1904,7 +1905,19 @@ export class TraderAgent {
         const lot = firstLot ? this.firstSellLot(lotSize, remaining) : Math.min(lotSize, remaining);
         firstLot = false;
         this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
-        const sold = await this.api.sellCargo(this.symbol, item.symbol, lot);
+        let sold: Awaited<ReturnType<SpaceTradersAPI["sellCargo"]>>;
+        try {
+          sold = await this.api.sellCargo(this.symbol, item.symbol, lot);
+        } catch (err) {
+          // The market's cap moves with its trade volume, so a lot planned from an earlier read can be too big now. Retry at the
+          // size the market named instead of failing the whole sale every few seconds (THEOREM-1 sat 70 minutes on 9u SHIP_PLATING, 2026-10-18).
+          const cap = lotAfterRefusal(err, lot);
+          this.currentStep = IDLE_STEP;
+          if (cap === undefined) throw err;
+          this.log(`${item.symbol}: ${this.ship.nav.waypointSymbol} takes ${cap}u at a time, selling in lots of ${cap}`);
+          lotSize = cap;
+          continue;
+        }
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: sold.cargo };
         this.recordLedger?.({
@@ -2159,7 +2172,7 @@ export class TraderAgent {
       // chunks. lotSize falls back to the whole quantity for cargo pinned by
       // an older in-memory leg (pre-dating this field) rather than treating
       // a missing value as "sell nothing".
-      const lotSize = leg.lotSize > 0 ? leg.lotSize : item.units;
+      let lotSize = leg.lotSize > 0 ? leg.lotSize : item.units;
       let remaining = item.units;
       let totalReceived = 0;
       let soldAny = 0;
@@ -2170,7 +2183,21 @@ export class TraderAgent {
         firstLot = false;
         this.currentStep = { kind: "transacting", action: "sell", good: item.symbol };
         this.assertAt(leg.sellAt, `sell ${item.symbol}`);
-        const sold = await this.api.sellCargo(this.symbol, item.symbol, lot);
+        let sold: Awaited<ReturnType<SpaceTradersAPI["sellCargo"]>>;
+        try {
+          sold = await this.api.sellCargo(this.symbol, item.symbol, lot);
+        } catch (err) {
+          // The market's cap moves with its trade volume, so a lot planned from an earlier read can be too big now. Retry at the
+          // size the market named instead of failing the whole sale every few seconds (THEOREM-1 sat 70 minutes on 9u SHIP_PLATING, 2026-10-18).
+          const cap = lotAfterRefusal(err, lot);
+          this.currentStep = IDLE_STEP;
+          if (cap === undefined) throw err;
+          this.log(`${item.symbol}: ${leg.sellAt} takes ${cap}u at a time, selling in lots of ${cap}`);
+          lotSize = cap;
+          const held = this.heldRoute.get(item.symbol);
+          if (held) this.heldRoute.set(item.symbol, { ...held, lotSize: cap });
+          continue;
+        }
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: sold.cargo };
         this.recordLedger?.({
@@ -2357,13 +2384,25 @@ export class TraderAgent {
       let bought = 0;
       let totalPaid = 0;
       let lastPrice = buyPrice;
+      let lotCap = route.lotSize;
       while (bought < target) {
         const affordable = lastPrice > 0 ? Math.floor(liveCredits / lastPrice) : 0;
-        const lot = Math.max(0, Math.min(route.lotSize, target - bought, affordable));
+        const lot = Math.max(0, Math.min(lotCap, target - bought, affordable));
         if (lot <= 0) break;
         this.currentStep = { kind: "transacting", action: "buy", good: route.good };
         this.assertAt(route.buyAt, `buy ${route.good}`);
-        const res = await this.api.purchaseCargo(this.symbol, route.good, lot);
+        let res: Awaited<ReturnType<SpaceTradersAPI["purchaseCargo"]>>;
+        try {
+          res = await this.api.purchaseCargo(this.symbol, route.good, lot);
+        } catch (err) {
+          // Same as the sell side: the market's cap moves, so retry at the size it named. A refused buy bought nothing, so retrying is safe.
+          const cap = lotAfterRefusal(err, lot);
+          this.currentStep = IDLE_STEP;
+          if (cap === undefined) throw err;
+          this.log(`${route.good}: ${route.buyAt} sells ${cap}u at a time, buying in lots of ${cap}`);
+          lotCap = cap;
+          continue;
+        }
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo };
         bought += lot;
@@ -2397,8 +2436,8 @@ export class TraderAgent {
         // comment for the original incident this table was built to close.
         const avgCostSoFar = totalPaid / bought;
         this.heldCost.set(route.good, avgCostSoFar);
-        this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize });
-        await this.persistHeldRoute?.(route.good, { buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: route.lotSize }, avgCostSoFar);
+        this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: lotCap });
+        await this.persistHeldRoute?.(route.good, { buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: lotCap }, avgCostSoFar);
         // Stop topping off once the price has drifted (supply depleting lot
         // over lot) past what still clears the margin floor against this
         // route's sell price — the same guard the pre-loop stale-snapshot
