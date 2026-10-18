@@ -42,6 +42,24 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   `routes.worst` omits a trip with units still held, so this loss was missing from it.
   Related, done: loss floor `maxLossPct` set to 10% on 2026-10-18 (was 15%).
 
+- [ ] **Market impact book: a shared "recover to X%" rule for traders, applied automatically (raised 2026-10-18, operator).** Missions already have `recoverPct`
+  (`src/engine/mission.ts`: remember the ask just before the last lot, buy the next only once the ask is back within X% of it). Traders have no equivalent between
+  lots, only a static per-ship `lotSize`/`maxLots` (`shipLotPolicy.ts`), a route rest after a disappointing trip (`routeHeat.ts`) and the loss floor (`lotGuard.ts`).
+  Evidence, 2026-10-18 (THEOREM, X1-YM69, only our own trades appear in the market feed): the price impact per 20-unit lot grows as stock falls (ADVANCED_CIRCUITRY
+  at D44 +4.0%, +4.8%, +5.6%, +6.5%, +7.6%, +8.2%, +43% over 120 units; MEDICINE at G57 +5.5% to +9.6% a lot; selling MEDICINE at G58 -5%, -7%, -9% a lot), and there was
+  no recovery in the 17 to 29 minutes after our last lot. THEOREM-1's MEDICINE loop G57 to G58 made +52k, +13k, then bought round 3 at 3907 and 4283 against sell
+  prices of 3622 to 3860.
+  Design agreed so far: (1) **a trader must not wait for recovery** (a market needs about a tick, 30 minutes, so waiting idles the ship); when the ask is over the limit
+  it stops buying there and leaves with what it holds, or takes the next-best route; (2) a **shared baseline book** per market and good (pure module, e.g.
+  `src/engine/impactBook.ts`): the ask and bid before our first lot after the market was quiet, the units pushed since, when; every ship reads the same book so two
+  ships never treat a worn market as fresh; (3) one check before each lot: is the ask within X% of baseline; (4) the **dispatcher reads the same book** and skips a
+  cooling leg when it builds routes, which is what spreads purchases across waypoints without an operator choosing; (5) X comes from a doctrine clause that ships off
+  (a weight of 0 or the clause off must reproduce today's behaviour, with a test), later per-market from the analysis engine's measured `medianImpactPerLot` and recovery.
+  Build it as a self-contained module (CLAUDE.md "Build new logic as self-contained modules"). Open: how the book learns a market has recovered (a keeper's fresh read is
+  the obvious source); what X should default to (the observed per-lot impact is 4 to 10%, so 10 to 15% over baseline looks like a first guess to test); whether a part-full
+  hold should still go if the remaining margin is good. Related: "Thin-market sinks" above (size and gate a trade by destination depth); this item is the buy-side and
+  between-lot half, that one the sell side and trip size. Opening-task automation (below) is unrelated.
+
 - [ ] **Scout the neighbouring systems once the gate opens (raised 2026-10-13, operator).** Gate X1-CM13-I61 (needs 1,600 FAB_MATS +
   400 ADVANCED_CIRCUITRY) links to X1-FP91, X1-CK71, X1-CH68, X1-P74 and X1-GR36. First targets: **X1-FP91** (523 away; 92 waypoints,
   59 asteroids, an engineered asteroid, a gas giant, 2 asteroid bases: the closest copy of home) and **X1-CH68** (994 away; 70 waypoints,
