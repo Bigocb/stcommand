@@ -6,18 +6,19 @@ and `docs/TODO.md`/`CHANGELOG.md` for what's in flight or already shipped.
 
 ## This week's fleet and the opening playbook
 
-Current week (reset 2026-10-11, tenant THEOREM, served from traders.cloutier.work, gate system X1-CM13, gate X1-CM13-I61
-needing 1,600 FAB_MATS + 400 ADVANCED_CIRCUITRY, QUANTUM_STABILIZERS already fulfilled): the layout observed on
-the new server is 2 ships, THEOREM-1 (tour) and THEOREM-2 (keeper), both docked at X1-CM13, with no miners,
-traders or feeds yet. The gate had 0 of 1,600 FAB_MATS and 0 of 400 ADVANCED_CIRCUITRY on 2026-10-11, so no jump
-through X1-CM13 is possible until the materials are delivered. A tour ship can walk that system's markets while
-the gate is closed. A keeper probe purchase at X1-CM13-A2 (21,397c) waits for operator approval, and until that is
-decided the tour ship holds there. The lesson of the earlier week is in `docs/reset-opening-playbook.md`: feed every
-input of the gate materials from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, never pause
-contracts (one at a time, 120-230k each for manufactured goods), and keep the right size ship on the right job (80-unit haulers on
-paying routes and contracts, 40-unit shuttles on feeds into 60-unit markets; see the playbook), and let the mission buy only when the producer's
-activity is GROWING or STRONG and the recovery gate (`recoverPct`) allows. Update this section when the operator
-states a layout for a following week.
+Current week (reset 2026-10-18, tenant THEOREM, served from traders.cloutier.work, home system X1-YM69, gate X1-YM69-I63
+needing 1,600 FAB_MATS + 400 ADVANCED_CIRCUITRY, QUANTUM_STABILIZERS already fulfilled): the start was 175,000 credits and
+4 ships by 15:35 UTC (THEOREM-1 the command ship, THEOREM-2/-3/-4 keepers at H60, A1 and A2). The home system has 31 markets,
+only 11 priced at that time, and no FAB_MATS price had been seen anywhere yet (the gate mission was created but paused).
+ADVANCED_CIRCUITRY is made at D44 from ELECTRONICS and MICROPROCESSORS (A3, from SILICON_CRYSTALS at H61 and COPPER at H59).
+Yard prices on 2026-10-18: probe 23,097, surveyor 26,811, light shuttle 84,521, light hauler 324,811 (A2); mining drone 38,847 (H60).
+The 2026-10-11 week (X1-CM13) ended with 151,637,627 credits, 215 ships and 20,425 trades; see the CHANGELOG and
+`docs/reset-opening-playbook.md` for what that week taught. The rules of that playbook stand: feed every input of the gate
+materials from hour one with `stopAtSupply HIGH` feeds, buy shuttles before probes, never pause contracts (one at a time,
+120-230k each for manufactured goods), keep the right size ship on the right job (80-unit haulers on paying routes and
+contracts, 40-unit shuttles on feeds into 60-unit markets), keep the command ship as `tour` until every market in the home
+system has one price read, and let the mission buy only when the producer's activity is GROWING or STRONG and the recovery
+gate (`recoverPct`) allows. Update this section when the operator states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server
 

@@ -268,3 +268,22 @@ The rule:
    not a missing one.
 5. **Keep the tour ship for what keepers cannot reach.** One tour ship still earns its place charting new systems and
    revisiting markets that have no keeper; it is too slow to be the only source of fresh prices.
+
+## Review of the 2026-10-11 week (THEOREM, X1-CM13), written at the 2026-10-18 reset
+
+Result: 151,637,627 credits at the end (the previous week ended at 36.2M), matched trading net 214M over 20,425 trades, 5,965 jumps
+(36.1M), 215 ships at the end (190 keepers, 23 traders), peak 240. The fleet was earning about 2M credits an hour by the last day.
+
+- **Keepers paid for themselves.** Fleet profit per hour rose about 40% after each step of the keeper count (from about 0.72M to
+  1.01M an hour at 157 trips before, and 0.93M to 1.32M at 239 trips before), a correlation with large samples. Fresh prices are what
+  the dispatcher needs; the keepers-from-1M rule in this playbook stands.
+- **The wind-down did not work.** With a 120-minute window the fleet went from 239 to 215 ships, all of them keepers, and none of the
+  23 traders. Two causes, both fixed 2026-10-18 (see the CHANGELOG): the scrap path looked for a yard only in the galaxy table's
+  SHIPYARD traits (now it falls back to the stored `shipyard_inventory`), and traders were never queued unless they sold out (now they
+  are queued for the whole window, a loaded one waits for its sale or the 15-minute deadline). Buys were blocked for the whole window,
+  so credits grew about 0.85M in the last two hours against about 2M an hour before; the window has a real cost, so decide its length
+  with the refund in view (scrap pays part of a hull's price; a probe costs about 23k).
+- **One route lost money:** VIRAL_AGENTS X1-KQ90-C16D to X1-QD90-A1 lost 1.96M over 4 trips against an estimate of +2.3M. The floor
+  approval is now wired in (see the CHANGELOG, 2026-10-17/18); `maxLossPct` is 10.
+- **Check the opening before changing roles.** This week the command ship was switched from tour to trader at 15:34 UTC with 20 of 31
+  home-system markets never priced. Keep it on tour until the map is read.
