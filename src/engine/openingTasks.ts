@@ -1,0 +1,341 @@
+export const OPENING_ROLES = ["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"] as const;
+export type OpeningRole = (typeof OPENING_ROLES)[number];
+
+/** Copy of the ShipType union in src/core/schema.d.ts (line ~1825). */
+export const OPENING_SHIP_TYPES = [
+  "SHIP_PROBE", "SHIP_MINING_DRONE", "SHIP_SIPHON_DRONE", "SHIP_INTERCEPTOR", "SHIP_LIGHT_HAULER", "SHIP_COMMAND_FRIGATE", "SHIP_EXPLORER",
+  "SHIP_HEAVY_FREIGHTER", "SHIP_LIGHT_SHUTTLE", "SHIP_ORE_HOUND", "SHIP_REFINING_FREIGHTER", "SHIP_SURVEYOR", "SHIP_BULK_FREIGHTER",
+] as const;
+export type OpeningShipType = (typeof OPENING_SHIP_TYPES)[number];
+
+/** command = the one ship whose registration.role is \"COMMAND\"; step = the ship that step N (a buyShip step) bought; symbol = a literal ship symbol. */
+export type ShipRef = { by: "command" } | { by: "step"; step: number } | { by: "symbol"; symbol: string };
+
+export type Trigger =
+  | { kind: "always" }
+  | { kind: "cashAtLeast"; credits: number }                 // spendable credits (credits minus the cashFloor doctrine value) >= credits
+  | { kind: "routeProfitAtLeast"; profitPerTrip: number }    // best route the dispatcher currently offers has profitPerTrip >= this
+  | { kind: "shipHoldEmpty"; ship: ShipRef }                 // that ship's cargo.units === 0
+  | { kind: "taskDone"; taskKey: string }                    // a task with this key is done in the current universe
+  | { kind: "all"; of: Trigger[] };                          // every member is met; at most 6 members; members may not be \"all\"
+
+export type Step =
+  | { kind: "buyShip"; shipType: OpeningShipType; maxPrice: number; preApproved: boolean }
+  | { kind: "setRole"; ship: ShipRef; role: OpeningRole }
+  | { kind: "contractDuty"; ship: ShipRef; on: boolean }
+  | { kind: "setDoctrine"; key: string; value?: number; enabled?: boolean };
+
+export interface TaskSpec { key: string; name: string; trigger: Trigger; steps: Step[] }
+
+export type TaskStatus = "queued" | "active" | "done" | "failed" | "needs_review" | "cancelled";
+
+export interface TaskRun extends TaskSpec {
+  id: number;
+  status: TaskStatus;
+  stepIndex: number;                    // index of the next step to run; === steps.length when finished
+  stepPhase: "idle" | "started";        // \"started\" = a step was begun and its outcome was not recorded
+  refs: Record<string, string>;         // step index (as a string) -> ship symbol that a buyShip step bought
+  note: string | null;                  // last one-line reason, shown in the UI
+}
+
+export type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
+
+export function validateTaskSpec(x: unknown): Validation<TaskSpec> {
+  if (typeof x !== "object" || x === null) return { ok: false, error: "Task spec must be an object" };
+  const s = x as any;
+
+  if (typeof s.key !== "string" || !/^[a-z0-9_-]{1,24}$/.test(s.key)) {
+    return { ok: false, error: "Key must be 1-24 chars, lowercase alphanumeric, underscores or hyphens" };
+  }
+  if (typeof s.name !== "string" || s.name.trim().length === 0 || s.name.trim().length > 80) {
+    return { ok: false, error: "Name must be 1-80 characters" };
+  }
+  if (!Array.isArray(s.steps) || s.steps.length === 0 || s.steps.length > 8) {
+    return { ok: false, error: "Steps must be an array of 1 to 8 items" };
+  }
+
+  // Validate Trigger
+  const vTrig = validateTrigger(s.trigger);
+  if (!vTrig.ok) return { ok: false, error: `Trigger: ${vTrig.error}` };
+
+  // Validate Steps
+  const cleanedSteps: Step[] = [];
+  for (let i = 0; i < s.steps.length; i++) {
+    const step = s.steps[i];
+    if (typeof step !== "object" || step === null) return { ok: false, error: `Step ${i} must be an object` };
+    
+    if (step.kind === "buyShip") {
+      if (!OPENING_SHIP_TYPES.includes(step.shipType)) return { ok: false, error: `Step ${i}: invalid ship type` };
+      if (typeof step.maxPrice !== "number" || step.maxPrice < 1 || step.maxPrice > 5_000_000 || !Number.isFinite(step.maxPrice)) {
+        return { ok: false, error: `Step ${i}: maxPrice must be 1 to 5,000,000` };
+      }
+      if (typeof step.preApproved !== "boolean") return { ok: false, error: `Step ${i}: preApproved must be boolean` };
+    } else if (step.kind === "setRole") {
+      if (!validateShipRef(step.ship, i, s.steps)) return { ok: false, error: `Step ${i}: invalid ship ref` };
+      if (!OPENING_ROLES.includes(step.role)) return { ok: false, error: `Step ${i}: invalid role` };
+    } else if (step.kind === "contractDuty") {
+      if (!validateShipRef(step.ship, i, s.steps)) return { ok: false, error: `Step ${i}: invalid ship ref` };
+      if (typeof step.on !== "boolean") return { ok: false, error: `Step ${i}: on must be boolean` };
+    } else if (step.kind === "setDoctrine") {
+      if (typeof step.key !== "string" || step.key.length === 0 || step.key.length > 60) {
+        return { ok: false, error: `Step ${i}: doctrine key must be 1-60 chars` };
+      }
+      if (step.value === undefined && step.enabled === undefined) {
+        return { ok: false, error: `Step ${i}: doctrine must have value or enabled` };
+      }
+      if (step.value !== undefined && (!Number.isFinite(step.value))) {
+        return { ok: false, error: `Step ${i}: doctrine value must be finite` };
+      }
+      if (step.enabled !== undefined && typeof step.enabled !== "boolean") {
+        return { ok: false, error: `Step ${i}: doctrine enabled must be boolean` };
+      }
+    } else {
+      return { ok: false, error: `Step ${i}: unknown kind` };
+    }
+    cleanedSteps.push(step);
+  }
+
+  return { 
+    ok: true, 
+    value: { key: s.key, name: s.name.trim(), trigger: vTrig.value, steps: cleanedSteps } 
+  };
+}
+
+function validateTrigger(t: any): Validation<Trigger> {
+  if (typeof t !== "object" || t === null) return { ok: false, error: "Trigger must be an object" };
+  
+  if (t.kind === "always") return { ok: true, value: { kind: "always" } };
+  if (t.kind === "cashAtLeast") {
+    if (typeof t.credits !== "number" || t.credits < 0 || t.credits > 1_000_000_000 || !Number.isFinite(t.credits)) {
+      return { ok: false, error: "credits must be 0 to 1,000,000,000" };
+    }
+    return { ok: true, value: { kind: "cashAtLeast", credits: t.credits } };
+  }
+  if (t.kind === "routeProfitAtLeast") {
+    if (typeof t.profitPerTrip !== "number" || t.profitPerTrip < 1 || t.profitPerTrip > 100_000_000 || !Number.isFinite(t.profitPerTrip)) {
+      return { ok: false, error: "profitPerTrip must be 1 to 100,000,000" };
+    }
+    return { ok: true, value: { kind: "routeProfitAtLeast", profitPerTrip: t.profitPerTrip } };
+  }
+  if (t.kind === "shipHoldEmpty") {
+    if (!validateShipRef(t.ship, -1)) return { ok: false, error: "invalid ship ref (by:step not allowed in trigger)" };
+    return { ok: true, value: { kind: "shipHoldEmpty", ship: t.ship } };
+  }
+  if (t.kind === "taskDone") {
+    if (typeof t.taskKey !== "string" || t.taskKey.length === 0) return { ok: false, error: "taskKey required" };
+    return { ok: true, value: { kind: "taskDone", taskKey: t.taskKey } };
+  }
+  if (t.kind === "all") {
+    if (!Array.isArray(t.of) || t.of.length === 0 || t.of.length > 6) {
+      return { ok: false, error: "must have 1 to 6 members" };
+    }
+    const cleanedOf: Trigger[] = [];
+    for (const m of t.of) {
+      if (m?.kind === "all") return { ok: false, error: "nested 'all' triggers not allowed" };
+      const v = validateTrigger(m);
+      if (!v.ok) return { ok: false, error: v.error };
+      cleanedOf.push(v.value);
+    }
+    return { ok: true, value: { kind: "all", of: cleanedOf } };
+  }
+  return { ok: false, error: "unknown trigger kind" };
+}
+
+function validateShipRef(ref: any, currentStepIndex: number, steps: Step[] = []): boolean {
+  if (typeof ref !== "object" || ref === null) return false;
+  if (ref.by === "command") return true;
+  if (ref.by === "symbol") return typeof ref.symbol === "string" && /^[A-Z0-9-]{1,40}$/.test(ref.symbol);
+  if (ref.by === "step") {
+    if (currentStepIndex === -1) return false; // rule: by:step invalid in triggers
+    if (typeof ref.step !== "number" || ref.step < 0 || ref.step >= currentStepIndex) return false;
+    const targetStep = steps[ref.step];
+    if (!targetStep || targetStep.kind !== "buyShip") return false;
+    return true;
+  }
+  return false;
+}
+
+export function validateTemplateTasks(x: unknown): Validation<TaskSpec[]> {
+  if (!Array.isArray(x)) return { ok: false, error: "Tasks must be an array" };
+  if (x.length === 0 || x.length > 12) return { ok: false, error: "Template must have 1 to 12 tasks" };
+  
+  const cleaned: TaskSpec[] = [];
+  const keys = new Set<string>();
+  
+  for (const s of x) {
+    const v = validateTaskSpec(s);
+    if (!v.ok) return { ok: false, error: v.error };
+    if (keys.has(v.value.key)) return { ok: false, error: `Duplicate key: ${v.value.key}` };
+    keys.add(v.value.key);
+    cleaned.push(v.value);
+  }
+  
+  // taskDone check
+  for (const s of cleaned) {
+    const checkTaskDone = (t: Trigger): boolean => {
+      if (t.kind === "taskDone") return keys.has(t.taskKey);
+      if (t.kind === "all") return t.of.every(checkTaskDone);
+      return true;
+    };
+    if (!checkTaskDone(s.trigger)) return { ok: false, error: `Task ${s.key} references unknown taskKey` };
+  }
+  
+  return { ok: true, value: cleaned };
+}
+
+export interface OpeningFacts {
+  spendable: number;
+  bestRouteProfit: number | undefined;
+  ships: { symbol: string; isCommand: boolean; cargoUnits: number; waypoint: string; docked: boolean }[];
+  yards: { waypoint: string; shipType: string; price: number }[];
+  doneKeys: ReadonlySet<string>;
+}
+
+export function triggerMet(t: Trigger, f: OpeningFacts): { met: boolean; reason: string } {
+  switch (t.kind) {
+    case "always": return { met: true, reason: "always met" };
+    case "cashAtLeast": {
+      const met = f.spendable >= t.credits;
+      return { met, reason: `spendable ${f.spendable.toLocaleString()} ${met ? ">=" : "<"} ${t.credits.toLocaleString()}` };
+    }
+    case "routeProfitAtLeast": {
+      if (f.bestRouteProfit === undefined) return { met: false, reason: "no routes offered" };
+      const met = f.bestRouteProfit >= t.profitPerTrip;
+      return { met, reason: `best route profit ${f.bestRouteProfit.toLocaleString()} ${met ? ">=" : "<"} ${t.profitPerTrip.toLocaleString()}` };
+    }
+    case "shipHoldEmpty": {
+      const symbol = resolveShipRef(t.ship, {}, f);
+      if (!symbol) return { met: false, reason: "ship ref could not be resolved" };
+      const ship = f.ships.find(s => s.symbol === symbol);
+      if (!ship) return { met: false, reason: `${symbol} is not in the fleet` };
+      const met = ship.cargoUnits === 0;
+      return { met, reason: `${symbol} hold ${met ? "is empty" : "contains " + ship.cargoUnits + " units"}` };
+    }
+    case "taskDone": {
+      const met = f.doneKeys.has(t.taskKey);
+      return { met, reason: `task ${t.taskKey} ${met ? "is done" : "is not done"}` };
+    }
+    case "all": {
+      for (const m of t.of) {
+        const res = triggerMet(m, f);
+        if (!res.met) return res;
+      }
+      return { met: true, reason: "all triggers met" };
+    }
+  }
+  throw new Error("unknown trigger kind");
+}
+
+export type Decision =
+  | { kind: "wait"; reason: string }
+  | { kind: "run"; stepIndex: number; reason: string; buy?: { yard: string; price: number } }
+  | { kind: "done"; reason: string }
+  | { kind: "fail"; reason: string };
+
+export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "refs">, f: OpeningFacts): Decision {
+  if (task.stepIndex >= task.steps.length) return { kind: "done", reason: "all steps finished" };
+  
+  if (task.stepIndex === 0) {
+    const trig = triggerMet(task.trigger, f);
+    if (!trig.met) return { kind: "wait", reason: trig.reason };
+  }
+  
+  const step = task.steps[task.stepIndex];
+  
+  if (step.kind === "setRole" || step.kind === "contractDuty") {
+    const symbol = resolveShipRef(step.ship, task.refs, f);
+    if (!symbol) return { kind: "fail", reason: `could not resolve ship ref: ${JSON.stringify(step.ship)}` };
+    return { kind: "run", stepIndex: task.stepIndex, reason: `execute ${step.kind}` };
+  }
+  
+  if (step.kind === "setDoctrine") {
+    return { kind: "run", stepIndex: task.stepIndex, reason: `execute setDoctrine` };
+  }
+  
+  if (step.kind === "buyShip") {
+    const candidates = f.yards.filter(y => y.shipType === step.shipType && y.price <= step.maxPrice);
+    if (candidates.length === 0) {
+      return { kind: "wait", reason: `no yard in the home system stocks ${step.shipType} at or under ${step.maxPrice}` };
+    }
+    
+    const viable = candidates.filter(y => f.ships.some(s => s.docked && s.waypoint === y.waypoint));
+    if (viable.length === 0) {
+      return { kind: "wait", reason: `no ship of ours is docked at a yard that stocks ${step.shipType}` };
+    }
+    
+    const sorted = [...viable].sort((a, b) => a.price - b.price || a.waypoint.localeCompare(b.waypoint));
+    const best = sorted[0];
+    
+    if (f.spendable < best.price) {
+      return { kind: "wait", reason: `spendable ${f.spendable.toLocaleString()} < price ${best.price.toLocaleString()}` };
+    }
+    
+    return { 
+      kind: "run", 
+      stepIndex: task.stepIndex, 
+      reason: `buy ${step.shipType} at ${best.waypoint} for ${best.price}`, 
+      buy: { yard: best.waypoint, price: best.price } 
+    };
+  }
+  
+  throw new Error("unknown step kind");
+}
+
+function resolveShipRef(ref: ShipRef, refs: Record<string, string>, f: OpeningFacts): string | null {
+  if (ref.by === "command") {
+    const s = f.ships.find(s => s.isCommand);
+    return s ? s.symbol : null;
+  }
+  if (ref.by === "symbol") {
+    return f.ships.some(s => s.symbol === ref.symbol) ? ref.symbol : null;
+  }
+  if (ref.by === "step") {
+    const symbol = refs[String(ref.step)];
+    if (!symbol) return null;
+    return f.ships.some(s => s.symbol === symbol) ? symbol : null;
+  }
+  return null;
+}
+
+export const STANDARD_OPENING: TaskSpec[] = [
+  {
+    key: "cmd-trader",
+    name: "Command ship trades",
+    trigger: { kind: "routeProfitAtLeast", profitPerTrip: 30000 },
+    steps: [
+      { kind: "setRole", ship: { by: "command" }, role: "trader" }
+    ]
+  },
+  {
+    key: "contract-ship",
+    name: "Contract ship",
+    trigger: { 
+      kind: "all", 
+      of: [
+        { kind: "taskDone", taskKey: "cmd-trader" },
+        { kind: "shipHoldEmpty", ship: { by: "command" } },
+        { kind: "cashAtLeast", credits: 110000 }
+      ] 
+    },
+    steps: [
+      { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: 100000, preApproved: false },
+      { kind: "setRole", ship: { by: "step", step: 0 }, role: "trader" },
+      { kind: "contractDuty", ship: { by: "step", step: 0 }, on: true }
+    ]
+  },
+  {
+    key: "tour-ship",
+    name: "Tour ship",
+    trigger: { 
+      kind: "all", 
+      of: [
+        { kind: "taskDone", taskKey: "contract-ship" },
+        { kind: "cashAtLeast", credits: 110000 }
+      ] 
+    },
+    steps: [
+      { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: 100000, preApproved: false },
+      { kind: "setRole", ship: { by: "step", step: 0 }, role: "tour" }
+    ]
+  }
+];
