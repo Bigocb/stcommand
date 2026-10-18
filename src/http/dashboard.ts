@@ -1,4 +1,6 @@
 import { Router, type Request as ExpressRequest } from "express";
+import { Store } from "../db/store.js";
+import { isOperator } from "./operatorFlag.js";
 import { createOpsRouter } from "./ops.js";
 import { createAnalysisRouter, createSeasonRouter } from "./season.js";
 import { rateLimitMonitor, INSTANCE_ID } from "../core/rateLimitMonitor.js";
@@ -1286,6 +1288,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     res.json({ missions: await w.fleet.getMissions() });
+  });
+
+  /**
+   * The weekly scoreboard (run_results) for the Deck's Insights > Weeks: what each finished week ended with (cash, trading net, ships, trades, top ships and goods).
+   * Your own agent's weeks; an operator sees every agent's (the same rows as Admin > Scoreboard, which needs OPERATOR_AGENTS to list your agent).
+   */
+  router.get("/run-results", async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100), op = isOperator(req.agentSymbol), me = (req.agentSymbol ?? "").toUpperCase();
+      const rows = await new Store(pool).listRunResults(op ? limit : 100);
+      res.json({ operator: op, agent: req.agentSymbol ?? null, rows: (op ? rows : rows.filter((r) => String(r.agent_symbol).toUpperCase() === me)).slice(0, limit) });
+    } catch (err) {
+      console.error("[dashboard] run-results error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   /** The jump gates the galaxy data knows in the home system, for the Deck's "Start a gate mission" control (a mission is started by gate waypoint). */

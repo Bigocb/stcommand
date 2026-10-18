@@ -88,15 +88,9 @@ function scoreDetail(r) {
   </div>`;
 }
 
-async function renderScoreboard() {
-  const t = ++renderToken;
-  let d;
-  try { d = await api("GET", "/api/operator/run-results?limit=50"); } catch (e) { if (t === renderToken) body().innerHTML = err(e); return; }
-  if (t !== renderToken) return;
-  const rows = d.rows ?? [];
-  $("adm-count").textContent = `${rows.length} row${rows.length === 1 ? "" : "s"}`;
-  if (!rows.length) { body().innerHTML = '<div class="adm-empty">No weeks recorded yet. A row is written for each agent just before a reset.</div>'; return; }
-  body().innerHTML = `<div class="adm-scroll"><table class="adm-table"><thead><tr>
+/** The weekly scoreboard as a table (rows from run_results), shared by Admin > Scoreboard and the Deck's Insights > Weeks. */
+export function scoreboardHtml(rows) {
+  return `<div class="adm-scroll"><table class="adm-table"><thead><tr>
       <th>Week</th><th>Agent</th><th class="r">Final cash</th><th class="r">Wallet Δ</th><th class="r">Trading net</th><th class="r">Ships</th><th class="r">Trades</th><th class="r">Ops</th></tr></thead><tbody>
     ${rows.map((r, i) => `<tr class="adm-row" data-i="${i}">
       <td>${escapeHtml(r.reset_date)} ${r.capture_kind === "manual" ? badge("mid-week", "warn") : ""}</td>
@@ -107,10 +101,25 @@ async function renderScoreboard() {
       <td class="r">${n(r.ship_count)}</td><td class="r">${n(r.trades)}</td><td class="r">${n(r.operator_actions)}</td></tr>
       <tr class="adm-expand" data-i="${i}" hidden><td colspan="8">${scoreDetail(r)}</td></tr>`).join("")}
     </tbody></table></div>`;
-  body().querySelectorAll("tr.adm-row").forEach((tr) => tr.addEventListener("click", () => {
-    const ex = body().querySelector(`tr.adm-expand[data-i="${tr.dataset.i}"]`);
+}
+/** Make the rows of a table made by scoreboardHtml open their detail row when clicked. */
+export function bindScoreboard(el) {
+  el.querySelectorAll("tr.adm-row").forEach((tr) => tr.addEventListener("click", () => {
+    const ex = el.querySelector(`tr.adm-expand[data-i="${tr.dataset.i}"]`);
     ex.hidden = !ex.hidden;
   }));
+}
+
+async function renderScoreboard() {
+  const t = ++renderToken;
+  let d;
+  try { d = await api("GET", "/api/operator/run-results?limit=50"); } catch (e) { if (t === renderToken) body().innerHTML = err(e); return; }
+  if (t !== renderToken) return;
+  const rows = d.rows ?? [];
+  $("adm-count").textContent = `${rows.length} row${rows.length === 1 ? "" : "s"}`;
+  if (!rows.length) { body().innerHTML = '<div class="adm-empty">No weeks recorded yet. A row is written for each agent just before a reset.</div>'; return; }
+  body().innerHTML = scoreboardHtml(rows);
+  bindScoreboard(body());
 }
 
 /* ── Timeline ──────────────────────────── */

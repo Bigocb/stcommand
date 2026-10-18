@@ -24,6 +24,7 @@ import { startLive, liveConnected } from "/shared/live.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { mountSeason } from "/shared/season.js";
+import { mountWeeks } from "/shared/weeks.js";
 import { mountSystems } from "/shared/systems.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
@@ -77,6 +78,7 @@ $("auth-form").addEventListener("submit", async (e) => {
  */
 let metricsScreen = null;
 let seasonScreen = null;
+let weeksScreen = null;
 let systemsScreen = null;
 let miningScreen = null;
 function setView(name) {
@@ -88,6 +90,7 @@ function setView(name) {
   if (viewEl) viewEl.hidden = false;
   if (name !== "metrics") metricsScreen?.hide();
   if (name !== "season") seasonScreen?.hide();
+  if (name !== "weeks") weeksScreen?.hide();
   if (name !== "systems") systemsScreen?.hide();
   if (name !== "mining") miningScreen?.hide();
   if (name !== "admin") closeAdmin();
@@ -121,6 +124,10 @@ function setView(name) {
       netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined),
     });
     metricsScreen.show();
+  }
+  if (name === "weeks") {
+    weeksScreen ??= mountWeeks($("weeks-root"), { api });
+    weeksScreen.show();
   }
   if (name === "season") {
     seasonScreen ??= mountSeason($("season-root"), { api });
@@ -173,6 +180,7 @@ const NAV_GROUPS = [
   { key: "map", label: "Map", ic: "✦", tabs: [{ key: "map", label: "Map", view: "map" }] },
   { key: "insights", label: "Insights", ic: "∿", tabs: [
     { key: "metrics", label: "Metrics", view: "metrics" },
+    { key: "weeks", label: "Weeks", view: "weeks" },
     { key: "season", label: "Season", view: "season" },
     { key: "notes", label: "Notes", view: "ops", seg: ["ops-seg", "notes"], hide: ["ops-row2"] },
   ] },

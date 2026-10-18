@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-18 — Deck: Insights > Weeks (the weekly record, no longer admin-only)
+
+The record of each finished week (final cash, wallet change, matched trading net, ships, trades, and on click the roles, top ships and goods, spend and doctrine in force: the
+`run_results` rows written just before each reset) was only reachable through Settings > Admin > Scoreboard, which needs the agent to be in `OPERATOR_AGENTS`. Insights now has
+a **Weeks** tab (`public/shared/weeks.js`, `GET /api/run-results`): your own agent's weeks, or every agent's for an operator; the table is shared with Admin's Scoreboard
+(`scoreboardHtml` in `shared/admin.js`). Separate from the Season screen, which is the plan and its reports. Rendered in a browser against a mock; not against a live server.
+
 ## 2026-10-18 — Deck: start a gate mission from the Missions panel
 
 The Deck's Industry > Missions panel only listed running missions, with a red Stop/Remove for each, and "No construction missions." when there were none: a mission could
