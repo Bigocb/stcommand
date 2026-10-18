@@ -28,12 +28,11 @@ import type { ShipObserver } from "./shipSnapshots.js";
 export const SCRAP_DEADLINE_MIN = 15;
 
 /**
- * In the last stretch before the reset the traders are queued as well. A trader only ever entered the queue by selling its hold EMPTY inside the window, so a trader that never
- * sold out (it was holding below its loss floor, was mid-flight, or simply had cargo left) was never queued, and the deadline above, which exists for exactly such ships, never
- * reached it: on 2026-10-18 all 23 traders were still there at the reset. Five minutes ahead of the deadline, so a loaded trader is queued and held by shouldRetire() until its
- * own sale or the deadline, and an empty one goes at once.
+ * Traders are queued for the whole window, whatever its length (the resetWindDown doctrine value, 120 minutes on 2026-10-18). A trader only ever entered the queue by selling its hold
+ * EMPTY inside the window, so one that never sold out (holding below its loss floor, mid-flight, cargo left) was never queued and the deadline above, which exists for exactly such
+ * ships, never reached it: on 2026-10-18 all 23 traders were still there at the reset. Buys are blocked in the window, so an empty trader has nothing left to do and goes at once; a
+ * loaded one is held by shouldRetire() until its own sale or the deadline.
  */
-export const TRADER_SEED_MIN = SCRAP_DEADLINE_MIN + 5;
 
 /**
  * Where to scrap a ship from the yards the fleet has actually seen (shipyard_inventory), for when the galaxy's waypoint traits do not show one. 2026-10-18: keepers are bought at a yard
@@ -58,7 +57,7 @@ export function shipsToRetire(
   ships: readonly { symbol: string; role: string }[],
   alreadyQueued: ReadonlySet<string>,
   limit: number,
-  /** Traders too: set in the last TRADER_SEED_MIN minutes (see below). */
+  /** Traders too: the wind-down sets this for the whole window. */
   includeTraders = false,
 ): string[] {
   return ships

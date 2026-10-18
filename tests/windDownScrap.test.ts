@@ -179,7 +179,7 @@ test("wind-down record: the same refusal on different ships and systems is one r
   assert.match(windDownSummary({ dispatched: 0, failed: 0, reasons: new Map(), queued: 0, remaining: 0, flying: 0, minutesLeft: -3 }), /0 min to reset.*top reasons: none/);
 });
 
-import { storedYardFor, TRADER_SEED_MIN } from "../src/engine/windDownScrap.js";
+import { storedYardFor } from "../src/engine/windDownScrap.js";
 test("a yard the fleet has seen is a yard: keepers never leave their system, and the galaxy table's waypoint traits missed it", () => {
   const yards = [{ systemSymbol: "X1-AA", waypointSymbol: "X1-AA-A2" }, { systemSymbol: "X1-BB", waypointSymbol: "X1-BB-C9" }];
   assert.equal(storedYardFor("X1-AA", yards, []), "X1-AA-A2", "its own system first");
@@ -188,13 +188,12 @@ test("a yard the fleet has seen is a yard: keepers never leave their system, and
   assert.equal(storedYardFor("X1-AA", [], []), undefined);
   assert.equal(storedYardFor("X1-BB", yards, ["X1-AA"]), "X1-BB-C9", "own system beats a neighbour");
 });
-test("traders are queued in the last minutes: before, a trader that never sold out was never queued and the deadline never reached it (all 23 were left at the 2026-10-18 reset)", () => {
+test("traders are queued for the whole window: before, a trader that never sold out was never queued and the deadline never reached it (all 23 were left at the 2026-10-18 reset)", () => {
   const ships = [{ symbol: "K-1", role: "keeper" }, { symbol: "T-1", role: "trader" }, { symbol: "T-2", role: "trader" }];
   assert.deepEqual(shipsToRetire(ships, new Set(), 10), ["K-1"], "until then, as always");
   assert.deepEqual(shipsToRetire(ships, new Set(), 10, true), ["K-1", "T-1", "T-2"]);
   assert.deepEqual(shipsToRetire(ships, new Set(["T-1"]), 1, true), ["K-1"], "the limit and the queue still apply");
-  assert.ok(TRADER_SEED_MIN > SCRAP_DEADLINE_MIN, "a loaded trader is queued before the deadline, and held by shouldRetire() until its own sale or the deadline");
-  assert.equal(shouldRetire(40, TRADER_SEED_MIN - 1).retire, false); assert.equal(shouldRetire(0, TRADER_SEED_MIN - 1).retire, true); assert.equal(shouldRetire(40, SCRAP_DEADLINE_MIN).retire, true);
+  assert.equal(shouldRetire(40, 100).retire, false, "a loaded trader waits for its own sale"); assert.equal(shouldRetire(0, 100).retire, true, "an empty one goes at once"); assert.equal(shouldRetire(40, SCRAP_DEADLINE_MIN).retire, true);
 });
 
 describe("fleet.ts wiring: the two 2026-10-18 fixes", () => {
@@ -203,7 +202,7 @@ describe("fleet.ts wiring: the two 2026-10-18 fixes", () => {
     assert.match(src, /nearestShipyardForSale\(ship\.nav\.systemSymbol\) \?\? \(await this\.storedShipyardForSale\(ship\.nav\.systemSymbol\)\)/);
     assert.match(src, /storedYardFor\(systemSymbol, yards, adjacent\)/);
   });
-  it("the wind-down queues traders once the reset is TRADER_SEED_MIN away", () => {
-    assert.match(src, /shipsToRetire\(this\.getShipStatuses\(\), this\.retireQueue, FleetManager\.RETIRE_PER_TICK, Number\.isFinite\(untilReset\) && untilReset <= TRADER_SEED_MIN\)/);
+  it("the wind-down queues traders for the whole window", () => {
+    assert.match(src, /shipsToRetire\(this\.getShipStatuses\(\), this\.retireQueue, FleetManager\.RETIRE_PER_TICK, true\)/);
   });
 });

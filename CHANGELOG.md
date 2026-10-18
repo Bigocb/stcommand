@@ -17,7 +17,7 @@ Two defects that explain why the 2026-10-18 wind-down left 215 hulls (192 keeper
   A keeper is bought at a yard in its own system and never leaves it, so it always had a yard, but most were refused "no known shipyard". `sellShip()` now falls back to the stored
   `shipyard_inventory` (same system, then one completed gate away: `storedYardFor` in `windDownScrap.ts`). All 26 ships that were scrapped were already standing at a yard waypoint.
 - **Traders.** A trader only ever entered the retire queue by selling its hold empty inside the window, so a trader that never sold out (holding below its floor, in flight, cargo left) was never queued, and
-  the 15-minute deadline, which exists for exactly such ships, never reached it. Traders are now queued from `TRADER_SEED_MIN` (20) minutes before the reset: a loaded one waits for its own sale or the
+  the 15-minute deadline, which exists for exactly such ships, never reached it. Traders are now queued for the whole wind-down window (the `resetWindDown` doctrine value, 120 minutes this week): a loaded one waits for its own sale or the
   deadline (`shouldRetire`), an empty one goes at once.
 
 Tests: `tests/windDownScrap.test.ts`. Not verified live: the next reset is the test, and the wind-down record from the entry below will say whether every ship was sent and where any refusal came from.
