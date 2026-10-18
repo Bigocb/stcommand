@@ -23,8 +23,11 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   existing approval gate unless the template marks it pre-approved with a cash cap. Re-checks and retries must be safe (CLAUDE.md "check the fleet
   before acting": read state first, and never re-issue after an error until a read shows it did not happen), so a task carries a done marker keyed by
   the universe (`<agent>@<reset date>`). Store tasks and templates in tables kept across the reset (like `doctrine`), not in the wiped game tables.
-  Open questions for the operator: how a template names "the right ship" (by type, hold size, or yard price ceiling); whether a task may be created by
-  the co-pilot as well as by hand; whether the first version should be a fixed checklist with on/off switches before the full trigger language.
+  Decided by the operator (2026-10-18): (a) a template names the ship by **hull** (ship type, for example SHIP_LIGHT_SHUTTLE), bought at the cheapest
+  yard that has it; (b) a task is a **sequence of steps**, not one action, so "buy a shuttle, convert it to a trader, assign contract duty" is a single
+  task whose later steps act on the ship the first step bought (the task keeps that ship's symbol, and a step that fails stops the task and says why);
+  (c) the **co-pilot can add and edit tasks** as well as the operator, through the same approval and audit trail (`operator_actions`); (d) **no fixed
+  checklist first**: build the trigger-and-steps shape from the start.
 
 - [ ] **Thin-market sinks: size and gate a trade by the destination's depth (raised 2026-10-18, operator).** THEOREM-64 lost ~523k on VIRAL_AGENTS
   (X1-KQ90-C16D to X1-QD90-A1): bought 80u at 31,127c on a plan that priced the sink at 41,081c, then sold into a market that paid 27,294c for the first
