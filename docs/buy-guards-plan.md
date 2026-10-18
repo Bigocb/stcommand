@@ -252,4 +252,27 @@ Using measured per-market impact instead of the single percentage (the analysis 
 
 ## Discrepancies
 
-(Implementing model: write here anything in this plan that did not match the code. Leave empty if none.)
+Written 2026-10-18 while implementing packages 1–4 on branch `buy-guards` (cut from `origin/main`). Nothing below changes
+a guard's behaviour; each is a place where the plan's text and the code (or its own rules) did not line up.
+
+1. **§1.1 names a branch the operator excluded.** The plan says to work on `claude/stcommand-ui-parallel-versions-fd5p9q`;
+   the operator's instruction for this build was to branch `buy-guards` from `origin/main` and not touch that branch, so
+   that is what happened. No other branch/commit rule changed: one commit per package, no push, no merge, no PR.
+2. **§5 package 1 asks for a clause assertion in `tests/doctrine.test.ts`, which needs a database.** That file creates
+   tenants through `createPool`/`Store` and cannot run under the plan's own rule 2 (`node --test tests/<file>.test.ts`, no
+   database, never against the production schema). The assertion that both new keys exist with `enabled: false`, and that
+   `value(key, 0)`/`isEnabledOr(key, false)` read 0/false, is in `tests/routeRounds.test.ts` instead, which runs with no
+   store (`new Doctrine()`), so it is exercised rather than skipped. `tests/doctrine.test.ts` was not modified.
+3. **§5 package 2's between-lot seam case is arithmetically impossible at the numbers given.** It asks for ask 3894 then
+   4223, sink bid 4100, and "lot 1 passes the door check and the check after lot 1 fails". With `impactPerLot` 6% the door
+   check over two lots is `4100*0.97 - 3894*1.03 = -33.8c`, under the floor (77.9c), so the trip is refused before any lot:
+   the case as written tests guard 1, not guard 2. The seam test uses sink bid **4300**, where the door clears
+   (+160.2c) and the check after lot 1 fails (next ask 4127.6c against a sink paying 4042.0c after one lot held), so
+   exactly one 20u lot is bought. The rest of package 2 is at the plan's numbers.
+4. **§4.2's `roundsReason` uses `ROUNDS_WINDOW_MIN` for the window while `RoundsPolicy` also carries `windowMin`.** As
+   specified: the dispatcher passes `ROUNDS_WINDOW_MIN` as `windowMin`, and the function honours whatever it is given.
+5. **§5 package 3's `roundsMax` wiring note** — `doctrine.value("routeRoundsMax", 0)` already returns 0 when the clause is
+   off (disabled or unadopted), so `isEnabledOr` was dropped and a comment left at the call site, as the plan allows.
+6. **§3 says to add the clauses "next to `routeCoolOffMin` … `defaultAdopted: true`"** — done, and `enabled: false`, which
+   means an existing tenant reads `value(key, 0) = 0` until the operator adopts and enables them. That is the intended
+   "off" behaviour.

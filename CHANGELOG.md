@@ -9,6 +9,32 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-18 — Buy-side guards: the destination's live bid decides the buy, between lots too, and a route runs only so many rounds
+
+Every below-floor approval on 2026-10-18 came from the buy side: a ship bought into a price its own earlier lots had pushed up and then met a sink that no longer paid the
+plan's margin. THEOREM-5 ran MEDICINE E52 > G58 four times in six minutes, lots of 20 — asks 3409, 3626, 3894, 4223, 4628, 5126 against sink bids 4213, 4062, 4746,
+4569, 4549. Rounds one and two made about +24k each; round three bought at 4628 into 4549 and ended holding 20u at a 4877 basis against a 4327 bid, an 11k loss. MEDICINE at
+E52 has a measured median recovery of 124 minutes, so nothing was coming back before the next round. Both old checks judged the buy against the route's PLANNED sell price — a
+snapshot up to 30 minutes old — and the cool-off did not fire because rounds one and two beat their promise.
+
+Three guards, all shipped **off**, one clause each for the two buy-side ones:
+
+- **Sink check** (`src/engine/buyGuard.ts`, `sinkCheck`): before the first lot, read the destination's live bid and refuse the trip if the margin, after our own expected price
+  impact on both ends, is under the margin floor. A destination that cannot be read is not judged (today's behaviour). A refusal blocks the route for five minutes rather than one
+  tick, so two market reads and a log line are not repeated every few seconds while the market recovers.
+- **Between-lot buy stop** (`nextBuyLotDecision`): after each lot, buy the next only if the destination — after the lots already held are sold into it — still pays more than
+  the next ask by the floor. The next ask follows how far the last lot actually moved the price when there is a lot to compare, not the policy percentage. A part-full hold still
+  goes to the sink, which is the intended end state.
+- **Round limit** (`src/engine/routeRounds.ts`, read by `Dispatcher.routeCoolOff`): no more than N trips on the same good and buy-to-sell route in any 60 minutes, whichever
+  ship runs them, so a market recovers instead of being run again straight away. It works with the plain route cool-off off, and when both apply the cool-off is the reason named.
+
+Clauses (`doctrine.ts`, both `enabled: false`, category risk): `buyGuardImpactPct` = expected price impact per lot, **6%** to start (measured impact that day was 4 to 13% a lot),
+and `routeRoundsMax` = **2** trips. Both are read live, so turning either on takes effect on the next buy / within a minute. Off means today's behaviour exactly, with tests on
+both halves (`tests/buyGuard.test.ts`, `tests/buyGuardSeam.test.ts`, `tests/routeRounds.test.ts`, `tests/routeRoundsSeam.test.ts`). Pinned manual routes keep their existing
+negative-margin stop and skip the sink check — a manual route is the operator's explicit choice — but the between-lot stop still applies to them, since it only asks whether the
+next lot clears the floor at the destination. Not built (still in `docs/TODO.md`): the shared per-market impact book and the
+dispatcher skipping a cooling leg — the plan is `docs/buy-guards-plan.md`.
+
 ## 2026-10-18 — A refused lot is retried at the market's cap; a trader no longer loops on "limit of N units per transaction"
 
 "Per hour is down, nobody is selling." THEOREM-1, the fleet's top earner (1.67M of the day's 2.7M), logged `trader error: ... SHIP_PLATING has a limit of 8 units per transaction`

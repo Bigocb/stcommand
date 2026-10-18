@@ -14,6 +14,7 @@ import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShor
 import type { ShipMovement, ActionEventRecord } from "../db/store.js";
 import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { nextLotDecision } from "./lotGuard.js";
+import { nextBuyLotDecision, sinkCheck } from "./buyGuard.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
 import { lotAfterRefusal } from "./transactionLimit.js";
@@ -133,6 +134,9 @@ export interface TraderOptions {
   marginFloor?: number;
   /** Lots of a market's own trade volume one trip may buy (doctrine `maxLotsPerTrip`); read live at each plan. */
   maxLotsPerTrip?: () => number;
+  /** Expected price move per lot, in percent (doctrine `buyGuardImpactPct`); 0 or undefined = the buy guards are off.
+   *  Read live at each buy, so switching the clause off stops the market reads on the next trip. */
+  buyGuardImpactPct?: () => number;
   /** This ship's own cap on units per buy call (its shipLotPolicy lotSize); undefined = the market's tradeVolume alone. Read live at each plan. */
   lotSizeCap?: () => number | undefined;
   /** This ship's reach (shipReach.ts): "system" keeps it to routes inside its own system. Read live at each plan. */
@@ -229,6 +233,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** How often a halted agent re-checks whether the fleet has resumed. */
 /** How long a trader holds a lot below its loss floor before asking the operator for a decision. */
 const HOLD_BEFORE_FLOOR_APPROVAL_MS = 5 * 60_000;
+/** How long a route whose destination bid refused the trip stays blocked. Long enough for a market to stop moving and
+ *  for the ship to pick something else, short enough that a genuinely recovered route is not lost: deadRoutes is
+ *  cleared every tick, so without this the same two markets would be read and the same line logged every few seconds. */
+const SINK_BLOCK_MS = 5 * 60_000;
 /** How long a lot held below its floor waits before the market is read (and the hold is logged) again. */
 const FLOOR_HOLD_RECHECK_MS = 60_000;
 
@@ -263,6 +271,7 @@ export class TraderAgent {
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
   private readonly maxLotsPerTrip: () => number;
+  private readonly buyGuardImpactPct: () => number;
   private readonly lotSizeCap: () => number | undefined;
   private readonly reach: () => ShipReach | undefined;
   private readonly intelMaxAgeMin: () => number;
@@ -353,6 +362,9 @@ export class TraderAgent {
   private heldRoute = new Map<string, DirectLeg & { lotSize: number }>();
   /** Routes rejected by the live buy-price guard this tick (good@buyAt). */
   private deadRoutes = new Set<string>();
+  /** Routes whose destination bid refused the trip (good@buyAt -> when the block lapses). deadRoutes is cleared every
+   *  tick; this outlives it so a refused route is not re-read and re-logged every few seconds while the market recovers. */
+  private sinkBlockedUntil = new Map<string, number>();
   /** Legs whose far end the galaxy says cannot be reached at all — see the
    *  clear() in tick() for why these must outlive the per-tick sweep. */
   private unreachableRoutes = new Set<string>();
@@ -405,6 +417,7 @@ export class TraderAgent {
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
     this.maxLotsPerTrip = opts.maxLotsPerTrip ?? (() => MAX_LOTS_PER_TRIP);
+    this.buyGuardImpactPct = opts.buyGuardImpactPct ?? (() => 0);
     this.lotSizeCap = opts.lotSizeCap ?? (() => undefined);
     this.reach = opts.reach ?? (() => undefined);
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
@@ -2363,6 +2376,32 @@ export class TraderAgent {
           continue;
         }
       }
+      // The destination's own live bid is what actually decides whether this trip pays: the block above compares the live
+      // ASK with a possibly half-hour-old snapshot of the sell price and never reads the sink. Buy guard 1 reads it once
+      // here, with the expected impact of the lots this trip plans on both ends, and refuses the trip outright. The same
+      // read is passed to guard 2 between lots, so the destination is not read again for every lot.
+      const guardPct = this.buyGuardImpactPct();
+      let sinkNow: number | undefined;
+      if (guardPct > 0 && !this.isPinnedRoute(route)) {
+        const lots = Math.max(1, Math.ceil(Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units) / Math.max(1, route.lotSize)));
+        sinkNow = await this.liveSellPrice(route.sellAt, route.good);
+        const verdict = sinkCheck({
+          liveBuy: liveBuy ?? route.buyPrice,
+          liveSink: sinkNow,
+          lots,
+          marginFloor: effectiveMarginFloor(this.marginFloor, liveBuy ?? route.buyPrice),
+          policy: { impactPerLot: guardPct / 100 },
+        });
+        if (!verdict.ok) {
+          this.recordDoctrineFire?.("buyGuardImpactPct");
+          this.log(`skipping buy: ${verdict.reason}`);
+          // Held for a few minutes, not just this tick: the market needs time to recover, and re-reading it every tick
+          // would burn two market calls and one log line every few seconds (the floor-hold logging problem of 2026-10-18).
+          this.sinkBlockedUntil.set(`${route.good}@${route.buyAt}`, Date.now() + SINK_BLOCK_MS);
+          this.deadRoutes.add(`${route.good}@${route.buyAt}`);
+          continue;
+        }
+      }
       // Size the purchase against live credit, not the cached fleet balance the
       // route was planned under. The fleet refreshes credits only once per tick,
       // so after buying a new ship the cached figure is stale and this ship would
@@ -2384,6 +2423,8 @@ export class TraderAgent {
       let bought = 0;
       let totalPaid = 0;
       let lastPrice = buyPrice;
+      /** What the lot before the one just bought cost; undefined for the first lot of the trip (guard 2 only). */
+      let prevLotPrice: number | undefined;
       let lotCap = route.lotSize;
       while (bought < target) {
         const affordable = lastPrice > 0 ? Math.floor(liveCredits / lastPrice) : 0;
@@ -2405,9 +2446,13 @@ export class TraderAgent {
         }
         this.currentStep = IDLE_STEP;
         this.ship = { ...this.ship, cargo: res.cargo };
+        // The price of the lot before this one, for guard 2's next-ask estimate: `lastPrice` still holds it here, and for
+        // the first lot it holds the planned ask, which is not a price any lot was bought at.
+        const priceBeforeThisLot = bought > 0 ? lastPrice : undefined;
         bought += lot;
         totalPaid += res.transaction.totalPrice;
         lastPrice = res.transaction.pricePerUnit;
+        prevLotPrice = priceBeforeThisLot;
         liveCredits -= res.transaction.totalPrice;
         this.recordLedger?.({
           timestamp: new Date().toISOString(),
@@ -2443,6 +2488,26 @@ export class TraderAgent {
         // route's sell price — the same guard the pre-loop stale-snapshot
         // check already applied, now re-checked between lots too.
         if (route.sellPrice - lastPrice < effectiveMarginFloor(this.marginFloor, lastPrice)) break;
+        // Buy guard 2: the stop above judges the NEXT lot by the route's planned sell price, which ignores that the lots
+        // already in the hold are sold into that sink first and push its bid down. Judge the next lot by the destination
+        // bid guard 1 read, after those lots, and by an ask estimate that follows how far the last lot actually moved.
+        if (guardPct > 0 && bought > 0) {
+          const lotsBought = Math.ceil(bought / Math.max(1, lotCap));
+          const d = nextBuyLotDecision({
+            lotsBought,
+            lastPrice,
+            prevPrice: prevLotPrice,
+            liveSink: sinkNow,
+            fallbackSink: route.sellPrice,
+            marginFloor: effectiveMarginFloor(this.marginFloor, lastPrice),
+            policy: { impactPerLot: guardPct / 100 },
+          });
+          if (!d.ok) {
+            this.recordDoctrineFire?.("buyGuardImpactPct");
+            this.log(`stopping at ${bought}u ${route.good}: ${d.reason}`);
+            break;
+          }
+        }
       }
       if (bought <= 0) return true;
       this.notePlannedTrip(route, bought, totalPaid);
@@ -2864,6 +2929,13 @@ export class TraderAgent {
     // before deadRoutes is ever reached.
     this.deadRoutes.clear();
     for (const key of this.unreachableRoutes) this.deadRoutes.add(key);
+    // A buy-guard block is a market's recovery time, not one tick: keep it across the clear until it lapses, then forget
+    // it so the route is judged again on fresh prices.
+    const nowMs = Date.now();
+    for (const [key, until] of this.sinkBlockedUntil) {
+      if (until <= nowMs) this.sinkBlockedUntil.delete(key);
+      else this.deadRoutes.add(key);
+    }
 
     // Contract delivery outranks everything else, same as ShipAgent's own
     // tick() — a trader holding a contract-deliverable good (from a

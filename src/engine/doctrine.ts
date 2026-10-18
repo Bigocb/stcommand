@@ -192,6 +192,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "risk", defaultAdopted: true,
   },
   {
+    key: "buyGuardImpactPct",
+    name: "Buy guards: expected price impact per lot",
+    description: "Before a trader buys, it reads the destination's live price and refuses the trip if, after our own expected price impact on both ends (this percentage per lot of the market's trade volume), the margin would fall under the margin floor; and between lots it stops buying once the next lot would no longer clear the floor against the destination after the lots already held are sold. Measured impact on 2026-10-18 was 4 to 13% a lot. Off = today's behaviour. Takes effect on the next buy.",
+    value: 6, min: 1, max: 30, step: 1, unit: "%",
+    enabled: false, enforced: true, category: "risk", defaultAdopted: true,
+  },
+  {
+    key: "routeRoundsMax",
+    name: "Route round limit",
+    description: "No more than this many trips on the same good and buy-to-sell route in any 60 minutes, whichever ship runs them, so a market recovers from our own buying and selling instead of being run again straight away. Measured recovery after our buys is often over an hour. Off = today's behaviour. Takes effect within a minute.",
+    value: 2, min: 1, max: 10, step: 1, unit: " trips",
+    enabled: false, enforced: true, category: "risk", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",
