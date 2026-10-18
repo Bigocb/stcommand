@@ -42,6 +42,18 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   `routes.worst` omits a trip with units still held, so this loss was missing from it.
   Related, done: loss floor `maxLossPct` set to 10% on 2026-10-18 (was 15%).
 
+- [ ] **Park unsold cargo in a stash ship so the trader can keep trading (raised 2026-10-18, operator; a manual first version).** A ship holding cargo is given no route (trader.ts: a held
+  lot counts as busy), so one lot waiting for a price to recover idles a whole hull: THEOREM-7 held 20u ADVANCED_CIRCUITRY (cost 4,319.5, A4 bid 2,670, loss about 33k, floor 3,888) for
+  30+ minutes while it earned about 26k an hour on average. Idea: move the lot into another ship's hold and sell it from there when the price is right, or when a deadline passes. This is the old
+  warehouse idea (a big ship that holds product until the price is good), cut down to hours: unsold goods die at the weekly reset, so it only fits goods whose price comes back within a few
+  hours (A4's ADVANCED_CIRCUITRY bid recovered about 190 an hour, so about 6 hours to the floor), and the wind-down must sell whatever is parked.
+  What exists: `api.transferCargo` (`client.ts`, used by feeds), the parked warehouse code (`/api/warehouse/*`, store tables, dispatcher paths, retired doctrine rules, CHANGELOG 2026-10-05
+  "Warehousing parked"). What is missing: an MCP tool to move cargo between two ships at the same waypoint. Manual first version: (1) `stcommand_transfer_cargo` (both ships at one waypoint,
+  checks hold room, records an operator action); (2) the operator parks an idle ship with room (THEOREM-6 was on hold with an empty 40 hold) next to the lot's ship and moves it; (3) sell from the
+  stash ship with the existing trade and sell tools; (4) the cost basis has to travel with the cargo (`heldCost` is per ship and good in trader.ts), or the loss floor judges the stash sale against
+  nothing and the realized P&L is wrong. Later: a stash seller that watches the live bid and sells at the floor or a deadline, and the impact book deciding when a lot is worth parking at all.
+  Related: "Market impact book" below (it would avoid most of the lots that end up parked).
+
 - [ ] **Market impact book: a shared "recover to X%" rule for traders, applied automatically (raised 2026-10-18, operator).** Missions already have `recoverPct`
   (`src/engine/mission.ts`: remember the ask just before the last lot, buy the next only once the ask is back within X% of it). Traders have no equivalent between
   lots, only a static per-ship `lotSize`/`maxLots` (`shipLotPolicy.ts`), a route rest after a disappointing trip (`routeHeat.ts`) and the loss floor (`lotGuard.ts`).
