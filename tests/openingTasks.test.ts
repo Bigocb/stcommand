@@ -15,7 +15,7 @@ describe("Opening Tasks Validation", () => {
   it("accepts each task in STANDARD_OPENING", () => {
     for (const spec of STANDARD_OPENING) {
       const v = validateTaskSpec(spec);
-      assert.strictEqual(v.ok, true, `Standard task ${spec.key} failed validation: ${v.error}`);
+      assert.strictEqual(v.ok, true, `Standard task ${spec.key} failed validation: ${v.ok ? "" : (v as any).error}`);
     }
   });
 

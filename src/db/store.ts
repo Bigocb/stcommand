@@ -2,6 +2,7 @@ import { shipLedgerEvent } from "../engine/shipLedgerEvent.js";
 import type pg from "pg";
 import { withTenant, withTenantUniverse, withTenantAllUniverses, tenantUniverse, withPool } from "./pool.js";
 import { isUniverseKey, universeKey } from "../engine/universe.js";
+import type { TaskSpec, OpeningTemplateRow, OpeningTaskRow } from "../engine/openingTasks.js";
 import { getCurrentResetDate } from "../core/universe.js";
 
 /**
@@ -431,6 +432,63 @@ const STARTING_CREDITS = 175_000;
 
 export class Store {
   constructor(private readonly pool: pg.Pool) {}
+
+  async listOpeningTasks(tenantId: string): Promise<OpeningTaskRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(`SELECT * FROM opening_tasks ORDER BY id ASC`);
+      return r.rows;
+    });
+  }
+
+  async addOpeningTask(tenantId: string, task: Partial<OpeningTaskRow>): Promise<void> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const { key, name, trigger, steps, status = "queued", note = null } = task;
+      await c.query(
+        `INSERT INTO opening_tasks (key, name, trigger, steps, status, note)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (key) DO UPDATE SET 
+           name = EXCLUDED.name, 
+           trigger = EXCLUDED.trigger, 
+           steps = EXCLUDED.steps, 
+           status = EXCLUDED.status, 
+           note = EXCLUDED.note`,
+        [key, name, JSON.stringify(trigger), JSON.stringify(steps), status, note],
+      );
+    });
+  }
+
+  async updateOpeningTask(tenantId: string, id: number, updates: Partial<OpeningTaskRow>): Promise<void> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const fields = Object.entries(updates).filter(([k]) => k !== "id");
+      if (fields.length === 0) return;
+      const setClause = fields.map(([i], idx) => `${i} = $${idx + 2}`).join(", ");
+      const values = fields.map(([_, v]) => (typeof v === "object" ? JSON.stringify(v) : v));
+      await c.query(`UPDATE opening_tasks SET ${setClause} WHERE id = $1`, [id, ...values]);
+    });
+  }
+
+  async cancelOpeningTask(tenantId: string, id: number): Promise<void> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      await c.query(`UPDATE opening_tasks SET status = 'cancelled' WHERE id = $1`, [id]);
+    });
+  }
+
+  async saveOpeningTemplate(tenantId: string, name: string, tasks: TaskSpec[]): Promise<void> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      await c.query(
+        `INSERT INTO opening_templates (name, tasks) VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE SET tasks = EXCLUDED.tasks`,
+        [name, JSON.stringify(tasks)],
+      );
+    });
+  }
+
+  async listOpeningTemplates(tenantId: string): Promise<OpeningTemplateRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(`SELECT * FROM opening_templates ORDER BY name ASC`);
+      return r.rows;
+    });
+  }
 
   // ── Ops layer reads (src/ops/) ──────────────────────────────
 

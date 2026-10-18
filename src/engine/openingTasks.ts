@@ -8,16 +8,16 @@ export const OPENING_SHIP_TYPES = [
 ] as const;
 export type OpeningShipType = (typeof OPENING_SHIP_TYPES)[number];
 
-/** command = the one ship whose registration.role is \"COMMAND\"; step = the ship that step N (a buyShip step) bought; symbol = a literal ship symbol. */
+/** command = the one ship whose registration.role is "COMMAND"; step = the ship that step N (a buyShip step) bought; symbol = a literal ship symbol. */
 export type ShipRef = { by: "command" } | { by: "step"; step: number } | { by: "symbol"; symbol: string };
 
 export type Trigger =
   | { kind: "always" }
-  | { kind: "cashAtLeast"; credits: number }                 // spendable credits (credits minus the cashFloor doctrine value) >= credits
-  | { kind: "routeProfitAtLeast"; profitPerTrip: number }    // best route the dispatcher currently offers has profitPerTrip >= this
-  | { kind: "shipHoldEmpty"; ship: ShipRef }                 // that ship's cargo.units === 0
-  | { kind: "taskDone"; taskKey: string }                    // a task with this key is done in the current universe
-  | { kind: "all"; of: Trigger[] };                          // every member is met; at most 6 members; members may not be \"all\"
+  | { kind: "cashAtLeast"; credits: number }
+  | { kind: "routeProfitAtLeast"; profitPerTrip: number }
+  | { kind: "shipHoldEmpty"; ship: ShipRef }
+  | { kind: "taskDone"; taskKey: string }
+  | { kind: "all"; of: Trigger[] };
 
 export type Step =
   | { kind: "buyShip"; shipType: OpeningShipType; maxPrice: number; preApproved: boolean }
@@ -32,10 +32,20 @@ export type TaskStatus = "queued" | "active" | "done" | "failed" | "needs_review
 export interface TaskRun extends TaskSpec {
   id: number;
   status: TaskStatus;
-  stepIndex: number;                    // index of the next step to run; === steps.length when finished
-  stepPhase: "idle" | "started";        // \"started\" = a step was begun and its outcome was not recorded
-  refs: Record<string, string>;         // step index (as a string) -> ship symbol that a buyShip step bought
-  note: string | null;                  // last one-line reason, shown in the UI
+  stepIndex: number;
+  stepPhase: "idle" | "started";
+  refs: Record<string, string>;
+  note: string | null;
+}
+
+export interface OpeningTaskRow extends TaskRun {
+  id: number;
+}
+
+export interface OpeningTemplateRow {
+  id: number;
+  name: string;
+  tasks: TaskSpec[];
 }
 
 export type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -54,43 +64,41 @@ export function validateTaskSpec(x: unknown): Validation<TaskSpec> {
     return { ok: false, error: "Steps must be an array of 1 to 8 items" };
   }
 
-  // Validate Trigger
   const vTrig = validateTrigger(s.trigger);
-  if (!vTrig.ok) return { ok: false, error: `Trigger: ${vTrig.error}` };
+  if (!vTrig.ok) return { ok: false, error: "Trigger: " + vTrig.error };
 
-  // Validate Steps
   const cleanedSteps: Step[] = [];
   for (let i = 0; i < s.steps.length; i++) {
     const step = s.steps[i];
-    if (typeof step !== "object" || step === null) return { ok: false, error: `Step ${i} must be an object` };
+    if (typeof step !== "object" || step === null) return { ok: false, error: "Step " + i + " must be an object" };
     
     if (step.kind === "buyShip") {
-      if (!OPENING_SHIP_TYPES.includes(step.shipType)) return { ok: false, error: `Step ${i}: invalid ship type` };
-      if (typeof step.maxPrice !== "number" || step.maxPrice < 1 || step.maxPrice > 5_000_000 || !Number.isFinite(step.maxPrice)) {
-        return { ok: false, error: `Step ${i}: maxPrice must be 1 to 5,000,000` };
+      if (!OPENING_SHIP_TYPES.includes(step.shipType)) return { ok: false, error: "Step " + i + ": invalid ship type" };
+      if (typeof step.maxPrice !== "number" || step.maxPrice < 1 || step.maxPrice > 5000000 || !Number.isFinite(step.maxPrice)) {
+        return { ok: false, error: "Step " + i + ": maxPrice must be 1 to 5,000,000" };
       }
-      if (typeof step.preApproved !== "boolean") return { ok: false, error: `Step ${i}: preApproved must be boolean` };
+      if (typeof step.preApproved !== "boolean") return { ok: false, error: "Step " + i + ": preApproved must be boolean" };
     } else if (step.kind === "setRole") {
-      if (!validateShipRef(step.ship, i, s.steps)) return { ok: false, error: `Step ${i}: invalid ship ref` };
-      if (!OPENING_ROLES.includes(step.role)) return { ok: false, error: `Step ${i}: invalid role` };
+      if (!validateShipRef(step.ship, i, s.steps)) return { ok: false, error: "Step " + i + ": invalid ship ref" };
+      if (!OPENING_ROLES.includes(step.role)) return { ok: false, error: "Step " + i + ": invalid role" };
     } else if (step.kind === "contractDuty") {
-      if (!validateShipRef(step.ship, i, s.steps)) return { ok: false, error: `Step ${i}: invalid ship ref` };
-      if (typeof step.on !== "boolean") return { ok: false, error: `Step ${i}: on must be boolean` };
+      if (!validateShipRef(step.ship, i, s.steps)) return { ok: false, error: "Step " + i + ": invalid ship ref" };
+      if (typeof step.on !== "boolean") return { ok: false, error: "Step " + i + ": on must be boolean" };
     } else if (step.kind === "setDoctrine") {
       if (typeof step.key !== "string" || step.key.length === 0 || step.key.length > 60) {
-        return { ok: false, error: `Step ${i}: doctrine key must be 1-60 chars` };
+        return { ok: false, error: "Step " + i + ": doctrine key must be 1-60 chars" };
       }
       if (step.value === undefined && step.enabled === undefined) {
-        return { ok: false, error: `Step ${i}: doctrine must have value or enabled` };
+        return { ok: false, error: "Step " + i + ": doctrine must have value or enabled" };
       }
       if (step.value !== undefined && (!Number.isFinite(step.value))) {
-        return { ok: false, error: `Step ${i}: doctrine value must be finite` };
+        return { ok: false, error: "Step " + i + ": doctrine value must be finite" };
       }
       if (step.enabled !== undefined && typeof step.enabled !== "boolean") {
-        return { ok: false, error: `Step ${i}: doctrine enabled must be boolean` };
+        return { ok: false, error: "Step " + i + ": doctrine enabled must be boolean" };
       }
     } else {
-      return { ok: false, error: `Step ${i}: unknown kind` };
+      return { ok: false, error: "Step " + i + ": unknown kind" };
     }
     cleanedSteps.push(step);
   }
@@ -103,16 +111,15 @@ export function validateTaskSpec(x: unknown): Validation<TaskSpec> {
 
 function validateTrigger(t: any): Validation<Trigger> {
   if (typeof t !== "object" || t === null) return { ok: false, error: "Trigger must be an object" };
-  
   if (t.kind === "always") return { ok: true, value: { kind: "always" } };
   if (t.kind === "cashAtLeast") {
-    if (typeof t.credits !== "number" || t.credits < 0 || t.credits > 1_000_000_000 || !Number.isFinite(t.credits)) {
+    if (typeof t.credits !== "number" || t.credits < 0 || t.credits > 1000000000 || !Number.isFinite(t.credits)) {
       return { ok: false, error: "credits must be 0 to 1,000,000,000" };
     }
     return { ok: true, value: { kind: "cashAtLeast", credits: t.credits } };
   }
   if (t.kind === "routeProfitAtLeast") {
-    if (typeof t.profitPerTrip !== "number" || t.profitPerTrip < 1 || t.profitPerTrip > 100_000_000 || !Number.isFinite(t.profitPerTrip)) {
+    if (typeof t.profitPerTrip !== "number" || t.profitPerTrip < 1 || t.profitPerTrip > 100000000 || !Number.isFinite(t.profitPerTrip)) {
       return { ok: false, error: "profitPerTrip must be 1 to 100,000,000" };
     }
     return { ok: true, value: { kind: "routeProfitAtLeast", profitPerTrip: t.profitPerTrip } };
@@ -146,7 +153,7 @@ function validateShipRef(ref: any, currentStepIndex: number, steps: Step[] = [])
   if (ref.by === "command") return true;
   if (ref.by === "symbol") return typeof ref.symbol === "string" && /^[A-Z0-9-]{1,40}$/.test(ref.symbol);
   if (ref.by === "step") {
-    if (currentStepIndex === -1) return false; // rule: by:step invalid in triggers
+    if (currentStepIndex === -1) return false;
     if (typeof ref.step !== "number" || ref.step < 0 || ref.step >= currentStepIndex) return false;
     const targetStep = steps[ref.step];
     if (!targetStep || targetStep.kind !== "buyShip") return false;
@@ -158,28 +165,23 @@ function validateShipRef(ref: any, currentStepIndex: number, steps: Step[] = [])
 export function validateTemplateTasks(x: unknown): Validation<TaskSpec[]> {
   if (!Array.isArray(x)) return { ok: false, error: "Tasks must be an array" };
   if (x.length === 0 || x.length > 12) return { ok: false, error: "Template must have 1 to 12 tasks" };
-  
   const cleaned: TaskSpec[] = [];
   const keys = new Set<string>();
-  
   for (const s of x) {
     const v = validateTaskSpec(s);
     if (!v.ok) return { ok: false, error: v.error };
-    if (keys.has(v.value.key)) return { ok: false, error: `Duplicate key: ${v.value.key}` };
+    if (keys.has(v.value.key)) return { ok: false, error: "Duplicate key: " + v.value.key };
     keys.add(v.value.key);
     cleaned.push(v.value);
   }
-  
-  // taskDone check
   for (const s of cleaned) {
     const checkTaskDone = (t: Trigger): boolean => {
       if (t.kind === "taskDone") return keys.has(t.taskKey);
       if (t.kind === "all") return t.of.every(checkTaskDone);
       return true;
     };
-    if (!checkTaskDone(s.trigger)) return { ok: false, error: `Task ${s.key} references unknown taskKey` };
+    if (!checkTaskDone(s.trigger)) return { ok: false, error: "Task " + s.key + " references unknown taskKey" };
   }
-  
   return { ok: true, value: cleaned };
 }
 
@@ -196,24 +198,24 @@ export function triggerMet(t: Trigger, f: OpeningFacts): { met: boolean; reason:
     case "always": return { met: true, reason: "always met" };
     case "cashAtLeast": {
       const met = f.spendable >= t.credits;
-      return { met, reason: `spendable ${f.spendable.toLocaleString()} ${met ? ">=" : "<"} ${t.credits.toLocaleString()}` };
+      return { met, reason: "spendable " + f.spendable.toLocaleString() + (met ? " >= " : " < ") + t.credits.toLocaleString() };
     }
     case "routeProfitAtLeast": {
       if (f.bestRouteProfit === undefined) return { met: false, reason: "no routes offered" };
       const met = f.bestRouteProfit >= t.profitPerTrip;
-      return { met, reason: `best route profit ${f.bestRouteProfit.toLocaleString()} ${met ? ">=" : "<"} ${t.profitPerTrip.toLocaleString()}` };
+      return { met, reason: "best route profit " + f.bestRouteProfit.toLocaleString() + (met ? " >= " : " < ") + t.profitPerTrip.toLocaleString() };
     }
     case "shipHoldEmpty": {
       const symbol = resolveShipRef(t.ship, {}, f);
       if (!symbol) return { met: false, reason: "ship ref could not be resolved" };
       const ship = f.ships.find(s => s.symbol === symbol);
-      if (!ship) return { met: false, reason: `${symbol} is not in the fleet` };
+      if (!ship) return { met: false, reason: symbol + " is not in the fleet" };
       const met = ship.cargoUnits === 0;
-      return { met, reason: `${symbol} hold ${met ? "is empty" : "contains " + ship.cargoUnits + " units"}` };
+      return { met, reason: symbol + " hold " + (met ? "is empty" : "contains " + ship.cargoUnits + " units") };
     }
     case "taskDone": {
       const met = f.doneKeys.has(t.taskKey);
-      return { met, reason: `task ${t.taskKey} ${met ? "is done" : "is not done"}` };
+      return { met, reason: "task " + t.taskKey + (met ? " is done" : " is not done") };
     }
     case "all": {
       for (const m of t.of) {
@@ -234,50 +236,45 @@ export type Decision =
 
 export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "refs">, f: OpeningFacts): Decision {
   if (task.stepIndex >= task.steps.length) return { kind: "done", reason: "all steps finished" };
-  
   if (task.stepIndex === 0) {
     const trig = triggerMet(task.trigger, f);
     if (!trig.met) return { kind: "wait", reason: trig.reason };
   }
-  
   const step = task.steps[task.stepIndex];
-  
+  if (!step) return { kind: "fail", reason: "step missing at index" };
   if (step.kind === "setRole" || step.kind === "contractDuty") {
-    const symbol = resolveShipRef(step.ship, task.refs, f);
-    if (!symbol) return { kind: "fail", reason: `could not resolve ship ref: ${JSON.stringify(step.ship)}` };
-    return { kind: "run", stepIndex: task.stepIndex, reason: `execute ${step.kind}` };
+    const shipRef = (step as any).ship;
+    if (!shipRef) return { kind: "fail", reason: "step missing ship ref: " + JSON.stringify(step) };
+    const symbol = resolveShipRef(shipRef, task.refs, f);
+    if (!symbol) return { kind: "fail", reason: "could not resolve ship ref: " + JSON.stringify(shipRef) };
+    return { kind: "run", stepIndex: task.stepIndex, reason: "execute " + step.kind };
   }
-  
   if (step.kind === "setDoctrine") {
-    return { kind: "run", stepIndex: task.stepIndex, reason: `execute setDoctrine` };
+    return { kind: "run", stepIndex: task.stepIndex, reason: "execute setDoctrine" };
   }
-  
   if (step.kind === "buyShip") {
-    const candidates = f.yards.filter(y => y.shipType === step.shipType && y.price <= step.maxPrice);
+    const s = step as any;
+    const candidates = f.yards.filter(y => y.shipType === s.shipType && y.price <= s.maxPrice);
     if (candidates.length === 0) {
-      return { kind: "wait", reason: `no yard in the home system stocks ${step.shipType} at or under ${step.maxPrice}` };
+      return { kind: "wait", reason: "no yard in the home system stocks " + s.shipType + " at or under " + s.maxPrice };
     }
-    
     const viable = candidates.filter(y => f.ships.some(s => s.docked && s.waypoint === y.waypoint));
     if (viable.length === 0) {
-      return { kind: "wait", reason: `no ship of ours is docked at a yard that stocks ${step.shipType}` };
+      return { kind: "wait", reason: "no ship of ours is docked at a yard that stocks " + s.shipType };
     }
-    
     const sorted = [...viable].sort((a, b) => a.price - b.price || a.waypoint.localeCompare(b.waypoint));
     const best = sorted[0];
-    
+    if (!best) return { kind: "fail", reason: "no viable yards found after sorting" };
     if (f.spendable < best.price) {
-      return { kind: "wait", reason: `spendable ${f.spendable.toLocaleString()} < price ${best.price.toLocaleString()}` };
+      return { kind: "wait", reason: "spendable " + f.spendable.toLocaleString() + " < price " + best.price.toLocaleString() };
     }
-    
     return { 
       kind: "run", 
       stepIndex: task.stepIndex, 
-      reason: `buy ${step.shipType} at ${best.waypoint} for ${best.price}`, 
+      reason: "buy " + s.shipType + " at " + best.waypoint + " for " + best.price, 
       buy: { yard: best.waypoint, price: best.price } 
     };
   }
-  
   throw new Error("unknown step kind");
 }
 
