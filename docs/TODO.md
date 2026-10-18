@@ -73,7 +73,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   between-lot half, that one the sell side and trip size. Opening-task automation (below) is unrelated.
   **Update 2026-10-18:** guards 1, 2 and 4 of `docs/buy-guards-plan.md` are built — the sink check before the first lot, the between-lot buy stop, and the per-route round limit,
   all behind `buyGuardImpactPct` and `routeRoundsMax` (both off). What remains here is the shared impact book (a baseline per market/good every ship reads) and the dispatcher
-  skipping a cooling leg, which is (2) and (4) above.
+  skipping a cooling leg, which is (2) and (4) above. Follow-up found in the review of PR #8: a refused trip blocks the key `good@buyAt`, so a refusal on MEDICINE E52 > G58 also
+  rests E52 > E51 for five minutes even when that sink pays well. A route-level key (`good|buyAt|sellAt`, the shape `routeHeat.routeKey` already uses) fixes it and means changing
+  the three `deadRoutes` checks in `trader.ts`; the plan specified the buy-market key, so it was left as specified.
 
 - [ ] **Scout the neighbouring systems once the gate opens (raised 2026-10-13, operator).** Gate X1-CM13-I61 (needs 1,600 FAB_MATS +
   400 ADVANCED_CIRCUITRY) links to X1-FP91, X1-CK71, X1-CH68, X1-P74 and X1-GR36. First targets: **X1-FP91** (523 away; 92 waypoints,

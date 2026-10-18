@@ -31,7 +31,8 @@ Three guards, all shipped **off**, one clause each for the two buy-side ones:
 Clauses (`doctrine.ts`, both `enabled: false`, category risk): `buyGuardImpactPct` = expected price impact per lot, **6%** to start (measured impact that day was 4 to 13% a lot),
 and `routeRoundsMax` = **2** trips. Both are read live, so turning either on takes effect on the next buy / within a minute. Off means today's behaviour exactly, with tests on
 both halves (`tests/buyGuard.test.ts`, `tests/buyGuardSeam.test.ts`, `tests/routeRounds.test.ts`, `tests/routeRoundsSeam.test.ts`). Pinned manual routes keep their existing
-negative-margin stop and skip the new sink check: a manual route is the operator's explicit choice. Not built (still in `docs/TODO.md`): the shared per-market impact book and the
+negative-margin stop and skip the sink check — a manual route is the operator's explicit choice — but the between-lot stop still applies to them, since it only asks whether the
+next lot clears the floor at the destination. Not built (still in `docs/TODO.md`): the shared per-market impact book and the
 dispatcher skipping a cooling leg — the plan is `docs/buy-guards-plan.md`.
 
 ## 2026-10-18 — A refused lot is retried at the market's cap; a trader no longer loops on "limit of N units per transaction"

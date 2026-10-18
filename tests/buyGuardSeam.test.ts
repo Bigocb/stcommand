@@ -36,8 +36,10 @@ function setup(o: { ask: number; sink: number; asks?: number[]; guard?: number; 
     getMarket: async (_system: string, waypoint: string) => {
       marketReads.push(waypoint);
       if (waypoint === route.buyAt) {
-        const price = askQueue.length > 1 ? askQueue.shift()! : askQueue[0]!;
-        return { tradeGoods: [{ symbol: "MEDICINE", purchasePrice: price, sellPrice: o.sink, tradeVolume: lotSize }] };
+        // PEEK, never consume: a market read tells us the ask, and the purchase then pays it. If the read shifts the
+        // queue instead, the market call and the purchase it precedes disagree, and a case meant to exercise guard 2 is
+        // stopped by the old between-lot rule before guard 2 ever runs (review of PR #8 caught exactly that).
+        return { tradeGoods: [{ symbol: "MEDICINE", purchasePrice: askQueue[0]!, sellPrice: o.sink, tradeVolume: lotSize }] };
       }
       return { tradeGoods: [{ symbol: "MEDICINE", purchasePrice: 0, sellPrice: o.sink, tradeVolume: lotSize }] };
     },
