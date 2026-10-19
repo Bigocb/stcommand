@@ -487,7 +487,7 @@ export class MissionManager {
     const apply = (key: "buyLotUnits" | "buyGapMin" | "maxInflationPct" | "recoverPct" | "cashFloor" | "cashResume", v: number | null | undefined, min: number, max: number) => {
       if (v === undefined) return;
       if (v === null || v === 0) { delete next[key]; return; }
-      if (!Number.isFinite(v) || v < min || v > max) throw new Error(`${key} must be between ${min} and ${max} (or null to clear)`);
+      if (!Number.isFinite(v) || v < min || (key !== "maxInflationPct" && v > max)) throw new Error(`${key} must be at least ${min}${key !== "maxInflationPct" ? ` and at most ${max}` : ""} (or null to clear)`);
       next[key] = Math.round(v);
     };
     apply("buyLotUnits", patch.buyLotUnits, 1, 1000);
