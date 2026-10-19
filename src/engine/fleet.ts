@@ -1707,6 +1707,16 @@ export class FleetManager {
     if (!this.tenantId) return;
     if (Object.keys(all).length === 0) await this.store?.removeFleetFlag(this.tenantId, "dispatchManual");
     else await this.store?.setFleetFlag(this.tenantId, "dispatchManual", JSON.stringify(all));
+
+    if (this.store && this.tenantId && assignment) {
+      await this.store.setHeldRoute(this.tenantId, shipSymbol, assignment.good, {
+        buyAt: assignment.buyAt ?? "",
+        sellAt: assignment.sellAt ?? "",
+        buyPrice: assignment.buyPrice ?? 0,
+        sellPrice: assignment.sellPrice ?? 0,
+        lotSize: 0, // Placeholder
+      }, 0, assignment.maxLossPerUnit);
+    }
   }
 
   /** Every miner's currently-configured preferred good, for the Fleet tab. */

@@ -192,6 +192,8 @@ export interface TraderAssignment {
   profitPerTrip: number;
   /** "auto" (allocated) or "manual" (operator override). */
   source: "auto" | "manual";
+  /** Credits per unit the operator is willing to lose on a manual route. null = default margin gate. */
+  maxLossPerUnit?: number | null;
   /** True only for a "buy" assignment sourced to feed an active mission's
    *  outstanding demand — exempts it from the trader's protectedGoods
    *  block, which otherwise refuses to buy a mission-reserved good. */
