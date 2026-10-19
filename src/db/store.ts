@@ -340,6 +340,7 @@ export interface HeldRouteRow {
   sellPrice: number;
   lotSize: number;
   costBasis: number;
+  maxLossPerUnit: number | null;
   updatedAt: string;
 }
 
@@ -442,17 +443,17 @@ export class Store {
 
   async addOpeningTask(tenantId: string, task: Partial<OpeningTaskRow>): Promise<void> {
     return withTenant(this.pool, tenantId, async (c) => {
-      const { key, name, trigger, steps, status = "queued", note = null } = task;
+      const { task_key, name, trigger_spec, steps, status = "queued", note = null } = task as any;
       await c.query(
-        `INSERT INTO opening_tasks (key, name, trigger, steps, status, note)
+        `INSERT INTO opening_tasks (task_key, name, trigger_spec, steps, status, note)
          VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (key) DO UPDATE SET 
+         ON CONFLICT (tenant_id, task_key) DO UPDATE SET 
            name = EXCLUDED.name, 
-           trigger = EXCLUDED.trigger, 
+           trigger_spec = EXCLUDED.trigger_spec, 
            steps = EXCLUDED.steps, 
            status = EXCLUDED.status, 
            note = EXCLUDED.note`,
-        [key, name, JSON.stringify(trigger), JSON.stringify(steps), status, note],
+        [task_key, name, JSON.stringify(trigger_spec), JSON.stringify(steps), status, note],
       );
     });
   }
@@ -477,7 +478,7 @@ export class Store {
     return withTenant(this.pool, tenantId, async (c) => {
       await c.query(
         `INSERT INTO opening_templates (name, tasks) VALUES ($1, $2)
-         ON CONFLICT (name) DO UPDATE SET tasks = EXCLUDED.tasks`,
+         ON CONFLICT (tenant_id, name) DO UPDATE SET tasks = EXCLUDED.tasks`,
         [name, JSON.stringify(tasks)],
       );
     });
