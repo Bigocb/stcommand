@@ -32,12 +32,17 @@ BEGIN
     );
 
     ALTER TABLE opening_tasks ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE opening_tasks FORCE ROW LEVEL SECURITY;
     ALTER TABLE opening_templates ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE opening_templates FORCE ROW LEVEL SECURITY;
 
+    DROP POLICY IF EXISTS tenant_isolation_tasks ON opening_tasks;
     CREATE POLICY tenant_isolation_tasks ON opening_tasks
-      USING (tenant_id = current_setting('app.current_tenant')::uuid);
+      USING (tenant_id = current_setting('app.tenant_id')::uuid);
+
+    DROP POLICY IF EXISTS tenant_isolation_templates ON opening_templates;
     CREATE POLICY tenant_isolation_templates ON opening_templates
-      USING (tenant_id = current_setting('app.current_tenant')::uuid);
+      USING (tenant_id = current_setting('app.tenant_id')::uuid);
 
     CREATE INDEX IF NOT EXISTS idx_opening_tasks_tenant_status ON opening_tasks (tenant_id, status, created_at);
 END $$;
