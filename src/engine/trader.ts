@@ -14,6 +14,7 @@ import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShor
 import type { ShipMovement, ActionEventRecord } from "../db/store.js";
 import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { nextLotDecision } from "./lotGuard.js";
+import { sellFloor, belowSellFloor } from "./lossAllowance.js";
 import { nextBuyLotDecision, sinkCheck } from "./buyGuard.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
@@ -1276,18 +1277,7 @@ export class TraderAgent {
 
   private async exceedsLossFloor(good: string, price: number): Promise<boolean> {
     const cost = await this.costBasis(good);
-    if (cost === undefined || cost <= 0) return false;
-
-    const a = this.assignedRoute?.();
-    if (a?.source === \"manual\" && a.role === \"direct\") {
-      const cap = a.maxLossPerUnit;
-      if (cap !== undefined && cap !== null) {
-        return price < cost - cap;
-      }
-    }
-
-    const floor = cost * (1 - this.maxLossPct / 100);
-    return price < floor;
+    return belowSellFloor({ cost, maxLossPct: this.maxLossPct, allowance: this.manualLossAllowance(good), price });
   }
 
   /**
@@ -1297,17 +1287,8 @@ export class TraderAgent {
    */
   private async nextLotBlock(good: string, waypoint: string, lastPrice: number, prevPrice: number | undefined): Promise<string | undefined> {
     const cost = await this.costBasis(good);
-    if (cost === undefined || cost <= 0) return undefined;
-
-    let floor = cost * (1 - this.maxLossPct / 100);
-    const a = this.assignedRoute?.();
-    if (a?.source === \"manual\" && a.role === \"direct\") {
-      const cap = a.maxLossPerUnit;
-      if (cap !== undefined && cap !== null) {
-        floor = cost - cap;
-      }
-    }
-
+    const floor = sellFloor({ cost, maxLossPct: this.maxLossPct, allowance: this.manualLossAllowance(good) });
+    if (floor === undefined) return undefined;                  // nothing holds this good back
     const quote = await this.liveSellPrice(waypoint, good);
     const d = nextLotDecision({ floor, quote, lastPrice, prevPrice });
     return d.ok ? undefined : d.reason;
@@ -1384,6 +1365,32 @@ export class TraderAgent {
   private isManualLegFor(good: string): boolean {
     const a = this.assignedRoute?.();
     return a?.source === "manual" && a.role === "direct" && a.good === good;
+  }
+
+  /**
+   * The loss allowance on this ship's own pinned route for `good`, in credits
+   * per unit below its cost basis.
+   *
+   * Three states, and the middle one is the point: `undefined` means the good
+   * is not on a pinned route at all, so the fleet's percentage floor applies;
+   * `null` means it IS pinned but the operator set no allowance, which leaves
+   * the pre-existing behaviour exactly as it was — a manual pin outranks the
+   * loss floor outright, because the operator picked the route on purpose;
+   * a number means the pin is capped, so the ship may sell that many credits
+   * per unit under cost and no further. Without the third state a pin is an
+   * all-or-nothing override: the only alternatives were "any loss at all" or
+   * "the fleet's percentage", and neither is what an operator wants when
+   * deliberately clearing a position into a market paying a little under cost.
+   */
+  private manualLossAllowance(good: string): number | null | undefined {
+    const a = this.assignedRoute?.();
+    if (!(a?.source === "manual" && a.role === "direct" && a.good === good)) return undefined;
+    return typeof a.maxLossPerUnit === "number" && a.maxLossPerUnit > 0 ? a.maxLossPerUnit : null;
+  }
+
+  /** True when the floor must be skipped outright: a manual pin with no allowance. */
+  private manualLegSkipsLossFloor(good: string): boolean {
+    return this.manualLossAllowance(good) === null;
   }
 
   /**
@@ -1911,7 +1918,7 @@ export class TraderAgent {
     try {
       if (Date.now() < (this.floorRecheckAt.get(item.symbol) ?? 0)) return true;   // held below the floor a moment ago: not read again yet
       const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
-      if (live !== undefined && !this.isManualLegFor(item.symbol) && !(await this.isDustLot(item.symbol, item.units, live)) && (await this.exceedsLossFloor(item.symbol, live))) {
+      if (live !== undefined && !this.manualLegSkipsLossFloor(item.symbol) && !(await this.isDustLot(item.symbol, item.units, live)) && (await this.exceedsLossFloor(item.symbol, live))) {
         if (!(await this.floorSaleApproved(item.symbol, item.units, live, this.heldCost.get(item.symbol)))) return true;
       }
       // A single sellCargo() call is capped at the market's own advertised
@@ -1967,12 +1974,12 @@ export class TraderAgent {
         remaining -= lot;
         soldAny += lot;
         totalReceived += sold.transaction.totalPrice;
-        if (remaining > 0 && !this.isManualLegFor(item.symbol) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
+        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
           this.recordDoctrineFire?.("maxLossPct");
           this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
           break;
         }
-        if (remaining > 0 && !this.isManualLegFor(item.symbol)) {
+        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol)) {
           const why = await this.nextLotBlock(item.symbol, this.ship.nav.waypointSymbol, sold.transaction.pricePerUnit, prevLotPrice);
           prevLotPrice = sold.transaction.pricePerUnit;
           if (why) { this.recordDoctrineFire?.("maxLossPct"); this.log(`holding remaining ${remaining}u ${item.symbol}: ${why}`); break; }
@@ -2190,7 +2197,7 @@ export class TraderAgent {
       if (Date.now() < (this.floorRecheckAt.get(item.symbol) ?? 0)) return true;   // held below the floor a moment ago: not read again yet
       await this.ensureDocked();
       const live = await this.liveSellPrice(leg.sellAt, item.symbol);
-      if (live !== undefined && !this.isManualLegFor(item.symbol) && !(await this.isDustLot(item.symbol, item.units, live)) && (await this.exceedsLossFloor(item.symbol, live))) {
+      if (live !== undefined && !this.manualLegSkipsLossFloor(item.symbol) && !(await this.isDustLot(item.symbol, item.units, live)) && (await this.exceedsLossFloor(item.symbol, live))) {
         // Try another market that clears the floor before holding: a stuck hull earns nothing.
         const moved = await this.redirectBelowFloor(item.symbol, leg);
         if (moved) return true;
@@ -2252,12 +2259,12 @@ export class TraderAgent {
         // dumping the rest of the hold once a lot's own realized price has
         // fallen below the loss floor, same guard the pre-loop live-price
         // check already applied once, up front.
-        if (remaining > 0 && !this.isManualLegFor(item.symbol) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
+        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
           this.recordDoctrineFire?.("maxLossPct");
           this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
           break;
         }
-        if (remaining > 0 && !this.isManualLegFor(item.symbol)) {
+        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol)) {
           const why = await this.nextLotBlock(item.symbol, leg.sellAt, sold.transaction.pricePerUnit, prevLotPrice);
           prevLotPrice = sold.transaction.pricePerUnit;
           if (why) { this.recordDoctrineFire?.("maxLossPct"); this.log(`holding remaining ${remaining}u ${item.symbol}: ${why}`); break; }

@@ -1056,7 +1056,7 @@ function renderFleetActions(shipRow) {
       <datalist id="fleet-custom-goods">${[...new Set(marketSnapshots.map((m) => m.goodSymbol))].sort().map((g) => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
       <select class="field-select" id="fleet-custom-buy" aria-label="Buy from">${opts}</select>
       <select class="field-select" id="fleet-custom-sell" aria-label="Sell to">${opts}</select>
-      <input type="number" class="field-input" id="fleet-custom-loss" placeholder="Max loss per unit (optional)" />
+      <input type="number" class="field-input" id="fleet-custom-loss" min="0" step="1" placeholder="Max loss c/unit (optional)" aria-label="Maximum loss per unit in credits" title="Credits per unit this route may sell below its own cost basis. Blank = no cap (a pinned route sells regardless, as before)." />
       <div class="sheet-inline-form">
         <button class="btn pri" data-act="custom-route-assign">Assign</button>
         <button class="btn" data-act="route-clear">Auto</button>

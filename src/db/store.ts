@@ -1566,18 +1566,16 @@ export class Store {
     good: string,
     leg: { buyAt: string; sellAt: string; buyPrice: number; sellPrice: number; lotSize: number },
     costBasis: number,
-    maxLossPerUnit: number | null = null,
   ): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO held_route (tenant_id, ship_symbol, good_symbol, buy_at, sell_at, buy_price, sell_price, lot_size, cost_basis, max_loss_per_unit, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+        `INSERT INTO held_route (tenant_id, ship_symbol, good_symbol, buy_at, sell_at, buy_price, sell_price, lot_size, cost_basis, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
          ON CONFLICT (tenant_id, ship_symbol, good_symbol) DO UPDATE SET
            buy_at = excluded.buy_at, sell_at = excluded.sell_at, buy_price = excluded.buy_price,
            sell_price = excluded.sell_price, lot_size = excluded.lot_size, cost_basis = excluded.cost_basis,
-           max_loss_per_unit = excluded.max_loss_per_unit,
            updated_at = excluded.updated_at`,
-        [tenantId, shipSymbol, good, leg.buyAt, leg.sellAt, leg.buyPrice, leg.sellPrice, leg.lotSize, costBasis, maxLossPerUnit],
+        [tenantId, shipSymbol, good, leg.buyAt, leg.sellAt, leg.buyPrice, leg.sellPrice, leg.lotSize, costBasis],
       ),
     );
   }
