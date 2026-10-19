@@ -1277,6 +1277,15 @@ export class TraderAgent {
   private async exceedsLossFloor(good: string, price: number): Promise<boolean> {
     const cost = await this.costBasis(good);
     if (cost === undefined || cost <= 0) return false;
+
+    const a = this.assignedRoute?.();
+    if (a?.source === \"manual\" && a.role === \"direct\") {
+      const cap = a.maxLossPerUnit;
+      if (cap !== undefined && cap !== null) {
+        return price < cost - cap;
+      }
+    }
+
     const floor = cost * (1 - this.maxLossPct / 100);
     return price < floor;
   }
@@ -1289,8 +1298,18 @@ export class TraderAgent {
   private async nextLotBlock(good: string, waypoint: string, lastPrice: number, prevPrice: number | undefined): Promise<string | undefined> {
     const cost = await this.costBasis(good);
     if (cost === undefined || cost <= 0) return undefined;
+
+    let floor = cost * (1 - this.maxLossPct / 100);
+    const a = this.assignedRoute?.();
+    if (a?.source === \"manual\" && a.role === \"direct\") {
+      const cap = a.maxLossPerUnit;
+      if (cap !== undefined && cap !== null) {
+        floor = cost - cap;
+      }
+    }
+
     const quote = await this.liveSellPrice(waypoint, good);
-    const d = nextLotDecision({ floor: cost * (1 - this.maxLossPct / 100), quote, lastPrice, prevPrice });
+    const d = nextLotDecision({ floor, quote, lastPrice, prevPrice });
     return d.ok ? undefined : d.reason;
   }
 
