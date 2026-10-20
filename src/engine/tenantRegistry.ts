@@ -463,6 +463,7 @@ export class TenantRegistry {
       contracts,
       store,
       tenantId,
+      state,
       agentSymbol,
       log,
       discord,

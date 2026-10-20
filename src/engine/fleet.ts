@@ -18,6 +18,8 @@ import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { IDLE_STEP, Pending, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
+import { OpeningRunnerImpl } from "./openingRunner.js";
+import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
 import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
 import { WindDownScrapper, shipsToRetire, shouldRetire, retireReasonKey, windDownSummary, storedYardFor } from "./windDownScrap.js";
@@ -259,6 +261,9 @@ export interface FleetOptions {
    *  exactly one tenant for its whole lifetime. See doctrine.ts's class doc
    *  comment for the full reasoning. */
   tenantId?: string;
+  /** The same snapshot the dashboard renders, handed in so the opening runner
+   *  can read credits/ships without spending API calls inside the tick. */
+  state?: FleetState;
   /** This tenant's agent symbol: with the game's reset date it makes the universe key stamped on ledger rows (engine/universe.ts). */
   agentSymbol?: string;
   /** Writes each warp and gate jump to the ship_movements history (see migrations/052). */
@@ -483,6 +488,10 @@ export class FleetManager {
   private readonly pickFeedCarrierLogRetry = new Map<string, number>();
 
   private readonly store?: Store;
+  /** Set from FleetOptions.state — the shared snapshot the dashboard also renders. */
+  private readonly state?: FleetState;
+  /** This tick's dispatch routes, kept so the opening runner's trigger can read them without recomputing. */
+  private lastDispatchRoutes: DispatchRoute[] = [];
   private readonly tenantId?: string;
   private readonly agentSymbol?: string;
   private readonly approvals: ApprovalGate;
@@ -548,6 +557,7 @@ export class FleetManager {
   constructor(opts: FleetOptions) {
     this.api = opts.api;
     this.contracts = opts.contracts;
+    this.state = opts.state;
     this.log = opts.log ?? ((m) => console.log(`[fleet] ${m}`));
     // The measurement sweep's board only listens while the sweep runs; the ship book always does (shadow mode).
     // The wind-down scrapper goes in BOTH branches: it is not part of the sweep, and dropping it whenever the
@@ -1707,6 +1717,16 @@ export class FleetManager {
     if (!this.tenantId) return;
     if (Object.keys(all).length === 0) await this.store?.removeFleetFlag(this.tenantId, "dispatchManual");
     else await this.store?.setFleetFlag(this.tenantId, "dispatchManual", JSON.stringify(all));
+
+    if (this.store && this.tenantId && assignment) {
+      await this.store.setHeldRoute(this.tenantId, shipSymbol, assignment.good, {
+        buyAt: assignment.buyAt ?? "",
+        sellAt: assignment.sellAt ?? "",
+        buyPrice: assignment.buyPrice ?? 0,
+        sellPrice: assignment.sellPrice ?? 0,
+        lotSize: 0, // Placeholder
+      }, 0, assignment.maxLossPerUnit);
+    }
   }
 
   /** Every miner's currently-configured preferred good, for the Fleet tab. */
@@ -8218,6 +8238,51 @@ export class FleetManager {
     await this.tickCore();
     await this.tickFeeds();
     await this.tickMaintenance();
+    await this.runOpeningTasks();
+  }
+
+  /**
+   * Apply the operator's queued opening tasks (docs/TODO.md's opening
+   * automation). Ships behind the `openingAutomation` clause, which is off by
+   * default: with the clause off this returns before touching the store, so
+   * today's behaviour is unchanged.
+   *
+   * Never throws into the tick: an opening task going wrong must not stop the
+   * fleet from trading.
+   */
+  private async runOpeningTasks(): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    if (!this.doctrine.isEnabledOr("openingAutomation", false)) return;
+    try {
+      const runner = new OpeningRunnerImpl(this.store, {
+        spendable: () => this.state?.get().agent?.credits ?? 0,
+        ships: () => (this.state?.get().ships ?? []).map((s) => ({
+          symbol: s.symbol,
+          isCommand: s.registration.role === "COMMAND",
+          cargoUnits: s.cargo.units,
+          waypoint: s.nav.waypointSymbol,
+          docked: s.nav.status === "DOCKED",
+        })),
+        yards: async () => (await this.store!.shipyardInventory())
+          .filter((y) => y.systemSymbol === this.homeSystem)
+          .map((y) => ({ waypoint: y.waypointSymbol, shipType: y.shipType, price: y.purchasePrice })),
+        bestRouteProfit: () => {
+          if (this.lastDispatchRoutes.length === 0) return undefined;
+          return this.lastDispatchRoutes.reduce((best, r) => Math.max(best, r.profitPerTrip), 0);
+        },
+        buyShip: async (shipType, yardSymbol) => {
+          const ship = await this.buyShip(shipType as never, yardSymbol);
+          return { symbol: ship.symbol };
+        },
+        setRole: (shipSymbol, role) => this.setShipRole(shipSymbol, role as never),
+        setContractDuty: (shipSymbol, on) => this.setContractDuty(shipSymbol, on),
+        setDoctrine: (key, patch) => this.doctrine.set(key, patch),
+        log: (msg) => this.log(msg),
+      });
+      await runner.run(this.tenantId);
+    } catch (err) {
+      this.log(`opening automation skipped this tick: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**
@@ -8307,6 +8372,10 @@ export class FleetManager {
         this.lastWindDownActive = winding.active;
       }
       const routes = winding.active ? [] as DispatchRoute[] : await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes());
+      // Kept for the opening runner's `routeProfitAtLeast` trigger: the
+      // dispatcher already computed them this tick, so reading them back costs
+      // nothing (recomputing would double the pass).
+      this.lastDispatchRoutes = routes;
       const [warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets] = winding.active
         ? [[], [], [], []] as [WarehouseTarget[], HaulTarget[], MissionBuyTarget[], ContractBuyTarget[]]
         : await this.timed("computeTargets", () => Promise.all([

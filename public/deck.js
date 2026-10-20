@@ -100,15 +100,27 @@ function setView(name) {
   // One shared 3D map: Overview hosts it (home system) or the Map screen does.
   setDeckMapVisible(name === "map" || name === "overview");
   if (name === "overview") renderMinimap();
-  if (name === "map") {
-    mountDeckMap($("map-slot"));
-    loadGalaxy();
-    renderMap();
-  }
-  if (name === "ops") {
+  if (name === "automation") {
     loadProgramme();
     loadNotes();
     renderOps();
+    // Package 7: Hook the automation view into the opening runner UI
+    const container = $("view-ops");
+    if (container) {
+      const automationPanel = container.querySelector(".automation-panel");
+      if (automationPanel) {
+        const tenantId = state?.agent?.tenantId;
+        if (tenantId) {
+          import("/shared/opening.js").then(m => {
+            m.renderOpeningTasks(automationPanel, tenantId);
+            const tempContainer = document.createElement("div");
+            tempContainer.className = "opening-templates-panel";
+            automationPanel.appendChild(tempContainer);
+            m.renderOpeningTemplates(tempContainer, tenantId);
+          });
+        }
+      }
+    }
   }
   if (name === "feeds") {
     loadProgramme();

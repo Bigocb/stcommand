@@ -13,6 +13,7 @@ import { createGateRouter } from "../http/gate.js";
 import { gzipJson } from "../http/gzipJson.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
+import { createOpeningTasksRouter } from "../http/openingTasks.js";
 import { createUiVersionRouter, cacheHeaders, assetStamp, serveHtml } from "../http/uiVersions.js";
 import { createAdminRouter } from "../http/admin.js";
 import { createOperatorRouter } from "../http/operator.js";
@@ -180,6 +181,8 @@ async function main(): Promise<void> {
   });
 
   app.use("/api", createDashboardRouter(registry, pool, galaxyCrawler));
+  // Mounted after the tenant resolver above, so the tenant always comes from the session.
+  app.use("/api", createOpeningTasksRouter(registry));
 
   // Serve every HTML page with versioned asset URLs: a deploy changes the
   // `?v=` on each local .js/.css, so a CDN that ignores the origin's no-cache

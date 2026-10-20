@@ -2,6 +2,7 @@ import { shipLedgerEvent } from "../engine/shipLedgerEvent.js";
 import type pg from "pg";
 import { withTenant, withTenantUniverse, withTenantAllUniverses, tenantUniverse, withPool } from "./pool.js";
 import { isUniverseKey, universeKey } from "../engine/universe.js";
+import type { TaskSpec, TaskRun, TaskStatus, Trigger, Step, OpeningTemplateRow, OpeningTaskRow } from "../engine/openingTasks.js";
 import { getCurrentResetDate } from "../core/universe.js";
 
 /**
@@ -339,6 +340,7 @@ export interface HeldRouteRow {
   sellPrice: number;
   lotSize: number;
   costBasis: number;
+  maxLossPerUnit: number | null;
   updatedAt: string;
 }
 
@@ -431,6 +433,105 @@ const STARTING_CREDITS = 175_000;
 
 export class Store {
   constructor(private readonly pool: pg.Pool) {}
+
+  // ── Opening automation (migrations/055) ─────────────────────
+  // The pure evaluator in src/engine/openingTasks.ts speaks camelCase
+  // (key/trigger/stepIndex/stepPhase/refs); the table speaks snake_case.
+  // Rows are mapped here so the engine never sees a database shape.
+
+  async listOpeningTasks(tenantId: string): Promise<OpeningTaskRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query<{
+        id: number; task_key: string; name: string; trigger_spec: Trigger; steps: Step[];
+        status: TaskStatus; step_index: number; step_phase: "idle" | "started";
+        refs: Record<string, string>; note: string | null;
+      }>(
+        `SELECT id, task_key, name, trigger_spec, steps, status, step_index, step_phase, refs, note
+           FROM opening_tasks ORDER BY id ASC`,
+      );
+      return r.rows.map((row) => ({
+        id: Number(row.id),
+        key: row.task_key,
+        name: row.name,
+        trigger: row.trigger_spec,
+        steps: row.steps,
+        status: row.status,
+        stepIndex: row.step_index,
+        stepPhase: row.step_phase,
+        refs: row.refs ?? {},
+        note: row.note,
+      }));
+    });
+  }
+
+  async addOpeningTask(tenantId: string, task: TaskSpec, createdBy = "operator"): Promise<void> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      await c.query(
+        `INSERT INTO opening_tasks (tenant_id, task_key, name, trigger_spec, steps, status, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'queued', $6)
+         ON CONFLICT (tenant_id, task_key) DO UPDATE SET
+           name = EXCLUDED.name,
+           trigger_spec = EXCLUDED.trigger_spec,
+           steps = EXCLUDED.steps,
+           updated_at = now()`,
+        [tenantId, task.key, task.name, JSON.stringify(task.trigger), JSON.stringify(task.steps), createdBy],
+      );
+    });
+  }
+
+  /** Updates are keyed in the engine's camelCase; map to columns before building the SET clause. */
+  async updateOpeningTask(tenantId: string, id: number, updates: Partial<TaskRun>): Promise<void> {
+    const COLUMNS: Record<string, string> = {
+      key: "task_key",
+      name: "name",
+      trigger: "trigger_spec",
+      steps: "steps",
+      status: "status",
+      stepIndex: "step_index",
+      stepPhase: "step_phase",
+      refs: "refs",
+      note: "note",
+    };
+    const JSONB = new Set(["trigger", "steps", "refs"]);
+    const fields = Object.entries(updates).filter(([k, v]) => k !== "id" && v !== undefined && COLUMNS[k]);
+    if (fields.length === 0) return;
+    return withTenant(this.pool, tenantId, async (c) => {
+      const setClause = fields.map(([k], idx) => `${COLUMNS[k]} = $${idx + 3}`).join(", ");
+      const values = fields.map(([k, v]) => (JSONB.has(k) ? JSON.stringify(v) : v));
+      await c.query(
+        `UPDATE opening_tasks SET ${setClause}, updated_at = now() WHERE id = $1 AND tenant_id = $2`,
+        [id, tenantId, ...values],
+      );
+    });
+  }
+
+  async cancelOpeningTask(tenantId: string, id: number): Promise<void> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      await c.query(
+        `UPDATE opening_tasks SET status = 'cancelled', updated_at = now() WHERE id = $1 AND tenant_id = $2`,
+        [id, tenantId],
+      );
+    });
+  }
+
+  async saveOpeningTemplate(tenantId: string, name: string, tasks: TaskSpec[]): Promise<void> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      await c.query(
+        `INSERT INTO opening_templates (tenant_id, name, tasks) VALUES ($1, $2, $3)
+         ON CONFLICT (tenant_id, name) DO UPDATE SET tasks = EXCLUDED.tasks, updated_at = now()`,
+        [tenantId, name, JSON.stringify(tasks)],
+      );
+    });
+  }
+
+  async listOpeningTemplates(tenantId: string): Promise<OpeningTemplateRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query<{ id: number; name: string; tasks: TaskSpec[] }>(
+        `SELECT id, name, tasks FROM opening_templates ORDER BY name ASC`,
+      );
+      return r.rows.map((row) => ({ id: Number(row.id), name: row.name, tasks: row.tasks }));
+    });
+  }
 
   // ── Ops layer reads (src/ops/) ──────────────────────────────
 
@@ -1441,8 +1542,9 @@ export class Store {
     return withTenant(this.pool, tenantId, async (c) => {
       const res = await c.query<{
         ship_symbol: string; good_symbol: string; buy_at: string; sell_at: string;
-        buy_price: number; sell_price: number; lot_size: number; cost_basis: number; updated_at: Date;
-      }>(`SELECT ship_symbol, good_symbol, buy_at, sell_at, buy_price, sell_price, lot_size, cost_basis, updated_at FROM held_route`);
+        buy_price: number; sell_price: number; lot_size: number; cost_basis: number;
+        max_loss_per_unit: number | null; updated_at: Date;
+      }>(`SELECT ship_symbol, good_symbol, buy_at, sell_at, buy_price, sell_price, lot_size, cost_basis, max_loss_per_unit, updated_at FROM held_route`);
       return res.rows.map((r) => ({
         shipSymbol: r.ship_symbol,
         goodSymbol: r.good_symbol,
@@ -1452,6 +1554,7 @@ export class Store {
         sellPrice: r.sell_price,
         lotSize: r.lot_size,
         costBasis: r.cost_basis,
+        maxLossPerUnit: r.max_loss_per_unit,
         updatedAt: r.updated_at.toISOString(),
       }));
     });
@@ -1463,16 +1566,18 @@ export class Store {
     good: string,
     leg: { buyAt: string; sellAt: string; buyPrice: number; sellPrice: number; lotSize: number },
     costBasis: number,
+    maxLossPerUnit: number | null = null,
   ): Promise<void> {
     await withTenant(this.pool, tenantId, (c) =>
       c.query(
-        `INSERT INTO held_route (tenant_id, ship_symbol, good_symbol, buy_at, sell_at, buy_price, sell_price, lot_size, cost_basis, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+        `INSERT INTO held_route (tenant_id, ship_symbol, good_symbol, buy_at, sell_at, buy_price, sell_price, lot_size, cost_basis, max_loss_per_unit, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
          ON CONFLICT (tenant_id, ship_symbol, good_symbol) DO UPDATE SET
            buy_at = excluded.buy_at, sell_at = excluded.sell_at, buy_price = excluded.buy_price,
            sell_price = excluded.sell_price, lot_size = excluded.lot_size, cost_basis = excluded.cost_basis,
+           max_loss_per_unit = excluded.max_loss_per_unit,
            updated_at = excluded.updated_at`,
-        [tenantId, shipSymbol, good, leg.buyAt, leg.sellAt, leg.buyPrice, leg.sellPrice, leg.lotSize, costBasis],
+        [tenantId, shipSymbol, good, leg.buyAt, leg.sellAt, leg.buyPrice, leg.sellPrice, leg.lotSize, costBasis, maxLossPerUnit],
       ),
     );
   }
