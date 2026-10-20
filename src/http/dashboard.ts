@@ -826,8 +826,14 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         };
       });
       // The board can sort by profit per trip or per hour, so keep the best 25 of each rather than only the first.
+      // Two explicit sorts, not `allRoutes.slice(0, 25)`: computeDispatchRoutes() hands back its list already sorted
+      // by rate-per-hour, so slicing the head re-took the by-rate set and the union below collapsed into it. Live
+      // 2026-10-20: the board read "All 30 / Local 27 / Cross-system 3" while every one of the top 25 legs by gross
+      // per trip was cross-system — the two sorts disagreed and only one survived, so "Profit / trip" could only
+      // re-order the three cross routes that happened to make the per-hour cut.
+      const byProfit = [...allRoutes].sort((a, b) => b.profitPerTrip - a.profitPerTrip).slice(0, 25);
       const byRate = [...allRoutes].sort((a, b) => (b.ratePerHour ?? -1) - (a.ratePerHour ?? -1)).slice(0, 25);
-      const top = [...new Set([...allRoutes.slice(0, 25), ...byRate])];
+      const top = [...new Set([...byProfit, ...byRate])];
       const missingSameSystem = allRoutes
         .filter((r) => !r.crossSystem && !top.includes(r))
         .slice(0, 5);
