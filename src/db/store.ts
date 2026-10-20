@@ -1700,6 +1700,98 @@ export class Store {
     await withTenant(this.pool, tenantId, (c) => c.query(`DELETE FROM fleet_flags WHERE key = $1`, [key]));
   }
 
+  // ── Explorer state: survey marks and interrupted tours ──────
+  // Two per-tenant ledgers that used to live only in FleetManager's memory and
+  // died with the process — see docs/system-survey-persistence-design.md.
+  // migrations/059 holds both tables; both are in TENANT_GAME_TABLES because a
+  // universe reset invalidates every system and waypoint symbol they name.
+
+  /** Record (or refresh) this tenant's survey of one system. Idempotent: a
+   *  re-survey updates the row's timestamp and counts, never adds a second. */
+  async recordSystemSurvey(
+    tenantId: string,
+    row: { systemSymbol: string; markets: number; shipyards: number; source: string },
+  ): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO system_surveys (tenant_id, system_symbol, surveyed_at, markets_found, shipyards_found, source)
+         VALUES ($1, $2, now(), $3, $4, $5)
+         ON CONFLICT (tenant_id, system_symbol) DO UPDATE SET
+           surveyed_at = now(), markets_found = excluded.markets_found,
+           shipyards_found = excluded.shipyards_found, source = excluded.source`,
+        [tenantId, row.systemSymbol, row.markets, row.shipyards, row.source],
+      ),
+    );
+  }
+
+  /** This tenant's survey marks, newest first. `sinceMs` is the freshness
+   *  window: rows older than it are left on disk (audit) but not returned, so
+   *  an expired mark stops suppressing the system it names. */
+  async listSystemSurveys(
+    tenantId: string,
+    sinceMs?: number,
+  ): Promise<{ systemSymbol: string; surveyedAt: number }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ system_symbol: string; surveyed_at: Date }>(
+        sinceMs === undefined
+          ? `SELECT system_symbol, surveyed_at FROM system_surveys ORDER BY surveyed_at DESC`
+          : `SELECT system_symbol, surveyed_at FROM system_surveys WHERE surveyed_at > to_timestamp($1 / 1000.0) ORDER BY surveyed_at DESC`,
+        sinceMs === undefined ? [] : [sinceMs],
+      );
+      return res.rows.map((r) => ({ systemSymbol: r.system_symbol, surveyedAt: r.surveyed_at.getTime() }));
+    });
+  }
+
+  /** Drop one system's mark, or every mark when `systemSymbol` is omitted.
+   *  Returns the row count so the caller can log what it actually did. */
+  async forgetSystemSurveys(tenantId: string, systemSymbol?: string): Promise<number> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = systemSymbol
+        ? await c.query(`DELETE FROM system_surveys WHERE system_symbol = $1`, [systemSymbol])
+        : await c.query(`DELETE FROM system_surveys`);
+      return res.rowCount ?? 0;
+    });
+  }
+
+  /** Save (overwrite) one ship's remaining tour stops — one row per ship, so a
+   *  later save replaces the queue rather than growing it. */
+  async saveTourQueue(
+    tenantId: string,
+    row: { shipSymbol: string; systemSymbol: string; stops: unknown[] },
+  ): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `INSERT INTO tour_queue (tenant_id, ship_symbol, system_symbol, stops, updated_at)
+         VALUES ($1, $2, $3, $4::jsonb, now())
+         ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET
+           system_symbol = excluded.system_symbol, stops = excluded.stops, updated_at = now()`,
+        [tenantId, row.shipSymbol, row.systemSymbol, JSON.stringify(row.stops)],
+      ),
+    );
+  }
+
+  /** Every queued tour for this tenant — the boot restore reads this. */
+  async listTourQueues(tenantId: string): Promise<
+    { shipSymbol: string; systemSymbol: string; stops: { symbol: string; market: boolean; yard: boolean }[]; updatedAt: number }[]
+  > {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ ship_symbol: string; system_symbol: string; stops: unknown[]; updated_at: Date }>(
+        `SELECT ship_symbol, system_symbol, stops, updated_at FROM tour_queue ORDER BY updated_at ASC`,
+      );
+      return res.rows.map((r) => ({
+        shipSymbol: r.ship_symbol,
+        systemSymbol: r.system_symbol,
+        stops: (r.stops as { symbol: string; market: boolean; yard: boolean }[]) ?? [],
+        updatedAt: r.updated_at.getTime(),
+      }));
+    });
+  }
+
+  /** Drop one ship's queue — called when its last stop is done. */
+  async clearTourQueue(tenantId: string, shipSymbol: string): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) => c.query(`DELETE FROM tour_queue WHERE ship_symbol = $1`, [shipSymbol]));
+  }
+
   // ── Warehouse ───────────────────────────────────────────────
 
   async warehouseBalance(tenantId: string, goodSymbol: string): Promise<number> {
@@ -3832,7 +3924,8 @@ export class Store {
     "activity", "bucket_ledger", "buckets", "fleet_flags", "fleet_state",
     "held_route", "missions", "pending_approvals", "ship_claims",
     "ship_log", "ship_manifest", "ship_persona", "ship_position_history",
-    "ship_state", "state_snapshot", "warehouse", "warehouse_ledger", "warehouse_targets",
+    "ship_state", "state_snapshot", "system_surveys", "tour_queue",
+    "warehouse", "warehouse_ledger", "warehouse_targets",
   ];
 
   /** Wipes one tenant's post-reset-stale game data (see

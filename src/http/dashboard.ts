@@ -320,6 +320,29 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  /**
+   * Clear explorer survey marks so systems get toured again. Body:
+   * `{ systemSymbol?: string }` — omit it to clear every mark.
+   *
+   * Tenant comes from the session (`req.tenantId`, via createResolveTenant);
+   * there is deliberately no tenant in the path, so one tenant cannot forget
+   * another's exploration. Session-scoped like every other /api route here.
+   */
+  router.post("/explorer/forget", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const raw = req.body?.systemSymbol;
+    if (raw !== undefined && typeof raw !== "string") return res.status(400).json({ error: "systemSymbol must be a string" });
+    const systemSymbol = typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+    try {
+      const removed = await w.fleet.forgetSurveys(systemSymbol);
+      res.json({ ok: true, removed, systemSymbol: systemSymbol ?? null });
+    } catch (err) {
+      console.error("[dashboard] explorer forget error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.get("/systems", (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
@@ -397,6 +420,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
           hasShipyard: (s?.shipyards.length ?? 0) > 0,
           hasJumpGate: (s?.jumpGates.length ?? 0) > 0,
           ships: shipSystems.get(symbol) ?? 0,
+          // When an explorer last swept this system's markets, or null if it
+          // never has. Durable since migrations/059 — before that this was a
+          // process-lifetime Set and every restart made the whole map look
+          // unexplored. Additive: existing clients ignore it.
+          surveyedAt: w.fleet.surveyedAtMs(symbol) ?? null,
         };
       });
       const edgeSet = new Set<string>();
