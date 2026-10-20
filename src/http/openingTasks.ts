@@ -35,7 +35,7 @@ export function createOpeningTasksRouter(registry: TenantRegistry): Router {
     return sessionTenant;
   }
 
-  router.get("/opening/tasks/:tenantId?", async (req, res) => {
+  router.get(["/opening/tasks", "/opening/tasks/:tenantId"], async (req, res) => {
     const tenantId = tenantFor(req, res);
     if (!tenantId) return;
     const w = worker(req);
@@ -47,7 +47,7 @@ export function createOpeningTasksRouter(registry: TenantRegistry): Router {
     }
   });
 
-  router.post("/opening/tasks/:tenantId?", async (req, res) => {
+  router.post(["/opening/tasks", "/opening/tasks/:tenantId"], async (req, res) => {
     const tenantId = tenantFor(req, res);
     if (!tenantId) return;
     const w = worker(req);
@@ -63,7 +63,7 @@ export function createOpeningTasksRouter(registry: TenantRegistry): Router {
     }
   });
 
-  router.post("/opening/tasks/:tenantId?/:id/cancel", async (req, res) => {
+  router.post(["/opening/tasks/:id/cancel", "/opening/tasks/:tenantId/:id/cancel"], async (req, res) => {
     const tenantId = tenantFor(req, res);
     if (!tenantId) return;
     const w = worker(req);
@@ -79,7 +79,7 @@ export function createOpeningTasksRouter(registry: TenantRegistry): Router {
     }
   });
 
-  router.get("/opening/templates/:tenantId?", async (req, res) => {
+  router.get(["/opening/templates", "/opening/templates/:tenantId"], async (req, res) => {
     const tenantId = tenantFor(req, res);
     if (!tenantId) return;
     const w = worker(req);
@@ -91,7 +91,7 @@ export function createOpeningTasksRouter(registry: TenantRegistry): Router {
     }
   });
 
-  router.post("/opening/templates/:tenantId?", async (req, res) => {
+  router.post(["/opening/templates", "/opening/templates/:tenantId"], async (req, res) => {
     const tenantId = tenantFor(req, res);
     if (!tenantId) return;
     const w = worker(req);
