@@ -2110,6 +2110,18 @@ export class FleetManager {
   /** Refresh a system's waypoints, markets and shipyards (used after jumping/scouting). */
   async surveySystem(systemSymbol: string): Promise<void> {
     await this.galaxy.loadSystem(systemSymbol);
+    // Nothing loaded means nothing was swept — and a sweep of nothing is not a
+    // completed survey. Confirmed live 2026-10-20: X1-XM46 (64 waypoints, four
+    // of them MARKETPLACE) logged "surveyMarkets: fetching markets" and
+    // "surveyed X1-XM46: 0 markets, 0 shipyards" one millisecond apart, with no
+    // HTTP in between, because the atlas handed back an empty in-memory entry.
+    // The system was then marked surveyed and the explorer will skip it from
+    // now on, though no market in it was ever read. Bail out *before* the mark,
+    // so the next visit is still offered as unsurveyed.
+    if (!(this.galaxy.getSystem(systemSymbol)?.waypoints.length)) {
+      this.log(`survey of ${systemSymbol} skipped: no waypoints loaded, leaving it unsurveyed`);
+      return;
+    }
     await this.galaxy.scanJumpGates(systemSymbol);
     this.log(`surveyMarkets: fetching markets in ${systemSymbol}`);
     const markets = await this.galaxy.surveyMarkets(systemSymbol, this.store);
@@ -4245,6 +4257,18 @@ export class FleetManager {
       // candidates[0], same as before.
       const target = targetSystem ?? candidates.find((c) => !this.surveyedSystems.has(c)) ?? this.nextHopToUnsurveyed(currentSystem) ?? candidates[0];
       if (!target) throw new Error(`no connected systems known from ${currentSystem}`);
+      // Read BEFORE the jump: jumpShip() surveys the system it lands in and
+      // surveySystem() marks that system surveyed as its last act (see its own
+      // comment — it is deliberately the one place completion is recorded).
+      // Checking surveyedSystems *after* the jump therefore always answered
+      // yes, and exploreSystem() returned at the "already surveyed" branch on
+      // every single trip: the market tour below was unreachable dead code,
+      // for one stop or for ten. Confirmed live 2026-10-20, same millisecond:
+      //   surveyed X1-RZ29: 16 markets, 2 shipyards
+      //   THEOREM-59: X1-RZ29 already surveyed, skipping market re-tour
+      // The question this branch means to ask is "did I know this system
+      // before this trip?", so that is what it now asks.
+      const targetWasSurveyed = this.surveyedSystems.has(target);
       await this.galaxy.loadSystem(target);
       await this.markSystemCharted(target);
       const gates = this.galaxy.gatesTo(currentSystem, target);
@@ -4315,11 +4339,16 @@ export class FleetManager {
       // visit, forever, for zero new data. Once a system is marked
       // surveyed, later visits just jump through on the way to whichever
       // candidate comes next, instead of re-touring it.
-      if (this.surveyedSystems.has(target)) {
+      if (targetWasSurveyed) {
         this.log(`${shipSymbol}: ${target} already surveyed, skipping market re-tour`);
         return target;
       }
-      await this.surveySystem(target);
+      // jumpShip() already surveyed this system on arrival (and marked it
+      // surveyed, which is why the check above reads the pre-jump flag). Re-run
+      // the sweep only when that one failed — its own try/catch swallows the
+      // error and leaves the system unmarked, and without data the tour below
+      // has nothing to select stops from.
+      if (!this.surveyedSystems.has(target)) await this.surveySystem(target);
       // surveySystem()'s own surveyMarkets() call sweeps every MARKETPLACE
       // waypoint in `target` via a remote getMarket() call — but confirmed
       // live, that only returns real tradeGoods for a waypoint the ship is

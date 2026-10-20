@@ -378,3 +378,49 @@ describe("GalaxyAtlas: refreshWaypointTraits", () => {
     assert.deepEqual(atlas.gatesTo("X1-A", "X1-B"), ["X1-A-GATE"], "the earlier scanJumpGates() result survives a waypoint-only refresh");
   });
 });
+
+describe("GalaxyAtlas.loadSystem: an in-memory stub with no waypoints is not a cache hit", () => {
+  // Confirmed live 2026-10-20: surveySystem() for X1-XM46 returned
+  // "0 markets, 0 shipyards" in one millisecond — no HTTP at all — while the
+  // system genuinely has 64 waypoints, four of them MARKETPLACE. loadSystem()
+  // returned early because `this.systems` already held an entry with an empty
+  // waypoint list, and the survey then marked the system surveyed. The DB
+  // path below it already refuses to treat a 0-waypoint row as known (see its
+  // own comment); this is the same rule, for the in-memory map.
+  function stubAtlas() {
+    const waypointCalls: string[] = [];
+    const api = {
+      getAllSystemWaypoints: async (sys: string) => {
+        waypointCalls.push(sys);
+        return [
+          { symbol: `${sys}-A24A`, type: "ORBITAL_STATION", traits: [{ symbol: "MARKETPLACE" }] },
+          { symbol: `${sys}-D25D`, type: "PLANET", traits: [{ symbol: "MARKETPLACE" }] },
+        ];
+      },
+    } as any;
+    return { atlas: new GalaxyAtlas(api), waypointCalls };
+  }
+
+  it("re-fetches instead of serving an empty in-memory entry", async () => {
+    const { atlas, waypointCalls } = stubAtlas();
+    // The stub another code path left behind: the symbol is known (it appeared
+    // as a gate connection) but its waypoints were never fetched.
+    (atlas as any).systems.set("X1-XM46", { symbol: "X1-XM46", waypoints: [], jumpGates: [], markets: [], shipyards: [] });
+
+    const known = await atlas.loadSystem("X1-XM46");
+
+    assert.equal(waypointCalls.length, 1, "an empty entry must trigger the live fetch, not short-circuit it");
+    assert.equal(known.waypoints.length, 2);
+    assert.equal((atlas as any).systems.get("X1-XM46").waypoints.length, 2, "and the empty stub is replaced, not left in place");
+  });
+
+  it("still serves a populated in-memory entry without a fetch", async () => {
+    const { atlas, waypointCalls } = stubAtlas();
+    await atlas.loadSystem("X1-XM46");
+    assert.equal(waypointCalls.length, 1);
+
+    await atlas.loadSystem("X1-XM46");
+
+    assert.equal(waypointCalls.length, 1, "a loaded system is still served from memory");
+  });
+});
