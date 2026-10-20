@@ -4,7 +4,7 @@ import pg from "pg";
 import { Registry } from "../src/engine/registry.js";
 import { FleetManager, DEFAULT_KEEPER_MARKETS } from "../src/engine/fleet.js";
 import { CooldownPending, NavigationPending, describeError } from "../src/engine/agentStep.js";
-import { createPool } from "../src/db/pool.js";
+import { createPool, withTenant } from "../src/db/pool.js";
 import { Store } from "../src/db/store.js";
 
 /**
@@ -110,6 +110,11 @@ function makeFleet(agents: ReturnType<typeof makeFakeAgent>[], store?: Store, te
   const fleet = new FleetManager({
     api: {
       getShip: async (s: string) => agents.find((a) => a.symbol === s)!.getShip(),
+      // Every real client registers a market listener; ShipAgent's constructor
+      // calls it. Without this the whole suite reads "this.api.onMarket is not a
+      // function" — the environmental failure the repo's own docs attribute to
+      // 25 fake APIs, not to the code under test.
+      onMarket: () => {},
     } as any,
     store,
     tenantId,
@@ -599,6 +604,262 @@ describe("describeError: control-flow signals are not Errors", () => {
 
   it("renders a thrown plain object rather than [object Object]", () => {
     assert.equal(describeError({ code: 4214, message: "still on cooldown" }), '{"code":4214,"message":"still on cooldown"}');
+  });
+});
+
+describe("FleetManager: survey marks and interrupted tours survive a restart", () => {
+  // docs/system-survey-persistence-design.md, slices 2 and 3. Real Postgres,
+  // real Store, two FleetManagers against the same tenant — one boot proves a
+  // restore, two prove a persistence.
+  const GATE = "X1-ZZ99-GATE";
+  const waypoints = [
+    { symbol: GATE, type: "JUMP_GATE", traits: [] },
+    { symbol: "X1-ZZ99-M01", type: "PLANET", traits: [{ symbol: "MARKETPLACE" }] },
+    { symbol: "X1-ZZ99-M02", type: "PLANET", traits: [{ symbol: "MARKETPLACE" }] },
+    { symbol: "X1-ZZ99-M03", type: "PLANET", traits: [{ symbol: "MARKETPLACE" }] },
+    { symbol: "X1-ZZ99-Y1", type: "ORBITAL_STATION", traits: [{ symbol: "SHIPYARD" }] },
+  ];
+
+  function surveyFleet(store: Store, tenantId: string) {
+    const fleet = makeFleet([], store, tenantId);
+    (fleet as any).galaxy = {
+      loadSystem: async () => {},
+      getSystem: () => ({ symbol: "X1-ZZ99", waypoints }),
+      scanJumpGates: async () => {},
+      surveyMarkets: async () => [
+        { symbol: "X1-ZZ99-M01", systemSymbol: "X1-ZZ99", tradeGoods: {} },
+        { symbol: "X1-ZZ99-M02", systemSymbol: "X1-ZZ99", tradeGoods: {} },
+      ],
+      surveyShipyards: async () => [{ symbol: "X1-ZZ99-Y1", systemSymbol: "X1-ZZ99" }],
+      allPositions: () => [],
+    };
+    return fleet;
+  }
+
+  it("records a survey row with the real counts, and only through the funnel", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = surveyFleet(store, tenantId);
+
+    await (fleet as any).surveySystem("X1-ZZ99");
+
+    const rows = await store.listSystemSurveys(tenantId);
+    assert.deepEqual(rows.map((r) => r.systemSymbol), ["X1-ZZ99"], "one durable mark for a swept system");
+    const detail = await withTenant(pool, tenantId, (c) =>
+      c.query<{ markets_found: number; shipyards_found: number; source: string }>(
+        `SELECT markets_found, shipyards_found, source FROM system_surveys WHERE system_symbol = 'X1-ZZ99'`,
+      ),
+    );
+    assert.equal(detail.rows[0]!.markets_found, 2);
+    assert.equal(detail.rows[0]!.shipyards_found, 1);
+    assert.equal(detail.rows[0]!.source, "survey");
+  });
+
+  it("records nothing for an empty sweep", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = surveyFleet(store, tenantId);
+    (fleet as any).galaxy.getSystem = () => ({ symbol: "X1-ZZ99", waypoints: [] });
+
+    await (fleet as any).surveySystem("X1-ZZ99");
+
+    assert.deepEqual(await store.listSystemSurveys(tenantId), [], "a sweep of nothing is not a completed survey");
+  });
+
+  it("stamps the source it was told, so a mislabelled mark is auditable", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+
+    await (fleet as any).markSystemSurveyed("X1-ZZ99", "scout");
+
+    const detail = await withTenant(pool, tenantId, (c) =>
+      c.query<{ source: string }>(`SELECT source FROM system_surveys WHERE system_symbol = 'X1-ZZ99'`),
+    );
+    assert.equal(detail.rows[0]!.source, "scout");
+  });
+
+  it("marks in memory even when the write fails, and does not reject", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    (store as any).recordSystemSurvey = async () => { throw new Error("db down"); };
+
+    await assert.doesNotReject(() => (fleet as any).markSystemSurveyed("X1-ZZ99", "tour"));
+
+    assert.equal((fleet as any).surveyedSystems.has("X1-ZZ99"), true, "a store outage must not stop a survey");
+    assert.deepEqual(await store.listSystemSurveys(tenantId), []);
+  });
+
+  it("restores survey marks at boot, and ignores marks past the TTL window", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    await store.recordSystemSurvey(tenantId, { systemSymbol: "X1-FRESH", markets: 1, shipyards: 0, source: "survey" });
+    await store.recordSystemSurvey(tenantId, { systemSymbol: "X1-STALE", markets: 1, shipyards: 0, source: "survey" });
+    await withTenant(pool, tenantId, (c) =>
+      c.query(`UPDATE system_surveys SET surveyed_at = now() - interval '20 days' WHERE system_symbol = 'X1-STALE'`),
+    );
+
+    const fleet = makeFleet([], store, tenantId);
+    (fleet as any).api = { getMyAgent: async () => ({ credits: 0, headquarters: "X1-ZZ99-GATE" }) };
+    (fleet as any).galaxy = {
+      loadSystem: async () => ({ symbol: "X1-ZZ99", waypoints, jumpGates: [], markets: [], shipyards: [] }),
+      scanJumpGates: async () => {},
+      loadJumpCosts: async () => {},
+      loadGateConstruction: async () => {},
+      getSystem: () => ({ symbol: "X1-ZZ99", waypoints, jumpGates: [], markets: [], shipyards: [] }),
+    };
+    (fleet as any).api.listAllShips = async () => [];
+    (fleet as any).doctrine = { reload: async () => {}, value: () => 0, isEnabledOr: () => false };
+
+    await (fleet as any).init();
+
+    assert.equal((fleet as any).surveyedSystems.has("X1-FRESH"), true, "a mark inside the window survives a restart");
+    assert.equal((fleet as any).surveyedSystems.has("X1-STALE"), false, "an expired mark must not suppress the system forever");
+  });
+
+  it("boots without the tables, when the migration has not run yet", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    (store as any).listSystemSurveys = async () => { throw new Error('relation "system_surveys" does not exist'); };
+    (store as any).listTourQueues = async () => { throw new Error('relation "tour_queue" does not exist'); };
+
+    const fleet = makeFleet([], store, tenantId);
+    (fleet as any).api = {
+      getMyAgent: async () => ({ credits: 0, headquarters: "X1-ZZ99-GATE" }),
+      listAllShips: async () => [],
+    };
+    (fleet as any).galaxy = {
+      loadSystem: async () => ({ symbol: "X1-ZZ99", waypoints, jumpGates: [], markets: [], shipyards: [] }),
+      scanJumpGates: async () => {},
+      loadJumpCosts: async () => {},
+      loadGateConstruction: async () => {},
+      getSystem: () => ({ symbol: "X1-ZZ99", waypoints, jumpGates: [], markets: [], shipyards: [] }),
+    };
+    (fleet as any).doctrine = { reload: async () => {}, value: () => 0, isEnabledOr: () => false };
+
+    await assert.doesNotReject(() => (fleet as any).init(), "a deploy before migrate must still boot");
+  });
+
+  it("persists an interrupted tour and resumes it after a restart, in the same system", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+
+    // Boot 1: a tour of three markets, interrupted by a cooldown on stop 2.
+    const first = makeFleet([], store, tenantId);
+    const agent = makeFakeAgent("SHIP-1", "X1-ZZ99-M01");
+    (first as any).explorers.set("SHIP-1", agent);
+    (first as any).api = { getShip: async () => agent.getShip() };
+    (first as any).galaxy = {
+      connectedSystems: () => ["X1-ZZ99"],
+      loadSystem: async () => {},
+      gatesTo: () => [GATE],
+      getSystem: () => ({ symbol: "X1-ZZ99", waypoints }),
+      refreshGateConstruction: async () => true,
+    };
+    (first as any).jumpShip = async () => {};
+    (first as any).markSystemCharted = async () => {};
+    (first as any).surveySystem = async () => {};
+    let attempts = 0;
+    const stopped: string[] = [];
+    (first as any).dispatchShip = async (_s: string, wp: string) => {
+      stopped.push(wp);
+      if (++attempts === 2) throw new CooldownPending(Date.now() + 60_000);
+    };
+    (first as any).recordMarketSnapshot = async () => {};
+
+    await assert.rejects(() => (first as any).exploreSystem("SHIP-1", "X1-ZZ99"), (e: unknown) => e instanceof CooldownPending);
+    const queued = await store.listTourQueues(tenantId);
+    assert.equal(queued.length, 1, "the pause must be durable, not just in memory");
+    assert.equal(queued[0]!.systemSymbol, "X1-ZZ99");
+    // Yards come first in the itinerary (fleet.ts's tour comment), so stop 1 is
+    // the yard and the cooldown lands on the first market.
+    assert.deepEqual(queued[0]!.stops.map((s) => s.symbol), ["X1-ZZ99-M01", "X1-ZZ99-M02", "X1-ZZ99-M03"],
+      "the stop that failed is retried, not skipped");
+
+    // Boot 2: a fresh FleetManager, same tenant, same store. init() restores the
+    // queue; exploreSystem(ship) with no target must finish the tour where the
+    // ship stands instead of picking a neighbour and jumping away.
+    const second = makeFleet([], store, tenantId);
+    const agent2 = makeFakeAgent("SHIP-1", "X1-ZZ99-M02");
+    (second as any).explorers.set("SHIP-1", agent2);
+    (second as any).api = {
+      getShip: async () => ({ ...agent2.getShip(), nav: { ...agent2.getShip().nav, status: "DOCKED", waypointSymbol: "X1-ZZ99-M02", systemSymbol: "X1-ZZ99" } }),
+      getMyAgent: async () => ({ credits: 0, headquarters: "X1-ZZ99-GATE" }),
+      listAllShips: async () => [],
+    };
+    (second as any).galaxy = {
+      connectedSystems: () => ["X1-ZZ99"],
+      loadSystem: async () => ({ symbol: "X1-ZZ99", waypoints, jumpGates: [], markets: [], shipyards: [] }),
+      scanJumpGates: async () => {},
+      loadJumpCosts: async () => {},
+      loadGateConstruction: async () => {},
+      gatesTo: () => [GATE],
+      getSystem: () => ({ symbol: "X1-ZZ99", waypoints }),
+      refreshGateConstruction: async () => true,
+    };
+    (second as any).doctrine = { reload: async () => {}, value: () => 0, isEnabledOr: () => false };
+    (second as any).jumpShip = async () => { throw new Error("must not jump away from an interrupted tour"); };
+    (second as any).markSystemCharted = async () => {};
+    (second as any).surveySystem = async () => { throw new Error("must not re-survey a resumed tour"); };
+    const resumed: string[] = [];
+    (second as any).dispatchShip = async (_s: string, wp: string) => { resumed.push(wp); };
+    (second as any).recordMarketSnapshot = async () => {};
+    (second as any).recordShipyardSnapshot = async () => {};
+    (second as any).api.dockShip = async () => {};
+    // The park check runs before the resume branch by design (a parked fleet must
+    // not tour), and the doctrine stub above reads as "exploring off".
+    (second as any).explorersShouldPark = () => undefined;
+
+    await (second as any).init();
+    assert.equal((second as any).pendingTourStops.has("SHIP-1"), true, "the queue is restored at boot");
+
+    await (second as any).exploreSystem("SHIP-1");
+
+    assert.deepEqual(resumed, ["X1-ZZ99-M01", "X1-ZZ99-M02", "X1-ZZ99-M03"], "only the stops that were not done are re-attempted");
+    assert.deepEqual(await store.listTourQueues(tenantId), [], "a finished tour clears its queue");
+  });
+
+  it("forgets one system's mark and its queued tour, without touching another system", async () => {
+    const tenantId = await makeTenant();
+    const store = new Store(pool);
+    const fleet = makeFleet([], store, tenantId);
+    await (fleet as any).markSystemSurveyed("X1-ZZ99", "survey");
+    await (fleet as any).markSystemSurveyed("X1-OTHER", "survey");
+    (fleet as any).pendingTourStops.set("SHIP-1", { system: "X1-ZZ99", stops: [{ symbol: "X1-ZZ99-M01", market: true, yard: false }] });
+    (fleet as any).pendingTourStops.set("SHIP-2", { system: "X1-OTHER", stops: [{ symbol: "X1-OTHER-M01", market: true, yard: false }] });
+    await store.saveTourQueue(tenantId, { shipSymbol: "SHIP-1", systemSymbol: "X1-ZZ99", stops: [{ symbol: "X1-ZZ99-M01", market: true, yard: false }] });
+    await store.saveTourQueue(tenantId, { shipSymbol: "SHIP-2", systemSymbol: "X1-OTHER", stops: [{ symbol: "X1-OTHER-M01", market: true, yard: false }] });
+
+    const removed = await fleet.forgetSurveys("X1-ZZ99");
+
+    assert.equal(removed, 1);
+    assert.equal((fleet as any).surveyedSystems.has("X1-ZZ99"), false, "the explorer must offer this system again");
+    assert.equal((fleet as any).surveyedSystems.has("X1-OTHER"), true);
+    assert.equal(fleet.surveyedAtMs("X1-ZZ99"), undefined);
+    assert.equal((fleet as any).pendingTourStops.has("SHIP-1"), false, "a forgotten system's half-tour must not resume");
+    assert.equal((fleet as any).pendingTourStops.has("SHIP-2"), true);
+    assert.deepEqual((await store.listTourQueues(tenantId)).map((q) => q.shipSymbol), ["SHIP-2"]);
+    assert.deepEqual((await store.listSystemSurveys(tenantId)).map((r) => r.systemSymbol), ["X1-OTHER"]);
+  });
+
+  it("forgets every mark for this tenant only", async () => {
+    const tenantA = await makeTenant();
+    const tenantB = await makeTenant();
+    const store = new Store(pool);
+    const fleetA = makeFleet([], store, tenantA);
+    const fleetB = makeFleet([], store, tenantB);
+    await (fleetA as any).markSystemSurveyed("X1-ZZ99", "survey");
+    await (fleetA as any).markSystemSurveyed("X1-OTHER", "survey");
+    await (fleetB as any).markSystemSurveyed("X1-ZZ99", "survey");
+
+    const removed = await fleetA.forgetSurveys();
+
+    assert.equal(removed, 2);
+    assert.equal((fleetA as any).surveyedSystems.size, 0, "clear-all empties the in-memory set too");
+    assert.deepEqual(await store.listSystemSurveys(tenantA), []);
+    assert.deepEqual((await store.listSystemSurveys(tenantB)).map((r) => r.systemSymbol), ["X1-ZZ99"], "the other tenant's exploration is untouched");
+    assert.equal((fleetB as any).surveyedSystems.has("X1-ZZ99"), true);
   });
 });
 

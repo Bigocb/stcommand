@@ -336,6 +336,16 @@ interface TourStop {
 }
 
 /**
+ * How long a durable survey mark keeps a system out of the explorer's target
+ * list. Not about price freshness (the tour role owns that) — it is a bounded
+ * self-heal for a wrong or unlucky mark, so one bad row cannot hide a system
+ * for the life of the universe. Also bounds a restored tour queue: past the
+ * window the system is due a fresh tour anyway. Constant, not a doctrine
+ * clause: see docs/system-survey-persistence-design.md D4.
+ */
+const SURVEY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
  * Single coordinator for the whole fleet: assigns roles, ticks every ship,
  * drives the contract pipeline, and grows the fleet by buying ships.
  */
@@ -526,6 +536,10 @@ export class FleetManager {
    */
   private readonly registry: Registry;
   private surveyedSystems = new Set<string>();
+  /** When each surveyed system was marked (epoch ms) — the operator surface
+   *  reads this so a panel can say "surveyed 3h ago" instead of just a boolean.
+   *  Hydrated alongside surveyedSystems at boot. */
+  private surveyedAt = new Map<string, number>();
   /** Systems a chart scout has confirmed have nothing left uncharted —
    *  see scoutJumpToUnchartedSystem()'s own comment. Deliberately separate
    *  from surveyedSystems: that set means "an explorer snapshotted this
@@ -744,6 +758,32 @@ export class FleetManager {
             if (until > now) this.gateConstructionSkipUntil.set(sys, until);
           }
         } catch { /* ignore malformed flag, same as every other JSON flag read in this file */ }
+      }
+    }
+    // Explorer state that used to die with the process. Two separate reads and
+    // two separate try/catches on purpose: a deploy that lands before the 059
+    // migration must boot with neither set rather than wedging the tenant's boot
+    // loop, and a broken survey read must not cost the tour queue as well.
+    // See docs/system-survey-persistence-design.md.
+    if (this.tenantId && this.store) {
+      const since = Date.now() - SURVEY_TTL_MS;
+      try {
+        for (const r of await this.store.listSystemSurveys(this.tenantId, since)) {
+          this.surveyedSystems.add(r.systemSymbol);
+          this.surveyedAt.set(r.systemSymbol, r.surveyedAt);
+        }
+      } catch (err) {
+        this.log(`surveyed-systems restore skipped: ${describeError(err)}`);
+      }
+      try {
+        for (const q of await this.store.listTourQueues(this.tenantId)) {
+          // Past the survey window the system is due a fresh tour anyway, so a
+          // resurrected itinerary would only duplicate work.
+          if (Date.now() - q.updatedAt > SURVEY_TTL_MS) continue;
+          this.pendingTourStops.set(q.shipSymbol, { system: q.systemSymbol, stops: q.stops });
+        }
+      } catch (err) {
+        this.log(`tour-queue restore skipped: ${describeError(err)}`);
       }
     }
     if (this.tenantId && this.store) await this.shipRegistry.loadAllClaims(this.tenantId, this.store);
@@ -2167,8 +2207,99 @@ export class FleetManager {
     // scout revisited it. This is the one place completion should be marked:
     // every call site that finishes exploring/scouting a system routes
     // through here (exploreSystem(), jumpShip(), autoExplore() itself).
-    this.surveyedSystems.add(systemSymbol);
+    await this.markSystemSurveyed(systemSymbol, "survey", { markets: markets.length, shipyards: shipyards.length });
     this.log(`surveyed ${systemSymbol}: ${markets.length} markets, ${shipyards.length} shipyards`);
+  }
+
+  /** When this tenant's explorer last swept `systemSymbol`'s markets, or
+   *  undefined if it never has (or the mark expired). The galaxy payload reads
+   *  this; the durable copy lives in system_surveys (migrations/059). */
+  surveyedAtMs(systemSymbol: string): number | undefined {
+    return this.surveyedAt.get(systemSymbol);
+  }
+
+  /**
+   * Forget survey marks — one system, or every system when `systemSymbol` is
+   * omitted — so the explorer will tour them again. This is the operator's only
+   * lever against a wrong or unlucky mark: before it existed, the only way to
+   * clear a mark was a process restart, which cleared all of them.
+   *
+   * Also drops any queued tour of a forgotten system. A queue is the remainder
+   * of a tour that already declared the system read; resuming it after the
+   * operator said "read it again" would finish the old itinerary and then skip
+   * the re-tour, which is exactly the state they were correcting.
+   *
+   * Returns the number of durable rows removed, for the caller's log line.
+   */
+  async forgetSurveys(systemSymbol?: string): Promise<number> {
+    let removed = 0;
+    if (this.tenantId && this.store) {
+      try {
+        removed = await this.store.forgetSystemSurveys(this.tenantId, systemSymbol);
+      } catch (err) {
+        this.log(`forget surveys failed: ${describeError(err)}`);
+      }
+    }
+    if (systemSymbol) {
+      this.surveyedSystems.delete(systemSymbol);
+      this.surveyedAt.delete(systemSymbol);
+      for (const [ship, queue] of [...this.pendingTourStops]) {
+        if (queue.system !== systemSymbol) continue;
+        this.pendingTourStops.delete(ship);
+        if (this.tenantId && this.store) {
+          try { await this.store.clearTourQueue(this.tenantId, ship); } catch { /* best-effort, same as the write */ }
+        }
+      }
+    } else {
+      this.surveyedSystems.clear();
+      this.surveyedAt.clear();
+      this.pendingTourStops.clear();
+      if (this.tenantId && this.store) {
+        for (const q of await this.store.listTourQueues(this.tenantId).catch(() => [])) {
+          await this.store.clearTourQueue(this.tenantId, q.shipSymbol).catch(() => undefined);
+        }
+      }
+    }
+    this.log(`forgot ${removed} survey mark(s)${systemSymbol ? ` for ${systemSymbol}` : ""}`);
+    return removed;
+  }
+
+  /**
+   * The one place a system is marked surveyed. Memory first — the tick that is
+   * running must behave exactly as it did before this was durable — then a
+   * best-effort row in `system_surveys` (migrations/059).
+   *
+   * Two rules, both learned from live incidents:
+   *  - **never throw.** The tick that marks a survey is the explorer's own; a
+   *    database hiccup must not abort a tour or a jump. Failures are logged and
+   *    the mark stands in memory for this process lifetime.
+   *  - **never block.** Two of the four call sites are synchronous proxy
+   *    callbacks (`onSystemSurveyed`, shipProxy.ts:110) whose signature is
+   *    `=> void`; widening them to a promise would ripple through agent.ts and
+   *    scout.ts for nothing. The in-memory mark is what the next target pick
+   *    reads; the row only has to survive a restart.
+   *
+   * `source` is recorded so a mark can be audited: persisting makes a
+   * mislabelled one durable for up to SURVEY_TTL_MS.
+   */
+  private async markSystemSurveyed(
+    systemSymbol: string,
+    source: "survey" | "tour" | "explore" | "scout",
+    counts?: { markets: number; shipyards: number },
+  ): Promise<void> {
+    this.surveyedSystems.add(systemSymbol);
+    this.surveyedAt.set(systemSymbol, Date.now());
+    if (!this.tenantId || !this.store) return;
+    try {
+      await this.store.recordSystemSurvey(this.tenantId, {
+        systemSymbol,
+        markets: counts?.markets ?? 0,
+        shipyards: counts?.shipyards ?? 0,
+        source,
+      });
+    } catch (err) {
+      this.log(`survey mark for ${systemSymbol} not persisted: ${describeError(err)}`);
+    }
   }
 
   /**
@@ -2678,7 +2809,9 @@ export class FleetManager {
           galaxy: this.galaxy,
           store: this.store,
           done: () => this.forgetIntent(ship.symbol),
-          onSystemSurveyed: (sys) => this.surveyedSystems.add(sys),
+          // Same funnel as surveySystem(), tagged so the durable row records who
+          // marked it: a tour ship borrowing an explore trip is still a survey.
+          onSystemSurveyed: (sys) => { void this.markSystemSurveyed(sys, "tour"); },
         }).withRegistry(this.registry),
       );
       this.log(`role: tour ${ship.symbol} (market/shipyard intel)`);
@@ -3010,7 +3143,7 @@ export class FleetManager {
             galaxy: this.galaxy,
             store: this.store,
             done: () => this.forgetIntent(shipSymbol),
-            onSystemSurveyed: (sys) => this.surveyedSystems.add(sys),
+            onSystemSurveyed: (sys) => { void this.markSystemSurveyed(sys, "explore"); },
           }).withRegistry(this.registry),
         );
         return undefined;
@@ -3082,7 +3215,7 @@ export class FleetManager {
         galaxy: this.galaxy,
         store: this.store,
         done: () => this.forgetIntent(ship.symbol),
-        onSystemSurveyed: (sys) => this.surveyedSystems.add(sys),
+        onSystemSurveyed: (sys) => { void this.markSystemSurveyed(sys, "scout"); },
       })
         .withRegistry(this.registry)
         .withCharted(this.rawWaypoints.filter((w) => w.chart).map((w) => w.symbol)),
@@ -4493,6 +4626,16 @@ export class FleetManager {
       } catch (err) {
         if (err instanceof Pending) {
           this.pendingTourStops.set(shipSymbol, { system: systemSymbol, stops: stops.slice(i) });
+          // Durable as well as in memory: a restart between this pause and the
+          // retry used to orphan the remainder, and the system is already marked
+          // surveyed, so no later visit would finish the tour. Best-effort —
+          // awaiting a write here would put a database round-trip in the path of
+          // a cooldown signal whose whole job is to yield the tick.
+          if (this.tenantId && this.store) {
+            void this.store
+              .saveTourQueue(this.tenantId, { shipSymbol, systemSymbol, stops: stops.slice(i) })
+              .catch((e) => this.log(`tour queue for ${shipSymbol} not persisted: ${describeError(e)}`));
+          }
           this.log(`${shipSymbol}: tour of ${systemSymbol} paused at ${stop.symbol} (${describeError(err)}) — ${stops.length - i} stop(s) left`);
           throw err;
         }
@@ -4500,6 +4643,17 @@ export class FleetManager {
       }
     }
     this.pendingTourStops.delete(shipSymbol);
+    // Cleared before "explored" is logged, not fire-and-forget like the write
+    // above: a row that outlived its tour would make the next boot resume stops
+    // that are already done, and this path has no control-flow signal waiting on
+    // it, so one DELETE is affordable. Still cannot throw.
+    if (this.tenantId && this.store) {
+      try {
+        await this.store.clearTourQueue(this.tenantId, shipSymbol);
+      } catch (err) {
+        this.log(`tour queue for ${shipSymbol} not cleared: ${describeError(err)}`);
+      }
+    }
     this.log(`${shipSymbol} explored ${systemSymbol}`);
   }
 
