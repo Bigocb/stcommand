@@ -367,6 +367,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "risk", defaultAdopted: false,
   },
   {
+    key: "openingAutomation",
+    name: "Opening automation",
+    description: "Run the queued opening tasks (the task list and saved templates in Deck's Ops pane) at the start of a week: each task waits for its trigger, then executes its steps in order — buy a hull at the cheapest yard that stocks it, set a ship's role, put a trader on contract duty, set a doctrine value. A step that spends credits goes through the normal approval gate unless the task marked it pre-approved with a price cap. Off by default: with the clause off the tasks are listed and editable but nothing is executed, so today's behaviour is unchanged. Takes effect on the next tick.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "warehouseTarget",
     name: "Warehouse",
     description: "Master switch for warehousing — off by default: until enabled, the dispatcher only ever assigns direct round trips, same as today. Which goods get bought/sold through the warehouse, and how much of each to hold, is set per-good in the Warehouse pane, not here — this value isn't used.",
