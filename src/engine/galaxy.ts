@@ -64,7 +64,17 @@ export class GalaxyAtlas {
    * process restart.
    */
   async loadSystem(systemSymbol: string): Promise<KnownSystem> {
-    if (this.systems.has(systemSymbol)) return this.systems.get(systemSymbol)!;
+    // A populated in-memory entry is a real cache hit. An *empty* one is not:
+    // the symbol can be known (it showed up as a gate connection, or a crawl
+    // only wrote the row) while its waypoints were never fetched, and serving
+    // that stub short-circuits the live fetch below exactly the way an empty
+    // DB row used to. Confirmed live 2026-10-20: surveySystem() for X1-XM46
+    // reported "0 markets, 0 shipyards" in one millisecond while the system
+    // has 64 waypoints, four of them MARKETPLACE — and then marked the system
+    // surveyed. A real system always has at least one waypoint, the same rule
+    // the DB cache below already applies.
+    const cachedInMemory = this.systems.get(systemSymbol);
+    if (cachedInMemory && cachedInMemory.waypoints.length > 0) return cachedInMemory;
     const cached = await this.store?.getSystemTopology(systemSymbol);
     // An empty cached waypoint list is not "confirmed zero waypoints" — it's
     // what the galaxy-wide crawler's metadata pass (setGalaxySystemMeta())

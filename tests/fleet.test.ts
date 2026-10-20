@@ -344,6 +344,45 @@ describe("FleetManager.exploreSystem: a re-visited system is not re-toured", () 
   });
 });
 
+describe("FleetManager.surveySystem: an empty sweep is not a completed survey", () => {
+  // Confirmed live 2026-10-20: THEOREM-1B jumped into X1-XM46 (64 waypoints,
+  // four of them MARKETPLACE), and one millisecond later:
+  //   surveyMarkets: fetching markets in X1-XM46
+  //   surveyed X1-XM46: 0 markets, 0 shipyards
+  // No HTTP call happened — GalaxyAtlas.loadSystem() handed back an in-memory
+  // entry with an empty waypoint list — yet the system was added to
+  // surveyedSystems, so the explorer will skip it forever even though no
+  // market in it was ever read.
+  function makeSurveyFleet(waypoints: { symbol: string; traits: { symbol: string }[] }[]) {
+    const fleet = makeFleet([]);
+    (fleet as any).galaxy = {
+      loadSystem: async () => {},
+      getSystem: () => ({ symbol: "X1-XM46", waypoints }),
+      scanJumpGates: async () => {},
+      surveyMarkets: async () => [],
+      surveyShipyards: async () => [],
+      allPositions: () => [],
+    };
+    return fleet;
+  }
+
+  it("does not mark a system surveyed when it had no waypoints to sweep", async () => {
+    const fleet = makeSurveyFleet([]);
+
+    await (fleet as any).surveySystem("X1-XM46");
+
+    assert.equal((fleet as any).surveyedSystems.has("X1-XM46"), false, "an unloaded system must stay unsurveyed so a later trip can read it");
+  });
+
+  it("still marks a system surveyed once its waypoints were actually swept", async () => {
+    const fleet = makeSurveyFleet([{ symbol: "X1-XM46-A24A", traits: [{ symbol: "MARKETPLACE" }] }]);
+
+    await (fleet as any).surveySystem("X1-XM46");
+
+    assert.equal((fleet as any).surveyedSystems.has("X1-XM46"), true);
+  });
+});
+
 describe("FleetManager.exploreSystem: the end-of-trip tour", () => {
   // Operator, 2026-10-20: the tour stopped at three markets and never looked at
   // a shipyard, so a newly charted system kept most of its prices and all of
@@ -382,6 +421,37 @@ describe("FleetManager.exploreSystem: the end-of-trip tour", () => {
     (fleet as any).recordShipyardSnapshot = async (wp: string, opts?: { force?: boolean }) => { yardReads.push({ wp, opts }); };
     return { fleet, stops, marketReads, yardReads, docked };
   }
+
+  it("tours a new system even though the jump itself just surveyed it", async () => {
+    // jumpShip() calls surveySystem() on arrival, which marks the system
+    // surveyed as its last act. exploreSystem() used to read surveyedSystems
+    // *after* that, so the tour was unreachable on every trip — confirmed live
+    // 2026-10-20: "surveyed X1-RZ29: 16 markets, 2 shipyards" and "already
+    // surveyed, skipping market re-tour" in the same millisecond.
+    const { fleet, stops, marketReads, yardReads } = makeTourFleet([gate, market("X1-B-M01"), yard("X1-B-Y1")]);
+    (fleet as any).jumpShip = async () => {
+      (fleet as any).surveyedSystems.add("X1-B");
+    };
+
+    await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.deepEqual(stops, ["X1-B-Y1", "X1-B-M01"]);
+    assert.equal(marketReads.length, 1);
+    assert.equal(yardReads.length, 1);
+  });
+
+  it("still skips the tour when the system was surveyed before the trip", async () => {
+    // The ship may still hop *through* a system it already knows on its way to
+    // the frontier — that is the backtracking nextHopToUnsurveyed() asks for —
+    // but it must not re-tour it.
+    const { fleet, stops, marketReads } = makeTourFleet([gate, market("X1-B-M01")]);
+    (fleet as any).surveyedSystems.add("X1-B");
+
+    await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.deepEqual(stops, [], "no tour for a system already known before the trip");
+    assert.equal(marketReads.length, 0);
+  });
 
   it("tours up to ten markets and every shipyard, visiting a dual-trait waypoint once", async () => {
     const markets = Array.from({ length: 12 }, (_, i) => market(`X1-B-M${String(i + 1).padStart(2, "0")}`));
