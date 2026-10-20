@@ -119,6 +119,9 @@ describe("the search walks the whole known galaxy, not just what is in memory", 
       connectedSystems: (s: string) =>
         (({ "X1-A": ["X1-B"], "X1-B": ["X1-A"] }) as Record<string, string[]>)[s] ?? [],
       jumpConnections: () => [], // memory-only graph knows no edges at all
+      // This stub has no waypoint payloads, so nothing can be proven about
+      // what a system holds — every loaded system stays a valid destination.
+      getSystem: () => undefined,
       gateComplete: () => true,
     } as any;
     const fleet = fleetWith(galaxy);
@@ -140,6 +143,8 @@ describe("the search walks the whole known galaxy, not just what is in memory", 
         (({ "X1-A": ["X1-B", "X1-D"], "X1-B": ["X1-C"], "X1-D": ["X1-C"], "X1-C": [] }) as Record<string, string[]>)[s] ?? [],
       connectedSystems: () => [],
       jumpConnections: () => [],
+      // No waypoint payloads in this stub — see the note in the previous test.
+      getSystem: () => undefined,
       gateComplete: () => true,
     } as any;
     const fleet = fleetWith(galaxy);

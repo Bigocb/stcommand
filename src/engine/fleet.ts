@@ -3986,6 +3986,35 @@ export class FleetManager {
   }
 
   /**
+   * True when the atlas *proves* a system has nothing a survey could record.
+   *
+   * A survey fetches exactly two things: markets (waypoints carrying the
+   * MARKETPLACE trait — GalaxyAtlas.surveyMarkets) and shipyards (the SHIPYARD
+   * trait — surveyShipyards). Both read the cached waypoint list, so a loaded
+   * system whose waypoints carry neither trait will survey to exactly
+   * `0 markets, 0 shipyards`. Flying there is a guaranteed no-op.
+   *
+   * Verified against every organic survey row on 2026-10-20: atlas MARKETPLACE
+   * counts matched markets_found in 19 of the 20 most recent surveys, and the
+   * target set held nine systems with a count of zero — including X1-MV21
+   * (71 asteroids, 2 fuel stations, 1 asteroid base, 1 gate), which THEOREM-59
+   * was five jumps into visiting at 19:38 purely because it had no ledger row.
+   *
+   * A frontier system is *not* provably empty: it has no waypoints at all, so
+   * nothing is known about it and it stays a valid destination.
+   */
+  private hasNothingToSurvey(systemSymbol: string): boolean {
+    const known = this.galaxy.getSystem(systemSymbol);
+    // No cached waypoints means nothing is known — that is not proof of
+    // emptiness, so the system stays a valid destination.
+    const waypoints = known?.waypoints ?? [];
+    if (waypoints.length === 0) return false;
+    return !waypoints.some((w) =>
+      (w.traits ?? []).some((t) => t.symbol === "MARKETPLACE" || t.symbol === "SHIPYARD"),
+    );
+  }
+
+  /**
    * When nothing directly connected to `currentSystem` is unsurveyed, look
    * further out: any system this tenant knows about at all (charted by any
    * ship, not just this explorer) that hasn't been surveyed yet, reached by
@@ -4011,7 +4040,14 @@ export class FleetManager {
     const targets = new Set<string>(this.galaxy.frontierSystems());
     for (const sys of this.galaxy.listSystems()) targets.add(sys.symbol);
     const isTarget = (s: string) =>
-      s !== currentSystem && targets.has(s) && !this.surveyedSystems.has(s);
+      s !== currentSystem &&
+      targets.has(s) &&
+      !this.surveyedSystems.has(s) &&
+      // Same proof as the direct-candidate filter: a loaded system with no
+      // MARKETPLACE or SHIPYARD waypoint has no survey to give, and the
+      // nearest-target walk would otherwise spend hours reaching it before
+      // the frontier. See hasNothingToSurvey().
+      !this.hasNothingToSurvey(s);
 
     const prev = new Map<string, string>();
     const seen = new Set<string>([currentSystem]);
@@ -4457,7 +4493,14 @@ export class FleetManager {
       // gateConstructionSkipUntil's own comment.
       const now = Date.now();
       const candidates = connected.filter(
-        (c) => c !== this.systemSymbol && (this.gateConstructionSkipUntil.get(c) ?? 0) <= now,
+        (c) =>
+          c !== this.systemSymbol &&
+          (this.gateConstructionSkipUntil.get(c) ?? 0) <= now &&
+          // A loaded system whose atlas waypoints carry neither MARKETPLACE
+          // nor SHIPYARD cannot yield a survey result; see
+          // hasNothingToSurvey(). Frontier systems are unaffected — nothing
+          // is known about them, which is the whole reason to go.
+          !this.hasNothingToSurvey(c),
       );
       // Prefer a connected system nobody's actually surveyed yet — otherwise
       // this always picked candidates[0], which for a ship freshly jumped
