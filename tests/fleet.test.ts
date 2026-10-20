@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import pg from "pg";
 import { Registry } from "../src/engine/registry.js";
 import { FleetManager, DEFAULT_KEEPER_MARKETS } from "../src/engine/fleet.js";
+import { CooldownPending, NavigationPending, describeError } from "../src/engine/agentStep.js";
 import { createPool } from "../src/db/pool.js";
 import { Store } from "../src/db/store.js";
 
@@ -503,6 +504,101 @@ describe("FleetManager.exploreSystem: the end-of-trip tour", () => {
 
     assert.deepEqual(docked, ["SHIP-1"]);
     assert.deepEqual(yardReads.map((r) => r.wp), ["X1-B-GATE"]);
+  });
+
+  // Operator, 2026-10-20: a live tour of X1-XM46 logged three stops in a row as
+  //   tour of X1-XM46-C22C in X1-XM46 failed: [object Object]
+  //   tour of X1-XM46-Z23D in X1-XM46 failed: [object Object]
+  //   tour of X1-XM46-D25D in X1-XM46 failed: [object Object]
+  //   THEOREM-59 explored X1-XM46
+  // 0.4s apart, then "explored". The ship was on a 196s cooldown the whole
+  // time. Pending is NOT an Error (agentStep.ts:63), so those were
+  // CooldownPending control-flow signals string()-ed into "[object Object]",
+  // swallowed by the per-stop catch, and the loop marched through the entire
+  // itinerary doing nothing before declaring the system explored.
+  it("propagates a cooldown out of the tour instead of burning the rest of the itinerary", async () => {
+    const { fleet, stops } = makeTourFleet([
+      gate, market("X1-B-M01"), market("X1-B-M02"), market("X1-B-M03"),
+    ]);
+    let attempts = 0;
+    (fleet as any).dispatchShip = async (_s: string, wp: string) => {
+      stops.push(wp);
+      if (++attempts === 2) throw new CooldownPending(Date.now() + 196_000);
+    };
+
+    await assert.rejects(
+      () => (fleet as any).exploreSystem("SHIP-1", "X1-B"),
+      (err: unknown) => err instanceof CooldownPending,
+      "a pending control signal must reach nextExploreTask(), which reschedules at resumeAt",
+    );
+    assert.deepEqual(stops, ["X1-B-M01", "X1-B-M02"], "no further dispatch may be attempted while the ship is on cooldown");
+  });
+
+  it("resumes the interrupted tour where it stopped, without re-touring or jumping away", async () => {
+    const { fleet, stops } = makeTourFleet([
+      gate, market("X1-B-M01"), market("X1-B-M02"), market("X1-B-M03"),
+    ]);
+    let attempts = 0;
+    (fleet as any).dispatchShip = async (_s: string, wp: string) => {
+      stops.push(wp);
+      if (++attempts === 2) throw new CooldownPending(Date.now() + 196_000);
+    };
+    await assert.rejects(() => (fleet as any).exploreSystem("SHIP-1", "X1-B"));
+
+    // The scheduled retry lands the ship in X1-B, mid-itinerary, with no
+    // target argument — exploreNext() never passes one. Nothing stops the
+    // ship re-picking a *neighbour* here and jumping to it, which would leave
+    // three markets unread for good: surveySystem() already marked X1-B
+    // surveyed, so no later visit would ever re-tour it.
+    stops.length = 0;
+    const jumps: string[] = [];
+    (fleet as any).jumpShip = async (_s: string, wp: string) => { jumps.push(wp); };
+    (fleet as any).dispatchShip = async (_s: string, wp: string) => { stops.push(wp); };
+    const agent = (fleet as any).explorers.get("SHIP-1");
+    (fleet as any).api.getShip = async () => ({
+      ...agent.getShip(),
+      nav: { ...agent.getShip().nav, status: "DOCKED", waypointSymbol: "X1-B-M02", systemSymbol: "X1-B" },
+    });
+
+    await (fleet as any).exploreSystem("SHIP-1");
+
+    assert.deepEqual(jumps, [], "the retry must finish the tour where it stands, not jump to a new target");
+    assert.deepEqual(stops, ["X1-B-M02", "X1-B-M03"], "only the stops that were not completed are re-attempted");
+  });
+
+  it("still continues past a genuine failure and finishes the tour", async () => {
+    const { fleet, stops } = makeTourFleet([
+      gate, market("X1-B-M01"), market("X1-B-M02"), market("X1-B-M03"),
+    ]);
+    let attempts = 0;
+    (fleet as any).dispatchShip = async (_s: string, wp: string) => {
+      stops.push(wp);
+      if (++attempts === 2) throw new Error("navigation rejected");
+    };
+
+    await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.deepEqual(stops, ["X1-B-M01", "X1-B-M02", "X1-B-M03"], "one bad stop must not abandon the other nine");
+  });
+});
+
+describe("describeError: control-flow signals are not Errors", () => {
+  it("renders a pending cooldown readably instead of [object Object]", () => {
+    const text = describeError(new CooldownPending(Date.now() + 196_000));
+    assert.match(text, /cooldown/);
+    assert.ok(!text.includes("[object Object]"), `got ${text}`);
+  });
+
+  it("renders a navigation pause as a transit signal", () => {
+    assert.match(describeError(new NavigationPending(Date.now() + 5_000)), /transit/);
+  });
+
+  it("keeps an Error's own message", () => {
+    assert.equal(describeError(new Error("boom")), "boom");
+  });
+
+  it("renders a thrown plain object rather than [object Object]", () => {
+    assert.equal(describeError({ code: 4214, message: "still on cooldown" }), '{"code":4214,"message":"still on cooldown"}');
   });
 });
 

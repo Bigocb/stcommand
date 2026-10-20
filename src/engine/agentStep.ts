@@ -74,6 +74,32 @@ export class NavigationPending extends Pending {
 }
 
 /**
+ * Render anything a catch block can see — Error, Pending, or a bare object.
+ *
+ * `Pending` is deliberately NOT an Error (see the comment above it), so the
+ * repo-wide idiom `err instanceof Error ? err.message : String(err)` prints
+ * `[object Object]` for the one thing it is most likely to be: a control-flow
+ * signal. Confirmed live 2026-10-20, a tour of X1-XM46 logging three stops as
+ * `failed: [object Object]` while the ship was simply on a 196s cooldown.
+ * Use this whenever a caught value reaches a log line, so a genuine failure
+ * and a "come back at resumeAt" are distinguishable from the text alone.
+ */
+export function describeError(err: unknown): string {
+  if (err instanceof Pending) {
+    const at = new Date(err.resumeAt).toISOString().slice(11, 19);
+    return `${err.reason} until ${at}Z`;
+  }
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    try {
+      const json = JSON.stringify(err);
+      if (json && json !== "{}") return json;
+    } catch { /* circular or unserialisable — fall through */ }
+  }
+  return String(err);
+}
+
+/**
  * How long a `nextTask()`-family `catch` should back off before retrying,
  * given the error that just happened.
  *
