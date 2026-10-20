@@ -255,6 +255,10 @@
             </div>
             <div class="panel-b" style="padding:0;overflow:auto;flex:1" id="ops-chain"></div>
             <div class="panel-b" style="overflow:auto;flex:1" id="automation-feed" hidden></div>
+            <!-- Opening automation (docs/TODO.md): queued tasks + saved templates.
+                 A sibling of #automation-feed because that element's innerHTML is
+                 replaced on every price tick. Shown with the Automation segment. -->
+            <div class="panel-b" style="overflow:auto;flex:1" id="opening-panel" hidden></div>
             <div class="panel-b ops-notes-body" id="ops-notes-body" hidden>
               <div class="mk-toolbar" style="padding:0 0 8px;border-bottom:none">
                 <input class="field-input" type="text" id="note-input" placeholder="log a note to self…" aria-label="New note" style="flex:1" />
