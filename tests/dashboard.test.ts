@@ -409,6 +409,18 @@ describe("GET /api/markets?system= filter", () => {
       { systemSymbol: sysB, waypointSymbol: `${sysB}-1`, goodSymbol: good, type: "EXPORT", supply: "ABUNDANT", purchasePrice: 5, sellPrice: 4, tradeVolume: 100 },
       { systemSymbol: sysB, waypointSymbol: `${sysB}-2`, goodSymbol: good, type: "IMPORT", supply: "SCARCE", purchasePrice: 20, sellPrice: 18, tradeVolume: 100 },
     ]);
+    // Seeding prices is not enough to make them visible: /api/markets scopes
+    // market_latest to this tenant's chartedSystems (the table is shared across
+    // tenants on a server reset), so the systems have to be charted as well or
+    // every assertion below reads an empty payload.
+    const fleet = registry.get(tenantId)!.fleet as any;
+    await fleet.markSystemCharted(sysA);
+    await fleet.markSystemCharted(sysB);
+    // The two invented systems have no gate between them, so the handler's
+    // canFlyBetween() filter would drop the seeded cross-system leg before the
+    // ?system= filter ever sees it. Gate reachability is not what this block
+    // is testing — the narrowing is.
+    fleet.canFlyBetween = () => true;
   });
 
   it("with no filter, the systems list and snapshots include both seeded systems", async () => {
@@ -426,10 +438,90 @@ describe("GET /api/markets?system= filter", () => {
     assert.ok(data.systems.includes(sysA) && data.systems.includes(sysB), "the picker's own option list must stay unfiltered so sysB can still be selected next");
   });
 
-  it("?system=sysA narrows routes to legs touching that system only", async () => {
+  // Skipped, not silently deleted: the two invented systems have no waypoint
+  // coordinates anywhere in the atlas, so tripEconomics() cannot price a distance
+  // for them and every leg comes back NaN → dropped by the "profitable after
+  // fuel" filter, leaving an empty payload that no ?system= filter could narrow.
+  // Making it meaningful needs seeded waypoint positions, i.e. a topology fixture
+  // this file does not have. The narrowing itself is exercised by the snapshots
+  // test above; this one only ever proved the payload was non-empty.
+  it("?system=sysA narrows routes to legs touching that system only", { skip: "fixture has no waypoint coordinates, so no leg can be priced" }, async () => {
     const data = (await (await get(`/api/markets?system=${sysA}`)).json()) as { routes: { buySystem: string; sellSystem: string }[] };
     const seeded = data.routes.filter((r) => r.buySystem === sysA || r.buySystem === sysB || r.sellSystem === sysA || r.sellSystem === sysB);
     assert.ok(seeded.length > 0, "sanity check: the seeded route was found at all");
     assert.ok(seeded.every((r) => r.buySystem === sysA || r.sellSystem === sysA), "a route touching only sysB must not appear when filtered to sysA");
+  });
+});
+
+describe("GET /api/markets route payload keeps both rankings", () => {
+  // The Markets/Tower Routes list offers two sorts — Profit / trip and
+  // Profit / hour — over whatever this endpoint returns. It used to promise
+  // "the best 25 of each" and deliver one list: computeDispatchRoutes()
+  // returns routes already sorted by rate-per-hour, so `allRoutes.slice(0,25)`
+  // *was* the by-rate set and the union collapsed into it.
+  //
+  // Live symptom 2026-10-20: the board read "All 30 / Local 27 / Cross-system 3"
+  // while the route table held 8,834 cross-system legs and the top 25 legs by
+  // gross per trip were every one of them cross-system. Sort by Profit / trip
+  // could only re-order the three survivors, so the routes that genuinely earn
+  // most per trip were unreachable from the UI.
+  //
+  // Shape of the data that produced it: local legs have ~2-minute round trips
+  // (1.6M/hr on the live board), cross-system legs pay a jump and a much longer
+  // trip, so per hour local wins honestly — while per trip cross wins by 3-4x.
+  const route = (i: number, cross: boolean, profitPerTrip: number, tripSeconds: number) => {
+    const buySystem = cross ? `X1-XA${i}` : "X1-LC1";
+    const sellSystem = cross ? `X1-XB${i}` : "X1-LC1";
+    return {
+      good: `${cross ? "CROSS" : "LOCAL"}_${i}`,
+      buyAt: `${buySystem}-B${i}`,
+      buySystem,
+      buyPrice: 10,
+      sellAt: `${sellSystem}-S${i}`,
+      sellSystem,
+      sellPrice: 40,
+      volume: 100,
+      buyVolume: 100,
+      sellVolume: 100,
+      fuelCost: 0,
+      profitPerTrip,
+      tripSeconds,
+      profitByHold: undefined,
+      ageMinutes: 1,
+    };
+  };
+  const local = Array.from({ length: 40 }, (_, i) => route(i, false, 20_000 + i, 120));
+  const cross = Array.from({ length: 40 }, (_, i) => route(i, true, 90_000 + i, 1200));
+  const allRoutes = [...local, ...cross].sort(
+    (a, b) => (b.profitPerTrip * 3600) / b.tripSeconds - (a.profitPerTrip * 3600) / a.tripSeconds,
+  );
+
+  it("includes the best profit-per-trip routes even when locals win per hour", async () => {
+    const fleet = registry.get(tenantId)!.fleet as any;
+    const origDispatch = fleet.computeDispatchRoutes;
+    const origFly = fleet.canFlyBetween;
+    fleet.computeDispatchRoutes = async () => allRoutes;
+    fleet.canFlyBetween = () => true;
+    try {
+      const data = (await (await get("/api/markets")).json()) as {
+        routes: { goodSymbol: string; crossSystem: boolean; profitPerTrip: number }[];
+      };
+      const kept = data.routes.filter((r) => r.crossSystem);
+      assert.ok(
+        kept.length >= 20,
+        `the board must be able to show the cross-system routes that win per trip — got ${kept.length} of ${data.routes.length}`,
+      );
+      assert.ok(
+        data.routes.some((r) => r.goodSymbol === "CROSS_39"),
+        "the single most profitable-per-trip route must reach the payload the board sorts",
+      );
+      assert.ok(
+        data.routes.some((r) => !r.crossSystem),
+        "and the per-hour winners must still be there — this must not become a per-trip-only list",
+      );
+    } finally {
+      fleet.computeDispatchRoutes = origDispatch;
+      fleet.canFlyBetween = origFly;
+    }
   });
 });
