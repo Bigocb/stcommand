@@ -878,6 +878,8 @@ describe("FleetManager.nextHopToUnsurveyed: backtracking once direct neighbors a
       gateComplete: () => undefined,
       listSystems: () => [{ symbol: "X1-B" }, { symbol: "X1-C" }],
       frontierSystems: () => [],
+      graphNeighbours: (s: string) =>
+        (({ "X1-A": ["X1-B"], "X1-B": ["X1-C"], "X1-C": ["X1-B"] }) as Record<string, string[]>)[s] ?? [],
     };
     (fleet as any).surveyedSystems.add("X1-B"); // the only direct neighbor, already done
 
@@ -893,6 +895,8 @@ describe("FleetManager.nextHopToUnsurveyed: backtracking once direct neighbors a
       gateComplete: () => undefined,
       listSystems: () => [{ symbol: "X1-B" }],
       frontierSystems: () => [],
+      graphNeighbours: (s: string) =>
+        (({ "X1-A": ["X1-B"], "X1-B": ["X1-A"] }) as Record<string, string[]>)[s] ?? [],
     };
     (fleet as any).surveyedSystems.add("X1-B");
 

@@ -47,6 +47,11 @@ function fakeGalaxy(loaded: string[], edges: Edge[]) {
     gateComplete: () => true,
     connectedSystems: (s: string) =>
       edges.flatMap(([a, b]) => (a === s ? [b] : b === s ? [a] : [])),
+    // The routing graph the backtracking search walks. In production this is
+    // hydrated from the database at boot and covers systems never loaded; here
+    // the fake has no such distinction, so it mirrors the same edges.
+    graphNeighbours: (s: string) =>
+      edges.flatMap(([a, b]) => (a === s ? [b] : b === s ? [a] : [])),
     getSystem: (s: string) => (loaded.includes(s) ? { symbol: s } : undefined),
   } as any;
 }
@@ -90,6 +95,49 @@ describe("explorer backtracking reaches the frontier, not the neighbour it came 
     // Closed pair, both surveyed, no frontier. There is genuinely nowhere to
     // go, and the ship has to sit still rather than hop back and forth.
     const galaxy = fakeGalaxy(["X1-A", "X1-B"], [["X1-A", "X1-B"]]);
+    const fleet = fleetWith(galaxy);
+    (fleet as any).surveyedSystems = new Set(["X1-A", "X1-B"]);
+
+    assert.equal(hop(fleet, "X1-A"), undefined);
+  });
+});
+
+describe("the search walks the whole known galaxy, not just what is in memory", () => {
+  it("crosses systems the atlas knows from the database but has never loaded", () => {
+    // This is the 19:02 bounce, exactly. RY37 and TP78 are both loaded, both
+    // surveyed, and every neighbour of that pocket is loaded too — so a search
+    // confined to memory sees no frontier anywhere and returns undefined. The
+    // DB knows 329 systems and 2,664 gate-named frontier systems; the route
+    // out of the pocket runs through systems this process never touched.
+    const galaxy = {
+      listSystems: () => ["X1-A", "X1-B"].map((symbol) => ({ symbol })),
+      frontierSystems: () => ["X1-D"],
+      // The hydrated graph: A → B → C → D, where C was never loaded and the
+      // in-memory pocket stops at B.
+      graphNeighbours: (s: string) =>
+        (({ "X1-A": ["X1-B"], "X1-B": ["X1-C"], "X1-C": ["X1-D"] }) as Record<string, string[]>)[s] ?? [],
+      connectedSystems: (s: string) =>
+        (({ "X1-A": ["X1-B"], "X1-B": ["X1-A"] }) as Record<string, string[]>)[s] ?? [],
+      jumpConnections: () => [], // memory-only graph knows no edges at all
+      gateComplete: () => true,
+    } as any;
+    const fleet = fleetWith(galaxy);
+    (fleet as any).surveyedSystems = new Set(["X1-A", "X1-B"]);
+
+    assert.equal(hop(fleet, "X1-A"), "X1-B", "must step toward D through the unloaded C");
+  });
+
+  it("is still undefined when the whole known galaxy is surveyed", () => {
+    const galaxy = {
+      listSystems: () => ["X1-A", "X1-B"].map((symbol) => ({ symbol })),
+      frontierSystems: () => [],
+      graphNeighbours: (s: string) =>
+        (({ "X1-A": ["X1-B"], "X1-B": ["X1-A"] }) as Record<string, string[]>)[s] ?? [],
+      connectedSystems: (s: string) =>
+        (({ "X1-A": ["X1-B"], "X1-B": ["X1-A"] }) as Record<string, string[]>)[s] ?? [],
+      jumpConnections: () => [],
+      gateComplete: () => true,
+    } as any;
     const fleet = fleetWith(galaxy);
     (fleet as any).surveyedSystems = new Set(["X1-A", "X1-B"]);
 

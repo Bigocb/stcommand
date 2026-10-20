@@ -799,6 +799,19 @@ export class FleetManager {
       }
     }
     if (this.tenantId && this.store) await this.shipRegistry.loadAllClaims(this.tenantId, this.store);
+    // The explorer's backtracking search is a BFS over jump edges, and it used
+    // to walk only the systems this process had loaded — a closed pocket once
+    // migration 060 marked them all surveyed. Hydrating the graph (edges and a
+    // waypoint count per system, no waypoint payloads) is what lets a ship find
+    // a route out of that pocket. Best-effort: a failed read leaves routing on
+    // the in-memory atlas, exactly today's behaviour.
+    if (this.store) {
+      try {
+        this.galaxy.hydrateJumpGraph(await this.store.listGalaxySystems());
+      } catch (err) {
+        this.log(`galaxy graph restore skipped: ${describeError(err)}`);
+      }
+    }
     await this.doctrine.reload();
     // Whether to stay paused pending onboarding confirmation is decided by
     // TenantRegistry.boot() (setPaused() after this returns), not here — it
@@ -3985,22 +3998,43 @@ export class FleetManager {
    * check above has already failed.
    */
   private nextHopToUnsurveyed(currentSystem: string): string | undefined {
-    let best: string[] | undefined;
-    // Targets are (a) loaded systems nobody has surveyed and (b) the frontier —
-    // systems this atlas can name as a gate connection but has never loaded.
-    // Without (b) the search runs dry as soon as the loaded systems are all
-    // surveyed, which is exactly what migration 060 did in one statement, and
-    // exploreSystem() then falls through to `candidates[0]`: the one-or-two
-    // neighbour bounce this method exists to prevent. The frontier is also the
-    // more interesting answer — it is the only space left to explore.
-    const targets = new Set<string>();
+    // Breadth-first over the *hydrated* graph, not the in-memory atlas. The
+    // difference is the whole bug: `jumpConnections()` only knows systems this
+    // process loaded, and a loaded pocket can be closed — every neighbour of
+    // the eight systems around X1-RY37 was itself loaded and surveyed, so the
+    // BFS had no edge to follow and exploreSystem() fell back to candidates[0]
+    // (X1-RY37 ↔ X1-TP78, 2026-10-20 19:02). The hydrated graph reaches the
+    // 2,664 gate-named systems outside that pocket.
+    //
+    // Targets are loaded systems nobody has surveyed plus the frontier, which
+    // carries no waypoints and therefore cannot have a survey row.
+    const targets = new Set<string>(this.galaxy.frontierSystems());
     for (const sys of this.galaxy.listSystems()) targets.add(sys.symbol);
-    for (const sys of this.galaxy.frontierSystems()) targets.add(sys);
-    for (const sys of targets) {
-      if (sys === currentSystem || this.surveyedSystems.has(sys)) continue;
-      const path = this.findSystemPath(currentSystem, sys);
-      if (!path || path.length < 2) continue;
-      if (!best || path.length < best.length) best = path;
+    const isTarget = (s: string) =>
+      s !== currentSystem && targets.has(s) && !this.surveyedSystems.has(s);
+
+    const prev = new Map<string, string>();
+    const seen = new Set<string>([currentSystem]);
+    const queue = [currentSystem];
+    let best: string[] | undefined;
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      if (isTarget(cur)) {
+        const path = [cur];
+        for (let step = cur; step !== currentSystem; ) {
+          step = prev.get(step)!;
+          path.unshift(step);
+        }
+        if (!best || path.length < best.length) best = path;
+        if (best.length === 2) break; // one hop is as good as it gets
+        continue; // do not route *through* a destination
+      }
+      for (const next of this.galaxy.graphNeighbours(cur)) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        prev.set(next, cur);
+        queue.push(next);
+      }
     }
     return best?.[1];
   }
