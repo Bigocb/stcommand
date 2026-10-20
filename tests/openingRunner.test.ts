@@ -24,6 +24,9 @@ class MockStore extends Store {
 
 const SHIPS: OpeningShipFacts[] = [
   { symbol: "THEO-1", isCommand: true, cargoUnits: 0, waypoint: "X1-AA1-A1", docked: true },
+  // A buy can only happen at a yard holding one of our docked ships
+  // (openingTasks.ts's `viable` filter), so the fixture needs one there.
+  { symbol: "THEO-2", isCommand: false, cargoUnits: 0, waypoint: "X1-AA1-B1", docked: true },
 ];
 
 function task(over: Partial<TaskRun> & Pick<TaskRun, "steps">): TaskRun {
