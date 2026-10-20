@@ -43,6 +43,17 @@ export class GalaxyAtlas {
   private readonly api: SpaceTradersAPI;
   private readonly store?: GalaxyStore;
   private readonly systems = new Map<string, KnownSystem>();
+  /**
+   * The whole known jump graph, hydrated from the database at boot: system →
+   * its jump neighbours. Deliberately separate from `systems`, which holds
+   * waypoint lists for systems this process actually loaded. Routing needs the
+   * former for reach and the latter for content, and conflating them either
+   * confines the search to the loaded pocket or drags every waypoint into
+   * memory on boot. See hydrateJumpGraph().
+   */
+  private graph?: Map<string, string[]>;
+  /** Systems with real waypoints on file — i.e. already known, not frontier. */
+  private waypointSystems?: Set<string>;
   private readonly jumps = new Map<string, string>(); // gate symbol -> system symbol
   /** Galaxy coordinates per system, memoized by systemCoords(). Reset with the process, like everything else here. */
   private readonly systemCoordCache = new Map<string, { x: number; y: number }>();
@@ -333,6 +344,14 @@ export class GalaxyAtlas {
    */
   frontierSystems(): string[] {
     const out = new Set<string>();
+    // The hydrated graph covers the whole known galaxy; the in-memory walk
+    // below only covers systems this process happened to load. Both are
+    // unioned so the answer is never smaller than what the atlas can name.
+    if (this.graph && this.waypointSystems) {
+      for (const neighbours of this.graph.values()) {
+        for (const n of neighbours) if (!this.waypointSystems.has(n)) out.add(n);
+      }
+    }
     for (const sys of this.systems.values()) {
       for (const jg of sys.jumpGates) {
         for (const c of jg.connections) {
@@ -344,6 +363,48 @@ export class GalaxyAtlas {
       }
     }
     return [...out];
+  }
+
+  /**
+   * Load the jump graph for every system the database knows about, without
+   * loading their waypoints.
+   *
+   * The explorer's backtracking search is a BFS over jump edges. Running that
+   * over `this.systems` alone confines it to the pocket of systems this process
+   * has touched — and a pocket can be closed: every neighbour of the eight
+   * systems around X1-RY37 was itself loaded and surveyed on 2026-10-20, so the
+   * search had no move at all and fell back to bouncing between two of them,
+   * while 2,664 gate-named systems sat outside it. One query fixes the visibility
+   * without turning into a waypoint-loading stampede: rows keep their raw jsonb
+   * and a system is only "known" here in the sense of edges and a waypoint
+   * count.
+   */
+  hydrateJumpGraph(rows: { systemSymbol: string; waypoints: unknown[]; jumpGates: unknown[] }[]): void {
+    const graph = new Map<string, string[]>();
+    const withWaypoints = new Set<string>();
+    for (const r of rows) {
+      if (r.waypoints.length > 0) withWaypoints.add(r.systemSymbol);
+      const neighbours = new Set<string>();
+      for (const jg of (r.jumpGates ?? []) as { connections?: string[] }[]) {
+        for (const c of jg.connections ?? []) {
+          const sys = c.slice(0, c.lastIndexOf("-"));
+          if (sys && sys !== r.systemSymbol) neighbours.add(sys);
+        }
+      }
+      if (neighbours.size > 0) graph.set(r.systemSymbol, [...neighbours]);
+    }
+    this.graph = graph;
+    this.waypointSystems = withWaypoints;
+    this.pathCache.clear();
+  }
+
+  /**
+   * Jump-neighbours for routing: the hydrated graph when it has the system,
+   * otherwise the in-memory topology. Never returns edges the hydrated graph
+   * lacks for a system it covers.
+   */
+  graphNeighbours(systemSymbol: string): string[] {
+    return this.graph?.get(systemSymbol) ?? this.connectedSystems(systemSymbol);
   }
 
   /**
