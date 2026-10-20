@@ -15,7 +15,7 @@ import { configChangeEvent, keeperListChange } from "./actionEvents.js";
 import { ApprovalGate } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
-import { IDLE_STEP, Pending, describeError, type AgentStep } from "./agentStep.js";
+import { CooldownPending, IDLE_STEP, Pending, describeError, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
@@ -344,6 +344,18 @@ interface TourStop {
  * clause: see docs/system-survey-persistence-design.md D4.
  */
 const SURVEY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long a stranded explorer waits when there is nowhere left to jump.
+ *
+ * Not a retry interval — a statement that this system has no usable onward
+ * connection right now. Gates finish construction on a timescale of hours, and
+ * a new connection can appear from any charting pass, so re-asking costs a
+ * getShip() every time and can only answer the same thing. Five minutes keeps
+ * a freed-up gate from waiting long, while turning the previous ~1-call-per-
+ * second spin into ~12 calls an hour.
+ */
+const NO_TARGET_BACKOFF_MS = 5 * 60_000;
 
 /**
  * Single coordinator for the whole fleet: assigns roles, ticks every ship,
@@ -3974,7 +3986,17 @@ export class FleetManager {
    */
   private nextHopToUnsurveyed(currentSystem: string): string | undefined {
     let best: string[] | undefined;
-    for (const sys of this.galaxy.listSystems().map((s) => s.symbol)) {
+    // Targets are (a) loaded systems nobody has surveyed and (b) the frontier —
+    // systems this atlas can name as a gate connection but has never loaded.
+    // Without (b) the search runs dry as soon as the loaded systems are all
+    // surveyed, which is exactly what migration 060 did in one statement, and
+    // exploreSystem() then falls through to `candidates[0]`: the one-or-two
+    // neighbour bounce this method exists to prevent. The frontier is also the
+    // more interesting answer — it is the only space left to explore.
+    const targets = new Set<string>();
+    for (const sys of this.galaxy.listSystems()) targets.add(sys.symbol);
+    for (const sys of this.galaxy.frontierSystems()) targets.add(sys);
+    for (const sys of targets) {
       if (sys === currentSystem || this.surveyedSystems.has(sys)) continue;
       const path = this.findSystemPath(currentSystem, sys);
       if (!path || path.length < 2) continue;
@@ -4417,7 +4439,13 @@ export class FleetManager {
       // empty (nothing unsurveyed known anywhere) does this fall back to
       // candidates[0], same as before.
       const target = targetSystem ?? candidates.find((c) => !this.surveyedSystems.has(c)) ?? this.nextHopToUnsurveyed(currentSystem) ?? candidates[0];
-      if (!target) throw new Error(`no connected systems known from ${currentSystem}`);
+      // Nothing to jump to at all: this is not a failure to retry in ten
+      // seconds, it is the answer. A bare Error here made a stranded ship call
+      // getShip() roughly once a second from catchBackoffMs()'s default while
+      // the same message filled the log (THEOREM-61 at X1-RP88, 2026-10-20).
+      // Pending carries the wait the scheduler actually honours, and it does
+      // not log — an empty frontier is not news every second.
+      if (!target) throw new CooldownPending(Date.now() + NO_TARGET_BACKOFF_MS, "backoff");
       // Read BEFORE the jump: jumpShip() surveys the system it lands in and
       // surveySystem() marks that system surveyed as its last act (see its own
       // comment — it is deliberately the one place completion is recorded).

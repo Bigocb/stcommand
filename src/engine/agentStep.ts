@@ -157,3 +157,26 @@ export class CooldownPending extends Pending {
     super(resumeAt, reason);
   }
 }
+
+/**
+ * Recognise the API's cooldown refusal and turn it into control flow.
+ *
+ * SpaceTraders answers any action attempted too early with a plain
+ * `Error("Ship action is still on cooldown for N second(s).")`. Every caller
+ * that only checks `instanceof Pending` therefore treated it as a genuine
+ * failure, backed off its default (10s) and tried again — each attempt a real
+ * API call that could only be refused. Seen live 2026-10-20: THEOREM-59 logged
+ * the same message every ~12s for the length of a 384s cooldown, ~30 rejected
+ * calls to learn nothing.
+ *
+ * Returns undefined for anything that is not this exact refusal, so callers
+ * keep their existing error handling for real failures.
+ */
+export function cooldownPendingFrom(err: unknown, now = Date.now()): CooldownPending | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const m = /still on cooldown for (\d+) second/.exec(err.message);
+  if (!m) return undefined;
+  // +1s: the API counts whole seconds down, and resuming exactly on the
+  // boundary races the same refusal back into the log.
+  return new CooldownPending(now + Number(m[1]) * 1000 + 1_000);
+}

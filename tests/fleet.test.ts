@@ -877,6 +877,7 @@ describe("FleetManager.nextHopToUnsurveyed: backtracking once direct neighbors a
       ],
       gateComplete: () => undefined,
       listSystems: () => [{ symbol: "X1-B" }, { symbol: "X1-C" }],
+      frontierSystems: () => [],
     };
     (fleet as any).surveyedSystems.add("X1-B"); // the only direct neighbor, already done
 
@@ -891,6 +892,7 @@ describe("FleetManager.nextHopToUnsurveyed: backtracking once direct neighbors a
       jumpConnections: () => [{ from: "X1-A-GATE", to: "X1-B-GATE" }],
       gateComplete: () => undefined,
       listSystems: () => [{ symbol: "X1-B" }],
+      frontierSystems: () => [],
     };
     (fleet as any).surveyedSystems.add("X1-B");
 
