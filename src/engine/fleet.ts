@@ -4031,6 +4031,11 @@ export class FleetManager {
       }
       for (const next of this.galaxy.graphNeighbours(cur)) {
         if (seen.has(next)) continue;
+        // Same skip list the direct-candidate filter uses. Without it the BFS
+        // keeps re-picking a system whose gate is still under construction —
+        // skipGateConstruction() records the skip, then this walk ignores it
+        // and retries the same doomed jump every ~11s (X1-TV46, 2026-10-20).
+        if ((this.gateConstructionSkipUntil.get(next) ?? 0) > Date.now()) continue;
         seen.add(next);
         prev.set(next, cur);
         queue.push(next);

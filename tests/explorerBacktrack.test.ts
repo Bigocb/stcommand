@@ -127,6 +127,28 @@ describe("the search walks the whole known galaxy, not just what is in memory", 
     assert.equal(hop(fleet, "X1-A"), "X1-B", "must step toward D through the unloaded C");
   });
 
+  it("routes around a system whose gate is under construction", () => {
+    // Live 19:09: the graph fix pointed THEOREM-59 at X1-TV46, whose remote
+    // gate is still building (FAB_MATS 1250/1600). skipGateConstruction()
+    // recorded the skip, but only the *direct* candidate filter consulted it —
+    // the backtracking BFS went straight back to the same doomed system and
+    // retried every ~11s, each attempt paying for a construction read.
+    const galaxy = {
+      listSystems: () => ["X1-A", "X1-B", "X1-D"].map((symbol) => ({ symbol })),
+      frontierSystems: () => ["X1-C"],
+      graphNeighbours: (s: string) =>
+        (({ "X1-A": ["X1-B", "X1-D"], "X1-B": ["X1-C"], "X1-D": ["X1-C"], "X1-C": [] }) as Record<string, string[]>)[s] ?? [],
+      connectedSystems: () => [],
+      jumpConnections: () => [],
+      gateComplete: () => true,
+    } as any;
+    const fleet = fleetWith(galaxy);
+    (fleet as any).surveyedSystems = new Set(["X1-A", "X1-B", "X1-D"]);
+    (fleet as any).gateConstructionSkipUntil = new Map([["X1-B", Date.now() + 10 * 60_000]]);
+
+    assert.equal(hop(fleet, "X1-A"), "X1-D", "must take the other branch, not re-pick the building gate");
+  });
+
   it("is still undefined when the whole known galaxy is surveyed", () => {
     const galaxy = {
       listSystems: () => ["X1-A", "X1-B"].map((symbol) => ({ symbol })),
