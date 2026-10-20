@@ -1,6 +1,6 @@
-# Persisting `surveyedSystems` — design
+# Persisting explorer state: `surveyedSystems` and the tour queue — design
 
-Status: proposed · 2026-10-20 · branch `design/system-survey-persistence`
+Status: proposed · 2026-10-20 (rev. 2: tour queue folded into slice 3) · branch `design/system-survey-persistence`
 
 ## 1. What is wrong today
 
@@ -32,6 +32,31 @@ Four consequences, in order of how often they bite:
    Persisting makes that state durable — so persistence must ship with a TTL
    and a forget control, not alone (§5, §7).
 
+### 1a. The same restart also orphans a half-finished tour
+
+`pendingTourStops` (`src/engine/fleet.ts:446`) is the second piece of
+exploration state that lives only in memory: when a tour is interrupted by a
+control-flow signal (cooldown/transit, PR #26), the stops not yet visited are
+kept per ship so the retry finishes the job instead of re-touring or jumping to
+a neighbour. A restart drops that remainder.
+
+Confirmed live 2026-10-20, and it is the reason this design now covers both
+sets. THEOREM-59 began touring X1-XM46 at 14:16, was on a 196s cooldown, and
+logged three stops as failed before the container was recreated at 14:20:52.
+After the restart `pendingTourStops` was empty, so:
+
+- X1-XM46-C22C / Z23D / D25D were never read by the one hull that had flown
+  there — and `surveySystem()` had already marked the system surveyed, so no
+  later visit would finish the tour;
+- `surveyedSystems` being empty at the same moment made every system look new,
+  so the explorer's next trip toured **its own home system** (X1-QB34, 44
+  waypoints, 23 marketplaces, 5 shipyards) for 15 stops.
+
+The two sets fail together and must be fixed together: persisting the survey
+mark without the queue makes an interrupted tour unrecoverable, and persisting
+the queue without the mark makes the explorer re-tour everything it already
+knows after each restart.
+
 ## 2. What the set means, and every seam that touches it
 
 Definition, from the field's own comment (`src/engine/fleet.ts:516–518`):
@@ -56,11 +81,13 @@ waypoint in this system is charted". That second question belongs to
 | persistence precedent | `markSystemCharted()`, `fleet.ts:2213`; hydrate at `fleet.ts:719–723` | jsonb array in `fleet_flags` | **not** copied — see §4 |
 | store surface | `src/db/store.ts:1684–1702` (`getFleetFlag`/`setFleetFlag`/`removeFleetFlag`), table at `migrations/001_init.sql:178` | tenant-scoped key/value | new row-per-system methods instead |
 | reset hygiene | `Store.TENANT_GAME_TABLES`, `src/db/store.ts:3826`, wiped by `wipeTenantGameData()` `store.ts:3844` | list of per-tenant game tables | new table added to the list |
+| **tour queue** | `pendingTourStops`, `fleet.ts:446`; written in `runTourStops()` `fleet.ts:4495`; read at `fleet.ts:4248` | in-memory `Map<ship, {system, stops[]}>` | **also persisted** — see §7.3; a restart orphans a half-finished tour |
 
 Everything a *reader* does is already correct — six read sites, all testing
-membership. The change is confined to (a) where membership is recorded and
-(b) where the set is seeded at boot. That is the whole reason this is a small
-change and not a refactor.
+membership. For the survey ledger the change is confined to (a) where membership
+is recorded and (b) where the set is seeded at boot. The tour queue is the same
+shape: one write on the `Pending` branch, one clear on completion, one read at
+boot. That is the whole reason this is a small change and not a refactor.
 
 ## 3. Facts from the live database (sizing, not guesses)
 
@@ -75,10 +102,11 @@ distinct systems in market_snapshots  10
 fleet_flags rows                       0
 ```
 
-So the durable set is bounded by the systems a tenant can actually reach and
-survey — today 10 rows, in the limit a few thousand. A row-per-system table is
-trivially small; rewriting a single jsonb blob per survey is not the right
-shape (see §4).
+So the durable survey ledger is bounded by the systems a tenant can actually
+reach and survey — today 10 rows, in the limit a few thousand. The tour queue is
+bounded by the fleet itself (81 hulls at last count, of which the explorers are
+a handful), so at most one row per touring ship. Both are trivially small;
+rewriting a single jsonb blob per survey is not the right shape (see §4).
 
 ## 4. Decisions
 
@@ -91,6 +119,7 @@ shape (see §4).
 | D5 | **Blocking or best-effort write?** | (a) `await` in the callback path — (b) add to memory synchronously, persist best-effort | **(b) best-effort** | The four write paths include two synchronous proxy callbacks (`shipProxy.ts:110`, `:903`) whose signature is `=> void`. Widening them to `Promise<void>` ripples through `agent.ts:177`/`scout.ts:87,190` for no benefit. Rule: **memory first, always** (so the running tick behaves identically to today), then a fire-and-forget upsert that logs on failure. A store outage must never stop a survey or throw into `tick()`. |
 | D6 | **What happens if the table is missing?** | throw vs soft-fail | **soft-fail** | `init()` sits inside `tenantRegistry.boot()`'s retry loop, which retries forever on a throw (`fleet.ts:788–793` documents this hazard for `held_route`). A deploy that lands before `npm run migrate` must boot without the set, log once, and carry on — same degradation as today. |
 | D7 | **Do we persist `scoutExhaustedSystems` too?** | yes / no | **no — out of scope** | It is re-derivable from waypoint chart flags (`fleet.ts:4184`, `some(w => !w.chart)`) and self-heals on the next refresh; the cost of an empty set at boot is one scout hop per system, not a repeated tour. Noted as follow-up, not bundled. |
+| D8 | **Does the tour queue get persisted, and in what shape?** | (a) same table, one row per ship — (b) re-derive the itinerary on resume — (c) jsonb in `fleet_flags` | **(a) a `tour_queue` table, one row per ship** | (b) is impossible: the itinerary is a pure function of the waypoint list, but *which* stops are already done is not — and it cannot be inferred from market snapshots either, because `maxAgeMs: 0` exists precisely because those snapshots are fresh *and empty* (`fleet.ts:4479`). (c) inherits the last-writer-wins race D2 rejects, and here a lost write means a lost itinerary, not a re-read. (a) is write-one-row, and the resume path already keys on `(ship, system)` (`fleet.ts:4248`), so the row's primary key is that key plus the tenant. **Deliberate simplification:** one row per ship, not per ship-and-system — a hull can only be touring one system at a time, and a queue for a system the ship has left is dead weight the in-memory version drops too. |
 
 ## 5. Schema
 
@@ -136,6 +165,40 @@ END $$;
 (`survey` | `tour` | `explore` | `scout`) — relevant because persisting makes
 a mislabelled mark durable.
 
+Same migration, second table — the tour queue (§7.3, D8):
+
+```sql
+  -- The rest of an explorer's interrupted tour: which ship, which system, and
+  -- the stops it has not visited yet. Written when a Pending (cooldown/transit)
+  -- stops the tour (runTourStops(), fleet.ts:4495), cleared when the last stop
+  -- is done. Without it a restart orphans the remainder and the system — already
+  -- marked surveyed — is never re-toured.
+  --
+  -- One row per ship, not per ship-and-system: a hull tours one system at a
+  -- time, and the resume path already matches on (ship, system) (fleet.ts:4248).
+  CREATE TABLE IF NOT EXISTS tour_queue (
+    tenant_id     uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    ship_symbol   text NOT NULL,
+    system_symbol text NOT NULL,
+    stops         jsonb NOT NULL,
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, ship_symbol)
+  );
+
+  ALTER TABLE tour_queue ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE tour_queue FORCE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS tenant_isolation_tour_queue ON tour_queue;
+  CREATE POLICY tenant_isolation_tour_queue ON tour_queue
+    USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
+    WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+```
+
+`stops` holds `[{ "symbol": "...", "market": true, "yard": false }, …]` — the
+`TourStop` shape (`fleet.ts:332`). The flags are stored rather than re-derived
+because they come from each waypoint's traits, and a resume must not depend on
+the atlas still holding them.
+
 ## 6. Store API (`src/db/store.ts`)
 
 Three methods, all `withTenant()` — never a raw pool query, so RLS applies:
@@ -171,6 +234,25 @@ Plus `"system_surveys"` added to `Store.TENANT_GAME_TABLES`
 (`src/db/store.ts:3826`) — a universe reset gives every tenant new symbols and
 stale marks are meaningless (`wipeTenantGameData()`, `store.ts:3844`).
 
+Three more for the tour queue, same rules:
+
+```ts
+/** Save (overwrite) one ship's remaining tour stops. Idempotent per ship. */
+async saveTourQueue(tenantId: string, row: {
+  shipSymbol: string; systemSymbol: string; stops: TourStop[];
+}): Promise<void>
+
+/** Every queued tour for this tenant, oldest first — hydrated at boot. */
+async listTourQueues(tenantId: string):
+  Promise<{ shipSymbol: string; systemSymbol: string; stops: TourStop[]; updatedAt: number }[]>
+
+/** Drop one ship's queue, called when its last stop is done. */
+async clearTourQueue(tenantId: string, shipSymbol: string): Promise<void>
+```
+
+`tour_queue` joins `TENANT_GAME_TABLES` for the same reason: after a reset every
+waypoint symbol in a queued itinerary is meaningless.
+
 ## 7. Engine changes (`src/engine/fleet.ts`)
 
 ### 7.1 One funnel for all four write sites
@@ -194,7 +276,7 @@ private markSystemSurveyed(
       shipyards: counts?.shipyards ?? 0, source,
     })
     .catch((err) => this.log(
-      `survey mark for ${systemSymbol} not persisted: ${err instanceof Error ? err.message : String(err)}`));
+      `survey mark for ${systemSymbol} not persisted: ${describeError(err)}`));
 }
 ```
 
@@ -215,16 +297,67 @@ if (this.tenantId && this.store) {
     const rows = await this.store.listSystemSurveys(this.tenantId, Date.now() - this.SURVEY_TTL_MS);
     for (const r of rows) { this.surveyedSystems.add(r.systemSymbol); this.surveyedAt.set(r.systemSymbol, r.surveyedAt); }
   } catch (err) {
-    this.log(`surveyed-systems restore skipped: ${err instanceof Error ? err.message : String(err)}`);
+    this.log(`surveyed-systems restore skipped: ${describeError(err)}`);
+  }
+  try {
+    for (const q of await this.store.listTourQueues(this.tenantId)) {
+      if (Date.now() - q.updatedAt > this.SURVEY_TTL_MS) continue; // older than the survey window: the system will be re-toured anyway
+      this.pendingTourStops.set(q.shipSymbol, { system: q.systemSymbol, stops: q.stops });
+    }
+  } catch (err) {
+    this.log(`tour-queue restore skipped: ${describeError(err)}`);
   }
 }
 ```
 
-`SURVEY_TTL_MS = 14 * 24 * 60 * 60 * 1000` (D4). Expired rows stay on disk for
-audit; only the read filter changes, so a re-armed system keeps its previous
-`surveyed_at` visible until the new survey overwrites it.
+`SURVEY_TTL_MS = 14 * 24 * 60 * 60 * 1000` (D4). Expired survey rows stay on
+disk for audit; only the read filter changes, so a re-armed system keeps its
+previous `surveyed_at` visible until the new survey overwrites it. The same
+window bounds a restored tour queue: past it the survey mark has expired and the
+system is due a fresh tour, so a resurrected itinerary would only duplicate work.
 
-### 7.3 Unchanged on purpose
+### 7.3 The tour queue is written, cleared and restored
+
+`runTourStops()` (`fleet.ts:4463`) already keeps the unvisited stops in memory
+when a `Pending` interrupts it. Two writes turn that into something a restart
+survives:
+
+```ts
+// on Pending — best-effort, same rule as the survey mark: never throw into the
+// tour, never delay the signal that nextExploreTask() needs.
+if (err instanceof Pending) {
+  this.pendingTourStops.set(shipSymbol, { system: systemSymbol, stops: stops.slice(i) });
+  if (this.tenantId && this.store) {
+    void this.store.saveTourQueue(this.tenantId, { shipSymbol, systemSymbol, stops: stops.slice(i) })
+      .catch((e) => this.log(`tour queue for ${shipSymbol} not persisted: ${describeError(e)}`));
+  }
+  this.log(`${shipSymbol}: tour of ${systemSymbol} paused at ${stop.symbol} (${describeError(err)}) — ${stops.length - i} stop(s) left`);
+  throw err;
+}
+```
+
+and on the last stop:
+
+```ts
+this.pendingTourStops.delete(shipSymbol);
+if (this.tenantId && this.store) {
+  void this.store.clearTourQueue(this.tenantId, shipSymbol)
+    .catch((e) => this.log(`tour queue for ${shipSymbol} not cleared: ${describeError(e)}`));
+}
+```
+
+The resume path itself (`fleet.ts:4248`) does not change: it already matches
+`interrupted.system === currentSystem` and replays the stored stops. What
+changes is where `interrupted` came from at boot.
+
+**Ordering note:** the queue write is fire-and-forget but the tour throws
+immediately, so a crash in the microseconds between can still lose it. That is
+acceptable — the fallback is today's behaviour (an unmarked system stays
+unmarked and a later trip reads it), and `await`ing the write here would put a
+database round-trip in the path of a cooldown signal that exists to yield the
+tick.
+
+### 7.4 Unchanged on purpose
 
 `exploreSystem()`'s pre-jump gate (`fleet.ts:4271`, PR #25) needs no change: it
 asks "did I know this before this trip", and hydration makes "knew it" survive
@@ -242,6 +375,9 @@ restarts — which is the point of this change.
 | Universe reset | old rows wiped with the tenant's game data | `TENANT_GAME_TABLES` (D2, §6) |
 | RLS GUC unset | zero rows, no error | `current_setting('app.tenant_id', true)` |
 | 7k-row hydrate | ~one indexed read at boot, once per tenant | PK `(tenant_id, system_symbol)`, TTL filter |
+| Restart mid-tour | queued stops restored, resumed on the ship's next explore tick | `tour_queue` row written at the pause (§7.3) |
+| Tour queue write lost (crash in between) | the remainder is lost for that system only; the survey mark still stands | accepted, §7.3 ordering note |
+| Ship left the queued system (operator move, scrape, sale) | the row is inert — the resume branch only fires when `system === currentSystem` — and is overwritten by the ship's next tour | one row per ship (D8) |
 
 ## 9. Operator surface
 
@@ -263,17 +399,22 @@ restarts — which is the point of this change.
 Each slice is vertical (schema → engine → surface → verification) and
 independently shippable. Migration gets its own slice, per house rules.
 
-### Slice 1 — the table exists and is tenant-safe
-- `migrations/059_system_surveys.sql` (§5).
-- `Store.recordSystemSurvey` / `listSystemSurveys` / `forgetSystemSurveys` (§6);
-  add `system_surveys` to `TENANT_GAME_TABLES`.
+### Slice 1 — the tables exist and are tenant-safe
+- `migrations/059_system_surveys.sql` (§5): **both** `system_surveys` and
+  `tour_queue`, each with `ENABLE`+`FORCE` RLS and a `tenant_isolation` policy.
+- `Store.recordSystemSurvey` / `listSystemSurveys` / `forgetSystemSurveys` /
+  `saveTourQueue` / `listTourQueues` / `clearTourQueue` (§6); add both tables to
+  `TENANT_GAME_TABLES`.
 - Tests (`tests/systemSurveys.test.ts`, fresh file, `onMarket`-clean harness):
   - upsert twice → one row, `surveyed_at` advances;
   - `listSystemSurveys` returns rows newest-first and honours `sinceMs`;
   - `forgetSystemSurveys` with and without a symbol; count returned;
-  - **cross-tenant**: tenant B's `listSystemSurveys` cannot see tenant A's rows
-    even with no `WHERE` (mirror `tests/store.test.ts:52`);
-  - `wipeTenantGameData()` removes them.
+  - `saveTourQueue` twice for one ship → one row, `stops` replaced not appended;
+  - `listTourQueues` round-trips the full `TourStop[]` shape, flags included;
+  - `clearTourQueue` removes exactly one ship's queue;
+  - **cross-tenant**: tenant B's `listSystemSurveys`/`listTourQueues` cannot see
+    tenant A's rows even with no `WHERE` (mirror `tests/store.test.ts:52`);
+  - `wipeTenantGameData()` empties both.
 
 ### Slice 2 — every mark is written, and nothing else changes
 - `markSystemSurveyed()` funnel (§7.1); four call sites converted.
@@ -286,22 +427,43 @@ independently shippable. Migration gets its own slice, per house rules.
   - a store whose `recordSystemSurvey` rejects → `surveySystem()` still
     resolves, the set is still marked, and no rejection escapes.
 
-### Slice 3 — it survives a restart
-- `init()` hydration + TTL (§7.2); `SURVEY_TTL_MS`.
-- Tests:
-  - boot `FleetManager` A against a real tenant, survey X1-XM46, then boot a
-    **second** `FleetManager` on the same store and assert
-    `surveyedSystems.has("X1-XM46")` after `init()` — two boots prove
+### Slice 3 — a restart loses nothing: neither the survey mark nor the tour in flight
+Two sets, two write paths, one boot restore. They ship together because each is
+worthless without the other (§1a): a persisted mark with a lost queue makes an
+interrupted tour unrecoverable, a persisted queue with a lost mark re-tours the
+whole galaxy after every restart.
+
+- `init()` hydration for both, each soft-failed separately (§7.2);
+  `SURVEY_TTL_MS` as the single window for both.
+- `saveTourQueue` on the `Pending` branch of `runTourStops()`, `clearTourQueue`
+  on its last stop (§7.3). Both best-effort, both logging through
+  `describeError()`.
+- Tests (`tests/fleet.test.ts`, plus the store suite from slice 1):
+  - **survey mark, two boots:** boot `FleetManager` A against a real tenant,
+    survey X1-XM46, then boot a **second** `FleetManager` on the same store and
+    assert `surveyedSystems.has("X1-XM46")` after `init()` — two boots prove
     persistence, one proves only restore;
-  - a row older than `SURVEY_TTL_MS` does not suppress (assert via
-    `exploreSystem()` re-touring);
-  - `listSystemSurveys` throwing → `init()` still resolves (§8, missing table).
+  - **tour queue, two boots — the live incident replayed:** boot A, run a tour
+    of a 3-stop system with `dispatchShip` throwing `CooldownPending` on stop 2,
+    assert the queue row holds `[stop2, stop3]`; boot a **second**
+    `FleetManager`, `init()` it, call `exploreSystem(ship)` with no target, and
+    assert it resumes stop 2 and 3 in the same system and never jumps — this is
+    THEOREM-59's X1-XM46 case, which today is unrecoverable;
+  - a resumed tour clears its row (assert the table is empty afterwards);
+  - a row older than `SURVEY_TTL_MS` does not suppress a survey and does not
+    resurrect a queue;
+  - `listSystemSurveys` **or** `listTourQueues` throwing → `init()` still
+    resolves (each in its own try/catch; §8, missing table);
+  - a store throwing on `saveTourQueue` → the `Pending` still propagates and the
+    in-memory remainder is still set (best-effort write, D5).
 
 ### Slice 4 — the operator can see and undo it
 - `surveyedAt` in the galaxy payload; `POST /api/explorer/forget`
-  (§9); optional MCP tool.
-- Tests: forget clears both the row and the in-memory set, scoped to the
-  session tenant; a second tenant's marks are untouched.
+  (§9); optional MCP tool. `forget` on a system also drops any queued tour of it
+  — otherwise the explorer would keep resuming an itinerary the operator just
+  declared unread.
+- Tests: forget clears both the row and the in-memory set (and the queue),
+  scoped to the session tenant; a second tenant's marks are untouched.
 
 ### Slice 5 — prove it in production
 - Deploy, then:
@@ -311,6 +473,11 @@ independently shippable. Migration gets its own slice, per house rules.
   before/after a `docker compose … up -d --force-recreate stcommand`;
   the `surveyed …` log line must be followed by a row, and the pre-restart
   rows must still be there;
+- **the live test this design was rewritten for:** catch an explorer mid-tour
+  (`tour of X paused at … (cooldown until …) — N stop(s) left`), restart the
+  container while the queue row exists, and confirm the next explore tick logs
+  `resuming the interrupted tour of X — N stop(s) left` and finishes it. The
+  same restart must *not* send it touring its home system;
 - the explorer's next genuinely new system must still tour fully (the
   PR #25 behaviour) — persistence must not make the tour unreachable again.
 
@@ -321,3 +488,8 @@ independently shippable. Migration gets its own slice, per house rules.
   price refresh; this ledger only gates *exploration*.
 - Any change to `galaxy_systems`, which stays shared and tenant-free
   (`migrations/011_galaxy_topology.sql`).
+- Persisting the *itinerary plan itself* before the first stop is attempted —
+  slice 3 writes only on a `Pending`, so a crash mid-tour before any pause (or a
+  hard kill between stop N and N+1) still loses the remainder. Closing that
+  needs a write per completed stop, which is 15 writes per tour for a recovery
+  window of seconds; not worth it until something proves otherwise.
