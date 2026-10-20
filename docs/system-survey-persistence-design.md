@@ -1,6 +1,6 @@
 # Persisting explorer state: `surveyedSystems` and the tour queue — design
 
-Status: implemented · 2026-10-20 (rev. 3: shipped in PR #27; the tour-queue clear is awaited, see §7.3) · branch `design/system-survey-persistence`
+Status: implemented and verified in production (rev. 4: slice 5 executed 2026-10-20 — see §10, "Slice 5 result"; shipped in PR #27; the tour-queue clear is awaited, see §7.3) · branch `design/system-survey-persistence`
 
 ## 1. What is wrong today
 
@@ -490,6 +490,49 @@ whole galaxy after every restart.
   same restart must *not* send it touring its home system;
 - the explorer's next genuinely new system must still tour fully (the
   PR #25 behaviour) — persistence must not make the tour unreachable again.
+
+#### Slice 5 result — executed 2026-10-20, slice closed
+
+Evidence, in order (all times UTC, tenant `252d8ba9`, schema `stcommand`):
+
+```
+PRE   tour_queue: THEOREM-6  sys=X1-QB34  stops=11  updated_at=15:39:58
+      system_surveys: X1-QB34 15:19:48 · X1-CB23 15:20:36   (source=survey)
+15:41:5x  docker compose up -d --force-recreate stcommand  → running/healthy
+15:42:29  THEOREM-6: resuming the interrupted tour of X1-QB34 — 11 stop(s) left
+15:42:30  THEOREM-6: dispatch → X1-QB34-Z11Z
+15:42:35  THEOREM-6: dispatch → X1-QB34-EE1E
+15:42:41  tour of X1-QB34 paused at X1-QB34-EE1E — 10 stop(s) left
+```
+
+The `11 stop(s) left` in the first line after boot is the load-bearing detail:
+the process is new, so `pendingTourStops` was empty, and 11 is exactly the
+persisted `jsonb_array_length(stops)`. The resume therefore came from
+`listTourQueues`, not from surviving memory. The subsequent drop to 10 proves
+the hydrated itinerary is a live control-flow object, not a log-only echo.
+No `tour-queue restore skipped` line appeared, so the boot read did not throw.
+
+`system_surveys` also carries live writes from the engine itself (`source=survey`,
+two systems inside the same five minutes), which is the row-level half of slice 5.
+No explorer resumed a tour of an already-surveyed system after the restart —
+weaker evidence, since it is an absence of a log line rather than a positive
+signal, but it is the specific regression the design exists to prevent.
+
+**How this slice was nearly lost to a measurement bug — do not repeat it.**
+The first attempt reported `NO ROW APPEARED` and refused to restart, and an
+earlier read claimed both tables held zero rows. Both were wrong: everything
+lives in the `stcommand` **schema**, and a probe that does not qualify it
+(`psql -U postgres -d stcommand`, or a `pg` client whose `search_path` option
+never applied) resolves against `public`, where the tables do not exist. `psql`
+says `Did not find any relation`; the `pg` client returned an empty result and
+the watchdog interpreted that as "no rows". The writes had been working for
+~20 minutes while the report said persistence was broken.
+
+Rules that follow: fully qualify every relation in a verification script
+(`stcommand.tour_queue`), never let an empty result stand in for a missing
+relation, and treat "the write did not happen" as a claim requiring a probe
+that would have *errored* if it were looking at the wrong place.
+
 
 ## 11. Out of scope
 
