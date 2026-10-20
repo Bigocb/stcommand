@@ -1,6 +1,6 @@
 # Persisting explorer state: `surveyedSystems` and the tour queue — design
 
-Status: implemented and verified in production (rev. 4: slice 5 executed 2026-10-20 — see §10, "Slice 5 result"; shipped in PR #27; the tour-queue clear is awaited, see §7.3) · branch `design/system-survey-persistence`
+Status: implemented and verified in production (rev. 4: slice 5 executed 2026-10-20 — restart survival and the completion clear both observed live; see §10, "Slice 5 result". Shipped in PR #27) · branch `design/system-survey-persistence`
 
 ## 1. What is wrong today
 
@@ -517,6 +517,20 @@ two systems inside the same five minutes), which is the row-level half of slice 
 No explorer resumed a tour of an already-surveyed system after the restart —
 weaker evidence, since it is an absence of a log line rather than a positive
 signal, but it is the specific regression the design exists to prevent.
+
+**Clear path — verified at 16:08:42.** THEOREM-61 logged `explored X1-M36`
+after a tour that had paused and resumed four times (so its row had been written
+repeatedly). Immediately afterwards `tour_queue` holds **no** row for THEOREM-61
+while `THEOREM-6/X1-QB34 stops=5` and `THEOREM-1B/X1-SU37 stops=13` are still
+present. Those two surviving rows are what make the absence evidence: the probe
+was demonstrably reading the right table, so one ship's row disappearing on
+completion is a delete, not an empty result. `system_surveys` keeps the mark
+(`X1-M36`, `surveyed_at=15:49:53`, 7 markets, 1 yard), which is the intended
+split — finishing a tour retires the itinerary and keeps the survey.
+
+That closes the last open item in this design: §7.3's awaited clear is now
+observed in production, and the restart proof above shows the hydrated
+itinerary actually drives the ship.
 
 **How this slice was nearly lost to a measurement bug — do not repeat it.**
 The first attempt reported `NO ROW APPEARED` and refused to restart, and an
