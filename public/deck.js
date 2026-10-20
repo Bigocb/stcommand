@@ -100,6 +100,18 @@ function setView(name) {
   // One shared 3D map: Overview hosts it (home system) or the Map screen does.
   setDeckMapVisible(name === "map" || name === "overview");
   if (name === "overview") renderMinimap();
+  // The Map screen has to claim the shared scene: mountDeckMap() moves the one
+  // #map-wrap element into whichever host is showing. Overview's renderMinimap()
+  // claims it for the minimap, and nothing ever claimed it back, so opening the
+  // Map tab after Overview left the canvas parented inside the (hidden, 0×0)
+  // minimap — a black stage with no ships. loadGalaxy() feeds this screen's Top
+  // Agents / Factions / System Agents panels, and renderMap() paints the chips
+  // and market detail, so all three belong to this branch.
+  if (name === "map") {
+    mountDeckMap($("map-slot"));
+    loadGalaxy();
+    renderMap();
+  }
   if (name === "automation") {
     loadProgramme();
     loadNotes();
