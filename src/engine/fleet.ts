@@ -15,7 +15,7 @@ import { configChangeEvent, keeperListChange } from "./actionEvents.js";
 import { ApprovalGate } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
-import { IDLE_STEP, Pending, type AgentStep } from "./agentStep.js";
+import { IDLE_STEP, Pending, describeError, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
@@ -328,6 +328,13 @@ interface TenderPlan {
   fuelUnits: number;
 }
 
+/** One stop on an explorer's end-of-trip tour — see runTourStops(). */
+interface TourStop {
+  symbol: string;
+  market: boolean;
+  yard: boolean;
+}
+
 /**
  * Single coordinator for the whole fleet: assigns roles, ticks every ship,
  * drives the contract pipeline, and grows the fleet by buying ships.
@@ -429,6 +436,14 @@ export class FleetManager {
    *  mid-flight instead of stranding the ship at whatever system it had
    *  reached so far. Cleared once the ship actually arrives. */
   private tourDestinations = new Map<string, string>();
+  /**
+   * A tour interrupted mid-itinerary by a control-flow signal — what is left
+   * to visit and in which system, keyed by ship. See runTourStops()'s own
+   * comment. Not persisted: a restart loses the remainder, which costs one
+   * skipped system's worth of market reads, not correctness (the system is
+   * still marked surveyed and every keeper/tour ship keeps its prices fresh).
+   */
+  private pendingTourStops = new Map<string, { system: string; stops: TourStop[] }>();
   /** Dedicated explorer role — see agent.ts's exploreScout()/nextExploreTask()
    *  and setShipRole()'s "explorer" case. Unlike autoExplore()'s occasional
    *  borrow of an idle tour ship, a ship in this map does nothing else. */
@@ -4223,6 +4238,19 @@ export class FleetManager {
     try {
       const ship = await this.api.getShip(shipSymbol);
       const currentSystem = ship.nav.systemSymbol;
+      // Finish an interrupted tour before picking anything new. The retry is
+      // scheduled by nextExploreTask() at the cooldown's resumeAt and calls
+      // back in with no target — without this branch the ship would pick a
+      // *neighbour* system and jump away from the itinerary it was halfway
+      // through, and nothing would ever finish it: surveySystem() already
+      // marked this system surveyed, so exploreSystem() would skip the re-tour
+      // on every later visit. See runTourStops()'s own comment.
+      const interrupted = this.pendingTourStops.get(shipSymbol);
+      if (interrupted && interrupted.system === currentSystem) {
+        this.log(`${shipSymbol}: resuming the interrupted tour of ${currentSystem} — ${interrupted.stops.length} stop(s) left`);
+        await this.runTourStops(shipSymbol, currentSystem, interrupted.stops, undefined);
+        return currentSystem;
+      }
       const connected = this.galaxy.connectedSystems(currentSystem);
       // Home is excluded outright, not just deprioritized: it's by far the
       // best-known system in the game for this tenant (charted at boot,
@@ -4393,44 +4421,86 @@ export class FleetManager {
         ...waypoints.filter(isYard),
         ...waypoints.filter((w) => w.symbol !== remoteGate.symbol && isMarket(w)).slice(0, MAX_EXTRA_MARKET_STOPS),
       ];
-      const toured = new Set<string>();
+      const seen = new Set<string>();
+      const stops: TourStop[] = [];
       for (const wp of itinerary) {
-        if (toured.has(wp.symbol)) continue;
-        toured.add(wp.symbol);
-        const wantsMarket = wp.symbol !== remoteGate.symbol && isMarket(wp);
-        const wantsYard = isYard(wp);
-        try {
-          await this.dispatchShip(shipSymbol, wp.symbol);
-          // maxAgeMs: 0 defeats marketSnapshotFresh(). surveySystem() just
-          // above recorded a snapshot for every market in this system from a
-          // remote read that only returns real prices at the waypoint the
-          // ship was standing on, so those snapshots are fresh *and* empty —
-          // the default guard saw "fetched seconds ago" and skipped the read
-          // this ship just flew here for, making the whole tour a series of
-          // expensive no-ops.
-          if (wantsMarket) await this.recordMarketSnapshot(wp.symbol, { maxAgeMs: 0 });
-          if (wantsYard) {
-            // dispatchTo() docks on arrival, except at the waypoint the ship
-            // is already standing on (this jump's own gate), where it no-ops.
-            if (wp.symbol === remoteGate.symbol) {
-              const nav = (await this.api.getShip(shipSymbol)).nav;
-              if (nav.status !== "DOCKED") await this.api.dockShip(shipSymbol);
-            }
-            // force: this ship is physically here, which is the one condition
-            // the stock is gated on — the 30-minute throttle exists to stop
-            // every keeper at a busy yard re-reading it, not to stop the one
-            // hull that flew across a system to look.
-            await this.recordShipyardSnapshot(wp.symbol, { force: true });
-          }
-        } catch (err) {
-          this.log(`tour of ${wp.symbol} in ${target} failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        if (seen.has(wp.symbol)) continue;
+        seen.add(wp.symbol);
+        stops.push({
+          symbol: wp.symbol,
+          market: wp.symbol !== remoteGate.symbol && isMarket(wp),
+          yard: isYard(wp),
+        });
       }
-      this.log(`${shipSymbol} explored ${target}`);
+      await this.runTourStops(shipSymbol, target, stops, remoteGate.symbol);
       return target;
     } finally {
       this.controlledAgent(shipSymbol)?.release();
     }
+  }
+
+  /**
+   * Walk an explorer's end-of-trip itinerary: every shipyard in the system,
+   * then up to ten markets.
+   *
+   * Two rules about failures, and they are different on purpose:
+   *
+   * - A `Pending` (cooldown / transit / backoff) is a *control-flow signal*,
+   *   not a failure — `Pending` is deliberately not an Error, see
+   *   describeError(). It has to stop the tour and reach nextExploreTask(),
+   *   which reschedules at `resumeAt`; the stops not yet done are kept so that
+   *   retry finishes the job. Confirmed live 2026-10-20: THEOREM-59 was on a
+   *   196s cooldown and logged three stops as `failed: [object Object]` 0.4s
+   *   apart — every one of them a swallowed CooldownPending — then
+   *   `explored X1-XM46`. The system was marked surveyed, the ship jumped on,
+   *   and none of its four markets was ever read by the one hull that had
+   *   actually flown there. Without the retained remainder, the retry would
+   *   also pick a *neighbour* system (exploreNext() passes no target) and jump
+   *   away from the half-finished tour for good.
+   * - A genuine error costs only its own stop. One unreachable market must not
+   *   abandon the other nine.
+   */
+  private async runTourStops(
+    shipSymbol: string,
+    systemSymbol: string,
+    stops: TourStop[],
+    atGateSymbol: string | undefined,
+  ): Promise<void> {
+    for (let i = 0; i < stops.length; i++) {
+      const stop = stops[i]!;
+      try {
+        await this.dispatchShip(shipSymbol, stop.symbol);
+        // maxAgeMs: 0 defeats marketSnapshotFresh(). surveySystem() recorded a
+        // snapshot for every market in this system from a remote read that
+        // only returns real prices at the waypoint the ship was standing on,
+        // so those snapshots are fresh *and* empty — the default guard saw
+        // "fetched seconds ago" and skipped the read this ship just flew here
+        // for, making the whole tour a series of expensive no-ops.
+        if (stop.market) await this.recordMarketSnapshot(stop.symbol, { maxAgeMs: 0 });
+        if (stop.yard) {
+          // dispatchTo() docks on arrival, except at the waypoint the ship is
+          // already standing on (this jump's own gate), where it no-ops.
+          if (stop.symbol === atGateSymbol) {
+            const nav = (await this.api.getShip(shipSymbol)).nav;
+            if (nav.status !== "DOCKED") await this.api.dockShip(shipSymbol);
+          }
+          // force: this ship is physically here, which is the one condition the
+          // stock is gated on — the 30-minute throttle exists to stop every
+          // keeper at a busy yard re-reading it, not to stop the one hull that
+          // flew across a system to look.
+          await this.recordShipyardSnapshot(stop.symbol, { force: true });
+        }
+      } catch (err) {
+        if (err instanceof Pending) {
+          this.pendingTourStops.set(shipSymbol, { system: systemSymbol, stops: stops.slice(i) });
+          this.log(`${shipSymbol}: tour of ${systemSymbol} paused at ${stop.symbol} (${describeError(err)}) — ${stops.length - i} stop(s) left`);
+          throw err;
+        }
+        this.log(`tour of ${stop.symbol} in ${systemSymbol} failed: ${describeError(err)}`);
+      }
+    }
+    this.pendingTourStops.delete(shipSymbol);
+    this.log(`${shipSymbol} explored ${systemSymbol}`);
   }
 
   /**
