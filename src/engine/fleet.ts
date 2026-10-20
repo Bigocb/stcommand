@@ -4328,10 +4328,20 @@ export class FleetManager {
       // reveals live prices to a ship physically present. Two consecutive
       // trips to X1-TV75/X1-ZU53/etc. left each with exactly one good on
       // record — the gate's own antimatter listing — with the system's
-      // other markets never actually seen. Physically tour a few of them
-      // before this scout is released back to its normal duty, so a system
-      // gets more than a single accidental price point out of being
-      // "explored" at all.
+      // other markets never actually seen. Physically tour them before this
+      // explorer jumps on, so a system gets more than a single accidental
+      // price point out of being "explored" at all.
+      //
+      // Ten markets, not the original three (operator, 2026-10-20): a system
+      // commonly has more, and the three-stop cap left most of a newly
+      // charted system's prices unseen until a keeper or tour ship happened
+      // to pass through. Shipyards are visited too, and *all* of them rather
+      // than a capped slice — yard stock is only revealed to a ship docked at
+      // the yard (see recordShipyardSnapshot()'s own comment), so the remote
+      // getShipyard() sweep surveySystem() already ran recorded an empty
+      // listing, and this trip is the only chance to fill it. A waypoint that
+      // carries both traits is visited once and both reads happen there.
+      //
       // Root-caused live: the first attempt at this rejected every one of
       // these stops with a huge, seemingly-nonsensical "requires N more fuel"
       // error, even for waypoints a few hundred units from the gate. The
@@ -4341,16 +4351,50 @@ export class FleetManager {
       // navigateShip() call rejected it with the true shortfall. There is
       // nothing to push here any more: every agent reads the live registry,
       // so the surveySystem() call just above is already visible to this ship.
-      const MAX_EXTRA_MARKET_STOPS = 3;
-      const otherMarkets = (this.galaxy.getSystem(target)?.waypoints ?? [])
-        .filter((w) => w.symbol !== remoteGate.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE"))
-        .slice(0, MAX_EXTRA_MARKET_STOPS);
-      for (const wp of otherMarkets) {
+      const MAX_EXTRA_MARKET_STOPS = 10;
+      const isMarket = (w: { traits?: { symbol: string }[] }) => (w.traits ?? []).some((t) => t.symbol === "MARKETPLACE");
+      const isYard = (w: { traits?: { symbol: string }[] }) => (w.traits ?? []).some((t) => t.symbol === "SHIPYARD");
+      const waypoints = this.galaxy.getSystem(target)?.waypoints ?? [];
+      // Yards first (there are only ever a handful, and their data cannot be
+      // had any other way), then the capped market slice. The gate is excluded
+      // from the market list — the ship is standing on it, so surveyMarkets()
+      // already read its real prices — but not from the yard list, where
+      // "docked" is the requirement and it arrives orbiting.
+      const itinerary = [
+        ...waypoints.filter(isYard),
+        ...waypoints.filter((w) => w.symbol !== remoteGate.symbol && isMarket(w)).slice(0, MAX_EXTRA_MARKET_STOPS),
+      ];
+      const toured = new Set<string>();
+      for (const wp of itinerary) {
+        if (toured.has(wp.symbol)) continue;
+        toured.add(wp.symbol);
+        const wantsMarket = wp.symbol !== remoteGate.symbol && isMarket(wp);
+        const wantsYard = isYard(wp);
         try {
           await this.dispatchShip(shipSymbol, wp.symbol);
-          await this.recordMarketSnapshot(wp.symbol);
+          // maxAgeMs: 0 defeats marketSnapshotFresh(). surveySystem() just
+          // above recorded a snapshot for every market in this system from a
+          // remote read that only returns real prices at the waypoint the
+          // ship was standing on, so those snapshots are fresh *and* empty —
+          // the default guard saw "fetched seconds ago" and skipped the read
+          // this ship just flew here for, making the whole tour a series of
+          // expensive no-ops.
+          if (wantsMarket) await this.recordMarketSnapshot(wp.symbol, { maxAgeMs: 0 });
+          if (wantsYard) {
+            // dispatchTo() docks on arrival, except at the waypoint the ship
+            // is already standing on (this jump's own gate), where it no-ops.
+            if (wp.symbol === remoteGate.symbol) {
+              const nav = (await this.api.getShip(shipSymbol)).nav;
+              if (nav.status !== "DOCKED") await this.api.dockShip(shipSymbol);
+            }
+            // force: this ship is physically here, which is the one condition
+            // the stock is gated on — the 30-minute throttle exists to stop
+            // every keeper at a busy yard re-reading it, not to stop the one
+            // hull that flew across a system to look.
+            await this.recordShipyardSnapshot(wp.symbol, { force: true });
+          }
         } catch (err) {
-          this.log(`market tour of ${wp.symbol} in ${target} failed: ${err instanceof Error ? err.message : String(err)}`);
+          this.log(`tour of ${wp.symbol} in ${target} failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       this.log(`${shipSymbol} explored ${target}`);
@@ -5170,8 +5214,18 @@ export class FleetManager {
     return yard;
   }
 
-  /** Snapshot a shipyard's inventory at a waypoint (only visible when docked). */
-  async recordShipyardSnapshot(waypointSymbol: string): Promise<void> {
+  /**
+   * Snapshot a shipyard's inventory at a waypoint (only visible when docked).
+   *
+   * `opts.force` skips the per-yard throttle below. Used by exploreSystem()'s
+   * end-of-trip tour: that ship flew across a system and docked specifically
+   * to read this yard, and the surveySystem() sweep that preceded it could
+   * only ever produce an empty listing (stock needs a docked hull), so the
+   * stored time is guaranteed to be both recent and worthless. The throttle
+   * exists to stop every keeper parked at a busy yard re-reading it, not to
+   * turn a deliberate visit into a no-op.
+   */
+  async recordShipyardSnapshot(waypointSymbol: string, opts: { force?: boolean } = {}): Promise<void> {
     const systemSymbol = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
     // Keepers call this for every market they poll, but only a waypoint with the SHIPYARD trait has a yard to read: for
     // the rest getShipyard() is a wasted call that fails. Measured 2026-10-16: 66 of these in the five minutes after a
@@ -5186,12 +5240,14 @@ export class FleetManager {
     // for stock that rotates slowly.
     // The clock is in memory, so a restart used to re-read every yard on its next dock (57 reads in the first five
     // minutes after the 2026-10-15 deploy). Start it from the stored inventory's own time instead.
-    if (!this.shipyardSnapshotAt.has(waypointSymbol)) {
-      const stored = (await this.storedYardTimes()).get(waypointSymbol);
-      if (stored !== undefined) this.shipyardSnapshotAt.set(waypointSymbol, stored);
+    if (!opts.force) {
+      if (!this.shipyardSnapshotAt.has(waypointSymbol)) {
+        const stored = (await this.storedYardTimes()).get(waypointSymbol);
+        if (stored !== undefined) this.shipyardSnapshotAt.set(waypointSymbol, stored);
+      }
+      const last = this.shipyardSnapshotAt.get(waypointSymbol) ?? 0;
+      if (Date.now() - last < FleetManager.SHIPYARD_SNAPSHOT_MS) return;
     }
-    const last = this.shipyardSnapshotAt.get(waypointSymbol) ?? 0;
-    if (Date.now() - last < FleetManager.SHIPYARD_SNAPSHOT_MS) return;
     this.shipyardSnapshotAt.set(waypointSymbol, Date.now());
     let yard: Awaited<ReturnType<SpaceTradersAPI["getShipyard"]>>;
     try {

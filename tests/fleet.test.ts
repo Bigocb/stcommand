@@ -344,6 +344,98 @@ describe("FleetManager.exploreSystem: a re-visited system is not re-toured", () 
   });
 });
 
+describe("FleetManager.exploreSystem: the end-of-trip tour", () => {
+  // Operator, 2026-10-20: the tour stopped at three markets and never looked at
+  // a shipyard, so a newly charted system kept most of its prices and all of
+  // its yard stock unseen until a keeper or tour ship wandered past. Ten
+  // markets, plus every yard in the system.
+  const market = (symbol: string) => ({ symbol, type: "PLANET", traits: [{ symbol: "MARKETPLACE" }] });
+  const yard = (symbol: string) => ({ symbol, type: "ORBITAL_STATION", traits: [{ symbol: "SHIPYARD" }] });
+  const both = (symbol: string) => ({ symbol, type: "ORBITAL_STATION", traits: [{ symbol: "SHIPYARD" }, { symbol: "MARKETPLACE" }] });
+  const gate = { symbol: "X1-B-GATE", type: "JUMP_GATE", traits: [] };
+
+  function makeTourFleet(waypoints: unknown[], navStatus = "DOCKED") {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([]);
+    (fleet as any).explorers.set("SHIP-1", agent);
+    const ship = agent.getShip();
+    const docked: string[] = [];
+    (fleet as any).api = {
+      getShip: async () => ({ ...ship, nav: { ...ship.nav, status: navStatus, waypointSymbol: "X1-B-GATE" } }),
+      dockShip: async (s: string) => { docked.push(s); },
+    };
+    (fleet as any).galaxy = {
+      connectedSystems: () => ["X1-B"],
+      loadSystem: async () => {},
+      gatesTo: () => ["X1-A-GATE"],
+      getSystem: () => ({ symbol: "X1-B", waypoints }),
+      refreshGateConstruction: async () => true,
+    };
+    (fleet as any).jumpShip = async () => {};
+    (fleet as any).surveySystem = async () => {};
+    (fleet as any).markSystemCharted = async () => {};
+    const stops: string[] = [];
+    (fleet as any).dispatchShip = async (_s: string, wp: string) => { stops.push(wp); };
+    const marketReads: { wp: string; opts: { maxAgeMs?: number } | undefined }[] = [];
+    (fleet as any).recordMarketSnapshot = async (wp: string, opts?: { maxAgeMs?: number }) => { marketReads.push({ wp, opts }); };
+    const yardReads: { wp: string; opts: { force?: boolean } | undefined }[] = [];
+    (fleet as any).recordShipyardSnapshot = async (wp: string, opts?: { force?: boolean }) => { yardReads.push({ wp, opts }); };
+    return { fleet, stops, marketReads, yardReads, docked };
+  }
+
+  it("tours up to ten markets and every shipyard, visiting a dual-trait waypoint once", async () => {
+    const markets = Array.from({ length: 12 }, (_, i) => market(`X1-B-M${String(i + 1).padStart(2, "0")}`));
+    const { fleet, stops, marketReads, yardReads } = makeTourFleet([gate, ...markets, yard("X1-B-Y1"), yard("X1-B-Y2"), both("X1-B-YX")]);
+
+    await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.equal(marketReads.length, 11, "ten capped markets plus the dual-trait station");
+    assert.deepEqual(
+      marketReads.slice(1).map((r) => r.wp),
+      markets.slice(0, 10).map((m) => m.symbol),
+      "the market tour must take ten, not the old three",
+    );
+    assert.deepEqual(yardReads.map((r) => r.wp), ["X1-B-Y1", "X1-B-Y2", "X1-B-YX"], "every yard is read, uncapped");
+    assert.equal(stops.filter((s) => s === "X1-B-YX").length, 1, "a waypoint with both traits is visited once");
+    assert.equal(stops.length, 13, "three yards + ten markets, deduped");
+    assert.ok(!stops.includes("X1-B-GATE"), "the gate is already standing under the ship, so it is not a market stop");
+  });
+
+  it("forces past the market freshness guard the survey just tripped", async () => {
+    // surveySystem() records a snapshot for every market in the system from a
+    // remote read that only returns real prices at the waypoint the ship is
+    // standing on, so the default 0.8×keeperPoll freshness window skipped the
+    // read the ship had just flown here for.
+    const { fleet, marketReads } = makeTourFleet([gate, market("X1-B-M01")]);
+
+    await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.equal(marketReads.length, 1);
+    assert.equal(marketReads[0]!.opts?.maxAgeMs, 0, "the tour must bypass marketSnapshotFresh()");
+  });
+
+  it("forces the shipyard read past the per-yard throttle", async () => {
+    const { fleet, yardReads } = makeTourFleet([gate, yard("X1-B-Y1")]);
+
+    await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.equal(yardReads.length, 1);
+    assert.equal(yardReads[0]!.opts?.force, true, "a ship that flew here must not be throttled out of its own read");
+  });
+
+  it("docks before reading a yard that shares the gate waypoint", async () => {
+    // dispatchTo() no-ops when the ship is already standing on the waypoint,
+    // so the one yard it does not dock at is this jump's own gate — and yard
+    // stock is only visible when docked.
+    const { fleet, docked, yardReads } = makeTourFleet([{ ...gate, traits: [{ symbol: "SHIPYARD" }] }], "IN_ORBIT");
+
+    await (fleet as any).exploreSystem("SHIP-1", "X1-B");
+
+    assert.deepEqual(docked, ["SHIP-1"]);
+    assert.deepEqual(yardReads.map((r) => r.wp), ["X1-B-GATE"]);
+  });
+});
+
 describe("FleetManager.nextHopToUnsurveyed: backtracking once direct neighbors are exhausted", () => {
   // Confirmed live: THEO-C's home gate reaches only X1-FF6 and X1-NR97
   // directly, both fully surveyed, so it just bounced between the two
