@@ -5,7 +5,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { SurveyPool } from "./survey.js";
 import { MIN_PREFERRED_SHARE } from "./survey.js";
 import type { Priority, Task, TaskResult } from "./scheduler.js";
-import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs } from "./agentStep.js";
+import { type AgentStep, IDLE_STEP, Pending, catchBackoffMs, cooldownPendingFrom } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { standDownReason, isTenderGoal } from "./intent.js";
 import { ShipProxy } from "./shipProxy.js";
@@ -2386,6 +2386,12 @@ export class ShipAgent {
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextExploreTask(err.resumeAt) };
+          // The API's cooldown refusal is a plain Error, so it used to fall
+          // through to catchBackoffMs()'s 10s default and retry for the whole
+          // cooldown — a paid call per attempt, all of them refused. Seen live
+          // 2026-10-20: ~30 attempts across a single 384s cooldown.
+          const cooling = cooldownPendingFrom(err);
+          if (cooling) return { actualCalls, next: this.nextExploreTask(cooling.resumeAt) };
           this.log(`explore error: ${err instanceof Error ? err.message : String(err)}`);
           return { actualCalls, next: this.nextExploreTask(Date.now() + catchBackoffMs(err)) };
         } finally {

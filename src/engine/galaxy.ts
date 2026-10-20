@@ -318,6 +318,35 @@ export class GalaxyAtlas {
   }
 
   /**
+   * Systems this atlas can name but has never loaded: they appear as a gate
+   * connection from a known system, and nothing has ever fetched their
+   * waypoints. This is the frontier — the only genuinely unexplored space the
+   * engine knows exists — and it is invisible to listSystems(), which returns
+   * loaded systems only.
+   *
+   * The explorer's backtracking search lived without this while hundreds of
+   * loaded systems were still unsurveyed. Migration 060 seeded the survey
+   * ledger from the atlas itself, so almost every loaded system became
+   * surveyed in one statement, the search ran out of destinations, and the
+   * caller fell through to the direct-neighbour bounce that search was
+   * written to prevent (X1-TP78 ↔ X1-RY37, five times in 45 minutes).
+   */
+  frontierSystems(): string[] {
+    const out = new Set<string>();
+    for (const sys of this.systems.values()) {
+      for (const jg of sys.jumpGates) {
+        for (const c of jg.connections) {
+          // Connection entries are waypoint symbols (X1-AB12-CD34); the system
+          // is everything before the last dash.
+          const s = c.slice(0, c.lastIndexOf("-"));
+          if (s && s !== sys.symbol && !this.systems.has(s)) out.add(s);
+        }
+      }
+    }
+    return [...out];
+  }
+
+  /**
    * Shortest chain of systems from `from` to `to` (both included) over usable
    * edges, at most the positioning-hops setting jumps, or undefined. Synchronous and
    * cache-only: call warmJumpPath() first to populate the cache.
