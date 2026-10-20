@@ -1,6 +1,6 @@
 # Persisting explorer state: `surveyedSystems` and the tour queue — design
 
-Status: proposed · 2026-10-20 (rev. 2: tour queue folded into slice 3) · branch `design/system-survey-persistence`
+Status: implemented · 2026-10-20 (rev. 3: shipped in PR #27; the tour-queue clear is awaited, see §7.3) · branch `design/system-survey-persistence`
 
 ## 1. What is wrong today
 
@@ -341,10 +341,16 @@ and on the last stop:
 ```ts
 this.pendingTourStops.delete(shipSymbol);
 if (this.tenantId && this.store) {
-  void this.store.clearTourQueue(this.tenantId, shipSymbol)
-    .catch((e) => this.log(`tour queue for ${shipSymbol} not cleared: ${describeError(e)}`));
+  try { await this.store.clearTourQueue(this.tenantId, shipSymbol); }
+  catch (e) { this.log(`tour queue for ${shipSymbol} not cleared: ${describeError(e)}`); }
 }
 ```
+
+**The clear is awaited and the write is not**, deliberately. The write sits in
+front of a `Pending` that must yield the tick, so it cannot wait for a database
+round-trip. The clear has no such signal behind it, and a row that outlived its
+tour would make the next boot resume stops that are already done — so it is
+finished before `explored …` is logged.
 
 The resume path itself (`fleet.ts:4248`) does not change: it already matches
 `interrupted.system === currentSystem` and replays the stored stops. What
@@ -464,6 +470,10 @@ whole galaxy after every restart.
   declared unread.
 - Tests: forget clears both the row and the in-memory set (and the queue),
   scoped to the session tenant; a second tenant's marks are untouched.
+- **Shipped:** both the payload field and the route; the fleet-side behaviour is
+  tested directly (`forgetSurveys`, two tenants) because the route sits behind
+  the session cookie. No Deck/Tower button yet and no MCP tool — the route is
+  the surface for now, so a caller reaching it is doing so deliberately.
 
 ### Slice 5 — prove it in production
 - Deploy, then:
