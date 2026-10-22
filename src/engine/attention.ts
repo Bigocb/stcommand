@@ -82,6 +82,11 @@ const ACTIVE_ROLES = new Set(["trader", "miner", "siphoner", "surveyor", "tour",
 export function ruleReasons(f: ShipFacts, rules: AttentionRules = DEFAULT_RULES): Reason[] {
   const out: Reason[] = [];
   const add = (code: string, severity: Severity, text: string) => out.push({ code, severity, text, by: "rule" });
+  // A parked hull is deliberately still and makes no calls: it is never quiet, low on fuel or overdue, only worth one info line.
+  if (f.role === "parked") {
+    add("parked", "info", "parked by the operator: it stays where it is and makes no API calls until unparked");
+    return out;
+  }
   if (f.stranded) add("stranded", "critical", "stranded: out of fuel with no reachable stop");
   if (f.nav === "IN_TRANSIT" && f.secondsPastArrival > rules.overdueSeconds) {
     add("transit_overdue", "warning", `still in transit ${Math.round(f.secondsPastArrival / 60)} min after its arrival time`);

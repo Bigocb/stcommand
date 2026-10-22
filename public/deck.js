@@ -27,6 +27,7 @@ import { mountSeason } from "/shared/season.js";
 import { mountWeeks } from "/shared/weeks.js";
 import { mountSystems } from "/shared/systems.js";
 import { mountExplorers } from "/shared/explorers.js";
+import { mountBlockedGoods } from "/shared/blockedGoods.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
@@ -82,6 +83,7 @@ let seasonScreen = null;
 let weeksScreen = null;
 let systemsScreen = null;
 let explorersScreen = null;
+let blockedGoods = null;
 let miningScreen = null;
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
@@ -157,6 +159,8 @@ function setView(name) {
     miningScreen.show();
   }
   if (name === "doctrine") {
+    blockedGoods ??= mountBlockedGoods($("blocked-goods-root"), { api });
+    blockedGoods.show();
     loadDoctrine();
     loadDoctrineFireShips();
     renderDoctrine();

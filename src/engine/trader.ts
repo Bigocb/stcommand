@@ -95,6 +95,8 @@ export interface TraderOptions {
   store?: import("../db/store.js").Store;
   /** Trade symbols reserved for missions; the trader must never buy/sell these. */
   protectedGoods?: () => Set<string>;
+  /** Goods the operator has blocked from margin trading (blockedGoods.ts): no new buys, cargo already aboard is still sold. */
+  blockedGoods?: () => ReadonlySet<string>;
   /** Trade symbols being carried / traded by another ship; avoid these to prevent buying competition. */
   reservedGoods?: () => Set<string>;
   /** Centralized dispatch: the specific assignment this trader holds (or undefined if it holds no claim). */
@@ -259,6 +261,7 @@ export class TraderAgent {
   private readonly recordMarket: TraderOptions["recordMarket"];
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
+  private readonly blockedGoods?: () => ReadonlySet<string>;
   private readonly reservedGoods?: () => Set<string>;
   private readonly assignedRoute?: () => TraderAssignment | undefined;
   private readonly declineRoute?: (wholeGood: boolean) => void;
@@ -405,6 +408,7 @@ export class TraderAgent {
     this.recordMarket = opts.recordMarket;
     this.getMarketSnapshots = opts.getMarketSnapshots;
     this.protectedGoods = opts.protectedGoods;
+    this.blockedGoods = opts.blockedGoods;
     this.reservedGoods = opts.reservedGoods;
     this.assignedRoute = opts.assignedRoute;
     this.declineRoute = opts.declineRoute;
@@ -1516,6 +1520,7 @@ export class TraderAgent {
     const outside = this.outsideReach(r);
     if (outside !== undefined) return outside;
     if (this.refusedGoods().has(r.good)) return `protected good ${r.good}`;
+    if (this.blockedGoods?.().has(r.good)) return `blocked by the operator: ${r.good}`;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return `dead route ${r.good}@${r.buyAt}`;
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
@@ -1565,6 +1570,7 @@ export class TraderAgent {
     if (r.buyAt === r.sellAt) return undefined;
     if (this.outsideReach(r) !== undefined) return undefined;
     if (this.refusedGoods().has(r.good)) return undefined;
+    if (this.blockedGoods?.().has(r.good)) return undefined;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return undefined;
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
@@ -1678,7 +1684,7 @@ export class TraderAgent {
     let best: Route | undefined;
 
     for (const good of goods) {
-      if (protectedGoods.has(good) || reservedGoods.has(good)) continue;
+      if (protectedGoods.has(good) || reservedGoods.has(good) || (this.blockedGoods?.().has(good) ?? false)) continue;
       const buy = this.bestBuy(good);
       const sell = this.bestSell(good);
       if (!buy || !sell) continue;

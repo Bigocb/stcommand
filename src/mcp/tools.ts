@@ -1171,6 +1171,82 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_block_good",
+    {
+      title: "Block a trade good from margin trading",
+      description: "Add a good to the blocked-goods list: the dispatcher drops every route in it and a trader will not pick it for itself, so no new buys start. For goods that are not worth trading (a thin market where each lot sold ratchets the price down, so every sale needs a below-floor approval). Cargo already aboard is still sold by the normal rules, including the loss floor and its approvals. A route pinned by hand, a contract and a construction mission are unaffected. Takes effect within a minute. Undo with stcommand_unblock_good.",
+      inputSchema: { good: z.string().describe("Trade symbol, e.g. VIRAL_AGENTS"), reason: z.string().optional() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ good, reason }) => {
+      try {
+        const list = await w.fleet.blockGood(good, reason);
+        await recordMcpAction(w, "block_good", undefined, `blocked ${good.toUpperCase()}${reason ? `: ${reason}` : ""}`, { good, reason: reason ?? null });
+        return textResult({ ok: true, blocked: list });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_unblock_good",
+    {
+      title: "Take a good off the blocked list",
+      description: "Remove a good from the blocked-goods list; its routes return on the next dispatch recompute.",
+      inputSchema: { good: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ good }) => {
+      try {
+        const list = await w.fleet.unblockGood(good);
+        await recordMcpAction(w, "unblock_good", undefined, `unblocked ${good.toUpperCase()}`, { good });
+        return textResult({ ok: true, blocked: list });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_park_ship",
+    {
+      title: "Park a ship (keep it, stop all its API calls)",
+      description: "Park a hull: it stays where it is, keeps whatever is in its hold, and makes no game-API calls until unparked. Not a sale and not a hold (a held ship still polls the game every 30 s). It is released from any feed or mission crew, its hold, mining pin, pending sale and tour destination are cleared, and it is docked first when it is in orbit at a market or shipyard (the only call parking makes). A parked keeper still counts as covering its market, so that market is not bought again, but it no longer counts against the keeper limit or polls. Reversible with stcommand_unpark_ship, which resumes the role it had. Refused for a live rescue tender. The reset wind-down never scraps a parked ship, and a parked ship is lost at the reset, so unpark it first if it should be cashed out. Reports cargo left aboard and anything released.",
+      inputSchema: { shipSymbol: z.string(), dock: z.boolean().optional().describe("Dock a ship in orbit at a market or shipyard first (default true). One call.") },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol, dock }) => {
+      try {
+        const r = await w.fleet.parkShip(shipSymbol, { dock });
+        if (!r.alreadyParked) await recordMcpAction(w, "park_ship", shipSymbol, `${shipSymbol} parked at ${r.at}${r.from ? ` (was ${r.from})` : ""}`, { from: r.from ?? null, cargoUnits: r.cargoUnits, released: r.released });
+        return textResult({ ok: true, ...r });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_unpark_ship",
+    {
+      title: "Unpark a ship (resume its role)",
+      description: "Resume a parked ship: the role given, else the role it had when it was parked, else the one its hull says (a keeper whose market is no longer known also falls back to the hull's role, and the response says so). A keeper goes back to the market it was parked at.",
+      inputSchema: { shipSymbol: z.string(), role: z.enum(MANUAL_ROLES).optional() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ shipSymbol, role }) => {
+      try {
+        const r = await w.fleet.unparkShip(shipSymbol, role);
+        await recordMcpAction(w, "unpark_ship", shipSymbol, `${shipSymbol} unparked as ${r.role}`, { role: r.role });
+        return textResult({ ok: true, ...r });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_remove_feed",
     {
       title: "Stop and forget a feed",

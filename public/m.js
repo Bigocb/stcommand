@@ -27,6 +27,7 @@ import { mountMetrics } from "/shared/metrics.js";
 import { seasonCardHtml } from "/shared/season.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { mountExplorers } from "/shared/explorers.js";
+import { mountBlockedGoods } from "/shared/blockedGoods.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
@@ -89,6 +90,7 @@ $("auth-form").addEventListener("submit", async (e) => {
 let metricsScreen = null;
 let miningScreen = null;
 let explorersScreen = null;
+let blockedGoodsScreen = null;
 function setTab(name) {
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
@@ -151,6 +153,7 @@ const NAV_GROUPS = [
     { key: "metrics", label: "Metrics", screen: "metrics" },
     { key: "season", label: "Season", screen: "more", pane: "work", only: ["more-sec-season"] },
     { key: "doctrine", label: "Doctrine", screen: "more", pane: "rules", only: ["more-sec-doctrine"] },
+    { key: "blocked", label: "Blocked", screen: "more", pane: "rules", only: ["more-sec-blocked"] },
     { key: "opening", label: "Opening", screen: "more", pane: "rules", only: ["more-sec-opening"] },
     { key: "keys", label: "Keys", screen: "more", pane: "rules", only: ["more-sec-keys"] },
     { key: "admin", label: "Admin", screen: "admin", adminOnly: true },
@@ -1165,7 +1168,11 @@ $("more-seg").addEventListener("click", (e) => {
   // Reached either from the segment bar or from a More tab (openTab clicks the
   // segment for its pane). Rendering here as well as in renderMore() covers the
   // second case, where the pane was already on screen.
-  if (b.dataset.mseg === "rules") renderMoreOpening();
+  if (b.dataset.mseg === "rules") {
+    renderMoreOpening();
+    blockedGoodsScreen ??= mountBlockedGoods($("more-blocked-root"), { api });
+    blockedGoodsScreen.show();
+  }
   // The fields table polls only while it is on screen.
   miningScreen ??= mountMiningFields($("mining-root"), { api });
   if (b.dataset.mseg === "mining") miningScreen.show(); else miningScreen.hide();

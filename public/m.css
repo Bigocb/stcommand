@@ -800,3 +800,10 @@ select:focus, .price-picker select:focus, select.role-select:focus { outline: 1p
 .ex-kpi { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ex-k { font-family: var(--chrome); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
 .ex-v { font-family: var(--mono); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.bg-note { font-size: 10.5px; color: var(--dim); line-height: 1.5; margin-bottom: 8px; }
+.bg-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.bg-form input { min-width: 0; background: #04070a; border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono); font-size: 12px; padding: 8px 10px; border-radius: 3px; }
+.bg-err { font-size: 10.5px; color: var(--red); }
+.bg-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
+.bg-good { font-family: var(--mono); font-size: 12px; }
+.bg-why { flex: 1; font-size: 10px; color: var(--dim); }

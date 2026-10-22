@@ -20,6 +20,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
 import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
+import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
 import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
@@ -1471,6 +1472,7 @@ export class FleetManager {
         if (this.tenantId) await this.store?.deleteHeldRoute(this.tenantId, shipSymbol, good);
       },
       protectedGoods: () => this.allProtectedGoods(),
+      blockedGoods: () => this.blockedGoodsCache,
       deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
       // Units a contract still needs, less what OTHER ships on a contract buy already carry for it: with several buyers on one
       // good (contract duty), each one's purchase must not count units a fleetmate is already flying in.
@@ -1976,6 +1978,42 @@ export class FleetManager {
     return learned ?? CROSS_SYSTEM_JUMP_COST_ESTIMATE;
   }
 
+  /** The blocked-goods set the traders read synchronously; refreshed whenever the list is read or changed. */
+  private blockedGoodsCache: ReadonlySet<string> = new Set();
+
+  /** The operator's blocked goods (fleet flag blockedGoods), read fresh and cached for the traders' own route choice. */
+  async blockedGoodsEntries(): Promise<BlockedGood[]> {
+    const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "blockedGoods") : undefined;
+    const list = parseBlocked(raw);
+    this.blockedGoodsCache = blockedSet(list);
+    return list;
+  }
+
+  private async saveBlockedGoods(list: BlockedGood[]): Promise<BlockedGood[]> {
+    if (this.tenantId) {
+      if (list.length) await this.store?.setFleetFlag(this.tenantId, "blockedGoods", JSON.stringify(list));
+      else await this.store?.removeFleetFlag(this.tenantId, "blockedGoods");
+    }
+    this.blockedGoodsCache = blockedSet(list);
+    return list;
+  }
+
+  /**
+   * Stop buying a good for margin trading. Takes effect on the next dispatch recompute (within a minute) and at once for a trader's
+   * own choice. Cargo already aboard is sold by the usual rules; a hand-pinned route is untouched.
+   */
+  async blockGood(good: string, reason?: string): Promise<BlockedGood[]> {
+    const next = addBlockedGood(await this.blockedGoodsEntries(), good, new Date().toISOString(), reason);
+    this.log(`blocked goods: ${good.toUpperCase()} blocked${reason ? ` (${reason})` : ""}; ${next.length} on the list`);
+    return this.saveBlockedGoods(next);
+  }
+
+  async unblockGood(good: string): Promise<BlockedGood[]> {
+    const next = removeBlockedGood(await this.blockedGoodsEntries(), good);
+    this.log(`blocked goods: ${good.toUpperCase()} unblocked; ${next.length} on the list`);
+    return this.saveBlockedGoods(next);
+  }
+
   private lastChainGoodsLog = "";
 
   /**
@@ -2034,7 +2072,13 @@ export class FleetManager {
       if (dropSample.length < 80) dropSample.push({ reason, good, buyAt, sellAt, profitPerTrip });
     };
     const storedLegs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
+    const blocked = blockedSet(await this.blockedGoodsEntries());
     const legs = storedLegs
+      .filter((l) => {
+        if (!blocked.has(l.goodSymbol)) return true;
+        drop("blocked by the operator (blocked goods list)", l.goodSymbol, l.buyAt, l.sellAt);
+        return false;
+      })
       .filter((l) => {
         if (charted.has(l.buySystem) && charted.has(l.sellSystem)) return true;
         drop("a market system this tenant has not charted", l.goodSymbol, l.buyAt, l.sellAt);
@@ -3019,6 +3063,7 @@ export class FleetManager {
         this.clearRoleMaps(r.shipSymbol);
         this.parkedShips.set(r.shipSymbol, ship);
         if (r.parkedFrom) this.parkedFrom.set(r.shipSymbol, r.parkedFrom);
+        if (r.keeperMarket && r.parkedFrom === "keeper") this.parkedKeeperMarkets.set(r.shipSymbol, r.keeperMarket);
         this.log(`restored role parked for ${r.shipSymbol}${r.parkedFrom ? ` (was ${r.parkedFrom})` : ""}`);
         continue;
       }
@@ -4985,6 +5030,10 @@ export class FleetManager {
    * derived role (from assignRole()) disagrees with it.
    */
   async setShipRole(shipSymbol: string, role: ManualRole, keeperMarket?: string): Promise<void> {
+    // Parking has side effects a plain role change must never perform silently (it releases feed and mission crews, clears holds and
+    // pending sales). It also has no agent to install, so reaching installRoleAgent() below would stop the ship's agent and then
+    // throw, leaving it orphaned until a restart. Refuse before anything is touched.
+    if (role === "parked") throw new Error(`${shipSymbol}: use parkShip() (stcommand_park_ship) to park a ship, not a role change`);
     // clearRoleMaps() below stops the current agent and drops it; installRoleAgent()
     // then constructs a brand-new one, which starts with suspended=false —
     // silently discarding a live suspension instead of ever resolving it. A
@@ -5059,6 +5108,122 @@ export class FleetManager {
         this.log(`${shipSymbol}: enqueued ${role} task (scheduler size ${before} -> ${scheduler.size()})`);
       }
     }
+  }
+
+  /** Market each parked keeper stood at, so parking one does not leave its market looking uncovered (it would be bought again). */
+  private readonly parkedKeeperMarkets = new Map<string, string>();
+
+  /** Every market a keeper covers, counting a parked keeper's: parked means "kept, not polling", not "this market wants a new probe". */
+  private coveredKeeperMarkets(): Set<string> {
+    return new Set([...this.keeperMarkets.values(), ...this.parkedKeeperMarkets.values()]);
+  }
+
+  /** The role a hull would be given if nothing says otherwise: assignRole()'s hull rules, as a plain answer. */
+  private hullRole(ship: Ship): Exclude<ManualRole, "parked"> {
+    if (ship.mounts.some((m) => m.symbol.startsWith("MOUNT_MINING_LASER")) && ship.cargo.capacity >= 15) return "miner";
+    if (ship.mounts.some((m) => m.symbol.startsWith("MOUNT_SURVEYOR"))) return "surveyor";
+    if (ship.mounts.some((m) => m.symbol.startsWith("MOUNT_GAS_SIPHON"))) return "siphoner";
+    return ship.cargo.capacity >= 15 ? "trader" : "scout";
+  }
+
+  /**
+   * Park a hull (docs/parked-ships-design.md §4): it stays where it is, keeps its hold and makes no game-API calls until unparked.
+   * Releases it from any feed or mission crew and clears every manual state that would otherwise act on it at boot (a hold, a mining
+   * pin, a pending sale, a tour destination). Reversible: unparkShip() resumes the role it had. A live rescue tender is the one
+   * refusal. Returns what happened so the operator is told about cargo and released crews instead of discovering them later.
+   */
+  async parkShip(shipSymbol: string, opts: { dock?: boolean } = {}): Promise<{
+    parked: true; alreadyParked?: boolean; from?: string; at: string; nav: string; docked: boolean;
+    released: { feeds: string[]; missions: string[] }; cargoUnits: number; keeperMarket?: string;
+  }> {
+    const existing = this.parkedShips.get(shipSymbol);
+    if (existing) {
+      return { parked: true, alreadyParked: true, from: this.parkedFrom.get(shipSymbol), at: existing.nav.waypointSymbol, nav: existing.nav.status, docked: existing.nav.status === "DOCKED", released: { feeds: [], missions: [] }, cargoUnits: existing.cargo?.units ?? 0 };
+    }
+    if ([...this.rescuePlans.values()].some((p) => p.tenderSymbol === shipSymbol)) {
+      throw new Error(`${shipSymbol} is a live rescue tender, mid-trip under direct control: parking it would strand the ship it is going to help. Wait for the rescue to finish.`);
+    }
+    if (this.controlledAgent(shipSymbol)?.isSuspended()) {
+      throw new Error(`${shipSymbol} is suspended (mission or rescue in progress): wait for it to finish before parking`);
+    }
+    // Which ship object to remember: the live agent's, else the one pending a role decision, else one read (the only case that costs a call).
+    const ship: Ship = this.shipFor(shipSymbol) ?? (await this.api.getShip(shipSymbol));
+    const was = this.roleOf(shipSymbol);
+    const keeperMarket = this.keeperMarkets.get(shipSymbol);
+
+    // Crews that drive a ship by raw API calls do not go through the role maps, so they must be told explicitly.
+    const released = { feeds: [] as string[], missions: [] as string[] };
+    for (const f of await this.feeds.list()) {
+      if (f.assignedShips?.includes(shipSymbol)) {
+        await this.feeds.removeCarrier(f.targetWaypoint, f.good, shipSymbol, !!f.mine);
+        released.feeds.push(`${f.good} → ${f.targetWaypoint}`);
+      }
+    }
+    for (const m of await this.missions.list()) {
+      if (m.assignedShips.includes(shipSymbol)) {
+        await this.removeMissionCarrier(m.targetWaypoint, shipSymbol);
+        released.missions.push(m.targetWaypoint);
+      }
+    }
+    // init() replays a stored hold at boot and a stale pending sale would send the ship to a yard: clear them all.
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null, scrapAt: null, tourDestination: null });
+    this.pendingRoleShips.delete(shipSymbol);
+    this.clearRoleMaps(shipSymbol);
+    this.forgetIntent(shipSymbol);
+
+    this.parkedShips.set(shipSymbol, ship);
+    if (was !== "parked") this.parkedFrom.set(shipSymbol, was);
+    if (keeperMarket) this.parkedKeeperMarkets.set(shipSymbol, keeperMarket);
+    this.manualRoleShips.add(shipSymbol);
+    this.shipRegistry.claim(shipSymbol, "operator", "parked", {}, { preempt: true });
+    if (this.tenantId) await this.store?.setFleetState(this.tenantId, shipSymbol, "parked", keeperMarket, was);
+
+    // The one call parking ever makes: a docked hull is unambiguous. Nothing is called when it is docked already or in transit.
+    let docked = ship.nav.status === "DOCKED";
+    const wp = ship.nav.waypointSymbol;
+    if ((opts.dock ?? true) && ship.nav.status === "IN_ORBIT" && (this.registry.isMarket(wp) || this.registry.isShipyard(wp))) {
+      try {
+        await this.api.dockShip(shipSymbol);
+        this.parkedShips.set(shipSymbol, { ...ship, nav: { ...ship.nav, status: "DOCKED" } });
+        docked = true;
+      } catch (err) {
+        this.log(`${shipSymbol}: parked, but docking failed: ${describeError(err)}`);
+      }
+    }
+    const cargoUnits = ship.cargo?.units ?? 0;
+    this.log(`${shipSymbol}: parked at ${wp}${was !== "parked" ? ` (was ${was})` : ""}${cargoUnits ? `, ${cargoUnits}u cargo frozen aboard` : ""}${released.feeds.length || released.missions.length ? `, released from ${[...released.feeds, ...released.missions].join(", ")}` : ""}`);
+    return { parked: true, from: was, at: wp, nav: this.parkedShips.get(shipSymbol)!.nav.status, docked, released, cargoUnits, ...(keeperMarket ? { keeperMarket } : {}) };
+  }
+
+  /**
+   * Resume a parked hull: `role` if given, else the role it had when parked, else whatever its hull says. A keeper whose market is
+   * no longer known falls back to the hull's role rather than throwing, and the response says so.
+   */
+  async unparkShip(shipSymbol: string, role?: Exclude<ManualRole, "parked">): Promise<{ unparked: true; role: string; note?: string }> {
+    const ship = this.parkedShips.get(shipSymbol);
+    if (!ship) throw new Error(`${shipSymbol} is not parked`);
+    const remembered = this.parkedFrom.get(shipSymbol);
+    const market = this.parkedKeeperMarkets.get(shipSymbol);
+    let target: Exclude<ManualRole, "parked"> | undefined = role;
+    let note: string | undefined;
+    if (!target && remembered && MANUAL_ROLES.has(remembered as ManualRole) && remembered !== "parked") target = remembered as Exclude<ManualRole, "parked">;
+    if (target === "keeper" && !market) { target = undefined; note = "it was a keeper but its market is not known any more, so it resumed as its hull's role"; }
+    if (!target) target = this.hullRole(ship);
+    this.parkedShips.delete(shipSymbol);
+    this.parkedFrom.delete(shipSymbol);
+    this.parkedKeeperMarkets.delete(shipSymbol);
+    this.shipRegistry.release(shipSymbol, "operator");
+    await this.setShipRole(shipSymbol, target, target === "keeper" ? market : undefined);
+    this.log(`${shipSymbol}: unparked as ${target}${note ? ` (${note})` : ""}`);
+    return { unparked: true, role: target, ...(note ? { note } : {}) };
+  }
+
+  /** Parked hulls with the last position and the role they will resume, for the operator. */
+  parkedList(): { ship: string; at: string; nav: string; from?: string; keeperMarket?: string; cargoUnits: number }[] {
+    return [...this.parkedShips].map(([ship, s]) => ({
+      ship, at: s.nav.waypointSymbol, nav: s.nav.status, from: this.parkedFrom.get(ship),
+      ...(this.parkedKeeperMarkets.has(ship) ? { keeperMarket: this.parkedKeeperMarkets.get(ship) } : {}), cargoUnits: s.cargo?.units ?? 0,
+    }));
   }
 
   /** Verify a ship is at a market before trading. */
@@ -5544,7 +5709,7 @@ export class FleetManager {
     // the raw marketTourTargets() list itself and sectorTourTargets(), which
     // both derive from this. See maybeAssignKeepers() for the coverage
     // registry (this.keeperMarkets) this reads.
-    for (const covered of this.keeperMarkets.values()) out.delete(covered);
+    for (const covered of this.coveredKeeperMarkets()) out.delete(covered);
     return [...out].sort();
   }
 
@@ -5587,7 +5752,7 @@ export class FleetManager {
     // stock too (keeperPoll() calls recordShipyard() whenever its market
     // has one), so a tour ship revisiting it duplicates work a keeper is
     // already doing every cycle.
-    for (const covered of this.keeperMarkets.values()) out.delete(covered);
+    for (const covered of this.coveredKeeperMarkets()) out.delete(covered);
     return [...out].sort();
   }
 
@@ -5849,11 +6014,11 @@ export class FleetManager {
    * "not covered" so it can never block coverage.
    */
   private async keeperTargetCovered(target: string): Promise<boolean> {
-    if ([...this.keeperMarkets.values()].includes(target)) return true;
+    if (this.coveredKeeperMarkets().has(target)) return true;
     if (!this.store || !this.tenantId) return false;
     try {
       const rows = await this.store.getFleetState(this.tenantId);
-      return rows.some((r) => r.role === "keeper" && r.keeperMarket === target);
+      return rows.some((r) => (r.role === "keeper" || (r.role === "parked" && r.parkedFrom === "keeper")) && r.keeperMarket === target);
     } catch {
       return false;
     }
@@ -5877,7 +6042,7 @@ export class FleetManager {
    */
   private nearestUncoveredKeeperMarket(fromWaypoint: string): string | undefined {
     const fromSystem = fromWaypoint.slice(0, fromWaypoint.lastIndexOf("-"));
-    const covered = new Set(this.keeperMarkets.values());
+    const covered = this.coveredKeeperMarkets();
     const positions = new Map(this.galaxy.allPositions().map((p) => [p.symbol, p]));
     const from = positions.get(fromWaypoint);
     const candidates = new Set(this.keeperPriorityMarketsCache ?? []);
@@ -6013,7 +6178,7 @@ export class FleetManager {
    */
   private async maybeRequestKeeperProbeForMarket(marketWaypoint: string): Promise<boolean> {
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return false;
-    if ([...this.keeperMarkets.values()].includes(marketWaypoint)) return false; // already covered
+    if (this.coveredKeeperMarkets().has(marketWaypoint)) return false; // already covered (a parked keeper still covers it)
     const priority = await this.keeperPriorityMarkets();
     if (!priority.includes(marketWaypoint)) return false; // operator hasn't flagged this market as worth a keeper
 
@@ -6136,7 +6301,7 @@ export class FleetManager {
       this.keeperNote("queue-blocked", `keeper queue is waiting on one open request (${existing.status}: ${existing.detail ?? existing.shipSymbol}); no other market gets a request until it is bought, denied or expires`);
       return;
     }
-    const covered = new Set(this.keeperMarkets.values());
+    const covered = this.coveredKeeperMarkets();
     // Best-scoring first (keeperValue.ts), except markets the operator listed that carry no score, which stay ahead of them.
     const scores = await this.keeperScores();
     const priority = orderForBuying((await this.keeperPriorityMarkets()).filter((m) => !covered.has(m)), (m) => scores.get(m));
@@ -9564,7 +9729,7 @@ export class FleetManager {
 
   /** Priority markets from the configured list that no keeper currently covers. */
   async priorityUncovered(): Promise<string[]> {
-    const covered = new Set(this.keeperMarkets.values());
+    const covered = this.coveredKeeperMarkets();
     return (await this.keeperPriorityMarkets()).filter((m) => !covered.has(m));
   }
 
@@ -9698,7 +9863,7 @@ export class FleetManager {
       const kept = remembered.get(market);
       return kept === undefined ? {} : { score: kept };
     };
-    const covered = new Set(this.keeperMarkets.values());
+    const covered = this.coveredKeeperMarkets();
     return {
       stationed: [...this.keeperMarkets].map(([ship, market]) => ({ ship, market, ...scoreOf(market), pollMs: this.keeperPollMs(market) })),
       uncovered: (await this.keeperPriorityMarkets()).filter((m) => !covered.has(m)).map((market) => ({ market, ...scoreOf(market) })),

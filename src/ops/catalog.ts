@@ -395,9 +395,31 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "blocked_goods",
+    title: "Blocked trade goods",
+    description: "The operator's blocked-goods list: goods no trader buys for margin trading and the dispatcher drops from the route list, with when each was blocked and why. Change it with stcommand_block_good / stcommand_unblock_good.",
+    input: {},
+    async run(ctx) {
+      const blocked = await ctx.w.fleet.blockedGoodsEntries();
+      return { count: blocked.length, blocked };
+    },
+  },
+
+  {
+    name: "parked",
+    title: "Parked ships",
+    description: "Every parked hull (kept, not flying, no API calls): where it sits, what it will resume as, the keeper market it covers, and any cargo frozen aboard. Park and unpark with stcommand_park_ship / stcommand_unpark_ship.",
+    input: {},
+    async run(ctx) {
+      const parked = ctx.w.fleet.parkedList();
+      return { count: parked.length, parked };
+    },
+  },
+
+  {
     name: "keeper_review",
     title: "Keeper review: value per keeper, polling cost, what to buy next, what to scrap",
-    description: "Each keeper's market scored on what it trades (imports, exports and exchanges weighted by typical price, goods we have a route for counting more), so the weakest stationed keepers and the best uncovered markets can be compared. Gives the keeper count against the keeperMaxTotal limit, the API calls a minute the keepers cost now and at the limit (the fleet may make about 90 a minute), the uncovered markets in the order they would be bought, and swap suggestions where an uncovered market clearly beats a stationed keeper. Advisory only: nothing is scrapped or bought. To act, use stcommand_sell_ship on the keeper (it flies to a yard and is scrapped for part of its price) and the queue then buys the better market.",
+    description: "Each keeper's market scored on what it trades (imports, exports and exchanges weighted by typical price, goods we have a route for counting more), so the weakest stationed keepers and the best uncovered markets can be compared. Gives the keeper count against the keeperMaxTotal limit, the API calls a minute the keepers cost now and at the limit (the fleet may make about 90 a minute), the uncovered markets in the order they would be bought, and swap suggestions where an uncovered market clearly beats a stationed keeper. Advisory only: nothing is scrapped or bought. To act, park the weak keeper with stcommand_park_ship (it stops polling at once, keeps its hull, and frees a slot under the keeper limit; its market stays marked covered, so it is not bought again) or scrap it with stcommand_sell_ship (it flies to a yard and is scrapped for part of its price, and its market becomes uncovered), then the queue buys the better market.",
     input: {},
     async run(ctx) {
       const d = await ctx.w.fleet.keeperReviewData();

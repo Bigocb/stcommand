@@ -2063,6 +2063,22 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  // Blocked trade goods (engine/blockedGoods.ts): goods no trader buys for margin trading. Read: GET /api/ops/blocked_goods.
+  router.post("/blocked-goods", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { good, reason, remove } = req.body ?? {};
+    if (typeof good !== "string") return res.status(400).json({ error: "good required" });
+    if (reason !== undefined && typeof reason !== "string") return res.status(400).json({ error: "reason must be a string" });
+    try {
+      const blocked = remove ? await w.fleet.unblockGood(good) : await w.fleet.blockGood(good, reason?.trim() || undefined);
+      await w.store.recordOperatorAction(w.tenantId, remove ? "unblock_good" : "block_good", undefined, `${remove ? "unblocked" : "blocked"} ${good.toUpperCase()}`, { good, reason: reason ?? null });
+      res.json({ ok: true, blocked });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   const MANUAL_ROLES = new Set(["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"]);
 
   router.post("/fleet/role", async (req, res) => {

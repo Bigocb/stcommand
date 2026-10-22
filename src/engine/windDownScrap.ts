@@ -61,7 +61,9 @@ export function shipsToRetire(
   includeTraders = false,
 ): string[] {
   return ships
-    .filter((s) => (includeTraders || s.role !== "trader") && !alreadyQueued.has(s.symbol))
+    // A parked hull is the operator's decision to keep it (docs/parked-ships-design.md §5); it is never queued for scrapping, so the
+    // operator unparks it before the window if they want it cashed out.
+    .filter((s) => s.role !== "parked" && (includeTraders || s.role !== "trader") && !alreadyQueued.has(s.symbol))
     .slice(0, limit)
     .map((s) => s.symbol);
 }

@@ -674,3 +674,11 @@ table.mf .dim{color:var(--dim)}
 .ex-kpi{flex:1;background:var(--sunken);border:1px solid var(--hair);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:3px}
 .ex-k{font-family:var(--chrome);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .ex-v{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--bone);font-variant-numeric:tabular-nums}
+#view-doctrine{overflow-y:auto}
+.bg-note{font-size:11px;color:var(--dim);margin-bottom:8px;max-width:760px}
+.bg-form{display:flex;gap:8px;margin-bottom:8px}
+.bg-form .field-input{flex:1;min-width:0}
+.bg-err{font-size:11px;color:var(--red,#d66);min-height:0}
+.bg-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--hair)}
+.bg-good{font-family:var(--mono);font-size:12px;color:var(--bone)}
+.bg-why{flex:1;font-size:11px;color:var(--dim)}
