@@ -26,6 +26,7 @@ import { mountMetrics } from "/shared/metrics.js";
 import { mountSeason } from "/shared/season.js";
 import { mountWeeks } from "/shared/weeks.js";
 import { mountSystems } from "/shared/systems.js";
+import { mountExplorers } from "/shared/explorers.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
@@ -80,6 +81,7 @@ let metricsScreen = null;
 let seasonScreen = null;
 let weeksScreen = null;
 let systemsScreen = null;
+let explorersScreen = null;
 let miningScreen = null;
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
@@ -92,6 +94,7 @@ function setView(name) {
   if (name !== "season") seasonScreen?.hide();
   if (name !== "weeks") weeksScreen?.hide();
   if (name !== "systems") systemsScreen?.hide();
+  if (name !== "explorers") explorersScreen?.hide();
   if (name !== "mining") miningScreen?.hide();
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
@@ -145,6 +148,10 @@ function setView(name) {
     systemsScreen ??= mountSystems($("systems-root"), { api });
     systemsScreen.show();
   }
+  if (name === "explorers") {
+    explorersScreen ??= mountExplorers($("explorers-root"), { api });
+    explorersScreen.show();
+  }
   if (name === "mining") {
     miningScreen ??= mountMiningFields($("mining-root"), { api });
     miningScreen.show();
@@ -167,6 +174,7 @@ const NAV_GROUPS = [
   { key: "overview", label: "Overview", ic: "◎", tabs: [{ key: "overview", label: "Overview", view: "overview" }] },
   { key: "fleet", label: "Fleet", ic: "⛴", tabs: [
     { key: "ships", label: "Ships", view: "fleet" },
+    { key: "explorers", label: "Explorers", view: "explorers" },
     { key: "mining", label: "Mining", view: "mining" },
     { key: "minerpref", label: "Miner preference", view: "markets", seg: ["mk-tools-seg", "minerpref"], hide: ["mk-panel-markets"], oneRow: "mk-grid" },
     { key: "yards", label: "Yards", view: "markets", seg: ["mk-mkt-seg", "yards"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },

@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { systemCandidates } from "./systems.js";
+import { explorerReport } from "./explorers.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
@@ -389,6 +390,16 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx, a) {
       const result = await systemCandidates(ctx.w, { ...DEFAULT_CANDIDATE_POLICY, maxHops: a.maxHops, minLocalRoutes: a.minLocalRoutes, requireHullYard: a.requireHullYard });
       return result;
+    },
+  },
+
+  {
+    name: "explorers",
+    title: "Explorers: what they are doing, systems looked at, keepers bought",
+    description: "Each explorer ship (where it is, fuel, what it is doing, any interrupted tour, its recent jumps and the systems it visited with their verdict), the newest survey marks (rejected = under the worth threshold, surveyed = a real survey, atlas = seeded from the galaxy atlas, with markets, shipyards and how many keepers stand there) and the keepers bought in the window with where they were stationed. Read-only. This is the data behind Deck's Fleet › Explorers tab.",
+    input: { sinceHours: num(72) },
+    async run(ctx, a) {
+      return explorerReport(ctx.w, Math.min(Math.max(a.sinceHours, 1), 720), ctx.now());
     },
   },
 

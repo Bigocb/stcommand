@@ -9541,6 +9541,19 @@ export class FleetManager {
     return this.keeperPriorityMarkets();
   }
 
+  /** Explorer-role ships with any interrupted tour they still owe, for the Explorers tab (ops tool `explorers`). */
+  explorerShips(): { symbol: string; waypoint: string; nav: string; fuel: number; fuelCap: number; cooldown: number; doing: string; tour?: { system: string; stopsLeft: number } }[] {
+    return this.fleetStatusSummary()
+      .filter((s) => s.role === "explorer")
+      .map((s) => {
+        const owed = this.pendingTourStops.get(s.symbol);
+        return {
+          symbol: s.symbol, waypoint: s.waypoint, nav: s.nav, fuel: s.fuel, fuelCap: s.fuelCap, cooldown: s.cooldown, doing: s.doing,
+          ...(owed ? { tour: { system: owed.system, stopsLeft: owed.stops.length } } : {}),
+        };
+      });
+  }
+
   /** Current keeper stations for the dashboard: ship → market it guards. */
   keeperStations(): { shipSymbol: string; market: string }[] {
     return [...this.keeperMarkets.entries()].map(([shipSymbol, market]) => ({ shipSymbol, market }));

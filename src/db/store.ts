@@ -1725,6 +1725,17 @@ export class Store {
     );
   }
 
+  /** The newest survey marks with what was found and why each mark exists (survey | tour | explore | scout | rejected | backfill), for the Explorers tab. */
+  async recentSystemSurveys(tenantId: string, limit: number): Promise<{ systemSymbol: string; surveyedAt: number; markets: number; shipyards: number; source: string }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ system_symbol: string; surveyed_at: Date; markets_found: number; shipyards_found: number; source: string }>(
+        `SELECT system_symbol, surveyed_at, markets_found, shipyards_found, source FROM system_surveys ORDER BY surveyed_at DESC LIMIT $1`,
+        [limit],
+      );
+      return res.rows.map((r) => ({ systemSymbol: r.system_symbol, surveyedAt: r.surveyed_at.getTime(), markets: r.markets_found, shipyards: r.shipyards_found, source: r.source }));
+    });
+  }
+
   /** This tenant's survey marks, newest first. `sinceMs` is the freshness
    *  window: rows older than it are left on disk (audit) but not returned, so
    *  an expired mark stops suppressing the system it names. */

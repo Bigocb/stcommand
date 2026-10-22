@@ -1,0 +1,31 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { OPS_TOOLS } from "../src/ops/catalog.js";
+
+/** The seam: the ops tool fetches the rows from the store and fleet and hands them to the report builder. */
+describe("ops explorers", () => {
+  it("builds the report from jumps, survey marks, ship purchases and keeper stations", async () => {
+    const asked: Record<string, unknown> = {};
+    const w = {
+      tenantId: "t1",
+      fleet: {
+        explorerShips: () => [{ symbol: "E-1", waypoint: "X1-B-G1", nav: "DOCKED", fuel: 100, fuelCap: 200, cooldown: 0, doing: "docked" }],
+        keeperStations: () => [{ shipSymbol: "K-1", market: "X1-B-M1" }],
+      },
+      store: {
+        opsMovements: async (_t: string, f: unknown) => { asked.movements = f; return [{ at: new Date("2026-10-22T10:00:00Z"), ship_symbol: "E-1", from_waypoint: "X1-A-G1", to_waypoint: "X1-B-G1", cost: 5000 }]; },
+        recentSystemSurveys: async () => [{ systemSymbol: "X1-B", surveyedAt: Date.parse("2026-10-22T10:01:00Z"), markets: 7, shipyards: 1, source: "explore" }],
+        opsLedger: async (_t: string, f: unknown) => { asked.ledger = f; return [{ timestamp: new Date("2026-10-22T10:05:00Z"), ship_symbol: "K-1", waypoint_symbol: "X1-B-Y1", trade_symbol: "SHIP_PROBE", total: 28959 }]; },
+      },
+    } as any;
+    const tool = OPS_TOOLS.find((t) => t.name === "explorers")!;
+    const r: any = await tool.run({ w, now: () => Date.parse("2026-10-22T12:00:00Z") } as any, { sinceHours: 72 });
+
+    assert.equal((asked.movements as any).kind, "jump");
+    assert.equal((asked.ledger as any).type, "SHIP");
+    assert.equal(r.explorers[0].visited[0].system, "X1-B");
+    assert.equal(r.explorers[0].visited[0].verdict, "surveyed");
+    assert.deepEqual(r.keepers.map((k: any) => [k.ship, k.market, k.price]), [["K-1", "X1-B-M1", 28959]]);
+    assert.equal(r.systems[0].keepersStationed, 1);
+  });
+});
