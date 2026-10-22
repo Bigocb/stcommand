@@ -31,8 +31,9 @@ export interface Deliverable {
 /** How long a fetched contract list stays good for. Contracts change on the
  *  order of minutes (accept, deliver, fulfill), and every one of those changes
  *  goes through this class, so the cache can be invalidated exactly rather than
- *  waited out. */
-const CONTRACT_TTL_MS = 30_000;
+ *  waited out. Two minutes, not 30 s: measured 2026-10-22, the 30 s refetch cost about 4 calls a minute of the 90 a minute
+ *  the rate limiter allows, for a list that only changes when this class changes it. */
+const CONTRACT_TTL_MS = 120_000;
 
 /**
  * The cache lifetime once the operator has stood every open contract down (abandoned an accepted one, declined an

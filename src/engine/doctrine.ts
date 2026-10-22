@@ -311,6 +311,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperMaxTotal",
+    name: "Keepers: most the fleet will run",
+    description: "No automatic keeper purchase once this many keepers are stationed or on their way. Every keeper reads its market every 5 to 30 minutes, and the API allows only 90 calls a minute fleet-wide, so the count is a budget: on 2026-10-22 about 230 keepers plus everything else already used all of it. Check Keeper review (ops keeper_review) for the polling cost at this limit. Off = no limit. A keeper bought by hand or by an approval card is not blocked. Takes effect on the next keeper check.",
+    value: 300, min: 50, max: 2000, step: 10, unit: " keepers",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperMinGoods",
     name: "Keepers: fewest goods worth a keeper",
     description: "When Keepers for every market in a good system adds a system's markets, a market that trades fewer distinct goods than this (imports, exports and exchange, known from the survey without a ship there) is left off the list. A market with one or two goods is rarely worth a probe. Off = every market is added. Markets can still be added by hand. Takes effect on the next system an explorer accepts.",

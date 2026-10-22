@@ -32,3 +32,18 @@ describe("ops explorers", () => {
     assert.equal((asked.ledger as any).limit, 2000, "keeper purchases are read for the whole week, not just the window");
   });
 });
+
+describe("ops keeper_review", () => {
+  it("hands the fleet's keeper data to the review builder", async () => {
+    const w = { fleet: { keeperReviewData: async () => ({
+      stationed: [{ ship: "K-1", market: "X1-A-M1", score: 1, goods: 2, pollMs: 30 * 60_000 }],
+      uncovered: [{ market: "X1-B-M1", score: 10 }],
+      max: 300,
+    }) } } as any;
+    const tool = OPS_TOOLS.find((x) => x.name === "keeper_review")!;
+    const r: any = await tool.run({ w, now: () => Date.parse("2026-10-22T12:00:00Z") } as any, {});
+    assert.equal(r.budget.room, 299);
+    assert.equal(r.swaps[0].scrapShip, "K-1");
+    assert.equal(r.next[0].market, "X1-B-M1");
+  });
+});

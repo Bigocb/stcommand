@@ -20,6 +20,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
 import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
+import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
@@ -5715,7 +5716,13 @@ export class FleetManager {
   }
 
   /** autoApproveKeeperProbes: may this keeper purchase skip the approval card? (keeperBuy.ts) */
-  private keeperAutoApproves(price: number): { approve: boolean; reason: string } {
+  private keeperAutoApproves(price: number): { approve: boolean; reason: string; blocked?: boolean } {
+    // The keeper budget (keeperMaxTotal) stops automatic buying, not manual: when it is full an automatic purchase is skipped
+    // outright, with no approval card, so the queue does not turn into a stream of cards the operator must refuse one by one.
+    if (this.doctrine.isEnabledOr("autoApproveKeeperProbes", false)) {
+      const budget = keeperBudget({ keepers: this.keepers.size, max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0 });
+      if (!budget.allow) return { approve: false, reason: budget.reason, blocked: true };
+    }
     return keeperAutoApprove({
       clauseOn: this.doctrine.isEnabledOr("autoApproveKeeperProbes", false),
       capCredits: this.doctrine.value("autoApproveKeeperProbes"),
@@ -5902,6 +5909,7 @@ export class FleetManager {
     if (await this.otherKeeperKindTargets("buyKeeperProbeForMarket", target)) return; // the market path already asked for this one
     if (await this.keeperTargetCovered(target)) return; // already covered per the durable state (another instance may have just bought it)
     const auto = this.keeperAutoApproves(probe.price);
+    if (auto.blocked) { this.keeperNote(`budget:${target}`, `no keeper bought for ${target} at ${waypointSymbol}: ${auto.reason}`); return; }
     if (auto.approve) {
       // The visiting ship is docked here right now, so buy at once and let it move on instead of holding it for a card.
       this.log(`keeper probe at ${waypointSymbol} for ${target} auto-approved: ${auto.reason}`);
@@ -6017,6 +6025,7 @@ export class FleetManager {
     // silently — advanceKeeperMarketQueue() will get back to this market
     // once the kind frees up.
     const auto = this.keeperAutoApproves(best.price);
+    if (auto.blocked) { this.keeperNote(`budget:${marketWaypoint}`, `no keeper bought for ${marketWaypoint}: ${auto.reason}`); return false; }
     if (this.store && this.tenantId) {
       const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
       // With auto-approve on, the single approval slot is not this market's to wait for, so a busy slot must not end the pass.
@@ -6086,8 +6095,10 @@ export class FleetManager {
       this.keeperNote("queue-blocked", `keeper queue is waiting on one open request (${existing.status}: ${existing.detail ?? existing.shipSymbol}); no other market gets a request until it is bought, denied or expires`);
       return;
     }
-    const priority = await this.keeperPriorityMarkets();
     const covered = new Set(this.keeperMarkets.values());
+    // Best-scoring first (keeperValue.ts), except markets the operator listed that carry no score, which stay ahead of them.
+    const scores = await this.keeperScores();
+    const priority = orderForBuying((await this.keeperPriorityMarkets()).filter((m) => !covered.has(m)), (m) => scores.get(m));
     // Walk the uncovered markets in priority order until one actually asks (or buys). A market that cannot be
     // requested right now (no keeper hull in stock in its system, the shipyard path already asked for it, ...)
     // must not block the ones behind it: 2026-10-10 the head, MB58-E47, sat unrequestable for hours while
@@ -9551,7 +9562,76 @@ export class FleetManager {
     const goods = new Map(this.markets.filter((m) => m.systemSymbol === systemSymbol).map((m) => [m.symbol, distinctGoods(m)]));
     const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : 0;
     const { keep, thin } = splitThinMarkets(candidates, (m) => goods.get(m), minGoods);
-    return { add: keep, thin };
+    // Score what is kept from the lists the survey just read, remember the scores (the queue buys best first), and list best first.
+    const ctx = await this.keeperScoreContext();
+    const snaps = new Map(this.markets.filter((m) => m.systemSymbol === systemSymbol).map((m) => [m.symbol, m]));
+    const scored = new Map<string, number>();
+    for (const m of keep) { const snap = snaps.get(m); if (snap) scored.set(m, marketKeeperScore(snap, ctx).score); }
+    if (scored.size) await this.recordKeeperScores(scored);
+    const add = [...keep].sort((a, b) => (scored.get(b) ?? -1) - (scored.get(a) ?? -1));
+    return { add, thin };
+  }
+
+  private keeperPriceCtx?: { at: number; ctx: ScoreContext };
+
+  /** Typical price per good (median sell price over the markets we hold) and the goods with a profitable route now. Cached ten minutes. */
+  private async keeperScoreContext(): Promise<ScoreContext> {
+    if (this.keeperPriceCtx && Date.now() - this.keeperPriceCtx.at < 10 * 60_000) return this.keeperPriceCtx.ctx;
+    const rows = (await this.store?.latestMarketSnapshots()) ?? [];
+    const byGood = new Map<string, number[]>();
+    for (const r of rows) if (r.sellPrice > 0) { const a = byGood.get(r.goodSymbol) ?? []; a.push(r.sellPrice); byGood.set(r.goodSymbol, a); }
+    const typical = new Map([...byGood].map(([g, v]) => [g, median(v)!]));
+    const all = [...typical.values()];
+    const ctx: ScoreContext = {
+      priceOf: (g) => typical.get(g),
+      defaultPrice: median(all) ?? 500,
+      routeGoods: new Set(this.lastDispatchRoutes.filter((r) => r.profitPerTrip > 0).map((r) => r.good)),
+    };
+    this.keeperPriceCtx = { at: Date.now(), ctx };
+    return ctx;
+  }
+
+  /** Scores remembered from the survey that found each market (fleet flag keeperScores), for markets with no price rows yet. */
+  private async keeperScores(): Promise<Map<string, number>> {
+    const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "keeperScores") : undefined;
+    if (!raw) return new Map();
+    try { return new Map(Object.entries(JSON.parse(raw) as Record<string, number>)); } catch { return new Map(); }
+  }
+
+  private async recordKeeperScores(add: ReadonlyMap<string, number>): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    const all = await this.keeperScores();
+    for (const [m, s] of add) all.set(m, s);
+    await this.store.setFleetFlag(this.tenantId, "keeperScores", JSON.stringify(Object.fromEntries(all)));
+  }
+
+  /**
+   * Inputs for the ops keeper_review tool: each stationed keeper with its market's score and polling interval, the uncovered
+   * priority markets with theirs, and the keeper limit. A market's score comes from its stored price rows when it has them (they say
+   * which goods it exports, imports and exchanges) and from the survey's remembered score otherwise.
+   */
+  async keeperReviewData(): Promise<{
+    stationed: { ship: string; market: string; score?: number; goods?: number; pollMs: number }[];
+    uncovered: { market: string; score?: number; goods?: number; top?: string[] }[];
+    max: number;
+  }> {
+    const ctx = await this.keeperScoreContext();
+    const rows = (await this.store?.latestMarketSnapshots()) ?? [];
+    const byMarket = new Map<string, { goodSymbol: string; type: string }[]>();
+    for (const r of rows) { const a = byMarket.get(r.waypointSymbol) ?? []; a.push(r); byMarket.set(r.waypointSymbol, a); }
+    const remembered = await this.keeperScores();
+    const scoreOf = (market: string): { score?: number; goods?: number; top?: string[] } => {
+      const r = byMarket.get(market);
+      if (r?.length) { const s = marketKeeperScore(goodsFromRows(r), ctx); return { score: s.score, goods: s.goods, top: s.top }; }
+      const kept = remembered.get(market);
+      return kept === undefined ? {} : { score: kept };
+    };
+    const covered = new Set(this.keeperMarkets.values());
+    return {
+      stationed: [...this.keeperMarkets].map(([ship, market]) => ({ ship, market, ...scoreOf(market), pollMs: this.keeperPollMs(market) })),
+      uncovered: (await this.keeperPriorityMarkets()).filter((m) => !covered.has(m)).map((market) => ({ market, ...scoreOf(market) })),
+      max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,
+    };
   }
 
   /** Add markets to the keeper priority list, keeping what is there. setKeeperPriorityMarkets() replaces the whole list. */

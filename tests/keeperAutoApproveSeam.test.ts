@@ -22,7 +22,10 @@ function makeFleet(opts: { clauseOn: boolean; cap?: number; price?: number; ship
     shipyardInventory: async () => [{ systemSymbol: "X1-T", waypointSymbol: YARD, shipType: "SHIP_PROBE", purchasePrice: opts.price ?? 28_959, timestamp: new Date().toISOString() }],
     getUnconsumedApproval: async () => undefined,
     latestMarketSnapshots: async () => [],
+    getFleetFlag: async () => undefined,
+    setFleetFlag: async () => {},
   };
+  fleet.lastDispatchRoutes = [];
   fleet.doctrine = {
     isEnabledOr: (k: string) => (k === "autoApproveKeeperProbes" ? opts.clauseOn : true),
     value: (k: string, def?: number) => (k === "autoApproveKeeperProbes" ? opts.cap ?? 60_000 : def ?? 5),
@@ -115,5 +118,84 @@ describe("keeperCandidatesForSystem", () => {
     const r = await setup(false).keeperCandidatesForSystem("X1-S");
     assert.deepEqual(r.add, ["X1-S-A", "X1-S-B"]);
     assert.deepEqual(r.thin, []);
+  });
+});
+
+describe("keeper budget (keeperMaxTotal)", () => {
+  it("a full budget stops the automatic buy without raising an approval card", async () => {
+    const { fleet, calls } = makeFleet({ clauseOn: true, shipsAtYard: keeperAtYard });
+    fleet.keepers = new Map(Array.from({ length: 5 }, (_, i) => [`K-${i}`, {}]));   // doctrine stub's keeperMaxTotal is 5
+    const r = await fleet.maybeRequestKeeperProbeForMarket(MARKET);
+    assert.equal(r, false, "skipped, so the queue moves on");
+    assert.deepEqual(calls.purchase, []);
+    assert.equal(calls.approval, 0, "no card either");
+  });
+
+  it("with room left it buys as before", async () => {
+    const { fleet, calls } = makeFleet({ clauseOn: true, shipsAtYard: keeperAtYard });
+    fleet.keepers = new Map([["K-0", {}]]);
+    assert.equal(await fleet.maybeRequestKeeperProbeForMarket(MARKET), true);
+    assert.equal(calls.purchase.length, 1);
+  });
+
+  it("the limit does not apply when auto-approve is off: the operator's card still comes", async () => {
+    const { fleet, calls } = makeFleet({ clauseOn: false, shipsAtYard: keeperAtYard });
+    fleet.keepers = new Map(Array.from({ length: 9 }, (_, i) => [`K-${i}`, {}]));
+    await fleet.maybeRequestKeeperProbeForMarket(MARKET);
+    assert.equal(calls.approval, 1);
+  });
+});
+
+describe("keeper scoring in the fleet", () => {
+  const snap = (symbol: string, exportsList: string[]) => ({ symbol, systemSymbol: "X1-S", imports: [], exports: exportsList, exchange: [], tradeGoods: {} });
+  function scoringFleet() {
+    const { fleet } = makeFleet({ clauseOn: true, shipsAtYard: [] });
+    const flags = new Map<string, string>();
+    fleet.store.latestMarketSnapshots = async () => [
+      { waypointSymbol: "X1-Z-A", goodSymbol: "RICH", type: "EXPORT", sellPrice: 5000, systemSymbol: "X1-Z" },
+      { waypointSymbol: "X1-Z-A", goodSymbol: "CHEAP", type: "EXPORT", sellPrice: 50, systemSymbol: "X1-Z" },
+    ];
+    fleet.store.getFleetFlag = async (_t: string, k: string) => flags.get(k);
+    fleet.store.setFleetFlag = async (_t: string, k: string, v: string) => { flags.set(k, v); };
+    fleet.lastDispatchRoutes = [];
+    return { fleet, flags };
+  }
+
+  it("lists the candidate markets best first and remembers their scores", async () => {
+    const { fleet, flags } = scoringFleet();
+    fleet.galaxy = { getSystem: () => ({ waypoints: ["X1-S-A", "X1-S-B", "X1-S-C"].map((symbol) => ({ symbol, traits: [{ symbol: "MARKETPLACE" }] })) }) };
+    fleet.keeperPriorityMarkets = async () => [];
+    fleet.markets = [snap("X1-S-A", ["CHEAP", "CHEAP2", "CHEAP3"]), snap("X1-S-B", ["RICH", "CHEAP", "X"]), snap("X1-S-C", ["CHEAP", "RICH", "Y"])];
+    fleet.doctrine = { isEnabledOr: () => true, value: (k: string) => (k === "keeperMinGoods" ? 3 : 5) };
+    const r = await fleet.keeperCandidatesForSystem("X1-S");
+    assert.equal(r.add.length, 3);
+    assert.notEqual(r.add[0], "X1-S-A", "the market with the dear export is not last");
+    assert.equal(r.add[2], "X1-S-A", "the market of cheap goods comes last");
+    assert.deepEqual(Object.keys(JSON.parse(flags.get("keeperScores")!)).sort(), ["X1-S-A", "X1-S-B", "X1-S-C"]);
+  });
+
+  it("keeperReviewData scores stationed keepers from their price rows and lists uncovered markets", async () => {
+    const { fleet } = scoringFleet();
+    fleet.keeperMarkets = new Map([["K-1", "X1-Z-A"]]);
+    fleet.keeperPriorityMarkets = async () => ["X1-Z-A", "X1-Q-B"];
+    fleet.keeperPollMs = () => 5 * 60_000;
+    const d = await fleet.keeperReviewData();
+    assert.equal(d.stationed[0].market, "X1-Z-A");
+    assert.ok(d.stationed[0].score > 5, "an export priced 5000 scores at least 5");
+    assert.deepEqual(d.uncovered.map((u: any) => u.market), ["X1-Q-B"]);
+    assert.equal(d.uncovered[0].score, undefined, "no rows and no remembered score yet");
+  });
+});
+
+describe("advanceKeeperMarketQueue buys the best-scoring market first", () => {
+  it("tries remembered-score markets best first, with unscored operator-listed ones ahead of them, and skips covered ones", async () => {
+    const { fleet } = makeFleet({ clauseOn: true, shipsAtYard: [] });
+    fleet.store.getFleetFlag = async (_t: string, k: string) => (k === "keeperScores" ? JSON.stringify({ "M-LOW": 1, "M-HIGH": 9, "M-MID": 4, "M-COVERED": 99 }) : undefined);
+    fleet.keeperPriorityMarkets = async () => ["M-LOW", "M-HIGH", "M-MANUAL", "M-MID", "M-COVERED"];
+    fleet.keeperMarkets = new Map([["K-1", "M-COVERED"]]);
+    const asked: string[] = [];
+    fleet.maybeRequestKeeperProbeForMarket = async (m: string) => { asked.push(m); return false; };
+    await fleet.advanceKeeperMarketQueue();
+    assert.deepEqual(asked, ["M-MANUAL", "M-HIGH", "M-MID", "M-LOW"]);
   });
 });

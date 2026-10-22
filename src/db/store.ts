@@ -3017,12 +3017,12 @@ export class Store {
   /** Every gate's checked construction status, for GalaxyAtlas to seed its
    *  in-memory cache from at boot instead of starting cold every time this
    *  process restarts. */
-  async getAllGalaxyGateConstruction(): Promise<{ gateSymbol: string; isComplete: boolean }[]> {
+  async getAllGalaxyGateConstruction(): Promise<{ gateSymbol: string; isComplete: boolean; checkedAtMs?: number }[]> {
     return withPool(this.pool, async (c) => {
-      const res = await c.query<{ gate_symbol: string; is_complete: boolean }>(
-        `SELECT gate_symbol, is_complete FROM galaxy_gate_construction`,
+      const res = await c.query<{ gate_symbol: string; is_complete: boolean; updated_at: Date }>(
+        `SELECT gate_symbol, is_complete, updated_at FROM galaxy_gate_construction`,
       );
-      return res.rows.map((r) => ({ gateSymbol: r.gate_symbol, isComplete: r.is_complete }));
+      return res.rows.map((r) => ({ gateSymbol: r.gate_symbol, isComplete: r.is_complete, checkedAtMs: r.updated_at.getTime() }));
     });
   }
 

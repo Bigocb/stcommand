@@ -31,12 +31,12 @@ export interface GalaxyStore {
    *  this, the gate-construction cache backing canJump() lives only in this
    *  process's memory and is wiped on every restart. */
   recordGalaxyGateConstruction?(gateSymbol: string, isComplete: boolean): Promise<void>;
-  getAllGalaxyGateConstruction?(): Promise<{ gateSymbol: string; isComplete: boolean }[]>;
+  getAllGalaxyGateConstruction?(): Promise<{ gateSymbol: string; isComplete: boolean; checkedAtMs?: number }[]>;
 }
 
 /** How long an unfinished jump gate's construction status is trusted before it is read again. An unfinished gate changes only when someone supplies it. At 5 minutes the rechecks cost 5-6 calls a minute
  *  (2026-10-15); 20 minutes keeps a gate someone else finishes from staying unknown for long. */
-const GATE_RECHECK_MS = 20 * 60_000;
+const GATE_RECHECK_MS = 45 * 60_000;
 
 /** Multi-system atlas: caches waypoints, jump gates, and foreign markets. */
 export class GalaxyAtlas {
@@ -623,6 +623,9 @@ export class GalaxyAtlas {
       // this process already confirmed live since starting up.
       if (this.gateConstruction.get(r.gateSymbol) === true) continue;
       this.gateConstruction.set(r.gateSymbol, r.isComplete); this.pathCache.clear();
+      // When the store last saw it, so an unfinished gate is not re-read the moment the process starts: every restart used to send
+      // one call per unfinished gate in a burst (measured 2026-10-22: 18 calls, waits up to 21 s, at the limiter's ceiling).
+      if (!r.isComplete && r.checkedAtMs !== undefined && !this.gateCheckedAt.has(r.gateSymbol)) this.gateCheckedAt.set(r.gateSymbol, r.checkedAtMs);
     }
   }
 

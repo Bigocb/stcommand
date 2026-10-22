@@ -115,9 +115,9 @@ describe("GalaxyAtlas: gate-construction cache", () => {
 
     assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), false);
     complete = true;
-    // Past the recheck interval (an unfinished gate is trusted for 20 minutes, see the next test).
+    // Past the recheck interval (an unfinished gate is trusted for 45 minutes, see the next test).
     const realNow = Date.now;
-    Date.now = () => realNow() + 21 * 60_000;
+    Date.now = () => realNow() + 46 * 60_000;
     try {
       assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), true);
     } finally {
@@ -422,5 +422,30 @@ describe("GalaxyAtlas.loadSystem: an in-memory stub with no waypoints is not a c
     await atlas.loadSystem("X1-XM46");
 
     assert.equal(waypointCalls.length, 1, "a loaded system is still served from memory");
+  });
+});
+
+describe("an unfinished gate is not re-read right after a restart", () => {
+  async function atlasWith(checkedAtMs: number | undefined) {
+    let calls = 0;
+    const api = { getConstruction: async () => { calls++; return { isComplete: false, materials: [] }; } } as any;
+    const atlas = new GalaxyAtlas(api, { ...seededStore(), getAllGalaxyGateConstruction: async () => [{ gateSymbol: "X1-A-GATE", isComplete: false, checkedAtMs }] });
+    await atlas.loadGateConstruction();
+    return { atlas, calls: () => calls };
+  }
+
+  it("a gate the store checked a minute ago is served from the cache", async () => {
+    const { atlas, calls } = await atlasWith(Date.now() - 60_000);
+    assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), false);
+    assert.equal(calls(), 0, "no call: it was checked a minute ago");
+  });
+
+  it("a gate the store last checked hours ago is read again, as is one with no recorded time", async () => {
+    const old = await atlasWith(Date.now() - 3 * 3_600_000);
+    await old.atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
+    assert.equal(old.calls(), 1);
+    const none = await atlasWith(undefined);
+    await none.atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
+    assert.equal(none.calls(), 1);
   });
 });

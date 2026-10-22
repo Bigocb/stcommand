@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { systemCandidates } from "./systems.js";
 import { explorerReport } from "./explorers.js";
+import { buildKeeperReview } from "../engine/keeperValue.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
@@ -390,6 +391,17 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx, a) {
       const result = await systemCandidates(ctx.w, { ...DEFAULT_CANDIDATE_POLICY, maxHops: a.maxHops, minLocalRoutes: a.minLocalRoutes, requireHullYard: a.requireHullYard });
       return result;
+    },
+  },
+
+  {
+    name: "keeper_review",
+    title: "Keeper review: value per keeper, polling cost, what to buy next, what to scrap",
+    description: "Each keeper's market scored on what it trades (imports, exports and exchanges weighted by typical price, goods we have a route for counting more), so the weakest stationed keepers and the best uncovered markets can be compared. Gives the keeper count against the keeperMaxTotal limit, the API calls a minute the keepers cost now and at the limit (the fleet may make about 90 a minute), the uncovered markets in the order they would be bought, and swap suggestions where an uncovered market clearly beats a stationed keeper. Advisory only: nothing is scrapped or bought. To act, use stcommand_sell_ship on the keeper (it flies to a yard and is scrapped for part of its price) and the queue then buys the better market.",
+    input: {},
+    async run(ctx) {
+      const d = await ctx.w.fleet.keeperReviewData();
+      return buildKeeperReview({ nowIso: new Date(ctx.now()).toISOString(), ...d });
     },
   },
 
