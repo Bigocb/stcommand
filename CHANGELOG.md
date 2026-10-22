@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-22 — Ops tool: rival activity
+Every market scan returns the recent fills there, ours and other agents', with the ship, good, side and units; we already store them in `market_transactions`. The operator asked whether we can see how much the other traders buy, and what the leaderboard agents actually trade.
+- **`stcommand_ops_rival_activity`** (`rival_activity`): other agents' fills over `sinceHours` (default 24, cap 168), grouped by agent (ship symbol without its last suffix, so `CHAMLIS-DEV-1F` is `CHAMLIS-DEV`): ships, visits, units bought and sold, median and largest load per visit (about their hold), top goods and markets. A visit joins one ship's fills at one market under three minutes apart, so a 225-unit load split into three fills is one visit. Filters `agent` (partial name), `minUnits`, `limit`. A floor, not a census: a scan only shows the recent fills and an agent appears only where we look.
+- Pure `src/engine/rivalActivity.ts`; `Store.rivalMarketFills()` (shared table, our own `<agent>-%` ships left out, up to 200,000 rows newest first, reported as `capped` when it hits the limit). Tests: `tests/rivalActivity.test.ts` (5; the visit gap was mutation-checked).
+
 ## 2026-10-22 — Ops tool: keepers at markets where we have made no sales
 With the keeper limit full (300/300), the operator wanted the keepers standing at markets where none of our ships has sold anything, as the first candidates to scrap. THEOREM-14D (XB31-C45E) and THEOREM-7D (SU37-C48), both scored 0 by the keeper review, were sold the same day to start freeing slots.
 - **`stcommand_ops_keeper_sales`** (`keeper_sales`): every stationed keeper with our sells and buys at its market this week (count and credits), lowest first; by default only keepers whose market has had no sale of ours, with `noTrade` counting those with no purchase either. `onlyNoSales=false` lists all of them. Read-only; it says to check buys and the keeper-review score before scrapping, since a market can matter through its prices or purchases without a sale.

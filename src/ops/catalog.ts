@@ -3,6 +3,7 @@ import { systemCandidates } from "./systems.js";
 import { explorerReport } from "./explorers.js";
 import { buildKeeperReview } from "../engine/keeperValue.js";
 import { keeperSales } from "../engine/keeperSales.js";
+import { rivalActivity } from "../engine/rivalActivity.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
@@ -436,6 +437,18 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx, a) {
       const [review, trades] = await Promise.all([ctx.w.fleet.keeperReviewData(), ctx.w.store.ledgerTradeByWaypoint(ctx.w.tenantId)]);
       return keeperSales(review.stationed, trades, a.onlyNoSales);
+    },
+  },
+
+  {
+    name: "rival_activity",
+    title: "Rival activity: what other agents trade at the markets we watch",
+    description: "Other agents' fills at markets our ships or keepers have scanned, grouped by agent (the ship symbol without its last suffix): ships, visits, units bought and sold, the median and largest load per visit (about their hold size), the goods and markets they trade most. A visit joins one ship's fills at one market that are under three minutes apart. A floor, not a census: a scan shows only the recent fills, and an agent only appears where we look. Filter with agent (a name or part of one, for example POPEX or TIPTAP), minUnits and limit. Read-only; sinceHours is capped at 168.",
+    input: { sinceHours: num(24), agent: z.string().optional(), minUnits: num(0), limit: num(25) },
+    async run(ctx, a) {
+      const hours = Math.min(Math.max(a.sinceHours, 0.25), 168);
+      const fills = await ctx.w.store.rivalMarketFills(ctx.w.agentSymbol, new Date(ctx.now() - hours * 3_600_000).toISOString());
+      return { window: { sinceHours: hours, rowsRead: fills.length, capped: fills.length >= 200000 }, ...rivalActivity(fills, { agentFilter: a.agent, minUnits: a.minUnits, limit: Math.min(Math.max(a.limit, 1), 100) }) };
     },
   },
 

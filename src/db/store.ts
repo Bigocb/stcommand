@@ -791,6 +791,23 @@ export class Store {
     });
   }
 
+  /** Fills by ships whose symbol does not start with `ownPrefix`, newest first. Shared galaxy data (not tenant scoped). */
+  async rivalMarketFills(ownPrefix: string, sinceIso: string, limit = 200000): Promise<{ timestamp: string; waypoint: string; good: string; shipSymbol: string; type: string; units: number; pricePerUnit: number }[]> {
+    const res = await withPool(this.pool, (c) =>
+      c.query(
+        `SELECT timestamp, waypoint_symbol, trade_symbol, ship_symbol, type, units, price_per_unit
+           FROM market_transactions
+          WHERE timestamp >= $1 AND ship_symbol NOT LIKE $2 AND trade_symbol <> 'FUEL'
+          ORDER BY timestamp DESC LIMIT $3`,
+        [sinceIso, `${ownPrefix.replace(/[\\%_]/g, "\\$&")}-%`, limit],
+      ),
+    );
+    return res.rows.map((x: any) => ({
+      timestamp: new Date(x.timestamp).toISOString(), waypoint: x.waypoint_symbol, good: x.trade_symbol, shipSymbol: x.ship_symbol,
+      type: x.type, units: Number(x.units), pricePerUnit: Number(x.price_per_unit),
+    }));
+  }
+
   /** Our trades per waypoint: sells and buys with units and value. Scoped to the tenant's current week by the ledger's row-level policy. */
   async ledgerTradeByWaypoint(tenantId: string): Promise<{ waypoint: string; sells: number; sellUnits: number; sellValue: number; buys: number; buyUnits: number; buyValue: number }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
