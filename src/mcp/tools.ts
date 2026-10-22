@@ -1151,6 +1151,26 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_forget_survey",
+    {
+      title: "Forget a system's survey mark so explorers tour it again",
+      description: "Clear the explorer's survey mark for one system (or every system when systemSymbol is omitted), so an explorer will visit and tour it again, apply the worth threshold and list its markets for keepers. Use it for a good system that was marked surveyed without ever being toured. Also drops a queued tour of that system. A rejected mark is cleared the same way.",
+      inputSchema: { systemSymbol: z.string().optional().describe("e.g. X1-XN61. Omit to clear every mark (rare: every explorer then re-tours everything).") },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ systemSymbol }) => {
+      try {
+        const sys = systemSymbol?.trim().toUpperCase() || undefined;
+        const removed = await w.fleet.forgetSurveys(sys);
+        await recordMcpAction(w, "forget_survey", undefined, `forgot survey mark${sys ? ` for ${sys}` : "s (all)"}`, { systemSymbol: sys ?? null, removed });
+        return textResult({ ok: true, removed, systemSymbol: sys ?? null });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_remove_feed",
     {
       title: "Stop and forget a feed",

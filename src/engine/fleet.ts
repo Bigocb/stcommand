@@ -557,6 +557,12 @@ export class FleetManager {
    */
   private readonly registry: Registry;
   private surveyedSystems = new Set<string>();
+  /**
+   * Systems whose only survey mark is `backfill`: seeded from the galaxy atlas by migration 060, never actually visited. They
+   * are in surveyedSystems (so nothing re-surveys them by accident) but must not count as toured: an explorer passing through
+   * one has never read its markets, listed them for keepers or bought its yard keeper. Cleared the moment a real mark replaces it.
+   */
+  private atlasOnlySystems = new Set<string>();
   /** When each surveyed system was marked (epoch ms) — the operator surface
    *  reads this so a panel can say "surveyed 3h ago" instead of just a boolean.
    *  Hydrated alongside surveyedSystems at boot. */
@@ -794,6 +800,7 @@ export class FleetManager {
           if (r.source !== "rejected" && r.surveyedAt < since) continue;
           this.surveyedSystems.add(r.systemSymbol);
           this.surveyedAt.set(r.systemSymbol, r.surveyedAt);
+          if (r.source === "backfill") this.atlasOnlySystems.add(r.systemSymbol);
         }
       } catch (err) {
         this.log(`surveyed-systems restore skipped: ${describeError(err)}`);
@@ -2268,6 +2275,7 @@ export class FleetManager {
     }
     if (systemSymbol) {
       this.surveyedSystems.delete(systemSymbol);
+      this.atlasOnlySystems.delete(systemSymbol);
       this.surveyedAt.delete(systemSymbol);
       for (const [ship, queue] of [...this.pendingTourStops]) {
         if (queue.system !== systemSymbol) continue;
@@ -2278,6 +2286,7 @@ export class FleetManager {
       }
     } else {
       this.surveyedSystems.clear();
+      this.atlasOnlySystems.clear();
       this.surveyedAt.clear();
       this.pendingTourStops.clear();
       if (this.tenantId && this.store) {
@@ -2314,6 +2323,7 @@ export class FleetManager {
     counts?: { markets: number; shipyards: number },
   ): Promise<void> {
     this.surveyedSystems.add(systemSymbol);
+    this.atlasOnlySystems.delete(systemSymbol);
     this.surveyedAt.set(systemSymbol, Date.now());
     if (!this.tenantId || !this.store) return;
     try {
@@ -4015,6 +4025,11 @@ export class FleetManager {
     return !judgeSystem(countWaypoints(waypoints), this.exploreWorthPolicy()).good;
   }
 
+  /** Surveyed for real, i.e. a mark an explorer made by visiting. An atlas-seeded (backfill) mark does not count: the system is still to be toured. */
+  private isToured(systemSymbol: string): boolean {
+    return this.surveyedSystems.has(systemSymbol) && !this.atlasOnlySystems.has(systemSymbol);
+  }
+
   /**
    * The explorer's worth threshold from the doctrine clauses exploreMinMarkets / exploreMinShipyards (operator, 2026-10-22:
    * fewer than five markets or no shipyard is not touring material). A switched-off clause is a minimum of 0, i.e. that
@@ -4053,7 +4068,7 @@ export class FleetManager {
     const isTarget = (s: string) =>
       s !== currentSystem &&
       targets.has(s) &&
-      !this.surveyedSystems.has(s) &&
+      !this.isToured(s) &&
       // Same proof as the direct-candidate filter: a loaded system with no
       // MARKETPLACE or SHIPYARD waypoint has no survey to give, and the
       // nearest-target walk would otherwise spend hours reaching it before
@@ -4531,7 +4546,7 @@ export class FleetManager {
       // like any other one-hop candidate. Only once *that* also comes up
       // empty (nothing unsurveyed known anywhere) does this fall back to
       // candidates[0], same as before.
-      const target = targetSystem ?? candidates.find((c) => !this.surveyedSystems.has(c)) ?? this.nextHopToUnsurveyed(currentSystem) ?? candidates[0];
+      const target = targetSystem ?? candidates.find((c) => !this.isToured(c)) ?? this.nextHopToUnsurveyed(currentSystem) ?? candidates[0];
       // Nothing to jump to at all: this is not a failure to retry in ten
       // seconds, it is the answer. A bare Error here made a stranded ship call
       // getShip() roughly once a second from catchBackoffMs()'s default while
@@ -4550,7 +4565,7 @@ export class FleetManager {
       //   THEOREM-59: X1-RZ29 already surveyed, skipping market re-tour
       // The question this branch means to ask is "did I know this system
       // before this trip?", so that is what it now asks.
-      const targetWasSurveyed = this.surveyedSystems.has(target);
+      const targetWasSurveyed = this.isToured(target);
       await this.galaxy.loadSystem(target);
       await this.markSystemCharted(target);
       const gates = this.galaxy.gatesTo(currentSystem, target);

@@ -151,3 +151,34 @@ describe("the explorer's worth threshold (operator, 2026-10-22): fewer than five
     assert.equal(hop(fleet, "X1-A"), "X1-M");
   });
 });
+
+describe("atlas-seeded survey marks (migration 060) do not count as toured", () => {
+  it("still targets a good system whose only mark is backfill, but not one a real visit marked", () => {
+    const galaxy = fakeGalaxy(["X1-A", "X1-M", "X1-N"], [["X1-A", "X1-M"], ["X1-A", "X1-N"]], { "X1-M": 9, "X1-N": 9 });
+    const fleet = fleetWith(galaxy);
+    (fleet as any).surveyedSystems = new Set(["X1-A", "X1-M", "X1-N"]);
+    (fleet as any).atlasOnlySystems = new Set(["X1-M"]);
+    assert.equal(hop(fleet, "X1-A"), "X1-M", "M was never visited; N was");
+  });
+
+  it("an atlas-only system that fails the worth threshold is still not worth a flight", () => {
+    const galaxy = fakeGalaxy(["X1-A", "X1-M"], [["X1-A", "X1-M"]], { "X1-M": 3 });
+    const fleet = fleetWith(galaxy);
+    (fleet as any).surveyedSystems = new Set(["X1-A", "X1-M"]);
+    (fleet as any).atlasOnlySystems = new Set(["X1-M"]);
+    assert.equal(hop(fleet, "X1-A"), undefined);
+  });
+
+  it("a real survey mark replaces the atlas one, and forgetting clears it", async () => {
+    const fleet: any = fleetWith(fakeGalaxy(["X1-A"], []));
+    fleet.surveyedSystems = new Set(["X1-M"]);
+    fleet.atlasOnlySystems = new Set(["X1-M"]);
+    assert.equal(fleet.isToured("X1-M"), false);
+    await fleet.markSystemSurveyed("X1-M", "explore");
+    assert.equal(fleet.isToured("X1-M"), true);
+    fleet.atlasOnlySystems.add("X1-Q");
+    fleet.surveyedSystems.add("X1-Q");
+    await fleet.forgetSurveys("X1-Q");
+    assert.equal(fleet.atlasOnlySystems.has("X1-Q"), false);
+  });
+});
