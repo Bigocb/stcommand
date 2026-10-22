@@ -16,6 +16,7 @@ import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { nextLotDecision } from "./lotGuard.js";
 import { sellFloor, belowSellFloor } from "./lossAllowance.js";
 import { nextBuyLotDecision, sinkCheck } from "./buyGuard.js";
+import { withinHaulLimit } from "./haulLimit.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
 import { lotAfterRefusal } from "./transactionLimit.js";
@@ -97,6 +98,8 @@ export interface TraderOptions {
   protectedGoods?: () => Set<string>;
   /** Goods the operator has blocked from margin trading (blockedGoods.ts): no new buys, cargo already aboard is still sold. */
   blockedGoods?: () => ReadonlySet<string>;
+  /** Most gate jumps cargo may be carried across (doctrine hauledHops); undefined = no limit. Read at use, so a change applies at once. */
+  hauledHops?: () => number | undefined;
   /** Trade symbols being carried / traded by another ship; avoid these to prevent buying competition. */
   reservedGoods?: () => Set<string>;
   /** Centralized dispatch: the specific assignment this trader holds (or undefined if it holds no claim). */
@@ -262,6 +265,7 @@ export class TraderAgent {
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly blockedGoods?: () => ReadonlySet<string>;
+  private readonly hauledHops?: () => number | undefined;
   private readonly reservedGoods?: () => Set<string>;
   private readonly assignedRoute?: () => TraderAssignment | undefined;
   private readonly declineRoute?: (wholeGood: boolean) => void;
@@ -409,6 +413,7 @@ export class TraderAgent {
     this.getMarketSnapshots = opts.getMarketSnapshots;
     this.protectedGoods = opts.protectedGoods;
     this.blockedGoods = opts.blockedGoods;
+    this.hauledHops = opts.hauledHops;
     this.reservedGoods = opts.reservedGoods;
     this.assignedRoute = opts.assignedRoute;
     this.declineRoute = opts.declineRoute;
@@ -638,6 +643,12 @@ export class TraderAgent {
     const gate = this.atlas?.gatesTo(a, b)[0];
     const learned = gate ? this.atlas?.learnedJumpCost(gate, b) : undefined;
     return learned ?? CROSS_SYSTEM_JUMP_COST_ESTIMATE;
+  }
+
+  /** Gate jumps of the verified path between two systems, or undefined when there is none. */
+  private pathHops(fromSystem: string, toSystem: string): number | undefined {
+    const path = this.positioningPath(fromSystem, toSystem);
+    return path === undefined ? undefined : path.length - 1;
   }
 
   private positioningLastWarm = new Map<string, number>();
@@ -1004,8 +1015,13 @@ export class TraderAgent {
     const here = this.ship.nav.systemSymbol;
     const cost = (await this.costBasis(good)) ?? 0;
     const input = { good, here: leg.sellAt, prices, tried, systemOf: (w: string) => this.systemOf(w), reachable: (sys: string) => this.positioningPath(here, sys) !== undefined };
-    const pick = (cost > 0 ? pickFloorRedirect({ ...input, cost, maxLossPct: this.maxLossPct }) : undefined)
-      ?? pickFloorRedirect({ ...input, cost: 0, maxLossPct: 100 });
+    const pickFrom = (i: typeof input) => (cost > 0 ? pickFloorRedirect({ ...i, cost, maxLossPct: this.maxLossPct }) : undefined)
+      ?? pickFloorRedirect({ ...i, cost: 0, maxLossPct: 100 });
+    // With the hauled-jumps limit set, look near first: a lot turned back should not become a second long trek. When no
+    // market within the limit takes it, any reachable one does, as before (cargo has to go somewhere).
+    const haulLimit = this.hauledHops?.();
+    const near = haulLimit === undefined ? undefined : pickFrom({ ...input, reachable: (sys: string) => withinHaulLimit(this.pathHops(here, sys), haulLimit) });
+    const pick = near ?? pickFrom(input);
     if (!pick) {
       this.log(`held ${good}: ${leg.sellAt} can't be reached and no other known market buys it within reach`);
       return;

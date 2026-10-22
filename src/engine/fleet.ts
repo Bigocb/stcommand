@@ -28,6 +28,7 @@ import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from
 import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
 import { WindDownScrapper, shipsToRetire, shouldRetire, retireReasonKey, windDownSummary, storedYardFor } from "./windDownScrap.js";
 import { traderShouldRecord } from "./traderRecord.js";
+import { haulLegVerdict } from "./haulLimit.js";
 import { KEEPER_POLL_MIN_MS, cadenceSeeds, keeperPollDelayMs, marketSignature } from "./keeperCadence.js";
 import { cargoValue, cargoSignature, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
@@ -1474,6 +1475,7 @@ export class FleetManager {
       },
       protectedGoods: () => this.allProtectedGoods(),
       blockedGoods: () => this.blockedGoodsCache,
+      hauledHops: () => this.hauledHopsLimit(),
       deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
       // Units a contract still needs, less what OTHER ships on a contract buy already carry for it: with several buyers on one
       // good (contract duty), each one's purchase must not count units a fleetmate is already flying in.
@@ -1979,6 +1981,18 @@ export class FleetManager {
     return learned ?? CROSS_SYSTEM_JUMP_COST_ESTIMATE;
   }
 
+  /** Doctrine hauledHops: most gate jumps cargo may be carried across; undefined when the clause is off (no limit). */
+  private hauledHopsLimit(): number | undefined {
+    return this.doctrine.isEnabledOr("hauledHops", false) ? this.doctrine.value("hauledHops") : undefined;
+  }
+
+  /** Why a cross-system buy->sell leg is not offered because of its length, or undefined when it is allowed. */
+  private haulLegRefusal(buySystem: string, sellSystem: string): string | undefined {
+    if (buySystem === sellSystem) return undefined;
+    const verdict = haulLegVerdict(this.crossSystemHops(buySystem, sellSystem), this.hauledHopsLimit());
+    return verdict.ok ? undefined : verdict.reason;
+  }
+
   /** The blocked-goods set the traders read synchronously; refreshed whenever the list is read or changed. */
   private blockedGoodsCache: ReadonlySet<string> = new Set();
 
@@ -2083,6 +2097,12 @@ export class FleetManager {
       .filter((l) => {
         if (charted.has(l.buySystem) && charted.has(l.sellSystem)) return true;
         drop("a market system this tenant has not charted", l.goodSymbol, l.buyAt, l.sellAt);
+        return false;
+      })
+      .filter((l) => {
+        const refusal = this.haulLegRefusal(l.buySystem, l.sellSystem);
+        if (refusal === undefined) return true;
+        drop(refusal, l.goodSymbol, l.buyAt, l.sellAt);
         return false;
       })
       // The gate's own supply chain is not for margin trading (see gateChainGoods()), except a leg that sells the good
