@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { ROUNDS_WINDOW_MIN, roundsReason } from "../src/engine/routeRounds.js";
+import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "../src/engine/routeRounds.js";
 import { Doctrine } from "../src/engine/doctrine.js";
 import type { RouteTrip } from "../src/engine/routeHeat.js";
 
@@ -66,5 +66,28 @@ describe("the two buy-guard clauses", () => {
     assert.equal(d.value("routeRoundsMax", 0), 0);
     assert.equal(d.isEnabledOr("buyGuardImpactPct", false), false);
     assert.equal(d.isEnabledOr("routeRoundsMax", false), false);
+  });
+});
+
+describe("buyMarketRoundsReason: trips per BUY market, whatever they sell into", () => {
+  const policy = { maxRounds: 3, windowMin: ROUNDS_WINDOW_MIN };
+  const three = [trip({ sellAt: "X1-S1", at: NOW - 40 * MIN }), trip({ sellAt: "X1-S2", at: NOW - 20 * MIN }), trip({ sellAt: "X1-S3", at: NOW - 5 * MIN })];
+
+  it("rests the buy market once trips on different sell markets reach the limit, which the route limit never sees", () => {
+    const why = buyMarketRoundsReason(three, "MEDICINE", "X1-E52", NOW, policy) ?? "";
+    assert.match(why, /buy market resting 20 more min/);
+    assert.match(why, /3 trips bought MEDICINE at X1-E52/);
+    assert.equal(roundsReason(three, "MEDICINE", "X1-E52", "X1-S1", NOW, { maxRounds: 2, windowMin: ROUNDS_WINDOW_MIN }), undefined, "every route is under its own limit");
+  });
+
+  it("lets the market run under the limit, once the oldest trip has left the hour, and for other goods and buy markets", () => {
+    assert.equal(buyMarketRoundsReason(three.slice(1), "MEDICINE", "X1-E52", NOW, policy), undefined);
+    assert.equal(buyMarketRoundsReason([{ ...three[0]!, at: NOW - 61 * MIN }, three[1]!, three[2]!], "MEDICINE", "X1-E52", NOW, policy), undefined);
+    assert.equal(buyMarketRoundsReason(three, "FOOD", "X1-E52", NOW, policy), undefined);
+    assert.equal(buyMarketRoundsReason(three, "MEDICINE", "X1-E51", NOW, policy), undefined);
+  });
+
+  it("is off at 0", () => {
+    assert.equal(buyMarketRoundsReason(three, "MEDICINE", "X1-E52", NOW, { maxRounds: 0, windowMin: ROUNDS_WINDOW_MIN }), undefined);
   });
 });

@@ -220,6 +220,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "risk", defaultAdopted: true,
   },
   {
+    key: "buyMarketRoundsMax",
+    name: "Buy market round limit",
+    description: "No more than this many trips buying the same good at the same buy market in any 60 minutes, whatever they sell into. The route round limit counts an exact buy-to-sell route, so a ship that rotates its sell market keeps drawing on one worn-down buy market; this counts the buy market itself. Our own buying moves its price 4 to 13% a lot and it is often an hour or more in recovering. Off = today's behaviour. Takes effect within a minute.",
+    value: 3, min: 1, max: 12, step: 1, unit: " trips",
+    enabled: false, enforced: true, category: "risk", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",

@@ -19,7 +19,7 @@ const C = route("MEDICINE", "X1-A-M3", 500);
 const tripOn = (r: ReturnType<typeof route>) => ({ good: r.good, buyAt: r.buyAt, sellAt: r.sellAt, promised: 1_000, made: 1_000 });
 
 /** recompute's tuning is the 12th argument; everything between is an optional hook this case does not need. */
-function run(d: RouteDispatcher, routes: ReturnType<typeof route>[], tuning?: { coolOffMin?: number; roundsMax?: number }) {
+function run(d: RouteDispatcher, routes: ReturnType<typeof route>[], tuning?: { coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number }) {
   d.recompute(routes, [{ shipSymbol: "T1", capacity: 40 }], [], [], [], [], undefined, undefined, undefined, undefined, undefined, tuning);
 }
 
@@ -87,5 +87,25 @@ describe("with the clause off the dispatcher behaves exactly as before", () => {
     d.recordTrip(tripOn(A));
     run(d, [A, B], { coolOffMin: 30, roundsMax: 2 });
     assert.match(d.routeCoolOff(A.good, A.buyAt, A.sellAt) ?? "", /last trip made/, "the cool-off is the first-defined reason");
+  });
+});
+
+describe("the buy market limit rests a worn-down buy market whatever the sell market", () => {
+  it("drops every route out of the buy market after trips on three different sell markets, and leaves another buy market open", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    const other = route("MEDICINE", "X1-A-M1", 800, "X1-A-OTHER");
+    for (const r of [A, B, C]) d.recordTrip(tripOn(r));
+    run(d, [A, B, C, other], { roundsMax: 2, buyRoundsMax: 3 });
+    assert.deepEqual(d.routeList().map((r) => r.buyAt), ["X1-A-OTHER"], "no route has two trips, yet the shared buy market is resting");
+    assert.match(d.routeCoolOff(A.good, A.buyAt, "X1-A-NEW") ?? "", /buy market resting/);
+  });
+
+  it("changes nothing at 0", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    const d = new RouteDispatcher();
+    for (const r of [A, B, C]) d.recordTrip(tripOn(r));
+    run(d, [A, B, C], { roundsMax: 2, buyRoundsMax: 0 });
+    assert.equal(d.routeList().length, 3);
   });
 });

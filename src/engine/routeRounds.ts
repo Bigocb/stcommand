@@ -26,3 +26,22 @@ export function roundsReason(trips: readonly RouteTrip[], good: string, buyAt: s
   const leftMin = (oldest + policy.windowMin * 60_000 - now) / 60_000;
   return `resting ${Math.ceil(leftMin)} more min: ${inWindow.length} trips on this route in the last ${policy.windowMin} min (limit ${policy.maxRounds})`;
 }
+
+/**
+ * Why this good's BUY market is resting: too many trips bought there in the window, whatever they sold into.
+ *
+ * The route limit above counts an exact good + buy + sell. A ship that rotates its sell market keeps drawing on the same
+ * buy market without ever repeating a route, so the market it is wearing down never gets a rest (2026-10-22, KP19
+ * CLOTHING: THEOREM-BE and C4 took 220-300 units a visit from C13B every one to three hours across three sell markets,
+ * and the C13B routes ran at 0.83-0.94 of their estimate while the FC8A routes, whose buy market was left alone, ran
+ * at 0.97-1.03). The buy price is what our own buying moves, so the buy market is what gets counted.
+ */
+export function buyMarketRoundsReason(trips: readonly RouteTrip[], good: string, buyAt: string, now: number, policy: RoundsPolicy): string | undefined {
+  if (!(policy.maxRounds > 0) || !(policy.windowMin > 0)) return undefined;
+  const since = now - policy.windowMin * 60_000;
+  const inWindow = trips.filter((t) => t.good === good && t.buyAt === buyAt && t.at >= since);
+  if (inWindow.length < policy.maxRounds) return undefined;
+  const oldest = Math.min(...inWindow.map((t) => t.at));
+  const leftMin = (oldest + policy.windowMin * 60_000 - now) / 60_000;
+  return `buy market resting ${Math.ceil(leftMin)} more min: ${inWindow.length} trips bought ${good} at ${buyAt} in the last ${policy.windowMin} min (limit ${policy.maxRounds})`;
+}
