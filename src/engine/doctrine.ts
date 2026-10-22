@@ -318,6 +318,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperPollMaxMin",
+    name: "Keepers: longest wait between reads",
+    description: "A keeper re-reads its market after a third of the time the market has sat unchanged, between 5 minutes and this ceiling. 30 is the long-standing value. Raising it (60 is the practical limit, since a read is treated as fresh for 80% of the wait and prices older than Intel freshness are ignored) cuts the keepers' API calls for markets that barely move, at the cost of staler prices for them. Off = 30. Takes effect as each keeper schedules its next read.",
+    value: 30, min: 10, max: 80, step: 5, unit: "m",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperMinGoods",
     name: "Keepers: fewest goods worth a keeper",
     description: "When Keepers for every market in a good system adds a system's markets, a market that trades fewer distinct goods than this (imports, exports and exchange, known from the survey without a ship there) is left off the list. A market with one or two goods is rarely worth a probe. Off = every market is added. Markets can still be added by hand. Takes effect on the next system an explorer accepts.",

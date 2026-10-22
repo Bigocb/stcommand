@@ -2647,7 +2647,8 @@ export class FleetManager {
     this.seedMarketCadence();
     const seen = this.marketSignatures.get(waypointSymbol);
     if (!seen) return KEEPER_POLL_MIN_MS;
-    return keeperPollDelayMs(Date.now() - seen.changedAt);
+    const maxMin = this.doctrine.isEnabledOr("keeperPollMaxMin", true) ? this.doctrine.value("keeperPollMaxMin") : 30;
+    return keeperPollDelayMs(Date.now() - seen.changedAt, maxMin * 60_000);
   }
 
   /**

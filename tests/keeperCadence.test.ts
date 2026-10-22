@@ -18,6 +18,12 @@ describe("keeperPollDelayMs", () => {
     assert.equal(keeperPollDelayMs(90 * MIN), 30 * MIN);
     assert.equal(keeperPollDelayMs(24 * 60 * MIN), 30 * MIN);
   });
+
+  it("takes a different ceiling, and never one below the floor", () => {
+    assert.equal(keeperPollDelayMs(24 * 60 * MIN, 60 * MIN), 60 * MIN);
+    assert.equal(keeperPollDelayMs(90 * MIN, 60 * MIN), 30 * MIN);
+    assert.equal(keeperPollDelayMs(24 * 60 * MIN, 1 * MIN), 5 * MIN);
+  });
 });
 
 describe("keeper cadence seed from stored snapshots", () => {

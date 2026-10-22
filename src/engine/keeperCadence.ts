@@ -1,9 +1,10 @@
-/** Keeper poll spacing: a third of the time the market has sat unchanged, between 5 and 30 minutes. */
+/** Keeper poll spacing: a third of the time the market has sat unchanged, between 5 and 30 minutes (the ceiling is adjustable). */
 export const KEEPER_POLL_MIN_MS = 5 * 60_000;
 export const KEEPER_POLL_MAX_MS = 30 * 60_000;
 
-export function keeperPollDelayMs(idleMs: number): number {
-  return Math.min(KEEPER_POLL_MAX_MS, Math.max(KEEPER_POLL_MIN_MS, Math.round(idleMs / 3)));
+/** `maxMs` is the ceiling (doctrine keeperPollMaxMin); the default is the long-standing 30 minutes. Never below the floor. */
+export function keeperPollDelayMs(idleMs: number, maxMs: number = KEEPER_POLL_MAX_MS): number {
+  return Math.min(Math.max(maxMs, KEEPER_POLL_MIN_MS), Math.max(KEEPER_POLL_MIN_MS, Math.round(idleMs / 3)));
 }
 
 /** A market's price and supply signature, independent of the order the goods are listed in. */
