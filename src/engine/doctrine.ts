@@ -152,8 +152,15 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "hauledHops",
     name: "Hauled jumps",
-    description: "Most gate jumps a route may carry cargo across, from its buy market to its sell market. Positioning jumps (above) governs how far an empty ship may travel to start a route; this limits the loaded leg. A loaded ship that is turned back by a gate that stopped verifying has to sell elsewhere from where it stands, and has been sent on a second ten-jump trek with the same hold (2026-10-22). Also keeps such a redirect near the ship when a market within this many jumps will take the cargo. Off (the default) = no limit beyond Positioning jumps. Takes effect on the next dispatch recompute.",
-    value: 4, min: 1, max: 10, step: 1, unit: " jumps",
+    description: "Most gate jumps a route may carry cargo across, from its buy market to its sell market. Positioning jumps (above) governs how far an empty ship may travel to start a route; this limits the loaded leg. Measured 2026-10-21/22 over 6,247 sales: 0.6% of sales and 2.2% of profit were on legs of more than 4 jumps, and several of those (X1-YM69 to X1-SU37, 5 jumps) were good trades, so a low value costs real routes. Off (the default) = no limit beyond Positioning jumps. Takes effect on the next dispatch recompute.",
+    value: 8, min: 1, max: 10, step: 1, unit: " jumps",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "redirectHops",
+    name: "Stranded cargo: stay within",
+    description: "When a loaded ship is turned back from its destination (the gate path stopped verifying, or the market can no longer be reached), the cargo is redirected to the best-paying reachable market. With this on, markets within this many gate jumps are tried first; if none takes it, any reachable market does, as before. Measured 2026-10-22: THEOREM-C4's 225 MACHINERY was redirected on a ten-jump trek (about 100 minutes at ten minutes per jump) to X1-NH60. Off (the default) = best price at any distance. Takes effect on the next redirect.",
+    value: 3, min: 1, max: 10, step: 1, unit: " jumps",
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {

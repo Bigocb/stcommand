@@ -1475,7 +1475,8 @@ export class FleetManager {
       },
       protectedGoods: () => this.allProtectedGoods(),
       blockedGoods: () => this.blockedGoodsCache,
-      hauledHops: () => this.hauledHopsLimit(),
+      redirectHops: () => this.redirectHopsLimit(),
+      routeResting: (good, buyAt, sellAt) => this.dispatcher.routeCoolOff(good, buyAt, sellAt),
       deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
       // Units a contract still needs, less what OTHER ships on a contract buy already carry for it: with several buyers on one
       // good (contract duty), each one's purchase must not count units a fleetmate is already flying in.
@@ -1984,6 +1985,11 @@ export class FleetManager {
   /** Doctrine hauledHops: most gate jumps cargo may be carried across; undefined when the clause is off (no limit). */
   private hauledHopsLimit(): number | undefined {
     return this.doctrine.isEnabledOr("hauledHops", false) ? this.doctrine.value("hauledHops") : undefined;
+  }
+
+  /** Doctrine redirectHops: gate jumps a stranded lot's new destination should stay within; undefined when the clause is off. */
+  private redirectHopsLimit(): number | undefined {
+    return this.doctrine.isEnabledOr("redirectHops", false) ? this.doctrine.value("redirectHops") : undefined;
   }
 
   /** Why a cross-system buy->sell leg is not offered because of its length, or undefined when it is allowed. */

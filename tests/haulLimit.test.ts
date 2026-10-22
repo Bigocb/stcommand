@@ -51,7 +51,7 @@ describe("a loaded trader turned back from its destination (redirectUnreachable)
       cargo: { capacity: 225, units: 225, inventory: [{ symbol: "MACHINERY", units: 225 }] },
       fuel: { current: 400, capacity: 400 }, cooldown: { remainingSeconds: 0 }, mounts: [], modules: [],
     } as unknown as Ship;
-    const a = new TraderAgent(ship, { api: { getCallCount: () => 0, getShip: async () => ship } as any, log: () => {}, hauledHops: () => limit } as any) as any;
+    const a = new TraderAgent(ship, { api: { getCallCount: () => 0, getShip: async () => ship } as any, log: () => {}, redirectHops: () => limit } as any) as any;
     const hops: Record<string, number> = { "X1-NEAR": 2, "X1-FAR": 9 };
     a.positioningPath = (_from: string, to: string) => (hops[to] === undefined ? undefined : Array.from({ length: hops[to]! + 1 }, (_, i) => `S${i}`));
     a.costBasis = async () => 2000;

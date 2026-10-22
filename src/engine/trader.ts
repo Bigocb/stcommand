@@ -98,8 +98,11 @@ export interface TraderOptions {
   protectedGoods?: () => Set<string>;
   /** Goods the operator has blocked from margin trading (blockedGoods.ts): no new buys, cargo already aboard is still sold. */
   blockedGoods?: () => ReadonlySet<string>;
-  /** Most gate jumps cargo may be carried across (doctrine hauledHops); undefined = no limit. Read at use, so a change applies at once. */
-  hauledHops?: () => number | undefined;
+  /** Why the dispatcher has this exact route resting now (route cool-off or round limit), or undefined. Asked before a new round
+   *  is bought, so a ship on a short loop cannot keep an assignment that the rule has since closed. */
+  routeResting?: (good: string, buyAt: string, sellAt: string) => string | undefined;
+  /** Gate jumps a redirected lot should stay within (doctrine redirectHops); undefined = no preference. Read at use, so a change applies at once. */
+  redirectHops?: () => number | undefined;
   /** Trade symbols being carried / traded by another ship; avoid these to prevent buying competition. */
   reservedGoods?: () => Set<string>;
   /** Centralized dispatch: the specific assignment this trader holds (or undefined if it holds no claim). */
@@ -265,7 +268,8 @@ export class TraderAgent {
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly blockedGoods?: () => ReadonlySet<string>;
-  private readonly hauledHops?: () => number | undefined;
+  private readonly redirectHops?: () => number | undefined;
+  private readonly routeResting?: TraderOptions["routeResting"];
   private readonly reservedGoods?: () => Set<string>;
   private readonly assignedRoute?: () => TraderAssignment | undefined;
   private readonly declineRoute?: (wholeGood: boolean) => void;
@@ -413,7 +417,8 @@ export class TraderAgent {
     this.getMarketSnapshots = opts.getMarketSnapshots;
     this.protectedGoods = opts.protectedGoods;
     this.blockedGoods = opts.blockedGoods;
-    this.hauledHops = opts.hauledHops;
+    this.redirectHops = opts.redirectHops;
+    this.routeResting = opts.routeResting;
     this.reservedGoods = opts.reservedGoods;
     this.assignedRoute = opts.assignedRoute;
     this.declineRoute = opts.declineRoute;
@@ -1017,9 +1022,9 @@ export class TraderAgent {
     const input = { good, here: leg.sellAt, prices, tried, systemOf: (w: string) => this.systemOf(w), reachable: (sys: string) => this.positioningPath(here, sys) !== undefined };
     const pickFrom = (i: typeof input) => (cost > 0 ? pickFloorRedirect({ ...i, cost, maxLossPct: this.maxLossPct }) : undefined)
       ?? pickFloorRedirect({ ...i, cost: 0, maxLossPct: 100 });
-    // With the hauled-jumps limit set, look near first: a lot turned back should not become a second long trek. When no
+    // With the redirect-jumps preference set, look near first: a lot turned back should not become a second long trek. When no
     // market within the limit takes it, any reachable one does, as before (cargo has to go somewhere).
-    const haulLimit = this.hauledHops?.();
+    const haulLimit = this.redirectHops?.();
     const near = haulLimit === undefined ? undefined : pickFrom({ ...input, reachable: (sys: string) => withinHaulLimit(this.pathHops(here, sys), haulLimit) });
     const pick = near ?? pickFrom(input);
     if (!pick) {
@@ -1537,6 +1542,9 @@ export class TraderAgent {
     if (outside !== undefined) return outside;
     if (this.refusedGoods().has(r.good)) return `protected good ${r.good}`;
     if (this.blockedGoods?.().has(r.good)) return `blocked by the operator: ${r.good}`;
+    // A manual route is the operator's own choice; the dispatcher's rest rules are for its auto picks.
+    const resting = ignoreProfitFloor ? undefined : this.routeResting?.(r.good, r.buyAt, r.sellAt);
+    if (resting !== undefined) return `route ${resting}`;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return `dead route ${r.good}@${r.buyAt}`;
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
@@ -1587,6 +1595,7 @@ export class TraderAgent {
     if (this.outsideReach(r) !== undefined) return undefined;
     if (this.refusedGoods().has(r.good)) return undefined;
     if (this.blockedGoods?.().has(r.good)) return undefined;
+    if (!ignoreProfitFloor && this.routeResting?.(r.good, r.buyAt, r.sellAt) !== undefined) return undefined;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return undefined;
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
