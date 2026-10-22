@@ -120,6 +120,16 @@ export function runWithApiPriority<T>(priority: number, fn: () => Promise<T>): P
   return priorityContext.run(priority, fn);
 }
 
+const roleContext = new AsyncLocalStorage<string>();
+
+/**
+ * Run `fn` with every API call made inside it tagged `role` (keeper, tour, explorer, trader, ...), so the limiter's stats can
+ * say which kind of ship is spending the budget, not just which function. Stats only: it changes no behaviour.
+ */
+export function runWithApiRole<T>(role: string, fn: () => Promise<T>): Promise<T> {
+  return roleContext.run(role, fn);
+}
+
 /** The priority the running async context asked for, if any. */
 export function currentApiPriority(): number | undefined {
   return priorityContext.getStore();
@@ -218,6 +228,7 @@ interface QueueEntry {
   label: string;
   kind: string;
   caller: string;
+  role: string;
 }
 
 /** One granted request, kept for the rolling stats window. */
@@ -226,6 +237,7 @@ interface LimiterSample {
   label: string;
   kind: string;
   caller: string;
+  role: string;
   priority: number;
   waitMs: number;
 }
@@ -253,6 +265,8 @@ export interface LimiterStats {
   byKind: Record<string, LimiterLabelStats>;
   /** `kind` + the code that asked, e.g. "ship <- ShipProxy.refresh": the answer to "what is spending the budget". */
   byCaller: Record<string, LimiterLabelStats>;
+  /** `role` + the call kind, e.g. "keeper market": which kind of ship asked ("fleet" for the coordinator loops, "?" when untagged). */
+  byRole: Record<string, LimiterLabelStats>;
 }
 
 const LIMITER_WINDOW_MS = 5 * 60_000;
@@ -302,13 +316,13 @@ export class RateLimiter {
    * lets boot-critical calls (see Client.withPriority()) jump that queue
    * without starving the routine traffic — it just goes second, not never.
    */
-  acquire(priority = 1, label = "?", kind = "other", caller = "?"): Promise<void> {
+  acquire(priority = 1, label = "?", kind = "other", caller = "?", role = roleContext.getStore() ?? "?"): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.draining) {
         reject(new Error("rate limiter drained: this process is shutting down"));
         return;
       }
-      this.queue.push({ priority, seq: this.seqCounter++, resolve, reject, enqueuedAt: Date.now(), label, kind, caller });
+      this.queue.push({ priority, seq: this.seqCounter++, resolve, reject, enqueuedAt: Date.now(), label, kind, caller, role });
       this.pump();
     });
   }
@@ -365,6 +379,7 @@ export class RateLimiter {
       byPriority: fold((s) => String(s.priority)),
       byKind: fold((s) => s.kind),
       byCaller: fold((s) => `${s.kind} <- ${s.caller}`),
+      byRole: fold((s) => `${s.role} ${s.kind}`),
     };
   }
 
@@ -408,7 +423,7 @@ export class RateLimiter {
       this.tokens -= 1;
       const next = this.dequeueNext()!;
       const at = Date.now();
-      this.samples.push({ at, label: next.label, kind: next.kind, caller: next.caller, priority: next.priority, waitMs: at - next.enqueuedAt });
+      this.samples.push({ at, label: next.label, kind: next.kind, caller: next.caller, role: next.role, priority: next.priority, waitMs: at - next.enqueuedAt });
       next.resolve();
     }
     // Bounded even if nobody ever calls stats(): drop what's older than the window.

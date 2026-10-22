@@ -97,7 +97,7 @@ export class Scheduler {
   /** Runs a task's work with its API urgency scoped to just that work (see
    *  runWithApiPriority). Preferred over setClientPriority, which flips one
    *  field shared by everything else making calls at the same moment. */
-  private readonly runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>) => Promise<T>;
+  private readonly runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>;
   /**
    * Counters for the heartbeat below. Every one of them exists because a
    * failure of that kind was, at some point today, completely silent: a task
@@ -113,7 +113,7 @@ export class Scheduler {
   private lastHeartbeat = Date.now();
   private lastRanAt = Date.now();
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>) => Promise<T> } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T> } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -186,7 +186,7 @@ export class Scheduler {
       // runs after it.
       if (!this.runWithPriority) this.setClientPriority?.(task.priority);
       try {
-        const result = this.runWithPriority ? await this.runWithPriority(task.priority, () => task.run()) : await task.run();
+        const result = this.runWithPriority ? await this.runWithPriority(task.priority, () => task.run(), task.shipSymbol) : await task.run();
         this.budget.consumeTokens(result.actualCalls);
         ran += 1;
         this.stats.ran += 1;

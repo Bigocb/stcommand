@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
-import { Client, RateLimiter, SpaceTradersAPI, runWithApiPriority, taskToApiPriority, API_PRIORITY } from "../core/client.js";
+import { Client, RateLimiter, SpaceTradersAPI, runWithApiPriority, runWithApiRole, taskToApiPriority, API_PRIORITY } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { LiveFeed } from "./liveFeed.js";
@@ -130,6 +130,7 @@ export class TenantRegistry {
       Object.entries(rec).sort((a, b) => b[1].calls - a[1].calls).slice(0, n);
     const who = top(st.byLabel, 4).map(([k, v]) => `${k} ${v.calls}`).join(", ");
     const kinds = top(st.byKind, 6).map(([k, v]) => `${k} ${v.calls}`).join(", ");
+    const roles = top(st.byRole, 10).map(([k, v]) => `${k} ${v.calls}`).join(", ");
     const callers = top(st.byCaller, 12).map(([k, v]) => `${k} ${v.calls}`).join(", ");
     // Wait by tier is the number that says whether priorities are doing their job:
     // critical (1) should be short even when deferrable (3) and background (4) are not.
@@ -140,6 +141,7 @@ export class TenantRegistry {
     this.log("?", `limiter ${Math.round(st.windowMs / 60_000)}m: ${st.callsPerMin}/min of 90 · queue ${st.queueDepth} (oldest ${sec(st.oldestWaitMs)}s) · wait avg ${sec(st.avgWaitMs)}s max ${sec(st.maxWaitMs)}s · ${tiers} · by tenant: ${who} · by call: ${kinds}`);
     // A second line so the top callers aren't lost in a long first one.
     this.log("?", `limiter 5m top callers: ${callers}`);
+    this.log("?", `limiter 5m by ship role: ${roles}`);
   }
 
   constructor(
@@ -457,7 +459,7 @@ export class TenantRegistry {
     // point it's long since been assigned. Same forward-reference pattern
     // MissionManager's own callbacks into FleetManager already use.
     let fleet!: FleetManager;
-    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn) => runWithApiPriority(taskToApiPriority(p), fn) });
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => runWithApiPriority(taskToApiPriority(p), fn)) });
     fleet = new FleetManager({
       api,
       contracts,

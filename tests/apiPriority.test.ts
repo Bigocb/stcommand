@@ -221,3 +221,16 @@ describe("RateLimiter.stats by caller", () => {
     assert.equal(st.byCaller["market <- Keeper.snapshot"]?.calls, 1);
   });
 });
+
+describe("limiter stats by ship role", () => it("counts calls by the role that asked, '?' when untagged", async () => {
+  const { runWithApiRole } = await import("../src/core/client.js");
+  const limiter = new RateLimiter(1000, 1000);
+  await runWithApiRole("keeper", () => limiter.acquire(API_PRIORITY.DEFERRABLE, "T", "market"));
+  await runWithApiRole("keeper", () => limiter.acquire(API_PRIORITY.DEFERRABLE, "T", "market"));
+  await runWithApiRole("trader", () => limiter.acquire(API_PRIORITY.CRITICAL, "T", "sell-cargo"));
+  await limiter.acquire(API_PRIORITY.ROUTINE, "T", "agent");
+  const st = limiter.stats();
+  assert.equal(st.byRole["keeper market"]?.calls, 2);
+  assert.equal(st.byRole["trader sell-cargo"]?.calls, 1);
+  assert.equal(st.byRole["? agent"]?.calls, 1);
+}));

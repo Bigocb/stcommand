@@ -5118,6 +5118,17 @@ export class FleetManager {
     return new Set([...this.keeperMarkets.values(), ...this.parkedKeeperMarkets.values()]);
   }
 
+  /** Which kind of ship a scheduler task belongs to, for the limiter's per-role call counts (stats only). */
+  apiRoleOf(shipSymbol: string): string {
+    if (this.keepers.has(shipSymbol)) return "keeper";
+    if (this.explorers.has(shipSymbol)) return "explorer";
+    if (this.tours.has(shipSymbol)) return "tour";
+    if (this.traders.has(shipSymbol)) return "trader";
+    if (this.miners.has(shipSymbol)) return "miner";
+    if (this.scouts.has(shipSymbol)) return "scout";
+    return "other";
+  }
+
   /** The role a hull would be given if nothing says otherwise: assignRole()'s hull rules, as a plain answer. */
   private hullRole(ship: Ship): Exclude<ManualRole, "parked"> {
     if (ship.mounts.some((m) => m.symbol.startsWith("MOUNT_MINING_LASER")) && ship.cargo.capacity >= 15) return "miner";
