@@ -28,6 +28,40 @@ const VERDICT = {
 };
 const verdict = (v) => (v ? `<span class="ex-tag ${VERDICT[v]?.cls ?? ""}">${h(VERDICT[v]?.label ?? v)}</span>` : "");
 
+/** Cumulative systems traded in and with keepers over time: two 2px lines, direct end labels, from 0. */
+function growthChart(cov, compact = false) {
+  const pts = cov.series;
+  if (pts.length < 2) return `<div class="mx-note">Growth shows once there are two samples.</div>`;
+  // A phone is about 350px wide: a 360-unit viewBox keeps the labels at a readable size instead of shrinking a 600-unit one.
+  const W = compact ? 360 : 600, H = 150, L = 30, R = compact ? 74 : 96, T = 10, B = 22;
+  const t0 = Date.parse(pts[0].at), t1 = Date.parse(pts[pts.length - 1].at);
+  const max = Math.max(1, ...pts.map((p) => Math.max(p.trading, p.keepers)));
+  const top = Math.ceil(max / 5) * 5 || 5;
+  const x = (iso) => L + ((Date.parse(iso) - t0) / Math.max(1, t1 - t0)) * (W - L - R);
+  const y = (v) => T + (1 - v / top) * (H - T - B);
+  const line = (key) => pts.map((p, i) => `${i ? "L" : "M"}${x(p.at).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
+  const last = pts[pts.length - 1];
+  const fmtT = (ms) => new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const grid = [0, top / 2, top].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--hair)" stroke-width="1"/><text x="${L - 6}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--dim)">${Math.round(v)}</text>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-height:210px" role="img" aria-label="Systems traded in: ${last.trading}. Systems with keepers: ${last.keepers}. Cumulative since ${h(fmtT(t0))}.">
+    ${grid}
+    <path d="${line("trading")}" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linejoin="round"/>
+    <path d="${line("keepers")}" fill="none" stroke="var(--ice)" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="${x(last.at).toFixed(1)}" cy="${y(last.trading).toFixed(1)}" r="3" fill="var(--amber)"><title>${last.trading} systems traded in</title></circle>
+    <circle cx="${x(last.at).toFixed(1)}" cy="${y(last.keepers).toFixed(1)}" r="3" fill="var(--ice)"><title>${last.keepers} systems with keepers</title></circle>
+    <text x="${W - R + 8}" y="${(y(last.trading) + 3).toFixed(1)}" font-size="10" fill="var(--bone)">${last.trading} traded</text>
+    <text x="${W - R + 8}" y="${(y(last.keepers) + (Math.abs(y(last.trading) - y(last.keepers)) < 12 ? 15 : 3)).toFixed(1)}" font-size="10" fill="var(--bone)">${last.keepers} keepers</text>
+    <text x="${L}" y="${H - 6}" font-size="9" fill="var(--dim)">${h(fmtT(t0))}</text>
+    <text x="${W - R}" y="${H - 6}" text-anchor="end" font-size="9" fill="var(--dim)">${h(fmtT(t1))}</text>
+  </svg>`;
+}
+
+/** The two headline counts, shared by both layouts. */
+function coverageTiles(cov) {
+  const tile = (label, value, sub) => `<div class="ex-kpi"><div class="ex-k">${h(label)}</div><div class="ex-v">${value}</div><div class="mx-note">${h(sub)}</div></div>`;
+  return `<div class="ex-kpis">${tile("Systems traded in", n(cov.trading), `${n(cov.tradingLast24h)} in the last 24h`)}${tile("Systems with keepers", n(cov.keepers), "a keeper stationed there now")}</div>`;
+}
+
 export function mountExplorers(root, { api, compact = false } = {}) {
   let windowHours = Number(lsGet("explorersWindow", "72")) || 72;
   let data = null;
@@ -90,6 +124,8 @@ export function mountExplorers(root, { api, compact = false } = {}) {
 
     if (compact) { $("ex-body").innerHTML = cards(data, now); return; }
     $("ex-body").innerHTML = `
+      <div class="panel"><div class="panel-h"><span class="title">Coverage</span><span class="count">cumulative this week</span></div>
+        <div class="panel-b">${coverageTiles(data.coverage)}${growthChart(data.coverage)}</div></div>
       <div class="panel"><div class="panel-h"><span class="title">Explorer ships</span><span class="count">${data.explorers.length}</span></div>
         <div class="panel-b" style="padding:0">${data.explorers.length ? `<table><tr><th>Ship</th><th>Where</th><th>Nav</th><th>Doing</th><th>Fuel</th><th>Jumps</th><th>Recent systems</th></tr>${ships}</table>` : `<div class="empty">No ship has the explorer role. Set one on the Ships tab.</div>`}</div></div>
       <div class="panel"><div class="panel-h"><span class="title">Systems looked at</span><span class="count">newest ${data.systems.length}</span></div>
@@ -114,7 +150,8 @@ export function mountExplorers(root, { api, compact = false } = {}) {
         <div class="row1"><span class="who">${h(k.ship)}</span><span class="amt">${n(k.price)}c</span></div>
         <div class="detail">at ${h(k.market)}<br>${h(k.hull.replace("SHIP_", ""))} bought at ${h(k.yard)} · ${h(ago(k.at, now))}</div>
       </div>`).join("");
-    return `<div class="sec-h">Explorer ships <span class="n">${d.explorers.length}</span></div>${ships || `<div class="detail">No ship has the explorer role.</div>`}
+    return `<div class="sec-h">Coverage</div><div class="card">${coverageTiles(d.coverage)}${growthChart(d.coverage, true)}</div>
+      <div class="sec-h">Explorer ships <span class="n">${d.explorers.length}</span></div>${ships || `<div class="detail">No ship has the explorer role.</div>`}
       <div class="sec-h">Systems looked at <span class="n">${d.systems.length}</span></div>${systems || `<div class="detail">Nothing surveyed yet.</div>`}
       <div class="sec-h">Keepers bought and stationed <span class="n">${t.keepersBought}</span></div>${keepers || `<div class="detail">No keeper bought in this window.</div>`}`;
   }

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildExplorerReport, verdictOf } from "../src/engine/explorerReport.js";
+import { buildCoverage, buildExplorerReport, verdictOf } from "../src/engine/explorerReport.js";
 
 const ship = { symbol: "E-1", waypoint: "X1-B-G1", nav: "DOCKED", fuel: 150, fuelCap: 300, cooldown: 0, doing: "docked" };
 const base = {
@@ -72,5 +72,63 @@ describe("buildExplorerReport", () => {
     assert.equal(q.systems.length, 1);
     assert.equal(q.keepers.length, 1);
     assert.equal(q.totals.keepersBought, 2);
+  });
+});
+
+describe("buildCoverage", () => {
+  const HOUR = 3_600_000;
+  const now = Date.parse("2026-10-22T12:00:00Z");
+  const at = (hoursAgo: number) => new Date(now - hoursAgo * HOUR).toISOString();
+
+  it("counts systems from their first trade, and those traded in within 24 hours", () => {
+    const c = buildCoverage({
+      nowMs: now,
+      trades: [
+        { system: "X1-A", firstAt: at(100), lastAt: at(1) },
+        { system: "X1-B", firstAt: at(50), lastAt: at(30) },
+        { system: "X1-C", firstAt: at(2), lastAt: at(1) },
+      ],
+      keeperSystems: [],
+    });
+    assert.equal(c.trading, 3);
+    assert.equal(c.tradingLast24h, 2, "B was last traded 30h ago");
+    assert.equal(c.series.at(-1)!.trading, 3, "the last point is now");
+    assert.equal(c.series[0]!.trading <= c.series.at(-1)!.trading, true);
+  });
+
+  it("the series only ever grows, with at most maxPoints points ending now", () => {
+    const trades = Array.from({ length: 20 }, (_, k) => ({ system: `X1-S${k}`, firstAt: at(200 - k * 9), lastAt: at(1) }));
+    const c = buildCoverage({ nowMs: now, trades, keeperSystems: [], maxPoints: 10 });
+    assert.ok(c.series.length <= 10);
+    assert.equal(c.series.at(-1)!.at, new Date(now).toISOString());
+    for (let k = 1; k < c.series.length; k++) assert.ok(c.series[k]!.trading >= c.series[k - 1]!.trading);
+    assert.equal(c.series.at(-1)!.trading, 20);
+  });
+
+  it("counts a keeper system once, from its earliest keeper; a keeper with no purchase row counts from the start", () => {
+    const c = buildCoverage({
+      nowMs: now,
+      trades: [{ system: "X1-A", firstAt: at(100), lastAt: at(1) }],
+      keeperSystems: [{ system: "X1-A", at: at(10) }, { system: "X1-A", at: at(5) }, { system: "X1-OLD" }],
+    });
+    assert.equal(c.keepers, 2);
+    assert.equal(c.series[0]!.keepers, 1, "X1-OLD has no purchase row, so it is there from the start");
+    assert.equal(c.series.at(-1)!.keepers, 2);
+  });
+
+  it("is empty-safe", () => {
+    const c = buildCoverage({ nowMs: now, trades: [], keeperSystems: [] });
+    assert.deepEqual([c.trading, c.keepers, c.tradingLast24h], [0, 0, 0]);
+    assert.equal(c.series.length, 1);
+  });
+
+  it("buildExplorerReport carries it, and its keeper list stays the window's while coverage uses every purchase", () => {
+    const r = buildExplorerReport({ ...base, windowHours: 1, trades: [{ system: "X1-A", firstAt: "2026-10-20T00:00:00Z", lastAt: "2026-10-22T11:00:00Z" }], purchases: [
+      { at: "2026-10-22T11:30:00Z", ship: "K-1", yard: "X1-A-Y1", hull: "SHIP_PROBE", price: 1 },
+      { at: "2026-10-21T00:00:00Z", ship: "K-2", yard: "X1-A-Y1", hull: "SHIP_PROBE", price: 1 },
+    ] });
+    assert.equal(r.keepers.length, 1, "only the purchase inside the 1h window is listed");
+    assert.equal(r.coverage.keepers, 1, "both keepers stand in X1-A: one system");
+    assert.equal(r.coverage.trading, 1);
   });
 });

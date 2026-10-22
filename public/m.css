@@ -796,3 +796,7 @@ select:focus, .price-picker select:focus, select.role-select:focus { outline: 1p
 .ss-st-missed { color: var(--red); border-color: rgba(255,97,82,.35); }
 .ss-st-pending { color: var(--amber); border-color: rgba(255,176,32,.35); }
 .ss-st-dropped { text-decoration: line-through; }
+.ex-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.ex-kpi { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ex-k { font-family: var(--chrome); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.ex-v { font-family: var(--mono); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }

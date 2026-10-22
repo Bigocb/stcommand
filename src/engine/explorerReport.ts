@@ -19,6 +19,9 @@ export interface SurveyRow { system: string; at: string; markets: number; shipya
 export interface KeeperStation { ship: string; market: string }
 export interface ShipPurchaseRow { at: string; ship: string; yard: string; hull: string; price: number }
 
+/** First and last trade (PURCHASE or SELL) the ledger holds for one system this week. */
+export interface SystemTradeSpan { system: string; firstAt: string; lastAt: string }
+
 export type SystemVerdict = "rejected" | "surveyed" | "atlas";
 
 export interface ExplorerReport {
@@ -32,6 +35,8 @@ export interface ExplorerReport {
     /** Newest first, consecutive repeats collapsed; the verdict is the survey mark's, if the system has one. */
     visited: { system: string; at: string; verdict?: SystemVerdict }[];
   }[];
+  /** How many systems we trade in and keep keepers in, now and over the week. */
+  coverage: Coverage;
   systems: { system: string; at: string; markets: number; shipyards: number; verdict: SystemVerdict; keepersStationed: number; keepersBought: number }[];
   keepers: { ship: string; market: string; system: string; yard: string; hull: string; price: number; at: string }[];
 }
@@ -45,14 +50,18 @@ export function buildExplorerReport(i: {
   explorers: ExplorerShipRow[]; jumps: JumpRow[]; surveys: SurveyRow[]; stations: KeeperStation[]; purchases: ShipPurchaseRow[];
   /** Newest systems and keepers to list; the totals always cover everything passed in. */
   listLimit?: number;
+  /** Per-system first and last trade for the coverage figures; omitted = no coverage data. */
+  trades?: SystemTradeSpan[];
 }): ExplorerReport {
   const limit = i.listLimit ?? 60;
   const surveyBySystem = new Map(i.surveys.map((s) => [s.system, s]));
   const stationOf = new Map(i.stations.map((k) => [k.ship, k.market]));
 
   // Keepers: a ship purchase counts when that ship is now stationed as a keeper. Bought-for market is where it stands.
+  // `purchases` may reach back further than the window (the coverage history needs the whole week); the list and totals are the window's.
+  const sinceMs = Date.parse(i.nowIso) - i.windowHours * 3_600_000;
   const keepers = i.purchases
-    .filter((p) => stationOf.has(p.ship))
+    .filter((p) => stationOf.has(p.ship) && Date.parse(p.at) >= sinceMs)
     .map((p) => { const market = stationOf.get(p.ship)!; return { ship: p.ship, market, system: systemOf(market), yard: p.yard, hull: p.hull, price: p.price, at: p.at }; })
     .sort((a, b) => b.at.localeCompare(a.at));
   const boughtIn = new Map<string, number>();
@@ -100,7 +109,74 @@ export function buildExplorerReport(i: {
       jumpSpend: theirJumps.reduce((t, j) => t + j.cost, 0),
     },
     explorers,
+    coverage: buildCoverage({
+      nowMs: Date.parse(i.nowIso),
+      trades: i.trades ?? [],
+      keeperSystems: i.stations.map((k) => ({
+        system: systemOf(k.market),
+        at: i.purchases.find((p) => p.ship === k.ship)?.at,
+      })),
+    }),
     systems: systems.slice(0, limit),
     keepers: keepers.slice(0, limit),
+  };
+}
+
+export interface CoveragePoint { at: string; trading: number; keepers: number }
+export interface Coverage {
+  /** Systems with at least one trade this week. */
+  trading: number;
+  /** Of those, systems traded in within the last 24 hours. */
+  tradingLast24h: number;
+  /** Systems where a keeper is stationed now. */
+  keepers: number;
+  /** Cumulative systems traded in / with a keeper, oldest first, at most 48 points ending now. */
+  series: CoveragePoint[];
+}
+
+const HOUR = 3_600_000;
+
+/**
+ * Systems we trade in and have keepers in, now and as they grew.
+ *
+ * Trading: a system counts from its first trade in the ledger. Keepers: a system counts from the purchase of the earliest
+ * keeper now stationed there; a keeper with no purchase row this week (it predates it) counts from the start of the series, so
+ * the last point always equals the current count. A keeper since scrapped is not counted, as the ledger does not say where it stood.
+ */
+export function buildCoverage(i: {
+  nowMs: number;
+  trades: readonly SystemTradeSpan[];
+  /** When each stationed keeper was bought, by the system it stands in (earliest wins); keepers with no purchase row are passed with `at` undefined. */
+  keeperSystems: readonly { system: string; at?: string }[];
+  maxPoints?: number;
+}): Coverage {
+  const maxPoints = i.maxPoints ?? 48;
+  const tradeStart = new Map<string, number>();
+  for (const t of i.trades) tradeStart.set(t.system, Math.min(tradeStart.get(t.system) ?? Infinity, Date.parse(t.firstAt)));
+  const keeperStart = new Map<string, number | undefined>();
+  for (const k of i.keeperSystems) {
+    const at = k.at === undefined ? undefined : Date.parse(k.at);
+    const had = keeperStart.get(k.system);
+    if (!keeperStart.has(k.system)) keeperStart.set(k.system, at);
+    else if (at !== undefined && (had === undefined || at < had)) keeperStart.set(k.system, at);
+  }
+  const known = [...tradeStart.values(), ...[...keeperStart.values()].filter((v): v is number => v !== undefined)];
+  const t0 = known.length ? Math.min(...known) : i.nowMs;
+  const span = Math.max(i.nowMs - t0, HOUR);
+  const bucket = Math.max(HOUR, Math.ceil(span / maxPoints / HOUR) * HOUR);
+
+  const countAt = (starts: Iterable<number | undefined>, at: number) => { let n = 0; for (const s of starts) if ((s ?? t0) <= at) n++; return n; };
+  const series: CoveragePoint[] = [];
+  for (let at = t0 + bucket; at < i.nowMs; at += bucket) {
+    series.push({ at: new Date(at).toISOString(), trading: countAt(tradeStart.values(), at), keepers: countAt(keeperStart.values(), at) });
+  }
+  series.push({ at: new Date(i.nowMs).toISOString(), trading: tradeStart.size, keepers: keeperStart.size });
+
+  const cutoff = i.nowMs - 24 * HOUR;
+  return {
+    trading: tradeStart.size,
+    tradingLast24h: i.trades.filter((t) => Date.parse(t.lastAt) >= cutoff).length,
+    keepers: keeperStart.size,
+    series,
   };
 }

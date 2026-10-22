@@ -670,3 +670,7 @@ table.mf .dim{color:var(--dim)}
 .ss-card-l li{padding:3px 0;font-size:11.5px}
 .ss-phase{color:var(--amber)}
 @media (max-width:1100px){.ss-kpis{grid-template-columns:repeat(3,1fr)}.ss-cols{grid-template-columns:1fr}}
+.ex-kpis{display:flex;gap:12px;margin-bottom:10px}
+.ex-kpi{flex:1;background:var(--sunken);border:1px solid var(--hair);border-radius:4px;padding:10px 12px;display:flex;flex-direction:column;gap:3px}
+.ex-k{font-family:var(--chrome);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.ex-v{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--bone);font-variant-numeric:tabular-nums}

@@ -15,6 +15,7 @@ describe("ops explorers", () => {
       store: {
         opsMovements: async (_t: string, f: unknown) => { asked.movements = f; return [{ at: new Date("2026-10-22T10:00:00Z"), ship_symbol: "E-1", from_waypoint: "X1-A-G1", to_waypoint: "X1-B-G1", cost: 5000 }]; },
         recentSystemSurveys: async () => [{ systemSymbol: "X1-B", surveyedAt: Date.parse("2026-10-22T10:01:00Z"), markets: 7, shipyards: 1, source: "explore" }],
+        systemTradeSpans: async () => [{ system: "X1-B", firstAt: "2026-10-22T09:00:00.000Z", lastAt: "2026-10-22T11:00:00.000Z" }, { system: "X1-C", firstAt: "2026-10-21T00:00:00.000Z", lastAt: "2026-10-21T05:00:00.000Z" }],
         opsLedger: async (_t: string, f: unknown) => { asked.ledger = f; return [{ timestamp: new Date("2026-10-22T10:05:00Z"), ship_symbol: "K-1", waypoint_symbol: "X1-B-Y1", trade_symbol: "SHIP_PROBE", total: 28959 }]; },
       },
     } as any;
@@ -27,5 +28,7 @@ describe("ops explorers", () => {
     assert.equal(r.explorers[0].visited[0].verdict, "surveyed");
     assert.deepEqual(r.keepers.map((k: any) => [k.ship, k.market, k.price]), [["K-1", "X1-B-M1", 28959]]);
     assert.equal(r.systems[0].keepersStationed, 1);
+    assert.deepEqual([r.coverage.trading, r.coverage.tradingLast24h, r.coverage.keepers], [2, 1, 1], "C was last traded 31h ago");
+    assert.equal((asked.ledger as any).limit, 2000, "keeper purchases are read for the whole week, not just the window");
   });
 });

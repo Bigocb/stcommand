@@ -1725,6 +1725,21 @@ export class Store {
     );
   }
 
+  /**
+   * For each system, the first and last PURCHASE or SELL in the ledger (this week, by the ledger's own scoping), for the
+   * Explorers tab's "systems we trade in" count and its growth. The system is the waypoint symbol without its last part.
+   */
+  async systemTradeSpans(tenantId: string): Promise<{ system: string; firstAt: string; lastAt: string }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query<{ system: string; first_at: Date; last_at: Date }>(
+        `SELECT regexp_replace(waypoint_symbol, '-[^-]+$', '') AS system, min(timestamp) AS first_at, max(timestamp) AS last_at
+         FROM ledger WHERE type IN ('PURCHASE', 'SELL') AND waypoint_symbol IS NOT NULL
+         GROUP BY 1 ORDER BY first_at`,
+      );
+      return r.rows.map((x) => ({ system: x.system, firstAt: x.first_at.toISOString(), lastAt: x.last_at.toISOString() }));
+    });
+  }
+
   /** The newest survey marks with what was found and why each mark exists (survey | tour | explore | scout | rejected | backfill), for the Explorers tab. */
   async recentSystemSurveys(tenantId: string, limit: number): Promise<{ systemSymbol: string; surveyedAt: number; markets: number; shipyards: number; source: string }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
