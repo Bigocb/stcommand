@@ -27,6 +27,7 @@ import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
 import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
 import { WindDownScrapper, shipsToRetire, shouldRetire, retireReasonKey, windDownSummary, storedYardFor } from "./windDownScrap.js";
+import { traderShouldRecord } from "./traderRecord.js";
 import { KEEPER_POLL_MIN_MS, cadenceSeeds, keeperPollDelayMs, marketSignature } from "./keeperCadence.js";
 import { cargoValue, cargoSignature, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
@@ -1430,7 +1431,7 @@ export class FleetManager {
       onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
       // Traders price their buys off the snapshot, so they only skip one taken in the last minute (the duplicate a dock
       // and an explicit record a moment apart used to cost).
-      recordMarket: (wp) => this.recordMarketSnapshot(wp, { maxAgeMs: 60_000 }),
+      recordMarket: (wp) => this.traderRecordMarket(wp),
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
       jumpTo: (sym, wp) => this.jumpToward(sym, wp),
@@ -2665,6 +2666,19 @@ export class FleetManager {
     if (!Number.isFinite(at)) return false;
     const limit = maxAgeMs ?? this.keeperPollMs(waypointSymbol) * 0.8;
     return Date.now() - at < limit;
+  }
+
+  /** A trader's post-dock market read: skipped when a keeper at that market read it recently (doctrine traderSkipKeeperMarkets, off by default). */
+  private async traderRecordMarket(waypointSymbol: string): Promise<void> {
+    const skipMin = this.doctrine.isEnabledOr("traderSkipKeeperMarkets", false) ? this.doctrine.value("traderSkipKeeperMarkets") : 0;
+    const fetchedAt = Date.parse(this.registry.market(waypointSymbol)?.fetchedAt ?? "");
+    const verdict = traderShouldRecord({
+      keeperCovered: new Set(this.keeperMarkets.values()).has(waypointSymbol),
+      snapshotAgeMs: Number.isFinite(fetchedAt) ? Date.now() - fetchedAt : undefined,
+      skipWithinMs: skipMin * 60_000,
+    });
+    if (!verdict.record) return;
+    await this.recordMarketSnapshot(waypointSymbol, { maxAgeMs: 60_000 });
   }
 
   /** Snapshot current market prices at a waypoint if it has a MARKETPLACE trait.

@@ -325,6 +325,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "traderSkipKeeperMarkets",
+    name: "Traders: skip re-reading keeper markets",
+    description: "When a trader docks at a market a keeper stands at, it does not record the market again if the keeper's snapshot is younger than this many minutes: the keeper already reads it, and the read is one API call (about 28 of every 450 on 2026-10-22). The trader's own price checks before a buy or sell are not affected. Off (the default) = record on every dock, as before. A market a trader works keeps its fast keeper cadence only while its prices change, so this can leave those markets slightly staler. Takes effect on the next dock.",
+    value: 10, min: 1, max: 60, step: 1, unit: "m",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperMinGoods",
     name: "Keepers: fewest goods worth a keeper",
     description: "When Keepers for every market in a good system adds a system's markets, a market that trades fewer distinct goods than this (imports, exports and exchange, known from the survey without a ship there) is left off the list. A market with one or two goods is rarely worth a probe. Off = every market is added. Markets can still be added by hand. Takes effect on the next system an explorer accepts.",
