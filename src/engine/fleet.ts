@@ -19,7 +19,7 @@ import { CooldownPending, IDLE_STEP, Pending, describeError, type AgentStep } fr
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
-import { keeperAutoApprove, pickShipAtYard } from "./keeperBuy.js";
+import { keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard } from "./keeperBuy.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
@@ -4639,6 +4639,14 @@ export class FleetManager {
         this.log(`${shipSymbol}: ${target} not worth a tour (${verdict.reason}); marked rejected, moving on`);
         await this.markSystemSurveyed(target, "rejected", { markets: counts.markets, shipyards: counts.shipyards });
         return target;
+      }
+      // Worth touring: every market in it gets a keeper (autoKeeperGoodSystems), the way the operator did by hand.
+      if (this.doctrine.isEnabledOr("autoKeeperGoodSystems", false)) {
+        const fresh = marketsNeedingKeepers(this.galaxy.getSystem(target)?.waypoints ?? [], await this.keeperPriorityMarkets());
+        if (fresh.length > 0) {
+          this.log(`${shipSymbol}: ${target} is worth a tour; adding ${fresh.length} market(s) to the keeper list`);
+          try { await this.addKeeperPriorityMarkets(fresh); } catch (err) { this.log(`keeper list add for ${target} failed: ${describeError(err)}`); }
+        }
       }
       // surveySystem()'s own surveyMarkets() call sweeps every MARKETPLACE
       // waypoint in `target` via a remote getMarket() call — but confirmed
@@ -9505,6 +9513,12 @@ export class FleetManager {
       }
     }
     return clean;
+  }
+
+  /** Add markets to the keeper priority list, keeping what is there. setKeeperPriorityMarkets() replaces the whole list. */
+  async addKeeperPriorityMarkets(markets: string[]): Promise<string[]> {
+    const before = await this.keeperPriorityMarkets();
+    return this.setKeeperPriorityMarkets([...before, ...markets]);
   }
 
   /** Drop the override and fall back to the built-in default list. */

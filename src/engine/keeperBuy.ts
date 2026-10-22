@@ -45,3 +45,18 @@ export function pickShipAtYard(ships: readonly ShipAtWaypoint[], yard: string): 
   const here = ships.filter((s) => s.waypoint === yard && s.nav !== "IN_TRANSIT");
   return (here.find((s) => s.role === "keeper") ?? here[0])?.symbol;
 }
+
+/**
+ * The marketplaces of a freshly toured system that the keeper priority list does not hold yet, in waypoint order. Used when a
+ * system has passed the explorer's worth threshold: every market in it gets a keeper, the way the operator did by hand.
+ * Waypoint symbols are upper-case already; the list is compared exactly.
+ */
+export function marketsNeedingKeepers(
+  waypoints: readonly { symbol: string; traits?: readonly { symbol: string }[] }[],
+  listed: readonly string[],
+): string[] {
+  const have = new Set(listed);
+  return waypoints
+    .filter((w) => (w.traits ?? []).some((t) => t.symbol === "MARKETPLACE") && !have.has(w.symbol))
+    .map((w) => w.symbol);
+}

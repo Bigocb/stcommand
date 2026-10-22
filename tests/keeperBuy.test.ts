@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { keeperAutoApprove, pickShipAtYard } from "../src/engine/keeperBuy.js";
+import { keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard } from "../src/engine/keeperBuy.js";
 
 const base = { clauseOn: true, capCredits: 60_000, price: 28_959, spendable: true };
 
@@ -35,5 +35,22 @@ describe("pickShipAtYard", () => {
   it("ignores ships in transit and ships elsewhere", () => {
     assert.equal(pickShipAtYard(ships.filter((s) => s.symbol === "T-3"), "X1-A-Y"), undefined);
     assert.equal(pickShipAtYard(ships, "X1-NOPE"), undefined);
+  });
+});
+
+describe("marketsNeedingKeepers", () => {
+  const wps = [
+    { symbol: "X1-S-A1", traits: [{ symbol: "MARKETPLACE" }, { symbol: "SHIPYARD" }] },
+    { symbol: "X1-S-B2", traits: [{ symbol: "MARKETPLACE" }] },
+    { symbol: "X1-S-C3", traits: [{ symbol: "ASTEROID" }] },
+    { symbol: "X1-S-D4" },
+  ];
+  it("returns the marketplaces not yet listed, in waypoint order", () => {
+    assert.deepEqual(marketsNeedingKeepers(wps, []), ["X1-S-A1", "X1-S-B2"]);
+    assert.deepEqual(marketsNeedingKeepers(wps, ["X1-S-A1"]), ["X1-S-B2"]);
+  });
+  it("returns nothing when all are listed or none are markets", () => {
+    assert.deepEqual(marketsNeedingKeepers(wps, ["X1-S-A1", "X1-S-B2"]), []);
+    assert.deepEqual(marketsNeedingKeepers([wps[2]!, wps[3]!], []), []);
   });
 });

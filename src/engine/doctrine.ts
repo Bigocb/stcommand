@@ -299,9 +299,16 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "autoApproveKeeperProbes",
     name: "Auto-approve keeper probes",
-    description: "Buy a keeper probe without an approval card when its price is at or under this many credits and the wallet can pay. At a shipyard the buying ship is already docked, so it buys and moves on; for a market in a system whose yard already has a keeper, the keeper stands in as the docked ship, so no passing ship has to wait. Off = every keeper purchase asks the operator, as before. Takes effect on the next keeper check.",
+    description: "Buy a keeper probe without an approval card when its price is at or under this many credits and the wallet can pay. At a shipyard the buying ship is already docked, so it buys and moves on; for a market in a system whose yard already has a keeper, the keeper stands in as the docked ship, so no passing ship has to wait. Off = every keeper purchase asks the operator. On by default since 2026-10-22 (operator). Takes effect on the next keeper check.",
     value: 60000, min: 1000, max: 500000, step: 1000, unit: "c",
-    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "autoKeeperGoodSystems",
+    name: "Keepers for every market in a good system",
+    description: "When an explorer finds a system worth touring (it passes the market and shipyard minimums), add all of that system's marketplaces to the keeper priority list, so keepers are bought for them as usual (with Auto-approve keeper probes on, with no card). Off = the keeper list changes only by hand. Takes effect on the next system an explorer accepts.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
     key: "exploreMinMarkets",
