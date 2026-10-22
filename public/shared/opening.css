@@ -1,0 +1,115 @@
+/**
+ * Opening automation — shared styling for the task list and saved templates.
+ *
+ * One stylesheet for both surfaces: Deck's Ops → Automation panel and Tower's
+ * More → Opening tab both mount /shared/opening.js, so the two must not drift.
+ * Only tokens defined in BOTH deck.css and m.css are used here (--panel,
+ * --raised, --hair, --amber, --dim, --mono …), never the per-file extras like
+ * --raised2 / --raised-2 or --sans.
+ *
+ * Below 560px the task table becomes a stack of cards: six columns cannot fit
+ * a phone, and the data-label attributes opening.js puts on each cell let the
+ * value stay labelled once the header row is hidden.
+ */
+
+.opening-panel { display: flex; flex-direction: column; gap: 14px; }
+.opening-templates-panel { display: block; }
+
+.opening-header {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px;
+  margin-bottom: 8px;
+}
+.opening-header h2 {
+  margin: 0; font-family: var(--chrome); font-size: 13px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--bone);
+}
+.opening-header .ops-sub {
+  flex: 1 1 240px; font-family: var(--mono); font-size: 10.5px;
+  line-height: 1.5; color: var(--dim);
+}
+.opening-header .btn { flex: 0 0 auto; }
+
+/* ── task list ─────────────────────────────── */
+.opening-table { width: 100%; border-collapse: collapse; }
+.opening-table th {
+  text-align: left; font-family: var(--chrome); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
+  padding: 6px 8px; border-bottom: 1px solid var(--hair);
+  white-space: nowrap;
+}
+.opening-table td {
+  font-family: var(--mono); font-size: 11px; color: var(--bone);
+  padding: 7px 8px; border-bottom: 1px solid var(--hair);
+  vertical-align: middle;
+}
+.opening-table tr:last-child td { border-bottom: 0; }
+.opening-table code {
+  font-family: var(--mono); font-size: 10.5px; color: var(--amber);
+  background: var(--amber-dim); padding: 1px 5px; border-radius: 4px;
+}
+.opening-table .empty { padding: 14px 8px; }
+.opening-table .btn-sm { white-space: nowrap; }
+
+.btn-sm {
+  padding: 3px 9px; font-size: 10.5px;
+  font-family: var(--chrome); letter-spacing: 0.04em;
+}
+
+.status-pill {
+  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--hair-hi); color: var(--dim); background: var(--raised);
+}
+.status-pill.queued,
+.status-pill.active { color: var(--amber); border-color: var(--amber); }
+.status-pill.done { color: var(--green); border-color: var(--green); }
+.status-pill.failed,
+.status-pill.cancelled { color: var(--red); border-color: var(--red); }
+
+/* ── templates ─────────────────────────────── */
+.template-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.template-card {
+  flex: 1 1 200px; min-width: 0;
+  background: var(--panel); border: 1px solid var(--hair); border-radius: 8px;
+  padding: 9px 11px;
+}
+.template-name {
+  font-family: var(--chrome); font-size: 11.5px; font-weight: 600;
+  color: var(--bone); overflow-wrap: anywhere;
+}
+.template-tasks {
+  font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 2px;
+}
+
+/* ── phone: the table becomes cards ────────── */
+@media (max-width: 560px) {
+  .opening-header { gap: 6px; }
+  /* Heading on its own line, then the mode note, then the action — at this
+     width the note wrapped into a narrow column beside the heading. */
+  .opening-header h2 { flex: 1 0 100%; font-size: 12px; }
+  .opening-header .ops-sub { flex: 1 0 100%; margin-bottom: 2px; }
+  .opening-table thead { display: none; }
+  .opening-table,
+  .opening-table tbody,
+  .opening-table tr,
+  .opening-table td { display: block; width: auto; }
+  .opening-table tr {
+    background: var(--panel); border: 1px solid var(--hair); border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 8px;
+  }
+  .opening-table tr:last-child { margin-bottom: 0; }
+  .opening-table td {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    padding: 2px 0; border-bottom: 0; font-size: 11px;
+  }
+  .opening-table td[data-label]::before {
+    content: attr(data-label);
+    font-family: var(--chrome); font-size: 9px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+    flex: 0 0 auto;
+  }
+  .opening-table td:last-child { margin-top: 6px; justify-content: flex-end; }
+  .opening-table td.empty { justify-content: center; }
+  .template-card { flex: 1 1 100%; }
+}

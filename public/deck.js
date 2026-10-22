@@ -618,8 +618,8 @@ $("mk-tools-seg").addEventListener("click", (e) => {
 });
 /**
  * Opening automation (docs/TODO.md): the queued task list and saved templates.
- * Rendered into #opening-panel, which sits below the ship register in Ops'
- * Automation tab. The panel is a separate element rather than part of
+ * Rendered into #opening-panel, which sits below the automation feed in
+ * Settings › Automation. The panel is a separate element rather than part of
  * #automation-feed because renderAutomationFeed() replaces that element's
  * innerHTML on every price tick, which would wipe this out.
  *
@@ -630,8 +630,6 @@ let openingPanelRendered = false;
 function renderOpeningPanel() {
   const host = $("opening-panel");
   if (!host) return;
-  const tenantId = state?.agent?.tenantId;
-  if (!tenantId) { host.innerHTML = '<div class="empty">Opening automation loads once the agent is registered.</div>'; return; }
   if (openingPanelRendered) return;
   openingPanelRendered = true;
   host.innerHTML = '<div class="empty">Loading opening tasks…</div>';
@@ -641,9 +639,11 @@ function renderOpeningPanel() {
     const templatesEl = document.createElement("div");
     templatesEl.className = "opening-templates-panel";
     host.append(tasksEl, templatesEl);
+    // No tenant id passed: both panels use the session-scoped routes, the same
+    // way every other /api call on this screen does.
     return Promise.all([
-      m.renderOpeningTasks(tasksEl, tenantId),
-      m.renderOpeningTemplates(templatesEl, tenantId),
+      m.renderOpeningTasks(tasksEl),
+      m.renderOpeningTemplates(templatesEl),
     ]);
   }).catch((err) => {
     openingPanelRendered = false;

@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" />
 <link rel="stylesheet" href="/m.css" />
 <link rel="stylesheet" href="/shared/admin.css" />
+<link rel="stylesheet" href="/shared/opening.css" />
 </head>
 <body>
 
@@ -200,6 +201,12 @@
         <div id="more-sec-doctrine">
         <div class="sec-h">Doctrine <span class="n" id="more-doctrine-count">0</span></div>
         <div id="more-doctrine"></div>
+        </div>
+        <div id="more-sec-opening">
+        <div class="sec-h">Opening automation</div>
+        <!-- Mounted by renderMoreOpening() in m.js, which hands this host to
+             /shared/opening.js — the same module Deck's Automation panel uses. -->
+        <div class="opening-panel" id="more-opening"></div>
         </div>
         <div id="more-sec-keys">
         <div class="sec-h">MCP keys</div>

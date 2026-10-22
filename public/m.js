@@ -145,6 +145,7 @@ const NAV_GROUPS = [
     { key: "metrics", label: "Metrics", screen: "metrics" },
     { key: "season", label: "Season", screen: "more", pane: "work", only: ["more-sec-season"] },
     { key: "doctrine", label: "Doctrine", screen: "more", pane: "rules", only: ["more-sec-doctrine"] },
+    { key: "opening", label: "Opening", screen: "more", pane: "rules", only: ["more-sec-opening"] },
     { key: "keys", label: "Keys", screen: "more", pane: "rules", only: ["more-sec-keys"] },
     { key: "admin", label: "Admin", screen: "admin", adminOnly: true },
   ] },
@@ -1155,6 +1156,10 @@ $("more-seg").addEventListener("click", (e) => {
   if (!b) return;
   document.querySelectorAll("#more-seg button").forEach((x) => x.classList.toggle("on", x === b));
   for (const seg of ["work", "fleet", "mining", "rules"]) $(`more-pane-${seg}`).hidden = seg !== b.dataset.mseg;
+  // Reached either from the segment bar or from a More tab (openTab clicks the
+  // segment for its pane). Rendering here as well as in renderMore() covers the
+  // second case, where the pane was already on screen.
+  if (b.dataset.mseg === "rules") renderMoreOpening();
   // The fields table polls only while it is on screen.
   miningScreen ??= mountMiningFields($("mining-root"), { api });
   if (b.dataset.mseg === "mining") miningScreen.show(); else miningScreen.hide();
@@ -1862,6 +1867,44 @@ function renderMoreDoctrine() {
   }).join("");
 }
 
+/**
+ * Opening automation (docs/TODO.md): the queued task list and saved templates,
+ * the same two panels Deck renders under Settings › Automation. Mounted here because
+ * the mobile surface has no Automation pane; the module is shared, so the surfaces
+ * cannot drift apart.
+ *
+ * The engine only executes these tasks while the `openingAutomation` doctrine
+ * clause is on — which is also a switch Tower exposes (More → Doctrine). The
+ * panel's own header states the mode, so an idle list does not read as broken.
+ *
+ * Loaded once per session: /shared/opening.js re-renders its own containers
+ * after an add or cancel, so the flag only guards the initial mount.
+ */
+let moreOpeningRendered = false;
+function renderMoreOpening() {
+  const host = $("more-opening");
+  if (!host) return;
+  if (moreOpeningRendered) return;
+  moreOpeningRendered = true;
+  host.innerHTML = '<div class="empty">Loading opening tasks…</div>';
+  import("/shared/opening.js").then((m) => {
+    host.innerHTML = "";
+    const tasksEl = document.createElement("div");
+    const templatesEl = document.createElement("div");
+    templatesEl.className = "opening-templates-panel";
+    host.append(tasksEl, templatesEl);
+    // Session-scoped routes — no tenant id needed (there isn't one in `state`;
+    // its `agent` is a plain SpaceTraders Agent).
+    return Promise.all([
+      m.renderOpeningTasks(tasksEl),
+      m.renderOpeningTemplates(templatesEl),
+    ]);
+  }).catch((err) => {
+    moreOpeningRendered = false;
+    host.innerHTML = `<div class="empty">Opening automation failed to load: ${escapeHtml(err.message ?? String(err))}</div>`;
+  });
+}
+
 function renderMoreKeepers() {
   $("more-keeper-count").textContent = `${keeperStationsCfg.length} stationed · ${keeperMarketsCfg.length} listed`;
   $("more-keeper-cover").setAttribute("aria-pressed", String(keeperCoverList));
@@ -1967,6 +2010,7 @@ function renderMore() {
   renderMoreChains();
   renderMoreFeeds();
   renderMoreDoctrine();
+  renderMoreOpening();
 }
 
 $("mission-start-btn").addEventListener("click", async () => {

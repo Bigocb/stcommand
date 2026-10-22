@@ -7,10 +7,11 @@ import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
  * the `openingAutomation` doctrine clause executes.
  *
  * Mounted AFTER createResolveTenant, and the tenant always comes from the
- * session (`req.tenantId`), never from the URL. The routes still carry a
- * `:tenantId` segment because Deck's opening panel builds its paths that way;
- * it is checked against the session and a mismatch is a 403 rather than a
- * silent cross-tenant read.
+ * session (`req.tenantId`), never from the URL. The optional `:tenantId`
+ * segment is still accepted — Deck's opening panel once built its paths that
+ * way — and is checked against the session, so a mismatch is a 403 rather than
+ * a silent cross-tenant read. Both surfaces now call the session-scoped form
+ * (`/opening/tasks`), which is the shape every other dashboard route uses.
  */
 export function createOpeningTasksRouter(registry: TenantRegistry): Router {
   const router = Router();

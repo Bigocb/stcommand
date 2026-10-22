@@ -1,9 +1,18 @@
 /**
  * Opening Automation UI — shared view logic.
  *
- * Renders into #opening-panel in Deck's Ops → Automation tab (see
- * renderOpeningPanel() in deck.js). Two panels: the queued task list (with a
+ * Mounted by two surfaces from one module so they cannot drift apart:
+ *   • Deck  → Settings › Automation  (renderOpeningPanel() in deck.js)
+ *   • Tower → More → Opening tab     (renderMoreOpening() in m.js)
+ * Each panel is a container the caller owns: the queued task list (with a
  * Cancel action per row) and the saved templates.
+ *
+ * Routes are the session-scoped ones — `/api/opening/tasks`, not
+ * `/api/opening/tasks/:tenantId`. The tenant always comes from the session
+ * cookie, the same as every other /api call these screens make; there is no
+ * tenant id in the client to put in a path (the state snapshot's `agent` is a
+ * plain SpaceTraders Agent). The server still accepts the `:tenantId` form and
+ * 403s a mismatch, so nothing that already builds those paths breaks.
  *
  * The engine only executes these tasks when the `openingAutomation` doctrine
  * clause is on, so the header states the current mode rather than letting an
@@ -23,8 +32,8 @@ function modeNote(tasks) {
   return `${queued} queued — these run only while the openingAutomation doctrine clause is on.`;
 }
 
-export async function renderOpeningTasks(container, tenantId) {
-  const tasks = await api("GET", `/api/opening/tasks/${tenantId}`);
+export async function renderOpeningTasks(container) {
+  const tasks = await api("GET", "/api/opening/tasks");
 
   container.innerHTML = `
     <div class="opening-header">
@@ -41,11 +50,11 @@ export async function renderOpeningTasks(container, tenantId) {
           ? '<tr><td colspan="6" class="empty">No tasks queued.</td></tr>'
           : tasks.map((t) => `
             <tr>
-              <td><code>${escapeHtml(t.key ?? "")}</code></td>
-              <td>${escapeHtml(t.name ?? "")}</td>
-              <td><span class="status-pill ${escapeHtml(t.status ?? "")}">${escapeHtml(t.status ?? "")}</span></td>
-              <td>${(t.stepIndex ?? 0) + 1} / ${(t.steps ?? []).length}</td>
-              <td>${escapeHtml(t.note ?? "—")}</td>
+              <td data-label="Key"><code>${escapeHtml(t.key ?? "")}</code></td>
+              <td data-label="Name">${escapeHtml(t.name ?? "")}</td>
+              <td data-label="Status"><span class="status-pill ${escapeHtml(t.status ?? "")}">${escapeHtml(t.status ?? "")}</span></td>
+              <td data-label="Step">${(t.stepIndex ?? 0) + 1} / ${(t.steps ?? []).length}</td>
+              <td data-label="Note">${escapeHtml(t.note ?? "—")}</td>
               <td><button class="btn btn-sm" data-cancel="${t.id}">Cancel</button></td>
             </tr>`).join("")}
       </tbody>
@@ -56,8 +65,8 @@ export async function renderOpeningTasks(container, tenantId) {
     btn.onclick = async () => {
       btn.disabled = true;
       try {
-        await api("POST", `/api/opening/tasks/${tenantId}/${btn.dataset.cancel}/cancel`);
-        await renderOpeningTasks(container, tenantId);
+        await api("POST", `/api/opening/tasks/${btn.dataset.cancel}/cancel`);
+        await renderOpeningTasks(container);
       } catch (err) {
         btn.disabled = false;
         alert(err.message);
@@ -76,21 +85,21 @@ export async function renderOpeningTasks(container, tenantId) {
     const role = prompt("Set the command ship's role to (trader, miner, tour, surveyor, explorer, keeper, scout, siphoner):", "trader");
     if (!role) return;
     try {
-      await api("POST", `/api/opening/tasks/${tenantId}`, {
+      await api("POST", "/api/opening/tasks", {
         key,
         name,
         trigger: { kind: "always" },
         steps: [{ kind: "setRole", ship: { by: "command" }, role }],
       });
-      await renderOpeningTasks(container, tenantId);
+      await renderOpeningTasks(container);
     } catch (err) {
       alert(err.message);
     }
   };
 }
 
-export async function renderOpeningTemplates(container, tenantId) {
-  const templates = await api("GET", `/api/opening/templates/${tenantId}`);
+export async function renderOpeningTemplates(container) {
+  const templates = await api("GET", "/api/opening/templates");
 
   container.innerHTML = `
     <div class="opening-header">
@@ -115,13 +124,13 @@ export async function renderOpeningTemplates(container, tenantId) {
     try {
       // Snapshot what is queued now. A template must hold 1-12 tasks (the
       // server enforces it), so an empty task list is refused before the call.
-      const tasks = await api("GET", `/api/opening/tasks/${tenantId}`);
+      const tasks = await api("GET", "/api/opening/tasks");
       if (!tasks.length) {
         alert("There are no tasks to save yet. Add at least one task first.");
         return;
       }
-      await api("POST", `/api/opening/templates/${tenantId}`, { name, tasks: tasks.map(toTaskSpec) });
-      await renderOpeningTemplates(container, tenantId);
+      await api("POST", "/api/opening/templates", { name, tasks: tasks.map(toTaskSpec) });
+      await renderOpeningTemplates(container);
     } catch (err) {
       alert(err.message);
     }
