@@ -22,7 +22,8 @@ const ago = (iso, now) => {
   return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
 };
 const VERDICT = {
-  surveyed: { label: "surveyed", cls: "" },
+  toured: { label: "toured", cls: "" },
+  surveyed: { label: "not toured yet", cls: "ex-dim" },
   rejected: { label: "rejected", cls: "ex-no" },
   atlas: { label: "from atlas", cls: "ex-dim" },
 };
@@ -72,7 +73,7 @@ export function mountExplorers(root, { api, compact = false } = {}) {
       <span class="mx-title">Explorers</span>
       <div class="mx-ranges" id="ex-ranges">${WINDOWS.map((w) => `<button data-w="${w}"${w === windowHours ? ' class="on"' : ""}>${w >= 168 ? "7d" : `${w}h`}</button>`).join("")}</div>
     </div>
-    <div class="mx-purpose">What the explorers are doing, the systems they have looked at (rejected = under the worth threshold: fewer than the minimum markets or no shipyard), and the keepers bought and stationed. Read-only.</div>
+    <div class="mx-purpose">What the explorers are doing, the systems they have looked at (toured = an explorer finished a tour; rejected = under the worth threshold: fewer than the minimum markets or no shipyard; not toured yet = surveyed in passing), and the keepers bought and stationed. Read-only.</div>
     <div class="mx-note" id="ex-note"></div>
     <div id="ex-body"></div>`;
   const $ = (id) => root.querySelector(`#${id}`);
@@ -100,7 +101,7 @@ export function mountExplorers(root, { api, compact = false } = {}) {
     if (!data) { $("ex-note").textContent = "Loading…"; return; }
     const t = data.totals;
     const now = Date.parse(data.asOf);
-    $("ex-note").textContent = `${t.explorers} explorer${t.explorers === 1 ? "" : "s"} · ${t.systemsSurveyed} surveyed, ${t.systemsRejected} rejected · ${t.keepersBought} keeper${t.keepersBought === 1 ? "" : "s"} bought (${n(t.keeperSpend)}c) · ${t.jumps} jumps (${n(t.jumpSpend)}c) in the last ${data.windowHours}h · updated ${new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    $("ex-note").textContent = `${t.explorers} explorer${t.explorers === 1 ? "" : "s"} · ${t.systemsToured} toured, ${t.systemsSurveyed} not toured yet, ${t.systemsRejected} rejected · ${t.keepersBought} keeper${t.keepersBought === 1 ? "" : "s"} bought (${n(t.keeperSpend)}c) · ${t.jumps} jumps (${n(t.jumpSpend)}c) in the last ${data.windowHours}h · updated ${new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 
     const ships = data.explorers.map((e) => `<tr>
         <td><b>${h(e.ship)}</b></td>

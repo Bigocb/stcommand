@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { FleetManager } from "../src/engine/fleet.js";
+import { CooldownPending } from "../src/engine/agentStep.js";
 
 /**
  * The explorer's target rule is "any loaded system with no survey row".
@@ -152,33 +153,75 @@ describe("the explorer's worth threshold (operator, 2026-10-22): fewer than five
   });
 });
 
-describe("atlas-seeded survey marks (migration 060) do not count as toured", () => {
-  it("still targets a good system whose only mark is backfill, but not one a real visit marked", () => {
+describe("only a finished tour or a worth verdict counts as toured", () => {
+  it("still targets a good system whose mark is not a finished tour, but not one an explorer toured", () => {
     const galaxy = fakeGalaxy(["X1-A", "X1-M", "X1-N"], [["X1-A", "X1-M"], ["X1-A", "X1-N"]], { "X1-M": 9, "X1-N": 9 });
     const fleet = fleetWith(galaxy);
     (fleet as any).surveyedSystems = new Set(["X1-A", "X1-M", "X1-N"]);
-    (fleet as any).atlasOnlySystems = new Set(["X1-M"]);
-    assert.equal(hop(fleet, "X1-A"), "X1-M", "M was never visited; N was");
+    (fleet as any).untouredMarks = new Set(["X1-M"]);
+    assert.equal(hop(fleet, "X1-A"), "X1-M", "M was only surveyed in passing; N was toured");
   });
 
-  it("an atlas-only system that fails the worth threshold is still not worth a flight", () => {
+  it("an untoured system that fails the worth threshold is still not worth a flight", () => {
     const galaxy = fakeGalaxy(["X1-A", "X1-M"], [["X1-A", "X1-M"]], { "X1-M": 3 });
     const fleet = fleetWith(galaxy);
     (fleet as any).surveyedSystems = new Set(["X1-A", "X1-M"]);
-    (fleet as any).atlasOnlySystems = new Set(["X1-M"]);
+    (fleet as any).untouredMarks = new Set(["X1-M"]);
     assert.equal(hop(fleet, "X1-A"), undefined);
   });
 
-  it("a real survey mark replaces the atlas one, and forgetting clears it", async () => {
+  it("marks: a passing survey starts the debt, a finished tour or a verdict clears it, and a later plain mark does not undo it", async () => {
     const fleet: any = fleetWith(fakeGalaxy(["X1-A"], []));
-    fleet.surveyedSystems = new Set(["X1-M"]);
-    fleet.atlasOnlySystems = new Set(["X1-M"]);
-    assert.equal(fleet.isToured("X1-M"), false);
     await fleet.markSystemSurveyed("X1-M", "explore");
+    assert.equal(fleet.isToured("X1-M"), false, "a first survey is not a tour");
+    await fleet.markSystemSurveyed("X1-M", "toured");
     assert.equal(fleet.isToured("X1-M"), true);
-    fleet.atlasOnlySystems.add("X1-Q");
+    await fleet.markSystemSurveyed("X1-M", "scout");
+    assert.equal(fleet.isToured("X1-M"), true, "another ship passing through must not undo a finished tour");
+    await fleet.markSystemSurveyed("X1-R", "survey");
+    await fleet.markSystemSurveyed("X1-R", "rejected");
+    assert.equal(fleet.isToured("X1-R"), true, "a worth verdict ends the explorer's interest too");
+  });
+
+  it("forgetting a system clears the state with the mark", async () => {
+    const fleet: any = fleetWith(fakeGalaxy(["X1-A"], []));
     fleet.surveyedSystems.add("X1-Q");
+    fleet.untouredMarks.add("X1-Q");
     await fleet.forgetSurveys("X1-Q");
-    assert.equal(fleet.atlasOnlySystems.has("X1-Q"), false);
+    assert.equal(fleet.untouredMarks.has("X1-Q"), false);
+    assert.equal(fleet.isToured("X1-Q"), false);
+  });
+});
+
+describe("an explorer's tour marks the system toured only when it runs to the end", () => {
+  function tourFleet(dispatch: () => Promise<void>) {
+    const fleet: any = fleetWith(fakeGalaxy(["X1-T"], [], { "X1-T": 6 }));
+    const marks: unknown[][] = [];
+    fleet.markSystemSurveyed = async (...a: unknown[]) => { marks.push(a); };
+    fleet.dispatchShip = dispatch;
+    fleet.recordMarketSnapshot = async () => {};
+    fleet.recordShipyardSnapshot = async () => {};
+    return { fleet, marks };
+  }
+  const stops = [{ symbol: "X1-T-M0", market: true, yard: true }, { symbol: "X1-T-M1", market: true, yard: false }];
+
+  it("a finished tour writes a toured mark with the system's counts", async () => {
+    const { fleet, marks } = tourFleet(async () => {});
+    await fleet.runTourStops("S-1", "X1-T", stops, undefined);
+    assert.deepEqual(marks, [["X1-T", "toured", { markets: 6, shipyards: 1 }]]);
+  });
+
+  it("a stop that fails on its own does not stop the tour from finishing", async () => {
+    let n = 0;
+    const { fleet, marks } = tourFleet(async () => { if (n++ === 0) throw new Error("unreachable"); });
+    await fleet.runTourStops("S-1", "X1-T", stops, undefined);
+    assert.equal(marks.length, 1);
+  });
+
+  it("a cooldown pauses the tour: no toured mark, and the rest is kept to resume", async () => {
+    const { fleet, marks } = tourFleet(async () => { throw new CooldownPending(Date.now() + 60_000, "cooldown"); });
+    await assert.rejects(() => fleet.runTourStops("S-1", "X1-T", stops, undefined));
+    assert.deepEqual(marks, []);
+    assert.equal(fleet.pendingTourStops.get("S-1").stops.length, 2);
   });
 });

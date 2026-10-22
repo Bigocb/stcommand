@@ -558,11 +558,13 @@ export class FleetManager {
   private readonly registry: Registry;
   private surveyedSystems = new Set<string>();
   /**
-   * Systems whose only survey mark is `backfill`: seeded from the galaxy atlas by migration 060, never actually visited. They
-   * are in surveyedSystems (so nothing re-surveys them by accident) but must not count as toured: an explorer passing through
-   * one has never read its markets, listed them for keepers or bought its yard keeper. Cleared the moment a real mark replaces it.
+   * Systems that are in surveyedSystems but whose mark is NOT a finished tour: an atlas seed (`backfill`, migration 060), or a
+   * survey made by any ship that merely passed through (`survey`, `tour`, `explore`, `scout`). A visit that read the gate's market
+   * is not a tour: nothing listed the system's markets for keepers or bought its yard keeper. Only an explorer's finished tour
+   * (`toured`) or its worth verdict (`rejected`) takes a system out of this set. Everything else that reads surveyedSystems (scouts,
+   * the legacy explore goals) is unaffected: this set only decides whether the explorer still owes the system a tour.
    */
-  private atlasOnlySystems = new Set<string>();
+  private untouredMarks = new Set<string>();
   /** When each surveyed system was marked (epoch ms) — the operator surface
    *  reads this so a panel can say "surveyed 3h ago" instead of just a boolean.
    *  Hydrated alongside surveyedSystems at boot. */
@@ -800,7 +802,7 @@ export class FleetManager {
           if (r.source !== "rejected" && r.surveyedAt < since) continue;
           this.surveyedSystems.add(r.systemSymbol);
           this.surveyedAt.set(r.systemSymbol, r.surveyedAt);
-          if (r.source === "backfill") this.atlasOnlySystems.add(r.systemSymbol);
+          if (r.source !== "toured" && r.source !== "rejected") this.untouredMarks.add(r.systemSymbol);
         }
       } catch (err) {
         this.log(`surveyed-systems restore skipped: ${describeError(err)}`);
@@ -2275,7 +2277,7 @@ export class FleetManager {
     }
     if (systemSymbol) {
       this.surveyedSystems.delete(systemSymbol);
-      this.atlasOnlySystems.delete(systemSymbol);
+      this.untouredMarks.delete(systemSymbol);
       this.surveyedAt.delete(systemSymbol);
       for (const [ship, queue] of [...this.pendingTourStops]) {
         if (queue.system !== systemSymbol) continue;
@@ -2286,7 +2288,7 @@ export class FleetManager {
       }
     } else {
       this.surveyedSystems.clear();
-      this.atlasOnlySystems.clear();
+      this.untouredMarks.clear();
       this.surveyedAt.clear();
       this.pendingTourStops.clear();
       if (this.tenantId && this.store) {
@@ -2319,11 +2321,15 @@ export class FleetManager {
    */
   private async markSystemSurveyed(
     systemSymbol: string,
-    source: "survey" | "tour" | "explore" | "scout" | "rejected",
+    source: "survey" | "tour" | "explore" | "scout" | "rejected" | "toured",
     counts?: { markets: number; shipyards: number },
   ): Promise<void> {
+    // A system already toured stays toured when another ship's survey writes a plainer mark over it; only a finished tour or a
+    // worth verdict clears the "still owes a tour" state, and a first mark of any other kind starts it.
+    const wasToured = this.surveyedSystems.has(systemSymbol) && !this.untouredMarks.has(systemSymbol);
+    if (source === "toured" || source === "rejected") this.untouredMarks.delete(systemSymbol);
+    else if (!wasToured) this.untouredMarks.add(systemSymbol);
     this.surveyedSystems.add(systemSymbol);
-    this.atlasOnlySystems.delete(systemSymbol);
     this.surveyedAt.set(systemSymbol, Date.now());
     if (!this.tenantId || !this.store) return;
     try {
@@ -4025,9 +4031,9 @@ export class FleetManager {
     return !judgeSystem(countWaypoints(waypoints), this.exploreWorthPolicy()).good;
   }
 
-  /** Surveyed for real, i.e. a mark an explorer made by visiting. An atlas-seeded (backfill) mark does not count: the system is still to be toured. */
+  /** Toured for real: an explorer finished its tour (`toured`) or judged it not worth one (`rejected`). Any other mark means the explorer still owes it a tour. */
   private isToured(systemSymbol: string): boolean {
-    return this.surveyedSystems.has(systemSymbol) && !this.atlasOnlySystems.has(systemSymbol);
+    return this.surveyedSystems.has(systemSymbol) && !this.untouredMarks.has(systemSymbol);
   }
 
   /**
@@ -4808,6 +4814,10 @@ export class FleetManager {
         this.log(`tour queue for ${shipSymbol} not cleared: ${describeError(err)}`);
       }
     }
+    // The tour ran to the end (a stop that failed on its own does not stop it; a cooldown or transit would have thrown above and left
+    // the queue to resume), so this is the mark that says the system is done.
+    const counts = countWaypoints(this.galaxy.getSystem(systemSymbol)?.waypoints ?? []);
+    await this.markSystemSurveyed(systemSymbol, "toured", counts);
     this.log(`${shipSymbol} explored ${systemSymbol}`);
   }
 

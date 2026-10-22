@@ -1719,7 +1719,10 @@ export class Store {
          VALUES ($1, $2, now(), $3, $4, $5)
          ON CONFLICT (tenant_id, system_symbol) DO UPDATE SET
            surveyed_at = now(), markets_found = excluded.markets_found,
-           shipyards_found = excluded.shipyards_found, source = excluded.source`,
+           shipyards_found = excluded.shipyards_found,
+           -- a finished tour or a worth verdict is not downgraded by a plainer mark from another ship passing through
+           source = CASE WHEN system_surveys.source IN ('toured', 'rejected') AND excluded.source NOT IN ('toured', 'rejected')
+                         THEN system_surveys.source ELSE excluded.source END`,
         [tenantId, row.systemSymbol, row.markets, row.shipyards, row.source],
       ),
     );

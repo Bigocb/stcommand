@@ -3,8 +3,9 @@
  * were bought and stationed. Pure: the ops tool (src/ops/explorers.ts) fetches the rows and hands them in, so the shape of the
  * report is testable without a database or a fleet.
  *
- * Verdicts come from the survey mark's source, not from re-judging: `rejected` is the explorer's worth threshold saying no
- * (systemWorth.ts), `atlas` is a mark seeded from the galaxy atlas rather than a visit, anything else is a real survey.
+ * Verdicts come from the survey mark's source, not from re-judging: `toured` is a tour an explorer finished, `rejected` is the
+ * explorer's worth threshold saying no (systemWorth.ts), `atlas` is a mark seeded from the galaxy atlas rather than a visit, and
+ * anything else is a survey by a ship passing through: known, but not yet toured.
  */
 
 const systemOf = (waypoint: string) => waypoint.slice(0, waypoint.lastIndexOf("-"));
@@ -22,12 +23,12 @@ export interface ShipPurchaseRow { at: string; ship: string; yard: string; hull:
 /** First and last trade (PURCHASE or SELL) the ledger holds for one system this week. */
 export interface SystemTradeSpan { system: string; firstAt: string; lastAt: string }
 
-export type SystemVerdict = "rejected" | "surveyed" | "atlas";
+export type SystemVerdict = "toured" | "rejected" | "surveyed" | "atlas";
 
 export interface ExplorerReport {
   asOf: string;
   windowHours: number;
-  totals: { explorers: number; systemsSurveyed: number; systemsRejected: number; keepersBought: number; keeperSpend: number; jumps: number; jumpSpend: number };
+  totals: { explorers: number; systemsToured: number; systemsSurveyed: number; systemsRejected: number; keepersBought: number; keeperSpend: number; jumps: number; jumpSpend: number };
   explorers: {
     ship: string; system: string; waypoint: string; nav: string; fuelPct: number; doing: string;
     tour?: { system: string; stopsLeft: number };
@@ -42,7 +43,7 @@ export interface ExplorerReport {
 }
 
 export function verdictOf(source: string): SystemVerdict {
-  return source === "rejected" ? "rejected" : source === "backfill" ? "atlas" : "surveyed";
+  return source === "toured" ? "toured" : source === "rejected" ? "rejected" : source === "backfill" ? "atlas" : "surveyed";
 }
 
 export function buildExplorerReport(i: {
@@ -101,6 +102,7 @@ export function buildExplorerReport(i: {
     windowHours: i.windowHours,
     totals: {
       explorers: i.explorers.length,
+      systemsToured: systems.filter((s) => s.verdict === "toured").length,
       systemsSurveyed: systems.filter((s) => s.verdict === "surveyed").length,
       systemsRejected: systems.filter((s) => s.verdict === "rejected").length,
       keepersBought: keepers.length,

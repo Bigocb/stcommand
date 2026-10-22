@@ -32,6 +32,7 @@ describe("buildExplorerReport", () => {
     assert.equal(verdictOf("rejected"), "rejected");
     assert.equal(verdictOf("backfill"), "atlas");
     assert.equal(verdictOf("explore"), "surveyed");
+    assert.equal(verdictOf("toured"), "toured");
   });
 
   it("reports each explorer: where it is, its fuel and what it has spent on jumps (its own jumps only)", () => {
@@ -57,6 +58,9 @@ describe("buildExplorerReport", () => {
       ["X1-B", "rejected", 0, 0], ["X1-A", "surveyed", 2, 2], ["X1-OLD", "atlas", 0, 0],
     ]);
     assert.equal(r.totals.systemsSurveyed, 1);
+    const t = buildExplorerReport({ ...base, surveys: [...base.surveys, { system: "X1-DONE", at: "2026-10-22T11:00:00Z", markets: 9, shipyards: 1, source: "toured" }] });
+    assert.equal(t.totals.systemsToured, 1);
+    assert.equal(t.systems[0]!.verdict, "toured");
     assert.equal(r.totals.systemsRejected, 1);
   });
 
