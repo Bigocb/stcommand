@@ -487,12 +487,20 @@ export class MissionManager {
     const apply = (key: "buyLotUnits" | "buyGapMin" | "maxInflationPct" | "recoverPct" | "cashFloor" | "cashResume", v: number | null | undefined, min: number, max: number) => {
       if (v === undefined) return;
       if (v === null || v === 0) { delete next[key]; return; }
-      if (!Number.isFinite(v) || v < min || v > max) throw new Error(`${key} must be between ${min} and ${max} (or null to clear)`);
+      const range = Number.isFinite(max) ? `between ${min} and ${max}` : `at least ${min}`;
+      if (!Number.isFinite(v) || v < min || v > max) throw new Error(`${key} must be ${range} (or null to clear)`);
       next[key] = Math.round(v);
     };
     apply("buyLotUnits", patch.buyLotUnits, 1, 1000);
     apply("buyGapMin", patch.buyGapMin, 1, 24 * 60);
-    apply("maxInflationPct", patch.maxInflationPct, 1, 500);
+    // No upper bound on purpose. A gate material's market can run to many times
+    // its 24h low (confirmed live: FAB_MATS at 718% of baseline), and when the
+    // operator decides the gate is worth filling at that price, an arbitrary
+    // percentage cap only gets in the way — it makes the setting look applied
+    // while the mission still refuses to buy. What actually protects the wallet
+    // is cashFloor/cashResume plus the per-material 30m pause above, not this
+    // number; the ceiling is a pacing preference, not a safety limit.
+    apply("maxInflationPct", patch.maxInflationPct, 1, Number.POSITIVE_INFINITY);
     apply("recoverPct", patch.recoverPct, 1, 100);
     apply("cashFloor", patch.cashFloor, 1, 1_000_000_000);
     apply("cashResume", patch.cashResume, 1, 1_000_000_000);

@@ -1028,7 +1028,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.post("/dispatch", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    const { shipSymbol, good, buyAt, sellAt, buyPrice, sellPrice, profitPerTrip, clear } = req.body ?? {};
+    const { shipSymbol, good, buyAt, sellAt, buyPrice, sellPrice, profitPerTrip, maxLossPerUnit, clear } = req.body ?? {};
     if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
     try {
       if (clear) {
@@ -1044,6 +1044,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
           buyPrice: typeof buyPrice === "number" ? buyPrice : 0,
           sellPrice: typeof sellPrice === "number" ? sellPrice : 0,
           profitPerTrip: typeof profitPerTrip === "number" ? profitPerTrip : 0,
+          // A pinned route's loss allowance, in credits per unit (see
+          // TraderAgent.manualLossAllowance). null = the route keeps its old
+          // uncapped behaviour; a positive number caps how far under its own
+          // cost basis it may sell.
+          maxLossPerUnit: typeof maxLossPerUnit === "number" && maxLossPerUnit > 0 ? Math.round(maxLossPerUnit) : null,
           source: "manual",
         });
       }

@@ -1056,6 +1056,7 @@ function renderFleetActions(shipRow) {
       <datalist id="fleet-custom-goods">${[...new Set(marketSnapshots.map((m) => m.goodSymbol))].sort().map((g) => `<option value="${escapeAttr(g)}"></option>`).join("")}</datalist>
       <select class="field-select" id="fleet-custom-buy" aria-label="Buy from">${opts}</select>
       <select class="field-select" id="fleet-custom-sell" aria-label="Sell to">${opts}</select>
+      <input type="number" class="field-input" id="fleet-custom-loss" min="0" step="1" placeholder="Max loss c/unit (optional)" aria-label="Maximum loss per unit in credits" title="Credits per unit this route may sell below its own cost basis. Blank = no cap (a pinned route sells regardless, as before)." />
       <div class="sheet-inline-form">
         <button class="btn pri" data-act="custom-route-assign">Assign</button>
         <button class="btn" data-act="route-clear">Auto</button>
@@ -1264,11 +1265,18 @@ $("fleet-detail-body").addEventListener("click", async (e) => {
     const good = $("fleet-custom-good")?.value.trim().toUpperCase();
     const buyAt = $("fleet-custom-buy")?.value;
     const sellAt = $("fleet-custom-sell")?.value;
+    const maxLoss = $("fleet-custom-loss")?.value;
     if (!good || !buyAt || !sellAt) { alert("good, buy market and sell market are all required"); return; }
     if (buyAt === sellAt) { alert("buy and sell must be different markets"); return; }
     b.disabled = true;
     try {
-      await api("POST", "/api/dispatch", { shipSymbol: ship, good, buyAt, sellAt });
+      await api("POST", "/api/dispatch", {
+        shipSymbol: ship,
+        good,
+        buyAt,
+        sellAt,
+        maxLossPerUnit: maxLoss ? Number(maxLoss) : null,
+      });
       fleetCustomOpen = false;
       await loadDispatch();
     } catch (err) { alert(err.message); }

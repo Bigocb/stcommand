@@ -495,18 +495,20 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
         buyPrice: z.number().optional(),
         sellPrice: z.number().optional(),
         profitPerTrip: z.number().optional(),
+        maxLossPerUnit: z.number().int().positive().optional().describe("Credits per unit this route may sell below its own cost basis before the loss floor stops it. Omit to leave a pinned route uncapped, as before."),
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ shipSymbol, good, buyAt, sellAt, buyPrice, sellPrice, profitPerTrip }) => {
+    async ({ shipSymbol, good, buyAt, sellAt, buyPrice, sellPrice, profitPerTrip, maxLossPerUnit }) => {
       try {
         await w.fleet.setManualDispatch(shipSymbol, {
           shipSymbol, good, role: "direct", buyAt, sellAt,
           buyPrice: buyPrice ?? 0, sellPrice: sellPrice ?? 0, profitPerTrip: profitPerTrip ?? 0,
+          maxLossPerUnit: maxLossPerUnit ?? null,
           source: "manual",
         });
-        await recordMcpAction(w, "route_assign", shipSymbol, `${shipSymbol}: ${good} ${buyAt} -> ${sellAt}`, { good, buyAt, sellAt });
-        return textResult({ ok: true, shipSymbol, good, buyAt, sellAt });
+        await recordMcpAction(w, "route_assign", shipSymbol, `${shipSymbol}: ${good} ${buyAt} -> ${sellAt}${maxLossPerUnit ? ` (max loss ${maxLossPerUnit}c/u)` : ""}`, { good, buyAt, sellAt, maxLossPerUnit: maxLossPerUnit ?? null });
+        return textResult({ ok: true, shipSymbol, good, buyAt, sellAt, maxLossPerUnit: maxLossPerUnit ?? null });
       } catch (err) {
         return errorResult(err);
       }
