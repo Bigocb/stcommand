@@ -19,6 +19,8 @@ import { CooldownPending, IDLE_STEP, Pending, describeError, type AgentStep } fr
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
+import { keeperAutoApprove, pickShipAtYard } from "./keeperBuy.js";
+import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
 import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
@@ -344,6 +346,13 @@ interface TourStop {
  * clause: see docs/system-survey-persistence-design.md D4.
  */
 const SURVEY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long a "rejected" mark (a system that failed the explorer's worth threshold: too few markets or no shipyard) keeps
+ * explorers away. Longer than a survey mark because the verdict is about the system's layout, which does not change inside
+ * a universe; it only lapses as a backstop against a bad mark, as SURVEY_TTL_MS does for a survey.
+ */
+const REJECTED_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 
 /**
  * How long a stranded explorer waits when there is nowhere left to jump.
@@ -780,7 +789,9 @@ export class FleetManager {
     if (this.tenantId && this.store) {
       const since = Date.now() - SURVEY_TTL_MS;
       try {
-        for (const r of await this.store.listSystemSurveys(this.tenantId, since)) {
+        // Read back as far as the longest-lived mark; an ordinary survey mark older than its own window is dropped here.
+        for (const r of await this.store.listSystemSurveys(this.tenantId, Date.now() - REJECTED_TTL_MS)) {
+          if (r.source !== "rejected" && r.surveyedAt < since) continue;
           this.surveyedSystems.add(r.systemSymbol);
           this.surveyedAt.set(r.systemSymbol, r.surveyedAt);
         }
@@ -2299,7 +2310,7 @@ export class FleetManager {
    */
   private async markSystemSurveyed(
     systemSymbol: string,
-    source: "survey" | "tour" | "explore" | "scout",
+    source: "survey" | "tour" | "explore" | "scout" | "rejected",
     counts?: { markets: number; shipyards: number },
   ): Promise<void> {
     this.surveyedSystems.add(systemSymbol);
@@ -3999,9 +4010,19 @@ export class FleetManager {
     // emptiness, so the system stays a valid destination.
     const waypoints = known?.waypoints ?? [];
     if (waypoints.length === 0) return false;
-    return !waypoints.some((w) =>
-      (w.traits ?? []).some((t) => t.symbol === "MARKETPLACE" || t.symbol === "SHIPYARD"),
-    );
+    if (!waypoints.some((w) => (w.traits ?? []).some((t) => t.symbol === "MARKETPLACE" || t.symbol === "SHIPYARD"))) return true;
+    // Known layout that fails the operator's worth threshold (see exploreWorthPolicy()): no flight is spent on it either.
+    return !judgeSystem(countWaypoints(waypoints), this.exploreWorthPolicy()).good;
+  }
+
+  /**
+   * The explorer's worth threshold from the doctrine clauses exploreMinMarkets / exploreMinShipyards (operator, 2026-10-22:
+   * fewer than five markets or no shipyard is not touring material). A switched-off clause is a minimum of 0, i.e. that
+   * criterion is not applied, so switching both off reproduces the behaviour before the threshold existed.
+   */
+  private exploreWorthPolicy(): WorthPolicy {
+    const min = (key: string) => (this.doctrine.isEnabledOr(key, true) ? this.doctrine.value(key) : 0);
+    return { minMarkets: min("exploreMinMarkets"), minShipyards: min("exploreMinShipyards") };
   }
 
   /**
@@ -4610,6 +4631,15 @@ export class FleetManager {
       // error and leaves the system unmarked, and without data the tour below
       // has nothing to select stops from.
       if (!this.surveyedSystems.has(target)) await this.surveySystem(target);
+      // The initial survey is in. A system that is not worth a tour (fewer markets than the minimum, or no shipyard) is
+      // marked rejected, which is durable and shared by every explorer, and the ship jumps on without touring it.
+      const counts = countWaypoints(this.galaxy.getSystem(target)?.waypoints ?? []);
+      const verdict = judgeSystem(counts, this.exploreWorthPolicy());
+      if (!verdict.good && counts.markets + counts.shipyards > 0) {
+        this.log(`${shipSymbol}: ${target} not worth a tour (${verdict.reason}); marked rejected, moving on`);
+        await this.markSystemSurveyed(target, "rejected", { markets: counts.markets, shipyards: counts.shipyards });
+        return target;
+      }
       // surveySystem()'s own surveyMarkets() call sweeps every MARKETPLACE
       // waypoint in `target` via a remote getMarket() call — but confirmed
       // live, that only returns real tradeGoods for a waypoint the ship is
@@ -4641,7 +4671,7 @@ export class FleetManager {
       // navigateShip() call rejected it with the true shortfall. There is
       // nothing to push here any more: every agent reads the live registry,
       // so the surveySystem() call just above is already visible to this ship.
-      const MAX_EXTRA_MARKET_STOPS = 10;
+      const MAX_EXTRA_MARKET_STOPS = this.doctrine.value("exploreMaxMarketStops", 10);
       const isMarket = (w: { traits?: { symbol: string }[] }) => (w.traits ?? []).some((t) => t.symbol === "MARKETPLACE");
       const isYard = (w: { traits?: { symbol: string }[] }) => (w.traits ?? []).some((t) => t.symbol === "SHIPYARD");
       const waypoints = this.galaxy.getSystem(target)?.waypoints ?? [];
@@ -5650,6 +5680,37 @@ export class FleetManager {
     return this.yardTimes;
   }
 
+  /** autoApproveKeeperProbes: may this keeper purchase skip the approval card? (keeperBuy.ts) */
+  private keeperAutoApproves(price: number): { approve: boolean; reason: string } {
+    return keeperAutoApprove({
+      clauseOn: this.doctrine.isEnabledOr("autoApproveKeeperProbes", false),
+      capCredits: this.doctrine.value("autoApproveKeeperProbes"),
+      price,
+      spendable: this.canAfford(price),
+    });
+  }
+
+  /**
+   * Buy a keeper probe at `yard` through whichever of our ships is already there, so a market's probe does not wait for a
+   * passing ship to dock. A keeper stationed at the yard is the usual one: it is always there. The ship is confirmed live and
+   * docked first (SpaceTraders sells only to a docked ship), the same check resolvePendingKeeperProbeApproval() makes.
+   * "no-ship" means nothing of ours is at the yard right now; the caller leaves the market for the next check.
+   */
+  private async buyKeeperThroughPresentShip(yard: string, target: string, price: number, hull: string): Promise<"bought" | "no-ship" | "failed"> {
+    const candidate = pickShipAtYard(this.fleetStatusSummary(), yard);
+    if (!candidate) return "no-ship";
+    try {
+      const live = await this.api.getShip(candidate);
+      if (live.nav.waypointSymbol !== yard) return "no-ship";
+      if (live.nav.status === "IN_ORBIT") await this.api.dockShip(candidate);
+      else if (live.nav.status !== "DOCKED") return "no-ship";
+    } catch {
+      return "failed";
+    }
+    await this.purchaseKeeperProbe(yard, target, price, hull);
+    return "bought";
+  }
+
   /** True while a keeper-probe request that would buy AT exactly this
    *  shipyard is still open — either kind, "buyKeeperProbe" (shipyard-
    *  triggered) or "buyKeeperProbeForMarket" (market-triggered, see
@@ -5783,7 +5844,7 @@ export class FleetManager {
    * stay" was this method picking the purchase waypoint as the pin too —
    * not any real movement limitation.
    */
-  private async maybeRequestKeeperProbe(waypointSymbol: string, ships: { type: string; purchasePrice: number }[]): Promise<void> {
+  private async maybeRequestKeeperProbe(waypointSymbol: string, ships: { type: string; purchasePrice: number }[], depth = 0): Promise<void> {
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
     this.keeperPriorityMarketsCache = await this.keeperPriorityMarkets();
     const target = this.nearestUncoveredKeeperMarket(waypointSymbol);
@@ -5806,6 +5867,15 @@ export class FleetManager {
       : `${hullLabel} at ${waypointSymbol} for ${probe.price}c, will drift to ${target} — no keeper stationed there yet`;
     if (await this.otherKeeperKindTargets("buyKeeperProbeForMarket", target)) return; // the market path already asked for this one
     if (await this.keeperTargetCovered(target)) return; // already covered per the durable state (another instance may have just bought it)
+    const auto = this.keeperAutoApproves(probe.price);
+    if (auto.approve) {
+      // The visiting ship is docked here right now, so buy at once and let it move on instead of holding it for a card.
+      this.log(`keeper probe at ${waypointSymbol} for ${target} auto-approved: ${auto.reason}`);
+      await this.purchaseKeeperProbe(waypointSymbol, target, probe.price, probe.type);
+      // One visit can cover every uncovered priority market the yard serves; stop as soon as a purchase did not take.
+      if (depth < 8 && (await this.keeperTargetCovered(target))) await this.maybeRequestKeeperProbe(waypointSymbol, ships, depth + 1);
+      return;
+    }
     const approved = await this.approvals.request("buyKeeperProbe", {
       shipSymbol: `${waypointSymbol}|${target}|${probe.type}`,
       detail,
@@ -5912,13 +5982,25 @@ export class FleetManager {
     // provably about THIS exact shipyard/market pairing. Otherwise back off
     // silently — advanceKeeperMarketQueue() will get back to this market
     // once the kind frees up.
+    const auto = this.keeperAutoApproves(best.price);
     if (this.store && this.tenantId) {
       const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
-      if (existing && existing.shipSymbol !== shipSymbol) return true; // the slot is busy with another market: nothing further can ask this tick
+      // With auto-approve on, the single approval slot is not this market's to wait for, so a busy slot must not end the pass.
+      if (existing && existing.shipSymbol !== shipSymbol) return !auto.approve; // the slot is busy with another market: nothing further can ask this tick
     }
 
     if (await this.otherKeeperKindTargets("buyKeeperProbe", marketWaypoint)) return false; // the shipyard path already asked for this one
     if (await this.keeperTargetCovered(marketWaypoint)) return false; // already covered per the durable state (another instance may have just bought it)
+    if (auto.approve) {
+      // No card, and no ship has to happen to dock: any ship of ours at the yard (normally the keeper stationed there) buys it.
+      const r = await this.buyKeeperThroughPresentShip(best.waypointSymbol, marketWaypoint, best.price, best.hull);
+      if (r === "bought") {
+        this.log(`keeper probe for ${marketWaypoint} auto-approved and bought at ${best.waypointSymbol}: ${auto.reason}`);
+        return true;
+      }
+      this.keeperNote(`mnoship:${marketWaypoint}`, `keeper for ${marketWaypoint} is within the auto-approve cap but none of our ships is ${r === "failed" ? "reachable" : "docked"} at ${best.waypointSymbol} to buy through; it goes ahead when one is there (no approval card raised)`);
+      return false;
+    }
     const approved = await this.approvals.request("buyKeeperProbeForMarket", {
       shipSymbol,
       // "at <yard>" is the purchase SOURCE (wherever cached stock exists —
@@ -5964,7 +6046,9 @@ export class FleetManager {
     if (!this.store || !this.tenantId) return;
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
     const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
-    if (existing) {   // something's already in flight — resolvePendingKeeperProbeApproval() owns resolving it
+    const autoOn = this.doctrine.isEnabledOr("autoApproveKeeperProbes", false);
+    // With auto-approve on, an open card (a quote over the cap) must not stall the markets that are under it.
+    if (existing && !autoOn) {   // something's already in flight — resolvePendingKeeperProbeApproval() owns resolving it
       this.keeperNote("queue-blocked", `keeper queue is waiting on one open request (${existing.status}: ${existing.detail ?? existing.shipSymbol}); no other market gets a request until it is bought, denied or expires`);
       return;
     }
@@ -5978,7 +6062,7 @@ export class FleetManager {
     for (const m of priority) {
       if (covered.has(m)) continue;
       if (await this.maybeRequestKeeperProbeForMarket(m)) return;
-      if (++tried >= 8) return;
+      if (++tried >= (autoOn ? 40 : 8)) return;
     }
   }
 

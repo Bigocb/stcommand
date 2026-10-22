@@ -29,7 +29,7 @@ type Edge = [string, string];
  * with nothing to survey, like X1-MV21). Systems named in `edges` but absent
  * from `loaded` are the frontier.
  */
-function fakeGalaxy(loaded: string[], edges: Edge[], markets: Record<string, number> = {}) {
+function fakeGalaxy(loaded: string[], edges: Edge[], markets: Record<string, number> = {}, yards: Record<string, number> = {}) {
   const gate = (sys: string, i: number) => `${sys}-G${i}`;
   const gateOf: Record<string, string[]> = {};
   const connections: { from: string; to: string; complete: boolean }[] = [];
@@ -46,7 +46,9 @@ function fakeGalaxy(loaded: string[], edges: Edge[], markets: Record<string, num
   const waypointsOf = (sys: string) => {
     const out = [{ symbol: `${sys}-A1`, type: "ASTEROID", traits: [{ symbol: "COMMON_METAL_DEPOSITS" }] }];
     for (let i = 0; i < (markets[sys] ?? 0); i++) {
-      out.push({ symbol: `${sys}-M${i}`, type: "ORBITAL_STATION", traits: [{ symbol: "MARKETPLACE" }] });
+      // Shipyards default to one on the first market; `yards[sys]` overrides it (0 = a system with markets but no yard).
+      const yard = i < (yards[sys] ?? 1);
+      out.push({ symbol: `${sys}-M${i}`, type: "ORBITAL_STATION", traits: [{ symbol: "MARKETPLACE" }, ...(yard ? [{ symbol: "SHIPYARD" }] : [])] });
     }
     return out;
   };
@@ -118,5 +120,34 @@ describe("the explorer does not fly to systems that provably have nothing to sur
     (fleet as any).surveyedSystems = new Set(["X1-A", "X1-B"]);
 
     assert.equal(hop(fleet, "X1-A"), undefined);
+  });
+});
+
+describe("the explorer's worth threshold (operator, 2026-10-22): fewer than five markets or no shipyard is not touring material", () => {
+  it("does not target a loaded system with only four markets, or with five and no shipyard", () => {
+    const four = fakeGalaxy(["X1-A", "X1-M"], [["X1-A", "X1-M"]], { "X1-M": 4 });
+    const f1 = fleetWith(four);
+    (f1 as any).surveyedSystems = new Set(["X1-A"]);
+    assert.equal(hop(f1, "X1-A"), undefined, "four markets is under the minimum of five");
+
+    const noYard = fakeGalaxy(["X1-A", "X1-M"], [["X1-A", "X1-M"]], { "X1-M": 12 }, { "X1-M": 0 });
+    const f2 = fleetWith(noYard);
+    (f2 as any).surveyedSystems = new Set(["X1-A"]);
+    assert.equal(hop(f2, "X1-A"), undefined, "no shipyard, however many markets");
+  });
+
+  it("targets a system at exactly five markets with a shipyard", () => {
+    const galaxy = fakeGalaxy(["X1-A", "X1-M"], [["X1-A", "X1-M"]], { "X1-M": 5 });
+    const fleet = fleetWith(galaxy);
+    (fleet as any).surveyedSystems = new Set(["X1-A"]);
+    assert.equal(hop(fleet, "X1-A"), "X1-M");
+  });
+
+  it("switching both clauses off reproduces the old rule: any system with a market is a target", () => {
+    const galaxy = fakeGalaxy(["X1-A", "X1-M"], [["X1-A", "X1-M"]], { "X1-M": 2 }, { "X1-M": 0 });
+    const fleet = fleetWith(galaxy);
+    (fleet as any).surveyedSystems = new Set(["X1-A"]);
+    (fleet as any).doctrine = { isEnabledOr: () => false, value: (_k: string, d?: number) => d ?? 0 };
+    assert.equal(hop(fleet, "X1-A"), "X1-M");
   });
 });

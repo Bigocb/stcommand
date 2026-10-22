@@ -1731,15 +1731,15 @@ export class Store {
   async listSystemSurveys(
     tenantId: string,
     sinceMs?: number,
-  ): Promise<{ systemSymbol: string; surveyedAt: number }[]> {
+  ): Promise<{ systemSymbol: string; surveyedAt: number; source: string }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
-      const res = await c.query<{ system_symbol: string; surveyed_at: Date }>(
+      const res = await c.query<{ system_symbol: string; surveyed_at: Date; source: string }>(
         sinceMs === undefined
-          ? `SELECT system_symbol, surveyed_at FROM system_surveys ORDER BY surveyed_at DESC`
-          : `SELECT system_symbol, surveyed_at FROM system_surveys WHERE surveyed_at > to_timestamp($1 / 1000.0) ORDER BY surveyed_at DESC`,
+          ? `SELECT system_symbol, surveyed_at, source FROM system_surveys ORDER BY surveyed_at DESC`
+          : `SELECT system_symbol, surveyed_at, source FROM system_surveys WHERE surveyed_at > to_timestamp($1 / 1000.0) ORDER BY surveyed_at DESC`,
         sinceMs === undefined ? [] : [sinceMs],
       );
-      return res.rows.map((r) => ({ systemSymbol: r.system_symbol, surveyedAt: r.surveyed_at.getTime() }));
+      return res.rows.map((r) => ({ systemSymbol: r.system_symbol, surveyedAt: r.surveyed_at.getTime(), source: r.source }));
     });
   }
 
