@@ -227,7 +227,10 @@ export function keeperHullLabel(type: string): string {
 
 /** Roles assignable via setShipRole() — every real role except the two that aren't a ship-agent type (`warehouse` is a designation on top of whatever role a ship already has; `idle` just means no agent claims it). */
 type ManualRole = Exclude<ShipClaimRole, "warehouse" | "idle">;
-const MANUAL_ROLES: ReadonlySet<ManualRole> = new Set<ManualRole>(["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"]);
+// "parked" is a manual role in the strictest sense: nobody but the operator can
+// decide a hull should sit still, and once decided it must survive every
+// restart and every automatic repurposing pass (see docs/parked-ships-design.md).
+const MANUAL_ROLES: ReadonlySet<ManualRole> = new Set<ManualRole>(["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner", "parked"]);
 
 /**
  * The control surface every ship agent shares, regardless of role. Used so the
@@ -493,6 +496,17 @@ export class FleetManager {
    *  init()/restorePersistedManualRoles(). */
   private manualRoleShips = new Set<string>();
   private idleShips = new Map<string, Ship>();
+  /**
+   * Parked hulls' last observed ship object, keyed by symbol
+   * (docs/parked-ships-design.md §3). A parked ship has no agent, so this map
+   * is the only thing that can answer "where is it, how much fuel, what is
+   * aboard" without spending a game-API call — which is the whole point of
+   * parking. Membership here IS the in-memory truth of "this hull is parked",
+   * mirroring the persisted fleet_state row.
+   */
+  private readonly parkedShips = new Map<string, Ship>();
+  /** The role each parked hull had before it was parked, replayed from fleet_state so unparking resumes it rather than re-deriving one from the hull. */
+  private readonly parkedFrom = new Map<string, string>();
   /** New purchases awaiting an operator role decision — see
    *  registerNewShip()'s own comment for why these bypass assignRole()'s
    *  immediate hull-based classification. */
@@ -2996,6 +3010,18 @@ export class FleetManager {
       if (this.roleOf(r.shipSymbol) === role) continue; // assignRole() already agrees; nothing to redo
       const ship = ships.find((s) => s.symbol === r.shipSymbol);
       if (!ship) continue; // scrapped while we were down; row is now inert
+      // A park is not an agent role: re-establish the snapshot (which is what
+      // makes the hull visible, with its real position, despite having no
+      // agent) and remember what it replaced. See docs/parked-ships-design.md
+      // §3 and parkShip()'s own comment on why going through
+      // installRoleAgent() would be wrong.
+      if (role === "parked") {
+        this.clearRoleMaps(r.shipSymbol);
+        this.parkedShips.set(r.shipSymbol, ship);
+        if (r.parkedFrom) this.parkedFrom.set(r.shipSymbol, r.parkedFrom);
+        this.log(`restored role parked for ${r.shipSymbol}${r.parkedFrom ? ` (was ${r.parkedFrom})` : ""}`);
+        continue;
+      }
       if (role === "keeper" && !(r.keeperMarket ?? this.keeperMarketFor(ship))) {
         // Resolve (or fail to) *before* touching any role map: installRoleAgent()
         // itself would throw on this same check, but only after clearRoleMaps()
@@ -3031,6 +3057,12 @@ export class FleetManager {
     this.keeperMarkets.delete(shipSymbol);
     this.dispatcher.release(shipSymbol);
     this.idleShips.delete(shipSymbol);
+    // The parked snapshot and its remembered role belong to the park that is
+    // being replaced — whichever role this ship is about to take, it is no
+    // longer a parked hull (see restorePersistedManualRoles(), which re-adds
+    // both for the one caller that means "stay parked").
+    this.parkedShips.delete(shipSymbol);
+    this.parkedFrom.delete(shipSymbol);
   }
 
   /**
@@ -3233,6 +3265,15 @@ export class FleetManager {
       case "scout":
         this.registerScout(ship);
         return undefined;
+      case "parked":
+        // Deliberately not an agent type: a parked hull has no task chain at
+        // all, which is the entire mechanism (docs/parked-ships-design.md §2).
+        // Parking has side effects a plain role change must never perform
+        // silently — releasing feed/mission crews, clearing a persisted hold or
+        // pending sale, docking — so it goes through parkShip(), never through
+        // here. Boot restore is the one caller that re-establishes a park, and
+        // it does so itself (restorePersistedManualRoles()).
+        throw new Error(`${shipSymbol}: a ship is parked through parkShip(), not by assigning the role`);
     }
   }
 
@@ -7028,6 +7069,9 @@ export class FleetManager {
 
   /** This ship's current role, whichever map actually holds it — same lookup `getShipStatuses()` does inline, factored out for the ShipRegistry claim() call sites below. */
   private roleOf(shipSymbol: string): ShipClaimRole {
+    // A parked hull has no agent, so it is checked before every role map: it is
+    // the one role whose "owner" is a map of snapshots rather than an agent.
+    if (this.parkedShips.has(shipSymbol)) return "parked";
     if (this.miners.has(shipSymbol)) return "miner";
     if (this.traders.has(shipSymbol)) return "trader";
     if (this.surveyors.has(shipSymbol)) return "surveyor";
@@ -7773,7 +7817,7 @@ export class FleetManager {
     };
   }
 
-  getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string; tourDestination?: string }[] {
+  getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string; tourDestination?: string; parkedFrom?: string }[] {
     const warehouseSymbol = this.warehouseShip?.shipSymbol;
     const notWarehouse = (s: string) => s !== warehouseSymbol;
     const statuses = [
@@ -7786,6 +7830,20 @@ export class FleetManager {
       ...[...this.scouts.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.siphoners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "siphoner", status: a.getShip().nav.status, paused: this.isHeld(s) })),
       ...[...this.idleShips.keys()].filter(notWarehouse).map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
+      // A parked hull is listed from its snapshot, not from an agent: it has no
+      // agent. Real nav status comes with it, so the dashboard shows where the
+      // hull actually sits instead of a placeholder (docs/parked-ships-design.md §5).
+      ...[...this.parkedShips.entries()].filter(([s]) => notWarehouse(s)).map(([s, ship]) => ({
+        symbol: s,
+        role: "parked",
+        status: ship.nav.status,
+        // Not `paused`: a hold is an instruction to fly somewhere and stay,
+        // and still runs an agent. A park has no instruction left to follow.
+        // Reporting it as held would put "manual hold" on a hull that is
+        // deliberately out of service (see fleetStatusSummary()'s own branch).
+        paused: false,
+        parkedFrom: this.parkedFrom.get(s),
+      })),
       ...[...this.pendingRoleShips.entries()].filter(([s]) => notWarehouse(s)).map(([s, p]) => ({ symbol: s, role: "unassigned", status: p.ship.nav.status, paused: false })),
     ];
     if (warehouseSymbol) {
@@ -7829,7 +7887,10 @@ export class FleetManager {
       const cooldown = ship?.cooldown?.remainingSeconds ?? 0;
       const dest = ship?.nav?.route?.destination?.symbol;
       let doing: string;
-      if (stranded.has(s.symbol)) doing = "stranded";
+      // A park outranks every observed state: the interesting fact about a
+      // parked hull is that it is parked, not whether it happens to be docked.
+      if (s.role === "parked") doing = "parked";
+      else if (stranded.has(s.symbol)) doing = "stranded";
       else if (s.paused) doing = "manual hold";
       else if (agent?.isSuspended()) doing = "suspended";
       else if (cooldown > 0) doing = `cooldown ${cooldown}s`;
@@ -8029,7 +8090,9 @@ export class FleetManager {
         const carryingCargo = (ship?.cargo?.units ?? 0) > 0;
         const state = step.kind === "transacting"
           ? "transacting"
-          : s.role === "idle"
+          : s.role === "parked"
+            ? "parked"
+            : s.role === "idle"
             ? "idle"
             : s.status === "IN_TRANSIT"
               ? (carryingCargo ? "returning" : "travelling")
@@ -8063,7 +8126,9 @@ export class FleetManager {
   /** A ship's full current object, whichever role map (or idleShips/pendingRoleShips) actually holds it. */
   private shipFor(shipSymbol: string): Ship | undefined {
     const agent = this.controlledAgent(shipSymbol);
-    return agent ? agent.getShip() : (this.idleShips.get(shipSymbol) ?? this.pendingRoleShips.get(shipSymbol)?.ship);
+    return agent
+      ? agent.getShip()
+      : (this.parkedShips.get(shipSymbol) ?? this.idleShips.get(shipSymbol) ?? this.pendingRoleShips.get(shipSymbol)?.ship);
   }
 
   /**
@@ -8256,6 +8321,13 @@ export class FleetManager {
       // single-tick test — the bug only shows up on the *second* resync.
       const owner: ShipClaimOwner = s.symbol === warehouseSymbol
         ? "warehouse"
+        // A parked hull is the operator's decision, stated as plainly as a
+        // hold: without this branch the mirror derives "auto" for it every
+        // tick (it is not paused, not committed to anything), which is exactly
+        // the "looks free to every controller" reading parking must prevent
+        // (docs/parked-ships-design.md §5).
+        : s.role === "parked"
+          ? "operator"
         : s.paused
           ? "operator"
           : tendering.has(s.symbol)

@@ -202,6 +202,8 @@ export interface FleetStateRow {
   shipSymbol: string;
   role: string;
   keeperMarket?: string;
+  /** Set only when `role` is `parked`: the role the hull had before it was parked, so unparking resumes it. */
+  parkedFrom?: string;
   updatedAt: string;
 }
 
@@ -226,8 +228,12 @@ export interface FleetStateRow {
  * narrow, observation — it's only ever seen here if a coordinator tick
  * happens to land while that specific API call is still in flight — not a
  * manufactured state.
+ *
+ * `parked` is the one state that is an instruction rather than an observation:
+ * the hull was deliberately taken out of service by the operator, so nothing is
+ * driving it and it costs no calls (docs/parked-ships-design.md).
  */
-export type ShipLifecycleState = "idle" | "assigned" | "travelling" | "returning" | "docked" | "transacting";
+export type ShipLifecycleState = "idle" | "assigned" | "travelling" | "returning" | "docked" | "transacting" | "parked";
 
 export interface ShipStateRow {
   shipSymbol: string;
@@ -1415,13 +1421,14 @@ export class Store {
 
   async getFleetState(tenantId: string): Promise<FleetStateRow[]> {
     return withTenant(this.pool, tenantId, async (c) => {
-      const res = await c.query<{ ship_symbol: string; role: string; keeper_market: string | null; updated_at: Date }>(
-        `SELECT ship_symbol, role, keeper_market, updated_at FROM fleet_state`,
+      const res = await c.query<{ ship_symbol: string; role: string; keeper_market: string | null; parked_from: string | null; updated_at: Date }>(
+        `SELECT ship_symbol, role, keeper_market, parked_from, updated_at FROM fleet_state`,
       );
       return res.rows.map((r) => ({
         shipSymbol: r.ship_symbol,
         role: r.role,
         keeperMarket: r.keeper_market ?? undefined,
+        parkedFrom: r.parked_from ?? undefined,
         updatedAt: r.updated_at.toISOString(),
       }));
     });
@@ -1454,19 +1461,25 @@ export class Store {
     }
   }
 
-  async setFleetState(tenantId: string, shipSymbol: string, role: string, keeperMarket?: string): Promise<void> {
+  /**
+   * Persist a role decision. `parkedFrom` is only meaningful with `role === "parked"`
+   * (it is what unparking resumes), and is cleared by every ordinary role write —
+   * a ship that is no longer parked has nothing to remember.
+   */
+  async setFleetState(tenantId: string, shipSymbol: string, role: string, keeperMarket?: string, parkedFrom?: string): Promise<void> {
     await withTenant(this.pool, tenantId, async (c) => {
       const prev = (await c.query<{ role: string }>(`SELECT role FROM fleet_state WHERE ship_symbol = $1`, [shipSymbol])).rows[0]?.role;
       await c.query(
-        `INSERT INTO fleet_state (tenant_id, ship_symbol, role, keeper_market, updated_at) VALUES ($1, $2, $3, $4, now())
-         ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET role = excluded.role, keeper_market = excluded.keeper_market, updated_at = excluded.updated_at`,
-        [tenantId, shipSymbol, role, keeperMarket ?? null],
+        `INSERT INTO fleet_state (tenant_id, ship_symbol, role, keeper_market, parked_from, updated_at) VALUES ($1, $2, $3, $4, $5, now())
+         ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET role = excluded.role, keeper_market = excluded.keeper_market, parked_from = excluded.parked_from, updated_at = excluded.updated_at`,
+        [tenantId, shipSymbol, role, keeperMarket ?? null, role === "parked" ? parkedFrom ?? null : null],
       );
       if (prev !== role) {
         await this.logFleetEvent(c, tenantId, "role_change", shipSymbol, `${shipSymbol}: ${prev ?? "(new)"} → ${role}`, {
           from: prev ?? null,
           to: role,
           keeperMarket: keeperMarket ?? null,
+          parkedFrom: role === "parked" ? parkedFrom ?? null : null,
         });
       }
     });
