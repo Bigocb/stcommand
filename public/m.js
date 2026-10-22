@@ -26,6 +26,7 @@ import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { seasonCardHtml } from "/shared/season.js";
 import { mountMiningFields } from "/shared/miningFields.js";
+import { mountExplorers } from "/shared/explorers.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
@@ -87,6 +88,7 @@ $("auth-form").addEventListener("submit", async (e) => {
  */
 let metricsScreen = null;
 let miningScreen = null;
+let explorersScreen = null;
 function setTab(name) {
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
@@ -109,8 +111,11 @@ function setTab(name) {
   if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); refreshMcpKeys(); }
   if (name === "copilot") { loadCopilot(); loadCopilotSettings(); }
   // The fields table polls only while visible: stop when leaving More, resume if its Mining segment is open.
-  if (name !== "more") miningScreen?.hide();
-  else if (!$("more-pane-mining").hidden) miningScreen?.show();
+  if (name !== "more") { miningScreen?.hide(); explorersScreen?.hide(); }
+  else {
+    if (!$("more-pane-mining").hidden) miningScreen?.show();
+    if (!$("more-pane-explorers").hidden) explorersScreen?.show();
+  }
 }
 /* ── Navigation groups ─────────────────────
  * Five bottom-bar items, the same groups as Deck's rail (docs/mobile-app-design.md, "Navigation groups"). A group's
@@ -125,6 +130,7 @@ const NAV_GROUPS = [
   ] },
   { key: "fleet", label: "Fleet", tabs: [
     { key: "ships", label: "Ships", screen: "fleet" },
+    { key: "explorers", label: "Explorers", screen: "more", pane: "explorers" },
     { key: "mining", label: "Mining", screen: "more", pane: "mining" },
     { key: "yards", label: "Yards", screen: "markets", seg: "yards" },
     { key: "scrap", label: "Scrap", screen: "more", pane: "fleet", only: ["more-sec-scrap"] },
@@ -1155,7 +1161,7 @@ $("more-seg").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-mseg]");
   if (!b) return;
   document.querySelectorAll("#more-seg button").forEach((x) => x.classList.toggle("on", x === b));
-  for (const seg of ["work", "fleet", "mining", "rules"]) $(`more-pane-${seg}`).hidden = seg !== b.dataset.mseg;
+  for (const seg of ["work", "fleet", "explorers", "mining", "rules"]) $(`more-pane-${seg}`).hidden = seg !== b.dataset.mseg;
   // Reached either from the segment bar or from a More tab (openTab clicks the
   // segment for its pane). Rendering here as well as in renderMore() covers the
   // second case, where the pane was already on screen.
@@ -1163,6 +1169,8 @@ $("more-seg").addEventListener("click", (e) => {
   // The fields table polls only while it is on screen.
   miningScreen ??= mountMiningFields($("mining-root"), { api });
   if (b.dataset.mseg === "mining") miningScreen.show(); else miningScreen.hide();
+  explorersScreen ??= mountExplorers($("explorers-root"), { api, compact: true });
+  if (b.dataset.mseg === "explorers") explorersScreen.show(); else explorersScreen.hide();
 });
 $("cp-form").addEventListener("submit", (e) => {
   e.preventDefault();

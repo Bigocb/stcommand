@@ -2,7 +2,8 @@
  * Explorers tab (Deck › Fleet › Explorers): what each explorer is doing, the systems that have been looked at and how they
  * came out, and the keepers bought and stationed.
  *
- *   const s = mountExplorers(rootEl, { api });
+ *   const s = mountExplorers(rootEl, { api });             // Deck: tables
+ *   const s = mountExplorers(rootEl, { api, compact: true }); // Tower: stacked cards for a phone
  *   s.show();  // fetches, refreshes every minute while shown
  *   s.hide();  // stops it
  *
@@ -27,7 +28,7 @@ const VERDICT = {
 };
 const verdict = (v) => (v ? `<span class="ex-tag ${VERDICT[v]?.cls ?? ""}">${h(VERDICT[v]?.label ?? v)}</span>` : "");
 
-export function mountExplorers(root, { api } = {}) {
+export function mountExplorers(root, { api, compact = false } = {}) {
   let windowHours = Number(lsGet("explorersWindow", "72")) || 72;
   let data = null;
   let error = "";
@@ -87,6 +88,7 @@ export function mountExplorers(root, { api } = {}) {
         <td class="mx-note">${h(k.hull.replace("SHIP_", ""))} at ${h(k.yard)}</td>
         <td>${n(k.price)}c</td><td class="mx-note">${h(ago(k.at, now))}</td></tr>`).join("");
 
+    if (compact) { $("ex-body").innerHTML = cards(data, now); return; }
     $("ex-body").innerHTML = `
       <div class="panel"><div class="panel-h"><span class="title">Explorer ships</span><span class="count">${data.explorers.length}</span></div>
         <div class="panel-b" style="padding:0">${data.explorers.length ? `<table><tr><th>Ship</th><th>Where</th><th>Nav</th><th>Doing</th><th>Fuel</th><th>Jumps</th><th>Recent systems</th></tr>${ships}</table>` : `<div class="empty">No ship has the explorer role. Set one on the Ships tab.</div>`}</div></div>
@@ -94,6 +96,27 @@ export function mountExplorers(root, { api } = {}) {
         <div class="panel-b" style="padding:0">${systems ? `<table><tr><th>System</th><th>Verdict</th><th>Markets</th><th>Yards</th><th>Keepers</th><th>When</th></tr>${systems}</table>` : `<div class="empty">Nothing surveyed yet.</div>`}</div></div>
       <div class="panel"><div class="panel-h"><span class="title">Keepers bought and stationed</span><span class="count">${t.keepersBought} in ${data.windowHours}h</span></div>
         <div class="panel-b" style="padding:0">${keepers ? `<table><tr><th>Keeper</th><th>Stationed at</th><th>System</th><th>Bought</th><th>Price</th><th>When</th></tr>${keepers}</table>` : `<div class="empty">No keeper bought in this window.</div>`}</div></div>`;
+  }
+
+  /** The same three lists as stacked cards, for a phone: a table of seven columns does not fit. */
+  function cards(d, now) {
+    const t = d.totals;
+    const ships = d.explorers.map((e) => `<div class="card">
+        <div class="row1"><span class="who">${h(e.ship)}</span><span class="amt">${h(e.system)} · ${h(e.nav)}</span></div>
+        <div class="detail">${h(e.doing)}${e.tour ? `<br>touring ${h(e.tour.system)}, ${e.tour.stopsLeft} stop${e.tour.stopsLeft === 1 ? "" : "s"} left` : ""}<br>fuel ${e.fuelPct}% · ${e.jumps} jump${e.jumps === 1 ? "" : "s"} (${n(e.jumpSpend)}c)</div>
+        <div class="detail">${e.visited.map((v) => `${h(v.system)}${v.verdict ? ` ${h(VERDICT[v.verdict]?.label ?? v.verdict)}` : ""} ${h(ago(v.at, now))}`).join("<br>") || "no jumps in this window"}</div>
+      </div>`).join("");
+    const systems = d.systems.map((s) => `<div class="card${s.verdict === "rejected" ? "" : " info"}">
+        <div class="row1"><span class="who">${h(s.system)}</span><span class="amt">${h(VERDICT[s.verdict]?.label ?? s.verdict)}</span></div>
+        <div class="detail">${s.markets} market${s.markets === 1 ? "" : "s"} · ${s.shipyards} yard${s.shipyards === 1 ? "" : "s"} · ${s.keepersStationed} keeper${s.keepersStationed === 1 ? "" : "s"}${s.keepersBought ? ` (${s.keepersBought} bought)` : ""} · ${h(ago(s.at, now))}</div>
+      </div>`).join("");
+    const keepers = d.keepers.map((k) => `<div class="card">
+        <div class="row1"><span class="who">${h(k.ship)}</span><span class="amt">${n(k.price)}c</span></div>
+        <div class="detail">at ${h(k.market)}<br>${h(k.hull.replace("SHIP_", ""))} bought at ${h(k.yard)} · ${h(ago(k.at, now))}</div>
+      </div>`).join("");
+    return `<div class="sec-h">Explorer ships <span class="n">${d.explorers.length}</span></div>${ships || `<div class="detail">No ship has the explorer role.</div>`}
+      <div class="sec-h">Systems looked at <span class="n">${d.systems.length}</span></div>${systems || `<div class="detail">Nothing surveyed yet.</div>`}
+      <div class="sec-h">Keepers bought and stationed <span class="n">${t.keepersBought}</span></div>${keepers || `<div class="detail">No keeper bought in this window.</div>`}`;
   }
 
   return {

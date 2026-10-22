@@ -619,6 +619,8 @@ body {
 }
 .mx-ranges button.on { background: var(--amber-dim); color: var(--amber); border-color: var(--amber-glow); }
 .mx-note { font-size: 9.5px; color: var(--dim); }
+.mx-purpose { font-size: 10.5px; line-height: 1.5; color: var(--dim); }
+.mx-title { font-family: var(--chrome); font-weight: 600; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
 .mx .kpirow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .mx .kpi { background: var(--panel); border: 1px solid var(--hair); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .mx .kpi .k { font-family: var(--chrome); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
