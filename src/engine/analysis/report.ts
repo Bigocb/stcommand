@@ -8,6 +8,7 @@ import type { ActionEventRow, AnalysisLedgerRow, AnalysisSnapshotRow } from "../
 import { calibrate, type Calibration } from "./calibration.js";
 import { growthPerWeek, type HullEvent, type WealthPoint } from "../growth.js";
 import { changeFindings, changeImpacts, windowMetrics, type ChangeImpact } from "./changes.js";
+import { competitionFindings, summarizeCompetition, tripExposures, type CompetitionStats } from "./competition.js";
 import { clusterTrades, impactFindings, latestTradeVolumes, summarizeImpact, type MarketImpactStat } from "./marketImpact.js";
 import { attributePriceMoves, moveFindings, summarizeMoves, type MarketTrade, type MoveStats } from "./priceMoves.js";
 import { rebuildTrips, summarizeRoutes, tripFindings, tripNetAll, type RouteStats, type Trip } from "./trips.js";
@@ -65,6 +66,8 @@ export interface AnalysisReport {
   priceMoves: MoveStats[];
   changes: ChangeImpact[];
   calibration: Calibration;
+  /** Realized over estimated by how much rival trading each trip met (src/engine/analysis/competition.ts). */
+  competition: CompetitionStats;
   notes: string[];
 }
 
@@ -97,6 +100,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
   const moveStats = summarizeMoves(moves);
   const changes = changeImpacts(input.events.filter((e) => Date.parse(e.at) >= input.fromMs), trips, ledger, policy, input.nowMs);
   const calibration = calibrate(trips, policy);
+  const competition = summarizeCompetition(tripExposures(closed, input.marketTrades, input.ourShips, policy));
   const whole = windowMetrics(trips, ledger, input.fromMs, input.nowMs);
 
   const findings = [
@@ -104,6 +108,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
     ...impactFindings(impact, policy, latestTradeVolumes(input.snapshots)),
     ...moveFindings(moveStats),
     ...changeFindings(changes, policy),
+    ...competitionFindings(competition, policy),
   ].sort((a, b) => b.weight - a.weight);
 
   const byReach = reachSummaries(trips, ledger, input.localShips ?? new Set(), input.fromMs, input.nowMs);
@@ -135,6 +140,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
     priceMoves: moveStats.slice(0, 20),
     changes: changes.slice(-20),
     calibration: { fleet: calibration.fleet, routes: calibration.routes.slice(0, 20), goods: calibration.goods.slice(0, 20) },
+    competition,
     notes,
   };
 }

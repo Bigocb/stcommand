@@ -75,7 +75,10 @@ Each takes plain rows and returns findings; no I/O, no clock. The store fetches 
    before and after. Always labelled as a correlation with its sample size, never as proof.
 5. **Suggestions (`suggest.ts`).** Turns findings into concrete, reversible actions with the exact tool and arguments
    (for example, a per-ship lot cap for a market we move hard). Advisory only: nothing is applied automatically.
-6. **Calibration (`calibration.ts`), the first step to prediction.** A per-route and per-good factor of realized over
+6. **Competition (`competition.ts`).** Realized over estimated for trips grouped by how much rival trading (ships not ours)
+   they met at their buy and sell markets in the hour before, with our own other ships' units alongside. A correlation;
+   a finding appears only with enough trips on both sides.
+7. **Calibration (`calibration.ts`), the first step to prediction.** A per-route and per-good factor of realized over
    expected profit, shrunk toward the fleet average when the sample is small. "The bot says 80k for this route; past
    trips earned 0.7 of the estimate, so expect about 56k."
 

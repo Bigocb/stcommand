@@ -56,6 +56,14 @@ export interface AnalysisPolicy {
   heavyPositioningShare: number;
   /** Shrinkage strength for calibration factors (trips of weight given to the fleet-wide factor). */
   calibrationPrior: number;
+  /** How far before a trip's buy and its sell other ships' trades of the good count as competition, in minutes. */
+  competitionWindowMin: number;
+  /** A trip met heavy competition at this many rival units or more across its two markets. */
+  heavyRivalUnits: number;
+  /** Trips needed in both the quiet and the heavy group before the difference is reported. */
+  minCompetitionTrips: number;
+  /** Quiet-minus-heavy realized-over-estimated gap that is worth a finding. */
+  competitionGap: number;
 }
 
 export const DEFAULT_ANALYSIS_POLICY: AnalysisPolicy = {
@@ -71,6 +79,10 @@ export const DEFAULT_ANALYSIS_POLICY: AnalysisPolicy = {
   changeSettleMinutes: 15,
   heavyPositioningShare: 0.3,
   calibrationPrior: 3,
+  competitionWindowMin: 60,
+  heavyRivalUnits: 100,
+  minCompetitionTrips: 8,
+  competitionGap: 0.1,
 };
 
 /** Confidence from a sample size: a handful is low, a dozen medium, more high. */
