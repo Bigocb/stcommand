@@ -535,8 +535,8 @@ export class Store {
 
   // ── Ops layer reads (src/ops/) ──────────────────────────────
 
-  async opsLedger(tenantId: string, f: { ship?: string; good?: string; type?: string; waypoint?: string; sinceIso: string; limit: number }): Promise<Record<string, unknown>[]> {
-    return withTenant(this.pool, tenantId, async (c) => {
+  async opsLedger(tenantId: string, f: { ship?: string; good?: string; type?: string; waypoint?: string; sinceIso: string; limit: number; universe?: string; oldestFirst?: boolean }): Promise<Record<string, unknown>[]> {
+    const read = async (c: pg.PoolClient) => {
       const where = ["timestamp >= $1"];
       const args: unknown[] = [f.sinceIso];
       const add = (sql: string, v: unknown) => { args.push(v); where.push(sql.replace("?", `$${args.length}`)); };
@@ -547,11 +547,14 @@ export class Store {
       args.push(f.limit);
       const r = await c.query(
         `SELECT timestamp, ship_symbol, type, trade_symbol, units, waypoint_symbol, price_per_unit, total, realized_pnl, wallet_after, route
-         FROM ledger WHERE ${where.join(" AND ")} ORDER BY timestamp DESC LIMIT $${args.length}`,
+         FROM ledger WHERE ${where.join(" AND ")} ORDER BY timestamp ${f.oldestFirst ? "ASC" : "DESC"} LIMIT $${args.length}`,
         args,
       );
       return r.rows;
-    });
+    };
+    // The ledger is scoped to one week by row-level security (universe_scope, migrations/047): the tenant's current week unless
+    // a past week is named, which is how a finished week's first jump or purchase can still be read.
+    return f.universe ? withTenantUniverse(this.pool, tenantId, f.universe, read) : withTenant(this.pool, tenantId, read);
   }
 
   /** Every PURCHASE and SELL since `sinceIso`, oldest first, for the ops `deadhead` tool (engine/deadhead.ts). */

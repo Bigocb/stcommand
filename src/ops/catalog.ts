@@ -5,6 +5,7 @@ import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
+import { universeKey } from "../engine/universe.js";
 import { deadheadFromTrades } from "../engine/deadhead.js";
 import { selectExplain } from "../engine/dispatchExplain.js";
 import { heapReport, heapStart, heapStop, profileCpu, runtimeStatus } from "./profiler.js";
@@ -142,11 +143,15 @@ export const OPS_TOOLS: OpsTool[] = [
   {
     name: "ledger",
     title: "Ledger rows",
-    description: "Filtered ledger rows, newest first (type: PURCHASE|SELL|REFUEL|JUMP|SHIP|CONTRACT|OTHER). Prices are credits; `realized_pnl` is set only on sells with a tracked cost basis. `wallet_after` is the wallet balance right after the trade (rows from 2026-10-08 20:04 UTC onward). `route` (PURCHASE/SELL rows from the 2026-10-11 deploy) is the trip the trade belonged to: buy>sell waypoints, who chose it (auto/manual) and the circuit leg.",
-    input: { ship: z.string().optional(), good: z.string().optional(), type: z.string().optional(), waypoint: z.string().optional(), sinceHours: num(6), limit: num(40) },
+    description: "Filtered ledger rows, newest first (type: PURCHASE|SELL|REFUEL|JUMP|SHIP|CONTRACT|OTHER). Prices are credits; `realized_pnl` is set only on sells with a tracked cost basis. `wallet_after` is the wallet balance right after the trade (rows from 2026-10-08 20:04 UTC onward). `route` (PURCHASE/SELL rows from the 2026-10-11 deploy) is the trip the trade belonged to: buy>sell waypoints, who chose it (auto/manual) and the circuit leg. resetDate (e.g. 2026-10-11) reads that finished week instead of the current one, over the whole week (sinceHours is ignored); oldestFirst=true returns the earliest rows first, e.g. the first JUMP of a week.",
+    input: { ship: z.string().optional(), good: z.string().optional(), type: z.string().optional(), waypoint: z.string().optional(), sinceHours: num(6), limit: num(40), resetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), oldestFirst: bool },
     async run(ctx, a) {
-      const rows = await ctx.w.store.opsLedger(ctx.w.tenantId, { ship: a.ship, good: a.good, type: a.type, waypoint: a.waypoint, sinceIso: iso(ctx.now() - a.sinceHours * 3_600_000), limit: Math.min(a.limit, 300) });
-      return { returned: rows.length, rows };
+      // A named past week is read under that week's universe key over the whole week; without one, the current week as before.
+      const universe = a.resetDate ? universeKey(ctx.w.agentSymbol, a.resetDate) : undefined;
+      if (a.resetDate && !universe) throw new Error("resetDate must look like 2026-10-11 (the day the week began)");
+      const sinceIso = a.resetDate ? `${a.resetDate}T00:00:00.000Z` : iso(ctx.now() - a.sinceHours * 3_600_000);
+      const rows = await ctx.w.store.opsLedger(ctx.w.tenantId, { ship: a.ship, good: a.good, type: a.type, waypoint: a.waypoint, sinceIso, limit: Math.min(a.limit, 300), universe, oldestFirst: a.oldestFirst });
+      return { returned: rows.length, ...(universe ? { universeKey: universe } : {}), rows };
     },
   },
 

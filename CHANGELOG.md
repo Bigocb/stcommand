@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-22 — ops ledger can read a finished week, oldest rows first
+The `ledger` ops tool only ever read the current week, because ledger reads are scoped by row-level security to the fleet's current `universe_key`. Two new options: `resetDate` (e.g. `2026-10-11`) reads that finished week under `<agent>@<resetDate>` over the whole week, and `oldestFirst` returns the earliest rows first, so "the first JUMP of last week" (when the gate opened) is one call. Without them the tool behaves exactly as before. `Store.opsLedger` takes `universe` and `oldestFirst`; `tests/opsLedgerWeek.test.ts` covers both paths at the tool seam.
+
 ## 2026-10-18 — Buy-side guards: the destination's live bid decides the buy, between lots too, and a route runs only so many rounds
 
 Every below-floor approval on 2026-10-18 came from the buy side: a ship bought into a price its own earlier lots had pushed up and then met a sink that no longer paid the
