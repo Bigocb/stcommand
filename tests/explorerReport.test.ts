@@ -102,6 +102,23 @@ describe("buildExplorerReport: what became trading", () => {
     assert.equal(withTrades.totals.touredSystemsTrading, 1, "X1-T");
     assert.equal(withTrades.totals.visitedSystemsTrading, 2, "X1-A and X1-T, not X1-Q");
   });
+  it("splits trading systems by whether the first trade came after an explorer first jumped in", () => {
+    // base: E-1 jumped into X1-B at 10:00, X1-A at 09:00 and 08:00 (first arrival into X1-A is 08:00).
+    const r2 = buildExplorerReport({
+      ...base,
+      trades: [
+        { system: "X1-A", firstAt: "2026-10-22T08:30:00Z", lastAt: "2026-10-22T11:00:00Z" }, // after the 08:00 arrival
+        { system: "X1-B", firstAt: "2026-10-22T09:00:00Z", lastAt: "2026-10-22T11:00:00Z" }, // before the 10:00 arrival
+        { system: "X1-Q", firstAt: "2026-10-22T09:00:00Z", lastAt: "2026-10-22T11:00:00Z" }, // only OTHER's jump went to R; none to Q
+      ],
+    });
+    assert.equal(r2.totals.tradedAfterExplorer, 1);
+    assert.equal(r2.totals.tradedBeforeExplorer, 1);
+    assert.equal(r2.totals.tradedNoExplorerSeen, 1);
+    const a = r2.systems.find((x) => x.system === "X1-A")!;
+    assert.equal(a.explorerFirstAt, "2026-10-22T08:00:00Z");
+    assert.equal(a.firstTradeAt, "2026-10-22T08:30:00Z");
+  });
   it("without trade data nothing is marked", () => {
     const none = buildExplorerReport(base);
     assert.equal(none.totals.keeperSystemsTrading, 0);

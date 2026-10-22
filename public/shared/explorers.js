@@ -60,7 +60,7 @@ function growthChart(cov, compact = false) {
 /** The two headline counts, shared by both layouts. */
 function coverageTiles(cov, t) {
   const tile = (label, value, sub) => `<div class="ex-kpi"><div class="ex-k">${h(label)}</div><div class="ex-v">${value}</div><div class="mx-note">${h(sub)}</div></div>`;
-  return `<div class="ex-kpis">${tile("Systems traded in", n(cov.trading), `${n(cov.tradingLast24h)} in the last 24h`)}${tile("Systems with keepers", n(cov.keepers), "a keeper stationed there now")}${t ? tile("Keeper systems we trade in", `${n(t.keeperSystemsTrading)} of ${n(t.systemsWithKeepers)}`, `${n(t.touredSystemsTrading)} toured, ${n(t.visitedSystemsTrading)} explorer-visited trade`) : ""}</div>`;
+  return `<div class="ex-kpis">${tile("Systems traded in", n(cov.trading), `${n(cov.tradingLast24h)} in the last 24h`)}${tile("Systems with keepers", n(cov.keepers), "a keeper stationed there now")}${t ? tile("Keeper systems we trade in", `${n(t.keeperSystemsTrading)} of ${n(t.systemsWithKeepers)}`, `${n(t.touredSystemsTrading)} toured, ${n(t.visitedSystemsTrading)} explorer-visited trade`) : ""}${t && t.tradedAfterExplorer !== undefined ? tile("First traded after an explorer got there", `${n(t.tradedAfterExplorer)} of ${n(t.tradedAfterExplorer + t.tradedBeforeExplorer)}`, `${n(t.tradedNoExplorerSeen)} trading systems had no explorer jump in this window`) : ""}</div>`;
 }
 
 export function mountExplorers(root, { api, compact = false } = {}) {

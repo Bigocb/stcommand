@@ -28,7 +28,7 @@ export type SystemVerdict = "toured" | "rejected" | "surveyed" | "atlas";
 export interface ExplorerReport {
   asOf: string;
   windowHours: number;
-  totals: { explorers: number; systemsToured: number; systemsSurveyed: number; systemsRejected: number; keepersBought: number; keeperSpend: number; jumps: number; jumpSpend: number; systemsWithKeepers: number; keeperSystemsTrading: number; touredSystemsTrading: number; visitedSystemsTrading: number };
+  totals: { explorers: number; systemsToured: number; systemsSurveyed: number; systemsRejected: number; keepersBought: number; keeperSpend: number; jumps: number; jumpSpend: number; systemsWithKeepers: number; keeperSystemsTrading: number; touredSystemsTrading: number; visitedSystemsTrading: number; tradedAfterExplorer: number; tradedBeforeExplorer: number; tradedNoExplorerSeen: number };
   explorers: {
     ship: string; system: string; waypoint: string; nav: string; fuelPct: number; doing: string;
     tour?: { system: string; stopsLeft: number };
@@ -38,7 +38,7 @@ export interface ExplorerReport {
   }[];
   /** How many systems we trade in and keep keepers in, now and over the week. */
   coverage: Coverage;
-  systems: { system: string; at: string; markets: number; shipyards: number; verdict: SystemVerdict; keepersStationed: number; keepersBought: number; /** We have traded here this week. */ trading: boolean; lastTradeAt?: string }[];
+  systems: { system: string; at: string; markets: number; shipyards: number; verdict: SystemVerdict; keepersStationed: number; keepersBought: number; /** We have traded here this week. */ trading: boolean; firstTradeAt?: string; lastTradeAt?: string; /** First time one of the explorer ships jumped into this system, within the window. */ explorerFirstAt?: string }[];
   keepers: { ship: string; market: string; system: string; yard: string; hull: string; price: number; at: string }[];
 }
 
@@ -71,12 +71,23 @@ export function buildExplorerReport(i: {
   for (const k of i.stations) stationedIn.set(systemOf(k.market), (stationedIn.get(systemOf(k.market)) ?? 0) + 1);
 
   const tradeOf = new Map((i.trades ?? []).map((t) => [t.system, t]));
+  // The first time an explorer ship jumped into each system, within the window: the "did the explorer get there before we traded" clock.
+  const explorerShipSet = new Set(i.explorers.map((e) => e.symbol));
+  const explorerFirst = new Map<string, string>();
+  for (const j of i.jumps) {
+    if (!explorerShipSet.has(j.ship)) continue;
+    const sys = systemOf(j.to);
+    const prev = explorerFirst.get(sys);
+    if (prev === undefined || j.at < prev) explorerFirst.set(sys, j.at);
+  }
   const systems = [...i.surveys]
     .sort((a, b) => b.at.localeCompare(a.at))
     .map((s) => ({
       system: s.system, at: s.at, markets: s.markets, shipyards: s.shipyards, verdict: verdictOf(s.source),
       keepersStationed: stationedIn.get(s.system) ?? 0, keepersBought: boughtIn.get(s.system) ?? 0,
-      trading: tradeOf.has(s.system), ...(tradeOf.has(s.system) ? { lastTradeAt: tradeOf.get(s.system)!.lastAt } : {}),
+      trading: tradeOf.has(s.system),
+      ...(tradeOf.has(s.system) ? { firstTradeAt: tradeOf.get(s.system)!.firstAt, lastTradeAt: tradeOf.get(s.system)!.lastAt } : {}),
+      ...(explorerFirst.has(s.system) ? { explorerFirstAt: explorerFirst.get(s.system)! } : {}),
     }));
 
   const explorers = i.explorers.map((e) => {
@@ -116,6 +127,10 @@ export function buildExplorerReport(i: {
       keeperSystemsTrading: [...stationedIn.keys()].filter((sys) => tradeOf.has(sys)).length,
       touredSystemsTrading: systems.filter((s) => s.verdict === "toured" && tradeOf.has(s.system)).length,
       visitedSystemsTrading: systems.filter((s) => tradeOf.has(s.system)).length,
+      // Over every system we trade in: was the first trade after an explorer first jumped in (within the window), before it, or with no explorer jump seen.
+      tradedAfterExplorer: [...tradeOf.values()].filter((t) => explorerFirst.has(t.system) && Date.parse(t.firstAt) > Date.parse(explorerFirst.get(t.system)!)).length,
+      tradedBeforeExplorer: [...tradeOf.values()].filter((t) => explorerFirst.has(t.system) && Date.parse(t.firstAt) <= Date.parse(explorerFirst.get(t.system)!)).length,
+      tradedNoExplorerSeen: [...tradeOf.values()].filter((t) => !explorerFirst.has(t.system)).length,
     },
     explorers,
     coverage: buildCoverage({
