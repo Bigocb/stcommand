@@ -1,0 +1,11 @@
+-- A parked hull is a persisted operator decision, so it lives where every other
+-- deliberate role decision already lives: fleet_state.role = 'parked'
+-- (see docs/parked-ships-design.md §3).
+--
+-- parked_from is what makes it reversible: unparking resumes the role the hull
+-- actually had rather than re-deriving one from its hull class, which is how a
+-- parked keeper would otherwise come back as a trader.
+--
+-- Null for every ordinary role row, and deliberately cleared whenever a role is
+-- written without it — a ship that is no longer parked has nothing to remember.
+ALTER TABLE fleet_state ADD COLUMN IF NOT EXISTS parked_from text;

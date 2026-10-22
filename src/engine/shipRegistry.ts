@@ -88,7 +88,12 @@ import type { Store } from "../db/store.js";
 // pick) but below rescue/repair (a stranded or critically damaged ship is
 // still a bigger emergency than delaying a trade's delivery).
 export type Owner = "operator" | "rescue" | "repair" | "trading" | "mission" | "feed" | "warehouse" | "keeper" | "auto";
-export type ShipRole = "miner" | "trader" | "surveyor" | "tour" | "keeper" | "scout" | "siphoner" | "explorer" | "warehouse" | "idle";
+// "parked" added with the parked-ships feature (docs/parked-ships-design.md):
+// a hull the operator has deliberately taken out of service but not sold. It
+// has no agent and no task chain, so it is the one role that costs no calls —
+// which is also why it must be claimed for the operator here: a parked hull
+// that read as "auto" would look free to every controller that asks.
+export type ShipRole = "miner" | "trader" | "surveyor" | "tour" | "keeper" | "scout" | "siphoner" | "explorer" | "warehouse" | "parked" | "idle";
 
 export interface Claim {
   shipSymbol: string;
