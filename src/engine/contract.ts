@@ -71,6 +71,8 @@ export class ContractManager {
    * earned — if an abandoned contract is somehow complete, take the payout.
    */
   private abandoned = new Set<string>();
+  /** Offers already logged as skipped for an unreachable delivery point, so it is said once, not on every pass. */
+  private declinedUnreachable = new Set<string>();
   /**
    * The last fetched contract list.
    *
@@ -251,6 +253,25 @@ export class ContractManager {
   }
 
   /**
+   * Whether a delivery point can be reached by gate from where cargo is bought. Set by the fleet, which owns the gate graph; absent
+   * (tests, contexts with no atlas) every delivery counts as reachable and contracts behave exactly as before.
+   */
+  private deliveryReachable?: (destinationSymbol: string) => Promise<boolean>;
+  setDeliveryReachable(fn: ((destinationSymbol: string) => Promise<boolean>) | undefined): void {
+    this.deliveryReachable = fn;
+  }
+
+  /** The first outstanding delivery of a contract that cannot be reached, or undefined when all can (or reachability is not known). */
+  async unreachableDelivery(c: Contract): Promise<string | undefined> {
+    if (!this.deliveryReachable) return undefined;
+    for (const d of c.terms.deliver ?? []) {
+      if (d.unitsRequired - d.unitsFulfilled <= 0) continue;
+      if (!(await this.deliveryReachable(d.destinationSymbol))) return d.destinationSymbol;
+    }
+    return undefined;
+  }
+
+  /**
    * Accept the most valuable *feasible* unaccepted contract, if any.
    *
    * Ranks by payout minus estimated sourcing cost, not raw payout alone —
@@ -275,6 +296,16 @@ export class ContractManager {
     for (const c of unaccepted) {
       const deadlineMs = new Date(c.terms.deadline).getTime() - now;
       if (deadlineMs < MIN_DELIVERY_WINDOW_MS) continue; // not enough runway to fly it at all
+      // A delivery point past the gate ceiling is not a contract worth the advance: nothing here could ever deliver it
+      // (2026-10-22: 132 PRECIOUS_STONES to X1-NH60-ZA5E, 21 jumps from home, owing 17k, left a ship stuck for two hours).
+      const unreachable = await this.unreachableDelivery(c);
+      if (unreachable !== undefined) {
+        if (!this.declinedUnreachable.has(c.id)) {
+          this.declinedUnreachable.add(c.id);
+          this.say(`contract ${c.id} not accepted: it delivers to ${unreachable}, which has no verified gate path from here`);
+        }
+        continue;
+      }
       const payout = c.terms.payment.onAccepted + c.terms.payment.onFulfilled;
       let sourcingCost = 0;
       for (const d of c.terms.deliver ?? []) {

@@ -17,6 +17,7 @@ import { nextLotDecision } from "./lotGuard.js";
 import { sellFloor, belowSellFloor } from "./lossAllowance.js";
 import { nextBuyLotDecision, sinkCheck } from "./buyGuard.js";
 import { withinHaulLimit } from "./haulLimit.js";
+import { CONTRACT_DELIVERY_BACKOFF_MS, isNoGatePathError } from "./contractReach.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
 import { lotAfterRefusal } from "./transactionLimit.js";
@@ -2999,60 +3000,10 @@ export class TraderAgent {
     // "contractBuy" assignment, a warehouse withdrawal, a manual transfer)
     // routes/delivers it before clearLeftoverCargo() or any route work ever
     // gets a chance to sell it.
-    if (this.ship.cargo.units > 0 && this.deliverCargo) {
+    if (this.ship.cargo.units > 0 && this.deliverCargo && !this.contractDeliveryBackedOff()) {
       const result = await this.deliverCargo(this.ship);
       if (typeof result === "string") {
-        // Confirmed live: deliverVia() picks the contract's destination for
-        // *any* ship carrying a matching good, with no distance check at all
-        // — unlike viableRoute()'s ordinary route candidates, which reject a
-        // leg the tank can never cover regardless of fuel level (see that
-        // guard's own comment for the same "full tank, still fails" failure
-        // signature). A ship whose own arbitrage trade happened to pick up a
-        // good a contract also wants got yanked toward a destination outside
-        // its single-hop range, threw a raw "requires N more fuel" error,
-        // and got mislabeled stranded below even at full tank. Apply the
-        // same guard here — but route through an intermediate fuel stop
-        // instead of just giving up: confirmed live, a ship that bought
-        // contract cargo out of its own single-hop range from the delivery
-        // destination sat holding it forever, re-hitting this same skip
-        // every tick, since nothing here ever tried a multi-hop route (the
-        // way mission cargo delivery already does via fleet.ts's
-        // dispatchShipHop). nextHopToward() returning undefined means no
-        // known fuel stop gets any closer — a route that really can't work,
-        // not just one not tried yet.
-        // A delivery in another system is not a range question: waypoint coordinates are local to their own
-        // system, so comparing them across systems measures nothing, and the skip below left cargo sitting
-        // (2026-10-16: THEOREM-AE held 80 MACHINERY in X1-CM13 for a contract at X1-KQ90-EA5E, logging "out of
-        // range" every 30 s). navigateTo() already walks the gate path one hop per call; the in-system range
-        // guard applies once the ship is in the destination's system.
-        if (this.systemOf(result) !== this.ship.nav.systemSymbol) {
-          this.log(`delivering cargo → ${result} (another system, one gate hop per tick)`);
-          await this.navigateTo(result);
-          await this.refresh();
-          return true;
-        }
-        if (this.ship.fuel.capacity > 0 && this.distBetween(this.ship.nav.waypointSymbol, result) > this.ship.fuel.capacity) {
-          const hop = this.nextHopToward(result);
-          if (!hop) {
-            this.log(`contract delivery to ${result} is out of range even via known fuel stops; skipping for now`);
-          } else {
-            this.log(`delivering cargo → ${result} via ${hop} (single hop can't reach it directly)`);
-            await this.navigateTo(hop);
-            await this.refresh();
-            return true;
-          }
-        } else {
-          // navigateTo() self-manages refueling (see its own comment) — no
-          // separate pre-check needed, unlike ShipAgent's refuelIfNeeded()
-          // gate.
-          this.log(`delivering cargo → ${result}`);
-          await this.navigateTo(result);
-          await this.ensureDocked();
-          await this.deliverCargo(this.ship);
-          await this.refresh();
-          return true;
-        }
-      } else if (result === true) {
+        if (await this.deliverContractCargo(result)) return true;      } else if (result === true) {
         await this.refresh();
         return true;
       }
@@ -3069,6 +3020,83 @@ export class TraderAgent {
     if (assignedAtTickStart?.role === "haul") return this.runHaul(assignedAtTickStart);
     if (assignedAtTickStart?.role === "contractBuy") return this.runContractBuy(assignedAtTickStart);
     return this.runArbitrage(assignedAtTickStart);
+  }
+
+  /** Until when a contract delivery that cannot find a gate path is left alone (ms epoch). */
+  private contractDeliveryBackoffUntil = 0;
+
+  private contractDeliveryBackedOff(): boolean {
+    return Date.now() < this.contractDeliveryBackoffUntil;
+  }
+
+  /**
+   * Walk toward a contract's delivery point, or deliver. True when the tick was used; false to carry on with the rest of the tick.
+   *
+   * A destination with no verified gate path (a contract delivering 21 jumps from home, past the 10-jump ceiling) used to throw
+   * from here every tick, forever: THEOREM-21 held 40 PRECIOUS_STONES for X1-NH60-ZA5E and logged the same error every 12 seconds
+   * for over two hours, idle, while the contract it served owed 17k. Now the delivery is left alone for half an hour (the path may
+   * appear when a gate is built) and the ship goes on to sell what it holds like any other leftover.
+   */
+  private async deliverContractCargo(result: string): Promise<boolean> {
+
+    // Confirmed live: deliverVia() picks the contract's destination for
+    // *any* ship carrying a matching good, with no distance check at all
+    // — unlike viableRoute()'s ordinary route candidates, which reject a
+    // leg the tank can never cover regardless of fuel level (see that
+    // guard's own comment for the same "full tank, still fails" failure
+    // signature). A ship whose own arbitrage trade happened to pick up a
+    // good a contract also wants got yanked toward a destination outside
+    // its single-hop range, threw a raw "requires N more fuel" error,
+    // and got mislabeled stranded below even at full tank. Apply the
+    // same guard here — but route through an intermediate fuel stop
+    // instead of just giving up: confirmed live, a ship that bought
+    // contract cargo out of its own single-hop range from the delivery
+    // destination sat holding it forever, re-hitting this same skip
+    // every tick, since nothing here ever tried a multi-hop route (the
+    // way mission cargo delivery already does via fleet.ts's
+    // dispatchShipHop). nextHopToward() returning undefined means no
+    // known fuel stop gets any closer — a route that really can't work,
+    // not just one not tried yet.
+    // A delivery in another system is not a range question: waypoint coordinates are local to their own
+    // system, so comparing them across systems measures nothing, and the skip below left cargo sitting
+    // (2026-10-16: THEOREM-AE held 80 MACHINERY in X1-CM13 for a contract at X1-KQ90-EA5E, logging "out of
+    // range" every 30 s). navigateTo() already walks the gate path one hop per call; the in-system range
+    // guard applies once the ship is in the destination's system.
+    if (this.systemOf(result) !== this.ship.nav.systemSymbol) {
+      this.log(`delivering cargo → ${result} (another system, one gate hop per tick)`);
+      try {
+        await this.navigateTo(result);
+      } catch (err) {
+        if (!isNoGatePathError(err)) throw err;
+        this.contractDeliveryBackoffUntil = Date.now() + CONTRACT_DELIVERY_BACKOFF_MS;
+        this.log(`contract delivery to ${result}: ${err instanceof Error ? err.message : String(err)}; leaving it for ${CONTRACT_DELIVERY_BACKOFF_MS / 60_000} min and selling what is aboard instead`);
+        return false;
+      }
+      await this.refresh();
+      return true;
+    }
+    if (this.ship.fuel.capacity > 0 && this.distBetween(this.ship.nav.waypointSymbol, result) > this.ship.fuel.capacity) {
+      const hop = this.nextHopToward(result);
+      if (!hop) {
+        this.log(`contract delivery to ${result} is out of range even via known fuel stops; skipping for now`);
+      } else {
+        this.log(`delivering cargo → ${result} via ${hop} (single hop can't reach it directly)`);
+        await this.navigateTo(hop);
+        await this.refresh();
+        return true;
+      }
+    } else {
+      // navigateTo() self-manages refueling (see its own comment) — no
+      // separate pre-check needed, unlike ShipAgent's refuelIfNeeded()
+      // gate.
+      this.log(`delivering cargo → ${result}`);
+      await this.navigateTo(result);
+      await this.ensureDocked();
+      await this.deliverCargo?.(this.ship);
+      await this.refresh();
+      return true;
+    }
+    return false;
   }
 
   /** True when the fleet is halted and this ship must not act. Stopgap until

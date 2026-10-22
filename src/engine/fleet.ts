@@ -633,6 +633,7 @@ export class FleetManager {
   constructor(opts: FleetOptions) {
     this.api = opts.api;
     this.contracts = opts.contracts;
+    this.contracts?.setDeliveryReachable((destination) => this.contractDestinationReachable(destination));
     this.state = opts.state;
     this.log = opts.log ?? ((m) => console.log(`[fleet] ${m}`));
     // The measurement sweep's board only listens while the sweep runs; the ship book always does (shadow mode).
@@ -1707,6 +1708,30 @@ export class FleetManager {
     return targets;
   }
 
+  /** Per delivery system: whether it is reachable by gate from home, and when that was last worked out. */
+  private readonly contractReach = new Map<string, { at: number; ok: boolean }>();
+  private static readonly CONTRACT_REACH_TTL_MS = 10 * 60_000;
+
+  /**
+   * Whether a contract's delivery waypoint can be reached by gate from the system its goods are bought in (home), within the
+   * Positioning jumps limit. Asked every pass, so it is remembered for ten minutes; a "no" from the cache alone is checked again by
+   * loading and verifying the gates on the way (bounded, as for a trader's own positioning leg) before it counts.
+   */
+  private async contractDestinationReachable(destinationWaypoint: string): Promise<boolean> {
+    const to = destinationWaypoint.slice(0, destinationWaypoint.lastIndexOf("-"));
+    const from = this.systemSymbol;
+    if (!from || to === from) return true;
+    const hit = this.contractReach.get(to);
+    if (hit && Date.now() - hit.at < FleetManager.CONTRACT_REACH_TTL_MS) return hit.ok;
+    let ok = this.galaxy.canJump(from, to) || this.galaxy.jumpPath(from, to) !== undefined;
+    if (!ok) {
+      try { ok = (await this.galaxy.warmJumpPath(from, to)) !== undefined; } catch { ok = false; }
+    }
+    if (hit?.ok !== ok) this.log(`contract delivery system ${to}: ${ok ? "reachable" : "no verified gate path within " + this.galaxy.maxPositioningHops + " jumps"} from ${from}`);
+    this.contractReach.set(to, { at: Date.now(), ok });
+    return ok;
+  }
+
   /**
    * Goods an accepted contract still needs delivered, sourced from the
    * cheapest known market — the contract equivalent of
@@ -1730,6 +1755,8 @@ export class FleetManager {
     for (const d of deliveries) {
       const needed = d.unitsRequired - d.unitsFulfilled;
       if (needed <= 0) continue;
+      // No point buying for a delivery point nothing can reach: the cargo would sit in a hold, failing the path check.
+      if (!(await this.contractDestinationReachable(d.destinationSymbol))) continue;
       neededByGood.set(d.tradeSymbol, (neededByGood.get(d.tradeSymbol) ?? 0) + needed);
       const key = `${d.tradeSymbol}:${d.contractId}`;
       if (!countedContractForGood.has(key)) {
