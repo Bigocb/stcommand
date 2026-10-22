@@ -28,7 +28,7 @@ export type SystemVerdict = "toured" | "rejected" | "surveyed" | "atlas";
 export interface ExplorerReport {
   asOf: string;
   windowHours: number;
-  totals: { explorers: number; systemsToured: number; systemsSurveyed: number; systemsRejected: number; keepersBought: number; keeperSpend: number; jumps: number; jumpSpend: number };
+  totals: { explorers: number; systemsToured: number; systemsSurveyed: number; systemsRejected: number; keepersBought: number; keeperSpend: number; jumps: number; jumpSpend: number; systemsWithKeepers: number; keeperSystemsTrading: number; touredSystemsTrading: number; visitedSystemsTrading: number };
   explorers: {
     ship: string; system: string; waypoint: string; nav: string; fuelPct: number; doing: string;
     tour?: { system: string; stopsLeft: number };
@@ -38,7 +38,7 @@ export interface ExplorerReport {
   }[];
   /** How many systems we trade in and keep keepers in, now and over the week. */
   coverage: Coverage;
-  systems: { system: string; at: string; markets: number; shipyards: number; verdict: SystemVerdict; keepersStationed: number; keepersBought: number }[];
+  systems: { system: string; at: string; markets: number; shipyards: number; verdict: SystemVerdict; keepersStationed: number; keepersBought: number; /** We have traded here this week. */ trading: boolean; lastTradeAt?: string }[];
   keepers: { ship: string; market: string; system: string; yard: string; hull: string; price: number; at: string }[];
 }
 
@@ -70,11 +70,13 @@ export function buildExplorerReport(i: {
   const stationedIn = new Map<string, number>();
   for (const k of i.stations) stationedIn.set(systemOf(k.market), (stationedIn.get(systemOf(k.market)) ?? 0) + 1);
 
+  const tradeOf = new Map((i.trades ?? []).map((t) => [t.system, t]));
   const systems = [...i.surveys]
     .sort((a, b) => b.at.localeCompare(a.at))
     .map((s) => ({
       system: s.system, at: s.at, markets: s.markets, shipyards: s.shipyards, verdict: verdictOf(s.source),
       keepersStationed: stationedIn.get(s.system) ?? 0, keepersBought: boughtIn.get(s.system) ?? 0,
+      trading: tradeOf.has(s.system), ...(tradeOf.has(s.system) ? { lastTradeAt: tradeOf.get(s.system)!.lastAt } : {}),
     }));
 
   const explorers = i.explorers.map((e) => {
@@ -109,6 +111,11 @@ export function buildExplorerReport(i: {
       keeperSpend: keepers.reduce((t, k) => t + k.price, 0),
       jumps: theirJumps.length,
       jumpSpend: theirJumps.reduce((t, j) => t + j.cost, 0),
+      // Of what the explorers found, how much became trading. Over every system, not just the listed ones.
+      systemsWithKeepers: stationedIn.size,
+      keeperSystemsTrading: [...stationedIn.keys()].filter((sys) => tradeOf.has(sys)).length,
+      touredSystemsTrading: systems.filter((s) => s.verdict === "toured" && tradeOf.has(s.system)).length,
+      visitedSystemsTrading: systems.filter((s) => tradeOf.has(s.system)).length,
     },
     explorers,
     coverage: buildCoverage({

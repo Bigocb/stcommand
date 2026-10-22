@@ -58,9 +58,9 @@ function growthChart(cov, compact = false) {
 }
 
 /** The two headline counts, shared by both layouts. */
-function coverageTiles(cov) {
+function coverageTiles(cov, t) {
   const tile = (label, value, sub) => `<div class="ex-kpi"><div class="ex-k">${h(label)}</div><div class="ex-v">${value}</div><div class="mx-note">${h(sub)}</div></div>`;
-  return `<div class="ex-kpis">${tile("Systems traded in", n(cov.trading), `${n(cov.tradingLast24h)} in the last 24h`)}${tile("Systems with keepers", n(cov.keepers), "a keeper stationed there now")}</div>`;
+  return `<div class="ex-kpis">${tile("Systems traded in", n(cov.trading), `${n(cov.tradingLast24h)} in the last 24h`)}${tile("Systems with keepers", n(cov.keepers), "a keeper stationed there now")}${t ? tile("Keeper systems we trade in", `${n(t.keeperSystemsTrading)} of ${n(t.systemsWithKeepers)}`, `${n(t.touredSystemsTrading)} toured, ${n(t.visitedSystemsTrading)} explorer-visited trade`) : ""}</div>`;
 }
 
 export function mountExplorers(root, { api, compact = false } = {}) {
@@ -116,6 +116,7 @@ export function mountExplorers(root, { api, compact = false } = {}) {
     const systems = data.systems.map((s) => `<tr>
         <td>${h(s.system)}</td><td>${verdict(s.verdict)}</td><td>${s.markets}</td><td>${s.shipyards}</td>
         <td>${s.keepersStationed}${s.keepersBought ? ` <span class="mx-note">(${s.keepersBought} bought)</span>` : ""}</td>
+        <td>${s.trading ? "yes" : `<span class="mx-note">no</span>`}</td>
         <td class="mx-note">${h(ago(s.at, now))}</td></tr>`).join("");
 
     const keepers = data.keepers.map((k) => `<tr>
@@ -126,11 +127,11 @@ export function mountExplorers(root, { api, compact = false } = {}) {
     if (compact) { $("ex-body").innerHTML = cards(data, now); return; }
     $("ex-body").innerHTML = `
       <div class="panel"><div class="panel-h"><span class="title">Coverage</span><span class="count">cumulative this week</span></div>
-        <div class="panel-b">${coverageTiles(data.coverage)}${growthChart(data.coverage)}</div></div>
+        <div class="panel-b">${coverageTiles(data.coverage, t)}${growthChart(data.coverage)}</div></div>
       <div class="panel"><div class="panel-h"><span class="title">Explorer ships</span><span class="count">${data.explorers.length}</span></div>
         <div class="panel-b" style="padding:0">${data.explorers.length ? `<table><tr><th>Ship</th><th>Where</th><th>Nav</th><th>Doing</th><th>Fuel</th><th>Jumps</th><th>Recent systems</th></tr>${ships}</table>` : `<div class="empty">No ship has the explorer role. Set one on the Ships tab.</div>`}</div></div>
       <div class="panel"><div class="panel-h"><span class="title">Systems looked at</span><span class="count">newest ${data.systems.length}</span></div>
-        <div class="panel-b" style="padding:0">${systems ? `<table><tr><th>System</th><th>Verdict</th><th>Markets</th><th>Yards</th><th>Keepers</th><th>When</th></tr>${systems}</table>` : `<div class="empty">Nothing surveyed yet.</div>`}</div></div>
+        <div class="panel-b" style="padding:0">${systems ? `<table><tr><th>System</th><th>Verdict</th><th>Markets</th><th>Yards</th><th>Keepers</th><th>Trading</th><th>When</th></tr>${systems}</table>` : `<div class="empty">Nothing surveyed yet.</div>`}</div></div>
       <div class="panel"><div class="panel-h"><span class="title">Keepers bought and stationed</span><span class="count">${t.keepersBought} in ${data.windowHours}h</span></div>
         <div class="panel-b" style="padding:0">${keepers ? `<table><tr><th>Keeper</th><th>Stationed at</th><th>System</th><th>Bought</th><th>Price</th><th>When</th></tr>${keepers}</table>` : `<div class="empty">No keeper bought in this window.</div>`}</div></div>`;
   }
@@ -145,13 +146,13 @@ export function mountExplorers(root, { api, compact = false } = {}) {
       </div>`).join("");
     const systems = d.systems.map((s) => `<div class="card${s.verdict === "rejected" ? "" : " info"}">
         <div class="row1"><span class="who">${h(s.system)}</span><span class="amt">${h(VERDICT[s.verdict]?.label ?? s.verdict)}</span></div>
-        <div class="detail">${s.markets} market${s.markets === 1 ? "" : "s"} · ${s.shipyards} yard${s.shipyards === 1 ? "" : "s"} · ${s.keepersStationed} keeper${s.keepersStationed === 1 ? "" : "s"}${s.keepersBought ? ` (${s.keepersBought} bought)` : ""} · ${h(ago(s.at, now))}</div>
+        <div class="detail">${s.markets} market${s.markets === 1 ? "" : "s"} · ${s.shipyards} yard${s.shipyards === 1 ? "" : "s"} · ${s.keepersStationed} keeper${s.keepersStationed === 1 ? "" : "s"}${s.keepersBought ? ` (${s.keepersBought} bought)` : ""} · ${s.trading ? "trading" : "not trading"} · ${h(ago(s.at, now))}</div>
       </div>`).join("");
     const keepers = d.keepers.map((k) => `<div class="card">
         <div class="row1"><span class="who">${h(k.ship)}</span><span class="amt">${n(k.price)}c</span></div>
         <div class="detail">at ${h(k.market)}<br>${h(k.hull.replace("SHIP_", ""))} bought at ${h(k.yard)} · ${h(ago(k.at, now))}</div>
       </div>`).join("");
-    return `<div class="sec-h">Coverage</div><div class="card">${coverageTiles(d.coverage)}${growthChart(d.coverage, true)}</div>
+    return `<div class="sec-h">Coverage</div><div class="card">${coverageTiles(d.coverage, t)}${growthChart(d.coverage, true)}</div>
       <div class="sec-h">Explorer ships <span class="n">${d.explorers.length}</span></div>${ships || `<div class="detail">No ship has the explorer role.</div>`}
       <div class="sec-h">Systems looked at <span class="n">${d.systems.length}</span></div>${systems || `<div class="detail">Nothing surveyed yet.</div>`}
       <div class="sec-h">Keepers bought and stationed <span class="n">${t.keepersBought}</span></div>${keepers || `<div class="detail">No keeper bought in this window.</div>`}`;

@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-22 — Explorers: which found systems became trading
+The Explorers report (ops `explorers`, Deck and Tower tab) now answers "of the systems the explorers found and put keepers in, how many do we trade in": each system row has `trading` and `lastTradeAt` (from the ledger's first and last trade in that system this week), and the totals gain `systemsWithKeepers`, `keeperSystemsTrading`, `touredSystemsTrading` and `visitedSystemsTrading`. The tab shows a "Keeper systems we trade in" tile and a Trading column. The counts cover every system, not just the newest 60 listed. Tests: `tests/explorerReport.test.ts`. The tab's rendering was checked for syntax only, not in a browser.
+
 ## 2026-10-22 — API calls counted by ship role, and an adjustable keeper poll ceiling
 **By ship role.** The rate limiter's stats gained `byRole` ("keeper market", "tour market", "trader sell-cargo", ...): each scheduler task runs inside an async-local role tag taken from the ship it belongs to (`FleetManager.apiRoleOf()`: keeper, explorer, tour, trader, miner, scout, other; coordinator loops are "fleet", untagged calls "?"). Visible in `stcommand_ops_instances` and as a third line of the five-minute limiter log. Stats only, no behaviour change. It answers which role the 97 `ShipAgent.recordMarket` calls per five minutes belong to before anything else is parked or slowed.
 

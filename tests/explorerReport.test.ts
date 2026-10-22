@@ -79,6 +79,36 @@ describe("buildExplorerReport", () => {
   });
 });
 
+describe("buildExplorerReport: what became trading", () => {
+  const withTrades = buildExplorerReport({
+    ...base,
+    surveys: [...base.surveys, { system: "X1-T", at: "2026-10-22T08:00:00Z", markets: 9, shipyards: 1, source: "toured" }],
+    stations: [...base.stations, { ship: "K-9", market: "X1-Z-M1" }],
+    trades: [
+      { system: "X1-A", firstAt: "2026-10-22T09:30:00Z", lastAt: "2026-10-22T11:00:00Z" },
+      { system: "X1-T", firstAt: "2026-10-22T10:00:00Z", lastAt: "2026-10-22T11:30:00Z" },
+      { system: "X1-Q", firstAt: "2026-10-21T10:00:00Z", lastAt: "2026-10-21T11:00:00Z" },
+    ],
+  });
+  it("marks each system we trade in, with when we last did", () => {
+    const a = withTrades.systems.find((x) => x.system === "X1-A")!;
+    assert.equal(a.trading, true);
+    assert.equal(a.lastTradeAt, "2026-10-22T11:00:00Z");
+    assert.equal(withTrades.systems.find((x) => x.system === "X1-B")!.trading, false);
+  });
+  it("counts keeper systems, toured systems and visited systems we trade in (a trade in an unvisited system does not count)", () => {
+    assert.equal(withTrades.totals.systemsWithKeepers, 2, "X1-A and X1-Z");
+    assert.equal(withTrades.totals.keeperSystemsTrading, 1, "only X1-A trades; X1-Z has a keeper but no trade");
+    assert.equal(withTrades.totals.touredSystemsTrading, 1, "X1-T");
+    assert.equal(withTrades.totals.visitedSystemsTrading, 2, "X1-A and X1-T, not X1-Q");
+  });
+  it("without trade data nothing is marked", () => {
+    const none = buildExplorerReport(base);
+    assert.equal(none.totals.keeperSystemsTrading, 0);
+    assert.equal(none.systems.every((x) => !x.trading), true);
+  });
+});
+
 describe("buildCoverage", () => {
   const HOUR = 3_600_000;
   const now = Date.parse("2026-10-22T12:00:00Z");
