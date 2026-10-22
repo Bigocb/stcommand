@@ -2,6 +2,7 @@ import * as z from "zod";
 import { systemCandidates } from "./systems.js";
 import { explorerReport } from "./explorers.js";
 import { buildKeeperReview } from "../engine/keeperValue.js";
+import { keeperSales } from "../engine/keeperSales.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
@@ -424,6 +425,17 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx) {
       const d = await ctx.w.fleet.keeperReviewData();
       return buildKeeperReview({ nowIso: new Date(ctx.now()).toISOString(), ...d });
+    },
+  },
+
+  {
+    name: "keeper_sales",
+    title: "Keepers at markets where we have made no sales",
+    description: "Every stationed keeper with how many sells and buys of ours (count and credits) have happened at its market this week, lowest first. By default only the keepers whose market has seen none of our sales (noTrade counts those with no buys either): price listening that no route of ours uses, the first candidates to scrap or park when the keeper limit is full. A market with no sales can still matter if traders buy there or its prices inform routes, so check buys and the keeper review score before scrapping. Set onlyNoSales=false for every keeper.",
+    input: { onlyNoSales: z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional().default(true) },
+    async run(ctx, a) {
+      const [review, trades] = await Promise.all([ctx.w.fleet.keeperReviewData(), ctx.w.store.ledgerTradeByWaypoint(ctx.w.tenantId)]);
+      return keeperSales(review.stationed, trades, a.onlyNoSales);
     },
   },
 

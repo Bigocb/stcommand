@@ -791,6 +791,27 @@ export class Store {
     });
   }
 
+  /** Our trades per waypoint: sells and buys with units and value. Scoped to the tenant's current week by the ledger's row-level policy. */
+  async ledgerTradeByWaypoint(tenantId: string): Promise<{ waypoint: string; sells: number; sellUnits: number; sellValue: number; buys: number; buyUnits: number; buyValue: number }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `SELECT waypoint_symbol,
+                COUNT(*) FILTER (WHERE type = 'SELL')::int AS sells,
+                COALESCE(SUM(units) FILTER (WHERE type = 'SELL'), 0)::bigint AS sell_units,
+                COALESCE(SUM(total) FILTER (WHERE type = 'SELL'), 0)::bigint AS sell_value,
+                COUNT(*) FILTER (WHERE type = 'PURCHASE')::int AS buys,
+                COALESCE(SUM(units) FILTER (WHERE type = 'PURCHASE'), 0)::bigint AS buy_units,
+                COALESCE(SUM(ABS(total)) FILTER (WHERE type = 'PURCHASE'), 0)::bigint AS buy_value
+           FROM ledger WHERE type IN ('SELL', 'PURCHASE') AND waypoint_symbol IS NOT NULL
+          GROUP BY waypoint_symbol`,
+      );
+      return r.rows.map((x: any) => ({
+        waypoint: x.waypoint_symbol, sells: Number(x.sells), sellUnits: Number(x.sell_units), sellValue: Number(x.sell_value),
+        buys: Number(x.buys), buyUnits: Number(x.buy_units), buyValue: Number(x.buy_value),
+      }));
+    });
+  }
+
   /** Market snapshots for the given (waypoint, good) pairs in a window, oldest first. Shared galaxy data. */
   async analysisSnapshots(pairs: { waypoint: string; good: string }[], sinceIso: string, untilIso: string, limit = 50000): Promise<AnalysisSnapshotRow[]> {
     if (!pairs.length) return [];

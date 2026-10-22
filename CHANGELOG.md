@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-22 — Ops tool: keepers at markets where we have made no sales
+With the keeper limit full (300/300), the operator wanted the keepers standing at markets where none of our ships has sold anything, as the first candidates to scrap. THEOREM-14D (XB31-C45E) and THEOREM-7D (SU37-C48), both scored 0 by the keeper review, were sold the same day to start freeing slots.
+- **`stcommand_ops_keeper_sales`** (`keeper_sales`): every stationed keeper with our sells and buys at its market this week (count and credits), lowest first; by default only keepers whose market has had no sale of ours, with `noTrade` counting those with no purchase either. `onlyNoSales=false` lists all of them. Read-only; it says to check buys and the keeper-review score before scrapping, since a market can matter through its prices or purchases without a sale.
+- `Store.ledgerTradeByWaypoint()` (one grouped query, scoped to the current week by the ledger's row-level policy) and the pure `src/engine/keeperSales.ts`. Tests: `tests/keeperSales.test.ts` (3).
+
 ## 2026-10-22 — Buy market round limit (off by default)
 Looking at KP19 CLOTHING lot sizes: THEOREM-BE and C4 took 220-300 units a visit from C13B every one to three hours, and the buy price rose 4-8% a lot (first-lot price 2.6k at best, 3.0-3.5k typically), while the sell side at DX2F recovered on its own (first lot 4.1k to 5.1k over the day). The C13B routes earned 0.83-0.94 of their estimate; the FC8A routes, whose buy market was left alone, 0.97-1.03. The route round limit (`routeRoundsMax`) counts an exact good + buy + sell, so a ship that rotates its sell market never repeats a route and the buy market it is wearing down never rests.
 - **`buyMarketRoundsReason()` (`src/engine/routeRounds.ts`, pure):** counts trips that bought a good at a buy market in the last 60 minutes, whatever they sold into, and rests every route out of that market once the limit is reached, until the oldest counted trip leaves the hour.
