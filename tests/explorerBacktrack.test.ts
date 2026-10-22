@@ -195,7 +195,8 @@ describe("a stranded explorer waits instead of calling the API every second", ()
       () => (fleet as any).exploreSystem("S-1"),
       (err: any) => {
         assert.ok(err instanceof Pending, `expected Pending, got ${err?.constructor?.name}: ${err?.message}`);
-        assert.ok(err.resumeAt >= Date.now() + 5 * 60_000, "must wait minutes, not seconds");
+        // resumeAt was computed a moment before this runs, so the bound needs a little slack or the test fails whenever a millisecond passes.
+        assert.ok(err.resumeAt >= Date.now() + 5 * 60_000 - 2_000, "must wait minutes, not seconds");
         return true;
       },
     );
