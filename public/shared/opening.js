@@ -2,7 +2,7 @@
  * Opening Automation UI — shared view logic.
  *
  * Mounted by two surfaces from one module so they cannot drift apart:
- *   • Deck  → Ops → Automation tab   (renderOpeningPanel() in deck.js)
+ *   • Deck  → Settings › Automation  (renderOpeningPanel() in deck.js)
  *   • Tower → More → Opening tab     (renderMoreOpening() in m.js)
  * Each panel is a container the caller owns: the queued task list (with a
  * Cancel action per row) and the saved templates.

@@ -618,8 +618,8 @@ $("mk-tools-seg").addEventListener("click", (e) => {
 });
 /**
  * Opening automation (docs/TODO.md): the queued task list and saved templates.
- * Rendered into #opening-panel, which sits below the ship register in Ops'
- * Automation tab. The panel is a separate element rather than part of
+ * Rendered into #opening-panel, which sits below the automation feed in
+ * Settings › Automation. The panel is a separate element rather than part of
  * #automation-feed because renderAutomationFeed() replaces that element's
  * innerHTML on every price tick, which would wipe this out.
  *

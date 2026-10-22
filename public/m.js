@@ -1869,8 +1869,8 @@ function renderMoreDoctrine() {
 
 /**
  * Opening automation (docs/TODO.md): the queued task list and saved templates,
- * the same two panels Deck renders in Ops → Automation. Mounted here because
- * the mobile surface has no Ops pane; the module is shared, so the surfaces
+ * the same two panels Deck renders under Settings › Automation. Mounted here because
+ * the mobile surface has no Automation pane; the module is shared, so the surfaces
  * cannot drift apart.
  *
  * The engine only executes these tasks while the `openingAutomation` doctrine
