@@ -19,7 +19,7 @@ import { CooldownPending, IDLE_STEP, Pending, describeError, type AgentStep } fr
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
-import { keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard } from "./keeperBuy.js";
+import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
@@ -4642,7 +4642,8 @@ export class FleetManager {
       }
       // Worth touring: every market in it gets a keeper (autoKeeperGoodSystems), the way the operator did by hand.
       if (this.doctrine.isEnabledOr("autoKeeperGoodSystems", false)) {
-        const fresh = marketsNeedingKeepers(this.galaxy.getSystem(target)?.waypoints ?? [], await this.keeperPriorityMarkets());
+        const { add: fresh, thin } = await this.keeperCandidatesForSystem(target);
+        if (thin.length > 0) this.log(`${shipSymbol}: ${target}: skipped ${thin.length} thin market(s) for the keeper list (${thin.map((t) => `${t.market} ${t.goods}`).join(", ")})`);
         if (fresh.length > 0) {
           this.log(`${shipSymbol}: ${target} is worth a tour; adding ${fresh.length} market(s) to the keeper list`);
           try { await this.addKeeperPriorityMarkets(fresh); } catch (err) { this.log(`keeper list add for ${target} failed: ${describeError(err)}`); }
@@ -9513,6 +9514,19 @@ export class FleetManager {
       }
     }
     return clean;
+  }
+
+  /**
+   * The markets of a worth-touring system to put on the keeper list: its marketplaces that are not listed yet, minus those that
+   * trade fewer goods than keeperMinGoods. The goods come from the survey's remote market reads (this.markets), so no keeper
+   * and no tour is needed to know them; a market the survey has no read for is kept.
+   */
+  private async keeperCandidatesForSystem(systemSymbol: string): Promise<{ add: string[]; thin: { market: string; goods: number }[] }> {
+    const candidates = marketsNeedingKeepers(this.galaxy.getSystem(systemSymbol)?.waypoints ?? [], await this.keeperPriorityMarkets());
+    const goods = new Map(this.markets.filter((m) => m.systemSymbol === systemSymbol).map((m) => [m.symbol, distinctGoods(m)]));
+    const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : 0;
+    const { keep, thin } = splitThinMarkets(candidates, (m) => goods.get(m), minGoods);
+    return { add: keep, thin };
   }
 
   /** Add markets to the keeper priority list, keeping what is there. setKeeperPriorityMarkets() replaces the whole list. */

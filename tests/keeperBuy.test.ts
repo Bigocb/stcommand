@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard } from "../src/engine/keeperBuy.js";
+import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "../src/engine/keeperBuy.js";
 
 const base = { clauseOn: true, capCredits: 60_000, price: 28_959, spendable: true };
 
@@ -52,5 +52,27 @@ describe("marketsNeedingKeepers", () => {
   it("returns nothing when all are listed or none are markets", () => {
     assert.deepEqual(marketsNeedingKeepers(wps, ["X1-S-A1", "X1-S-B2"]), []);
     assert.deepEqual(marketsNeedingKeepers([wps[2]!, wps[3]!], []), []);
+  });
+});
+
+describe("distinctGoods", () => {
+  it("counts the union of imports, exports, exchange and priced goods once each", () => {
+    assert.equal(distinctGoods({ imports: ["A", "B"], exports: ["C"], exchange: ["A", "D"], tradeGoods: { C: {}, E: {} } }), 5);
+    assert.equal(distinctGoods({}), 0);
+  });
+});
+
+describe("splitThinMarkets", () => {
+  const goods: Record<string, number> = { "X1-S-A": 6, "X1-S-B": 2, "X1-S-C": 3 };
+  it("drops markets under the minimum and keeps the rest in order", () => {
+    const r = splitThinMarkets(["X1-S-A", "X1-S-B", "X1-S-C"], (m) => goods[m], 3);
+    assert.deepEqual(r.keep, ["X1-S-A", "X1-S-C"]);
+    assert.deepEqual(r.thin, [{ market: "X1-S-B", goods: 2 }]);
+  });
+  it("keeps a market whose count is unknown, rather than dropping it on a guess", () => {
+    assert.deepEqual(splitThinMarkets(["X1-S-Z"], () => undefined, 3).keep, ["X1-S-Z"]);
+  });
+  it("a minimum of 0 keeps everything (the clause off)", () => {
+    assert.deepEqual(splitThinMarkets(["X1-S-B"], (m) => goods[m], 0).keep, ["X1-S-B"]);
   });
 });

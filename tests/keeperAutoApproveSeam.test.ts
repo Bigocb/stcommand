@@ -89,3 +89,31 @@ describe("addKeeperPriorityMarkets", () => {
     assert.deepEqual(checked, ["X1-NEW-1", "X1-NEW-2"], "markets already on the list are not re-checked");
   });
 });
+
+describe("keeperCandidatesForSystem", () => {
+  const wps = ["X1-S-A", "X1-S-B", "X1-S-C"].map((symbol) => ({ symbol, traits: [{ symbol: "MARKETPLACE" }] }));
+  function setup(minGoodsOn: boolean) {
+    const { fleet } = makeFleet({ clauseOn: true, shipsAtYard: [] });
+    fleet.galaxy = { getSystem: () => ({ waypoints: wps }) };
+    fleet.keeperPriorityMarkets = async () => ["X1-S-C"];
+    fleet.markets = [
+      { symbol: "X1-S-A", systemSymbol: "X1-S", imports: ["F", "G"], exports: ["H", "I"], exchange: ["J"], tradeGoods: {} },
+      { symbol: "X1-S-B", systemSymbol: "X1-S", imports: ["F"], exports: [], exchange: ["J"], tradeGoods: {} },
+    ];
+    fleet.doctrine = {
+      isEnabledOr: (k: string) => (k === "keeperMinGoods" ? minGoodsOn : true),
+      value: (k: string, d?: number) => (k === "keeperMinGoods" ? 3 : d ?? 5),
+    };
+    return fleet;
+  }
+  it("lists unlisted markets that trade enough goods, and reports the thin ones", async () => {
+    const r = await setup(true).keeperCandidatesForSystem("X1-S");
+    assert.deepEqual(r.add, ["X1-S-A"]);
+    assert.deepEqual(r.thin, [{ market: "X1-S-B", goods: 2 }]);
+  });
+  it("with keeperMinGoods off, every unlisted market is added", async () => {
+    const r = await setup(false).keeperCandidatesForSystem("X1-S");
+    assert.deepEqual(r.add, ["X1-S-A", "X1-S-B"]);
+    assert.deepEqual(r.thin, []);
+  });
+});

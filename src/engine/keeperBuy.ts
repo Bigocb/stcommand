@@ -60,3 +60,27 @@ export function marketsNeedingKeepers(
     .filter((w) => (w.traits ?? []).some((t) => t.symbol === "MARKETPLACE") && !have.has(w.symbol))
     .map((w) => w.symbol);
 }
+
+/** Distinct goods a market trades, from the lists a remote market read returns even with no ship there (prices need a ship; these do not). */
+export function distinctGoods(m: { imports?: readonly string[]; exports?: readonly string[]; exchange?: readonly string[]; tradeGoods?: Record<string, unknown> }): number {
+  return new Set([...(m.imports ?? []), ...(m.exports ?? []), ...(m.exchange ?? []), ...Object.keys(m.tradeGoods ?? {})]).size;
+}
+
+/**
+ * Split candidate markets into those worth a keeper and those too thin to be (fewer than `minGoods` goods). A market whose
+ * goods count is unknown is kept, never dropped on a guess, and minGoods 0 keeps everything (the clause off).
+ */
+export function splitThinMarkets(
+  candidates: readonly string[],
+  goodsOf: (market: string) => number | undefined,
+  minGoods: number,
+): { keep: string[]; thin: { market: string; goods: number }[] } {
+  const keep: string[] = [];
+  const thin: { market: string; goods: number }[] = [];
+  for (const market of candidates) {
+    const goods = goodsOf(market);
+    if (goods !== undefined && goods < minGoods) thin.push({ market, goods });
+    else keep.push(market);
+  }
+  return { keep, thin };
+}
