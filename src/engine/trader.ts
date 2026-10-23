@@ -798,7 +798,13 @@ export class TraderAgent {
         await this.jumpToSystem(targetSystem, waypoint);
         return;
       }
-      const path = this.positioningPath(from, targetSystem);
+      let path = this.positioningPath(from, targetSystem);
+      if (!path || path.length < 2) {
+        // The answer above is cache-only: a system this process has not loaded reads as "no gate". Load and check the
+        // neighbourhood once (rate-limited per pair) before declaring the destination unreachable and retiring the route.
+        await this.warmPositioning(targetSystem, from);
+        path = this.positioningPath(from, targetSystem);
+      }
       if (!path || path.length < 2) {
         this.markRouteUnreachable(targetSystem);
         throw new Error(`no verified gate path (<= ${this.atlas?.maxPositioningHops ?? 3} hops) from ${from} to ${targetSystem}`);

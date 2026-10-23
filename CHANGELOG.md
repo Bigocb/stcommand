@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-23 — A jump that went through proves the gate is open; warm the path before giving up
+
+THEOREM-BE (80 CLOTHING, about 390k) jumped AR93 -> QK51 -> JM61 -> ZR49 and was then told "no verified gate path (<= 10 hops) from X1-ZR49 to X1-SU37" every 15-30 seconds from 18:30 to 21:19 (about 2h50m idle at about 600k/hr). Open gates do not close; the atlas's `edgeUsable()` wants the far system loaded in this process and its gate confirmed here, and `positioningPath()` is cache-only, so a gap in what the process had loaded read as "no gate" and retired the route.
+
+- **Proven edges (`galaxy.ts`):** every real jump already lands in `recordJumpCost()` and the persisted `galaxy_jump_costs` ledger. Those (from-system, to-system) pairs now count as usable edges, both directions (gate connections are paired), in `canJump()`, `edgeUsable()` and `usableNeighbors()`, rebuilt at boot by `loadJumpCosts()`. No new storage. A live "still under construction" rejection (`recordGateNotComplete()`) withdraws the proven edges of that gate's system. Assumption: connections are symmetric.
+- **Warm before giving up (`trader.ts` `navigateTo()`):** when the cache has no path, `warmPositioning()` (load and check the neighbourhood, once per pair per 10 minutes) runs before the route is retired and the error thrown.
+- Not changed: a loaded ship with no path still has no automatic walk-back; I walked BE back by hand. Tests: `tests/provenEdges.test.ts` (5), `tests/navigateWarmsPath.test.ts` (2); both mutation-checked.
+
 ## 2026-10-23 — Plan on what a market we traded in pays now (clause `marketRecoveryMin`, off by default)
 
 THEOREM-152 sold 360 LAB_INSTRUMENTS at X1-YB39-BD3D (5,836 -> 4,609) and was assigned the same route an hour later at 5,836, bought 180 units for it, was turned back at the market and trekked nine jumps to sell elsewhere (2h14m, about 80k net); THEOREM-173 did the same with ELECTRONICS (2,949 -> 2,210) and carried 40 leftover units eight jumps. Cause: a route's sell price is the last snapshot, a trader snapshots a market when it docks (before it sells), so the pre-sale price stays until another ship visits, and the 30-minute volume discount in `scoreRoute()` had expired long before the market refilled.

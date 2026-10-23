@@ -291,7 +291,35 @@ export class GalaxyAtlas {
    *  class. Call refreshGateConstruction() to populate the cache for a
    *  newly-discovered gate; this method itself never makes a network call. */
   canJump(fromSystem: string, toSystem: string): boolean {
-    return this.gatesTo(fromSystem, toSystem).some((g) => this.gateConstruction.get(g) === true);
+    return this.provenEdge(fromSystem, toSystem) || this.gatesTo(fromSystem, toSystem).some((g) => this.gateConstruction.get(g) === true);
+  }
+
+  /**
+   * Systems a ship has actually jumped between (either way), from every real jump any tenant has paid for. A jump that
+   * went through proves both ends are open, whatever this process has loaded: 2026-10-23, THEOREM-BE jumped AR93 ->
+   * QK51 -> JM61 -> ZR49 and was then told "no verified gate path" from ZR49, because the edge check wants each far
+   * system loaded in memory and its gate confirmed in this process. An open gate does not close; what was missing was
+   * the atlas's knowledge of it. Built from the jump-cost ledger (galaxy_jump_costs), which already persists every real
+   * jump, so no new storage. Gate connections are paired in the game, so the reverse direction counts too; a live
+   * "still under construction" rejection (recordGateNotComplete) withdraws a system's proven edges.
+   */
+  private readonly provenJumps = new Map<string, Set<string>>();
+  private static systemOfWaypoint(waypoint: string): string {
+    return waypoint.split("-").slice(0, 2).join("-");
+  }
+  private addProvenEdge(a: string, b: string): boolean {
+    if (!a || !b || a === b) return false;
+    let added = false;
+    for (const [x, y] of [[a, b], [b, a]] as const) {
+      const set = this.provenJumps.get(x) ?? new Set<string>();
+      if (!set.has(y)) { set.add(y); added = true; }
+      this.provenJumps.set(x, set);
+    }
+    return added;
+  }
+  /** True when a real jump between these two systems has gone through. */
+  provenEdge(a: string, b: string): boolean {
+    return this.provenJumps.get(a)?.has(b) === true;
   }
 
   /**
@@ -315,6 +343,7 @@ export class GalaxyAtlas {
    * warmJumpPath() has loaded and checked it. Never makes a network call.
    */
   edgeUsable(a: string, b: string): boolean {
+    if (this.provenEdge(a, b)) return true;
     if (!this.canJump(a, b)) return false;
     const far = this.systems.get(b);
     if (!far) return false;
@@ -325,7 +354,10 @@ export class GalaxyAtlas {
 
   /** Systems one usable jump from `system` right now (synchronous, cache-only). */
   usableNeighbors(system: string): string[] {
-    return this.connectedSystems(system).filter((n) => this.edgeUsable(system, n));
+    const out = this.connectedSystems(system).filter((n) => this.edgeUsable(system, n));
+    // A proven edge counts even when the hydrated graph does not list it.
+    for (const n of this.provenJumps.get(system) ?? []) if (!out.includes(n)) out.push(n);
+    return out;
   }
 
   /**
@@ -603,8 +635,16 @@ export class GalaxyAtlas {
    * live API kept rejecting the jump.
    */
   recordGateNotComplete(gateSymbol: string): void {
+    this.withdrawProvenEdges(GalaxyAtlas.systemOfWaypoint(gateSymbol));
     this.gateConstruction.set(gateSymbol, false); this.pathCache.clear();
     this.store?.recordGalaxyGateConstruction?.(gateSymbol, false)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
+  }
+
+  /** Forget every proven edge touching `system`, after a live rejection says one of its gates is not open after all. */
+  private withdrawProvenEdges(system: string): void {
+    for (const other of this.provenJumps.get(system) ?? []) this.provenJumps.get(other)?.delete(system);
+    this.provenJumps.delete(system);
+    this.pathCache.clear();
   }
 
   /** Seed the in-memory gate-construction cache from every check any tenant
@@ -673,6 +713,7 @@ export class GalaxyAtlas {
     const key = this.jumpCostKey(fromGate, toSystem);
     const existing = this.jumpCosts.get(key) ?? { total: 0, count: 0 };
     this.jumpCosts.set(key, { total: existing.total + totalPrice, count: existing.count + 1 });
+    if (this.addProvenEdge(GalaxyAtlas.systemOfWaypoint(fromGate), toSystem)) this.pathCache.clear();
     this.store?.recordGalaxyJumpCost?.(fromGate, toSystem, totalPrice)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
   }
 
@@ -686,7 +727,9 @@ export class GalaxyAtlas {
     if (!rows) return;
     for (const r of rows) {
       this.jumpCosts.set(this.jumpCostKey(r.fromGate, r.toSystem), { total: r.totalPrice, count: r.jumpCount });
+      if (r.jumpCount > 0) this.addProvenEdge(GalaxyAtlas.systemOfWaypoint(r.fromGate), r.toSystem);
     }
+    this.pathCache.clear();
   }
 
   /** Average of every real jump paid over this gate/destination-system
