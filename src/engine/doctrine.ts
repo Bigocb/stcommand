@@ -227,6 +227,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "risk", defaultAdopted: true,
   },
   {
+    key: "sellRecoveryMin",
+    name: "Sell market recovery",
+    description: "After our ships sell into a market its price falls (measured 2026-10-23 at X1-YB39-BD3D: -21% on 360 units of LAB_INSTRUMENTS, -25% on 580 of ELECTRONICS), and the route list keeps showing the price from before the sale until a ship next visits, because a trader reads a market as it docks, before it sells. With this on, a route into a market we have sold into recently is planned on a price that refills in a straight line from our last sale's price back to our first sale's price over this many minutes; the shortfall comes off the trip's profit, and a trip that no longer pays is dropped. The refill time is a guess until sell-side recovery has been measured, so tune it from the analysis report's market recovery findings. Off (the default) = routes are planned on the snapshot price as before. Takes effect within a minute.",
+    value: 90, min: 15, max: 240, step: 15, unit: " min",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "maxLossPct",
     name: "Loss floor",
     description: "Refuse to sell cargo below this much loss against its cost basis.",

@@ -124,7 +124,7 @@ export interface TraderOptions {
    *  it can weigh how much the fleet has already sold into this exact
    *  market recently before offering it (or a competing market) to another
    *  idle trader — see RouteDispatcher.recordSale()'s own comment. */
-  recordSale?: (good: string, sellAt: string, units: number) => void;
+  recordSale?: (good: string, sellAt: string, units: number, pricePerUnit?: number) => void;
   /** A trip closed: what it was planned to earn and what it made, so the dispatcher can rest a route that disappointed (routeHeat.ts). */
   recordTrip?: (trip: { good: string; buyAt: string; sellAt: string; promised: number; made: number }) => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
@@ -2283,7 +2283,7 @@ export class TraderAgent {
           realizedPnl: this.heldCost.has(item.symbol) ? sold.transaction.totalPrice - (this.heldCost.get(item.symbol) ?? 0) * lot : undefined,
         });
         this.onActivity?.("sell", `${lot}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c at ${leg.sellAt}`, sold.transaction.totalPrice, this.symbol);
-        this.recordSale?.(item.symbol, leg.sellAt, lot);
+        this.recordSale?.(item.symbol, leg.sellAt, lot, sold.transaction.pricePerUnit);
         remaining -= lot;
         soldAny += lot;
         totalReceived += sold.transaction.totalPrice;
@@ -2746,7 +2746,7 @@ export class TraderAgent {
     });
     this.log(`sold ${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`);
     this.onActivity?.("sell", `${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`, sold.transaction.totalPrice, this.symbol);
-    this.recordSale?.(assigned.good, sellAt, withdrawn.units);
+    this.recordSale?.(assigned.good, sellAt, withdrawn.units, sold.transaction.pricePerUnit);
     return true;
   }
 

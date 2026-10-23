@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-23 — Plan on what a market we sold into pays now (clause `sellRecoveryMin`, off by default)
+
+THEOREM-152 sold 360 LAB_INSTRUMENTS at X1-YB39-BD3D (5,836 -> 4,609) and was assigned the same route an hour later at 5,836, bought 180 units for it, was turned back at the market and trekked nine jumps to sell elsewhere (2h14m, about 80k net); THEOREM-173 did the same with ELECTRONICS (2,949 -> 2,210) and carried 40 leftover units eight jumps. Cause: a route's sell price is the last snapshot, a trader snapshots a market when it docks (before it sells), so the pre-sale price stays until another ship visits, and the 30-minute volume discount in `scoreRoute()` had expired long before the market refilled.
+
+- **`src/engine/marketCrash.ts` (pure):** `estimateSellPrice()` takes our recent lots into a (good, market) with the price each fetched, the route's listed price and the snapshot's time, and returns the price to plan on: refilling in a straight line from the last lot's price to the first lot's over `recoveryMin`. Only sales after the snapshot count (a later snapshot already shows the drop). `profitAfterShortfall()` turns the per-unit shortfall into trip profit.
+- **Dispatcher:** `recordSale()` now also receives each lot's price (both sell paths in `trader.ts`); `recompute()` adjusts every route's sell price, profit and per-hold profits, and drops a route that no longer pays ("lower the score, or leave it out"). Logs `sell-market recovery adjusts N`.
+- **Doctrine `sellRecoveryMin`** (90 min, 15-240, off). The refill time is a guess: the analysis report has no sell-side recovery measurements yet, so tune it from its `market_recovery` findings once they exist. Off reproduces today's route list (test).
+- Tests: `tests/marketCrash.test.ts` (7), `tests/marketCrashSeam.test.ts` (4, mutation-checked).
+- Not changed: `redirectHops` is still off (the nine-jump trek was possible because of it); a keeper-less market with no visit still shows an old snapshot.
+
 ## 2026-10-23 — Repairs count as overhead
 
 Operator decision: repairs are a running cost, like fuel, so the overhead % and net now include them; ship purchases

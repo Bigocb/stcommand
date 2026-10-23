@@ -117,6 +117,7 @@ export const DECLINE_MS = 15 * 60_000;
 export const MAX_LOTS_PER_TRIP = 3;
 
 import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
+import { estimateSellPrice, profitAfterShortfall, type SaleImpact } from "./marketCrash.js";
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
@@ -306,6 +307,8 @@ export interface ContractBuyTarget {
  * fired. Kept only as the window length for the decay below.
  */
 const VOLUME_WINDOW_MS = 30 * 60_000;
+/** How long a sale's price is kept for the sell-market recovery model; the longest recovery setting is 240 minutes. */
+const SALE_IMPACT_KEEP_MS = 4 * 3_600_000;
 
 export class RouteDispatcher {
   private assignments = new Map<string, TraderAssignment>();
@@ -380,11 +383,38 @@ export class RouteDispatcher {
   /** Called by a trader right after a real sell transaction completes, so
    *  the next recompute can weigh how much the fleet has already sold into
    *  this exact market recently — see scoreRoute(). */
-  recordSale(good: string, sellAt: string, units: number): void {
+  recordSale(good: string, sellAt: string, units: number, pricePerUnit?: number): void {
     const key = `${good}@${sellAt}`;
     const list = this.recentSales.get(key) ?? [];
     list.push({ units, at: Date.now() });
     this.recentSales.set(key, list);
+    // Prices kept apart from the volume list: that one is pruned at 30 minutes, a market takes longer to refill (marketCrash.ts).
+    if (pricePerUnit !== undefined && pricePerUnit > 0) {
+      const now = Date.now();
+      const impacts = (this.saleImpacts.get(key) ?? []).filter((s) => s.at >= now - SALE_IMPACT_KEEP_MS).slice(-200);
+      impacts.push({ units, at: now, price: pricePerUnit });
+      this.saleImpacts.set(key, impacts);
+    }
+  }
+
+  /** (good, sellAt) -> our recent lots with the price each fetched, kept long enough to model a market refilling. */
+  private readonly saleImpacts = new Map<string, SaleImpact[]>();
+  private sellRecoveryMin = 0;
+
+  /** The route with its sell price, profit and per-hold profits cut by the part of our own recent dump that has not
+   *  refilled (marketCrash.ts), or undefined when the trip no longer pays. With `sellRecoveryMin` 0 it is the route as given. */
+  private afterOwnSales(route: DispatchRoute, now: number): { route: DispatchRoute; reason?: string } | undefined {
+    if (!(this.sellRecoveryMin > 0)) return { route };
+    const sales = this.saleImpacts.get(`${route.good}@${route.sellAt}`);
+    if (!sales?.length) return { route };
+    const est = estimateSellPrice(sales, route.sellPrice, now - route.ageMinutes * 60_000, now, { recoveryMin: this.sellRecoveryMin });
+    if (est.shortfall <= 0) return { route };
+    const profitPerTrip = profitAfterShortfall(route.profitPerTrip, est.shortfall, route.volume);
+    if (profitPerTrip <= 0) return undefined;
+    const profitByHold = route.profitByHold
+      ? Object.fromEntries(Object.entries(route.profitByHold).map(([hold, p]) => [hold, profitAfterShortfall(p, est.shortfall, Number(hold))]))
+      : undefined;
+    return { route: { ...route, sellPrice: est.price, profitPerTrip, ...(profitByHold ? { profitByHold } : {}) }, reason: est.reason };
   }
 
   /** Closed trips, newest last, for the route cool-off (routeHeat.ts). Only the last few hours matter. */
@@ -839,7 +869,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; sellRecoveryMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -869,6 +899,7 @@ export class RouteDispatcher {
     this.coolOffMin = Math.max(0, tuning?.coolOffMin ?? 0);
     this.roundsMax = Math.max(0, tuning?.roundsMax ?? 0);
     this.buyRoundsMax = Math.max(0, tuning?.buyRoundsMax ?? 0);
+    this.sellRecoveryMin = Math.max(0, tuning?.sellRecoveryMin ?? 0);
     // Any of the three rests a route, so any one being on needs this pass to run; with all at 0 it is skipped exactly as
     // before, and coolOffReason() returns undefined at 0 minutes.
     if (this.coolOffMin > 0 || this.roundsMax > 0 || this.buyRoundsMax > 0) {
@@ -878,6 +909,23 @@ export class RouteDispatcher {
         console.log(`[dispatcher] route cool-off skips ${rested.length}: ${[...new Set(rested)].slice(0, 5).join("; ")}`);
         routes = open;
       }
+    }
+    // Plan on what a market we have been selling into probably pays now, not on the snapshot taken before we sold.
+    // Off (sellRecoveryMin 0) the list is left exactly as it is.
+    if (this.sellRecoveryMin > 0) {
+      const adjusted: DispatchRoute[] = [];
+      const notes: string[] = [];
+      for (const r of routes) {
+        const out = this.afterOwnSales(r, now);
+        if (!out) {
+          notes.push(`${r.good} ${r.buyAt}>${r.sellAt} dropped: no longer pays after our own sales`);
+          continue;
+        }
+        if (out.reason) notes.push(`${r.good} ${r.buyAt}>${r.sellAt}: ${out.reason}`);
+        adjusted.push(out.route);
+      }
+      if (notes.length) console.log(`[dispatcher] sell-market recovery adjusts ${notes.length}: ${[...new Set(notes)].slice(0, 5).join("; ")}`);
+      routes = adjusted;
     }
     routes = [...routes].sort((a, b) => this.scoreRoute(b) - this.scoreRoute(a));
     this.routes = routes;
