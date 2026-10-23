@@ -180,6 +180,16 @@ describe("settings changes", () => {
     const m = windowMetrics([], oneTrip("S-1", 10), T0, T0 + 60 * 60_000);
     assert.equal(m.overheadShare, 0.8833); // 5300 / 6000, to four places
   });
+
+  it("counts repair rows in overhead but not ship purchases", () => {
+    const rows = oneTrip("S-1", 10);
+    const base = windowMetrics([], rows, T0, T0 + 60 * 60_000).overheadShare!;
+    const extra = (type: string, good: string, total: number) => ({ ...rows[0]!, type, good, total, realizedPnl: null });
+    const withRepair = windowMetrics([], [...rows, extra("SHIP", "REPAIR", 600)], T0, T0 + 60 * 60_000).overheadShare!;
+    const withShip = windowMetrics([], [...rows, extra("SHIP", "SHIP_PROBE", 600)], T0, T0 + 60 * 60_000).overheadShare!;
+    assert.equal(withRepair, 0.9833); // 5900 / 6000
+    assert.equal(withShip, base);
+  });
 });
 
 describe("calibration", () => {

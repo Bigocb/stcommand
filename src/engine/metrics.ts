@@ -81,8 +81,10 @@ export interface MetricsTotals {
   profitPerSale: number;
   /** Profit as a share of the cost basis of those sales. */
   marginPct: number;
-  /** Fuel and jumps as a share of gross profit, 0 when there is none. */
+  /** Fuel, jumps and repairs as a share of gross profit, 0 when there is none. */
   overheadPct: number;
+  /** Repairs: a running cost like fuel, counted in net and overhead (ship purchases and scrap are not). */
+  repairs: number;
   netPerHour: number;
 }
 
@@ -162,7 +164,7 @@ const rnd = (n: number): number => Math.round(n);
 
 function totalsOf(rows: readonly LedgerRow[], hours: number): MetricsTotals {
   let profit = 0, fuel = 0, jumps = 0, revenue = 0, spend = 0, unmatchedRevenue = 0, sells = 0, units = 0;
-  let shipsBought = 0, shipsBoughtCount = 0, scrapProceeds = 0, matchedSells = 0, matchedRevenue = 0;
+  let shipsBought = 0, shipsBoughtCount = 0, scrapProceeds = 0, matchedSells = 0, matchedRevenue = 0, repairs = 0;
   for (const r of rows) {
     switch (r.type) {
       case "SELL":
@@ -175,21 +177,26 @@ function totalsOf(rows: readonly LedgerRow[], hours: number): MetricsTotals {
       case "JUMP": jumps += r.total; break;
       case "SHIP":
         if (r.good === "SCRAP") scrapProceeds += r.total;
+        else if (isRepair(r)) repairs += Math.abs(r.total);
         else { shipsBought += r.total; shipsBoughtCount += 1; }
         break;
     }
   }
-  const net = profit - fuel - jumps;
+  const net = profit - fuel - jumps - repairs;
   const cost = matchedRevenue - profit;
   return {
     net: rnd(net), profit: rnd(profit), fuel: rnd(fuel), jumps: rnd(jumps), revenue: rnd(revenue), spend: rnd(spend),
     unmatchedRevenue: rnd(unmatchedRevenue), sells, units, shipsBought: rnd(shipsBought), shipsBoughtCount, scrapProceeds: rnd(scrapProceeds),
     profitPerSale: matchedSells ? rnd(profit / matchedSells) : 0,
     marginPct: cost > 0 ? Math.round((profit / cost) * 1000) / 10 : 0,
-    overheadPct: profit > 0 ? Math.round(((fuel + jumps) / profit) * 1000) / 10 : 0,
+    overheadPct: profit > 0 ? Math.round(((fuel + jumps + repairs) / profit) * 1000) / 10 : 0,
+    repairs: rnd(repairs),
     netPerHour: hours > 0 ? rnd(net / hours) : 0,
   };
 }
+
+/** A repair row: tagged REPAIR, or an older negative SHIP row (repairs used to be booked as a negative ship total). */
+export const isRepair = (r: Pick<LedgerRow, "type" | "good" | "total">): boolean => r.type === "SHIP" && (r.good === "REPAIR" || r.total < 0);
 
 const isAdvance = (r: LedgerRow): boolean => r.type === "CONTRACT" && r.good === "ADVANCE";
 
@@ -253,6 +260,7 @@ export function buildMetrics(rows: readonly LedgerRow[], opts: MetricsOptions): 
     if (r.type === "SELL") { b.revenue += r.total; b.sells += 1; b.net += r.pnl ?? 0; }
     else if (r.type === "PURCHASE") { b.spend += r.total; b.unitsBought += r.units; }
     else if (r.type === "REFUEL" || r.type === "JUMP") b.net -= r.total;
+    else if (isRepair(r)) b.net -= Math.abs(r.total);
     if (r.wallet !== null) lastWalletInBucket[Math.min(count - 1, Math.floor((r.ts - from) / size))] = r.wallet;
   }
   let cum = 0;

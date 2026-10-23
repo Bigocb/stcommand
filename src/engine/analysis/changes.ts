@@ -28,7 +28,7 @@ export function windowMetrics(trips: readonly Trip[], ledger: readonly AnalysisL
   for (const r of ledger) {
     const at = Date.parse(r.timestamp);
     if (at <= fromMs || at > toMs) continue;
-    if (r.type === "REFUEL" || r.type === "JUMP") overhead += Math.abs(r.total);
+    if (r.type === "REFUEL" || r.type === "JUMP" || (r.type === "SHIP" && (r.good === "REPAIR" || r.total < 0))) overhead += Math.abs(r.total);
     else if (r.type === "SELL") sales += r.total;
   }
   const hours = Math.max(1e-6, (toMs - fromMs) / 3_600_000);

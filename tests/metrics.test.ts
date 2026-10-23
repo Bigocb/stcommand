@@ -59,6 +59,22 @@ describe("buildMetrics", () => {
     assert.equal(m.totals.netPerHour, 175);
   });
 
+  it("counts repairs, booked or legacy negative, as overhead and net, but not ship purchases or scrap", () => {
+    const m = buildMetrics([
+      row({}),
+      row({ type: "REFUEL", total: 50, pnl: null, good: null }),
+      row({ type: "SHIP", total: 30, pnl: null, good: "REPAIR" }),
+      row({ type: "SHIP", total: -20, pnl: null, good: null }),
+      row({ type: "SHIP", total: 5000, pnl: null, good: "SHIP_LIGHT_HAULER" }),
+      row({ type: "SHIP", total: 700, pnl: null, good: "SCRAP" }),
+    ], opts);
+    assert.equal(m.totals.repairs, 50);
+    assert.equal(m.totals.net, 100); // 200 - 50 fuel - 50 repairs
+    assert.equal(m.totals.overheadPct, 50);
+    assert.equal(m.totals.shipsBought, 5000);
+    assert.equal(m.totals.shipsBoughtCount, 1);
+  });
+
   it("leaves a sale with no cost basis out of profit and reports it separately", () => {
     const m = buildMetrics([row({}), row({ pnl: null, total: 400 })], opts);
     assert.equal(m.totals.profit, 200);

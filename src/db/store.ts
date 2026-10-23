@@ -778,7 +778,8 @@ export class Store {
     return withTenant(this.pool, tenantId, async (c) => {
       const r = await c.query(
         `SELECT timestamp, ship_symbol, type, trade_symbol, waypoint_symbol, units, price_per_unit, total, realized_pnl, route
-           FROM ledger WHERE timestamp >= $1 AND type IN ('PURCHASE', 'SELL', 'REFUEL', 'JUMP') AND ship_symbol IS NOT NULL
+           FROM ledger WHERE timestamp >= $1 AND ship_symbol IS NOT NULL
+            AND (type IN ('PURCHASE', 'SELL', 'REFUEL', 'JUMP') OR (type = 'SHIP' AND (trade_symbol = 'REPAIR' OR total < 0)))
           ORDER BY timestamp ASC LIMIT $2`,
         [sinceIso, limit],
       );

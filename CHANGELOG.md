@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-23 — Repairs count as overhead
+
+Operator decision: repairs are a running cost, like fuel, so the overhead % and net now include them; ship purchases
+stay capital and scrap stays proceeds. `repairShip` now books a `SHIP` row tagged `REPAIR` with a positive total
+(it used to be an untagged negative total). `isRepair()` in `src/engine/metrics.ts` also treats legacy negative
+`SHIP` rows as repairs, so earlier rows in the week are counted. `MetricsTotals.repairs` is new; the analysis
+engine's `windowMetrics` overhead share and the `analysisLedgerRows` query include repair rows too. Tests in
+`tests/metrics.test.ts` and `tests/analysis.test.ts`.
+
 ## 2026-10-23 — Ops tool: what charting pays
 The API says charting a waypoint pays "a one-time reward of credits based on the rarity of the waypoint's traits" but gives no amount, and our own chart calls (scouts, and new keeper probes at their spawn waypoint) never recorded it. The leaderboard's second list is charts submitted per agent (JANEWAY 24,636), so other agents chart at scale. The operator asked how much it is worth and whether it is worth doing.
 - **`stcommand_ops_chart_rewards`** (`chart_rewards`): measures the reward from the books, with no change to the engine. Every ledger row records the balance after it (`wallet_after`), so between two consecutive rows the balance must move by exactly the second row's effect; a chart in that gap explains any leftover. Chart events come from the activity log (kind "chart", already written by the scout and keeper-spawn paths).

@@ -5492,7 +5492,10 @@ export class FleetManager {
       shipSymbol,
       waypointSymbol,
       type: "SHIP",
-      total: -res.transaction.totalPrice,
+      // A repair is a running cost, like fuel: booked positive under its own tag so overhead can count it and a ship
+      // purchase can't be confused with it (it used to be a negative SHIP row, which read as a refund).
+      tradeSymbol: "REPAIR",
+      total: res.transaction.totalPrice,
     });
     this.log(`${shipSymbol} repaired at ${waypointSymbol} for ${res.transaction.totalPrice}c`);
     this.onActivity?.("repair", `${shipSymbol} repaired at ${waypointSymbol} for ${res.transaction.totalPrice}c`, -res.transaction.totalPrice, shipSymbol);
