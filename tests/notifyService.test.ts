@@ -132,6 +132,14 @@ describe("WebPushTransport", () => {
     assert.deepEqual(await new WebPushTransport(vapid).send(target, msg), { ok: false, gone: false, status: 503, error: "Service Unavailable" });
   });
 
+  it("a server without the library still builds the transport, and a send reports the problem instead of throwing", async () => {
+    const t = new WebPushTransport(vapid, async () => { throw new Error("Cannot find package 'web-push'"); });
+    const r = await t.send(target, { title: "T", body: "B", severity: "info" });
+    assert.equal(r.ok, false);
+    assert.match((r as { error: string }).error, /not installed on this server \(run npm ci\)/);
+    assert.equal((r as { gone: boolean }).gone, false, "a missing library must not delete anyone's subscription");
+  });
+
   it("is configured only when both VAPID keys are set", () => {
     assert.equal(vapidFromEnv({}), undefined);
     assert.equal(vapidFromEnv({ VAPID_PUBLIC_KEY: "p" }), undefined);

@@ -1,4 +1,3 @@
-import webpush from "web-push";
 import type { Severity } from "./types.js";
 
 /**
@@ -43,13 +42,25 @@ export function vapidFromEnv(env: Record<string, string | undefined> = process.e
   return { publicKey, privateKey, subject: env.VAPID_SUBJECT?.trim() || "mailto:operator@example.invalid" };
 }
 
+/**
+ * The web-push library is loaded the first time something is sent, not when the server starts. Push is off until VAPID
+ * keys are set, and a server that has not run `npm ci` since the library was added must still boot.
+ */
+type WebPushLib = typeof import("web-push");
+async function loadWebPush(): Promise<WebPushLib> {
+  return (await import("web-push")).default;
+}
+
 /** Browser push through the web-push protocol. The payload is a small JSON the service worker turns into a notification. */
 export class WebPushTransport implements PushTransport {
-  constructor(private readonly vapid: VapidConfig) {}
+  constructor(private readonly vapid: VapidConfig, private readonly load: () => Promise<WebPushLib> = loadWebPush) {}
 
   async send(target: PushTarget, message: PushMessage): Promise<SendResult> {
     const payload = JSON.stringify({ title: message.title, body: message.body, url: message.url ?? "/m", severity: message.severity, tag: message.tag });
     try {
+      const webpush = await this.load().catch(() => {
+        throw new Error("the web-push library is not installed on this server (run npm ci)");
+      });
       await webpush.sendNotification(
         { endpoint: target.endpoint, keys: { p256dh: target.p256dh, auth: target.auth } },
         payload,
