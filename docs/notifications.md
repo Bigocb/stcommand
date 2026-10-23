@@ -50,6 +50,28 @@ All of it is in `src/engine/notify/`. Everything except the transport is pure (n
 The HTTP side is `src/http/push.ts` (`/api/push/*`), the service worker `public/sw-tower.js`, and the settings screen
 `public/shared/pushNotify.js` (shared, so Deck can mount it the same way).
 
+### Approvals, including selling below the loss floor
+
+Every open approval is an alert in the "Approvals waiting" category, whatever its kind (`describeApproval()` in
+`detectors.ts` gives each kind its own words). A held lot waiting for permission to sell below its loss floor reads
+"Sell below the loss floor? THEOREM-5 is holding lab instruments · 30 min to decide": the engine denies it by default
+after 30 minutes, so the time left is in the message. The loss amount is not (no figures). They also count in Tower's
+"N need you".
+
+### The icon badge
+
+The number on the app icon is how many things need a person right now: approvals waiting, ships stranded, and ships the
+attention feed rates critical (`badge.ts`). It is set two ways:
+
+- **Tower open:** it follows the same "N need you" the header shows (that count also includes traders with no route, which
+  only the open app can work out).
+- **Tower closed:** every push carries the current count and the service worker sets it (`navigator.setAppBadge`).
+
+The limit: while Tower is closed the badge can only change when a notification arrives. A push that changed nothing but
+the number would have to be silent, and iOS does not allow silent pushes (it withdraws permission from apps that send
+them), so there are none. Open Tower and the badge corrects itself. Needs the installed app and notification permission
+on iPhone; a browser tab has no badge.
+
 ### Behaviour worth knowing
 
 - **A new device starts quiet.** The first pass records what is already true for it without sending, so turning alerts on

@@ -10,7 +10,12 @@ self.addEventListener("push", (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = { title: "Tower", body: event.data ? event.data.text() : "" }; }
   const title = data.title || "Tower";
-  event.waitUntil(self.registration.showNotification(title, {
+  // The icon badge: how many things need a person. Not every platform has one; where there is none this does nothing.
+  const nav = self.navigator;
+  const badge = typeof data.badge === "number" && nav
+    ? (data.badge > 0 ? (nav.setAppBadge ? nav.setAppBadge(data.badge) : null) : (nav.clearAppBadge ? nav.clearAppBadge() : null))
+    : null;
+  event.waitUntil(Promise.resolve(badge).catch(() => {}).then(() => self.registration.showNotification(title, {
     body: data.body || "",
     // The same tag replaces the earlier notification for that condition instead of stacking another.
     tag: data.tag || undefined,
@@ -18,7 +23,7 @@ self.addEventListener("push", (event) => {
     badge: "/icons/tower-favicon-32.png",
     data: { url: data.url || "/m" },
     requireInteraction: data.severity === "critical",
-  }));
+  })));
 });
 
 self.addEventListener("notificationclick", (event) => {

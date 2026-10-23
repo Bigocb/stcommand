@@ -19,7 +19,7 @@ export function liveSnapshotProvider(deps: { tenantId: string; store: Store; fle
   let rateAt = 0;
   return async () => {
     const t = now();
-    const approvals = (await deps.store.listOpenApprovals(deps.tenantId)).map((a) => ({ id: a.id, kind: a.kind, shipSymbol: a.shipSymbol }));
+    const approvals = (await deps.store.listOpenApprovals(deps.tenantId)).map((a) => ({ id: a.id, kind: a.kind, shipSymbol: a.shipSymbol, expiresAt: a.expiresAt }));
     if (t - rateAt >= RATE_REFRESH_MS) {
       rateAt = t;
       try {

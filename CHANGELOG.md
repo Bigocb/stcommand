@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Approval wording and an icon badge for notifications
+
+- **Approvals read properly.** The engine asks under kinds like `sellBelowFloor:THEOREM-5:LAB_INSTRUMENTS`, `buyShip`, `buyKeeperProbe`; the alert used to print the raw kind. `describeApproval()` gives each a title (a sell below the loss floor reads "Sell below the loss floor? THEOREM-5 is holding lab instruments · 30 min to decide", the time being how long until the engine denies it by default), unknown kinds are made readable, and no figures are included. They were already alerts and already in "N need you"; this fixes the words.
+- **Icon badge.** `badge.ts` `needsYouCount()` (approvals + stranded + critical attention) rides on every push; the service worker sets `navigator.setAppBadge()` (cleared at 0, a platform without it just shows the notification). While Tower is open it sets the badge to the header's own "N need you" figure (`syncAppBadge()` in `m.js`). While it is closed the badge can only change when a push arrives: iOS has no silent pushes.
+- Tests: 5 new cases (wording x3, count, worker badge x2, service carries it, payload carries it).
+
 ## 2026-10-24 — Push notifications in Tower (needs VAPID keys; off until they are set)
 
 Phone alerts through web push, built as small replaceable pieces so a new alert or a new channel is a short addition. Full design, setup and "how to add one" in `docs/notifications.md`.

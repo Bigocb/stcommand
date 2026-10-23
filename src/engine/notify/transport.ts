@@ -19,6 +19,8 @@ export interface PushMessage {
   severity: Severity;
   /** A later message with the same tag replaces the earlier one on the device instead of stacking. */
   tag?: string;
+  /** The count for the app icon, when the device supports one. 0 clears it. */
+  badge?: number;
 }
 
 export type SendResult = { ok: true } | { ok: false; /** The push service says this subscription no longer exists (404/410). */ gone: boolean; status?: number; error: string };
@@ -56,7 +58,7 @@ export class WebPushTransport implements PushTransport {
   constructor(private readonly vapid: VapidConfig, private readonly load: () => Promise<WebPushLib> = loadWebPush) {}
 
   async send(target: PushTarget, message: PushMessage): Promise<SendResult> {
-    const payload = JSON.stringify({ title: message.title, body: message.body, url: message.url ?? "/m", severity: message.severity, tag: message.tag });
+    const payload = JSON.stringify({ title: message.title, body: message.body, url: message.url ?? "/m", severity: message.severity, tag: message.tag, badge: message.badge });
     try {
       const webpush = await this.load().catch(() => {
         throw new Error("the web-push library is not installed on this server (run npm ci)");

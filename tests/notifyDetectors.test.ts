@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { CATEGORIES } from "../src/engine/notify/categories.js";
+import { needsYouCount } from "../src/engine/notify/badge.js";
 import { DETECTORS, detectAll } from "../src/engine/notify/detectors.js";
 import type { Detector, NotifySnapshot } from "../src/engine/notify/types.js";
 
@@ -14,10 +15,24 @@ describe("notify detectors", () => {
   });
 
   it("approvals: one event per approval, keyed by id, with no money in the text", () => {
-    const e = detectAll(snap({ approvals: [{ id: "ap1", kind: "buy_ship", shipSymbol: "THEOREM-1|X|hull" }, { id: "ap2", kind: "keeper_probe", shipSymbol: null }] }));
+    const e = detectAll(snap({ approvals: [{ id: "ap1", kind: "buyShip", shipSymbol: "THEOREM-1|X|hull" }, { id: "ap2", kind: "buyKeeperProbe", shipSymbol: null }] }));
     assert.deepEqual(e.map((x) => x.key), ["approval:ap1", "approval:ap2"]);
-    assert.equal(e[0]!.body, "buy ship · THEOREM-1");
-    assert.equal(e[1]!.body, "keeper probe");
+    assert.deepEqual([e[0]!.title, e[0]!.body], ["Ship purchase needs approval", "THEOREM-1"]);
+    assert.deepEqual([e[1]!.title, e[1]!.body], ["Keeper probe purchase needs approval", "Open Tower to decide."]);
+  });
+
+  it("approvals: a sell below the loss floor names the ship and the good and says how long is left, with no figures", () => {
+    const now = Date.parse("2026-10-24T00:00:00Z");
+    const [e] = detectAll(snap({ now, approvals: [{ id: "ap9", kind: "sellBelowFloor:THEOREM-5:LAB_INSTRUMENTS", shipSymbol: "THEOREM-5", expiresAt: "2026-10-24T00:30:00Z" }] }));
+    assert.deepEqual([e!.title, e!.body, e!.category, e!.severity, e!.url], ["Sell below the loss floor?", "THEOREM-5 is holding lab instruments · 30 min to decide", "approvals", "warning", "/m#approvals"]);
+    // no ship column: the ship comes from the kind's key; and an expired or unknown deadline says nothing about time
+    const [f] = detectAll(snap({ now, approvals: [{ id: "ap10", kind: "sellBelowFloor:THEOREM-7:FOOD", shipSymbol: null, expiresAt: "2026-10-23T23:00:00Z" }] }));
+    assert.equal(f!.body, "THEOREM-7 is holding food");
+  });
+
+  it("approvals: a kind with no wording of its own is still readable", () => {
+    const [e] = detectAll(snap({ approvals: [{ id: "x", kind: "someNewThing_here", shipSymbol: "S-1|a|b" }] }));
+    assert.deepEqual([e!.title, e!.body], ["Some new thing here: approval needed", "S-1"]);
   });
 
   it("stranded and attention: critical only for attention", () => {
@@ -55,5 +70,17 @@ describe("notify detectors", () => {
     const e = detectAll(snap(), [bad, good]);
     assert.equal(e.length, 1);
     assert.equal(e[0]!.category, "stranded");
+  });
+
+  it("the icon badge counts approvals, stranded ships and critical attention flags", () => {
+    assert.equal(needsYouCount(snap()), 0);
+    assert.equal(needsYouCount(snap({
+      approvals: [{ id: "a", kind: "buyShip", shipSymbol: null }, { id: "b", kind: "buyShip", shipSymbol: null }],
+      stranded: [{ symbol: "S-1" }],
+      attention: [
+        { ship: "A", severity: "critical", reasons: [] },
+        { ship: "B", severity: "warning", reasons: [] },
+      ],
+    })), 4);
   });
 });

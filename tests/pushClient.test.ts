@@ -44,7 +44,9 @@ describe("service worker", () => {
     const opened: string[] = [];
     const messages: unknown[] = [];
     let windows: any[] = [];
+    const badges: (number | "clear")[] = [];
     const self = {
+      navigator: { setAppBadge: async (n: number) => { badges.push(n); }, clearAppBadge: async () => { badges.push("clear"); } } as Record<string, unknown>,
       location: { origin: "https://tower.example" },
       skipWaiting: () => {},
       addEventListener: (t: string, f: (e: any) => void) => { handlers[t] = f; },
@@ -57,7 +59,7 @@ describe("service worker", () => {
     };
     vm.runInNewContext(readFileSync(new URL("../public/sw-tower.js", import.meta.url), "utf8"), { self, URL, Promise });
     const run = async (name: string, e: any) => { let p: Promise<unknown> | undefined; handlers[name]!({ ...e, waitUntil: (x: Promise<unknown>) => { p = x; } }); await p; };
-    return { run, shown, opened, messages, setWindows: (w: any[]) => { windows = w; } };
+    return { run, shown, opened, messages, badges, self, setWindows: (w: any[]) => { windows = w; } };
   }
 
   it("shows the pushed message with its tag, link and a persistent banner only for critical", async () => {
@@ -68,6 +70,22 @@ describe("service worker", () => {
     await sw.run("push", { data: { json: () => ({ title: "Approval needed", body: "x", severity: "warning" }) } });
     assert.equal(sw.shown[1]!.opts.requireInteraction, false);
     assert.equal(sw.shown[1]!.opts.data.url, "/m", "no link: opens Tower");
+  });
+
+  it("sets the icon badge from the payload, clears it at zero, and leaves it alone when none is sent", async () => {
+    const sw = load();
+    await sw.run("push", { data: { json: () => ({ title: "a", body: "b", badge: 3 }) } });
+    await sw.run("push", { data: { json: () => ({ title: "c", body: "d", badge: 0 }) } });
+    await sw.run("push", { data: { json: () => ({ title: "e", body: "f" }) } });
+    assert.deepEqual(sw.badges, [3, "clear"]);
+    assert.equal(sw.shown.length, 3, "a badge problem never costs the notification");
+  });
+
+  it("still shows the notification on a platform with no badge support", async () => {
+    const sw = load();
+    delete sw.self.navigator.setAppBadge; delete sw.self.navigator.clearAppBadge;
+    await sw.run("push", { data: { json: () => ({ title: "a", body: "b", badge: 2 }) } });
+    assert.equal(sw.shown.length, 1);
   });
 
   it("copes with a payload that is not JSON", async () => {

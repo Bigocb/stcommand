@@ -71,6 +71,14 @@ describe("NotificationService", () => {
     assert.deepEqual(transport.sent.map((x) => x.to), ["https://push.example/c"]);
   });
 
+  it("puts the current count of things needing a person on every message, for the app icon", async () => {
+    const s = snap({ approvals: [{ id: "a", kind: "buyShip", shipSymbol: null }], stranded: [{ symbol: "S-1" }, { symbol: "S-2" }] });
+    const { svc, transport } = make([sub("g", { delivery: { sent: {}, recent: [], seeded: true } })], () => s);
+    await svc.pass();
+    assert.equal(transport.sent.length, 3);
+    assert.deepEqual([...new Set(transport.sent.map((x) => x.m.badge))], [3]);
+  });
+
   it("a failed send is not recorded, so the next pass tries again", async () => {
     const s = snap({ stranded: [{ symbol: "THEOREM-9" }] });
     const { svc, transport, store } = make([sub("d", { delivery: { sent: {}, recent: [], seeded: true } })], () => s);
@@ -119,7 +127,9 @@ describe("WebPushTransport", () => {
     t.mock.method(webpush, "sendNotification", async (...args: unknown[]) => { calls.push(args); return {} as never; });
     const r = await new WebPushTransport(vapid).send(target, { title: "T", body: "B", severity: "critical", url: "/m#fleet", tag: "k" });
     assert.deepEqual(r, { ok: true });
-    assert.deepEqual(JSON.parse(calls[0][1]), { title: "T", body: "B", url: "/m#fleet", severity: "critical", tag: "k" });
+    assert.deepEqual(JSON.parse(calls[0][1]), { title: "T", body: "B", url: "/m#fleet", severity: "critical", tag: "k" }, "no badge given, none sent");
+    await new WebPushTransport(vapid).send(target, { title: "T", body: "B", severity: "info", badge: 4 });
+    assert.equal(JSON.parse(calls[1][1]).badge, 4);
     assert.equal(calls[0][2].urgency, "high");
   });
 

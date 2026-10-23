@@ -1,4 +1,5 @@
 import { detectAll, DETECTORS } from "./detectors.js";
+import { needsYouCount } from "./badge.js";
 import { decide } from "./policy.js";
 import type { PushStore, PushSubscriptionRow } from "./store.js";
 import type { PushMessage, PushTransport } from "./transport.js";
@@ -28,7 +29,7 @@ export interface PassResult {
   removed: number;
 }
 
-const messageOf = (e: NotifyEvent): PushMessage => ({ title: e.title, body: e.body, url: e.url, severity: e.severity, tag: e.key });
+const messageOf = (e: NotifyEvent, badge: number): PushMessage => ({ title: e.title, body: e.body, url: e.url, severity: e.severity, tag: e.key, badge });
 
 export class NotificationService {
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -47,10 +48,13 @@ export class NotificationService {
     const log = this.deps.log ?? (() => {});
     let subs: PushSubscriptionRow[];
     let events: NotifyEvent[];
+    let badge = 0;
     try {
       subs = await store.listPushSubscriptions(tenantId);
       if (subs.length === 0) return result; // nobody to tell: do not even read the fleet
-      events = detectAll(await this.deps.snapshot(), this.deps.detectors ?? DETECTORS);
+      const snap = await this.deps.snapshot();
+      badge = needsYouCount(snap);
+      events = detectAll(snap, this.deps.detectors ?? DETECTORS);
     } catch (err) {
       log(`notify: pass skipped: ${err instanceof Error ? err.message : String(err)}`);
       return result;
@@ -75,7 +79,7 @@ export class NotificationService {
         let lastError: string | undefined;
         let delivered = 0;
         for (const e of d.send) {
-          const r = await transport.send(sub, messageOf(e));
+          const r = await transport.send(sub, messageOf(e, badge));
           if (r.ok) { result.sent++; delivered++; continue; }
           result.failed++;
           lastError = r.error;

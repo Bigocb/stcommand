@@ -5,6 +5,36 @@ import type { Detector, NotifyEvent, NotifySnapshot } from "./types.js";
  * Wording stays short and carries no credit figures.
  */
 
+/** Words for an approval, from the kind the engine asked under. Kinds can carry a key after a colon (sellBelowFloor:SHIP:GOOD). */
+const APPROVAL_TITLES: Record<string, string> = {
+  sellBelowFloor: "Sell below the loss floor?",
+  buyShip: "Ship purchase needs approval",
+  buyScout: "Scout purchase needs approval",
+  buySiphoner: "Siphoner purchase needs approval",
+  buyKeeperProbe: "Keeper probe purchase needs approval",
+  buyKeeperProbeForMarket: "Keeper probe purchase needs approval",
+  installScanner: "Scanner install needs approval",
+  autoExploreBorrow: "Explorer borrow needs approval",
+  assignShipRole: "Role change needs approval",
+};
+
+const humanize = (kind: string): string => {
+  const words = kind.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+export function describeApproval(a: { kind: string; shipSymbol: string | null; expiresAt?: string | null }, now: number): { title: string; body: string } {
+  const [base = "", ...rest] = a.kind.split(":");
+  const title = APPROVAL_TITLES[base] ?? `${humanize(base)}: approval needed`;
+  const ship = (a.shipSymbol ?? rest[0] ?? "").split("|")[0] || undefined;
+  const good = base === "sellBelowFloor" ? rest[1] : undefined;
+  const parts: string[] = [];
+  if (ship) parts.push(good ? `${ship} is holding ${good.replace(/_/g, " ").toLowerCase()}` : ship);
+  const left = a.expiresAt ? Math.round((Date.parse(a.expiresAt) - now) / 60_000) : NaN;
+  if (Number.isFinite(left) && left > 0) parts.push(`${left} min to decide`);
+  return { title, body: parts.join(" · ") || "Open Tower to decide." };
+}
+
 export const approvalsDetector: Detector = {
   id: "approvals",
   category: "approvals",
@@ -13,8 +43,7 @@ export const approvalsDetector: Detector = {
       key: `approval:${a.id}`,
       category: "approvals",
       severity: "warning",
-      title: "Approval needed",
-      body: `${a.kind.replace(/_/g, " ")}${a.shipSymbol ? ` · ${a.shipSymbol.split("|")[0]}` : ""}`,
+      ...describeApproval(a, s.now),
       url: "/m#approvals",
     })),
 };

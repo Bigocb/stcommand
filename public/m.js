@@ -210,6 +210,14 @@ $("subnav").addEventListener("click", (e) => {
 });
 renderNav();
 
+/** The number on the app icon follows the same "N need you" the header shows, while Tower is open (pushes set it while it is closed). */
+function syncAppBadge(n) {
+  try {
+    if (n > 0 && navigator.setAppBadge) navigator.setAppBadge(n).catch(() => {});
+    else if (n === 0 && navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+  } catch { /* no badge on this platform: fine */ }
+}
+
 /* ── notifications: the settings screen, and where a tapped notification goes ──
  * The server sends a url like /m#approvals; the hash names a tab. Open it on load (the app was closed) and on a message
  * from the service worker (the app was already open). */
@@ -258,6 +266,7 @@ function renderTiles() {
     <div class="tile"><div class="k">Rate</div><div class="v ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h avg ${signed(pace.perHour3h)} · net trading</div>${paceSparkline(pace.series)}` : ""}</div>
     <div class="tile"><div class="k">Fleet</div><div class="v">${ships.length}<span class="sub"> hulls</span></div><div class="sub">${stranded} stranded · ${unassigned} unassigned</div></div>
   `);
+  syncAppBadge(stranded + unassigned + approvals.length);
   $("tb-note").textContent = stranded + unassigned + approvals.length > 0
     ? `${approvals.length + stranded + unassigned} need you`
     : "all clear";

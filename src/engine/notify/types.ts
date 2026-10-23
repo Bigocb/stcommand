@@ -25,6 +25,8 @@ export interface NotifyEvent {
   body: string;
   /** Where tapping it goes, relative to the app. Defaults to the app's home. */
   url?: string;
+  /** The number to show on the app icon when this arrives: how many things need a person right now (badge.ts). */
+  badge?: number;
   /** Set on a digest: the keys of the events it stands for, so a failed send can un-record each of them. */
   members?: string[];
 }
@@ -32,7 +34,7 @@ export interface NotifyEvent {
 /** A small, read-only picture of the fleet at one moment, filled by the caller from what the engine already has. */
 export interface NotifySnapshot {
   now: number;
-  approvals: { id: string; kind: string; shipSymbol: string | null }[];
+  approvals: { id: string; kind: string; shipSymbol: string | null; /** When the engine gives up waiting and applies its default, ISO. */ expiresAt?: string | null }[];
   stranded: { symbol: string }[];
   attention: { ship: string; severity: Severity; reasons: { text: string; severity: Severity }[] }[];
   /** Milliseconds until the weekly universe reset; undefined when not known. */
