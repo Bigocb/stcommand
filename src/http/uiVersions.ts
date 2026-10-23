@@ -88,6 +88,8 @@ const REVALIDATE = "no-cache";
 export function cacheHeaders(path: string): Record<string, string> | undefined {
   if (path.endsWith(".html")) return { "Cache-Control": "no-cache" };
   if (path.includes("/fonts/")) return { "Cache-Control": "public, max-age=31536000, immutable" };
+  // A service worker must be re-checked on every load, or a browser keeps running a superseded one.
+  if (/\/sw-[a-z]+\.js$/.test(path)) return { "Cache-Control": "no-cache" };
   if (path.includes("/shared/")) return { "Cache-Control": REVALIDATE };
   // Each version's own CSS and JS. Splitting them out of the HTML was done
   // so a browser could cache them instead of re-fetching ~250KB inline on

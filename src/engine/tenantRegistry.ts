@@ -1,3 +1,6 @@
+import { NotificationService } from "./notify/service.js";
+import { liveSnapshotProvider } from "./notify/live.js";
+import { vapidFromEnv, WebPushTransport, type PushTransport } from "./notify/transport.js";
 import type pg from "pg";
 import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { Client, RateLimiter, SpaceTradersAPI, runWithApiPriority, runWithApiRole, taskToApiPriority, API_PRIORITY } from "../core/client.js";
@@ -41,6 +44,8 @@ export interface TenantWorker {
   live?: LiveFeed;
   /** The snapshot a screen gets on connect: every ship's live row and the credits, as of `seq`. */
   liveSnapshot?: () => Promise<{ seq: number; ships: ShipRow[]; credits: number | null; [slice: string]: unknown }>;
+  /** Push notifications for this tenant's devices (src/engine/notify). Absent when no VAPID keys are configured. */
+  notifications?: NotificationService;
 }
 
 /** How often the dashboard snapshot is rebuilt (live agent + the engine's own ship objects). */
@@ -143,6 +148,9 @@ export class TenantRegistry {
     this.log("?", `limiter 5m top callers: ${callers}`);
     this.log("?", `limiter 5m by ship role: ${roles}`);
   }
+
+  /** Web-push delivery, present when VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are set. Tests can replace it. */
+  pushTransport: PushTransport | undefined = (() => { const v = vapidFromEnv(); return v ? new WebPushTransport(v) : undefined; })();
 
   constructor(
     private readonly pool: pg.Pool,
@@ -784,6 +792,16 @@ export class TenantRegistry {
     liveTimer.unref?.();
     // What a screen gets when it connects (or can't catch up): every slice in full, as of the latest event. It also
     // seeds the comparisons when this is the first screen, so the next pass sends only what changed after it.
+    // Push notifications: only when the server has VAPID keys. Starts quiet: each device is brought up to date silently first.
+    let notifications: NotificationService | undefined;
+    if (this.pushTransport) {
+      notifications = new NotificationService({
+        tenantId, store, transport: this.pushTransport,
+        snapshot: liveSnapshotProvider({ tenantId, store, fleet }),
+        log: (m) => log(m),
+      });
+      notifications.start();
+    }
     const liveSnapshot = async () => {
       const ships = fleet.currentShips();
       const summary = fleet.fleetStatusSummary();
@@ -816,8 +834,8 @@ export class TenantRegistry {
       };
     };
     return {
-      tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative, live, liveSnapshot,
-      stopRefresh: () => { clearInterval(refreshTimer); clearInterval(liveTimer); },
+      tenantId, agentSymbol, api, store, state, contracts, fleet, discord, scheduler, chat, narrative, live, liveSnapshot, notifications,
+      stopRefresh: () => { clearInterval(refreshTimer); clearInterval(liveTimer); notifications?.stop(); },
     };
   }
 

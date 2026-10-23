@@ -715,6 +715,16 @@ body {
 .mcp-key-ok { font-size: 11px; margin-top: 6px; min-height: 14px; }
 .mcp-key-reveal { margin-top: 8px; word-break: break-all; font-size: 11px; }
 .mcp-key-reveal code { font-family: var(--mono); color: var(--amber); }
+.notify-box { padding: 4px 0 12px; }
+.notify-status { font-size: 12px; min-height: 16px; margin-bottom: 10px; color: var(--dim); }
+.notify-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.notify-cat { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--hair); font-size: 12px; }
+.notify-cat:first-child { border-top: none; }
+.notify-cat input { margin-top: 3px; }
+.notify-cat small { color: var(--dim); font-size: 10px; }
+.notify-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--hair); font-size: 12px; }
+.notify-row input[type="time"], .notify-row input[type="number"] { font: 12px var(--mono); color: var(--bone); background: transparent; border: 1px solid var(--hair); border-radius: 4px; padding: 4px 6px; }
+.notify-row input[type="number"] { width: 56px; }
 /* Must out-specify `.route-row .rr-legs` (dim gray), or the block reason reads as faded. */
 .route-row .rr-legs.rr-blocked { color: var(--red); font-size: 11px; font-weight: 600; }
 .rr-skipped { margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--amber, #d9a400); font-size: 12px; }

@@ -1,3 +1,5 @@
+import type { DeliveryState, NotifyPrefs } from "../engine/notify/types.js";
+import type { PushSubscriptionRow } from "../engine/notify/store.js";
 import { shipLedgerEvent } from "../engine/shipLedgerEvent.js";
 import type pg from "pg";
 import { withTenant, withTenantUniverse, withTenantAllUniverses, tenantUniverse, withPool } from "./pool.js";
@@ -4219,6 +4221,75 @@ export class Store {
     return withPool(this.pool, async (c) => {
       const res = await c.query(`SELECT * FROM run_results ORDER BY captured_at DESC LIMIT $1`, [limit]);
       return res.rows;
+    });
+  }
+  // ---- web-push subscriptions (migrations/062, docs/notifications.md) ----
+
+  private static toPushRow(r: Record<string, any>): PushSubscriptionRow {
+    return {
+      id: r.id, endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth, userAgent: r.user_agent ?? null,
+      prefs: r.prefs ?? {}, delivery: r.delivery ?? { sent: {}, recent: [] },
+      lastSentAt: r.last_sent_at ? new Date(r.last_sent_at).toISOString() : null, failures: r.failures ?? 0, lastError: r.last_error ?? null,
+    };
+  }
+
+  /** Add a device, or refresh its keys when the browser re-subscribes with the same endpoint. Choices already saved are kept unless new ones are given. */
+  async upsertPushSubscription(tenantId: string, sub: { endpoint: string; p256dh: string; auth: string; userAgent?: string | null; prefs?: Partial<NotifyPrefs> }): Promise<PushSubscriptionRow> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(
+        `INSERT INTO push_subscriptions (tenant_id, endpoint, p256dh, auth, user_agent, prefs)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+         ON CONFLICT (tenant_id, endpoint) DO UPDATE
+           SET p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent, updated_at = now(), failures = 0, last_error = NULL,
+               prefs = CASE WHEN $7::boolean THEN excluded.prefs ELSE push_subscriptions.prefs END
+         RETURNING *`,
+        [tenantId, sub.endpoint, sub.p256dh, sub.auth, sub.userAgent ?? null, JSON.stringify(sub.prefs ?? {}), sub.prefs !== undefined],
+      );
+      return Store.toPushRow(res.rows[0]);
+    });
+  }
+
+  async listPushSubscriptions(tenantId: string): Promise<PushSubscriptionRow[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(`SELECT * FROM push_subscriptions WHERE tenant_id = $1 ORDER BY created_at`, [tenantId]);
+      return res.rows.map(Store.toPushRow);
+    });
+  }
+
+  async getPushSubscription(tenantId: string, endpoint: string): Promise<PushSubscriptionRow | undefined> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(`SELECT * FROM push_subscriptions WHERE tenant_id = $1 AND endpoint = $2`, [tenantId, endpoint]);
+      return res.rows[0] ? Store.toPushRow(res.rows[0]) : undefined;
+    });
+  }
+
+  async setPushPrefs(tenantId: string, endpoint: string, prefs: Partial<NotifyPrefs>): Promise<boolean> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(
+        `UPDATE push_subscriptions SET prefs = $3::jsonb, updated_at = now() WHERE tenant_id = $1 AND endpoint = $2`,
+        [tenantId, endpoint, JSON.stringify(prefs)],
+      );
+      return (res.rowCount ?? 0) > 0;
+    });
+  }
+
+  async savePushDelivery(tenantId: string, id: string, delivery: DeliveryState, outcome: { sent?: boolean; error?: string } = {}): Promise<void> {
+    await withTenant(this.pool, tenantId, (c) =>
+      c.query(
+        `UPDATE push_subscriptions SET delivery = $3::jsonb,
+           last_sent_at = CASE WHEN $4::boolean THEN now() ELSE last_sent_at END,
+           failures = CASE WHEN $4::boolean THEN 0 WHEN $5::text IS NOT NULL THEN failures + 1 ELSE failures END,
+           last_error = CASE WHEN $4::boolean THEN NULL WHEN $5::text IS NOT NULL THEN $5::text ELSE last_error END
+         WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, id, JSON.stringify(delivery), outcome.sent === true, outcome.error ?? null],
+      ),
+    );
+  }
+
+  async deletePushSubscription(tenantId: string, endpoint: string): Promise<boolean> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query(`DELETE FROM push_subscriptions WHERE tenant_id = $1 AND endpoint = $2`, [tenantId, endpoint]);
+      return (res.rowCount ?? 0) > 0;
     });
   }
 }

@@ -378,3 +378,11 @@ it. Each group remembers its last tab. A screen that fails to render doesn't str
 
 Not in Tower: Map (Tower has none; Deck keeps it as a top-level item), Local placement (the Systems tab) and Dispatch.
 The Co-pilot screen is still in the markup but, as before, has no entry point.
+
+## Alerts (2026-10-24)
+
+More has an **Alerts** tab: turn on web-push notifications for this device, choose which kinds of alert (approvals waiting,
+stranded ships, critical attention flags, the reset warnings, an earning-rate drop), set quiet hours and an hourly cap, and
+send a test. A tap on a notification opens Tower on the right tab (`/m#approvals`, `#fleet`, `#home`, `#metrics`). On iPhone
+it works only from the Home Screen app, and the screen says so. Design, setup and how to add an alert: `docs/notifications.md`.
+

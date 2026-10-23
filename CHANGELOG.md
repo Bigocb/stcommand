@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Push notifications in Tower (needs VAPID keys; off until they are set)
+
+Phone alerts through web push, built as small replaceable pieces so a new alert or a new channel is a short addition. Full design, setup and "how to add one" in `docs/notifications.md`.
+
+- **Core (`src/engine/notify/`, pure):** `categories.ts` (the registry: approvals, stranded, attention, reset, rate), `detectors.ts` (snapshot to events; attention alerts only for critical flags; reset warnings at 2 h and 15 min; rate drop compares the last hour with the 3-hour average and shows no figures), `policy.ts` `decide()` (per-device switches, quiet hours with a timezone offset and a critical override, dedupe with per-category cooldowns, hourly cap with most severe first, digests of three or more, silent seeding), `prefs.ts` (sanitises what a device sends).
+- **Delivery:** `transport.ts` (`PushTransport`, web-push with VAPID, 404/410 means the device is gone), `service.ts` (`NotificationService`, a pass every 30 s per tenant: a new device is brought up to date silently, a failed send is un-recorded and retried, a gone device is deleted, nothing is read when no one is subscribed), `live.ts` (the only file that knows `FleetManager`/`Store`).
+- **Storage:** migration 062 `push_subscriptions` (row-level security like every tenant table; deliberately not wiped at a reset), `Store` methods.
+- **API:** `/api/push/{config,subscription,subscribe,prefs,unsubscribe,test}` (`src/http/push.ts`), tenant from the session.
+- **Tower:** More, Alerts tab (`public/shared/pushNotify.js`, shared so Deck can mount it too); `public/sw-tower.js` shows pushes and opens Tower on the right tab (`/m#approvals`, `#fleet`, `#home`, `#metrics`); iPhone needs the Home Screen app and the screen says so. `sw-*.js` is served `no-cache`.
+- **Setup:** `npm run vapid` for a key pair, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` in the environment (documented in `.env.example`); without both, push is off and Alerts says so. New dependency `web-push` (and its types, in `dependencies` because the box builds on install).
+- **Tests:** `notifyPolicy` (8), `notifyDetectors` (6), `notifyPrefs` (3), `notifyService` (10), `pushClient` (8, includes the service worker run in a stand-in scope), `pushRoutes` (7, against real Postgres with row-level security). The Alerts screen was also driven in headless Chromium with a stubbed API (enable, preferences, save, test, turn off): no script errors. Not done: a real push to a real phone, which needs the keys.
+
 ## 2026-10-24 — Dispatcher and crawler lines reach the ops `logs` tool; crawler progress counter
 
 The 23:03 post-deploy check could not see whether the market-recovery pass was adjusting routes or how the crawler was doing: both print through `console.log` / the process-wide `log()`, which the ops log buffer never saw (the existing "route cool-off skips" line was missing too).

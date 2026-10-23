@@ -226,6 +226,24 @@
           <div class="mcp-key-reveal" id="mcp-key-reveal" hidden></div>
         </div>
         </div>
+        <div id="more-sec-notify">
+        <div class="sec-h">Notifications</div>
+        <div class="notify-box" id="notify-box">
+          <div class="notify-status" id="notify-status">Checking this device…</div>
+          <div class="notify-actions">
+            <button class="btn pri" id="notify-enable" type="button" hidden>Turn on notifications</button>
+            <button class="btn ghost" id="notify-test" type="button" hidden>Send a test</button>
+            <button class="btn ghost" id="notify-off" type="button" hidden>Turn off on this device</button>
+          </div>
+          <div id="notify-prefs" hidden>
+            <div class="notify-cats" id="notify-cats"></div>
+            <div class="notify-row"><label><input type="checkbox" id="notify-quiet-on"> Quiet hours</label>
+              <input type="time" id="notify-quiet-start" value="22:00"> to <input type="time" id="notify-quiet-end" value="07:00"></div>
+            <div class="notify-row"><label><input type="checkbox" id="notify-quiet-crit" checked> Let critical alerts through</label></div>
+            <div class="notify-row"><label>At most <input type="number" id="notify-cap" min="1" max="60" value="6"> a hour</label></div>
+          </div>
+        </div>
+        </div>
         </div>
       </div>
     </div>

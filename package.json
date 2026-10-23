@@ -12,7 +12,8 @@
     "pretest": "node --env-file-if-exists=.env.test scripts/assert-test-schema.mjs",
     "migrate:test": "node --env-file-if-exists=.env.test --import tsx -e \"process.env.DATABASE_URL=process.env.TEST_DATABASE_URL; const { runMigrations } = await import('./src/db/migrate.ts'); const { createPool } = await import('./src/db/pool.ts'); const pool = createPool(process.env.DATABASE_URL); await runMigrations(pool); await pool.end();\"",
     "postinstall": "npm run build",
-    "start:tsx": "tsx src/cli/index.ts"
+    "start:tsx": "tsx src/cli/index.ts",
+    "vapid": "web-push generate-vapid-keys"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +25,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.5",
     "@types/pg": "^8.11.10",
+    "@types/web-push": "^3.6.4",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "openapi-fetch": "^0.17.0",
@@ -31,6 +33,7 @@
     "tsx": "^4.23.11",
     "typescript": "^5.7.3",
     "undici": "^8.10.2",
+    "web-push": "^3.6.7",
     "zod": "^4.6.5"
   }
 }

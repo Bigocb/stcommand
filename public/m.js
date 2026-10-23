@@ -28,6 +28,7 @@ import { seasonCardHtml } from "/shared/season.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { mountExplorers } from "/shared/explorers.js";
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
+import { mountNotifications, listenForNotificationTaps } from "/shared/pushNotify.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
@@ -91,6 +92,7 @@ let metricsScreen = null;
 let miningScreen = null;
 let explorersScreen = null;
 let blockedGoodsScreen = null;
+let notifyScreen; // the Alerts settings (shared/pushNotify.js), mounted the first time More opens
 function setTab(name) {
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
@@ -110,7 +112,7 @@ function setTab(name) {
   else metricsScreen?.hide();
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
   if (name === "approvals") { loadApprovals(); renderApprovalsScreen(); }
-  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); refreshMcpKeys(); }
+  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); refreshMcpKeys(); notifyScreen ??= mountNotifications($("more-sec-notify"), { api }); notifyScreen.show(); }
   if (name === "copilot") { loadCopilot(); loadCopilotSettings(); }
   // The fields table polls only while visible: stop when leaving More, resume if its Mining segment is open.
   if (name !== "more") { miningScreen?.hide(); explorersScreen?.hide(); }
@@ -156,6 +158,7 @@ const NAV_GROUPS = [
     { key: "blocked", label: "Blocked", screen: "more", pane: "rules", only: ["more-sec-blocked"] },
     { key: "opening", label: "Opening", screen: "more", pane: "rules", only: ["more-sec-opening"] },
     { key: "keys", label: "Keys", screen: "more", pane: "rules", only: ["more-sec-keys"] },
+    { key: "alerts", label: "Alerts", screen: "more", pane: "rules", only: ["more-sec-notify"] },
     { key: "admin", label: "Admin", screen: "admin", adminOnly: true },
   ] },
 ];
@@ -206,6 +209,18 @@ $("subnav").addEventListener("click", (e) => {
   if (b) openTab(currentGroup, b.dataset.tab);
 });
 renderNav();
+
+/* ── notifications: the settings screen, and where a tapped notification goes ──
+ * The server sends a url like /m#approvals; the hash names a tab. Open it on load (the app was closed) and on a message
+ * from the service worker (the app was already open). */
+const HASH_TABS = { home: ["overview", "home"], approvals: ["overview", "approvals"], fleet: ["fleet", "ships"], metrics: ["more", "metrics"] };
+function openFromHash(hash) {
+  const target = HASH_TABS[String(hash || "").replace(/^#/, "")];
+  if (target) openTab(target[0], target[1]);
+}
+listenForNotificationTaps(openFromHash);
+window.addEventListener("hashchange", () => openFromHash(window.location.hash));
+if (window.location.hash) openFromHash(window.location.hash);
 
 /* ── status bar clock ── */
 function renderStatusbar() {
