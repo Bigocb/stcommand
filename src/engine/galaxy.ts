@@ -343,7 +343,7 @@ export class GalaxyAtlas {
    * warmJumpPath() has loaded and checked it. Never makes a network call.
    */
   edgeUsable(a: string, b: string): boolean {
-    if (this.provenEdge(a, b)) return true;
+    if (this.provenEdge(a, b) || this.linkUsable(a, b)) return true;
     if (!this.canJump(a, b)) return false;
     const far = this.systems.get(b);
     if (!far) return false;
@@ -355,7 +355,9 @@ export class GalaxyAtlas {
   /** Systems one usable jump from `system` right now (synchronous, cache-only). */
   usableNeighbors(system: string): string[] {
     const out = this.connectedSystems(system).filter((n) => this.edgeUsable(system, n));
-    // A proven edge counts even when the hydrated graph does not list it.
+    // Neighbours the in-memory atlas has not loaded: the hydrated graph names them, and a proven edge counts even when
+    // the graph does not list it.
+    for (const l of this.gateLinks.get(system) ?? []) if (!out.includes(l.to) && this.linkUsable(system, l.to)) out.push(l.to);
     for (const n of this.provenJumps.get(system) ?? []) if (!out.includes(n)) out.push(n);
     return out;
   }
@@ -413,18 +415,25 @@ export class GalaxyAtlas {
    */
   hydrateJumpGraph(rows: { systemSymbol: string; waypoints: unknown[]; jumpGates: unknown[] }[]): void {
     const graph = new Map<string, string[]>();
+    const links = new Map<string, { gate: string; farGate: string; to: string }[]>();
     const withWaypoints = new Set<string>();
     for (const r of rows) {
       if (r.waypoints.length > 0) withWaypoints.add(r.systemSymbol);
       const neighbours = new Set<string>();
-      for (const jg of (r.jumpGates ?? []) as { connections?: string[] }[]) {
+      for (const jg of (r.jumpGates ?? []) as { symbol?: string; connections?: string[] }[]) {
         for (const c of jg.connections ?? []) {
           const sys = c.slice(0, c.lastIndexOf("-"));
-          if (sys && sys !== r.systemSymbol) neighbours.add(sys);
+          if (sys && sys !== r.systemSymbol) {
+            neighbours.add(sys);
+            // Both gate symbols of the edge, so it can be judged from the construction cache alone, without either
+            // system having been loaded into this process.
+            if (jg.symbol) (links.get(r.systemSymbol) ?? links.set(r.systemSymbol, []).get(r.systemSymbol)!).push({ gate: jg.symbol, farGate: c, to: sys });
+          }
         }
       }
       if (neighbours.size > 0) graph.set(r.systemSymbol, [...neighbours]);
     }
+    this.gateLinks = links;
     this.graph = graph;
     this.waypointSystems = withWaypoints;
     this.pathCache.clear();
@@ -455,6 +464,17 @@ export class GalaxyAtlas {
     return path?.slice();
   }
   private readonly pathCache = new Map<string, string[] | undefined>();
+  /** From the hydrated graph: for each system, each gate with the far gate it connects to and that gate's system. */
+  private gateLinks = new Map<string, { gate: string; farGate: string; to: string }[]>();
+
+  /**
+   * True when the hydrated graph says `a` links to `b` through two gates that the construction cache has both as
+   * finished. Needs neither system loaded: the previous check wanted both in memory, so a gap in what this process had
+   * loaded read as "no gate" (THEOREM-BE, 2026-10-23, 2h50m).
+   */
+  private linkUsable(a: string, b: string): boolean {
+    return (this.gateLinks.get(a) ?? []).some((l) => l.to === b && this.gateConstruction.get(l.gate) === true && this.gateConstruction.get(l.farGate) === true);
+  }
   /** Gate jumps a positioning path may take. Set from the "Positioning jumps" doctrine clause; clamped to the ceiling. */
   private positioningHops = MAX_POSITIONING_HOPS;
   get maxPositioningHops(): number {

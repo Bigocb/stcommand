@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-23 — The galaxy crawler reads gate construction; edges no longer need loaded systems
+
+Follows the THEOREM-BE stall (see the next entry). Three pieces:
+
+- **Crawler pass (`galaxyCrawler.ts`, `gateCheckQueue.ts`):** `GalaxyCrawler.tick()` now reads the public, tokenless `GET /systems/{s}/waypoints/{gate}/construction` for every known jump gate (4 calls per 5 s tick, a 429 pauses the pass for a minute) and records `isComplete` in the shared `galaxy_gate_construction` table. Finished gates are never asked again; unfinished ones are re-read hourly. Order in `tick()`: factions, systems, agents, then this, then the connection sweep (which waits until the construction queue is drained). Only a 200's `isComplete` is recorded: a 404 is skipped, not taken for built (the table is one-way). First pass: a few thousand gates in about an hour.
+- **Reload (`fleet.ts` `maybeRefreshGateConstruction()`):** every 5 minutes the atlas re-reads that table (`loadGateConstruction()`, which never downgrades a known-complete gate), so what the crawler learns reaches a running process; the hydrated graph is re-read every 30 minutes.
+- **Edges without loaded systems (`galaxy.ts`):** `hydrateJumpGraph()` now keeps each gate with the far gate it connects to; `edgeUsable()` and `usableNeighbors()` judge an edge from those two gates' construction status alone. Before, `connectedSystems()` and `edgeUsable()` returned nothing for a system not loaded in this process, which is what read as "no gate" for BE.
+- Tests: `gateCheckQueue.test.ts` (3), `hydratedEdges.test.ts` (4), `galaxyCrawlerConstruction.test.ts` (4); mutation-checked. Each tenant's fleet re-reads the graph every 30 minutes (one heavy query each).
+
 ## 2026-10-23 — A jump that went through proves the gate is open; warm the path before giving up
 
 THEOREM-BE (80 CLOTHING, about 390k) jumped AR93 -> QK51 -> JM61 -> ZR49 and was then told "no verified gate path (<= 10 hops) from X1-ZR49 to X1-SU37" every 15-30 seconds from 18:30 to 21:19 (about 2h50m idle at about 600k/hr). Open gates do not close; the atlas's `edgeUsable()` wants the far system loaded in this process and its gate confirmed here, and `positioningPath()` is cache-only, so a gap in what the process had loaded read as "no gate" and retired the route.

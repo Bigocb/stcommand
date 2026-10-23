@@ -1,5 +1,6 @@
 import { API_BASE } from "../core/client.js";
 import type { Store } from "../db/store.js";
+import { gatesToCheck, type GateRef, type KnownGate } from "./gateCheckQueue.js";
 
 /**
  * Crawls the *public* galaxy-wide reference data — every system's
@@ -75,6 +76,12 @@ const GATE_SWEEP_INTERVAL_MS = 24 * 60 * 60_000;
  *  expensive, but frequent enough that stats don't go stale for a whole
  *  operating session. */
 const AGENTS_REFRESH_INTERVAL_MS = 60 * 60_000;
+/** Gate-construction reads per crawl tick (the tick is every 5 s). The public endpoint is unauthenticated and answered a 429
+ *  once at one call, so this stays small and a 429 pauses the pass. About 48 a minute: a few thousand gates in about an hour. */
+const CONSTRUCTION_CALLS_PER_TICK = 4;
+const CONSTRUCTION_BACKOFF_MS = 60_000;
+/** How long a finished queue waits before it is rebuilt, which re-reads only the gates still unfinished. */
+const CONSTRUCTION_REBUILD_MS = 60 * 60_000;
 
 export class GalaxyCrawler {
   private readonly store: Store;
@@ -91,6 +98,12 @@ export class GalaxyCrawler {
   private gateQueueBuilt = false;
   private lastGateSweepAt = 0;
   private gatesResolvedThisSweep = 0;
+
+  /** Gates still to ask the public /construction endpoint about (see gateCheckQueue.ts). Rebuilt from the DB when drained. */
+  private constructionQueue: GateRef[] = [];
+  private constructionBuiltAt = 0;
+  private constructionBackoffUntil = 0;
+  private constructionChecked = 0;
 
   /** Completed agent directory, keyed by system symbol (derived from each
    *  agent's headquarters waypoint). Swapped in atomically once a full pass
@@ -195,7 +208,73 @@ export class GalaxyCrawler {
       await this.crawlAgentsPage();
       return;
     }
+    // Construction status first: a few thousand gates, finished in about an hour, then hourly for the unfinished ones.
+    if (await this.crawlGateConstruction()) return;
     await this.crawlOneGate();
+  }
+
+  /**
+   * Read gate construction status from the public /construction endpoint (no token, no tenant) and record it in the
+   * shared galaxy_gate_construction table, so every tenant's atlas learns which gates are built without a ship of ours
+   * visiting. Returns true when it did work this tick, so the connection sweep waits its turn.
+   *
+   * Only `isComplete` from a 200 is recorded. A 404 is not taken to mean "built" here (the fleet's own reader does, but
+   * an uncharted waypoint may 404 too, and this table is one-way: a wrong "complete" is never corrected): it is skipped.
+   * A 429 pauses the pass for a minute.
+   */
+  private async crawlGateConstruction(): Promise<boolean> {
+    const now = Date.now();
+    if (now < this.constructionBackoffUntil) return false;
+    if (this.constructionQueue.length === 0) {
+      if (this.constructionBuiltAt !== 0 && now - this.constructionBuiltAt < CONSTRUCTION_REBUILD_MS) return false;
+      await this.buildConstructionQueue(now);
+      if (this.constructionQueue.length === 0) return false;
+    }
+    let did = false;
+    for (let i = 0; i < CONSTRUCTION_CALLS_PER_TICK; i++) {
+      const next = this.constructionQueue.shift();
+      if (!next) break;
+      did = true;
+      try {
+        const res = await fetch(new URL(`${API_BASE}/systems/${next.systemSymbol}/waypoints/${next.gateSymbol}/construction`));
+        if (res.status === 429) {
+          this.constructionQueue.unshift(next);
+          this.constructionBackoffUntil = Date.now() + CONSTRUCTION_BACKOFF_MS;
+          this.log("gate construction crawl: rate limited, pausing a minute");
+          break;
+        }
+        if (!res.ok) continue;
+        const json = (await res.json().catch(() => undefined)) as { data?: { isComplete?: unknown } } | undefined;
+        if (typeof json?.data?.isComplete !== "boolean") continue;
+        await this.store.recordGalaxyGateConstruction(next.gateSymbol, json.data.isComplete);
+        this.constructionChecked += 1;
+      } catch (err) {
+        this.log(`gate construction crawl: ${next.gateSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (this.constructionQueue.length === 0) {
+      this.log(`gate construction crawl: pass finished, ${this.constructionChecked} gates read`);
+      this.recordActivity(`Gate construction pass finished: ${this.constructionChecked} gates read`);
+    }
+    return did;
+  }
+
+  private async buildConstructionQueue(now: number): Promise<void> {
+    this.constructionBuiltAt = now;
+    this.constructionChecked = 0;
+    const [systems, recorded] = await Promise.all([this.store.listSystemsForGateCrawl(), this.store.getAllGalaxyGateConstruction()]);
+    const all: GateRef[] = [];
+    for (const r of systems) {
+      for (const wp of r.crawledWaypoints as { symbol: string; type: string }[]) {
+        if (wp.type === "JUMP_GATE") all.push({ systemSymbol: r.systemSymbol, gateSymbol: wp.symbol });
+      }
+    }
+    const known = new Map<string, KnownGate>(recorded.map((g) => [g.gateSymbol, { isComplete: g.isComplete, checkedAtMs: g.checkedAtMs }]));
+    this.constructionQueue = gatesToCheck(all, known, now);
+    if (this.constructionQueue.length > 0) {
+      this.log(`gate construction crawl: ${this.constructionQueue.length} of ${all.length} gates to read`);
+      this.recordActivity(`Gate construction pass started: ${this.constructionQueue.length} gates to read`);
+    }
   }
 
   /** Thin wrapper around a plain, tokenless fetch against a public

@@ -8952,8 +8952,17 @@ export class FleetManager {
   private async maybeRefreshGateConstruction(): Promise<void> {
     if (Date.now() - this.lastGateConstructionRefresh < 5 * 60_000) return;
     this.lastGateConstructionRefresh = Date.now();
+    // What the galaxy crawler (and every other tenant) has learned since boot: a few thousand small rows. Never downgrades
+    // a gate this process already knows is complete. Then the gates this process has not seen finished are read live.
+    try { await this.galaxy.loadGateConstruction(); } catch (err) { this.log(`gate construction reload skipped: ${describeError(err)}`); }
+    // The graph itself (which gates connect where) is heavier to read, so it is refreshed less often.
+    if (this.store && Date.now() - this.lastGraphHydrate > 30 * 60_000) {
+      this.lastGraphHydrate = Date.now();
+      try { this.galaxy.hydrateJumpGraph(await this.store.listGalaxySystems()); } catch (err) { this.log(`galaxy graph refresh skipped: ${describeError(err)}`); }
+    }
     await this.galaxy.refreshAllGateConstruction();
   }
+  private lastGraphHydrate = Date.now();
 
   /** One coordination pass over the whole fleet. */
   private lastDeadTokenLog = 0;
