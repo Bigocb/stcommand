@@ -125,6 +125,8 @@ export interface TraderOptions {
    *  market recently before offering it (or a competing market) to another
    *  idle trader — see RouteDispatcher.recordSale()'s own comment. */
   recordSale?: (good: string, sellAt: string, units: number, pricePerUnit?: number) => void;
+  /** Called after each purchase lot of a route, so the dispatcher can plan on the ask our own buying left behind. */
+  recordBuy?: (good: string, buyAt: string, units: number, pricePerUnit: number) => void;
   /** A trip closed: what it was planned to earn and what it made, so the dispatcher can rest a route that disappointed (routeHeat.ts). */
   recordTrip?: (trip: { good: string; buyAt: string; sellAt: string; promised: number; made: number }) => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
@@ -277,6 +279,7 @@ export class TraderAgent {
   private readonly claimRoute?: TraderOptions["claimRoute"];
   private readonly releaseRoute?: () => void;
   private readonly recordSale?: TraderOptions["recordSale"];
+  private readonly recordBuy?: TraderOptions["recordBuy"];
   private readonly recordTrip?: TraderOptions["recordTrip"];
   private readonly getCredits?: () => number;
   private readonly buysBlocked?: () => boolean;
@@ -426,6 +429,7 @@ export class TraderAgent {
     this.claimRoute = opts.claimRoute;
     this.releaseRoute = opts.releaseRoute;
     this.recordSale = opts.recordSale;
+    this.recordBuy = opts.recordBuy;
     this.recordTrip = opts.recordTrip;
     this.getCredits = opts.getCredits;
     this.buysBlocked = opts.buysBlocked;
@@ -2522,6 +2526,7 @@ export class TraderAgent {
           pricePerUnit: res.transaction.pricePerUnit,
           total: res.transaction.totalPrice,
         });
+        this.recordBuy?.(route.good, route.buyAt, lot, res.transaction.pricePerUnit);
         this.log(`bought ${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
         this.onActivity?.("buy", `${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
         // Pinned and persisted after every lot, not once after the whole

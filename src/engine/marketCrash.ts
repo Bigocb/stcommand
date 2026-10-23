@@ -8,14 +8,18 @@
  * after 30 minutes, long before the market has refilled. Both ships bought for a market that no longer paid and
  * trekked nine jumps to sell elsewhere.
  *
- * Pure: the caller passes our recent sales into one (good, market), the route's listed price and the snapshot's time.
- * Recovery is modelled as a straight line from the last sale's price back to the first sale's price over
+ * Buying is the mirror image: our own purchases push the ask up (THEOREM-BE, same day: CLOTHING at X1-AR93-B15C went
+ * 3342 -> 5060 over its own 305 units, and its next route still listed 3342), so the route's buy price is planned
+ * the same way, falling back from the last lot's price to the first lot's.
+ *
+ * Pure: the caller passes our recent sales (or purchases) into one (good, market), the route's listed price and the
+ * snapshot's time. Recovery is modelled as a straight line from the last lot's price back to the first lot's price over
  * `recoveryMin` minutes. That figure is a guess until the analysis engine has measured sell-side recovery; it is a
  * setting for that reason. `recoveryMin` 0 switches the whole thing off.
  */
 
 export interface SaleImpact {
-  /** Units in this lot. */
+  /** Units in this lot (a sale, or a purchase for the buy side). */
   units: number;
   /** When it sold, ms. */
   at: number;
@@ -62,6 +66,32 @@ export function estimateSellPrice(sales: readonly SaleImpact[], listedPrice: num
     price: Math.round(price),
     shortfall: Math.round(shortfall),
     reason: `our ${units}u sold ${first.price}c -> ${last.price}c, about ${Math.round(progress * 100)}% refilled, planning on ${Math.round(price)}c not ${Math.round(listedPrice)}c`,
+  };
+}
+
+/**
+ * Estimated buy price now: the mirror of estimateSellPrice(). Our purchases after the snapshot lifted the ask; it falls
+ * back along a line to the first lot's price. `shortfall` here is the premium per unit paid over the listed price.
+ */
+export function estimateBuyPrice(buys: readonly SaleImpact[], listedPrice: number, snapshotAt: number, now: number, policy: CrashPolicy): SellEstimate {
+  const unchanged: SellEstimate = { price: listedPrice, shortfall: 0 };
+  if (!(policy.recoveryMin > 0) || !(listedPrice > 0)) return unchanged;
+  const windowMs = policy.recoveryMin * 60_000;
+  const unseen = buys.filter((b) => b.at > snapshotAt && b.at >= now - windowMs && b.price > 0).sort((a, b) => a.at - b.at);
+  if (!unseen.length) return unchanged;
+  const first = unseen[0]!;
+  const last = unseen[unseen.length - 1]!;
+  if (last.price <= first.price) return unchanged; // the ask did not rise, so there is nothing to fall back
+  const progress = Math.min(1, Math.max(0, (now - last.at) / windowMs));
+  const expected = last.price - (last.price - first.price) * progress;
+  const price = Math.max(listedPrice, expected);
+  const premium = price - listedPrice;
+  if (premium <= 0) return unchanged;
+  const units = unseen.reduce((s, x) => s + x.units, 0);
+  return {
+    price: Math.round(price),
+    shortfall: Math.round(premium),
+    reason: `our ${units}u bought ${first.price}c -> ${last.price}c, about ${Math.round(progress * 100)}% back, planning on ${Math.round(price)}c not ${Math.round(listedPrice)}c`,
   };
 }
 

@@ -117,7 +117,7 @@ export const DECLINE_MS = 15 * 60_000;
 export const MAX_LOTS_PER_TRIP = 3;
 
 import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
-import { estimateSellPrice, profitAfterShortfall, type SaleImpact } from "./marketCrash.js";
+import { estimateBuyPrice, estimateSellPrice, profitAfterShortfall, type SaleImpact } from "./marketCrash.js";
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
@@ -399,23 +399,50 @@ export class RouteDispatcher {
 
   /** (good, sellAt) -> our recent lots with the price each fetched, kept long enough to model a market refilling. */
   private readonly saleImpacts = new Map<string, SaleImpact[]>();
-  private sellRecoveryMin = 0;
+  /** (good, buyAt) -> our recent purchase lots with the price each cost, for the same model on the buy side. */
+  private readonly buyImpacts = new Map<string, SaleImpact[]>();
+
+  /** Called by a trader after each purchase lot of a route (the ask our own buying leaves behind, see marketCrash.ts). */
+  recordBuy(good: string, buyAt: string, units: number, pricePerUnit: number): void {
+    if (!(pricePerUnit > 0)) return;
+    const key = `${good}@${buyAt}`;
+    const now = Date.now();
+    const impacts = (this.buyImpacts.get(key) ?? []).filter((s) => s.at >= now - SALE_IMPACT_KEEP_MS).slice(-200);
+    impacts.push({ units, at: now, price: pricePerUnit });
+    this.buyImpacts.set(key, impacts);
+  }
+  private marketRecoveryMin = 0;
 
   /** The route with its sell price, profit and per-hold profits cut by the part of our own recent dump that has not
-   *  refilled (marketCrash.ts), or undefined when the trip no longer pays. With `sellRecoveryMin` 0 it is the route as given. */
+   *  refilled (marketCrash.ts), or undefined when the trip no longer pays. With `marketRecoveryMin` 0 it is the route as given. */
   private afterOwnSales(route: DispatchRoute, now: number): { route: DispatchRoute; reason?: string } | undefined {
-    if (!(this.sellRecoveryMin > 0)) return { route };
+    if (!(this.marketRecoveryMin > 0)) return { route };
+    const policy = { recoveryMin: this.marketRecoveryMin };
+    const snapshotAt = now - route.ageMinutes * 60_000;
     const sales = this.saleImpacts.get(`${route.good}@${route.sellAt}`);
-    if (!sales?.length) return { route };
-    const est = estimateSellPrice(sales, route.sellPrice, now - route.ageMinutes * 60_000, now, { recoveryMin: this.sellRecoveryMin });
-    if (est.shortfall <= 0) return { route };
-    const profitPerTrip = profitAfterShortfall(route.profitPerTrip, est.shortfall, route.volume);
+    const buys = this.buyImpacts.get(`${route.good}@${route.buyAt}`);
+    const sell = sales?.length ? estimateSellPrice(sales, route.sellPrice, snapshotAt, now, policy) : undefined;
+    const buy = buys?.length ? estimateBuyPrice(buys, route.buyPrice, snapshotAt, now, policy) : undefined;
+    const sellCut = sell?.shortfall ?? 0;
+    const buyCut = buy?.shortfall ?? 0;
+    if (sellCut <= 0 && buyCut <= 0) return { route };
+    const perUnit = sellCut + buyCut;
+    const profitPerTrip = profitAfterShortfall(route.profitPerTrip, perUnit, route.volume);
     if (profitPerTrip <= 0) return undefined;
     const profitByHold = route.profitByHold
-      ? Object.fromEntries(Object.entries(route.profitByHold).map(([hold, p]) => [hold, profitAfterShortfall(p, est.shortfall, Number(hold))]))
+      ? Object.fromEntries(Object.entries(route.profitByHold).map(([hold, p]) => [hold, profitAfterShortfall(p, perUnit, Number(hold))]))
       : undefined;
-    return { route: { ...route, sellPrice: est.price, profitPerTrip, ...(profitByHold ? { profitByHold } : {}) }, reason: est.reason };
+    const adjusted: DispatchRoute = {
+      ...route,
+      sellPrice: sell?.shortfall ? sell.price : route.sellPrice,
+      buyPrice: buy?.shortfall ? buy.price : route.buyPrice,
+      profitPerTrip,
+      ...(profitByHold ? { profitByHold } : {}),
+    };
+    const reason = [sell?.shortfall ? `sell: ${sell.reason}` : "", buy?.shortfall ? `buy: ${buy.reason}` : ""].filter(Boolean).join("; ");
+    return { route: adjusted, reason };
   }
+
 
   /** Closed trips, newest last, for the route cool-off (routeHeat.ts). Only the last few hours matter. */
   private readonly closedTrips: RouteTrip[] = [];
@@ -869,7 +896,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; sellRecoveryMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; marketRecoveryMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -899,7 +926,7 @@ export class RouteDispatcher {
     this.coolOffMin = Math.max(0, tuning?.coolOffMin ?? 0);
     this.roundsMax = Math.max(0, tuning?.roundsMax ?? 0);
     this.buyRoundsMax = Math.max(0, tuning?.buyRoundsMax ?? 0);
-    this.sellRecoveryMin = Math.max(0, tuning?.sellRecoveryMin ?? 0);
+    this.marketRecoveryMin = Math.max(0, tuning?.marketRecoveryMin ?? 0);
     // Any of the three rests a route, so any one being on needs this pass to run; with all at 0 it is skipped exactly as
     // before, and coolOffReason() returns undefined at 0 minutes.
     if (this.coolOffMin > 0 || this.roundsMax > 0 || this.buyRoundsMax > 0) {
@@ -911,8 +938,8 @@ export class RouteDispatcher {
       }
     }
     // Plan on what a market we have been selling into probably pays now, not on the snapshot taken before we sold.
-    // Off (sellRecoveryMin 0) the list is left exactly as it is.
-    if (this.sellRecoveryMin > 0) {
+    // Off (marketRecoveryMin 0) the list is left exactly as it is.
+    if (this.marketRecoveryMin > 0) {
       const adjusted: DispatchRoute[] = [];
       const notes: string[] = [];
       for (const r of routes) {
