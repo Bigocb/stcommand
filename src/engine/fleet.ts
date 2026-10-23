@@ -636,6 +636,7 @@ export class FleetManager {
     this.contracts?.setDeliveryReachable((destination) => this.contractDestinationReachable(destination));
     this.state = opts.state;
     this.log = opts.log ?? ((m) => console.log(`[fleet] ${m}`));
+    this.dispatcher.setLogger((m) => this.log(m)); // the ops `logs` tool only sees what goes through this.log
     // The measurement sweep's board only listens while the sweep runs; the ship book always does (shadow mode).
     // The wind-down scrapper goes in BOTH branches: it is not part of the sweep, and dropping it whenever the
     // sweep is off would silently disable retirement (nothing else reads its queue, so the loss would be invisible).

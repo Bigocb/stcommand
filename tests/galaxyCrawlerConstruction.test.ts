@@ -64,4 +64,18 @@ describe("gate construction crawl", () => {
     await s.crawler.tick();
     assert.equal(s.recorded.length, 3);
   });
+
+  it("reports the construction pass in progress(): gates left, gates read, pause", async (t) => {
+    const s = setup(async () => ok(true));
+    (s.crawler as any).store.countGalaxySystems = async () => 7027;
+    s.run(t);
+    assert.deepEqual((await s.crawler.progress()).gateConstruction, { queueRemaining: 0, readThisPass: 0, pausedForRateLimit: false, passStartedAt: null });
+    await (s.crawler as any).crawlGateConstruction();
+    const after = (await s.crawler.progress()).gateConstruction;
+    assert.equal(after.readThisPass, 3);
+    assert.equal(after.queueRemaining, 0);
+    assert.ok(after.passStartedAt! > 0);
+    (s.crawler as any).constructionBackoffUntil = Date.now() + 60_000;
+    assert.equal((await s.crawler.progress()).gateConstruction.pausedForRateLimit, true);
+  });
 });

@@ -92,4 +92,14 @@ describe("sell-market recovery", () => {
     assert.equal(d.routeList()[0]!.buyPrice, 3342);
     assert.equal(d.routeList()[0]!.profitPerTrip, 226_000);
   });
+
+  it("reports its adjustments through the logger the fleet gives it, not the console", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 10_000_000 });
+    const d = new RouteDispatcher();
+    const lines: string[] = [];
+    d.setLogger((m) => lines.push(m));
+    dump(d);
+    run(d, [BD3D, OTHER], { marketRecoveryMin: 90 });
+    assert.ok(lines.some((l) => /^\[dispatcher\] sell-market recovery adjusts 1: LAB_INSTRUMENTS/.test(l)), lines.join("\n"));
+  });
 });

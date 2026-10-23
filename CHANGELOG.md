@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Dispatcher and crawler lines reach the ops `logs` tool; crawler progress counter
+
+The 23:03 post-deploy check could not see whether the market-recovery pass was adjusting routes or how the crawler was doing: both print through `console.log` / the process-wide `log()`, which the ops log buffer never saw (the existing "route cool-off skips" line was missing too).
+
+- **Dispatcher:** `RouteDispatcher.setLogger()`; the two `[dispatcher] ...` lines (cool-off skips, sell-market recovery adjusts) now go through the fleet's own `log`, so `logs text="sell-market recovery"` finds them. Default is still `console.log`.
+- **Crawler:** `cli/index.ts` `logGlobal()` pushes the crawler's lines into the buffer under tenant `?` (every tenant's query includes it) as well as the console.
+- **Progress:** `GalaxyCrawler.progress()` (public `/api/cartography/progress`) now carries `gateConstruction: { queueRemaining, readThisPass, pausedForRateLimit, passStartedAt }`.
+- Tests added to `marketCrashSeam.test.ts` (1) and `galaxyCrawlerConstruction.test.ts` (1).
+
 ## 2026-10-23 — The galaxy crawler reads gate construction; edges no longer need loaded systems
 
 Follows the THEOREM-BE stall (see the next entry). Three pieces:

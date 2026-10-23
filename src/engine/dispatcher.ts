@@ -462,6 +462,9 @@ export class RouteDispatcher {
       buyMarketRoundsReason(this.closedTrips, good, buyAt, Date.now(), { maxRounds: this.buyRoundsMax, windowMin: ROUNDS_WINDOW_MIN });
   }
   private coolOffMin = 0;
+  /** Where recompute notes go. console.log by default; the fleet points it at its own log so they reach the ops `logs` tool. */
+  private logger: (msg: string) => void = (m) => console.log(m);
+  setLogger(fn: (msg: string) => void): void { this.logger = fn; }
   private roundsMax = 0;
   private buyRoundsMax = 0;
 
@@ -933,7 +936,7 @@ export class RouteDispatcher {
       const open = routes.filter((r) => !this.routeCoolOff(r.good, r.buyAt, r.sellAt));
       if (open.length !== routes.length) {
         const rested = routes.filter((r) => !open.includes(r)).map((r) => `${r.good} ${r.buyAt}>${r.sellAt} (${this.routeCoolOff(r.good, r.buyAt, r.sellAt)})`);
-        console.log(`[dispatcher] route cool-off skips ${rested.length}: ${[...new Set(rested)].slice(0, 5).join("; ")}`);
+        this.logger(`[dispatcher] route cool-off skips ${rested.length}: ${[...new Set(rested)].slice(0, 5).join("; ")}`);
         routes = open;
       }
     }
@@ -951,7 +954,7 @@ export class RouteDispatcher {
         if (out.reason) notes.push(`${r.good} ${r.buyAt}>${r.sellAt}: ${out.reason}`);
         adjusted.push(out.route);
       }
-      if (notes.length) console.log(`[dispatcher] sell-market recovery adjusts ${notes.length}: ${[...new Set(notes)].slice(0, 5).join("; ")}`);
+      if (notes.length) this.logger(`[dispatcher] sell-market recovery adjusts ${notes.length}: ${[...new Set(notes)].slice(0, 5).join("; ")}`);
       routes = adjusted;
     }
     routes = [...routes].sort((a, b) => this.scoreRoute(b) - this.scoreRoute(a));

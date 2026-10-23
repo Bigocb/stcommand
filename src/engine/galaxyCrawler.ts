@@ -132,11 +132,17 @@ export class GalaxyCrawler {
   async progress(): Promise<{
     factionsDone: boolean; systemsDone: boolean; scanned: number; total: number | undefined;
     gateQueueRemaining: number; gatesResolvedThisSweep: number;
+    /** The construction pass (see crawlGateConstruction): gates left in this pass, read so far, and whether it is paused for a rate limit. */
+    gateConstruction: { queueRemaining: number; readThisPass: number; pausedForRateLimit: boolean; passStartedAt: number | null };
   }> {
     const scanned = await this.store.countGalaxySystems();
     return {
       factionsDone: this.factionsDone, systemsDone: this.systemsDone, scanned, total: this.totalSystems,
       gateQueueRemaining: this.gateQueue.length, gatesResolvedThisSweep: this.gatesResolvedThisSweep,
+      gateConstruction: {
+        queueRemaining: this.constructionQueue.length, readThisPass: this.constructionChecked,
+        pausedForRateLimit: Date.now() < this.constructionBackoffUntil, passStartedAt: this.constructionBuiltAt || null,
+      },
     };
   }
 

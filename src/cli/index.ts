@@ -32,6 +32,12 @@ function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
+/** Server-wide lines (the galaxy crawler's) also go to the ops `logs` buffer, under tenant "?" which every tenant's query includes. */
+function logGlobal(msg: string): void {
+  logBuffer.push("?", msg);
+  log(msg);
+}
+
 /**
  * The multi-tenant server boot sequence. Unlike straders' single-tenant CLI
  * (src/cli/index.ts there boots exactly one fleet against ST_TOKEN and runs
@@ -98,7 +104,7 @@ async function main(): Promise<void> {
   // comment), so it runs on plain fetch() independent of tenant boot state
   // and doesn't compete with any tenant's rate limiter. Deliberately slow
   // (one call per tick) rather than racing to finish.
-  const galaxyCrawler = new GalaxyCrawler(new Store(pool), (msg) => log(msg));
+  const galaxyCrawler = new GalaxyCrawler(new Store(pool), (msg) => logGlobal(msg));
   const galaxyCrawlInterval = setInterval(() => {
     galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
   }, 5_000);
