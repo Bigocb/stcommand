@@ -118,6 +118,7 @@ export const MAX_LOTS_PER_TRIP = 3;
 
 import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
+import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
@@ -1747,10 +1748,10 @@ export class RouteDispatcher {
     };
 
     if (log) {
-      const idleCount = traders.filter((t) => !t.busy && !this.manual.has(t.shipSymbol)).length;
+      const states = formatTraderStates(traders.length, summarizeTraderStates(traders, new Set(next.keys()), new Set(this.manual.keys())));
       const workSummary = work.map((w) => `${w.key}=${Math.round(w.profitPerTrip)}`).join(", ") || "(none)";
       const assignedSummary = [...next.entries()].map(([ship, a]) => `${ship}:${a.good}(${a.role})`).join(", ") || "(none)";
-      log(`dispatch recompute: ${traders.length} traders (${idleCount} idle) | work: ${workSummary} | assigned: ${assignedSummary}`);
+      log(`dispatch recompute: ${states} | work: ${workSummary} | assigned: ${assignedSummary}`);
     }
   }
 }

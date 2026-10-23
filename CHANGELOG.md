@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-23 — Dispatch recompute line says what traders are doing, not "idle"
+The dispatcher counted a trader as idle whenever its hold was empty, so a ship flying empty to the market it had just been assigned to buy at counted as idle. On 2026-10-23 the log read "24 traders (16 idle)" while all 24 held an assignment, and that number was used to argue that routes, not ships, were the limit. They weren't: the largest hulls (bulk freighters) earned about 1M an hour each.
+- **`src/engine/traderStates.ts` (pure):** `carrying` (cargo aboard), `en route` (empty hold with an assignment: flying to or buying at its next market), `waiting` (empty hold and nothing assigned, the ships that really have no work, named in the line), `manual` (operator override).
+- The log line now reads `dispatch recompute: 24 traders (carrying 9, en route 13, waiting 2 [A, B], manual 0) | work: ...`. Nothing else about how routes are assigned changed. Tests: `tests/traderStates.test.ts` (5, including two through the real dispatcher; the mutation that counts en route as waiting fails three).
+
 ## 2026-10-22 — Ops tool: rival activity
 Every market scan returns the recent fills there, ours and other agents', with the ship, good, side and units; we already store them in `market_transactions`. The operator asked whether we can see how much the other traders buy, and what the leaderboard agents actually trade.
 - **`stcommand_ops_rival_activity`** (`rival_activity`): other agents' fills over `sinceHours` (default 24, cap 168), grouped by agent (ship symbol without its last suffix, so `CHAMLIS-DEV-1F` is `CHAMLIS-DEV`): ships, visits, units bought and sold, median and largest load per visit (about their hold), top goods and markets. A visit joins one ship's fills at one market under three minutes apart, so a 225-unit load split into three fills is one visit. Filters `agent` (partial name), `minUnits`, `limit`. A floor, not a census: a scan only shows the recent fills and an agent appears only where we look.
