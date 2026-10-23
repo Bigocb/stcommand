@@ -4,6 +4,7 @@ import { explorerReport } from "./explorers.js";
 import { buildKeeperReview } from "../engine/keeperValue.js";
 import { keeperSales } from "../engine/keeperSales.js";
 import { rivalActivity } from "../engine/rivalActivity.js";
+import { chartRewardReport } from "../engine/chartReward.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
@@ -449,6 +450,18 @@ export const OPS_TOOLS: OpsTool[] = [
       const hours = Math.min(Math.max(a.sinceHours, 0.25), 168);
       const fills = await ctx.w.store.rivalMarketFills(ctx.w.agentSymbol, new Date(ctx.now() - hours * 3_600_000).toISOString());
       return { window: { sinceHours: hours, rowsRead: fills.length, capped: fills.length >= 200000 }, ...rivalActivity(fills, { agentFilter: a.agent, minUnits: a.minUnits, limit: Math.min(Math.max(a.limit, 1), 100) }) };
+    },
+  },
+
+  {
+    name: "chart_rewards",
+    title: "What charting a waypoint has paid",
+    description: "The one-time credit reward for charting a waypoint, measured from our own books: every ledger row records the balance right after it, so between two consecutive rows the balance should move by exactly the second row's effect, and a chart that happened in that gap explains any leftover. Reports the charts in the window, a self-check (gaps with no chart should leave exactly nothing over: baseline.exactShare near 1 means the books are tight and the chart figures can be trusted), the single-chart rewards (median, mean, min, max) and the largest ones with the traits charted. Gaps holding several charts are averaged. Read-only; sinceHours defaults to 72.",
+    input: { sinceHours: num(72) },
+    async run(ctx, a) {
+      const sinceIso = new Date(ctx.now() - Math.min(Math.max(a.sinceHours, 1), 336) * 3_600_000).toISOString();
+      const [charts, track] = await Promise.all([ctx.w.store.chartActivity(ctx.w.tenantId, sinceIso), ctx.w.store.ledgerWalletTrack(ctx.w.tenantId, sinceIso)]);
+      return { sinceIso, ledgerRows: track.length, ...chartRewardReport(track, charts) };
     },
   },
 

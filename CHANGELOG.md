@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-23 — Ops tool: what charting pays
+The API says charting a waypoint pays "a one-time reward of credits based on the rarity of the waypoint's traits" but gives no amount, and our own chart calls (scouts, and new keeper probes at their spawn waypoint) never recorded it. The leaderboard's second list is charts submitted per agent (JANEWAY 24,636), so other agents chart at scale. The operator asked how much it is worth and whether it is worth doing.
+- **`stcommand_ops_chart_rewards`** (`chart_rewards`): measures the reward from the books, with no change to the engine. Every ledger row records the balance after it (`wallet_after`), so between two consecutive rows the balance must move by exactly the second row's effect; a chart in that gap explains any leftover. Chart events come from the activity log (kind "chart", already written by the scout and keeper-spawn paths).
+- Reports the charts in the window; a **self-check** (gaps with no chart should leave nothing over: `baseline.exactShare` near 1 means the books are tight enough to trust the chart figures); single-chart rewards (median, mean, min, max); the largest rewards with the traits charted; and gaps holding several charts averaged per chart. Ship rows are skipped (a purchase and a scrap share a type, so their sign is unknown).
+- Pure `src/engine/chartReward.ts`; `Store.chartActivity()` and `Store.ledgerWalletTrack()`. Tests: `tests/chartReward.test.ts` (6; ignoring the row's own effect fails three).
+
 ## 2026-10-23 — Dispatch recompute line says what traders are doing, not "idle"
 The dispatcher counted a trader as idle whenever its hold was empty, so a ship flying empty to the market it had just been assigned to buy at counted as idle. On 2026-10-23 the log read "24 traders (16 idle)" while all 24 held an assignment, and that number was used to argue that routes, not ships, were the limit. They weren't: the largest hulls (bulk freighters) earned about 1M an hour each.
 - **`src/engine/traderStates.ts` (pure):** `carrying` (cargo aboard), `en route` (empty hold with an assignment: flying to or buying at its next market), `waiting` (empty hold and nothing assigned, the ships that really have no work, named in the line), `manual` (operator override).

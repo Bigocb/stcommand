@@ -808,6 +808,28 @@ export class Store {
     }));
   }
 
+  /** Chart events from the activity log (kind "chart"), oldest first. */
+  async chartActivity(tenantId: string, sinceIso: string): Promise<{ at: number; ship: string; detail: string }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `SELECT timestamp, ship_symbol, detail FROM activity WHERE kind = 'chart' AND timestamp >= $1 ORDER BY timestamp ASC`,
+        [sinceIso],
+      );
+      return r.rows.map((x: any) => ({ at: new Date(x.timestamp).getTime(), ship: String(x.ship_symbol ?? ""), detail: String(x.detail ?? "") }));
+    });
+  }
+
+  /** The balance after each ledger row (rows that recorded one), oldest first, for measuring credit the ledger didn't explain. */
+  async ledgerWalletTrack(tenantId: string, sinceIso: string): Promise<{ at: number; type: string; total: number; walletAfter: number }[]> {
+    return withTenant(this.pool, tenantId, async (c) => {
+      const r = await c.query(
+        `SELECT timestamp, type, total, wallet_after FROM ledger WHERE wallet_after IS NOT NULL AND timestamp >= $1 ORDER BY timestamp ASC, id ASC`,
+        [sinceIso],
+      );
+      return r.rows.map((x: any) => ({ at: new Date(x.timestamp).getTime(), type: String(x.type), total: Number(x.total ?? 0), walletAfter: Number(x.wallet_after) }));
+    });
+  }
+
   /** Our trades per waypoint: sells and buys with units and value. Scoped to the tenant's current week by the ledger's row-level policy. */
   async ledgerTradeByWaypoint(tenantId: string): Promise<{ waypoint: string; sells: number; sellUnits: number; sellValue: number; buys: number; buyUnits: number; buyValue: number }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
