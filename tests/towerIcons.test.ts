@@ -37,3 +37,11 @@ describe("Tower icons", () => {
     assert.deepEqual([badge.w, badge.h, badge.colorType], [96, 96, 6], "Android's notification badge must be transparent (RGBA)");
   });
 });
+
+describe("Tower root icon paths", () => {
+  it("serves /apple-touch-icon.png, its precomposed twin and /favicon.ico from the server, so a failed <link> fetch can't leave iOS with a letter tile", () => {
+    const src = readFileSync(resolve(import.meta.dirname, "../src/cli/index.ts"), "utf8");
+    for (const p of ["/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/favicon.ico"]) assert.ok(src.includes(`"${p}"`), `${p} has no route`);
+    assert.ok(existsSync(resolve(pub, "icons/tower-apple-touch-icon.png")) && existsSync(resolve(pub, "icons/tower-favicon-32.png")));
+  });
+});

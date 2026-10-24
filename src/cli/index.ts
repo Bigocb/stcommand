@@ -265,6 +265,16 @@ async function main(): Promise<void> {
     res.sendFile(resolve(PUBLIC_DIR, "m.html"));
   });
 
+  // iOS and some browsers ask for these root paths whatever the page says (an install whose <link> fetch failed, a
+  // bookmark, a tab icon). With no answer they showed a plain letter tile for Tower, and Cloudflare kept the 404 for
+  // hours. Answer with Tower's own icons; Deck keeps its own <link>s.
+  const towerRootIcon = (file: string) => (_req: express.Request, res: express.Response) => {
+    res.set("Cache-Control", "public, max-age=3600");
+    res.sendFile(resolve(PUBLIC_DIR, "icons", file));
+  };
+  for (const path of ["/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/apple-touch-icon-180x180.png"]) app.get(path, towerRootIcon("tower-apple-touch-icon.png"));
+  app.get("/favicon.ico", towerRootIcon("tower-favicon-32.png"));
+
   // Deck: the desktop redesign, docs/deck-desktop-design.md. Same pattern as
   // Tower — its own route, shell, manifest, and visual identity.
   app.get("/deck", (_req, res) => {

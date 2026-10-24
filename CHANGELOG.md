@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Tower PWA: root icon paths answer, 180px size declared
+
+The installed Tower showed a plain letter "T" tile. iOS takes the Home Screen icon once, at install, and keeps it; if that
+fetch fails it falls back to the letter. The linked icon URL serves a valid 180x180 PNG now, but `/apple-touch-icon.png`,
+`/apple-touch-icon-precomposed.png` and `/favicon.ico` (the paths iOS and browsers try on their own) were 404s that
+Cloudflare cached for four hours. They now serve Tower's icons, and the `<link>` declares `sizes="180x180"`. An already
+installed Tower keeps its letter until it is removed from the Home Screen and added again.
+
 ## 2026-10-24 — Crawler construction pass: say what each read came to
 
 The 00:02 check found a restarted pass with 26 gates consumed, none recorded and a rate-limit pause, and nothing in the log to say why (a 404, a malformed body and a thrown error were all skipped silently). `GalaxyCrawler` now counts every outcome of the pass (`recorded_complete`, `recorded_unfinished`, `status_<code>`, `malformed`, `error`), shows them in `progress().gateConstruction.outcomes` and in the "pass finished" line. No behaviour change. Sampling the public endpoint by hand returned 200 with `isComplete` for every one of 16 gates tried.
