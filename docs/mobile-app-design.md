@@ -393,3 +393,19 @@ stranded ships, critical attention flags, the reset warnings, an earning-rate dr
 send a test. A tap on a notification opens Tower on the right tab (`/m#approvals`, `#fleet`, `#home`, `#metrics`). On iPhone
 it works only from the Home Screen app, and the screen says so. Design, setup and how to add an alert: `docs/notifications.md`.
 
+
+## iOS Add to Home Screen icon (2026-10-24, confirmed working by the operator)
+
+Symptom: in Safari the share sheet showed the new Tower icon, but Add to Home Screen produced a plain letter "T". The fix that worked,
+in the order it was made:
+
+1. Serve the root paths iOS asks for by itself and ignores the `<link>` for: `/apple-touch-icon.png`, `/apple-touch-icon-precomposed.png`,
+   `/apple-touch-icon-180x180.png` (all `icons/tower-apple-touch-icon.png`) and `/favicon.ico` (`icons/tower-favicon-32.png`), in `src/cli/index.ts`.
+2. Declare `sizes="180x180"` on the `apple-touch-icon` link in `public/m.html`, and list the 180x180 icon first in
+   `public/manifest-tower.webmanifest`.
+3. **Embed the 180x180 PNG in `public/m.html` as a base64 data URI** in the `apple-touch-icon` link, so Add to Home Screen needs no separate
+   fetch. This is the step that fixed the letter "T". The root cause was never proven; the working theory is that the separate icon fetch failed
+   or returned something else and iOS fell back to a letter. `tests/towerIcons.test.ts` checks the embedded icon equals the PNG file, so
+   regenerate both together if the art changes.
+
+iOS caches home-screen icons hard: test on a fresh Add to Home Screen after deleting the old one.
