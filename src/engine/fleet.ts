@@ -1117,6 +1117,11 @@ export class FleetManager {
         this.log(`restore dispatch circuits failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    const impactsFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "tradeImpacts") : undefined;
+    if (impactsFlag) {
+      const n = this.dispatcher.restoreImpacts(impactsFlag);
+      if (n > 0) this.log(`restored ${n} recent sale/purchase lot(s) for market recovery pricing`);
+    }
     const deadRoutesFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "deadRoutes") : undefined;
     if (deadRoutesFlag) {
       const n = this.dispatcher.restoreDeadRoutes(deadRoutesFlag);
@@ -9345,6 +9350,16 @@ export class FleetManager {
           else await this.store?.setFleetFlag(this.tenantId, "dispatchCircuits", circuitJson);
         } catch (err) {
           this.log(`save dispatch circuits failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      // Keep our recent sale and purchase lots (the recovery pricing and learned impact are built from them) across a
+      // restart. At most one write a minute, and only when they changed.
+      const impactsJson = this.dispatcher.impactsSnapshot();
+      if (impactsJson !== undefined && this.tenantId) {
+        try {
+          await this.store?.setFleetFlag(this.tenantId, "tradeImpacts", impactsJson);
+        } catch (err) {
+          this.log(`save trade impacts failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       // Keep the routes ships have found dead across a restart (written only when the list changes).

@@ -415,6 +415,60 @@ export class RouteDispatcher {
   }
   private marketRecoveryMin = 0;
 
+  private savedImpactsAt = 0;
+  private savedImpacts = '{"sales":[],"buys":[]}';
+  /**
+   * Our recent sale and purchase lots per market, as JSON, for saving across a restart. They are what the sell and buy
+   * recovery pricing (marketCrash.ts) and the learned price impact (lotImpact.ts) are built from; held only in memory,
+   * every deploy made the dispatcher forget the markets it had just dumped into and plan on the stale snapshot price
+   * again until a ship next visited. Returns undefined when nothing has changed or the last write was under `minIntervalMs`
+   * ago (lots arrive every few seconds across the fleet; one flag write a minute is plenty). Only lots inside the keep
+   * window and the last 60 per market are written.
+   */
+  impactsSnapshot(now: number = Date.now(), minIntervalMs = 60_000): string | undefined {
+    if (now - this.savedImpactsAt < minIntervalMs) return undefined;
+    const pack = (m: Map<string, SaleImpact[]>) =>
+      [...m.entries()]
+        .map(([key, lots]) => [key, lots.filter((l) => l.at >= now - SALE_IMPACT_KEEP_MS).slice(-60).map((l) => [l.units, l.at, l.price])] as const)
+        .filter(([, lots]) => lots.length > 0)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const json = JSON.stringify({ sales: pack(this.saleImpacts), buys: pack(this.buyImpacts) });
+    this.savedImpactsAt = now;
+    if (json === this.savedImpacts) return undefined;
+    this.savedImpacts = json;
+    return json;
+  }
+  /** Load lots saved by impactsSnapshot(); lots outside the keep window and malformed rows are skipped. Returns how many were loaded. */
+  restoreImpacts(json: string, now: number = Date.now()): number {
+    let parsed: unknown;
+    try { parsed = JSON.parse(json); } catch { return 0; }
+    if (!parsed || typeof parsed !== "object") return 0;
+    let loaded = 0;
+    const load = (rows: unknown, into: Map<string, SaleImpact[]>) => {
+      if (!Array.isArray(rows)) return;
+      for (const row of rows) {
+        if (!Array.isArray(row) || typeof row[0] !== "string" || !Array.isArray(row[1])) continue;
+        const lots: SaleImpact[] = [];
+        for (const l of row[1]) {
+          if (!Array.isArray(l)) continue;
+          const [units, at, price] = l as unknown[];
+          if (typeof units !== "number" || typeof at !== "number" || typeof price !== "number" || !(units > 0) || !(price > 0) || at < now - SALE_IMPACT_KEEP_MS) continue;
+          lots.push({ units, at, price });
+        }
+        if (lots.length === 0) continue;
+        // keep anything recorded since this process started, in time order
+        into.set(row[0], [...lots, ...(into.get(row[0]) ?? [])].sort((a, b) => a.at - b.at).slice(-200));
+        loaded += lots.length;
+      }
+    };
+    const o = parsed as { sales?: unknown; buys?: unknown };
+    load(o.sales, this.saleImpacts);
+    load(o.buys, this.buyImpacts);
+    this.savedImpacts = "";
+    this.savedImpactsAt = 0;
+    return loaded;
+  }
+
   /** Routes any ship has found dead on arrival, shared so the next ship is not sent to the same one (routeBlocks.ts). */
   private readonly routeBlocks = new RouteBlocks();
   private routeBlockMin = 0;

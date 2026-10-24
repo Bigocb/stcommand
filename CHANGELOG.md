@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Our recent sale and purchase lots survive a restart (fleet flag tradeImpacts)
+
+The sell/buy recovery pricing (`marketCrash.ts`, `marketRecoveryMin`, on live) and the learned price impact
+(`lotImpact.ts`) are built from our own recent lots per market, which the dispatcher kept only in memory. Every deploy (ten
+of them on 2026-10-24) made it forget the markets it had just dumped into and plan on the stale snapshot price again until a
+ship next visited. `RouteDispatcher.impactsSnapshot()` / `restoreImpacts()` write them to the `tradeImpacts` fleet flag (at
+most once a minute, only when changed, last 60 lots per market inside the 4-hour keep window) and the fleet loads them at
+boot. Not saved, deliberately: the 30-minute recent-volume list behind the older score decay, and the idle-trader clock
+(it restarts, which at worst delays an idle alert by five minutes).
+
 ## 2026-10-24 — Dead routes are shared between ships (deadRouteShareMin, off by default)
 
 A trader that reaches its buy market and finds the live price no longer pays (the dispatcher planned on a snapshot) put the
