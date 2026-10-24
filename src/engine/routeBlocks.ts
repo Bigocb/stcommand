@@ -13,6 +13,11 @@
  *
  * Pure apart from the map it owns: the caller passes the time. `ttlMin` 0 (the default policy) records and blocks nothing,
  * so the dispatcher behaves exactly as before.
+ *
+ * Kept across a restart: `toJson()` / `restore()` round-trip the standing blocks (absolute end times, so a block that
+ * would have lapsed while the process was down is simply not restored). The fleet saves them with the other dispatch
+ * state (fleet flag `deadRoutes`), because every deploy restarts the service and a list that forgot itself each time
+ * would have each ship learn the same dead routes again.
  */
 
 export interface BlockPolicy {
@@ -56,6 +61,28 @@ export class RouteBlocks {
   prune(now: number): number {
     for (const [k, b] of this.blocks) if (b.until <= now) this.blocks.delete(k);
     return this.blocks.size;
+  }
+
+  /** The standing blocks as JSON (lapsed ones left out), in a stable order so an unchanged list saves nothing. */
+  toJson(now: number): string {
+    const rows = [...this.blocks.entries()].filter(([, b]) => b.until > now).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return JSON.stringify(rows.map(([key, b]) => [key, b.until, b.reason, b.reports]));
+  }
+
+  /** Load blocks saved by toJson(). Malformed input and lapsed blocks are skipped; never throws. */
+  restore(json: string, now: number): number {
+    let rows: unknown;
+    try { rows = JSON.parse(json); } catch { return 0; }
+    if (!Array.isArray(rows)) return 0;
+    let loaded = 0;
+    for (const r of rows) {
+      if (!Array.isArray(r)) continue;
+      const [key, until, reason, reports] = r as [unknown, unknown, unknown, unknown];
+      if (typeof key !== "string" || typeof until !== "number" || !Number.isFinite(until) || until <= now) continue;
+      this.blocks.set(key, { until, reason: typeof reason === "string" ? reason : "reported dead", reports: typeof reports === "number" && reports > 0 ? Math.floor(reports) : 1 });
+      loaded++;
+    }
+    return loaded;
   }
 
   /** The blocks standing now, for the ops view. */

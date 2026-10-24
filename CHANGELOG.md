@@ -20,7 +20,9 @@ two buy-time guards now report what they found (`reportDeadRoute`), the dispatch
 ship's list for the clause's minutes (a buy market whose price moved blocks every destination from it, a destination that
 refused blocks that pair), logs `[dispatcher] N route(s) held back as dead`, and a trader already on its way asks
 `deadRouteReason` in its own viability check so it re-plans at once instead of flying there to find out. Clause
-`deadRouteShareMin` (30 min, off): off, nothing is recorded or filtered. In memory only, so a restart clears it.
+`deadRouteShareMin` (30 min, off): off, nothing is recorded or filtered. Saved with the other dispatch state (fleet flag
+`deadRoutes`, written only when the list changes, restored at boot with lapsed blocks dropped), so a deploy does not make the
+fleet learn the same dead routes again.
 
 ## 2026-10-24 — Metrics ranges: 3 hours replaces 3 days
 

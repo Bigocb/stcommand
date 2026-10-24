@@ -422,6 +422,21 @@ export class RouteDispatcher {
   reportDeadRoute(good: string, buyAt: string, sellAt: string | undefined, reason: string): void {
     this.routeBlocks.report(good, buyAt, sellAt, reason, Date.now(), { ...DEFAULT_BLOCK_POLICY, ttlMin: this.routeBlockMin });
   }
+  private savedDeadRoutes = "[]";
+  /** The standing dead-route blocks as JSON, once, when they have changed since the last call (undefined otherwise), so the
+   *  caller can save them across a restart. An empty list is "[]". */
+  deadRoutesSnapshot(): string | undefined {
+    const json = this.routeBlocks.toJson(Date.now());
+    if (json === this.savedDeadRoutes) return undefined;
+    this.savedDeadRoutes = json;
+    return json;
+  }
+  /** Load blocks saved by deadRoutesSnapshot(); returns how many were still standing. */
+  restoreDeadRoutes(json: string): number {
+    const n = this.routeBlocks.restore(json, Date.now());
+    this.savedDeadRoutes = this.routeBlocks.toJson(Date.now());
+    return n;
+  }
   /** Why a route is held back as dead, or undefined (always undefined with the clause off). A trader already on its way asks
    *  this so it re-plans as soon as another ship has found the route dead, instead of flying there to find out itself. */
   deadRouteReason(good: string, buyAt: string, sellAt: string): string | undefined {

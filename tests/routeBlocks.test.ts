@@ -123,3 +123,46 @@ describe("a trader already on its way re-plans when another ship reported the ro
     assert.doesNotMatch((t as any).whyNotViable({ ...r, buyAt: "X1-Q-B2" }), /dead route/);
   });
 });
+
+describe("dead routes survive a restart", () => {
+  it("round-trips the standing blocks and leaves out the lapsed ones", () => {
+    const b = new RouteBlocks();
+    b.report("A", "X1-A-1", undefined, "buy price moved", 0, on);
+    b.report("B", "X1-A-2", "X1-A-9", "bid refused", 0, { ttlMin: 5 });
+    const json = b.toJson(10 * MIN); // B lapsed at 5 minutes
+    const back = new RouteBlocks();
+    assert.equal(back.restore(json, 10 * MIN), 1);
+    assert.ok(back.reasonFor({ good: "A", buyAt: "X1-A-1", sellAt: "X1-A-5" }, 10 * MIN));
+    assert.equal(back.reasonFor({ good: "B", buyAt: "X1-A-2", sellAt: "X1-A-9" }, 10 * MIN), undefined);
+    assert.equal(back.toJson(10 * MIN), json, "a restored list saves identically");
+  });
+
+  it("restore skips junk, lapsed rows and never throws", () => {
+    const b = new RouteBlocks();
+    assert.equal(b.restore("not json", 0), 0);
+    assert.equal(b.restore("{}", 0), 0);
+    assert.equal(b.restore(JSON.stringify([null, ["k"], ["k", "x"], ["old", 5, "r", 1], ["ok", 99 * MIN, "r", 2], [7, 99 * MIN]]), 10 * MIN), 1);
+    assert.deepEqual(b.list(10 * MIN).map((x) => x.key), ["ok"]);
+  });
+
+  it("the dispatcher hands out its list once per change and a new dispatcher restores it", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 10_000_000 });
+    const d = new RouteDispatcher();
+    run(d, { routeBlockMin: 30 }, []);
+    assert.equal(d.deadRoutesSnapshot(), undefined, "nothing to save yet");
+    d.reportDeadRoute("EQUIPMENT", "X1-KG7-DD5E", undefined, "buy price now 2508c");
+    const json = d.deadRoutesSnapshot();
+    assert.ok(json && json.includes("EQUIPMENT@X1-KG7-DD5E"));
+    assert.equal(d.deadRoutesSnapshot(), undefined, "unchanged: nothing to write");
+    // a restart: a fresh dispatcher, the saved JSON, the clause still on at the next dispatch cycle
+    t.mock.timers.tick(5 * MIN);
+    const d2 = new RouteDispatcher();
+    assert.equal(d2.restoreDeadRoutes(json!), 1);
+    assert.equal(d2.deadRoutesSnapshot(), undefined, "what was just loaded is not rewritten");
+    run(d2, { routeBlockMin: 30 });
+    assert.deepEqual(d2.routeList().map((r) => r.buyAt), ["X1-KG7-OK1"], "still held back after the restart");
+    // and when the last block lapses the saved list empties
+    t.mock.timers.tick(30 * MIN);
+    assert.equal(d2.deadRoutesSnapshot(), "[]");
+  });
+});

@@ -1117,6 +1117,11 @@ export class FleetManager {
         this.log(`restore dispatch circuits failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    const deadRoutesFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "deadRoutes") : undefined;
+    if (deadRoutesFlag) {
+      const n = this.dispatcher.restoreDeadRoutes(deadRoutesFlag);
+      if (n > 0) this.log(`restored ${n} dead route(s) reported before the restart`);
+    }
     const reachFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "shipReach") : undefined;
     if (reachFlag) {
       try {
@@ -9340,6 +9345,16 @@ export class FleetManager {
           else await this.store?.setFleetFlag(this.tenantId, "dispatchCircuits", circuitJson);
         } catch (err) {
           this.log(`save dispatch circuits failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      // Keep the routes ships have found dead across a restart (written only when the list changes).
+      const deadRoutesJson = this.dispatcher.deadRoutesSnapshot();
+      if (deadRoutesJson !== undefined && this.tenantId) {
+        try {
+          if (deadRoutesJson === "[]") await this.store?.removeFleetFlag(this.tenantId, "deadRoutes");
+          else await this.store?.setFleetFlag(this.tenantId, "deadRoutes", deadRoutesJson);
+        } catch (err) {
+          this.log(`save dead routes failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       // First, so that its priority-0 proposal wins the tie against rescue's
