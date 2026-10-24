@@ -14,9 +14,9 @@ import { fmt, signed, escapeHtml } from "/shared/domain.js";
 const RANGES = [
   { hours: 0.5, label: "30m" },
   { hours: 1, label: "1h" },
+  { hours: 3, label: "3h" },
   { hours: 6, label: "6h" },
   { hours: 24, label: "24h" },
-  { hours: 72, label: "3d" },
 ];
 const DEFAULT_TARGET = 25_738_654; // last week's final credits
 // Every window refreshes once a minute; the 30-minute window refreshes every 15 seconds, so it reads as live.
@@ -173,7 +173,9 @@ function table(headers, rows, empty) {
 }
 
 export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) {
+  // A saved window that is no longer offered (the old 3 days) falls back to 6 hours rather than showing no range selected.
   let hours = Number(lsGet("metricsHours", "6")) || 6;
+  if (!RANGES.some((r) => r.hours === hours)) hours = 6;
   // "Since reset" shows the whole current universe instead of a rolling window.
   let sinceReset = lsGet("metricsSince", "") === "reset";
   let data = null;

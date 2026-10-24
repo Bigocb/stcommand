@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Metrics ranges: 3 hours replaces 3 days
+
+The Metrics screen (Tower and Deck share it) offered 30m, 1h, 6h, 24h and 3d. The 3-day window is gone and a 3-hour one is in
+its place (30m, 1h, 3h, 6h, 24h, Since reset), the span that settles a rate after a change. A saved 3-day choice falls back
+to 6 hours. The server already accepted any window up to 72 hours.
+
 ## 2026-10-24 — Idle traders: a ship in flight is not idle
 
 THEOREM-1B was listed "Idle 8 min" while it was in flight (the dispatcher had no route for it and it was hopping around its
