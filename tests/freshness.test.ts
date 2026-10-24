@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { ActionEventRow, AnalysisLedgerRow } from "../src/db/store.js";
-import { DEFAULT_FRESHNESS_POLICY, buildFreshness, coverageFromEvents, freshnessFindings, systemOf } from "../src/engine/analysis/freshness.js";
+import { DEFAULT_FRESHNESS_POLICY, buildFreshness, coverageFromEvents, freshnessFindings, livePremium, systemOf } from "../src/engine/analysis/freshness.js";
 import { buildAnalysisReport } from "../src/engine/analysis/report.js";
 
 const H = 3_600_000;
@@ -108,5 +108,28 @@ describe("freshness in the report", () => {
 
   it("policy defaults are the documented ones", () => {
     assert.deepEqual([DEFAULT_FRESHNESS_POLICY.bucketEdgesH, DEFAULT_FRESHNESS_POLICY.matureAfterH, DEFAULT_FRESHNESS_POLICY.premiumRatio], [[2, 4, 8, 16], 16, 1.25]);
+  });
+});
+
+describe("freshness: the release anchor and the live premium", () => {
+  const releaseEvent = (atMs: number, system: string): ActionEventRow => ({
+    at: new Date(atMs).toISOString(), universeKey: "THEOREM@2026-10-25", kind: "config_change", actor: "operator", subject: "system_release",
+    context: { before: { system, state: "staged" }, after: { system, markets: 6 } },
+  });
+
+  it("anchors a system at its release, not at the earlier keeper-list change", () => {
+    const c = coverageFromEvents([keeperChange(T0, ["X1-YB39-E14C"]), releaseEvent(T0 + 5 * H, "X1-YB39")]);
+    assert.deepEqual(c.map((x) => [x.system, x.atMs - T0, x.markets]), [["X1-YB39", 5 * H, 6]]);
+    // a release for a system with no keeper-list change still makes an anchor
+    assert.equal(coverageFromEvents([releaseEvent(T0, "X1-NEW")]).length, 1);
+  });
+
+  it("reads the premium now: profit per unit over the recent sells against the mature rate, null on few sells", () => {
+    const recent = [...sells("X1-YB39-E14C", 0, 20, 840), ...sells("X1-UF49-CD1F", 0, 5, 2000), ...sells("X1-HM42-A1", 0, 30, 400)];
+    const p = livePremium(recent, ["X1-YB39", "X1-UF49", "X1-NONE"], 420);
+    assert.deepEqual(p.get("X1-YB39"), { ratio: 2, sells: 20 });
+    assert.deepEqual(p.get("X1-UF49"), { ratio: null, sells: 5 }, "5 sells is under the minimum");
+    assert.deepEqual(p.get("X1-NONE"), { ratio: null, sells: 0 });
+    assert.equal(livePremium(recent, ["X1-YB39"], null).get("X1-YB39")!.ratio, null, "no mature rate, no ratio");
   });
 });

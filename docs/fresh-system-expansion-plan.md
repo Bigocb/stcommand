@@ -106,9 +106,9 @@ sells against the mature rate), not age alone: THEOREM-152 sold about 8,000 unit
 per unit fell from 1,170 to 770, which is our own volume saturating the system, not time.
 
 Coverage per fresh system should be its top markets by keeper score (perhaps 5 to 8), not every market (HF67 had 20 keepers, HM42
-29), or the API budget cannot carry one new system an hour. Build order: the gate, the scouted/staged/live states and a manual
-stage/release ops tool first (lead time is entirely the operator's), then the live per-system premium in `freshness.ts`, then an
-advisory controller in `keeper_review`, then an automatic clause that ships off.
+29), or the API budget cannot carry one new system an hour. **Built 2026-10-24 (all behind `freshGate`, off):** the gate, the scouted/staged/live states, manual stage/release/hold tools, the live per-system
+premium in `freshness.ts`, and the release rule in `systemRelease.ts` with advisory and auto modes. See the CHANGELOG entry. Next: watch the advisory
+answers for a week against what the operator would have done before turning auto on, and use the measured curve to tune `freshLeadMin` and `freshTarget`.
 
 ## Risks
 

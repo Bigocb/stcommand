@@ -33,6 +33,8 @@ Every ship has exactly one role at a time, set by stcommand_set_ship_role — re
 - **tour** — visits every market/shipyard in a system to keep price and shipyard-inventory intel fresh. Send one to a whole new system with stcommand_dispatch_tour.
 - **keeper** — permanently camps one specific market/shipyard (its keeperMarket) so it's always fresh, rather than touring past it occasionally.
 
+**Fresh systems (when the freshGate clause is on):** a system an explorer finds worth covering waits in a queue instead of opening at once: scouted (nothing bought, traders are not offered routes through it), staged (keepers bought and parked on its best markets, so waiting costs no API calls) and live (released). A newly opened system pays about 1.7x the usual profit per unit for roughly 8 hours, so the point is to open the next one as the last fades. stcommand_ops_system_queue shows the queue and what the release rule would do now; stcommand_stage_system, stcommand_release_system and stcommand_hold_system are the manual controls (a hold pins a system against the engine, a release opens its gate for good). With the clause on auto the engine stages and releases itself.
+
 ## Moving ships
 
 - **stcommand_dispatch_ship** — send a ship to a waypoint in its *current* system and hold it there once it arrives.

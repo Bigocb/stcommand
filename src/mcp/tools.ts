@@ -1228,6 +1228,63 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_stage_system",
+    {
+      title: "Stage a fresh system (buy and park its keepers behind the gate)",
+      description: "Queue a system behind the fresh-system gate and stage it: keepers are bought for its best markets (freshKeepersPerSystem of them, by keeper score) and parked on arrival, so waiting costs no API calls, while traders are not offered routes through it. A system an explorer already queued is staged from where it is. Needs the freshGate clause on (1 advisory or 2 auto). Release it with stcommand_release_system when the fleet needs a fresh system; the premium (about 1.7x the mature profit per unit for roughly 8 hours) starts at the release. Reversible with stcommand_hold_system (pins it) before the release; nothing is bought twice if you stage it again.",
+      inputSchema: { system: z.string().describe("System symbol, e.g. X1-ZZ69") },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ system }) => {
+      try {
+        const r = await w.fleet.stageSystem(system, "operator");
+        await recordMcpAction(w, "stage_system", undefined, `${system} staged: ${r.markets.length} market(s)`, { system, markets: r.markets });
+        return textResult({ ok: true, ...r });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_release_system",
+    {
+      title: "Release a fresh system (open its gate)",
+      description: "Open a queued system's gate: its staged keepers are unparked, traders are offered routes through it, and the freshness clock starts. Works on a staged system (the usual case) or a scouted one (its markets are then added to the keeper list and it opens as they are covered); a release also clears any hold. This is the manual flip: with freshGate on auto the engine does the same when its rule says so (ops system_queue shows the rule's current answer). Irreversible in the sense that the premium is spent as traders sell into it; a hold does not close an open gate.",
+      inputSchema: { system: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ system }) => {
+      try {
+        const r = await w.fleet.releaseSystem(system, "operator");
+        await recordMcpAction(w, "release_system", undefined, `${system} released: ${r.unparked.length} keeper(s) unparked`, { system, unparked: r.unparked });
+        return textResult({ ok: true, ...r });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_hold_system",
+    {
+      title: "Hold or unhold a queued system",
+      description: "Pin a scouted or staged system so the engine will not stage or release it (you still can). hold=false clears the pin. A live system has no gate and cannot be held.",
+      inputSchema: { system: z.string(), hold: z.boolean().optional().describe("true (default) pins it; false clears the pin") },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ system, hold }) => {
+      try {
+        const r = await w.fleet.holdSystem(system, hold ?? true);
+        await recordMcpAction(w, "hold_system", undefined, `${system} ${r.held ? "held" : "hold cleared"}`, { system, held: r.held });
+        return textResult({ ok: true, ...r });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_unpark_ship",
     {
       title: "Unpark a ship (resume its role)",

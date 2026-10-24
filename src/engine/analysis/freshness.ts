@@ -53,10 +53,24 @@ export function systemOf(waypoint: string): string {
   return p.length >= 2 ? `${p[0]}-${p[1]}` : waypoint;
 }
 
-/** The earliest keeper-list addition per system, from the `keeper_markets` config changes. */
+/**
+ * The earliest keeper-list addition per system, from the `keeper_markets` config changes. A `system_release` event (the fresh-system
+ * gate opening, systemQueue.ts) replaces the anchor for its system: the keepers were listed earlier, but traders could only reach the
+ * system from the release, so that is when its premium starts.
+ */
 export function coverageFromEvents(events: readonly ActionEventRow[]): Coverage[] {
   const first = new Map<string, Coverage>();
+  const released = new Map<string, Coverage>();
   for (const e of events) {
+    if (e.kind === "config_change" && e.subject === "system_release") {
+      const after = (e.context as { after?: { system?: unknown; markets?: unknown } } | undefined)?.after;
+      const at = Date.parse(e.at);
+      if (typeof after?.system === "string" && Number.isFinite(at)) {
+        const have = released.get(after.system);
+        if (!have || at < have.atMs) released.set(after.system, { system: after.system, atMs: at, markets: typeof after.markets === "number" ? after.markets : 0 });
+      }
+      continue;
+    }
     if (e.kind !== "config_change" || e.subject !== "keeper_markets") continue;
     const after = (e.context as { after?: { added?: unknown } } | undefined)?.after;
     const added = Array.isArray(after?.added) ? (after!.added as unknown[]).filter((m): m is string => typeof m === "string") : [];
@@ -69,6 +83,7 @@ export function coverageFromEvents(events: readonly ActionEventRow[]): Coverage[
       if (!have || at < have.atMs) first.set(system, { system, atMs: at, markets: n });
     }
   }
+  for (const [system, c] of released) first.set(system, c);
   return [...first.values()].sort((a, b) => a.atMs - b.atMs);
 }
 
@@ -221,4 +236,33 @@ export function freshnessFindings(f: FreshnessReport, policy: FreshnessPolicy = 
       why: "A correlation: the premium is the fleet's own profit per unit in newly covered systems against older ones, not a controlled test.",
     },
   }];
+}
+
+/**
+ * The premium a system is earning right now: its profit per unit over the recent sells against the mature rate. `sells` should be
+ * the last couple of hours; null = fewer than minSells in that system, so no ratio is believed.
+ */
+export function livePremium(
+  sells: readonly AnalysisLedgerRow[],
+  systems: readonly string[],
+  matureProfitPerUnit: number | null,
+  policy: Pick<FreshnessPolicy, "minSells"> = DEFAULT_FRESHNESS_POLICY,
+): Map<string, { ratio: number | null; sells: number }> {
+  const want = new Set(systems);
+  const acc = new Map<string, { n: number; units: number; profit: number }>();
+  for (const r of sells) {
+    if (r.type !== "SELL" || r.realizedPnl === null || !(r.units > 0) || !r.waypoint) continue;
+    const sys = systemOf(r.waypoint);
+    if (!want.has(sys)) continue;
+    const a = acc.get(sys) ?? { n: 0, units: 0, profit: 0 };
+    a.n++; a.units += r.units; a.profit += r.realizedPnl;
+    acc.set(sys, a);
+  }
+  const out = new Map<string, { ratio: number | null; sells: number }>();
+  for (const sys of systems) {
+    const a = acc.get(sys);
+    const ratio = a && a.n >= policy.minSells && matureProfitPerUnit !== null && matureProfitPerUnit > 0 ? round2(a.profit / a.units / matureProfitPerUnit) : null;
+    out.set(sys, { ratio, sells: a?.n ?? 0 });
+  }
+  return out;
 }

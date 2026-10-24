@@ -24,6 +24,9 @@ import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as r
 import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
 import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type TriagePolicy } from "./keeperTriage.js";
 import { Reminders } from "./reminders.js";
+import { SystemQueue } from "./systemQueue.js";
+import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
+import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
@@ -1128,6 +1131,21 @@ export class FleetManager {
     if (deadRoutesFlag) {
       const n = this.dispatcher.restoreDeadRoutes(deadRoutesFlag);
       if (n > 0) this.log(`restored ${n} dead route(s) reported before the restart`);
+    }
+    const queueFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "systemQueue") : undefined;
+    if (queueFlag) {
+      const n = this.systemQueue.restore(queueFlag);
+      if (n > 0) this.log(`restored ${n} queued fresh system(s)`);
+    }
+    const freshGateFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "freshGate") : undefined;
+    if (freshGateFlag) {
+      try {
+        const f = JSON.parse(freshGateFlag) as { stagedParked?: Record<string, string>; lastReleaseAt?: number };
+        for (const [ship, sys] of Object.entries(f.stagedParked ?? {})) if (typeof sys === "string") this.stagedParked.set(ship, sys);
+        if (typeof f.lastReleaseAt === "number") this.lastFreshReleaseAt = f.lastReleaseAt;
+      } catch {
+        /* a bad flag is dropped; the parked hulls themselves are restored from fleet_state */
+      }
     }
     const remindersFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "reminders") : undefined;
     if (remindersFlag) {
@@ -4870,7 +4888,11 @@ export class FleetManager {
       if (this.doctrine.isEnabledOr("autoKeeperGoodSystems", false)) {
         const { add: fresh, thin } = await this.keeperCandidatesForSystem(target);
         if (thin.length > 0) this.log(`${shipSymbol}: ${target}: skipped ${thin.length} thin market(s) for the keeper list (${thin.map((t) => `${t.market} ${t.goods}`).join(", ")})`);
-        if (fresh.length > 0) {
+        if (fresh.length > 0 && this.freshGateMode() !== "off") {
+          // Queued behind the fresh-system gate (systemQueue.ts): nothing is bought and no route runs through it until it is staged and released.
+          this.queueFreshSystem(target, fresh);
+          await this.saveFreshGate();
+        } else if (fresh.length > 0) {
           this.log(`${shipSymbol}: ${target} is worth a tour; adding ${fresh.length} market(s) to the keeper list`);
           try { await this.addKeeperPriorityMarkets(fresh); } catch (err) { this.log(`keeper list add for ${target} failed: ${describeError(err)}`); }
         }
@@ -5228,6 +5250,237 @@ export class FleetManager {
     }
   }
 
+  // ---- Fresh systems (systemQueue.ts, systemRelease.ts): queue behind a gate, stage, release ----
+  private readonly systemQueue = new SystemQueue();
+  /** Keepers parked on a staged system's markets, ship -> system, saved in the `freshGate` flag with the last release time. */
+  private readonly stagedParked = new Map<string, string>();
+  private lastFreshReleaseAt: number | undefined;
+  private lastFreshCheckAt = 0;
+  private freshLast?: { at: number; mode: ReleaseMode; decision: ReleaseDecision; queue: QueueFacts[]; live: LiveFacts[]; idleTraders: number };
+  private freshAdviceKey = "";
+  private freshMature?: { at: number; sells: import("../db/store.js").AnalysisLedgerRow[] };
+  private readonly freshLog: string[] = [];
+
+  /** 0 = off, 1 = advisory, 2 = auto (clause freshGate). */
+  private freshGateMode(): ReleaseMode {
+    if (!this.doctrine.isEnabledOr("freshGate", false)) return "off";
+    return this.doctrine.value("freshGate") >= 2 ? "auto" : "advisory";
+  }
+
+  private releasePolicy(): ReleasePolicy {
+    return {
+      ...DEFAULT_RELEASE_POLICY,
+      mode: this.freshGateMode(),
+      target: this.doctrine.value("freshTarget"),
+      leadMs: this.doctrine.value("freshLeadMin") * 60_000,
+      fadeMs: this.doctrine.value("freshFadeHours") * 3_600_000,
+    };
+  }
+
+  private freshNote(line: string): void {
+    this.freshLog.push(`${new Date().toISOString()} ${line}`);
+    if (this.freshLog.length > 60) this.freshLog.splice(0, this.freshLog.length - 60);
+    this.log(`fresh systems: ${line}`);
+  }
+
+  private async saveFreshGate(): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    try {
+      if (this.systemQueue.size) await this.store.setFleetFlag(this.tenantId, "systemQueue", this.systemQueue.toJson());
+      else await this.store.removeFleetFlag(this.tenantId, "systemQueue");
+      if (this.stagedParked.size || this.lastFreshReleaseAt !== undefined) {
+        await this.store.setFleetFlag(this.tenantId, "freshGate", JSON.stringify({ stagedParked: Object.fromEntries(this.stagedParked), lastReleaseAt: this.lastFreshReleaseAt }));
+      } else await this.store.removeFleetFlag(this.tenantId, "freshGate");
+    } catch (err) {
+      this.log(`save fresh-system queue failed: ${describeError(err)}`);
+    }
+  }
+
+  /** An explorer found a system worth covering: queue it behind the gate with its best markets (clause freshKeepersPerSystem). */
+  private queueFreshSystem(system: string, candidates: readonly string[]): void {
+    const markets = candidates.slice(0, this.doctrine.value("freshKeepersPerSystem"));
+    const had = this.systemQueue.get(system);
+    this.systemQueue.scout(system, markets, Date.now(), "found by an explorer");
+    if (!had) this.freshNote(`${system} scouted and queued behind the gate with ${markets.length} of ${candidates.length} market(s): ${markets.slice(0, 4).join(", ")}${markets.length > 4 ? ", …" : ""}`);
+  }
+
+  /** Stage a system: buy keepers for its top markets (they park on arrival, so the wait costs no API calls). A system not yet in the queue is scouted first. */
+  async stageSystem(system: string, why = "operator"): Promise<{ system: string; markets: string[]; state: string }> {
+    if (this.freshGateMode() === "off") throw new Error("the freshGate clause is off: turn it on (1 advisory, 2 auto) before queuing systems");
+    let q = this.systemQueue.get(system);
+    if (!q) {
+      const { add } = await this.keeperCandidatesForSystem(system);
+      if (!add.length) throw new Error(`${system} has no market that needs a keeper (not surveyed yet, or all covered)`);
+      q = this.systemQueue.scout(system, add.slice(0, this.doctrine.value("freshKeepersPerSystem")), Date.now(), "queued by hand");
+    }
+    if (q.state === "live") throw new Error(`${system} is already live`);
+    if (q.state === "scouted") this.systemQueue.stage(system, Date.now(), why);
+    await this.addKeeperPriorityMarkets(q.markets);
+    await this.saveFreshGate();
+    this.freshNote(`${system} staged (${why}): ${q.markets.length} keeper(s) to buy and park`);
+    this.recordAction(configChangeEvent({ setting: "system_stage", before: { system, state: "scouted" }, after: { system, state: "staged", markets: q.markets.length }, atIso: new Date().toISOString(), reason: why }));
+    return { system, markets: q.markets, state: "staged" };
+  }
+
+  /** Open a system's gate: unpark its staged keepers and let traders have its routes. The freshness clock starts here. */
+  async releaseSystem(system: string, why = "operator"): Promise<{ system: string; unparked: string[]; markets: string[] }> {
+    const q = this.systemQueue.get(system);
+    if (!q) throw new Error(`${system} is not in the queue`);
+    if (q.state === "live") throw new Error(`${system} is already live`);
+    const wasScouted = q.state === "scouted";
+    const unparked: string[] = [];
+    for (const [ship, sys] of [...this.stagedParked]) {
+      if (sys !== system) continue;
+      try { if (this.parkedShips.has(ship)) await this.unparkShip(ship); unparked.push(ship); } catch (err) { this.freshNote(`${ship}: unpark on release failed: ${describeError(err)}`); }
+      this.stagedParked.delete(ship);
+    }
+    const now = Date.now();
+    this.systemQueue.release(system, now, why);
+    if (wasScouted) {
+      try { await this.addKeeperPriorityMarkets(q.markets); } catch (err) { this.freshNote(`keeper list add for ${system} failed: ${describeError(err)}`); }
+    }
+    this.lastFreshReleaseAt = now;
+    await this.saveFreshGate();
+    this.freshNote(`${system} released (${why}): ${unparked.length} keeper(s) unparked${wasScouted ? ", markets added to the keeper list" : ""}`);
+    this.recordAction(configChangeEvent({ setting: "system_release", before: { system, state: wasScouted ? "scouted" : "staged" }, after: { system, markets: q.markets.length }, atIso: new Date(now).toISOString(), reason: why }));
+    return { system, unparked, markets: q.markets };
+  }
+
+  async holdSystem(system: string, held: boolean): Promise<{ system: string; held: boolean }> {
+    if (!this.systemQueue.hold(system, held)) throw new Error(`${system} is not in the queue, or is already live (a live system has no gate to hold)`);
+    await this.saveFreshGate();
+    this.freshNote(`${system} ${held ? "held: the engine will not stage or release it" : "hold cleared"}`);
+    return { system, held };
+  }
+
+  /** Every maintenance tick: keep the dispatcher's gate in step with the queue, and park keepers that have arrived on staged markets. */
+  private async maintainFreshGate(): Promise<void> {
+    const mode = this.freshGateMode();
+    this.dispatcher.setGatedSystems(mode === "off" ? new Set() : this.systemQueue.gated());
+    if (mode === "off") {
+      if (this.stagedParked.size === 0) return;
+      // Turning the clause off must not strand keepers: unpark them all (the queue entries stay, inert).
+      for (const [ship] of [...this.stagedParked]) {
+        try { if (this.parkedShips.has(ship)) await this.unparkShip(ship); } catch { /* already gone */ }
+        this.stagedParked.delete(ship);
+      }
+      this.freshNote("freshGate is off: staged keepers unparked, every gate open");
+      await this.saveFreshGate();
+      return;
+    }
+    const staged = this.systemQueue.list().filter((q) => q.state === "staged");
+    if (!staged.length) return;
+    const byMarket = new Map<string, string>();
+    for (const [ship, market] of this.keeperMarkets) byMarket.set(market, ship);
+    const here = new Map(this.fleetStatusSummary().map((x) => [x.symbol, x]));
+    const seen = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
+    let changed = false;
+    for (const q of staged) {
+      for (const m of q.markets) {
+        const ship = byMarket.get(m);
+        if (!ship || this.stagedParked.has(ship)) continue;
+        const st = here.get(ship);
+        // Only once it stands at the market and the market has been read at least once, so the first price is on record.
+        if (!st || st.nav === "IN_TRANSIT" || st.waypoint !== m || !seen.has(m)) continue;
+        try {
+          await this.parkShip(ship);
+          this.stagedParked.set(ship, q.system);
+          changed = true;
+        } catch (err) {
+          this.freshNote(`${ship}: parking on staged market ${m} failed: ${describeError(err)}`);
+        }
+      }
+    }
+    if (changed) await this.saveFreshGate();
+  }
+
+  private parkedMarketsOfStaged(): Set<string> {
+    const out = new Set<string>();
+    for (const [ship] of this.stagedParked) {
+      const m = this.parkedKeeperMarkets.get(ship);
+      if (m) out.add(m);
+    }
+    return out;
+  }
+
+  /** Every 5 minutes: work out what the release rule says, show it to the operator (advisory) or act on it (auto). */
+  private async maybeManageFreshSystems(): Promise<void> {
+    const mode = this.freshGateMode();
+    if (mode === "off" || !this.tenantId || !this.store) return;
+    const now = Date.now();
+    if (now - this.lastFreshCheckAt < 5 * 60_000) return;
+    this.lastFreshCheckAt = now;
+    const all = this.systemQueue.list();
+    if (!all.length) return;
+    const policy = this.releasePolicy();
+
+    const ready = this.parkedMarketsOfStaged();
+    const queue: QueueFacts[] = all.filter((q) => q.state !== "live").map((q) => ({
+      system: q.system, state: q.state as "scouted" | "staged", held: q.held, addedAt: q.addedAt, stagedAt: q.stagedAt, markets: q.markets.length,
+      ...(q.state === "staged" ? { readyShare: q.markets.length ? q.markets.filter((m) => ready.has(m)).length / q.markets.length : 0 } : {}),
+    }));
+
+    let live: LiveFacts[] = [];
+    const liveQ = all.filter((q) => q.state === "live" && q.releasedAt !== undefined);
+    if (liveQ.length) {
+      try {
+        // 24 hours of sells for the mature rate, refreshed every 30 minutes; the last two hours of them for each live system.
+        if (!this.freshMature || now - this.freshMature.at > 30 * 60_000) {
+          const rows = await this.store.analysisLedgerRows(this.tenantId, new Date(now - 24 * 3_600_000).toISOString());
+          this.freshMature = { at: now, sells: rows.filter((r) => r.type === "SELL") };
+        }
+        const sells = this.freshMature.sells;
+        const mature = buildFreshness(sells, liveQ.map((q) => ({ system: q.system, atMs: q.releasedAt!, markets: q.markets.length }))).mature.profitPerUnit;
+        const recent = sells.filter((r) => Date.parse(r.timestamp) >= now - 2 * 3_600_000);
+        const prem = livePremium(recent, liveQ.map((q) => q.system), mature);
+        live = liveQ.map((q) => ({ system: q.system, releasedAt: q.releasedAt!, ratio: prem.get(q.system)?.ratio ?? null, sells: prem.get(q.system)?.sells ?? 0 }));
+      } catch (err) {
+        this.freshNote(`live premium unavailable (${describeError(err)}); ratios unknown, ages still count`);
+        live = liveQ.map((q) => ({ system: q.system, releasedAt: q.releasedAt!, ratio: null, sells: 0 }));
+      }
+    }
+
+    const max = this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0;
+    const idle = this.idleTraders(now).length;
+    const decision = decideReleases({ now, queue, live, idleTraders: idle, budgetRoom: max > 0 ? Math.max(0, max - this.keepers.size) : null, lastReleaseAt: this.lastFreshReleaseAt }, policy);
+    this.freshLast = { at: now, mode, decision, queue, live, idleTraders: idle };
+
+    const key = JSON.stringify([decision.stage, decision.release, decision.notes]);
+    if (key !== this.freshAdviceKey) {
+      this.freshAdviceKey = key;
+      const lines = [...decision.stage.map((d) => `stage ${d.system} (${d.reason})`), ...decision.release.map((d) => `release ${d.system} (${d.reason})`), ...decision.notes];
+      if (lines.length) this.freshNote(`${mode === "auto" ? "acting" : "advice"}: ${lines.join("; ")}`);
+    }
+    if (mode !== "auto") return;
+    for (const d of decision.stage) {
+      try { await this.stageSystem(d.system, d.reason); } catch (err) { this.freshNote(`stage ${d.system} failed: ${describeError(err)}`); }
+    }
+    for (const d of decision.release) {
+      try { await this.releaseSystem(d.system, d.reason); } catch (err) { this.freshNote(`release ${d.system} failed: ${describeError(err)}`); }
+    }
+  }
+
+  /** For the ops tool: the queue, readiness, live premiums, what the rule says now and the last notes. */
+  freshGateState(): Record<string, unknown> {
+    const ready = this.parkedMarketsOfStaged();
+    return {
+      mode: this.freshGateMode(),
+      policy: this.releasePolicy(),
+      readyShareNeeded: READY_SHARE,
+      gatedSystems: this.dispatcher.gatedSystemList(),
+      queue: this.systemQueue.list().map((q) => ({
+        ...q,
+        keepersInPlace: q.state === "staged" ? q.markets.filter((m) => ready.has(m)).length : undefined,
+        stagedAt: q.stagedAt ? new Date(q.stagedAt).toISOString() : undefined,
+        releasedAt: q.releasedAt ? new Date(q.releasedAt).toISOString() : undefined,
+        addedAt: new Date(q.addedAt).toISOString(),
+      })),
+      lastRelease: this.lastFreshReleaseAt ? new Date(this.lastFreshReleaseAt).toISOString() : null,
+      lastCheck: this.freshLast ? { at: new Date(this.freshLast.at).toISOString(), mode: this.freshLast.mode, idleTraders: this.freshLast.idleTraders, live: this.freshLast.live.map((l) => ({ ...l, releasedAt: new Date(l.releasedAt).toISOString() })), decision: this.freshLast.decision } : null,
+      log: [...this.freshLog],
+    };
+  }
+
   // ---- Keeper triage (keeperTriage.ts): park keepers on dead markets, set a reminder, look again ----
   private static readonly TRIAGE_INTERVAL_MS = 10 * 60_000;
   private static readonly TRIAGE_KIND = "keeper_recheck";
@@ -5352,7 +5605,7 @@ export class FleetManager {
       for (const k of review.stationed) {
         const s = here.get(k.ship);
         // A keeper still flying to its market, or already under triage, is left alone.
-        if (!s || s.nav === "IN_TRANSIT" || s.waypoint !== k.market || this.reminders.hasAny(k.ship, [FleetManager.TRIAGE_KIND]) || this.triageParked.has(k.ship)) skip.add(k.ship);
+        if (!s || s.nav === "IN_TRANSIT" || s.waypoint !== k.market || this.reminders.hasAny(k.ship, [FleetManager.TRIAGE_KIND]) || this.triageParked.has(k.ship) || this.stagedParked.has(k.ship) || this.systemQueue.gated().has(systemOf(k.market))) skip.add(k.ship);
       }
       const plan = triageKeepers({
         now,
@@ -9630,6 +9883,8 @@ export class FleetManager {
       }
       await this.timed("maybeAssignKeepers", () => this.maybeAssignKeepers());
       await this.timed("maybeTriageKeepers", () => this.maybeTriageKeepers());
+      await this.timed("maintainFreshGate", () => this.maintainFreshGate());
+      await this.timed("maybeManageFreshSystems", () => this.maybeManageFreshSystems());
       await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       await this.timed("repairSuspendedShips", () => this.repairSuspendedShips());
       await this.timed("maybeGrowExplorers", () => this.maybeGrowExplorers());

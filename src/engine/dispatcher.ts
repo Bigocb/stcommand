@@ -497,6 +497,14 @@ export class RouteDispatcher {
     if (!(this.routeBlockMin > 0)) return undefined;
     return this.routeBlocks.reasonFor({ good, buyAt, sellAt }, Date.now());
   }
+  private gatedSystems: ReadonlySet<string> = new Set();
+  /** The systems whose routes are held back behind the fresh-system gate; takes effect at the next recompute. */
+  setGatedSystems(systems: ReadonlySet<string>): void {
+    this.gatedSystems = systems;
+  }
+  gatedSystemList(): string[] {
+    return [...this.gatedSystems];
+  }
   /** The routes held back now, for the ops view. */
   deadRouteList(): ReturnType<RouteBlocks["list"]> {
     return this.routeBlocks.list(Date.now());
@@ -1053,6 +1061,15 @@ export class RouteDispatcher {
     this.buyRoundsMax = Math.max(0, tuning?.buyRoundsMax ?? 0);
     this.marketRecoveryMin = Math.max(0, tuning?.marketRecoveryMin ?? 0);
     this.routeBlockMin = Math.max(0, tuning?.routeBlockMin ?? 0);
+    // Systems still behind the fresh-system gate (systemQueue.ts) are not offered to traders, as a buy or a sell leg. Empty = the
+    // list is exactly as before.
+    if (this.gatedSystems.size > 0) {
+      const open = routes.filter((r) => !this.gatedSystems.has(r.buySystem) && !this.gatedSystems.has(r.sellSystem));
+      if (open.length !== routes.length) {
+        this.logger(`[dispatcher] ${routes.length - open.length} route(s) held behind the fresh-system gate (${[...this.gatedSystems].slice(0, 4).join(", ")})`);
+        routes = open;
+      }
+    }
     // Routes another ship found dead on arrival stay out of everyone's list until the block lapses. Off (0), nothing is
     // recorded or filtered and the list is exactly as before.
     if (this.routeBlockMin > 0) {

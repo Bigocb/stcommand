@@ -9,6 +9,34 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Fresh systems: a queue behind a release gate, staged keepers, and a release rule the engine can run (doctrine `freshGate`, off)
+
+Operator direction: queue newly found systems so their premium (about 1.7x the mature profit per unit for roughly 8 hours after coverage, see the
+freshness entry below) is not spent early, open them on a lead time the operator sets, and eventually let the engine do the opening.
+`docs/fresh-system-expansion-plan.md`, "Queued systems and the release gate".
+
+- `src/engine/systemQueue.ts` (pure): scouted -> staged -> live per system, with its best markets and an operator `held` pin. Saved in the
+  `systemQueue` fleet flag. `gated()` is every system that is not live.
+- `src/engine/systemRelease.ts` (pure): `decideReleases()`, one rule for all three modes. Keep `freshTarget` systems whose premium is alive and
+  not within `freshLeadMin` of fading (fade age `freshFadeHours`, or a recent ratio under 1.25x the mature rate with at least 15 sells); release the
+  best ready staged system (80% of keepers in place) when short, at least 30 minutes after the last release; release one at once when 3 or more
+  traders have been idle for 5 minutes; stage the oldest scouted system ahead of need when budget allows. Held systems are never touched, missing
+  information never releases anything, and every decision carries a reason.
+- Dispatcher gate: `setGatedSystems()` drops every route that buys or sells in a gated system at recompute. Empty = exactly as before.
+- Fleet: with the clause on, an explorer's accepted system is queued (its top `freshKeepersPerSystem` markets by keeper score) instead of going straight
+  to the keeper list. Staging adds those markets to the keeper list; a keeper that has arrived at a staged market which has been read once is parked
+  (no polling, so waiting costs no API budget; saved in the `freshGate` flag) and unparked at the release. `maybeManageFreshSystems()` runs every 5
+  minutes: advisory shows the rule's answer in `system_queue`, auto acts on it. Turning the clause off unparks the staged keepers and opens every
+  gate. Keeper triage leaves staged systems alone.
+- Tools: ops `system_queue` (queue, readiness, live premiums, what the rule says and why not), MCP `stcommand_stage_system`, `stcommand_release_system`,
+  `stcommand_hold_system`. A release is recorded as a `system_release` config change, which the analysis engine now uses to anchor a system's freshness
+  curve at the moment traders could first reach it (`livePremium()` in `freshness.ts` gives the rolling 2-hour ratio the rule reads).
+- Doctrine: `freshGate` (1 advisory, 2 auto; **off by default**: the explorer path and the keeper list behave exactly as before), `freshTarget` (3),
+  `freshLeadMin` (240), `freshFadeHours` (10), `freshKeepersPerSystem` (6).
+- Tests: `tests/systemRelease.test.ts` (queue, rule, dispatcher gate), `tests/freshGateFleet.test.ts` (the FleetManager seam: queue, stage, park on
+  arrival, release, hold, advisory never acts, clause off), and the release anchor in `tests/freshness.test.ts`.
+- Not gated: contracts, feeds and missions do not read the dispatcher's route list, so the gate holds back trader routes only.
+
 ## 2026-10-24 — Analysis: the freshness curve, profit per unit by hours since a system gained keeper coverage
 
 Phase 0 of `docs/fresh-system-expansion-plan.md`. The 2026-10-23 finding (the best hours came from big hulls selling into
