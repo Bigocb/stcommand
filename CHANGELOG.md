@@ -9,6 +9,29 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — A 404 is no longer "built", and a gate is read live before a ship jumps through it
+
+Follow-up to the JM97 entry below. Operator question: why did the crawler not correct a gate recorded complete? The crawler reads only gates
+never checked and gates recorded unfinished (re-read hourly, 115 of 160 in the 20:16 pass); a gate recorded complete is never read again, by
+design, so a wrong "complete" was permanent. The crawler records only what a 200 says, so the wrong record came from elsewhere. The one
+writer that could record "complete" without the game saying so was the fleet's own reader (`GalaxyAtlas.refreshGateConstruction`), which took
+an HTTP 404 for "no construction record, so built". Checked against the public endpoint on 2026-10-24: a finished gate answers 200
+`isComplete: true`, so does a market waypoint that was never under construction (`X1-HM42-X13F`), and a 404 means "Waypoint X not found" or
+"System X not found". JM97's own answer: 200, `isComplete: false`, FAB_MATS 0/1600. The writer of JM97's wrong record is not proven; this rule is
+the only one that fits.
+
+- `refreshGateConstruction`: a 404 now leaves the gate unresolved and is not asked about again for 45 minutes (it used to cache complete, forever).
+- `GalaxyAtlas.verifyGateBeforeJump(gate)`: one tokenless read of the public `/construction` endpoint (outside the 90 calls a minute limit) just
+  before a jump, for both ends. Finished: trusted for 6 hours. Unfinished: the cache is corrected (`recordGateNotComplete`), the jump is refused
+  with "... is under construction (checked live before jumping)" and the route to that system is retired, so no jump is paid for or rejected. No
+  answer (429, 404, 5xx, network): the jump goes ahead and the game decides, as before. A 429 pauses checking for a minute; ships at the same gate
+  at the same moment share one read. In memory only: it is a cache of a cheap read, so a restart just reads again.
+- Used by `TraderAgent.jumpToSystem` and `FleetManager.jumpShip` (operator jumps, tours, dispatch, rescue).
+- Tests: `tests/verifyGateBeforeJump.test.ts` (the check, the trader and the operator seams), `tests/galaxy.test.ts` (the 404 rule replaces the old
+  "404 means built" test). Mutation checks: restoring the 404 rule and reporting an unfinished gate as ok both fail their tests. Full suite: the
+  same 62 baseline suites fail, nothing new.
+- Not done: re-reading gates recorded complete in the background (the 45 gates the crawler gets HTTP 400 for each pass are still unexplained).
+
 ## 2026-10-24 — A rejected jump corrects the gate the game names, not the one the ship stood at (JM97)
 
 Operator question: why did a ship run into a gate that was not open, with the crawler reading gate construction? Found 2026-10-24: THEOREM-1

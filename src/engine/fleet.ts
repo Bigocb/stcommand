@@ -4087,6 +4087,13 @@ export class FleetManager {
     if (atGate.nav.status !== "IN_ORBIT") {
       await this.api.orbitShip(shipSymbol);
     }
+    // Both ends must be finished; a live read just before the jump catches a gate wrongly recorded complete (see
+    // GalaxyAtlas.verifyGateBeforeJump). No answer lets the jump go and the game decide.
+    for (const g of [waypointSymbol, gate]) {
+      if ((await this.galaxy.verifyGateBeforeJump(g)) === "unfinished") {
+        throw new Error(`${g === waypointSymbol ? "Destination jump gate" : "Jump gate"} ${g} is under construction (checked live before jumping)`);
+      }
+    }
     this.log(`${shipSymbol} jumping ${gate} -> ${waypointSymbol}`);
     let res;
     try {

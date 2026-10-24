@@ -1118,6 +1118,14 @@ export class TraderAgent {
     // 2026-10-02). Fill up here, before leaving, whenever the gate sells fuel.
     await this.topOffHere();
     await this.ensureInOrbit();
+    // Both ends must be finished. The construction cache is one-way, so a live read just before the jump is what catches a gate
+    // wrongly recorded complete (X1-JM97-I57, 2026-10-24); unknown answers (rate limit, network) let the jump go and the game decide.
+    for (const g of [remoteGate, gate]) {
+      if ((await this.atlas.verifyGateBeforeJump?.(g)) === "unfinished") {
+        this.markRouteUnreachable(targetSystem);
+        throw new Error(`${g === remoteGate ? "Destination jump gate" : "Jump gate"} ${g} is under construction (checked live before jumping)`);
+      }
+    }
     this.log(`jumping ${fromSystem} -> ${targetSystem} via ${gate}`);
     let res;
     try {

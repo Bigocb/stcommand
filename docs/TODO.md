@@ -7,14 +7,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-- [ ] **A wrong "gate complete" is never re-verified (found 2026-10-24, JM97).** Both the crawler and `refreshGateConstruction` treat a gate recorded complete as
-  final; the fleet's reader also records a 404 as complete, which the crawler's own comment says may be wrong (an uncharted waypoint 404s). JM97 was
-  recorded complete while 0 of 1,600 FAB_MATS were supplied. A live rejection now corrects it (see CHANGELOG), but nothing finds the next one before a
-  ship does. Options: stop recording a 404 as complete (leave unset), or spot-check gates recorded complete that lie on a ship's planned path before the
-  first jump (one public `/construction` read, no token).
 - [ ] **Gate-construction reads slow the maintenance pass (2026-10-24).** `maybeRefreshGateConstruction` takes 8 to 28 seconds a pass because the fleet's
   own authenticated reads are priority 4 and wait on the 90 calls a minute limiter; the pass also delays ship purchases and keeper buying
-  (`maybeBuyScout` 8.7s, `advanceKeeperMarketQueue` 8s). The crawler also logged 45 HTTP 400 answers in one 160-gate pass that nothing explains.
+  (`maybeBuyScout` 8.7s, `advanceKeeperMarketQueue` 8s). The crawler also logged 45 HTTP 400 answers in one 160-gate pass that nothing explains (a 400 is skipped and the gate is queued again every pass; find out what the game means by it, and whether those gates are being left unresolved).
 
 - [ ] **Always be expanding: engine-managed keeper rotation and big hulls (raised 2026-10-24, operator).** The 2026-10-23 peaks (9.2M/h and 9.7M/h against a
   7.3M/h day) came from bulk freighters selling into systems that had just gained keeper coverage; yield per unit decayed as we sold into them, and the

@@ -35,6 +35,7 @@ async function rig(rejection: string) {
   const flagged: string[] = [];
   fleet.galaxy.gatesTo = () => ["X1-RB54-AA7A"];
   fleet.galaxy.recordGateNotComplete = (g: string) => { flagged.push(g); };
+  fleet.galaxy.verifyGateBeforeJump = async () => "unknown"; // the pre-jump live read is tested in verifyGateBeforeJump.test.ts; no network here
   return { fleet, flagged };
 }
 

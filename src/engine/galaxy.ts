@@ -1,5 +1,5 @@
 import type { SpaceTradersAPI } from "../core/client.js";
-import { APIError } from "../core/client.js";
+import { API_BASE, APIError } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import { findJumpPath, MAX_POSITIONING_HOPS, MAX_POSITIONING_HOPS_CEILING } from "./jumpGraph.js";
@@ -37,6 +37,8 @@ export interface GalaxyStore {
 /** How long an unfinished jump gate's construction status is trusted before it is read again. An unfinished gate changes only when someone supplies it. At 5 minutes the rechecks cost 5-6 calls a minute
  *  (2026-10-15); 20 minutes keeps a gate someone else finishes from staying unknown for long. */
 const GATE_RECHECK_MS = 45 * 60_000;
+/** A gate read live and found finished is trusted this long before a jump checks it again. */
+const GATE_VERIFY_TTL_MS = 6 * 3_600_000;
 
 /** Multi-system atlas: caches waypoints, jump gates, and foreign markets. */
 export class GalaxyAtlas {
@@ -593,6 +595,51 @@ export class GalaxyAtlas {
     return this.jumpPath(from, to);
   }
 
+  private readonly gateNotFoundAt = new Map<string, number>();
+  /** Gates read live (public endpoint) and found finished, with when: a jump is not checked again for GATE_VERIFY_TTL_MS. */
+  private readonly gateVerifiedAt = new Map<string, number>();
+  private readonly gateVerifying = new Map<string, Promise<"ok" | "unfinished" | "unknown">>();
+  private verifyPausedUntil = 0;
+  /** The fetch used for the public construction read; replaceable so tests need no network. */
+  publicFetch: typeof fetch = (input, init) => fetch(input, init);
+
+  /**
+   * Confirm a gate is finished with a live read just before a ship jumps through it, since the construction cache is one-way
+   * and a wrong "complete" in it is otherwise never found before a ship flies there and is rejected (X1-JM97-I57, 2026-10-24).
+   * One tokenless read of the public /construction endpoint, so it is outside the 90 calls a minute the fleet shares; a gate
+   * found finished is trusted for GATE_VERIFY_TTL_MS, and reads of the same gate at the same moment share one request.
+   *  - "unfinished": the live read says not complete; the cache is corrected (recordGateNotComplete) and the caller should not jump.
+   *  - "ok": finished.
+   *  - "unknown": no answer (rate limit, 404, 5xx, network): the caller jumps anyway and lets the game decide, as before.
+   */
+  async verifyGateBeforeJump(gateSymbol: string): Promise<"ok" | "unfinished" | "unknown"> {
+    const now = Date.now();
+    const at = this.gateVerifiedAt.get(gateSymbol);
+    if (at !== undefined && now - at < GATE_VERIFY_TTL_MS) return "ok";
+    if (now < this.verifyPausedUntil) return "unknown";
+    const inflight = this.gateVerifying.get(gateSymbol);
+    if (inflight) return inflight;
+    const run = (async (): Promise<"ok" | "unfinished" | "unknown"> => {
+      try {
+        const system = GalaxyAtlas.systemOfWaypoint(gateSymbol);
+        const res = await this.publicFetch(new URL(`${API_BASE}/systems/${system}/waypoints/${gateSymbol}/construction`), { signal: AbortSignal.timeout(8_000) });
+        if (res.status === 429) { this.verifyPausedUntil = Date.now() + 60_000; return "unknown"; }
+        if (!res.ok) return "unknown";
+        const json = (await res.json().catch(() => undefined)) as { data?: { isComplete?: unknown } } | undefined;
+        if (typeof json?.data?.isComplete !== "boolean") return "unknown";
+        if (json.data.isComplete) { this.gateVerifiedAt.set(gateSymbol, Date.now()); return "ok"; }
+        this.recordGateNotComplete(gateSymbol);
+        return "unfinished";
+      } catch {
+        return "unknown";
+      } finally {
+        this.gateVerifying.delete(gateSymbol);
+      }
+    })();
+    this.gateVerifying.set(gateSymbol, run);
+    return run;
+  }
+
   /**
    * Refresh one gate's cached construction status from the live API.
    * Same isComplete check fleet.ts's exploreSystem()/scoutCanReachUncharted()
@@ -604,6 +651,9 @@ export class GalaxyAtlas {
    */
   async refreshGateConstruction(systemSymbol: string, gateSymbol: string): Promise<boolean> {
     if (this.gateConstruction.get(gateSymbol) === true) return true; // one-way: never reverts to incomplete
+    // A gate the game answered 404 for is left alone for a while, not asked about on every pass.
+    const notFound = this.gateNotFoundAt.get(gateSymbol);
+    if (notFound !== undefined && Date.now() - notFound < GATE_RECHECK_MS) return false;
     // A gate known to be unfinished only changes when someone supplies it, yet the scout's reachability check asked
     // about every gate on every maintenance pass (about three calls a minute). Re-read an unfinished gate at most
     // every GATE_RECHECK_MS; one never read before is read at once.
@@ -616,25 +666,15 @@ export class GalaxyAtlas {
       this.store?.recordGalaxyGateConstruction?.(gateSymbol, complete)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
       return complete;
     } catch (err) {
-      // A 404 here specifically means "no construction record" — the gate
-      // is already built (pre-existing gates were never under construction
-      // in the first place). Any *other* error (a rate limit, a 5xx, a
-      // dropped connection) is not evidence of anything about the gate, and
-      // must not be cached as "complete": this cache is one-way by design
-      // (never reverts true → false), so caching a transient error as
-      // "complete" would permanently lie about a gate that's genuinely
-      // still under construction — every future canJump() for it would
-      // wrongly read true, and every ship sent through it would fail the
-      // live API's real check forever, with no self-healing possible.
-      // Confirmed live: X1-XB94-I55 read as complete/jumpable from this
-      // cache while the live API kept rejecting the jump as still under
-      // construction. Leaving the status unset here means the next
-      // refreshAllGateConstruction() sweep just retries it.
-      if (err instanceof APIError && err.status === 404) {
-        this.gateConstruction.set(gateSymbol, true); this.pathCache.clear();
-        this.store?.recordGalaxyGateConstruction?.(gateSymbol, true)?.catch(() => { /* best-effort — see above */ });
-        return true;
-      }
+      // A 404 is NOT evidence that a gate is built. This used to read "no construction record, so it was never under
+      // construction"; the game does not work that way: a finished gate, and any waypoint that was never under
+      // construction, answers 200 with isComplete true (checked 2026-10-24 against the public endpoint), and a 404 means
+      // the waypoint or system was not found (an uncharted or mistyped symbol). Recording it as "complete" wrote a
+      // permanent lie into a one-way cache: X1-JM97-I57 sat recorded complete with 0 of 1,600 FAB_MATS supplied, and ships
+      // were routed into it for hours. A 404 now leaves the gate unresolved and is not asked about again for a while.
+      // Any other error (a rate limit, a 5xx, a dropped connection) is not evidence either, and must not be cached as
+      // "complete" for the same reason: the cache is one-way, so a transient error cached as complete would lie forever.
+      if (err instanceof APIError && err.status === 404) this.gateNotFoundAt.set(gateSymbol, Date.now());
       return false;
     }
   }

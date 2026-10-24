@@ -73,13 +73,17 @@ describe("GalaxyAtlas: gate-construction cache", () => {
     assert.equal(atlas.canJump("X1-A", "X1-B"), false);
   });
 
-  it("a 404 from getConstruction() is treated as 'already built' (no construction record for a pre-existing gate)", async () => {
-    const { atlas } = await makeSeededAtlas(async () => { throw new APIError("no construction record", 404, undefined, undefined); });
+  it("a 404 from getConstruction() is NOT taken for 'built': the gate stays unresolved and is not asked again at once", async () => {
+    // The game answers 200 isComplete:true for a finished gate and for a waypoint never under construction; 404 means the
+    // waypoint or system was not found. Recording it as complete wrote X1-JM97-I57 into the one-way cache as finished with
+    // 0 of 1,600 FAB_MATS supplied (2026-10-24).
+    const { atlas, calls } = await makeSeededAtlas(async () => { throw new APIError("Waypoint not found", 404, undefined, undefined); });
 
-    const result = await atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
-
-    assert.equal(result, true);
-    assert.equal(atlas.canJump("X1-A", "X1-B"), true);
+    assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), false);
+    assert.equal(atlas.gateComplete("X1-A-GATE"), undefined, "unresolved, not complete");
+    assert.equal(atlas.canJump("X1-A", "X1-B"), false);
+    await atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
+    assert.equal(calls.length, 1, "left alone for a while, not read on every pass");
   });
 
   it("a non-404 error from getConstruction() leaves the gate unresolved, not falsely 'complete'", async () => {
