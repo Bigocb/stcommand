@@ -212,7 +212,14 @@ a high-fidelity phone-frame gallery; operator confirmed it's working.
 - Full mockup (not committed to the repo — a design reference, not
   app code): https://claude.ai/code/artifact/d0f61c93-6d09-4be4-bc9d-2ea3bc9e9333
 
-Still open from the visual pass: exact manifest metadata (theme-color
+**Icon (done 2026-10-24).** Tower's icon is a radar scope, the signature device above: an amber bezel with tick marks, range
+rings, a sweep with a fading trail, and blips shaped like the map's markers (the one under the sweep is lit), on the warm
+near-black ground. Sources are `public/icons/tower-icon.svg`, `tower-favicon.svg` (a bolder mark for 32 px) and
+`tower-notify-badge.svg` (flat white on transparent, which Android tints for the status bar); `node scripts/render-tower-icons.mjs`
+renders every PNG from them. Full-bleed and opaque, since each platform applies its own corner mask, and the scope sits in
+the central 80% so the maskable version survives a circular crop.
+
+~~Still open from the visual pass: exact manifest metadata (theme-color
 meta tag, apple-touch-icon asset, app short-name for the home-screen
 label) needs a real icon asset produced from this identity before it
 can be finalized — the mockup establishes the palette/type/device

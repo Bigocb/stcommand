@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — A new Tower icon: a radar scope
+
+The old icon was two rings and a dot with the rounded corners baked in. The new one is Tower's own signature device, the radar scope: bezel with tick marks, range rings, a sweep with a fading trail, and blips in the map's marker shapes (circle, diamond, triangle), amber on the warm near-black. SVG sources in `public/icons/` (`tower-icon.svg`, `tower-favicon.svg`, `tower-notify-badge.svg`); `scripts/render-tower-icons.mjs` renders the PNGs (192, 512, a separate maskable 512, a 180 apple-touch, a 32 favicon, a 96 flat-white notification badge). Full-bleed and opaque (iOS and Android round it themselves). The manifest now lists `any` and `maskable` entries, the page adds the SVG favicon, and the service worker uses the new badge glyph for notifications. `tests/towerIcons.test.ts` checks every named icon exists and is the size it claims. Deck's icons are unchanged. A phone keeps the old home-screen icon until Tower is removed and added again (iOS); Android refreshes its own.
+
 ## 2026-10-24 — Approval wording and an icon badge for notifications
 
 - **Approvals read properly.** The engine asks under kinds like `sellBelowFloor:THEOREM-5:LAB_INSTRUMENTS`, `buyShip`, `buyKeeperProbe`; the alert used to print the raw kind. `describeApproval()` gives each a title (a sell below the loss floor reads "Sell below the loss floor? THEOREM-5 is holding lab instruments · 30 min to decide", the time being how long until the engine denies it by default), unknown kinds are made readable, and no figures are included. They were already alerts and already in "N need you"; this fixes the words.

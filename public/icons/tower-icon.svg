@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="46%" r="78%">
+      <stop offset="0" stop-color="#211d13"/><stop offset="0.62" stop-color="#12100c"/><stop offset="1" stop-color="#0a0908"/>
+    </radialGradient>
+    <radialGradient id="scope" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ffb020" stop-opacity="0.10"/><stop offset="0.7" stop-color="#ffb020" stop-opacity="0.03"/><stop offset="1" stop-color="#ffb020" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffb020"/><stop offset="1" stop-color="#ffd27a"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="soft" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="9"/></filter>
+    <clipPath id="disc"><circle cx="256" cy="256" r="194"/></clipPath>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="204" fill="url(#scope)"/>
+  <circle cx="256" cy="256" r="194" fill="#0a0908" fill-opacity="0.55" stroke="#ffb020" stroke-opacity="0.95" stroke-width="8"/>
+  <g clip-path="url(#disc)">
+    <circle cx="256" cy="256" r="129.3" fill="none" stroke="#ffe3b0" stroke-opacity="0.30" stroke-width="2.6"/>
+    <circle cx="256" cy="256" r="64.7" fill="none" stroke="#ffe3b0" stroke-opacity="0.30" stroke-width="2.6"/>
+    <line x1="256" y1="62" x2="256" y2="450" stroke="#ffe3b0" stroke-opacity="0.16" stroke-width="2"/>
+    <line x1="62" y1="256" x2="450" y2="256" stroke="#ffe3b0" stroke-opacity="0.16" stroke-width="2"/>
+        <path d="M256,256 L406.82,133.98 A194,194 0 0 1 408.87,136.56 Z" fill="url(#sweep)" opacity="0.800"/>
+    <path d="M256,256 L405.08,131.86 A194,194 0 0 1 407.17,134.41 Z" fill="url(#sweep)" opacity="0.784"/>
+    <path d="M256,256 L403.30,129.76 A194,194 0 0 1 405.43,132.27 Z" fill="url(#sweep)" opacity="0.769"/>
+    <path d="M256,256 L401.50,127.68 A194,194 0 0 1 403.66,130.17 Z" fill="url(#sweep)" opacity="0.753"/>
+    <path d="M256,256 L399.66,125.63 A194,194 0 0 1 401.86,128.09 Z" fill="url(#sweep)" opacity="0.738"/>
+    <path d="M256,256 L397.80,123.61 A194,194 0 0 1 400.03,126.03 Z" fill="url(#sweep)" opacity="0.723"/>
+    <path d="M256,256 L395.91,121.61 A194,194 0 0 1 398.17,124.00 Z" fill="url(#sweep)" opacity="0.708"/>
+    <path d="M256,256 L393.99,119.64 A194,194 0 0 1 396.28,122.00 Z" fill="url(#sweep)" opacity="0.693"/>
+    <path d="M256,256 L392.04,117.69 A194,194 0 0 1 394.37,120.02 Z" fill="url(#sweep)" opacity="0.678"/>
+    <path d="M256,256 L390.07,115.78 A194,194 0 0 1 392.43,118.08 Z" fill="url(#sweep)" opacity="0.664"/>
+    <path d="M256,256 L388.07,113.89 A194,194 0 0 1 390.46,116.15 Z" fill="url(#sweep)" opacity="0.649"/>
+    <path d="M256,256 L386.04,112.03 A194,194 0 0 1 388.46,114.26 Z" fill="url(#sweep)" opacity="0.635"/>
+    <path d="M256,256 L383.98,110.20 A194,194 0 0 1 386.44,112.40 Z" fill="url(#sweep)" opacity="0.621"/>
+    <path d="M256,256 L381.90,108.40 A194,194 0 0 1 384.39,110.56 Z" fill="url(#sweep)" opacity="0.607"/>
+    <path d="M256,256 L379.80,106.63 A194,194 0 0 1 382.31,108.76 Z" fill="url(#sweep)" opacity="0.593"/>
+    <path d="M256,256 L377.67,104.89 A194,194 0 0 1 380.21,106.98 Z" fill="url(#sweep)" opacity="0.579"/>
+    <path d="M256,256 L375.51,103.18 A194,194 0 0 1 378.09,105.23 Z" fill="url(#sweep)" opacity="0.566"/>
+    <path d="M256,256 L373.33,101.50 A194,194 0 0 1 375.94,103.52 Z" fill="url(#sweep)" opacity="0.552"/>
+    <path d="M256,256 L371.13,99.86 A194,194 0 0 1 373.76,101.83 Z" fill="url(#sweep)" opacity="0.539"/>
+    <path d="M256,256 L368.90,98.24 A194,194 0 0 1 371.57,100.18 Z" fill="url(#sweep)" opacity="0.526"/>
+    <path d="M256,256 L366.66,96.65 A194,194 0 0 1 369.34,98.55 Z" fill="url(#sweep)" opacity="0.513"/>
+    <path d="M256,256 L364.39,95.10 A194,194 0 0 1 367.10,96.96 Z" fill="url(#sweep)" opacity="0.500"/>
+    <path d="M256,256 L362.09,93.58 A194,194 0 0 1 364.83,95.40 Z" fill="url(#sweep)" opacity="0.488"/>
+    <path d="M256,256 L359.78,92.09 A194,194 0 0 1 362.55,93.88 Z" fill="url(#sweep)" opacity="0.475"/>
+    <path d="M256,256 L357.44,90.64 A194,194 0 0 1 360.24,92.38 Z" fill="url(#sweep)" opacity="0.463"/>
+    <path d="M256,256 L355.09,89.21 A194,194 0 0 1 357.91,90.92 Z" fill="url(#sweep)" opacity="0.451"/>
+    <path d="M256,256 L352.71,87.83 A194,194 0 0 1 355.55,89.49 Z" fill="url(#sweep)" opacity="0.439"/>
+    <path d="M256,256 L350.32,86.47 A194,194 0 0 1 353.18,88.10 Z" fill="url(#sweep)" opacity="0.427"/>
+    <path d="M256,256 L347.91,85.15 A194,194 0 0 1 350.79,86.74 Z" fill="url(#sweep)" opacity="0.415"/>
+    <path d="M256,256 L345.47,83.87 A194,194 0 0 1 348.38,85.41 Z" fill="url(#sweep)" opacity="0.404"/>
+    <path d="M256,256 L343.02,82.61 A194,194 0 0 1 345.95,84.12 Z" fill="url(#sweep)" opacity="0.393"/>
+    <path d="M256,256 L340.56,81.40 A194,194 0 0 1 343.51,82.86 Z" fill="url(#sweep)" opacity="0.381"/>
+    <path d="M256,256 L338.07,80.22 A194,194 0 0 1 341.04,81.63 Z" fill="url(#sweep)" opacity="0.370"/>
+    <path d="M256,256 L335.57,79.07 A194,194 0 0 1 338.56,80.45 Z" fill="url(#sweep)" opacity="0.359"/>
+    <path d="M256,256 L333.05,77.96 A194,194 0 0 1 336.07,79.29 Z" fill="url(#sweep)" opacity="0.349"/>
+    <path d="M256,256 L330.52,76.88 A194,194 0 0 1 333.55,78.17 Z" fill="url(#sweep)" opacity="0.338"/>
+    <path d="M256,256 L327.97,75.85 A194,194 0 0 1 331.02,77.09 Z" fill="url(#sweep)" opacity="0.328"/>
+    <path d="M256,256 L325.41,74.84 A194,194 0 0 1 328.48,76.05 Z" fill="url(#sweep)" opacity="0.317"/>
+    <path d="M256,256 L322.84,73.88 A194,194 0 0 1 325.92,75.04 Z" fill="url(#sweep)" opacity="0.307"/>
+    <path d="M256,256 L320.25,72.95 A194,194 0 0 1 323.35,74.06 Z" fill="url(#sweep)" opacity="0.297"/>
+    <path d="M256,256 L317.65,72.05 A194,194 0 0 1 320.76,73.13 Z" fill="url(#sweep)" opacity="0.287"/>
+    <path d="M256,256 L315.03,71.20 A194,194 0 0 1 318.16,72.23 Z" fill="url(#sweep)" opacity="0.278"/>
+    <path d="M256,256 L312.40,70.38 A194,194 0 0 1 315.55,71.36 Z" fill="url(#sweep)" opacity="0.268"/>
+    <path d="M256,256 L309.77,69.60 A194,194 0 0 1 312.92,70.54 Z" fill="url(#sweep)" opacity="0.259"/>
+    <path d="M256,256 L307.12,68.86 A194,194 0 0 1 310.29,69.75 Z" fill="url(#sweep)" opacity="0.250"/>
+    <path d="M256,256 L304.46,68.15 A194,194 0 0 1 307.64,69.00 Z" fill="url(#sweep)" opacity="0.241"/>
+    <path d="M256,256 L301.79,67.48 A194,194 0 0 1 304.98,68.29 Z" fill="url(#sweep)" opacity="0.232"/>
+    <path d="M256,256 L299.11,66.85 A194,194 0 0 1 302.32,67.61 Z" fill="url(#sweep)" opacity="0.223"/>
+    <path d="M256,256 L296.43,66.26 A194,194 0 0 1 299.64,66.97 Z" fill="url(#sweep)" opacity="0.214"/>
+    <path d="M256,256 L293.73,65.70 A194,194 0 0 1 296.96,66.37 Z" fill="url(#sweep)" opacity="0.206"/>
+    <path d="M256,256 L291.03,65.19 A194,194 0 0 1 294.26,65.81 Z" fill="url(#sweep)" opacity="0.198"/>
+    <path d="M256,256 L288.32,64.71 A194,194 0 0 1 291.56,65.29 Z" fill="url(#sweep)" opacity="0.190"/>
+    <path d="M256,256 L285.60,64.27 A194,194 0 0 1 288.85,64.80 Z" fill="url(#sweep)" opacity="0.182"/>
+    <path d="M256,256 L282.88,63.87 A194,194 0 0 1 286.14,64.36 Z" fill="url(#sweep)" opacity="0.174"/>
+    <path d="M256,256 L280.16,63.51 A194,194 0 0 1 283.42,63.95 Z" fill="url(#sweep)" opacity="0.166"/>
+    <path d="M256,256 L277.42,63.19 A194,194 0 0 1 280.69,63.58 Z" fill="url(#sweep)" opacity="0.159"/>
+    <path d="M256,256 L274.69,62.90 A194,194 0 0 1 277.96,63.25 Z" fill="url(#sweep)" opacity="0.152"/>
+    <path d="M256,256 L271.95,62.66 A194,194 0 0 1 275.23,62.96 Z" fill="url(#sweep)" opacity="0.144"/>
+    <path d="M256,256 L269.20,62.45 A194,194 0 0 1 272.49,62.70 Z" fill="url(#sweep)" opacity="0.138"/>
+    <path d="M256,256 L266.46,62.28 A194,194 0 0 1 269.74,62.49 Z" fill="url(#sweep)" opacity="0.131"/>
+    <path d="M256,256 L263.71,62.15 A194,194 0 0 1 267.00,62.31 Z" fill="url(#sweep)" opacity="0.124"/>
+    <path d="M256,256 L260.96,62.06 A194,194 0 0 1 264.25,62.18 Z" fill="url(#sweep)" opacity="0.118"/>
+    <path d="M256,256 L258.21,62.01 A194,194 0 0 1 261.50,62.08 Z" fill="url(#sweep)" opacity="0.111"/>
+    <path d="M256,256 L255.46,62.00 A194,194 0 0 1 258.75,62.02 Z" fill="url(#sweep)" opacity="0.105"/>
+    <path d="M256,256 L252.71,62.03 A194,194 0 0 1 256.00,62.00 Z" fill="url(#sweep)" opacity="0.099"/>
+    <path d="M256,256 L249.96,62.09 A194,194 0 0 1 253.25,62.02 Z" fill="url(#sweep)" opacity="0.093"/>
+    <path d="M256,256 L247.21,62.20 A194,194 0 0 1 250.50,62.08 Z" fill="url(#sweep)" opacity="0.088"/>
+    <path d="M256,256 L244.46,62.34 A194,194 0 0 1 247.75,62.18 Z" fill="url(#sweep)" opacity="0.082"/>
+    <path d="M256,256 L241.72,62.53 A194,194 0 0 1 245.00,62.31 Z" fill="url(#sweep)" opacity="0.077"/>
+    <path d="M256,256 L238.97,62.75 A194,194 0 0 1 242.26,62.49 Z" fill="url(#sweep)" opacity="0.072"/>
+    <path d="M256,256 L236.24,63.01 A194,194 0 0 1 239.51,62.70 Z" fill="url(#sweep)" opacity="0.067"/>
+    <path d="M256,256 L233.50,63.31 A194,194 0 0 1 236.77,62.96 Z" fill="url(#sweep)" opacity="0.062"/>
+    <path d="M256,256 L230.77,63.65 A194,194 0 0 1 234.04,63.25 Z" fill="url(#sweep)" opacity="0.057"/>
+    <path d="M256,256 L228.05,64.02 A194,194 0 0 1 231.31,63.58 Z" fill="url(#sweep)" opacity="0.053"/>
+    <path d="M256,256 L225.33,64.44 A194,194 0 0 1 228.58,63.95 Z" fill="url(#sweep)" opacity="0.049"/>
+    <path d="M256,256 L222.61,64.89 A194,194 0 0 1 225.86,64.36 Z" fill="url(#sweep)" opacity="0.045"/>
+    <path d="M256,256 L219.91,65.39 A194,194 0 0 1 223.15,64.80 Z" fill="url(#sweep)" opacity="0.041"/>
+    <path d="M256,256 L217.21,65.92 A194,194 0 0 1 220.44,65.29 Z" fill="url(#sweep)" opacity="0.037"/>
+    <path d="M256,256 L214.51,66.49 A194,194 0 0 1 217.74,65.81 Z" fill="url(#sweep)" opacity="0.033"/>
+    <path d="M256,256 L211.83,67.09 A194,194 0 0 1 215.04,66.37 Z" fill="url(#sweep)" opacity="0.030"/>
+    <path d="M256,256 L209.16,67.74 A194,194 0 0 1 212.36,66.97 Z" fill="url(#sweep)" opacity="0.027"/>
+    <path d="M256,256 L206.49,68.42 A194,194 0 0 1 209.68,67.61 Z" fill="url(#sweep)" opacity="0.024"/>
+    <path d="M256,256 L203.84,69.14 A194,194 0 0 1 207.02,68.29 Z" fill="url(#sweep)" opacity="0.021"/>
+    <path d="M256,256 L201.19,69.90 A194,194 0 0 1 204.36,69.00 Z" fill="url(#sweep)" opacity="0.018"/>
+    <path d="M256,256 L198.56,70.70 A194,194 0 0 1 201.71,69.75 Z" fill="url(#sweep)" opacity="0.015"/>
+    <path d="M256,256 L195.94,71.53 A194,194 0 0 1 199.08,70.54 Z" fill="url(#sweep)" opacity="0.013"/>
+    <path d="M256,256 L193.33,72.40 A194,194 0 0 1 196.45,71.36 Z" fill="url(#sweep)" opacity="0.011"/>
+    <path d="M256,256 L190.73,73.31 A194,194 0 0 1 193.84,72.23 Z" fill="url(#sweep)" opacity="0.009"/>
+    <path d="M256,256 L188.15,74.25 A194,194 0 0 1 191.24,73.13 Z" fill="url(#sweep)" opacity="0.007"/>
+    <path d="M256,256 L185.58,75.23 A194,194 0 0 1 188.65,74.06 Z" fill="url(#sweep)" opacity="0.006"/>
+    <path d="M256,256 L183.02,76.25 A194,194 0 0 1 186.08,75.04 Z" fill="url(#sweep)" opacity="0.004"/>
+    <path d="M256,256 L180.48,77.30 A194,194 0 0 1 183.52,76.05 Z" fill="url(#sweep)" opacity="0.003"/>
+    <path d="M256,256 L177.95,78.39 A194,194 0 0 1 180.98,77.09 Z" fill="url(#sweep)" opacity="0.002"/>
+    <path d="M256,256 L175.44,79.52 A194,194 0 0 1 178.45,78.17 Z" fill="url(#sweep)" opacity="0.001"/>
+    <path d="M256,256 L172.95,80.68 A194,194 0 0 1 175.93,79.29 Z" fill="url(#sweep)" opacity="0.001"/>
+    <path d="M256,256 L170.47,81.87 A194,194 0 0 1 173.44,80.45 Z" fill="url(#sweep)" opacity="0.000"/>
+  </g>
+    <line x1="256.0" y1="60.0" x2="256.0" y2="50.0" stroke="#ffb020" stroke-opacity="0.95" stroke-width="6" stroke-linecap="round"/>
+  <line x1="308.3" y1="60.9" x2="309.6" y2="56.1" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="356.0" y1="82.8" x2="359.5" y2="76.7" stroke="#93a6b4" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round"/>
+  <line x1="398.8" y1="113.2" x2="402.4" y2="109.6" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="429.2" y1="156.0" x2="435.3" y2="152.5" stroke="#93a6b4" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round"/>
+  <line x1="451.1" y1="203.7" x2="455.9" y2="202.4" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="452.0" y1="256.0" x2="462.0" y2="256.0" stroke="#ffb020" stroke-opacity="0.95" stroke-width="6" stroke-linecap="round"/>
+  <line x1="451.1" y1="308.3" x2="455.9" y2="309.6" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="429.2" y1="356.0" x2="435.3" y2="359.5" stroke="#93a6b4" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round"/>
+  <line x1="398.8" y1="398.8" x2="402.4" y2="402.4" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="356.0" y1="429.2" x2="359.5" y2="435.3" stroke="#93a6b4" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round"/>
+  <line x1="308.3" y1="451.1" x2="309.6" y2="455.9" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="256.0" y1="452.0" x2="256.0" y2="462.0" stroke="#ffb020" stroke-opacity="0.95" stroke-width="6" stroke-linecap="round"/>
+  <line x1="203.7" y1="451.1" x2="202.4" y2="455.9" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="156.0" y1="429.2" x2="152.5" y2="435.3" stroke="#93a6b4" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round"/>
+  <line x1="113.2" y1="398.8" x2="109.6" y2="402.4" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="82.8" y1="356.0" x2="76.7" y2="359.5" stroke="#93a6b4" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round"/>
+  <line x1="60.9" y1="308.3" x2="56.1" y2="309.6" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="60.0" y1="256.0" x2="50.0" y2="256.0" stroke="#ffb020" stroke-opacity="0.95" stroke-width="6" stroke-linecap="round"/>
+  <line x1="60.9" y1="203.7" x2="56.1" y2="202.4" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="82.8" y1="156.0" x2="76.7" y2="152.5" stroke="#93a6b4" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round"/>
+  <line x1="113.2" y1="113.2" x2="109.6" y2="109.6" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="156.0" y1="82.8" x2="152.5" y2="76.7" stroke="#93a6b4" stroke-opacity="0.5" stroke-width="3.4" stroke-linecap="round"/>
+  <line x1="203.7" y1="60.9" x2="202.4" y2="56.1" stroke="#93a6b4" stroke-opacity="0.28" stroke-width="2.4" stroke-linecap="round"/>
+  <!-- leading edge of the sweep -->
+  <line x1="256" y1="256" x2="408.9" y2="136.6" stroke="#ffd27a" stroke-width="8" stroke-linecap="round" filter="url(#glow)"/>
+  <!-- blips: a circle, a diamond and a triangle, the map's own marker shapes; the one under the sweep is lit -->
+  <g filter="url(#soft)" opacity="0.9"><circle cx="323.1" cy="156.5" r="20" fill="#ffb020"/></g>
+  <circle cx="323.1" cy="156.5" r="15" fill="#ffd27a"/>
+  <circle cx="323.1" cy="156.5" r="30" fill="none" stroke="#ffb020" stroke-opacity="0.75" stroke-width="3.6"/>
+  <path d="M209.6,96.3 L226.6,113.3 L209.6,130.3 L192.6,113.3 Z" fill="#ffb020" fill-opacity="0.75"/>
+  <path d="M214.7,305.1 L231.7,336.1 L197.7,336.1 Z" fill="#93a6b4" fill-opacity="0.8"/>
+  <circle cx="206.6" cy="229.7" r="7" fill="#ffe3b0" fill-opacity="0.55"/>
+  <!-- hub -->
+  <circle cx="256" cy="256" r="19" fill="#0a0908" stroke="#ffb020" stroke-width="5.5"/>
+  <circle cx="256" cy="256" r="8.5" fill="#ffb020"/>
+</svg>

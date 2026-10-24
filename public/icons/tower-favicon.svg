@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#0a0908"/>
+  <circle cx="256" cy="256" r="200" fill="#15120d" stroke="#ffb020" stroke-width="36"/>
+  <path d="M256,256 L394.9,112.1 A200,200 0 0 1 414.0,133.4 Z" fill="#ffb020" opacity="0.85"/><path d="M256,256 L373.6,94.2 A200,200 0 0 1 395.4,112.6 Z" fill="#ffb020" opacity="0.72"/><path d="M256,256 L349.9,79.4 A200,200 0 0 1 374.1,94.6 Z" fill="#ffb020" opacity="0.59"/><path d="M256,256 L324.4,68.1 A200,200 0 0 1 350.5,79.7 Z" fill="#ffb020" opacity="0.48"/><path d="M256,256 L297.6,60.4 A200,200 0 0 1 325.1,68.3 Z" fill="#ffb020" opacity="0.38"/><path d="M256,256 L270.0,56.5 A200,200 0 0 1 298.3,60.5 Z" fill="#ffb020" opacity="0.28"/><path d="M256,256 L242.0,56.5 A200,200 0 0 1 270.6,56.5 Z" fill="#ffb020" opacity="0.20"/><path d="M256,256 L214.4,60.4 A200,200 0 0 1 242.7,56.4 Z" fill="#ffb020" opacity="0.12"/><path d="M256,256 L187.6,68.1 A200,200 0 0 1 215.1,60.2 Z" fill="#ffb020" opacity="0.06"/><path d="M256,256 L162.1,79.4 A200,200 0 0 1 188.3,67.8 Z" fill="#ffb020" opacity="0.02"/>
+  <line x1="256" y1="256" x2="413.6" y2="132.9" stroke="#ffd27a" stroke-width="30" stroke-linecap="round"/>
+  <circle cx="312.1" cy="141.0" r="40" fill="#ffd27a"/>
+  <circle cx="256" cy="256" r="30" fill="#ffb020"/>
+</svg>

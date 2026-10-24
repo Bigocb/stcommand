@@ -20,7 +20,7 @@ self.addEventListener("push", (event) => {
     // The same tag replaces the earlier notification for that condition instead of stacking another.
     tag: data.tag || undefined,
     icon: "/icons/tower-icon-192.png",
-    badge: "/icons/tower-favicon-32.png",
+    badge: "/icons/tower-notify-badge-96.png",
     data: { url: data.url || "/m" },
     requireInteraction: data.severity === "critical",
   })));
