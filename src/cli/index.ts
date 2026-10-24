@@ -23,6 +23,7 @@ import { createMcpAuth } from "../http/mcpAuth.js";
 import { createMcpRouter } from "../mcp/server.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 import { GalaxyCrawler } from "../engine/galaxyCrawler.js";
+import { AgentWatcher } from "../engine/agentWatcher.js";
 import { createResetWatcher } from "../engine/resetWatcherLive.js";
 import { startRunTimeline } from "../engine/runTimeline.js";
 
@@ -110,6 +111,16 @@ async function main(): Promise<void> {
     galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
   }, 5_000);
   galaxyCrawlInterval.unref?.();
+
+  // Who registered when, and how fast start-system gates get built (docs/agent-watch.md). Public reads only, about 10 requests
+  // every 15 minutes; AGENT_WATCH=off turns it off. It also copies the reset's hourly agent snapshots into tables the weekly
+  // cleanup leaves alone.
+  if ((process.env.AGENT_WATCH ?? "on").toLowerCase() !== "off") {
+    const agentWatcher = new AgentWatcher(new Store(pool), (msg) => logGlobal(msg));
+    const agentWatchInterval = setInterval(() => { agentWatcher.tick().catch(() => {}); }, 60_000);
+    agentWatchInterval.unref?.();
+    agentWatcher.tick().catch(() => {});
+  }
 
   // Recovers the fleet after the weekly server reset without the operator: see
   // src/engine/resetWatcher.ts. Needs ST_ACCOUNT_TOKEN to register new agents;

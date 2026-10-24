@@ -186,6 +186,23 @@ interface ShipLogDbRow {
   entry: string | null;
 }
 
+/** One agent's first sighting in a reset and where it stands now (src/engine/agentWatch.ts). */
+export interface AgentSightingRow {
+  agent: string;
+  system: string;
+  hq: string;
+  faction?: string;
+  firstSeenAt: number;
+  source: "live" | "snapshot" | "baseline";
+  priorScanAt?: number;
+  firstCredits: number;
+  firstShips: number;
+  agentsInSystem: number;
+  lastSeenAt: number;
+  lastCredits: number;
+  lastShips: number;
+}
+
 export interface MarketRow {
   systemSymbol: string;
   waypointSymbol: string;
@@ -3159,6 +3176,153 @@ export class Store {
         values,
       );
     });
+  }
+
+  // ---- Agent watch (migrations/063_agent_watch.sql, src/engine/agentWatch.ts): kept across resets, keyed by reset date ----
+
+  /** Every sighting recorded for one reset. */
+  async loadAgentSightings(resetDate: string): Promise<AgentSightingRow[]> {
+    return withPool(this.pool, async (c) => {
+      const r = await c.query(
+        `SELECT agent_symbol, system_symbol, hq_waypoint, faction, first_seen_at, source, prior_scan_at, first_credits, first_ships,
+                agents_in_system, last_seen_at, last_credits, last_ships
+           FROM agent_sightings WHERE reset_date = $1 ORDER BY first_seen_at, agent_symbol`,
+        [resetDate],
+      );
+      return r.rows.map((x: any) => ({
+        agent: x.agent_symbol, system: x.system_symbol, hq: x.hq_waypoint, faction: x.faction ?? undefined,
+        firstSeenAt: new Date(x.first_seen_at).getTime(), source: x.source, priorScanAt: x.prior_scan_at ? new Date(x.prior_scan_at).getTime() : undefined,
+        firstCredits: Number(x.first_credits ?? 0), firstShips: Number(x.first_ships ?? 0), agentsInSystem: x.agents_in_system === null ? 0 : Number(x.agents_in_system),
+        lastSeenAt: new Date(x.last_seen_at).getTime(), lastCredits: Number(x.last_credits ?? 0), lastShips: Number(x.last_ships ?? 0),
+      }));
+    });
+  }
+
+  async insertAgentSightings(resetDate: string, rows: AgentSightingRow[]): Promise<void> {
+    if (!rows.length) return;
+    await withPool(this.pool, async (c) => {
+      const values: unknown[] = [];
+      const tuples = rows.map((r, i) => {
+        const b = i * 14;
+        values.push(resetDate, r.agent, r.system, r.hq, r.faction ?? null, r.firstSeenAt / 1000, r.source, r.priorScanAt === undefined ? null : r.priorScanAt / 1000, r.firstCredits, r.firstShips, r.agentsInSystem, r.lastSeenAt / 1000, r.lastCredits, r.lastShips);
+        return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, to_timestamp($${b + 6}), $${b + 7}, to_timestamp($${b + 8}), $${b + 9}, $${b + 10}, $${b + 11}, to_timestamp($${b + 12}), $${b + 13}, $${b + 14})`;
+      });
+      await c.query(
+        `INSERT INTO agent_sightings (reset_date, agent_symbol, system_symbol, hq_waypoint, faction, first_seen_at, source, prior_scan_at, first_credits, first_ships, agents_in_system, last_seen_at, last_credits, last_ships)
+         VALUES ${tuples.join(", ")} ON CONFLICT (reset_date, agent_symbol) DO NOTHING`,
+        values,
+      );
+    });
+  }
+
+  /** Refresh last-seen, credits, ships (and the faction and HQ a backfilled row did not have). */
+  async touchAgentSightings(resetDate: string, touches: { agent: string; at: number; credits: number; ships: number; faction: string; hq: string }[]): Promise<void> {
+    if (!touches.length) return;
+    await withPool(this.pool, async (c) => {
+      await c.query(
+        `UPDATE agent_sightings s
+            SET last_seen_at = to_timestamp(u.at / 1000.0), last_credits = u.credits, last_ships = u.ships,
+                faction = COALESCE(s.faction, u.faction), hq_waypoint = u.hq
+           FROM UNNEST($2::text[], $3::float8[], $4::bigint[], $5::int[], $6::text[], $7::text[]) AS u(agent, at, credits, ships, faction, hq)
+          WHERE s.reset_date = $1 AND s.agent_symbol = u.agent`,
+        [resetDate, touches.map((t) => t.agent), touches.map((t) => t.at), touches.map((t) => t.credits), touches.map((t) => t.ships), touches.map((t) => t.faction), touches.map((t) => t.hq)],
+      );
+    });
+  }
+
+  async insertAgentSamples(resetDate: string, at: number, agents: { symbol: string; credits: number; shipCount: number }[]): Promise<void> {
+    if (!agents.length) return;
+    await withPool(this.pool, async (c) => {
+      await c.query(
+        `INSERT INTO agent_samples (reset_date, agent_symbol, sampled_at, credits, ships)
+         SELECT $1, u.agent, to_timestamp($2::float8), u.credits, u.ships FROM UNNEST($3::text[], $4::bigint[], $5::int[]) AS u(agent, credits, ships)
+         ON CONFLICT DO NOTHING`,
+        [resetDate, at / 1000, agents.map((a) => a.symbol), agents.map((a) => a.credits), agents.map((a) => a.shipCount)],
+      );
+    });
+  }
+
+  /**
+   * Copy this reset's hourly agent_credit_snapshots into the watcher's own tables before the weekly reset wipes them:
+   * the first snapshot per agent becomes a `snapshot` sighting (hourly resolution), and every snapshot becomes a sample.
+   * Safe to repeat. Returns how many sightings and samples were added.
+   */
+  async backfillAgentWatchFromSnapshots(resetDate: string, sinceIso: string): Promise<{ sightings: number; samples: number }> {
+    return withPool(this.pool, async (c) => {
+      const s = await c.query(
+        `INSERT INTO agent_sightings (reset_date, agent_symbol, system_symbol, hq_waypoint, faction, first_seen_at, source, prior_scan_at, first_credits, first_ships, agents_in_system, last_seen_at, last_credits, last_ships)
+         SELECT $1, f.agent_symbol, f.system_symbol, f.system_symbol, NULL, f.timestamp, 'snapshot', NULL, f.credits, f.ship_count, NULL, l.timestamp, l.credits, l.ship_count
+           FROM (SELECT DISTINCT ON (agent_symbol) * FROM agent_credit_snapshots WHERE timestamp >= $2 ORDER BY agent_symbol, timestamp ASC) f
+           JOIN (SELECT DISTINCT ON (agent_symbol) * FROM agent_credit_snapshots WHERE timestamp >= $2 ORDER BY agent_symbol, timestamp DESC) l USING (agent_symbol)
+         ON CONFLICT (reset_date, agent_symbol) DO NOTHING`,
+        [resetDate, sinceIso],
+      );
+      const m = await c.query(
+        `INSERT INTO agent_samples (reset_date, agent_symbol, sampled_at, credits, ships)
+         SELECT $1, agent_symbol, timestamp, credits, ship_count FROM agent_credit_snapshots WHERE timestamp >= $2
+         ON CONFLICT DO NOTHING`,
+        [resetDate, sinceIso],
+      );
+      return { sightings: s.rowCount ?? 0, samples: m.rowCount ?? 0 };
+    });
+  }
+
+  /** Gate waypoint symbol per system, from the crawled waypoint lists (no API call). */
+  async gateSymbolsForSystems(systems: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (!systems.length) return out;
+    await withPool(this.pool, async (c) => {
+      const r = await c.query(
+        `SELECT g.system_symbol, w->>'symbol' AS gate
+           FROM galaxy_systems g, jsonb_array_elements(COALESCE(g.crawled_waypoints, '[]'::jsonb)) w
+          WHERE g.system_symbol = ANY($1) AND w->>'type' = 'JUMP_GATE'`,
+        [systems],
+      );
+      for (const x of r.rows) if (!out.has(x.system_symbol)) out.set(x.system_symbol, x.gate);
+    });
+    return out;
+  }
+
+  async latestGateSamples(resetDate: string): Promise<Map<string, { sampledAt: number; complete: boolean; fulfilled: number; required: number; system: string }>> {
+    return withPool(this.pool, async (c) => {
+      const r = await c.query(
+        `SELECT DISTINCT ON (gate_symbol) gate_symbol, system_symbol, sampled_at, fulfilled, required, complete
+           FROM gate_progress_samples WHERE reset_date = $1 ORDER BY gate_symbol, sampled_at DESC`,
+        [resetDate],
+      );
+      return new Map(r.rows.map((x: any) => [x.gate_symbol, { sampledAt: new Date(x.sampled_at).getTime(), complete: x.complete, fulfilled: Number(x.fulfilled), required: Number(x.required), system: x.system_symbol }]));
+    });
+  }
+
+  async insertGateSamples(resetDate: string, rows: { gate: string; system: string; at: number; fulfilled: number; required: number; complete: boolean }[]): Promise<void> {
+    if (!rows.length) return;
+    await withPool(this.pool, async (c) => {
+      await c.query(
+        `INSERT INTO gate_progress_samples (reset_date, gate_symbol, system_symbol, sampled_at, fulfilled, required, complete)
+         SELECT $1, u.gate, u.system, to_timestamp(u.at / 1000.0), u.fulfilled, u.required, u.complete
+           FROM UNNEST($2::text[], $3::text[], $4::float8[], $5::int[], $6::int[], $7::boolean[]) AS u(gate, system, at, fulfilled, required, complete)
+         ON CONFLICT DO NOTHING`,
+        [resetDate, rows.map((r) => r.gate), rows.map((r) => r.system), rows.map((r) => r.at), rows.map((r) => r.fulfilled), rows.map((r) => r.required), rows.map((r) => r.complete)],
+      );
+    });
+  }
+
+  /** Gate progress samples for some systems (time order), for the watch tool. */
+  async gateSamplesForSystems(resetDate: string, systems: string[]): Promise<{ gate: string; system: string; sampledAt: number; fulfilled: number; required: number; complete: boolean }[]> {
+    if (!systems.length) return [];
+    return withPool(this.pool, async (c) => {
+      const r = await c.query(
+        `SELECT gate_symbol, system_symbol, sampled_at, fulfilled, required, complete FROM gate_progress_samples
+          WHERE reset_date = $1 AND system_symbol = ANY($2) ORDER BY gate_symbol, sampled_at`,
+        [resetDate, systems],
+      );
+      return r.rows.map((x: any) => ({ gate: x.gate_symbol, system: x.system_symbol, sampledAt: new Date(x.sampled_at).getTime(), fulfilled: Number(x.fulfilled), required: Number(x.required), complete: x.complete }));
+    });
+  }
+
+  /** Reset dates the watcher has rows for, newest first. */
+  async agentWatchResets(): Promise<string[]> {
+    return withPool(this.pool, async (c) => (await c.query(`SELECT reset_date FROM agent_sightings GROUP BY reset_date ORDER BY reset_date DESC`)).rows.map((x: any) => x.reset_date));
   }
 
   /** Credit/ship-count history for every agent headquartered in `systemSymbol`,

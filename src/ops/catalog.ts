@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { gateAtOrBefore, gateBuildTime } from "../engine/agentWatch.js";
 import { systemCandidates } from "./systems.js";
 import { explorerReport } from "./explorers.js";
 import { buildKeeperReview } from "../engine/keeperValue.js";
@@ -427,6 +428,58 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx) {
       const d = await ctx.w.fleet.keeperReviewData();
       return buildKeeperReview({ nowIso: new Date(ctx.now()).toISOString(), ...d });
+    },
+  },
+
+  {
+    name: "agent_watch",
+    title: "Agent watch: who registered when, what their start looked like, how fast start gates get built",
+    description: "The public agent directory watched every 15 minutes (agent_sightings, agent_samples, gate_progress_samples; kept across resets). Per agent: its faction, start system, how many agents shared that start, when it was FIRST SEEN and how sure that is (source live = it appeared between two scans, so registration is bracketed by priorScanAt..firstSeenAt; snapshot = from the hourly agent snapshots, so within an hour; baseline = already there when the watcher first ran, so firstSeenAt is only an upper bound), credits and ships then and now, and the start gate's progress at first sight (fulfilled/required, complete) and now, with when it finished. The public API shows no registration time, so this is the only source of one. Filter with agent (part of a name, e.g. FIRST for FIRST and FIRST496), system, sinceHours (first seen within the last N hours; baseline rows excluded) and resetDate (a past week). Also gives sightings by source, new agents per hour, and the hours each start gate took from the first sample to complete. Read-only.",
+    input: { agent: z.string().optional(), system: z.string().optional(), resetDate: z.string().optional(), sinceHours: z.coerce.number().optional(), limit: num(60) },
+    async run(ctx, a) {
+      const resets = await ctx.w.store.agentWatchResets();
+      const resetDate = a.resetDate ?? resets[0];
+      if (!resetDate) return { note: "the agent watcher has recorded nothing yet (it scans every 15 minutes once the server is up; AGENT_WATCH=off disables it)", resets };
+      const all = await ctx.w.store.loadAgentSightings(resetDate);
+      const nowMs = ctx.now();
+      const inSystemNow = new Map<string, number>();
+      for (const s of all) inSystemNow.set(s.system, (inSystemNow.get(s.system) ?? 0) + 1);
+      const needle = a.agent?.toLowerCase();
+      let rows = all.filter((s) => (!needle || s.agent.toLowerCase().includes(needle)) && (!a.system || s.system === a.system.toUpperCase()));
+      if (a.sinceHours !== undefined) rows = rows.filter((s) => s.source !== "baseline" && s.firstSeenAt >= nowMs - a.sinceHours * 3_600_000);
+      const matched = rows.length;
+      rows = rows.slice(0, Math.min(Math.max(a.limit, 1), 300));
+      const gateSamples = await ctx.w.store.gateSamplesForSystems(resetDate, [...new Set(all.map((s) => s.system))]);
+      const bySystem = new Map<string, typeof gateSamples>();
+      for (const g of gateSamples) (bySystem.get(g.system) ?? bySystem.set(g.system, []).get(g.system)!).push(g);
+      const iso = (t: number | undefined) => (t === undefined ? null : new Date(t).toISOString());
+      const gateView = (g: { sampledAt: number; fulfilled: number; required: number; complete: boolean } | undefined) => (g ? { fulfilled: g.fulfilled, required: g.required, complete: g.complete, sampledAt: iso(g.sampledAt) } : null);
+      const out = rows.map((s) => {
+        const samples = bySystem.get(s.system) ?? [];
+        const built = gateBuildTime(samples);
+        return {
+          agent: s.agent, faction: s.faction ?? null, system: s.system, source: s.source,
+          firstSeenAt: iso(s.firstSeenAt), registeredAfter: iso(s.priorScanAt),
+          agentsInSystemAtFirstSeen: s.agentsInSystem || null, agentsInSystemNow: inSystemNow.get(s.system) ?? 0,
+          credits: { atFirstSeen: s.firstCredits, now: s.lastCredits }, ships: { atFirstSeen: s.firstShips, now: s.lastShips },
+          gateAtFirstSeen: gateView(gateAtOrBefore(samples, s.firstSeenAt)), gateNow: gateView(samples[samples.length - 1]),
+          gateCompletedAt: built ? iso(built.completedAt) : null,
+        };
+      });
+      const perHour = new Map<string, number>();
+      for (const s of all) if (s.source === "live") { const h = new Date(s.firstSeenAt).toISOString().slice(0, 13) + ":00Z"; perHour.set(h, (perHour.get(h) ?? 0) + 1); }
+      const bySource: Record<string, number> = {};
+      for (const s of all) bySource[s.source] = (bySource[s.source] ?? 0) + 1;
+      const builds = [...bySystem].map(([system, samples]) => ({ system, ...gateBuildTime(samples) })).filter((b) => b.hours !== undefined) as { system: string; hours: number; firstAt: number; completedAt: number }[];
+      builds.sort((x, y) => x.hours - y.hours);
+      const hours = builds.map((b) => b.hours).sort((p, q) => p - q);
+      return {
+        resetDate, resets, lastScan: iso(Math.max(0, ...all.map((s) => s.lastSeenAt))) , agents: all.length, matched, returned: out.length,
+        bySource, newPerHour: Object.fromEntries([...perHour].sort()),
+        gateBuilds: { systemsWithATimeline: builds.length, medianHours: hours.length ? hours[Math.floor((hours.length - 1) / 2)] : null, fastest: builds.slice(0, 10).map((b) => ({ system: b.system, hours: b.hours, completedAt: iso(b.completedAt) })) },
+        note: "gate timelines start at the watcher's first sample of a gate, not at the reset, so hours is time observed to finish; a gate already finished at first sample has no timeline.",
+        rows: out,
+      };
     },
   },
 

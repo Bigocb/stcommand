@@ -9,6 +9,30 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Agent watch: when each agent registered, what its start looked like, how fast start gates get built
+
+Operator idea after the fresh-gate work: players may register several agents and keep the one that starts next to a built gate.
+The public API shows no registration time, so the question could not be tested; a scan of all 166 agents of the 2026-10-18 reset
+could show only that every start gate began unbuilt (0 of 166 pre-built), that 70 agents (all COSMIC) shared 13 start systems
+(gate built in 9 of 13, against 36% of the 86 solo starts), that among agents that played, the solo starts did far better (30%
+over 100M credits against 6%), and that sibling names (FIRST/FIRST496, ZIKA-OWL/ZIKA-GROK, SOLO/SOLO_BEN, and dev/test pairs such as
+CHAMLIS/CHAMLIS-DEV) were not distinguishable by any static system feature (every start system has 3 shipyards, 25-31 markets and
+81-100 waypoints). Gate state at registration time was the missing fact. Full write-up: `docs/agent-watch.md`.
+
+- `src/engine/agentWatcher.ts` (started from `cli/index.ts`, `AGENT_WATCH=off` disables): every 15 minutes reads the public agent
+  list and the start-system gates (tokenless, about 10 to 60 requests, retries on 429/5xx, writes nothing unless it read the whole
+  list) into three tables kept across resets (migration 063): `agent_sightings` (first seen, bracket, faction, start, who shared
+  it), `agent_samples` (credits and ships every 30 minutes) and `gate_progress_samples` (start-gate progress, written on change).
+- The first run for a reset copies that reset's hourly `agent_credit_snapshots` (wiped at the weekly reset) into the new tables, so
+  this week survives; deploy before the 2026-10-25 13:00 UTC reset to keep it.
+- `src/engine/agentWatch.ts` (pure): `planScan` (live versus baseline sightings and the 15-minute bracket), `gatesDue`,
+  `gateSampleChanged`, `gateAtOrBefore`, `gateBuildTime`.
+- Ops tool `agent_watch` (`stcommand_ops_agent_watch`): filter by agent name part, system, sinceHours, resetDate; each row gives the
+  gate at first sight, now and when it finished; the summary gives sightings by source, new agents per hour and gate build hours.
+- Tests: `tests/agentWatch.test.ts` (planning), `tests/agentWatcher.test.ts` (a fake public API and the real database: baseline,
+  bracket, gate rows only on change, a finished gate never read again, a failed scan writes nothing, snapshot backfill, a new reset,
+  and the ops tool). Mutation checks: reporting a baseline as live and re-reading a finished gate both fail their tests.
+
 ## 2026-10-24 — A 404 is no longer "built", and a gate is read live before a ship jumps through it
 
 Follow-up to the JM97 entry below. Operator question: why did the crawler not correct a gate recorded complete? The crawler reads only gates
