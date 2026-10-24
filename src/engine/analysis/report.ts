@@ -8,6 +8,7 @@ import type { ActionEventRow, AnalysisLedgerRow, AnalysisSnapshotRow } from "../
 import { calibrate, type Calibration } from "./calibration.js";
 import { growthPerWeek, type HullEvent, type WealthPoint } from "../growth.js";
 import { changeFindings, changeImpacts, windowMetrics, type ChangeImpact } from "./changes.js";
+import { buildFreshness, coverageFromEvents, freshnessFindings, type FreshnessReport } from "./freshness.js";
 import { competitionFindings, summarizeCompetition, tripExposures, type CompetitionStats } from "./competition.js";
 import { clusterTrades, impactFindings, latestTradeVolumes, summarizeImpact, type MarketImpactStat } from "./marketImpact.js";
 import { attributePriceMoves, moveFindings, summarizeMoves, type MarketTrade, type MoveStats } from "./priceMoves.js";
@@ -27,6 +28,8 @@ export interface AnalysisInputs {
   hullEvents?: readonly HullEvent[];
   /** Ships set to local-only (reach "system"); every other ship in the ledger counts as cross-system. */
   localShips?: ReadonlySet<string>;
+  /** keeper_markets config changes from the whole week (not just the window): when each system gained coverage, for the freshness curve. */
+  coverageEvents?: readonly ActionEventRow[];
 }
 
 export interface ReachSummary {
@@ -68,6 +71,8 @@ export interface AnalysisReport {
   calibration: Calibration;
   /** Realized over estimated by how much rival trading each trip met (src/engine/analysis/competition.ts). */
   competition: CompetitionStats;
+  /** Profit per unit by age since a system gained keeper coverage, against the mature rate (src/engine/analysis/freshness.ts). */
+  freshness: FreshnessReport;
   notes: string[];
 }
 
@@ -102,6 +107,8 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
   const calibration = calibrate(trips, policy);
   const competition = summarizeCompetition(tripExposures(closed, input.marketTrades, input.ourShips, policy));
   const whole = windowMetrics(trips, ledger, input.fromMs, input.nowMs);
+  const coverage = coverageFromEvents(input.coverageEvents ?? input.events);
+  const freshness = buildFreshness(ledger.filter((r) => r.type === "SELL"), coverage);
 
   const findings = [
     ...tripFindings(routes, policy),
@@ -109,6 +116,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
     ...moveFindings(moveStats),
     ...changeFindings(changes, policy),
     ...competitionFindings(competition, policy),
+    ...freshnessFindings(freshness),
   ].sort((a, b) => b.weight - a.weight);
 
   const byReach = reachSummaries(trips, ledger, input.localShips ?? new Set(), input.fromMs, input.nowMs);
@@ -117,6 +125,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
   const withEstimate = closed.filter((t) => t.expectedProfit !== null).length;
   if (closed.length && withEstimate === 0) notes.push("No trip in this window has a recorded estimate yet (tracking started 2026-10-15), so estimate accuracy and calibration are empty.");
   if (!input.snapshots.length) notes.push("No market snapshots in the window: recovery times and price-move attribution are empty.");
+  if (!coverage.length) notes.push("No keeper-list change is recorded for this week yet, so the freshness curve has no systems with a coverage time.");
   if (changes.some((c) => c.tooRecent)) notes.push("Some settings changes are too recent for a full after-window; they are listed without a verdict.");
 
   return {
@@ -141,6 +150,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
     changes: changes.slice(-20),
     calibration: { fleet: calibration.fleet, routes: calibration.routes.slice(0, 20), goods: calibration.goods.slice(0, 20) },
     competition,
+    freshness,
     notes,
   };
 }

@@ -51,7 +51,7 @@ The gap: once the cap is full nothing rotates coverage toward fresh systems, and
 
 ## Plan
 
-**Phase 0, measure (ship first, no behaviour change).** Add a per-system "yield since coverage" series to the analysis engine:
+**Phase 0, measure (shipped 2026-10-24; read it in `stcommand_ops_analysis` under `freshness`).** Add a per-system "yield since coverage" series to the analysis engine:
 for each system, the hour its first keeper was stationed, then profit per sold unit and per trip in hourly buckets after it,
 beside the fleet norm. Save it with `capture_findings` so it survives the reset. This turns the table above into a curve we can
 read live, and it confirms or kills the hypothesis in the first days of next week.

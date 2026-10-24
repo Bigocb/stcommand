@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Analysis: the freshness curve, profit per unit by hours since a system gained keeper coverage
+
+Phase 0 of `docs/fresh-system-expansion-plan.md`. The 2026-10-23 finding (the best hours came from big hulls selling into
+systems that had just been covered, and the profit per unit fell as we sold into them) was read off two ships by hand; this
+makes it a standing measurement. `src/engine/analysis/freshness.ts` (pure) buckets every sell by hours since its system's first
+market joined the keeper priority list (0-2, 2-4, 4-8, 8-16, 16+) and compares each bucket with the mature rate (sells in systems
+with no recorded coverage change, or covered 16 hours or more). The report gains `freshness` (curve, per-system yield with first and
+last bucket, hours to first sell, when the premium fades) and a `freshness` finding when a bucket with at least 15 sells beats the
+mature rate by 1.25x. The coverage times come from the whole week's `keeper_markets` config changes (ops/analysis.ts reads them
+from the week's start, not just the window). No behaviour change: nothing acts on it. Read it with `stcommand_ops_analysis`; a
+saved report (`capture_findings`) carries it across the reset. Tests: `tests/freshness.test.ts`.
+
 ## 2026-10-24 — Keeper triage: the engine parks keepers on dead markets and sets itself a reminder to look again (doctrine `keeperTriage`, off)
 
 Operator request: let the engine manage keepers, park the ones on low or crashed markets, and set its own reminder to check

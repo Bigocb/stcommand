@@ -3,7 +3,7 @@
  * report can rank them together and a reader always sees the evidence and the sample size behind a claim.
  */
 
-export type FindingKind = "worked" | "didnt_work" | "estimate" | "cost" | "market_impact" | "market_recovery" | "price_moves" | "competition" | "change_impact";
+export type FindingKind = "worked" | "didnt_work" | "estimate" | "cost" | "market_impact" | "market_recovery" | "price_moves" | "competition" | "change_impact" | "freshness";
 
 export type Confidence = "low" | "medium" | "high";
 

@@ -3,6 +3,7 @@
  * `analysis` tool and the MCP capture tool, so a saved report is exactly what the read tool shows.
  */
 import type { TenantWorker } from "../engine/tenantRegistry.js";
+import { getGameResetDate } from "../core/universe.js";
 import { buildAnalysisReport, type AnalysisReport } from "../engine/analysis/report.js";
 
 export async function runAnalysis(w: TenantWorker, sinceHours: number, nowMs: number): Promise<AnalysisReport> {
@@ -11,9 +12,14 @@ export async function runAnalysis(w: TenantWorker, sinceHours: number, nowMs: nu
   const lookbackMs = 6 * 3_600_000;
   const sinceIso = new Date(fromMs - lookbackMs).toISOString();
   const nowIso = new Date(nowMs).toISOString();
-  const [ledger, events] = await Promise.all([
+  // When each system gained keeper coverage can predate the window by days, so that one kind of change is read from the week's start.
+  const resetDate = getGameResetDate();
+  const weekMs = resetDate ? Date.parse(resetDate) : NaN;
+  const coverageSinceIso = new Date(Number.isFinite(weekMs) ? Math.min(weekMs, fromMs - lookbackMs) : fromMs - lookbackMs).toISOString();
+  const [ledger, events, coverageEvents] = await Promise.all([
     w.store.analysisLedgerRows(w.tenantId, sinceIso),
     w.store.actionEvents(w.tenantId, { sinceIso }),
+    w.store.actionEvents(w.tenantId, { sinceIso: coverageSinceIso, kinds: ["config_change"], limit: 20000 }),
   ]);
   const pairs = new Map<string, { waypoint: string; good: string }>();
   for (const r of ledger) {
@@ -29,7 +35,7 @@ export async function runAnalysis(w: TenantWorker, sinceHours: number, nowMs: nu
   const hullEvents = shipRows.map((r) => ({ ts: Date.parse(r.timestamp), amount: r.scrap ? -r.total : r.total }));
   const ourShips = new Set<string>([...w.fleet.fleetStatusSummary().map((s) => s.symbol), ...ledger.map((r) => r.shipSymbol)]);
   const localShips = new Set(w.fleet.shipReachList().map((e) => e.shipSymbol));
-  return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips, wealth: wealthRows, hullEvents, localShips });
+  return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips, wealth: wealthRows, hullEvents, localShips, coverageEvents });
 }
 
 /**

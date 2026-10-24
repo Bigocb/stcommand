@@ -82,6 +82,16 @@ Each takes plain rows and returns findings; no I/O, no clock. The store fetches 
    expected profit, shrunk toward the fleet average when the sample is small. "The bot says 80k for this route; past
    trips earned 0.7 of the estimate, so expect about 56k."
 
+8. **Freshness (`freshness.ts`).** Profit per unit sold, by hours since the system gained keeper coverage (buckets 0-2, 2-4,
+   4-8, 8-16 and 16+ hours), against the fleet's mature rate (sells in systems with no recorded coverage change, or covered
+   for 16 hours or more). Anchor: the system's first market joining the keeper priority list (the `keeper_markets` config
+   change, read from the whole week rather than the window), which is the engine deciding to cover it, so ages run a little
+   generous (a keeper still has to be bought and arrive). Also per system: hours to our first sell and the profit per unit in
+   its first and last age buckets. Origin: 2026-10-23, THEOREM-152 earned about 1,170 a unit in X1-YB39 just after coverage,
+   falling to 770 and then 350-480 in older systems (docs/fresh-system-expansion-plan.md, Phase 0). Findings: a premium
+   over the mature rate, with the bucket, ratio, sample size and the credits it earned over the mature rate; a ratio is quoted
+   only for a bucket with at least 15 sells. A correlation, said so in the suggestion.
+
 ## How it feeds the weekly plan
 
 At the end of a week (or on demand), the report is captured into `analysis_findings`. The next week's plan reads the
