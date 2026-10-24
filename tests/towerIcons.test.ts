@@ -28,6 +28,9 @@ describe("Tower icons", () => {
   it("the home-screen, tab and notification icons the page and worker name exist", () => {
     const html = readFileSync(resolve(pub, "m.html"), "utf8");
     const sw = readFileSync(resolve(pub, "sw-tower.js"), "utf8");
+    const inline = html.match(/rel="apple-touch-icon"[^>]*href="data:image\/png;base64,([^"]+)"/);
+    assert.ok(inline, "the apple-touch icon must be embedded in the page");
+    assert.ok(Buffer.from(inline![1]!, "base64").equals(readFileSync(resolve(pub, "icons/tower-apple-touch-icon.png"))), "embedded icon differs from the PNG file");
     const named = [...html.matchAll(/href="(\/icons\/[^"]+)"/g), ...sw.matchAll(/"(\/icons\/[^"]+)"/g)].map((m) => m[1]!);
     assert.ok(named.length >= 4);
     for (const n of named) assert.ok(existsSync(resolve(pub, "." + n)), `${n} is named but missing`);

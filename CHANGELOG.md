@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Tower PWA: the touch icon is embedded in the page
+
+Add to Home Screen from Safari still showed a letter "T" although every icon URL served a valid PNG. Whatever fails in iOS's
+separate icon fetch, the icon now travels inside `m.html` as a data URI (a test keeps it identical to the PNG file).
+
 ## 2026-10-24 — Tower PWA: the manifest also names the 180px icon
 
 iOS 17+ reads the manifest's icons for "Open as Web App"; its closest size to 180 was the 192px one. The 180x180 icon is now
