@@ -78,6 +78,38 @@ there falls to the fleet norm. Only after Phase 0 shows the decay curve is stabl
 **Phase 4, supply of fresh systems.** Explorers and the systems-candidates list are the pipeline. Keep at least two accepted but
 not yet covered systems queued ahead of the keeper purchases, and rank uncovered markets by system freshness first.
 
+## Queued systems and the release gate (operator idea, 2026-10-24; first measured result)
+
+Phase 0 on the live week (40 hours to 2026-10-24 17:27 UTC): profit per unit in a system's first 8 hours after coverage was about
+1.7x the mature rate (938c, 865c, 868c against 513c), 1.2x in hours 8-16 and 1.0x after. Only about 9% of sells fell inside a premium
+window (about one new system every 2 hours), and the excess was about 17.4M credits of roughly 290M, so the premium is real but the
+two 9-10M/h peaks were mostly a few big hulls arriving in fresh systems together. The lever is a steady supply of fresh systems, and
+the timing of each one matters, because a system's premium is spent by the hulls that reach it first.
+
+Today there is no hold: when an explorer accepts a system, `autoKeeperGoodSystems` adds its markets to the keeper list at once, and the
+tour itself records prices, so routes can appear before any keeper is stationed. Waiting on keepers alone therefore does not hold a
+system back. The decision (operator, 2026-10-24): **queue the systems and mark their routes unavailable until the flip.**
+
+- **Scouted:** toured and accepted by an explorer; nothing bought; the dispatcher ignores every route that touches the system (a
+  system-level block, in the style of `routeBlocks.ts`).
+- **Staged:** keepers bought, sent and **parked** on arrival (`keeperTriage` machinery). A parked keeper polls nothing, so staging
+  costs probe prices but no API budget, and the lead time (buy and travel, about 4 hours at HF67) is paid before the release.
+- **Live:** the gate opens and the keepers unpark. The freshness clock starts here, which also makes the Phase 0 age exact (it is
+  anchored today at the keeper-list change, which runs early).
+
+**Lead time is an operator knob first.** `freshLeadHours`: release the next staged system this long before the live cohort is
+expected to fade (default about 4). `freshTarget`: how many live-premium systems to hold at once. A manual release or hold of one
+system always works. Automatic nudges come later and only advise at first: shorten the lead when traders are waiting or idle
+(`idleTraders`, the dispatcher's waiting count) or when a live system's rolling 2-hour ratio is falling faster than the curve; lengthen
+it when more premium systems are live than the target. The trigger to release should be a live per-system ratio (the last 2 hours of
+sells against the mature rate), not age alone: THEOREM-152 sold about 8,000 units into two small systems in 3.4 hours and its profit
+per unit fell from 1,170 to 770, which is our own volume saturating the system, not time.
+
+Coverage per fresh system should be its top markets by keeper score (perhaps 5 to 8), not every market (HF67 had 20 keepers, HM42
+29), or the API budget cannot carry one new system an hour. Build order: the gate, the scouted/staged/live states and a manual
+stage/release ops tool first (lead time is entirely the operator's), then the live per-system premium in `freshness.ts`, then an
+advisory controller in `keeper_review`, then an automatic clause that ships off.
+
 ## Risks
 
 - The API budget is real: at 300 keepers plus traders the limiter was already at 80-88 of 90 calls a minute, with 429s outside
