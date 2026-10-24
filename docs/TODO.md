@@ -7,6 +7,11 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **Always be expanding: engine-managed keeper rotation and big hulls (raised 2026-10-24, operator).** The 2026-10-23 peaks (9.2M/h and 9.7M/h against a
+  7.3M/h day) came from bulk freighters selling into systems that had just gained keeper coverage; yield per unit decayed as we sold into them, and the
+  keeper list has been capped by the API budget since about 19:00. Plan, evidence and phases (0 measure the yield-since-coverage curve, 1 free budget,
+  2 `keeperRotation.ts` behind a clause, 3 hull placement, 4 fresh-system pipeline): `docs/fresh-system-expansion-plan.md`.
+
 - [ ] **Opening automation: queued tasks and saved templates, run by the reset automation (raised 2026-10-18, operator).** Today the first hours of a
   week are done by hand: the command ship tours until there are good routes, then trades to build cash; once it has sold its cargo, buy one contract
   ship and one tour ship; then the gate feeds and mission pacing (`docs/reset-opening-playbook.md`). The operator wants the reset automation to run

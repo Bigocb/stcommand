@@ -18,7 +18,11 @@ materials from hour one with `stopAtSupply HIGH` feeds, buy shuttles before prob
 120-230k each for manufactured goods), keep the right size ship on the right job (80-unit haulers on paying routes and
 contracts, 40-unit shuttles on feeds into 60-unit markets), the opening is: the command ship tours until there are good routes, then trades to build cash; with the
 proceeds buy one ship for contracts and one for touring (operator, 2026-10-18); and let the mission buy only when the producer's activity is GROWING or STRONG and the recovery
-gate (`recoverPct`) allows. Update this section when the operator states a layout for a following week.
+gate (`recoverPct`) allows. Operator insight (2026-10-24): the best hours of the 2026-10-18 week (9-10M/h against a 7.3M/h day) came from big hulls selling into
+systems that had just gained keeper coverage, and the yield per unit fell as we sold into them. So next week: big hulls, and always
+be expanding, with the engine buying and rotating keepers to keep fresh systems coming within the API budget. Plan and evidence in
+`docs/fresh-system-expansion-plan.md`.
+Update this section when the operator states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server
 
