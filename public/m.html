@@ -240,6 +240,9 @@
           </div>
           <div id="notify-prefs" hidden>
             <div class="notify-cats" id="notify-cats"></div>
+            <div class="notify-row"><label>Status report every
+              <select id="notify-status-every"><option value="1">hour</option><option value="3">3 hours</option><option value="6">6 hours</option><option value="12">12 hours</option></select></label>
+              <small>(when "Status report" is ticked)</small></div>
             <div class="notify-row"><label><input type="checkbox" id="notify-quiet-on"> Quiet hours</label>
               <input type="time" id="notify-quiet-start" value="22:00"> to <input type="time" id="notify-quiet-end" value="07:00"></div>
             <div class="notify-row"><label><input type="checkbox" id="notify-quiet-crit" checked> Let critical alerts through</label></div>

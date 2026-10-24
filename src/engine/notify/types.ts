@@ -27,6 +27,10 @@ export interface NotifyEvent {
   url?: string;
   /** The number to show on the app icon when this arrives: how many things need a person right now (badge.ts). */
   badge?: number;
+  /** Notification tag when it should differ from the key: the same tag replaces the earlier notification instead of stacking (the status report). */
+  tag?: string;
+  /** Set on a scheduled report: its hour number (hours since the epoch). A device that wants a report every N hours takes the ones where slot % N is 0. */
+  slot?: number;
   /** Set on a digest: the keys of the events it stands for, so a failed send can un-record each of them. */
   members?: string[];
 }
@@ -41,8 +45,10 @@ export interface NotifySnapshot {
   attention: { ship: string; severity: Severity; reasons: { text: string; severity: Severity }[] }[];
   /** Milliseconds until the weekly universe reset; undefined when not known. */
   msToReset?: number;
-  /** Trading pace, credits per hour. Used only to compare the two against each other, never shown. */
+  /** Trading pace, credits per hour. The rate alert compares the two against each other; the status report shows them. */
   rate?: { perHour1h: number; perHour3h: number };
+  /** What the status report says besides the rate: hulls in the fleet and the wallet. */
+  status?: { ships: number; credits: number };
 }
 
 export interface Detector {
@@ -79,6 +85,8 @@ export interface NotifyPrefs {
   quietHours?: QuietHours;
   /** At most this many messages an hour. */
   maxPerHour: number;
+  /** A status report every this many hours (1, 3, 6 or 12) when the category is on; absent = every hour. */
+  statusEveryHours?: number;
 }
 
 export const DEFAULT_PREFS: NotifyPrefs = { enabled: true, categories: {}, maxPerHour: 6 };

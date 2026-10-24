@@ -43,7 +43,7 @@ export function mountNotifications(root, { api }) {
     const quiet = $("notify-quiet-on").checked
       ? { startMin: toMin($("notify-quiet-start").value), endMin: toMin($("notify-quiet-end").value), tzOffsetMin: -new Date().getTimezoneOffset(), allowCritical: $("notify-quiet-crit").checked }
       : null;
-    const prefs = { categories, maxPerHour: Number($("notify-cap").value) || 6 };
+    const prefs = { categories, maxPerHour: Number($("notify-cap").value) || 6, statusEveryHours: Number($("notify-status-every").value) || 1 };
     if (quiet) prefs.quietHours = quiet;
     return prefs;
   }
@@ -56,6 +56,7 @@ export function mountNotifications(root, { api }) {
     $("notify-quiet-on").checked = !!q;
     if (q) { $("notify-quiet-start").value = toHhmm(q.startMin); $("notify-quiet-end").value = toHhmm(q.endMin); $("notify-quiet-crit").checked = q.allowCritical !== false; }
     $("notify-cap").value = prefs.maxPerHour ?? 6;
+    $("notify-status-every").value = String(prefs.statusEveryHours ?? 1);
   }
 
   async function savePrefs() {

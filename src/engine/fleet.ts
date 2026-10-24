@@ -1260,6 +1260,11 @@ export class FleetManager {
    * arbitrage buying could spend the fleet to zero on one purchase with
    * nothing stopping it.
    */
+  /** The wallet as last read, before the cash reserve comes off (spendableCredits() is what may be spent). */
+  walletCredits(): number {
+    return this.credits;
+  }
+
   spendableCredits(credits = this.credits): number {
     return Math.max(0, credits - this.minCashReserve());
   }

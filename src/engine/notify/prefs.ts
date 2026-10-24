@@ -38,6 +38,8 @@ export function sanitizePrefs(input: unknown): Partial<NotifyPrefs> {
   }
   const cap = int(o.maxPerHour, 1, 60);
   if (cap !== undefined) out.maxPerHour = cap;
+  const every = typeof o.statusEveryHours === "number" ? o.statusEveryHours : typeof o.statusEveryHours === "string" ? Number(o.statusEveryHours) : NaN;
+  if ([1, 3, 6, 12].includes(every)) out.statusEveryHours = every;
   return out;
 }
 

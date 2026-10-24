@@ -57,7 +57,8 @@ describe("notify detectors", () => {
   });
 
   it("rate: only a real drop of a rate worth measuring, and it shows no figures", () => {
-    const at = (a: number, b: number) => detectAll(snap({ rate: { perHour1h: a, perHour3h: b } }));
+    // the status report also reads the rate; only the rate alert is under test here
+    const at = (a: number, b: number) => detectAll(snap({ rate: { perHour1h: a, perHour3h: b } })).filter((e) => e.category === "rate");
     assert.equal(at(3_000_000, 8_000_000).length, 1);
     assert.doesNotMatch(JSON.stringify(at(3_000_000, 8_000_000)), /\d{4,}/);
     assert.equal(at(6_000_000, 8_000_000).length, 0);

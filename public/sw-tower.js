@@ -23,6 +23,8 @@ self.addEventListener("push", (event) => {
     badge: "/icons/tower-notify-badge-96.png",
     data: { url: data.url || "/m" },
     requireInteraction: data.severity === "critical",
+    // An informational message (the status report) does not buzz where the platform lets a page say so; iOS decides for itself.
+    silent: data.severity === "info",
   })));
 });
 

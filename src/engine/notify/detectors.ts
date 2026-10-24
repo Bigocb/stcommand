@@ -1,8 +1,9 @@
+import { statusEvents } from "./status.js";
 import type { Detector, NotifyEvent, NotifySnapshot } from "./types.js";
 
 /**
  * Detectors turn a snapshot into events. Each is pure and small; add one by writing it here and listing it in DETECTORS.
- * Wording stays short and carries no credit figures.
+ * Wording stays short. Alerts carry no credit figures; the status report (status.ts) is the one message that does, and only for a device that turned it on.
  */
 
 /** Words for an approval, from the kind the engine asked under. Kinds can carry a key after a colon (sellBelowFloor:SHIP:GOOD). */
@@ -78,6 +79,9 @@ export const attentionDetector: Detector = {
       })),
 };
 
+/** A report on a schedule (status.ts); which devices get it, and how often, is their choice. */
+export const statusDetector: Detector = { id: "status", category: "status", detect: statusEvents };
+
 /** A trader with no route for five minutes (the fleet does the timing, idleTraders.ts). A key per ship, so each is told once an hour. */
 export const idleDetector: Detector = {
   id: "idle",
@@ -118,7 +122,7 @@ export const rateDetector: Detector = {
   },
 };
 
-export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, attentionDetector, resetDetector, rateDetector];
+export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, statusDetector, attentionDetector, resetDetector, rateDetector];
 
 /** Run every detector. One that throws is skipped, so a bad detector never silences the others. */
 export function detectAll(snapshot: NotifySnapshot, detectors: readonly Detector[] = DETECTORS): NotifyEvent[] {

@@ -62,6 +62,7 @@ export function decide(events: readonly NotifyEvent[], state: DeliveryState, pre
   for (const e of events) {
     if (!prefs.enabled) { held.push({ key: e.key, reason: "notifications are off" }); continue; }
     if (!categoryEnabled(prefs, e.category, categories)) { held.push({ key: e.key, reason: `${e.category} is off` }); continue; }
+    if (e.slot !== undefined && e.slot % Math.max(1, prefs.statusEveryHours ?? 1) !== 0) { held.push({ key: e.key, reason: "not this device's hour" }); continue; }
     if (quiet && !(e.severity === "critical" && prefs.quietHours!.allowCritical)) { held.push({ key: e.key, reason: "quiet hours" }); continue; }
     const last = state.sent[e.key];
     if (last !== undefined) {

@@ -83,8 +83,12 @@ on iPhone; a browser tab has no badge.
   hold lifts if it is still true.
 - **Three or more of one kind in a pass go as one digest** ("4 alerts: Approvals waiting").
 - **A failed send is not recorded** and is tried again next pass. A 404 or 410 from the push service removes that device.
-- **No credit figures in any message.** Payloads pass through Apple's and Google's servers. The rate alert compares two
-  numbers and shows neither.
+- **No credit figures in an alert.** Payloads pass through Apple's and Google's servers. The rate alert compares two
+  numbers and shows neither. The one exception is the status report (`status.ts`), which a device turns on for itself and
+  which says the hourly rate, the wallet and the hull count; it is off by default.
+- **The status report is scheduled, not detected.** One event per clock hour (`slot`); a device that picked "every N hours"
+  takes the hours where `slot % N == 0` (UTC-aligned). The notification tag is `status`, so each report replaces the last
+  one; it is `info`, which the service worker shows without asking for a sound where the platform allows.
 - **The fleet is not read when nobody is subscribed.**
 
 ## Adding things

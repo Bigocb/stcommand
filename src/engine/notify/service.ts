@@ -29,7 +29,7 @@ export interface PassResult {
   removed: number;
 }
 
-const messageOf = (e: NotifyEvent, badge: number): PushMessage => ({ title: e.title, body: e.body, url: e.url, severity: e.severity, tag: e.key, badge });
+const messageOf = (e: NotifyEvent, badge: number): PushMessage => ({ title: e.title, body: e.body, url: e.url, severity: e.severity, tag: e.tag ?? e.key, badge });
 
 export class NotificationService {
   private timer: ReturnType<typeof setInterval> | undefined;

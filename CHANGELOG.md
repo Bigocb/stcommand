@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Scheduled status report notification
+
+A new alert category, "Status report", off by default, for a device that wants a short report on a schedule instead of only
+alarms: `+7.4M/hr (3h avg 7.1M) · 335 ships · 307.6M credits · all clear` (or `N need you`). One event per clock hour
+(`src/engine/notify/status.ts`, `slot` = hours since the epoch); a device picks every 1, 3, 6 or 12 hours in the Alerts tab
+(UTC-aligned) and takes the hours where `slot % N == 0`. Quiet hours and the hourly cap apply as to every alert. It is
+`info`: the service worker shows it with `silent: true` (a platform that honours it will not buzz; iOS decides for itself)
+and every report carries the tag `status`, so each replaces the last instead of stacking. It is the one message that carries
+credit figures, hence off by default; `docs/notifications.md` is updated to say so.
+
 ## 2026-10-24 — Idle traders: listed and alerted only after five minutes without a route
 
 Tower's Needs-a-decision list and the Home "unassigned" count showed every trader the moment it had no route, and a trader

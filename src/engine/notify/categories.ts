@@ -7,6 +7,7 @@ import type { CategoryDef } from "./types.js";
 export const CATEGORIES: readonly CategoryDef[] = [
   { id: "approvals", label: "Approvals waiting", description: "Something is waiting for your decision.", defaultOn: true, cooldownMin: 0 },
   { id: "stranded", label: "Stranded ships", description: "A ship cannot continue on its own.", defaultOn: true, cooldownMin: 120 },
+  { id: "status", label: "Status report", description: "A short report on a schedule: earning rate, fleet, anything waiting. Quiet, and replaces the last one.", defaultOn: false, cooldownMin: 0 },
   { id: "idle", label: "Idle traders", description: "A trader has had no route for five minutes or more.", defaultOn: true, cooldownMin: 60 },
   { id: "attention", label: "Needs a look", description: "A ship the attention feed rates critical (stuck, looping, wasting).", defaultOn: true, cooldownMin: 180 },
   { id: "reset", label: "Server reset", description: "The weekly universe reset is close.", defaultOn: true, cooldownMin: 0 },
