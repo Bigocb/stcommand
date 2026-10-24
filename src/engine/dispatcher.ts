@@ -121,6 +121,7 @@ import { estimateBuyPrice, estimateSellPrice, profitAfterShortfall, type SaleImp
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
+import { RouteBlocks, DEFAULT_BLOCK_POLICY } from "./routeBlocks.js";
 import { learnImpact, type ImpactPolicy, type Learned } from "./lotImpact.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
@@ -413,6 +414,24 @@ export class RouteDispatcher {
     this.buyImpacts.set(key, impacts);
   }
   private marketRecoveryMin = 0;
+
+  /** Routes any ship has found dead on arrival, shared so the next ship is not sent to the same one (routeBlocks.ts). */
+  private readonly routeBlocks = new RouteBlocks();
+  private routeBlockMin = 0;
+  /** A ship reports a route dead: a buy market whose live price no longer pays (no `sellAt`), or one destination that refused. */
+  reportDeadRoute(good: string, buyAt: string, sellAt: string | undefined, reason: string): void {
+    this.routeBlocks.report(good, buyAt, sellAt, reason, Date.now(), { ...DEFAULT_BLOCK_POLICY, ttlMin: this.routeBlockMin });
+  }
+  /** Why a route is held back as dead, or undefined (always undefined with the clause off). A trader already on its way asks
+   *  this so it re-plans as soon as another ship has found the route dead, instead of flying there to find out itself. */
+  deadRouteReason(good: string, buyAt: string, sellAt: string): string | undefined {
+    if (!(this.routeBlockMin > 0)) return undefined;
+    return this.routeBlocks.reasonFor({ good, buyAt, sellAt }, Date.now());
+  }
+  /** The routes held back now, for the ops view. */
+  deadRouteList(): ReturnType<RouteBlocks["list"]> {
+    return this.routeBlocks.list(Date.now());
+  }
 
   /** What a lot of ours moves the price at this (good, market) on this side: the flat default, or what our own recent
    *  runs there measured when the policy is on (lotImpact.ts). */
@@ -907,7 +926,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; marketRecoveryMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; marketRecoveryMin?: number; routeBlockMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -938,6 +957,22 @@ export class RouteDispatcher {
     this.roundsMax = Math.max(0, tuning?.roundsMax ?? 0);
     this.buyRoundsMax = Math.max(0, tuning?.buyRoundsMax ?? 0);
     this.marketRecoveryMin = Math.max(0, tuning?.marketRecoveryMin ?? 0);
+    this.routeBlockMin = Math.max(0, tuning?.routeBlockMin ?? 0);
+    // Routes another ship found dead on arrival stay out of everyone's list until the block lapses. Off (0), nothing is
+    // recorded or filtered and the list is exactly as before.
+    if (this.routeBlockMin > 0) {
+      this.routeBlocks.prune(now);
+      const held: string[] = [];
+      const open = routes.filter((r) => {
+        const why = this.routeBlocks.reasonFor(r, now);
+        if (why) held.push(`${r.good} ${r.buyAt}>${r.sellAt}: ${why}`);
+        return why === undefined;
+      });
+      if (held.length) {
+        this.logger(`[dispatcher] ${held.length} route(s) held back as dead: ${[...new Set(held)].slice(0, 4).join("; ")}`);
+        routes = open;
+      }
+    }
     // Any of the three rests a route, so any one being on needs this pass to run; with all at 0 it is skipped exactly as
     // before, and coolOffReason() returns undefined at 0 minutes.
     if (this.coolOffMin > 0 || this.roundsMax > 0 || this.buyRoundsMax > 0) {

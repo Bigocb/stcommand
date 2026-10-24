@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Dead routes are shared between ships (deadRouteShareMin, off by default)
+
+A trader that reaches its buy market and finds the live price no longer pays (the dispatcher planned on a snapshot) put the
+route on its own private list in `trader.ts`, and nothing told the dispatcher, so the next ship was handed the same route.
+2026-10-24 in the log buffer: 88 such rejections in about 55 minutes across seven ships, the same few markets over and over
+(EQUIPMENT at X1-KG7-DD5E, SHIP_PARTS at X1-KG7-AA8B, SHIP_PLATING at X1-KG7-D16E, EQUIPMENT at X1-HA24-XX2B and BE4E);
+THEOREM-151 bounced off three of them in a quarter of an hour. `src/engine/routeBlocks.ts` keeps a fleet-wide list: the
+two buy-time guards now report what they found (`reportDeadRoute`), the dispatcher holds the route back from every
+ship's list for the clause's minutes (a buy market whose price moved blocks every destination from it, a destination that
+refused blocks that pair), logs `[dispatcher] N route(s) held back as dead`, and a trader already on its way asks
+`deadRouteReason` in its own viability check so it re-plans at once instead of flying there to find out. Clause
+`deadRouteShareMin` (30 min, off): off, nothing is recorded or filtered. In memory only, so a restart clears it.
+
 ## 2026-10-24 — Metrics ranges: 3 hours replaces 3 days
 
 The Metrics screen (Tower and Deck share it) offered 30m, 1h, 6h, 24h and 3d. The 3-day window is gone and a 3-hour one is in

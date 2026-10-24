@@ -1493,6 +1493,8 @@ export class FleetManager {
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       declineRoute: (wholeGood) => this.dispatcher.decline(shipSymbol, wholeGood),
+      reportDeadRoute: (good, buyAt, sellAt, reason) => this.dispatcher.reportDeadRoute(good, buyAt, sellAt, reason),
+      deadRouteReason: (good, buyAt, sellAt) => this.dispatcher.deadRouteReason(good, buyAt, sellAt),
       stopManualRoute: async (reason) => {
         if (this.dispatcher.assignmentFor(shipSymbol)?.source !== "manual") return;
         await this.setManualDispatch(shipSymbol, undefined);
@@ -9317,7 +9319,7 @@ export class FleetManager {
           homeReserve: 1,
           gateFor: (from, to) => this.galaxy.gatesTo(from, to)[0],
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), matchTopN: this.doctrine.value("routeMatchTopN", 0), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0 },
+        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), matchTopN: this.doctrine.value("routeMatchTopN", 0), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0 },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
       // Keep each trader's trip and commitment across a restart, so a ship flying to its buy market is not re-routed.

@@ -234,6 +234,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "deadRouteShareMin",
+    name: "Share dead routes between ships",
+    description: "A trader that reaches a buy market and finds the live price no longer pays (the dispatcher planned on a snapshot) drops the route from its own list only, so the next ship is handed the same route, flies there and finds it dead again. Measured 2026-10-24: 88 such rejections in about 55 minutes across seven ships, the same few markets over and over. With this on, a ship that finds a route dead reports it and the dispatcher keeps it out of every ship's list for this many minutes: a buy market whose price moved blocks every destination from it, a destination that refused blocks that one pair. Ships already on their way are re-planned at the next dispatch cycle. Off (the default) = each ship learns on its own, as before. Takes effect within a minute. See src/engine/routeBlocks.ts.",
+    value: 30, min: 5, max: 120, step: 5, unit: " min",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "lotImpactMaxFactor",
     name: "Learn price impact per market",
     description: "The route model charges every lot we trade a flat 4.5% move against us (measured on FAB_MATS 2026-10-05). Markets differ: on 2026-10-23 THEOREM-38 bought 80 NEURAL_CHIPS in 15-unit lots and the ask went 21,677 to 30,228 (about +6.8% a lot), then sold 75 and the bid went 31,832 to 19,464 (about -9.3% a lot); the route showed a 47% margin and the trip cleared about 107k. With this on, a market we have traded into in the last 4 hours is planned on the per-lot move our own last runs there measured (never below the 4.5% default, never above default x this value), and a trip is sized to the units where the spread stops paying for the impact instead of always taking the full lots allowed. Off (the default) = the flat 4.5% and the full lots, as before. Takes effect on the next route plan. See src/engine/lotImpact.ts.",

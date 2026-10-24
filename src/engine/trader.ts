@@ -110,6 +110,11 @@ export interface TraderOptions {
   assignedRoute?: () => TraderAssignment | undefined;
   /** Tell the dispatcher this trader refused its auto assignment, so it is reassigned instead of kept committed. */
   declineRoute?: (wholeGood: boolean) => void;
+  /** Tell the dispatcher a route was found dead on arrival so no other ship is sent to it (routeBlocks.ts). `sellAt`
+   *  undefined = the buy market's live price no longer pays for any destination. */
+  reportDeadRoute?: (good: string, buyAt: string, sellAt: string | undefined, reason: string) => void;
+  /** Whether another ship has already found this route dead (the fleet's shared list); the reason, or undefined. */
+  deadRouteReason?: (good: string, buyAt: string, sellAt: string) => string | undefined;
   /**
    * Take the best dispatch route no other trader holds. `accept` rejects routes
    * this ship can't actually fly, so the dispatcher moves on to the next-best
@@ -276,6 +281,8 @@ export class TraderAgent {
   private readonly reservedGoods?: () => Set<string>;
   private readonly assignedRoute?: () => TraderAssignment | undefined;
   private readonly declineRoute?: (wholeGood: boolean) => void;
+  private readonly reportDeadRoute?: TraderOptions["reportDeadRoute"];
+  private readonly deadRouteReason?: TraderOptions["deadRouteReason"];
   private readonly claimRoute?: TraderOptions["claimRoute"];
   private readonly releaseRoute?: () => void;
   private readonly recordSale?: TraderOptions["recordSale"];
@@ -426,6 +433,8 @@ export class TraderAgent {
     this.reservedGoods = opts.reservedGoods;
     this.assignedRoute = opts.assignedRoute;
     this.declineRoute = opts.declineRoute;
+    this.reportDeadRoute = opts.reportDeadRoute;
+    this.deadRouteReason = opts.deadRouteReason;
     this.claimRoute = opts.claimRoute;
     this.releaseRoute = opts.releaseRoute;
     this.recordSale = opts.recordSale;
@@ -1557,6 +1566,8 @@ export class TraderAgent {
     const resting = ignoreProfitFloor ? undefined : this.routeResting?.(r.good, r.buyAt, r.sellAt);
     if (resting !== undefined) return `route ${resting}`;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return `dead route ${r.good}@${r.buyAt}`;
+    const sharedDead = this.deadRouteReason?.(r.good, r.buyAt, r.sellAt);
+    if (sharedDead !== undefined) return `dead route ${r.good}@${r.buyAt}: ${sharedDead}`;
     const buySystem = this.systemOf(r.buyAt);
     const sellSystem = this.systemOf(r.sellAt);
     const crossSystem = buySystem !== sellSystem;
@@ -2441,6 +2452,8 @@ export class TraderAgent {
           // Remember this dead route so findRoute stops proposing it, then try
           // the next best route instead of retrying the same one every tick.
           this.deadRoutes.add(`${route.good}@${route.buyAt}`);
+          // And tell the dispatcher, so the next ship is not sent to the same dead buy market.
+          this.reportDeadRoute?.(route.good, route.buyAt, undefined, `buy price now ${liveBuy}c, margin ${liveMargin}c under the floor`);
           continue;
         }
       }
@@ -2467,6 +2480,7 @@ export class TraderAgent {
           // would burn two market calls and one log line every few seconds (the floor-hold logging problem of 2026-10-18).
           this.sinkBlockedUntil.set(`${route.good}@${route.buyAt}`, Date.now() + SINK_BLOCK_MS);
           this.deadRoutes.add(`${route.good}@${route.buyAt}`);
+          this.reportDeadRoute?.(route.good, route.buyAt, route.sellAt, verdict.reason);
           continue;
         }
       }
