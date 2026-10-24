@@ -9392,7 +9392,7 @@ export class FleetManager {
       for (const m of await this.missions.list()) if (m.status !== "complete") for (const x of m.assignedShips ?? []) crew.add(x);
       const duty = new Set(this.dispatcher.contractDutyShips());
       const idle = this.fleetStatusSummary()
-        .filter((r) => isIdleTrader({ symbol: r.symbol, role: r.role, cargo: r.cargo, doing: r.doing, assigned: this.dispatcher.assignmentFor(r.symbol) !== undefined }, crew, duty))
+        .filter((r) => isIdleTrader({ symbol: r.symbol, role: r.role, cargo: r.cargo, doing: r.doing, nav: r.nav, cooldown: r.cooldown, assigned: this.dispatcher.assignmentFor(r.symbol) !== undefined }, crew, duty))
         .map((r) => r.symbol);
       this.idleSince = trackIdle(this.idleSince, idle, now);
     } catch {

@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Idle traders: a ship in flight is not idle
+
+THEOREM-1B was listed "Idle 8 min" while it was in flight (the dispatcher had no route for it and it was hopping around its
+system discovering prices). A trader in transit, or sitting out a jump cooldown, is now busy: it is never counted as idle,
+and the idle clock starts when it comes to rest and starts over every time it moves, so a long flight can never trip it.
+Tower applies the same test to the ship's own state. A ship that really stops with no route is still listed after five
+minutes. Separate from this: 1B's dispatcher log shows only cross-system routes it cannot reach (`canJump=false`).
+
 ## 2026-10-24 — Scheduled status report notification
 
 A new alert category, "Status report", off by default, for a device that wants a short report on a schedule instead of only

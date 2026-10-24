@@ -19,11 +19,20 @@ export interface IdleFacts {
   doing: string;
   /** The dispatcher has a route for it. */
   assigned: boolean;
+  /** Flying, or sitting out a jump cooldown: it is going somewhere, so it is not idle however long the flight runs. */
+  nav: string;
+  cooldown: number;
 }
 
-/** Not waiting on anything but a route: a trader with no assignment and an empty hold, on nobody's crew, not held. */
+/**
+ * Not waiting on anything but a route: a trader with no assignment and an empty hold, on nobody's crew, not held, and
+ * not moving. A ship in flight or in a jump cooldown is busy (2026-10-24: THEOREM-1B was listed as idle for 8 minutes
+ * while it hopped around its system finding prices, and a long flight would have read the same), so the clock starts
+ * when it comes to rest and starts over every time it moves.
+ */
 export function isIdleTrader(f: IdleFacts, crew: ReadonlySet<string>, contractDuty: ReadonlySet<string>): boolean {
   if (f.role !== "trader" || f.assigned || f.cargo > 0) return false;
+  if (f.nav === "IN_TRANSIT" || f.cooldown > 0) return false;
   if (crew.has(f.symbol) || contractDuty.has(f.symbol)) return false;
   return !["stranded", "suspended", "manual hold", "parked"].includes(f.doing);
 }

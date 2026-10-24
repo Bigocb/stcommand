@@ -5,7 +5,7 @@ import { idleDetector } from "../src/engine/notify/detectors.js";
 import { needsYouCount } from "../src/engine/notify/badge.js";
 
 const MIN = 60_000;
-const base = { symbol: "THEOREM-17A", role: "trader", cargo: 0, doing: "docked", assigned: false };
+const base = { symbol: "THEOREM-17A", role: "trader", cargo: 0, doing: "docked", assigned: false, nav: "DOCKED", cooldown: 0 };
 const none = new Set<string>();
 
 describe("idle traders", () => {
@@ -16,6 +16,10 @@ describe("idle traders", () => {
     assert.equal(isIdleTrader({ ...base, role: "keeper" }, none, none), false);
     assert.equal(isIdleTrader(base, new Set(["THEOREM-17A"]), none), false, "a feed or mission carrier");
     assert.equal(isIdleTrader(base, none, new Set(["THEOREM-17A"])), false, "waiting on a contract");
+    // in flight (however long) or in a jump cooldown is busy, not idle: THEOREM-1B, 2026-10-24
+    assert.equal(isIdleTrader({ ...base, nav: "IN_TRANSIT", doing: "transit → X1-YX30-C16A" }, none, none), false, "in transit");
+    assert.equal(isIdleTrader({ ...base, nav: "IN_ORBIT", cooldown: 120, doing: "cooldown 120s" }, none, none), false, "jump cooldown");
+    assert.equal(isIdleTrader({ ...base, nav: "IN_ORBIT", doing: "in orbit" }, none, none), true);
     for (const doing of ["stranded", "suspended", "manual hold", "parked"]) assert.equal(isIdleTrader({ ...base, doing }, none, none), false, doing);
   });
 

@@ -253,6 +253,7 @@ function unassignedTraders() {
       && (s.cargo?.units ?? 0) === 0 && claimFor(s) == null
       // Pinned to contract work with no contract to buy for: waiting, not unassigned.
       && !contractDutyShips.includes(s.symbol)
+      && s.nav?.status !== "IN_TRANSIT" && (s.cooldown?.remainingSeconds ?? 0) === 0
       && idleSinceBy.get(s.symbol) !== undefined && now - idleSinceBy.get(s.symbol) >= IDLE_LIST_AFTER_MS,
   );
 }
