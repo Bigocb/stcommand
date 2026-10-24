@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Tower PWA: the manifest also names the 180px icon
+
+iOS 17+ reads the manifest's icons for "Open as Web App"; its closest size to 180 was the 192px one. The 180x180 icon is now
+listed first. Add to Home Screen from a Safari tab, not from inside the installed app: the installed app does not load
+the touch icon, which is what produced the letter "T" in the Add sheet.
+
 ## 2026-10-24 — Tower PWA: root icon paths answer, 180px size declared
 
 The installed Tower showed a plain letter "T" tile. iOS takes the Home Screen icon once, at install, and keeps it; if that
