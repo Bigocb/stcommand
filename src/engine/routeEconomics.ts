@@ -58,10 +58,10 @@ export function fuelCredits(fuel: number, fuelPrice: number): number {
 }
 
 /** Cost of our own units' price impact over the whole trip: the average price paid sits half way along the move. */
-export function slippageCredits(units: number, tradeVolume: number, price: number): number {
+export function slippageCredits(units: number, tradeVolume: number, price: number, impactPerLot: number = PRICE_IMPACT_PER_LOT): number {
   if (units <= 0 || price <= 0) return 0;
   const lots = units / Math.max(1, tradeVolume);
-  return price * units * ((lots * PRICE_IMPACT_PER_LOT) / 2);
+  return price * units * ((lots * impactPerLot) / 2);
 }
 
 export interface TripInput {
@@ -75,6 +75,9 @@ export interface TripInput {
   fuelPrice: number;
   fuelCapacity: number;
   speed: number;
+  /** Per-lot price move on each side where we have measured it (lotImpact.ts); the flat default otherwise. */
+  buyImpact?: number;
+  sellImpact?: number;
 }
 
 export interface TripEconomics {
@@ -99,7 +102,7 @@ export function tripEconomics(t: TripInput): TripEconomics {
   const leg = legTravel(t.distance, t.fuelCapacity, t.speed);
   const fuelBurned = leg.fuelPerLeg * 2;
   const fuelCost = fuelCredits(fuelBurned, t.fuelPrice);
-  const slippage = slippageCredits(t.units, t.buyVolume, t.buyPrice) + slippageCredits(t.units, t.sellVolume, t.sellPrice);
+  const slippage = slippageCredits(t.units, t.buyVolume, t.buyPrice, t.buyImpact) + slippageCredits(t.units, t.sellVolume, t.sellPrice, t.sellImpact);
   const gross = (t.sellPrice - t.buyPrice) * t.units;
   return {
     gross,

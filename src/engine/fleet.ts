@@ -55,6 +55,7 @@ import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
 import { planSuspendedRepairs, type SuspendedRepairFacts } from "./suspendedRepair.js";
 import { effectiveMaxLots, type ShipLotPolicy } from "./shipLotPolicy.js";
 import type { ShipReach } from "./shipReach.js";
+import { sizeForImpact, DEFAULT_IMPACT_POLICY, type ImpactPolicy } from "./lotImpact.js";
 import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -2184,6 +2185,7 @@ export class FleetManager {
     const fleetSpeed = speeds.length ? Math.min(...speeds) : 0;
     const spendable = this.spendableCredits();
     const maxLots = this.maxLotsPerTrip();
+    const impactPolicy: ImpactPolicy = { ...DEFAULT_IMPACT_POLICY, maxAgeMs: 4 * 3_600_000, maxFactor: this.doctrine.isEnabledOr("lotImpactMaxFactor", false) ? this.doctrine.value("lotImpactMaxFactor", 0) : 0 };
     // Deliberately NOT filtered by gate reachability here: a "buy" or
     // "sell" assignment only needs its own side of the leg (buyAt, or
     // sellAt) to be reachable from the warehouse — not that buyAt and
@@ -2224,9 +2226,19 @@ export class FleetManager {
         // one transaction, without assuming a depth real markets don't have.
         // A placeholder ratio, same as CROSS_SYSTEM_JUMP_COST_ESTIMATE
         // above: tune against real executed-trip totals.
-        const volume = Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * maxLots));
         const buyVolume = l.buyVolume ?? l.volume;
         const sellVolume = l.sellVolume ?? l.volume;
+        // Our own measured price move per lot at these two markets (lotImpact.ts); the flat default with the clause off.
+        const buyLearn = this.dispatcher.impactFor("buy", l.goodSymbol, l.buyAt, buyVolume, impactPolicy);
+        const sellLearn = this.dispatcher.impactFor("sell", l.goodSymbol, l.sellAt, sellVolume, impactPolicy);
+        const sized = sizeForImpact(
+          Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * maxLots)),
+          { buyPrice: l.buyPrice, sellPrice: l.sellPrice, buyVolume, sellVolume, buyImpact: buyLearn.perLot, sellImpact: sellLearn.perLot },
+          impactPolicy,
+        );
+        const volume = sized.units;
+        const buyImpact = buyLearn.perLot;
+        const sellImpact = sellLearn.perLot;
         let fuelCost: number;
         let slippage: number;
         let profitPerTrip: number;
@@ -2236,18 +2248,18 @@ export class FleetManager {
         // Net profit of one trip carrying `units` (the route's single-ship figure for one hold size).
         const profitFor = (units: number): number => {
           if (crossSystem) {
-            const t = tripEconomics({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, units, buyVolume, sellVolume, distance: 1, fuelPrice: 0, fuelCapacity: 0, speed: fleetSpeed });
+            const t = tripEconomics({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, units, buyVolume, sellVolume, buyImpact, sellImpact, distance: 1, fuelPrice: 0, fuelCapacity: 0, speed: fleetSpeed });
             return Math.round(t.gross - this.crossSystemTripCost(l.buySystem, l.sellSystem) - t.slippage);
           }
           return Math.round(tripEconomics({
-            buyPrice: l.buyPrice, sellPrice: l.sellPrice, units, buyVolume, sellVolume,
+            buyPrice: l.buyPrice, sellPrice: l.sellPrice, units, buyVolume, sellVolume, buyImpact, sellImpact,
             distance: dist!, fuelPrice: fuelAt.get(l.buyAt) ?? 72, fuelCapacity: fleetFuelCapacity, speed: fleetSpeed,
           }).net);
         };
         if (crossSystem) {
           // Jump costs are credits, not tank-fuel; slippage still applies on both sides.
           fuelCost = this.crossSystemTripCost(l.buySystem, l.sellSystem);
-          const t = tripEconomics({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, units: volume, buyVolume, sellVolume, distance: 1, fuelPrice: 0, fuelCapacity: 0, speed: fleetSpeed });
+          const t = tripEconomics({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, units: volume, buyVolume, sellVolume, buyImpact, sellImpact, distance: 1, fuelPrice: 0, fuelCapacity: 0, speed: fleetSpeed });
           slippage = t.slippage;
           profitPerTrip = Math.round(t.gross - fuelCost - slippage);
           // One way, buy to sell. A route with no trip time was ranked on raw profit against same-system routes ranked
@@ -2259,7 +2271,7 @@ export class FleetManager {
           // costs of every repeat. FUEL is sold per 100 tank-fuel and a CRUISE leg burns ~1 tank-fuel
           // per distance unit (BURN twice that), so a leg is distance x price / 100 — see tripEconomics().
           const t = tripEconomics({
-            buyPrice: l.buyPrice, sellPrice: l.sellPrice, units: volume, buyVolume, sellVolume,
+            buyPrice: l.buyPrice, sellPrice: l.sellPrice, units: volume, buyVolume, sellVolume, buyImpact, sellImpact,
             distance: dist!, fuelPrice: fuelAt.get(l.buyAt) ?? 72, fuelCapacity: fleetFuelCapacity, speed: fleetSpeed,
           });
           fuelCost = t.fuelCost;
@@ -2271,7 +2283,7 @@ export class FleetManager {
         }
         // The same trip for each hold size flying: the headline figure above is priced at the biggest hold.
         const profitByHold: Record<string, number> = {};
-        for (const h of traderHolds) profitByHold[h] = profitFor(Math.max(0, Math.min(h, affordable, l.volume * maxLots)));
+        for (const h of traderHolds) profitByHold[h] = profitFor(Math.max(0, Math.min(h, affordable, l.volume * maxLots, volume || h)));
         return {
           good: l.goodSymbol,
           buyAt: l.buyAt,

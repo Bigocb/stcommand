@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Learn each market's price impact per lot, and size trips to it (lotImpactMaxFactor, off by default)
+
+Two losing trips the same evening. THEOREM-38 bought 80 NEURAL_CHIPS in 15-unit lots (ask 21,677c -> 30,228c, about +6.8% a
+lot) and sold 75 (bid 31,832c -> 19,464c, about -9.3% a lot): the route showed a 47% margin, the trip cleared about 107k and
+left five units to sell at a 50k loss. The route model charged a flat 4.5% a lot, measured once on FAB_MATS, and always took
+the full lots allowed. `src/engine/lotImpact.ts` (pure) measures the move a run of our own lots made at a market, averages
+the last few runs (never below the 4.5% default, never above default x the clause value), and sizes the trip to the units
+where the spread stops paying for the impact (`margin / k`, the peak of the same slippage curve `routeEconomics` charges).
+The dispatcher already keeps our lots per market for the recovery pricing (`impactFor()`); the fleet's route builder uses
+the learned figures for slippage, profit per hold and trip volume. Clause `lotImpactMaxFactor` (3x, off): off, every figure is
+the old flat one. Learned from the last 4 hours of lots held in memory, so it starts empty after a restart.
+Not covered: a rival's sales into the same market (VIRAL_AGENTS at X1-PG72-A1 the same evening, VCMININGCORP-213 dumped 90
+units two minutes before one of ours bought for that route); the data is in the transactions, the model does not use it yet.
+
 ## 2026-10-24 — Tower PWA: the touch icon is embedded in the page
 
 Add to Home Screen from Safari still showed a letter "T" although every icon URL served a valid PNG. Whatever fails in iOS's

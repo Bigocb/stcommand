@@ -121,6 +121,7 @@ import { estimateBuyPrice, estimateSellPrice, profitAfterShortfall, type SaleImp
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
+import { learnImpact, type ImpactPolicy, type Learned } from "./lotImpact.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
 import { DEFAULT_MATCH_POLICY, matchShips, type MatchPolicy } from "./matching.js";
@@ -412,6 +413,13 @@ export class RouteDispatcher {
     this.buyImpacts.set(key, impacts);
   }
   private marketRecoveryMin = 0;
+
+  /** What a lot of ours moves the price at this (good, market) on this side: the flat default, or what our own recent
+   *  runs there measured when the policy is on (lotImpact.ts). */
+  impactFor(side: "buy" | "sell", good: string, at: string, tradeVolume: number, policy: ImpactPolicy): Learned {
+    const lots = (side === "buy" ? this.buyImpacts : this.saleImpacts).get(`${good}@${at}`) ?? [];
+    return learnImpact(side, lots, Date.now(), PRICE_IMPACT_PER_LOT, policy, tradeVolume);
+  }
 
   /** The route with its sell price, profit and per-hold profits cut by the part of our own recent dump that has not
    *  refilled (marketCrash.ts), or undefined when the trip no longer pays. With `marketRecoveryMin` 0 it is the route as given. */
