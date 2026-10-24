@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Crawler construction pass: say what each read came to
+
+The 00:02 check found a restarted pass with 26 gates consumed, none recorded and a rate-limit pause, and nothing in the log to say why (a 404, a malformed body and a thrown error were all skipped silently). `GalaxyCrawler` now counts every outcome of the pass (`recorded_complete`, `recorded_unfinished`, `status_<code>`, `malformed`, `error`), shows them in `progress().gateConstruction.outcomes` and in the "pass finished" line. No behaviour change. Sampling the public endpoint by hand returned 200 with `isComplete` for every one of 16 gates tried.
+
 ## 2026-10-24 — A new Tower icon: a radar scope
 
 The old icon was two rings and a dot with the rounded corners baked in. The new one is Tower's own signature device, the radar scope: bezel with tick marks, range rings, a sweep with a fading trail, and blips in the map's marker shapes (circle, diamond, triangle), amber on the warm near-black. SVG sources in `public/icons/` (`tower-icon.svg`, `tower-favicon.svg`, `tower-notify-badge.svg`); `scripts/render-tower-icons.mjs` renders the PNGs (192, 512, a separate maskable 512, a 180 apple-touch, a 32 favicon, a 96 flat-white notification badge). Full-bleed and opaque (iOS and Android round it themselves). The manifest now lists `any` and `maskable` entries, the page adds the SVG favicon, and the service worker uses the new badge glyph for notifications. `tests/towerIcons.test.ts` checks every named icon exists and is the size it claims. Deck's icons are unchanged. A phone keeps the old home-screen icon until Tower is removed and added again (iOS); Android refreshes its own.

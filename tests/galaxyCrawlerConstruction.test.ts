@@ -69,13 +69,22 @@ describe("gate construction crawl", () => {
     const s = setup(async () => ok(true));
     (s.crawler as any).store.countGalaxySystems = async () => 7027;
     s.run(t);
-    assert.deepEqual((await s.crawler.progress()).gateConstruction, { queueRemaining: 0, readThisPass: 0, pausedForRateLimit: false, passStartedAt: null });
+    assert.deepEqual((await s.crawler.progress()).gateConstruction, { queueRemaining: 0, readThisPass: 0, pausedForRateLimit: false, passStartedAt: null, outcomes: {} });
     await (s.crawler as any).crawlGateConstruction();
     const after = (await s.crawler.progress()).gateConstruction;
     assert.equal(after.readThisPass, 3);
+    assert.deepEqual(after.outcomes, { recorded_complete: 3 });
     assert.equal(after.queueRemaining, 0);
     assert.ok(after.passStartedAt! > 0);
     (s.crawler as any).constructionBackoffUntil = Date.now() + 60_000;
     assert.equal((await s.crawler.progress()).gateConstruction.pausedForRateLimit, true);
+  });
+
+  it("counts what each read came to, so a pass that records nothing can be explained", async (t) => {
+    const s = setup(async (u) => (u.includes("X1-A-G") ? new Response("{}", { status: 404 }) : u.includes("X1-B-G") ? new Response("not json", { status: 200 }) : ok(false)));
+    s.run(t);
+    await (s.crawler as any).crawlGateConstruction();
+    assert.deepEqual((s.crawler as any).constructionOutcomes, { status_404: 1, malformed: 1, recorded_unfinished: 1 });
+    assert.ok(s.logs.some((l) => /pass finished, 1 gates read \(.*status_404 1.*malformed 1.*recorded_unfinished 1.*\)/.test(l)), s.logs.join("\n"));
   });
 });

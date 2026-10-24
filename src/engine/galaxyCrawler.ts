@@ -104,6 +104,9 @@ export class GalaxyCrawler {
   private constructionBuiltAt = 0;
   private constructionBackoffUntil = 0;
   private constructionChecked = 0;
+  /** What each read of this pass came to: `recorded`, `status_404`, `malformed`, `error`... so a pass that records nothing can be explained. */
+  private constructionOutcomes: Record<string, number> = {};
+  private noteOutcome(key: string): void { this.constructionOutcomes[key] = (this.constructionOutcomes[key] ?? 0) + 1; }
 
   /** Completed agent directory, keyed by system symbol (derived from each
    *  agent's headquarters waypoint). Swapped in atomically once a full pass
@@ -133,7 +136,7 @@ export class GalaxyCrawler {
     factionsDone: boolean; systemsDone: boolean; scanned: number; total: number | undefined;
     gateQueueRemaining: number; gatesResolvedThisSweep: number;
     /** The construction pass (see crawlGateConstruction): gates left in this pass, read so far, and whether it is paused for a rate limit. */
-    gateConstruction: { queueRemaining: number; readThisPass: number; pausedForRateLimit: boolean; passStartedAt: number | null };
+    gateConstruction: { queueRemaining: number; readThisPass: number; pausedForRateLimit: boolean; passStartedAt: number | null; outcomes: Record<string, number> };
   }> {
     const scanned = await this.store.countGalaxySystems();
     return {
@@ -141,7 +144,7 @@ export class GalaxyCrawler {
       gateQueueRemaining: this.gateQueue.length, gatesResolvedThisSweep: this.gatesResolvedThisSweep,
       gateConstruction: {
         queueRemaining: this.constructionQueue.length, readThisPass: this.constructionChecked,
-        pausedForRateLimit: Date.now() < this.constructionBackoffUntil, passStartedAt: this.constructionBuiltAt || null,
+        pausedForRateLimit: Date.now() < this.constructionBackoffUntil, passStartedAt: this.constructionBuiltAt || null, outcomes: { ...this.constructionOutcomes },
       },
     };
   }
@@ -249,18 +252,21 @@ export class GalaxyCrawler {
           this.log("gate construction crawl: rate limited, pausing a minute");
           break;
         }
-        if (!res.ok) continue;
+        if (!res.ok) { this.noteOutcome(`status_${res.status}`); continue; }
         const json = (await res.json().catch(() => undefined)) as { data?: { isComplete?: unknown } } | undefined;
-        if (typeof json?.data?.isComplete !== "boolean") continue;
+        if (typeof json?.data?.isComplete !== "boolean") { this.noteOutcome("malformed"); continue; }
         await this.store.recordGalaxyGateConstruction(next.gateSymbol, json.data.isComplete);
         this.constructionChecked += 1;
+        this.noteOutcome(json.data.isComplete ? "recorded_complete" : "recorded_unfinished");
       } catch (err) {
+        this.noteOutcome("error");
         this.log(`gate construction crawl: ${next.gateSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     if (this.constructionQueue.length === 0) {
-      this.log(`gate construction crawl: pass finished, ${this.constructionChecked} gates read`);
-      this.recordActivity(`Gate construction pass finished: ${this.constructionChecked} gates read`);
+      const outcomes = Object.entries(this.constructionOutcomes).map(([k, v]) => `${k} ${v}`).join(", ");
+      this.log(`gate construction crawl: pass finished, ${this.constructionChecked} gates read (${outcomes || "none"})`);
+      this.recordActivity(`Gate construction pass finished: ${this.constructionChecked} gates read (${outcomes || "none"})`);
     }
     return did;
   }
@@ -268,6 +274,7 @@ export class GalaxyCrawler {
   private async buildConstructionQueue(now: number): Promise<void> {
     this.constructionBuiltAt = now;
     this.constructionChecked = 0;
+    this.constructionOutcomes = {};
     const [systems, recorded] = await Promise.all([this.store.listSystemsForGateCrawl(), this.store.getAllGalaxyGateConstruction()]);
     const all: GateRef[] = [];
     for (const r of systems) {
