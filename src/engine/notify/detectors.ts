@@ -78,6 +78,21 @@ export const attentionDetector: Detector = {
       })),
 };
 
+/** A trader with no route for five minutes (the fleet does the timing, idleTraders.ts). A key per ship, so each is told once an hour. */
+export const idleDetector: Detector = {
+  id: "idle",
+  category: "idle",
+  detect: (s) =>
+    (s.idle ?? []).map((i) => ({
+      key: `idle:${i.symbol}`,
+      category: "idle",
+      severity: "warning" as const,
+      title: `${i.symbol} has had no route for ${Math.floor(i.idleMs / 60_000)} min`,
+      body: i.waypoint ? `Idle at ${i.waypoint}.` : "Idle with an empty hold.",
+      url: "/m#fleet",
+    })),
+};
+
 /** Two warnings before the reset: two hours out, then fifteen minutes. A key per step, so each is sent once. */
 export const resetDetector: Detector = {
   id: "reset",
@@ -103,7 +118,7 @@ export const rateDetector: Detector = {
   },
 };
 
-export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, attentionDetector, resetDetector, rateDetector];
+export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, attentionDetector, resetDetector, rateDetector];
 
 /** Run every detector. One that throws is skipped, so a bad detector never silences the others. */
 export function detectAll(snapshot: NotifySnapshot, detectors: readonly Detector[] = DETECTORS): NotifyEvent[] {

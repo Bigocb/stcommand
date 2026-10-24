@@ -55,6 +55,7 @@ import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
 import { planSuspendedRepairs, type SuspendedRepairFacts } from "./suspendedRepair.js";
 import { effectiveMaxLots, type ShipLotPolicy } from "./shipLotPolicy.js";
 import type { ShipReach } from "./shipReach.js";
+import { isIdleTrader, trackIdle, idleLongerThan, IDLE_ALERT_AFTER_MS } from "./idleTraders.js";
 import { sizeForImpact, DEFAULT_IMPACT_POLICY, type ImpactPolicy } from "./lotImpact.js";
 import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
@@ -8134,7 +8135,7 @@ export class FleetManager {
    * alone can never distinguish a ship with nothing to do from a ship whose
    * assignment it cannot carry out.
    */
-  fleetStatusSummary(): { symbol: string; role: string; waypoint: string; nav: string; fuel: number; fuelCap: number; cargo: number; cargoCap: number; cooldown: number; doing: string; wants?: string; wantsReason?: string; wantsSource?: string; intentVersion?: number }[] {
+  fleetStatusSummary(): { symbol: string; role: string; waypoint: string; nav: string; fuel: number; fuelCap: number; cargo: number; cargoCap: number; cooldown: number; doing: string; idleSince?: number; wants?: string; wantsReason?: string; wantsSource?: string; intentVersion?: number }[] {
     const stranded = new Set(this.getStrandedShips().map((s) => s.symbol));
     return this.getShipStatuses().map((s) => {
       const ship = this.shipFor(s.symbol);
@@ -8171,6 +8172,7 @@ export class FleetManager {
         : undefined;
       return {
         symbol: s.symbol, role: s.role, waypoint, nav, fuel, fuelCap, cargo, cargoCap, cooldown, doing,
+        ...(this.idleSince.has(s.symbol) ? { idleSince: this.idleSince.get(s.symbol) } : {}),
         ...(intent
           ? {
               wants: target ? `${intent.goal.kind} ${target}` : intent.goal.kind,
@@ -9374,6 +9376,31 @@ export class FleetManager {
     });
   }
 
+  /** When each trader with no route was first seen so (idleTraders.ts); a ship that gets work or a crew drops out. */
+  private idleSince = new Map<string, number>();
+
+  /** Update the idle times from the fleet as it is now. Never throws: a failed read leaves the last answer standing. */
+  private async refreshIdleTraders(now: number = Date.now()): Promise<void> {
+    try {
+      const crew = new Set<string>();
+      for (const f of await this.feeds.list()) { for (const x of f.assignedShips ?? []) crew.add(x); if (f.collector) crew.add(f.collector); }
+      for (const m of await this.missions.list()) if (m.status !== "complete") for (const x of m.assignedShips ?? []) crew.add(x);
+      const duty = new Set(this.dispatcher.contractDutyShips());
+      const idle = this.fleetStatusSummary()
+        .filter((r) => isIdleTrader({ symbol: r.symbol, role: r.role, cargo: r.cargo, doing: r.doing, assigned: this.dispatcher.assignmentFor(r.symbol) !== undefined }, crew, duty))
+        .map((r) => r.symbol);
+      this.idleSince = trackIdle(this.idleSince, idle, now);
+    } catch {
+      /* keep the last answer */
+    }
+  }
+
+  /** Traders that have had no route for at least `minMs` (default five minutes), longest first, with where each sits. */
+  idleTraders(now: number = Date.now(), minMs: number = IDLE_ALERT_AFTER_MS): { symbol: string; idleMs: number; waypoint?: string }[] {
+    const where = new Map(this.fleetStatusSummary().map((r) => [r.symbol, r.waypoint]));
+    return idleLongerThan(this.idleSince, now, minMs).map((i) => ({ ...i, waypoint: where.get(i.symbol) || undefined }));
+  }
+
   /**
    * Everything that spends or reaches out and isn't urgent: credits, gate
    * and contract refresh, keeper and repair proposals, ship, scout, siphoner
@@ -9383,6 +9410,7 @@ export class FleetManager {
   private async tickMaintenance(): Promise<void> {
     // Before the pause check: a halted fleet is when a list of what needs attention matters most. Never throws, throttles itself.
     await this.attention.refresh();
+    await this.refreshIdleTraders();
     this.syncShipBook();
     if (this.paused) return;
     await this.pass("maintenance", async () => {

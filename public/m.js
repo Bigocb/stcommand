@@ -240,14 +240,20 @@ fetch("/version.json").then((r) => r.json()).then((v) => { $("build-label").text
 startCooldownTicker();
 
 /* ── home: cockpit tiles ──────────────────── */
+/** A trader is only listed as unassigned after this long without a route (the server times it: src/engine/idleTraders.ts).
+ *  Every trader is between routes for a few seconds after each sale, and those flickered in and out of the list. */
+const IDLE_LIST_AFTER_MS = 5 * 60_000;
 function unassignedTraders() {
   const roleBy = new Map((fleetStatus.ships ?? []).map((s) => [s.symbol, s.role]));
+  const idleSinceBy = new Map((fleetStatus.summary ?? []).map((r) => [r.symbol, r.idleSince]));
+  const now = Date.now();
   // Not idle: a feed/mission carrier (claimFor), or a hold still carrying cargo mid-trade.
   return (state?.ships ?? []).filter(
     (s) => roleBy.get(s.symbol) === "trader" && !dispatchAssignments.some((a) => a.shipSymbol === s.symbol)
       && (s.cargo?.units ?? 0) === 0 && claimFor(s) == null
       // Pinned to contract work with no contract to buy for: waiting, not unassigned.
-      && !contractDutyShips.includes(s.symbol),
+      && !contractDutyShips.includes(s.symbol)
+      && idleSinceBy.get(s.symbol) !== undefined && now - idleSinceBy.get(s.symbol) >= IDLE_LIST_AFTER_MS,
   );
 }
 
@@ -308,7 +314,7 @@ function triageItems() {
     items.push({
       kind: "unassigned", key: `u-${s.symbol}`, cls: "info",
       who: s.symbol, amt: "Unassigned",
-      detail: `Idle at ${s.nav?.waypointSymbol ?? "unknown"} · ready for a route`, exp: "",
+      detail: `Idle ${Math.floor((Date.now() - (fleetStatus.summary ?? []).find((r) => r.symbol === s.symbol)?.idleSince) / 60_000)} min at ${s.nav?.waypointSymbol ?? "unknown"} · no route yet`, exp: "",
     });
   }
   return items;

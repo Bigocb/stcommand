@@ -33,6 +33,7 @@ export function liveSnapshotProvider(deps: { tenantId: string; store: Store; fle
     return {
       now: t,
       approvals,
+      idle: deps.fleet.idleTraders(t),
       stranded: deps.fleet.getStrandedShips().map((s: { symbol: string }) => ({ symbol: s.symbol })),
       attention: deps.fleet.attention.snapshot().items.map((i) => ({ ship: i.ship, severity: i.severity, reasons: i.reasons.map((r) => ({ text: r.text, severity: r.severity })) })),
       msToReset: Number.isFinite(nextReset) ? nextReset - t : undefined,

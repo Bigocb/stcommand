@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Idle traders: listed and alerted only after five minutes without a route
+
+Tower's Needs-a-decision list and the Home "unassigned" count showed every trader the moment it had no route, and a trader
+is in that state for a few seconds after each sale, so ships flickered in and out (THEOREM-17A, 2026-10-24). The fleet now
+times it (`src/engine/idleTraders.ts`, `FleetManager.refreshIdleTraders()` each maintenance tick, first-seen time kept
+while a trader is idle and dropped the moment it has a route, a feed or mission crew, contract duty, cargo, a hold or a
+stranding). The time rides on each fleet-status row as `idleSince`; Tower lists a trader only once it is five minutes old
+and says how long. A new alert category, "Idle traders" (on by default, once an hour per ship), carries the same
+threshold, and the app-icon badge counts those ships. The ship cards on the Fleet tab still show a transient
+"unassigned" job label per ship; that is the live state, not an alert.
+
 ## 2026-10-24 — Learn each market's price impact per lot, and size trips to it (lotImpactMaxFactor, off by default)
 
 Two losing trips the same evening. THEOREM-38 bought 80 NEURAL_CHIPS in 15-unit lots (ask 21,677c -> 30,228c, about +6.8% a

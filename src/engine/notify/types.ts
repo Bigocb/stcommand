@@ -36,6 +36,8 @@ export interface NotifySnapshot {
   now: number;
   approvals: { id: string; kind: string; shipSymbol: string | null; /** When the engine gives up waiting and applies its default, ISO. */ expiresAt?: string | null }[];
   stranded: { symbol: string }[];
+  /** Traders that have had no route for a while (idleTraders.ts), already past the alert threshold. */
+  idle?: { symbol: string; idleMs: number; waypoint?: string }[];
   attention: { ship: string; severity: Severity; reasons: { text: string; severity: Severity }[] }[];
   /** Milliseconds until the weekly universe reset; undefined when not known. */
   msToReset?: number;

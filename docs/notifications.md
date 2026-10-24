@@ -39,7 +39,7 @@ All of it is in `src/engine/notify/`. Everything except the transport is pure (n
 |---|---|
 | `types.ts` | `NotifyEvent`, `NotifySnapshot`, `NotifyPrefs`, `DeliveryState`, the severity ranking |
 | `categories.ts` | The registry of kinds of alert: label, description, on by default, repeat cooldown |
-| `detectors.ts` | Pure functions from a snapshot to events: approvals, stranded, attention (critical only), reset warnings, rate drop |
+| `detectors.ts` | Pure functions from a snapshot to events: approvals, stranded, idle traders (no route for 5 minutes), attention (critical only), reset warnings, rate drop |
 | `policy.ts` | `decide()`: switches, quiet hours, dedupe, hourly cap, digests, silent seeding |
 | `prefs.ts` | Cleans what a device sends (unknown categories dropped, numbers clamped) |
 | `transport.ts` | `PushTransport` interface and the web-push implementation (VAPID, 404/410 detection) |
