@@ -22,6 +22,8 @@ import { OpeningRunnerImpl } from "./openingRunner.js";
 import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
 import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
 import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
+import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type TriagePolicy } from "./keeperTriage.js";
+import { Reminders } from "./reminders.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
@@ -1126,6 +1128,22 @@ export class FleetManager {
     if (deadRoutesFlag) {
       const n = this.dispatcher.restoreDeadRoutes(deadRoutesFlag);
       if (n > 0) this.log(`restored ${n} dead route(s) reported before the restart`);
+    }
+    const remindersFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "reminders") : undefined;
+    if (remindersFlag) {
+      const n = this.reminders.restore(remindersFlag, Date.now());
+      if (n > 0) this.log(`restored ${n} reminder(s) the engine set before the restart`);
+    }
+    const triageFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "keeperTriage") : undefined;
+    if (triageFlag) {
+      try {
+        for (const [ship, v] of Object.entries(JSON.parse(triageFlag) as Record<string, { market: string; parkedAt: number; rechecks: number; settled?: boolean }>)) {
+          if (v && typeof v.market === "string" && typeof v.parkedAt === "number") this.triageParked.set(ship, v);
+        }
+        if (this.triageParked.size) this.log(`restored ${this.triageParked.size} keeper(s) the engine had parked`);
+      } catch {
+        /* a bad flag is dropped; the parked hulls themselves are restored from fleet_state */
+      }
     }
     const reachFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "shipReach") : undefined;
     if (reachFlag) {
@@ -5208,6 +5226,156 @@ export class FleetManager {
         this.log(`${shipSymbol}: enqueued ${role} task (scheduler size ${before} -> ${scheduler.size()})`);
       }
     }
+  }
+
+  // ---- Keeper triage (keeperTriage.ts): park keepers on dead markets, set a reminder, look again ----
+  private static readonly TRIAGE_INTERVAL_MS = 10 * 60_000;
+  private static readonly TRIAGE_KIND = "keeper_recheck";
+  /** The engine's own reminders (reminders.ts); saved in the `reminders` fleet flag so they survive a restart. */
+  readonly reminders = new Reminders();
+  /** Keepers the engine parked itself (not the operator), saved in the `keeperTriage` flag. `settled` = looked at enough, left parked. */
+  private readonly triageParked = new Map<string, { market: string; parkedAt: number; rechecks: number; settled?: boolean }>();
+  private lastTriageAt = 0;
+  private readonly triageLog: string[] = [];
+
+  private triagePolicy(): TriagePolicy {
+    return { ...TRIAGE_OFF_POLICY, maxParksPerRun: this.doctrine.isEnabledOr("keeperTriage", false) ? this.doctrine.value("keeperTriage") : 0 };
+  }
+
+  private triageNote(line: string): void {
+    this.triageLog.push(`${new Date().toISOString()} ${line}`);
+    if (this.triageLog.length > 60) this.triageLog.splice(0, this.triageLog.length - 60);
+    this.log(`keeper triage: ${line}`);
+  }
+
+  private async saveTriage(): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    try {
+      if (this.reminders.size) await this.store.setFleetFlag(this.tenantId, "reminders", this.reminders.toJson());
+      else await this.store.removeFleetFlag(this.tenantId, "reminders");
+      if (this.triageParked.size) await this.store.setFleetFlag(this.tenantId, "keeperTriage", JSON.stringify(Object.fromEntries(this.triageParked)));
+      else await this.store.removeFleetFlag(this.tenantId, "keeperTriage");
+    } catch (err) {
+      this.log(`save keeper triage state failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** For the ops tool: what the engine has parked, the reminders it set itself, and the last decisions. */
+  keeperTriageState(): { policy: TriagePolicy; parked: { ship: string; market: string; parkedAt: string; rechecks: number; settled: boolean; parkedNow: boolean }[]; reminders: ReturnType<Reminders["list"]>; log: string[] } {
+    return {
+      policy: this.triagePolicy(),
+      parked: [...this.triageParked].map(([ship, v]) => ({ ship, market: v.market, parkedAt: new Date(v.parkedAt).toISOString(), rechecks: v.rechecks, settled: !!v.settled, parkedNow: this.parkedShips.has(ship) })),
+      reminders: this.reminders.list(),
+      log: [...this.triageLog],
+    };
+  }
+
+  /**
+   * One triage pass, at most every 10 minutes: first answer the reminders that have come due (bring keepers back, probe, look again
+   * later or settle), then, when the clause is on, park the next few keepers on dead markets and set a reminder for each. The
+   * reviews run even with the clause off, so turning it off never strands a keeper the engine parked.
+   */
+  private async maybeTriageKeepers(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastTriageAt < FleetManager.TRIAGE_INTERVAL_MS) return;
+    this.lastTriageAt = now;
+    if (!this.tenantId || !this.store) return;
+    const policy = this.triagePolicy();
+    if (!(policy.maxParksPerRun > 0) && this.reminders.size === 0 && this.triageParked.size === 0) return;
+    const [review, trades, snaps] = await Promise.all([this.keeperReviewData(), this.store.ledgerTradeByWaypoint(this.tenantId), this.store.latestMarketSnapshots()]);
+    const tradeBy = new Map(trades.map((t) => [t.waypoint, t]));
+    const newest = new Map<string, number>();
+    for (const r of snaps) {
+      const t = Date.parse(r.timestamp);
+      if (Number.isFinite(t) && t > (newest.get(r.waypointSymbol) ?? 0)) newest.set(r.waypointSymbol, t);
+    }
+    const use = this.dispatcher.marketRouteUse();
+    const factsOf = (market: string) => {
+      const t = tradeBy.get(market);
+      const seen = newest.get(market);
+      return {
+        trades: (t?.sells ?? 0) + (t?.buys ?? 0),
+        lastTradeAt: t?.lastTradeAt,
+        viableRoutes: use.get(market)?.viable ?? 0,
+        deadRoutes: use.get(market)?.dead ?? 0,
+        snapshotAgeMs: seen === undefined ? undefined : now - seen,
+      };
+    };
+    let changed = false;
+
+    for (const r of this.reminders.due(now, FleetManager.TRIAGE_KIND)) {
+      const ship = r.subject;
+      const mine = this.triageParked.get(ship);
+      if (!mine) { this.reminders.cancel(FleetManager.TRIAGE_KIND, ship); changed = true; continue; }
+      const isParked = this.parkedShips.has(ship);
+      const probed = r.data?.probed === true;
+      if (!isParked && !probed) {
+        // The operator (or a sale) took it out of parking while the reminder was pending: nothing left to look after.
+        this.triageParked.delete(ship); this.reminders.cancel(FleetManager.TRIAGE_KIND, ship); changed = true;
+        this.triageNote(`${ship}: no longer parked, dropping its reminder`);
+        continue;
+      }
+      const f = factsOf(mine.market);
+      const d = reviewParked({ ship, market: mine.market, rechecks: mine.rechecks, parkedAt: mine.parkedAt, probed, viableRoutes: f.viableRoutes, lastTradeAt: f.lastTradeAt, snapshotAgeMs: f.snapshotAgeMs }, policy, now);
+      try {
+        if (d.kind === "unpark") {
+          if (isParked) await this.unparkShip(ship);
+          this.triageParked.delete(ship); this.reminders.cancel(FleetManager.TRIAGE_KIND, ship);
+          this.triageNote(`${ship} back on ${mine.market}: ${d.reason}`);
+          this.recordAction(configChangeEvent({ setting: `keeperTriage:${ship}`, before: "parked", after: "keeper", atIso: new Date(now).toISOString(), reason: d.reason }));
+        } else if (d.kind === "probe") {
+          await this.unparkShip(ship);
+          this.reminders.add({ kind: FleetManager.TRIAGE_KIND, subject: ship, dueAt: now + d.remindInMs, note: d.reason, data: { market: mine.market, probed: true } }, now);
+          this.triageNote(`${ship} unparked to probe ${mine.market}: ${d.reason}`);
+        } else {
+          if (!isParked) await this.parkShip(ship);
+          if (d.kind === "extend") {
+            mine.rechecks = d.rechecks;
+            this.reminders.add({ kind: FleetManager.TRIAGE_KIND, subject: ship, dueAt: now + d.remindInMs, note: d.reason, data: { market: mine.market, probed: false } }, now);
+          } else {
+            mine.settled = true; mine.rechecks = policy.maxRechecks;
+            this.reminders.cancel(FleetManager.TRIAGE_KIND, ship);
+          }
+          this.triageNote(`${ship} stays parked at ${mine.market}: ${d.reason}`);
+        }
+      } catch (err) {
+        this.triageNote(`${ship}: ${d.kind} failed: ${err instanceof Error ? err.message : String(err)}; will look again next pass`);
+      }
+      changed = true;
+    }
+
+    if (policy.maxParksPerRun > 0) {
+      const resetDate = getGameResetDate();
+      const resetMs = resetDate ? Date.parse(resetDate) : NaN;
+      const here = new Map(this.fleetStatusSummary().map((s) => [s.symbol, s]));
+      const skip = new Set<string>();
+      for (const k of review.stationed) {
+        const s = here.get(k.ship);
+        // A keeper still flying to its market, or already under triage, is left alone.
+        if (!s || s.nav === "IN_TRANSIT" || s.waypoint !== k.market || this.reminders.hasAny(k.ship, [FleetManager.TRIAGE_KIND]) || this.triageParked.has(k.ship)) skip.add(k.ship);
+      }
+      const plan = triageKeepers({
+        now,
+        weekAgeMs: Number.isFinite(resetMs) ? now - resetMs : undefined,
+        stationed: review.stationed.map((k) => ({ ship: k.ship, market: k.market, score: k.score, ...factsOf(k.market) })),
+        alreadyParked: this.triageParked.size,
+        skip,
+        policy,
+      });
+      for (const d of plan.park) {
+        try {
+          await this.parkShip(d.ship);
+          this.triageParked.set(d.ship, { market: d.market, parkedAt: now, rechecks: 0 });
+          this.reminders.add({ kind: FleetManager.TRIAGE_KIND, subject: d.ship, dueAt: now + policy.recheckMs, note: `look again at ${d.market}: ${d.reason}`, data: { market: d.market, probed: false } }, now);
+          this.triageNote(`parked ${d.ship} at ${d.market} (${d.kind}): ${d.reason}; looking again in ${Math.round(policy.recheckMs / 60_000)} min`);
+          this.recordAction(configChangeEvent({ setting: `keeperTriage:${d.ship}`, before: "keeper", after: "parked", atIso: new Date(now).toISOString(), reason: d.reason }));
+          changed = true;
+        } catch (err) {
+          this.triageNote(`${d.ship}: park failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+    if (changed) await this.saveTriage();
   }
 
   /** Market each parked keeper stood at, so parking one does not leave its market looking uncovered (it would be bought again). */
@@ -9461,6 +9629,7 @@ export class FleetManager {
         await this.timed("maybeNegotiateContract", () => this.maybeNegotiateContract());
       }
       await this.timed("maybeAssignKeepers", () => this.maybeAssignKeepers());
+      await this.timed("maybeTriageKeepers", () => this.maybeTriageKeepers());
       await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       await this.timed("repairSuspendedShips", () => this.repairSuspendedShips());
       await this.timed("maybeGrowExplorers", () => this.maybeGrowExplorers());

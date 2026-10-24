@@ -502,6 +502,32 @@ export class RouteDispatcher {
     return this.routeBlocks.list(Date.now());
   }
 
+  /**
+   * How many of the routes held now buy or sell at each market, and how many are held back as dead (a dead-route key is
+   * "good@buyAt" or "good@buyAt>sellAt", so it touches the buy market and, for a pair, the destination). Keeper triage reads
+   * this: a market no viable route touches is one whose keeper is polling for nothing.
+   */
+  marketRouteUse(): Map<string, { viable: number; dead: number }> {
+    const use = new Map<string, { viable: number; dead: number }>();
+    const at = (m: string) => {
+      let u = use.get(m);
+      if (!u) { u = { viable: 0, dead: 0 }; use.set(m, u); }
+      return u;
+    };
+    for (const r of this.routes) {
+      at(r.buyAt).viable++;
+      if (r.sellAt !== r.buyAt) at(r.sellAt).viable++;
+    }
+    for (const d of this.routeBlocks.list(Date.now())) {
+      const m = d.key.split("@")[1];
+      if (!m) continue;
+      const [buy, sell] = m.split(">");
+      if (buy) at(buy).dead++;
+      if (sell) at(sell).dead++;
+    }
+    return use;
+  }
+
   /** What a lot of ours moves the price at this (good, market) on this side: the flat default, or what our own recent
    *  runs there measured when the policy is on (lotImpact.ts). */
   impactFor(side: "buy" | "sell", good: string, at: string, tradeVolume: number, policy: ImpactPolicy): Learned {

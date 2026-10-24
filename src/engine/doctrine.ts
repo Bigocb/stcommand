@@ -360,6 +360,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperTriage",
+    name: "Keepers: park the ones on dead markets, and look again later",
+    description: "Every 10 minutes, park (not scrap) up to this many keepers whose market no viable route touches and which either has never seen a trade of ours and scores under half the median keeper, or has been quiet for 6 hours (a market whose routes are all held back as dead is a crashed one). A parked keeper stops polling and frees a slot under Keepers: most the fleet will run, and the engine sets itself a reminder: after 90 minutes (then 3 hours, then 6) it looks again, brings the keeper back if a route through the market is viable again or we have traded there, unparks it for one cycle when it has no recent read to judge by, and after 3 looks leaves it parked and says so. At most 15% of the keepers are ever parked this way, nothing happens in the first 24 hours of a week, and a keeper with a reminder pending is not touched. Off (the default) = nothing is parked automatically. Takes effect on the next check. See src/engine/keeperTriage.ts and reminders.ts.",
+    value: 3, min: 1, max: 10, step: 1, unit: " per pass",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperPollMaxMin",
     name: "Keepers: longest wait between reads",
     description: "A keeper re-reads its market after a third of the time the market has sat unchanged, between 5 minutes and this ceiling. 30 is the long-standing value. Raising it (60 is the practical limit, since a read is treated as fresh for 80% of the wait and prices older than Intel freshness are ignored) cuts the keepers' API calls for markets that barely move, at the cost of staler prices for them. Off = 30. Takes effect as each keeper schedules its next read.",

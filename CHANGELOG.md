@@ -9,6 +9,31 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — Keeper triage: the engine parks keepers on dead markets and sets itself a reminder to look again (doctrine `keeperTriage`, off)
+
+Operator request: let the engine manage keepers, park the ones on low or crashed markets, and set its own reminder to check
+back in an hour or two to see whether the market came back. Part of "always be expanding" (`docs/fresh-system-expansion-plan.md`,
+Phase 2): each keeper costs a market read every 5 to 30 minutes against the 90 calls a minute the API allows, so one on a market
+nobody trades is a call a keeper on a fresh system could use.
+
+- `src/engine/reminders.ts` (pure): reminders the engine sets for itself, one per kind and subject, saved in the `reminders` fleet
+  flag and restored at boot (so they survive a restart; long-overdue ones are dropped). Anything that needs a later second look can use it.
+- `src/engine/keeperTriage.ts` (pure): `triageKeepers()` picks the keepers to park: no viable route through the market now, and either
+  never a trade of ours there and a score under half the median keeper ("low"), or no trade for 6 hours ("quiet"; "crashed" when every
+  route through it is held back as dead). `reviewParked()` answers a due reminder: bring the keeper back (a route is viable again or we
+  traded there since), unpark it for one cycle to read the market when there is no read under 90 minutes old to judge by ("probe"),
+  look again after 90 minutes then 3 then 6 hours ("extend"), or leave it parked for good after 3 looks ("settle", a candidate to scrap).
+- `FleetManager.maybeTriageKeepers()` runs every 10 minutes in the maintenance tick. The reviews run even with the clause off, so
+  turning it off never strands a keeper the engine parked. Parking goes through `parkShip()` (reversible, keeps the hull, frees a
+  slot under `keeperMaxTotal`, the market stays covered). It never parks more than 15% of the keepers, waits 24 hours into a week, and
+  leaves alone a keeper still flying to its market or already under triage. Every park and return is a `config_change` action event
+  with its reason, and the engine-parked list is saved in the `keeperTriage` flag.
+- `RouteDispatcher.marketRouteUse()` counts the viable and dead routes touching each market; `ledgerTradeByWaypoint` now also
+  returns the time of the last trade there.
+- Ops tool `keeper_triage` shows what the engine parked, its reminders and the last decisions with reasons.
+- Doctrine `keeperTriage` (3 parks a pass), **off by default**: off parks nothing, as before. Tests: `tests/keeperTriage.test.ts`
+  (pure decisions, the off policy, reminders round trip, the dispatcher seam).
+
 ## 2026-10-24 — Our recent sale and purchase lots survive a restart (fleet flag tradeImpacts)
 
 The sell/buy recovery pricing (`marketCrash.ts`, `marketRecoveryMin`, on live) and the learned price impact

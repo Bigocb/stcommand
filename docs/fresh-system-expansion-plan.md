@@ -60,7 +60,9 @@ read live, and it confirms or kills the hypothesis in the first days of next wee
 barely move, park keepers on markets with no recent routed trades. Each saved call is room for one more fresh-system keeper.
 Check with `keeper_review` (polling cost now and at the limit).
 
-**Phase 2, rotate (pure module, doctrine clause off by default).** `src/engine/keeperRotation.ts`, in the style of `chain.ts`
+**Phase 2a, shipped 2026-10-24: park the dead ones and look again (doctrine `keeperTriage`, off).** `keeperTriage.ts` and `reminders.ts`: the engine parks keepers on markets no viable route touches and sets itself a reminder to look again (see CHANGELOG). It frees budget; the swap-in of a fresh system's keeper is Phase 2b.
+
+**Phase 2b, rotate (pure module, doctrine clause off by default).** `src/engine/keeperRotation.ts`, in the style of `chain.ts`
 and `pace.ts`: inputs are the stationed keepers (market, recent routed trades and profit attributed to the market, age since
 coverage), the uncovered markets (system, expected yield from the Phase 0 curve, buy cost) and the budget; output is a short
 list of swaps with a one-line reason each. Rules: only swap when an uncovered market beats the weakest stationed one by a set

@@ -431,6 +431,16 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "keeper_triage",
+    title: "Keeper triage: keepers the engine parked, its reminders, and what it decided",
+    description: "The engine's own keeper management (doctrine keeperTriage, off by default): the keepers it parked because no viable route touches their market (never traded and scoring under half the median, or quiet for 6 hours; all routes held back as dead = a crashed market), each with when it was parked, how many looks found the market still dead and whether it was settled (left parked for good, a candidate to scrap); the reminders it set itself with their due times; and the last decisions it made, each with its reason. Read-only. To override: unpark with stcommand_unpark_ship (its reminder is dropped on the next pass) or turn the clause off (reminders keep running, so parked keepers still come back).",
+    input: {},
+    async run(ctx) {
+      return ctx.w.fleet.keeperTriageState();
+    },
+  },
+
+  {
     name: "keeper_sales",
     title: "Keepers at markets where we have made no sales",
     description: "Every stationed keeper with how many sells and buys of ours (count and credits) have happened at its market this week, lowest first. By default only the keepers whose market has seen none of our sales (noTrade counts those with no buys either): price listening that no route of ours uses, the first candidates to scrap or park when the keeper limit is full. A market with no sales can still matter if traders buy there or its prices inform routes, so check buys and the keeper review score before scrapping. Set onlyNoSales=false for every keeper.",
