@@ -1,4 +1,5 @@
 import { routeTag } from "./routeTag.js";
+import { gateFromJumpRejection } from "./jumpRejection.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
@@ -1126,8 +1127,11 @@ export class TraderAgent {
       // the cache: record it so every later path/route check sees the edge as
       // closed instead of re-assigning the same doomed route.
       const msg = err instanceof Error ? err.message : String(err);
-      if (/construct|not complete|not connected/i.test(msg)) {
-        this.atlas.recordGateNotComplete(gate);
+      // Flag the gate the game names ("Destination jump gate X is under construction" is the far end), not just the one
+      // this ship stood at (jumpRejection.ts).
+      const flagged = gateFromJumpRejection(msg, { origin: gate, destination: remoteGate });
+      if (flagged) {
+        this.atlas.recordGateNotComplete(flagged);
         this.markRouteUnreachable(targetSystem);
       }
       throw err;

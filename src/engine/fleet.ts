@@ -25,6 +25,7 @@ import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying,
 import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type TriagePolicy } from "./keeperTriage.js";
 import { Reminders } from "./reminders.js";
 import { SystemQueue } from "./systemQueue.js";
+import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
@@ -4087,7 +4088,19 @@ export class FleetManager {
       await this.api.orbitShip(shipSymbol);
     }
     this.log(`${shipSymbol} jumping ${gate} -> ${waypointSymbol}`);
-    const res = await this.api.jumpShip(shipSymbol, waypointSymbol);
+    let res;
+    try {
+      res = await this.api.jumpShip(shipSymbol, waypointSymbol);
+    } catch (err) {
+      // A live "under construction" rejection corrects the construction cache, which is one-way and otherwise never
+      // learns that a gate recorded complete is not (jumpRejection.ts). Covers the operator jump and every hop that
+      // goes through here (tours, dispatch, rescue).
+      const msg = err instanceof Error ? err.message : String(err);
+      // Construction rejections only: this path never acted on "not connected", and starting to would close gates on a routing error.
+      const flagged = /construct/i.test(msg) ? gateFromJumpRejection(msg, { origin: gate, destination: waypointSymbol }) : undefined;
+      if (flagged) this.galaxy.recordGateNotComplete(flagged);
+      throw err;
+    }
     // The ship has moved. Refresh the cache now, or the dashboard keeps showing the gate it left until the ship's
     // agent next syncs, and an operator-held ship's agent may not sync at all (seen live: THEOREM-86 showed HR84-I60
     // while it sat at KK70-XB7D).

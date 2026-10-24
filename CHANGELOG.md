@@ -9,6 +9,26 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-24 — A rejected jump corrects the gate the game names, not the one the ship stood at (JM97)
+
+Operator question: why did a ship run into a gate that was not open, with the crawler reading gate construction? Found 2026-10-24: THEOREM-1
+was routed into X1-JM97 at 20:15 and 20:19 and rejected ("Destination jump gate X1-JM97-I57 is under construction"); THEOREM-94 was routed
+through it at 16:17 and a manual jump failed at 16:15. The stored record for `X1-JM97-I57` said complete; a live read said FAB_MATS 0/1600 and
+ADVANCED_CIRCUITRY 0/400. The construction cache is one-way (the crawler never asks again about a gate recorded complete), so only a live
+rejection can correct a wrong "complete", and the trader's handler (`TraderAgent.jumpToSystem`) recorded the gate the ship stood at (the finished
+RB54 hub gate) as not complete instead of the destination the message named. JM97 stayed "complete" and ships kept being routed into it, and each
+rejection briefly flagged the finished RB54 gate, which withdraws its proven edges and clears the path cache until it is next re-read (inferred
+from the code; the flag was not observed live).
+
+- `src/engine/jumpRejection.ts` (pure): `gateFromJumpRejection(message, {origin, destination})` returns the gate to flag: the gate a message names
+  before "under construction", else the destination when it says "destination", else the origin (the old behaviour for "not complete" and
+  "not connected"), else nothing for errors that are not about a gate.
+- `TraderAgent.jumpToSystem` uses it. `FleetManager.jumpShip` (operator jump, tours, dispatch, rescue) now also corrects the cache on a
+  construction rejection, which it never did; it still ignores "not connected" there.
+- The crawler reads an unfinished gate again after an hour, so a corrected JM97 stays corrected.
+- Tests: `tests/jumpRejection.test.ts` (the helper, the trader handler against the real message, the real atlas cache),
+  `tests/jumpRejectionFleet.test.ts` (the operator path). Mutation check: flagging the origin again fails the trader test.
+
 ## 2026-10-24 — Fresh systems: a queue behind a release gate, staged keepers, and a release rule the engine can run (doctrine `freshGate`, off)
 
 Operator direction: queue newly found systems so their premium (about 1.7x the mature profit per unit for roughly 8 hours after coverage, see the
