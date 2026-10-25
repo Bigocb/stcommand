@@ -227,7 +227,8 @@ function renderCustomForm(container, host, existingKeys) {
               <option value="setDoctrine"${s.kind === "setDoctrine" ? " selected" : ""}>Change a setting</option></select></label>
             ${s.kind === "buyShip" ? `
               <label>Ship<select data-s="shipType">${SHIP_TYPE_CHOICES.map((t) => `<option value="${t}"${(s.shipType ?? "SHIP_LIGHT_SHUTTLE") === t ? " selected" : ""}>${escapeHtml(SHIP_TYPE_LABELS[t])}</option>`).join("")}</select></label>
-              <label>Pay at most (c)<input type="number" inputmode="numeric" data-s="maxPrice" value="${escapeHtml(s.maxPrice ?? 100000)}" min="1"></label>` : ""}
+              <label>Pay at most (c)<input type="number" inputmode="numeric" data-s="maxPrice" value="${escapeHtml(s.maxPrice ?? 100000)}" min="1"></label>
+              <label>Keep at least (c) after buying<input type="number" inputmode="numeric" data-s="keepCash" value="${escapeHtml(s.keepCash ?? 100000)}" min="0"></label>` : ""}
             ${s.kind === "setRole" || s.kind === "contractDuty" ? `
               <label>Which ship<select data-s="ship"><option value="command">The command ship</option>${steps.slice(0, i).map((x, j) => x.kind === "buyShip" ? `<option value="step:${j + 1}"${s.ship === `step:${j + 1}` ? " selected" : ""}>The ship bought in action ${j + 1}</option>` : "").join("")}</select></label>` : ""}
             ${s.kind === "setRole" ? `<label>Role<select data-s="role">${ROLE_CHOICES.map((r) => `<option value="${r}"${(s.role ?? "trader") === r ? " selected" : ""}>${r}</option>`).join("")}</select></label>` : ""}
@@ -254,7 +255,7 @@ function renderCustomForm(container, host, existingKeys) {
       const spec = buildCustomTask({
         name: top.name,
         trigger: { kind: top.trigger, amount: Number(top.amount) },
-        steps: steps.map((s) => ({ ...s, maxPrice: s.maxPrice ?? 100000, shipType: s.shipType ?? "SHIP_LIGHT_SHUTTLE", role: s.role ?? "trader", ship: s.ship ?? "command" })),
+        steps: steps.map((s) => ({ ...s, maxPrice: s.maxPrice ?? 100000, keepCash: s.keepCash ?? 100000, shipType: s.shipType ?? "SHIP_LIGHT_SHUTTLE", role: s.role ?? "trader", ship: s.ship ?? "command" })),
       }, { existingKeys });
       queueTask(container, spec);
     };

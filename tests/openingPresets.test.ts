@@ -72,14 +72,14 @@ describe("plain-English description", () => {
   it("says what a task does in words", () => {
     const p = OPENING_PRESETS[0]!;
     const text = describeTask(p.build(defaults(p), { existingKeys: [] }));
-    assert.match(text, /^When cash reaches 110,000c: buy a light shuttle for up to 100,000c/);
+    assert.match(text, /^When cash reaches 200,000c: buy a light shuttle for up to 100,000c/);
     assert.match(text, /put the ship bought in step 1 on contract duty/);
   });
 
   it("describes a combined trigger", () => {
     const h = OPENING_PRESETS.find((x: any) => x.id === "hauler")!;
     const text = describeTask(h.build(defaults(h), { existingKeys: [] }));
-    assert.match(text, /When cash reaches 375,000c, and when the best route pays 100,000c a trip/);
+    assert.match(text, /When cash reaches 450,000c, and when the best route pays 100,000c a trip/);
   });
 });
 

@@ -22,7 +22,8 @@ export type Trigger =
   | { kind: "all"; of: Trigger[] };
 
 export type Step =
-  | { kind: "buyShip"; shipType: OpeningShipType; maxPrice: number; preApproved: boolean }
+  /** keepCash: the purchase waits unless this much cash is left after paying (a hull is no use if it leaves nothing to trade with). */
+  | { kind: "buyShip"; shipType: OpeningShipType; maxPrice: number; preApproved: boolean; keepCash?: number }
   | { kind: "setRole"; ship: ShipRef; role: OpeningRole }
   | { kind: "contractDuty"; ship: ShipRef; on: boolean }
   | { kind: "setDoctrine"; key: string; value?: number; enabled?: boolean }
@@ -82,6 +83,9 @@ export function validateTaskSpec(x: unknown): Validation<TaskSpec> {
         return { ok: false, error: "Step " + i + ": maxPrice must be 1 to 5,000,000" };
       }
       if (typeof step.preApproved !== "boolean") return { ok: false, error: "Step " + i + ": preApproved must be boolean" };
+      if (step.keepCash !== undefined && (typeof step.keepCash !== "number" || !Number.isFinite(step.keepCash) || step.keepCash < 0 || step.keepCash > 1000000000)) {
+        return { ok: false, error: "Step " + i + ": keepCash must be 0 to 1,000,000,000" };
+      }
     } else if (step.kind === "setRole") {
       if (!validateShipRef(step.ship, i, s.steps)) return { ok: false, error: "Step " + i + ": invalid ship ref" };
       if (!OPENING_ROLES.includes(step.role)) return { ok: false, error: "Step " + i + ": invalid role" };
@@ -300,6 +304,10 @@ export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "
     if (!best) return { kind: "fail", reason: "no viable yards found after sorting" };
     if (f.spendable < best.price) {
       return { kind: "wait", reason: "spendable " + f.spendable.toLocaleString() + " < price " + best.price.toLocaleString() };
+    }
+    const keep = s.keepCash ?? 0;
+    if (f.spendable - best.price < keep) {
+      return { kind: "wait", reason: "buying at " + best.price.toLocaleString() + " would leave " + (f.spendable - best.price).toLocaleString() + ", under the " + keep.toLocaleString() + " to keep" };
     }
     return { 
       kind: "run", 

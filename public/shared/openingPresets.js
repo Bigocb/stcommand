@@ -59,7 +59,7 @@ export function describeTrigger(t) {
 }
 
 export function describeStep(s) {
-  if (s.kind === "buyShip") return `buy a ${SHIP_TYPE_LABELS[s.shipType] ?? s.shipType} for up to ${num(s.maxPrice)}c${s.preApproved ? " (no approval card)" : " (asks you first)"}`;
+  if (s.kind === "buyShip") return `buy a ${SHIP_TYPE_LABELS[s.shipType] ?? s.shipType} for up to ${num(s.maxPrice)}c${s.preApproved ? " (no approval card)" : " (asks you first)"}${s.keepCash ? `, only if ${num(s.keepCash)}c is left after` : ""}`;
   if (s.kind === "setRole") return `make ${describeShipRef(s.ship)} a ${s.role}`;
   if (s.kind === "contractDuty") return `${s.on ? "put" : "take"} ${describeShipRef(s.ship)} ${s.on ? "on" : "off"} contract duty`;
   if (s.kind === "setDoctrine") {
@@ -88,8 +88,9 @@ export const OPENING_PRESETS = [
     label: "Buy a ship for contracts",
     blurb: "When there is cash, buy a light shuttle, make it a trader and put it on contract duty (contracts pay well for manufactured goods).",
     fields: [
-      { name: "cash", label: "Start when cash reaches", unit: "c", value: 110000, min: 1 },
+      { name: "cash", label: "Start when cash reaches", unit: "c", value: 200000, min: 1 },
       { name: "maxPrice", label: "Pay at most", unit: "c", value: 100000, min: 1 },
+      { name: "keep", label: "Keep at least this much after buying", unit: "c", value: 100000, min: 0 },
     ],
     build(v, ctx = {}) {
       const key = uniqueKey("contract-ship", ctx.existingKeys);
@@ -98,7 +99,7 @@ export const OPENING_PRESETS = [
         name: "Ship for contracts",
         trigger: { kind: "cashAtLeast", credits: v.cash },
         steps: [
-          { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: v.maxPrice, preApproved: true },
+          { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: v.maxPrice, preApproved: true, keepCash: v.keep },
           { kind: "setRole", ship: { by: "step", step: 0 }, role: "trader" },
           { kind: "contractDuty", ship: { by: "step", step: 0 }, on: true },
         ],
@@ -110,8 +111,9 @@ export const OPENING_PRESETS = [
     label: "Buy a second ship for touring",
     blurb: "Buy another light shuttle and set it to tour, so new markets get priced while the first one works. Waits for the contract ship if that task is queued.",
     fields: [
-      { name: "cash", label: "Start when cash reaches", unit: "c", value: 110000, min: 1 },
+      { name: "cash", label: "Start when cash reaches", unit: "c", value: 200000, min: 1 },
       { name: "maxPrice", label: "Pay at most", unit: "c", value: 100000, min: 1 },
+      { name: "keep", label: "Keep at least this much after buying", unit: "c", value: 100000, min: 0 },
     ],
     build(v, ctx = {}) {
       const existing = ctx.existingKeys ?? [];
@@ -122,7 +124,7 @@ export const OPENING_PRESETS = [
         name: "Ship for touring",
         trigger,
         steps: [
-          { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: v.maxPrice, preApproved: true },
+          { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: v.maxPrice, preApproved: true, keepCash: v.keep },
           { kind: "setRole", ship: { by: "step", step: 0 }, role: "tour" },
         ],
       };
@@ -133,9 +135,10 @@ export const OPENING_PRESETS = [
     label: "Buy a hauler once a route pays",
     blurb: "When cash is there and the best route pays well per trip, buy a light hauler and make it a trader (big holds belong on paying routes).",
     fields: [
-      { name: "cash", label: "Start when cash reaches", unit: "c", value: 375000, min: 1 },
+      { name: "cash", label: "Start when cash reaches", unit: "c", value: 450000, min: 1 },
       { name: "profit", label: "and the best route pays at least", unit: "c / trip", value: 100000, min: 1 },
       { name: "maxPrice", label: "Pay at most", unit: "c", value: 350000, min: 1 },
+      { name: "keep", label: "Keep at least this much after buying", unit: "c", value: 100000, min: 0 },
     ],
     build(v, ctx = {}) {
       return {
@@ -143,7 +146,7 @@ export const OPENING_PRESETS = [
         name: "Hauler for a paying route",
         trigger: { kind: "all", of: [{ kind: "cashAtLeast", credits: v.cash }, { kind: "routeProfitAtLeast", profitPerTrip: v.profit }] },
         steps: [
-          { kind: "buyShip", shipType: "SHIP_LIGHT_HAULER", maxPrice: v.maxPrice, preApproved: true },
+          { kind: "buyShip", shipType: "SHIP_LIGHT_HAULER", maxPrice: v.maxPrice, preApproved: true, keepCash: v.keep },
           { kind: "setRole", ship: { by: "step", step: 0 }, role: "trader" },
         ],
       };
@@ -154,8 +157,9 @@ export const OPENING_PRESETS = [
     label: "Tour ship that becomes a trader",
     blurb: "Buy a light shuttle and tour it to price the home system's markets. Once every market with at least the keeper minimum of goods has been priced, the same ship becomes a trader.",
     fields: [
-      { name: "cash", label: "Start when cash reaches", unit: "c", value: 110000, min: 1 },
+      { name: "cash", label: "Start when cash reaches", unit: "c", value: 200000, min: 1 },
       { name: "maxPrice", label: "Pay at most", unit: "c", value: 100000, min: 1 },
+      { name: "keep", label: "Keep at least this much after buying", unit: "c", value: 100000, min: 0 },
     ],
     build(v, ctx = {}) {
       return {
@@ -163,7 +167,7 @@ export const OPENING_PRESETS = [
         name: "Tour ship that becomes a trader",
         trigger: { kind: "cashAtLeast", credits: v.cash },
         steps: [
-          { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: v.maxPrice, preApproved: true },
+          { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: v.maxPrice, preApproved: true, keepCash: v.keep },
           { kind: "setRole", ship: { by: "step", step: 0 }, role: "tour" },
           { kind: "waitFor", trigger: { kind: "marketsSurveyed" } },
           { kind: "setRole", ship: { by: "step", step: 0 }, role: "trader" },
@@ -220,7 +224,7 @@ export function buildCustomTask({ name, trigger, steps }, ctx = {}) {
     : trigger?.kind === "routeProfitAtLeast" ? { kind: "routeProfitAtLeast", profitPerTrip: Number(trigger.amount) }
     : { kind: "always" };
   const out = (steps ?? []).map((s) => {
-    if (s.kind === "buyShip") return { kind: "buyShip", shipType: s.shipType, maxPrice: Number(s.maxPrice), preApproved: s.preApproved !== false };
+    if (s.kind === "buyShip") return { kind: "buyShip", shipType: s.shipType, maxPrice: Number(s.maxPrice), preApproved: s.preApproved !== false, ...(Number(s.keepCash) > 0 ? { keepCash: Number(s.keepCash) } : {}) };
     if (s.kind === "setRole") return { kind: "setRole", ship: shipRefFromChoice(s.ship), role: s.role };
     if (s.kind === "contractDuty") return { kind: "contractDuty", ship: shipRefFromChoice(s.ship), on: s.on !== false };
     const d = { kind: "setDoctrine", key: String(s.key ?? "").trim() };

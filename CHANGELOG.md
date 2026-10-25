@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Opening buys keep a cash reserve
+
+A task that bought a shuttle at "cash reaches 110,000" would have left about 16,000 to trade with. A `buyShip` step now takes `keepCash`: it waits (with the reason in the task note) unless that much cash is left after paying. The contract, tour, survey and hauler presets set it to 100,000 and start at 200,000 (hauler 450,000); the custom builder has a "Keep at least" field (default 100,000). Tasks queued without it behave as before. `tests/buyKeepCash.test.ts`.
+
 ## 2026-10-25 — Stale "needs a role" cards are withdrawn
 
 A ship bought by an opening task (or roled from the Fleet tab, MCP, or a restart) kept its "needs a role" approval card until it timed out, and answering it did nothing (THEO-4 and THEO-5, 2026-10-25). Each tick `FleetManager.withdrawMootRoleApprovals()` now expires any open `assignShipRole:` card whose ship is no longer awaiting a role decision (rule in `mootRoleApprovals`, `src/engine/approvals.ts`). Other kinds of card are untouched. `tests/mootRoleApprovals.test.ts`.
