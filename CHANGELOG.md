@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Tower can register a new agent
+
+Tower's sign-in screen took only a token, so creating a new agent meant going to a desktop. It now has a "Register a new agent" link under Sign in: agent symbol, faction (default COSMIC) and account token, posted to the same `/api/gate/register` desktop uses. A new agent is paused until its standing orders are confirmed, so Tower shows the same standing-orders list (catalog, checkboxes, values) and a "Confirm & launch the fleet" button before the app opens. Signing in with a token and a cold page load now send a tenant that still owes onboarding to that screen too, instead of straight into a paused fleet. Also fixed `.auth-card` ignoring the `hidden` attribute. `tests/towerRegister.test.ts`; checked in Chromium with the gate routes stubbed.
+
 ## 2026-10-25 — Tower: a Log out button
 
 Tower had no way to sign out, so after registering a second agent on the same device the first one's session could not be left.

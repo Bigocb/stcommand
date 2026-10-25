@@ -32,8 +32,27 @@
     <input id="auth-token" type="password" placeholder="Agent token" autocomplete="current-password" />
     <button class="btn pri" type="submit">Sign in</button>
     <div class="err" id="auth-err"></div>
+    <button class="auth-switch" type="button" id="auth-show-register">Register a new agent</button>
     <a class="guide-link" href="/guide">New here? Read the player guide</a>
   </form>
+  <form class="auth-card" id="register-form" hidden>
+    <div class="brand">NEW AGENT</div>
+    <p class="sub">Register a brand-new SpaceTraders agent with your account token. It starts paused until you confirm its standing orders.</p>
+    <input id="reg-symbol" type="text" placeholder="Agent symbol (3-14 letters or digits)" maxlength="14" autocomplete="off" autocapitalize="characters" />
+    <input id="reg-faction" type="text" placeholder="Faction (default COSMIC)" autocomplete="off" autocapitalize="characters" />
+    <input id="reg-token" type="password" placeholder="SpaceTraders account token" autocomplete="off" />
+    <button class="btn pri" type="submit" id="reg-submit">Register &amp; enter</button>
+    <div class="err" id="reg-err"></div>
+    <button class="auth-switch" type="button" id="auth-show-login">Back to sign in</button>
+  </form>
+  <div class="auth-card onboard-card" id="onboarding-card" hidden>
+    <div class="brand">STANDING ORDERS</div>
+    <p class="sub">Choose the rules the fleet follows before it launches. You can change any of them later.</p>
+    <div class="onboard-list" id="onboard-list"></div>
+    <button class="btn pri" type="button" id="onboard-confirm">Confirm &amp; launch the fleet</button>
+    <div class="err" id="onboard-err"></div>
+    <button class="auth-switch" type="button" id="onboard-retry" hidden>Retry</button>
+  </div>
 </div>
 
 <div class="app" id="app-root" hidden>

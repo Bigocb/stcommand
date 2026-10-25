@@ -9,7 +9,7 @@
  */
 import { api, onUnauthorized } from "/shared/api.js";
 import { crewHtml, crewAction, loadFields, cachedFields } from "/shared/contractCrew.js";
-import { login, logout, probeSession } from "/shared/session.js";
+import { login, logout, probeSession, register as registerAgent, fetchOnboardingCatalog, completeOnboarding } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
   state, bridge, fleetStatus, approvals, upcomingApprovals, decidedApprovals, dispatchAssignments, contractDutyShips, dispatchRoutes, minerPreferences, intel,
@@ -44,21 +44,25 @@ function fmTag(flightMode) {
 const $ = (id) => document.getElementById(id);
 
 /* ── auth gate ─────────────────────────────
- * Deliberately scoped down from v6.js's gate: existing tenants only, no
- * register/onboarding flow — an operator setting up a brand-new agent
- * does that from desktop first. Same session-cookie mechanism underneath
- * (POST /api/gate/login), so a tenant already signed in on desktop is
- * already signed in here too — this only matters for a fresh browser/
- * private session.
+ * Three cards share the gate: sign in with a token, register a brand-new agent (the same /api/gate/register desktop uses), and
+ * the standing-orders step a new agent owes before its fleet leaves the paused state. Same session cookie underneath, so a
+ * tenant already signed in on desktop is already signed in here too.
  */
 let authed = false;
 onUnauthorized(() => showAuthGate("Session expired — sign in again."));
 
+const GATE_CARDS = ["auth-form", "register-form", "onboarding-card"];
+function showGateCard(id) {
+  for (const c of GATE_CARDS) $(c).hidden = c !== id;
+}
+
 function showAuthGate(msg) {
   authed = false;
   $("auth-err").textContent = msg ?? "";
+  $("reg-err").textContent = "";
   $("app-root").hidden = true;
   $("auth-gate").hidden = false;
+  showGateCard("auth-form");
 }
 
 function hideAuthGate() {
@@ -68,17 +72,112 @@ function hideAuthGate() {
   $("app-root").hidden = false;
 }
 
+/** Where a signed-in session goes next: onboarding when the tenant still owes it, else the app. */
+function enterAfterSignIn(who) {
+  if (who?.onboardingPending) return showOnboarding();
+  hideAuthGate();
+  if (who?.operator) { enableAdmin($("tab-admin")); renderNav(); }
+  boot();
+}
+
 $("auth-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const token = $("auth-token").value.trim();
   if (!token) return;
   try {
-    const who = await login(token);
-    hideAuthGate();
-    if (who?.operator) { enableAdmin($("tab-admin")); renderNav(); }
-    boot();
+    enterAfterSignIn(await login(token));
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
+  }
+});
+
+$("auth-show-register").addEventListener("click", () => { $("reg-err").textContent = ""; showGateCard("register-form"); $("reg-symbol").focus(); });
+$("auth-show-login").addEventListener("click", () => { $("auth-err").textContent = ""; showGateCard("auth-form"); });
+
+$("register-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const agentSymbol = $("reg-symbol").value.trim();
+  const faction = $("reg-faction").value.trim().toUpperCase() || "COSMIC";
+  const accountToken = $("reg-token").value.trim();
+  if (!agentSymbol || !accountToken) { $("reg-err").textContent = "Enter an agent symbol and your account token."; return; }
+  $("reg-submit").disabled = true;
+  $("reg-err").textContent = "";
+  try {
+    const who = await registerAgent(agentSymbol, faction, accountToken);
+    // A just-registered tenant is paused until onboarding, whatever the response omits.
+    enterAfterSignIn({ ...who, onboardingPending: who.onboardingPending ?? who.isNewTenant });
+  } catch (err) {
+    $("reg-err").textContent = err.message || "Could not reach the server.";
+  } finally {
+    $("reg-submit").disabled = false;
+  }
+});
+
+/* Standing orders for a new agent. Same catalog and confirm call as desktop (shared/session.js); the fleet stays paused until
+ * the confirm succeeds, so there is no way past this card but through it (a refresh lands back here via probeSession). */
+const ONBOARD_CATEGORY_LABEL = { trading: "Trading", fleet: "Fleet growth", risk: "Risk", ops: "Ops" };
+
+async function showOnboarding() {
+  showGateCard("onboarding-card");
+  $("auth-gate").hidden = false;
+  $("app-root").hidden = true;
+  $("onboard-err").textContent = "";
+  $("onboard-retry").hidden = true;
+  $("onboard-confirm").disabled = true;
+  $("onboard-list").innerHTML = '<div class="sub">Loading standing orders…</div>';
+  try {
+    renderOnboarding(await fetchOnboardingCatalog());
+  } catch (_) {
+    $("onboard-list").innerHTML = "";
+    $("onboard-err").textContent = "Could not load standing orders — the fleet may still be starting up.";
+    $("onboard-retry").hidden = false;
+  }
+}
+
+function renderOnboarding(catalog) {
+  $("onboard-confirm").disabled = false;
+  const byCategory = new Map();
+  for (const c of catalog) {
+    if (!byCategory.has(c.category)) byCategory.set(c.category, []);
+    byCategory.get(c.category).push(c);
+  }
+  $("onboard-list").innerHTML = [...byCategory.entries()].map(([cat, items]) => `
+    <div class="onboard-cat">${escapeHtml(ONBOARD_CATEGORY_LABEL[cat] ?? cat)}</div>
+    ${items.map((c) => `
+      <label class="onboard-item">
+        <input type="checkbox" data-key="${escapeAttr(c.key)}" ${c.defaultAdopted ? "checked" : ""} />
+        <span class="body"><span class="n">${escapeHtml(c.name)}</span><span class="d">${escapeHtml(c.description)}</span></span>
+        <span class="onboard-value">
+          <input type="number" class="onboard-value-input" data-value-key="${escapeAttr(c.key)}" value="${c.value}" min="${c.min}" max="${c.max}" step="${c.step}" ${c.defaultAdopted ? "" : "disabled"} aria-label="${escapeAttr(c.name)} value" />
+          <span class="onboard-unit">${escapeHtml(c.unit)}</span>
+        </span>
+      </label>`).join("")}`).join("");
+}
+
+$("onboard-list").addEventListener("change", (e) => {
+  const cb = e.target.closest("input[type=checkbox][data-key]");
+  if (!cb) return;
+  const v = $("onboard-list").querySelector(`.onboard-value-input[data-value-key="${CSS.escape(cb.dataset.key)}"]`);
+  if (v) v.disabled = !cb.checked;
+});
+
+$("onboard-retry").addEventListener("click", () => showOnboarding());
+
+$("onboard-confirm").addEventListener("click", async () => {
+  const btn = $("onboard-confirm");
+  btn.disabled = true;
+  try {
+    const selections = {};
+    $("onboard-list").querySelectorAll("input[type=checkbox][data-key]").forEach((cb) => {
+      const v = $("onboard-list").querySelector(`.onboard-value-input[data-value-key="${CSS.escape(cb.dataset.key)}"]`);
+      selections[cb.dataset.key] = { adopted: cb.checked, value: v && v.value !== "" ? Number(v.value) : undefined };
+    });
+    await completeOnboarding(selections);
+    const who = await probeSession();
+    enterAfterSignIn({ ...who, onboardingPending: false });
+  } catch (err) {
+    $("onboard-err").textContent = err.message || "Could not save — try again.";
+    btn.disabled = false;
   }
 });
 
@@ -2341,7 +2440,5 @@ document.addEventListener("visibilitychange", () => {
   }
   const session = await probeSession();
   if (!session.authenticated) return showAuthGate();
-  hideAuthGate();
-  if (session.operator) { enableAdmin($("tab-admin")); renderNav(); }
-  boot();
+  enterAfterSignIn(session);
 })();
