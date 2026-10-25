@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — The starting command ship tours from the first tick
+
+The 2026-10-25 week opened with THEOREM-1 (a frigate with a mining laser and a 40-unit hold) derived as a miner. It mined ore for over an hour,
+earning nothing, until the operator set it to tour by hand. The opening playbook has it tour until there are good routes.
+
+- `assignRole()` gives the starting command ship (role COMMAND, symbol ending `-1`: `isStartingCommandShip`) the tour role before the miner rule, and `guessDefaultRole()` agrees.
+- Only that ship: a COMMAND hull bought later, and every other mining ship, keep their derived roles. An operator-set role still wins (a persisted override skips `assignRole()`).
+- Tests: `tests/commandShipTours.test.ts`; skipping the new branch fails the tour case.
+
 ## 2026-10-25 — The reset wind-down no longer scraps ships
 
 Operator decision: hull scrapping is complex for little return (6 of 316 hulls sent in 70 minutes this week, mostly probes that scrap for a

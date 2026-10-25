@@ -380,6 +380,10 @@ const REJECTED_TTL_MS = 60 * 24 * 60 * 60 * 1000;
  * second spin into ~12 calls an hour.
  */
 const NO_TARGET_BACKOFF_MS = 5 * 60_000;
+/** The ship every agent starts with: role COMMAND, named "<AGENT>-1". Later COMMAND hulls bought at a yard are not it. */
+export function isStartingCommandShip(ship: { symbol: string; registration?: { role?: string } }): boolean {
+  return ship.registration?.role === "COMMAND" && /-1$/.test(ship.symbol);
+}
 /** Targets an explorer tries in one call when the remote gate of the first is still being built. */
 const EXPLORE_TARGET_TRIES = 3;
 
@@ -2885,6 +2889,46 @@ export class FleetManager {
   }
 
   /** Decide a ship's role: miner (has mining mount + cargo) vs trader (cargo) vs scout vs idle. */
+  /** Start the tour agent for a ship: market and shipyard intel (and cross-system trips from dispatch_tour). */
+  private registerTourAgent(ship: Ship, why: string): void {
+      this.tours.set(
+        ship.symbol,
+        new ShipAgent(ship, {
+          buysBlocked: () => this.windDownBlocksBuys(),
+          api: this.api,
+          shouldRun: () => !this.paused,
+          intentFor: () => this.intents.current(ship.symbol),
+          log: (m) => this.log(`${ship.symbol}: ${m}`),
+          recordLedger: this.recordLedger,
+          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
+          recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          repairHere: (sym: string) => this.repairShip(sym),
+          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
+          findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
+            this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
+          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
+            ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
+          refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
+          marketTourTargets: () => this.sectorTourTargets(ship.symbol),
+          staleMarketTargets: () => this.staleMarketTargets(),
+          shipyardTourTargets: () => this.shipyardTourTargets(),
+          advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
+          hasTourDestination: () => this.tourDestinations.has(ship.symbol),
+          tourHopPriority: () => this.doctrine.isEnabledOr("tourHopPriority", true),
+          recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+          hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
+          getCredits: () => this.spendableCredits(),
+          galaxy: this.galaxy,
+          store: this.store,
+          done: () => this.forgetIntent(ship.symbol),
+          // Same funnel as surveySystem(), tagged so the durable row records who
+          // marked it: a tour ship borrowing an explore trip is still a survey.
+          onSystemSurveyed: (sys) => { void this.markSystemSurveyed(sys, "tour"); },
+        }).withRegistry(this.registry),
+      );
+      this.log(`role: tour ${ship.symbol} (${why})`);
+  }
+
   private async assignRole(ship: Ship): Promise<void> {
     const hasMining = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_MINING_LASER"));
     const hasSurveyor = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_SURVEYOR"));
@@ -2894,7 +2938,11 @@ export class FleetManager {
     // (CLOTHING/JEWELRY/MEDICINE → A1 etc.) which out-earns raw ore mining.
     // Prefer the largest-cargo ship (e.g. the COMMAND frigate) as the trader.
     const wantTrader = false;
-    if (hasMining && hasCargo && !wantTrader) {
+    if (isStartingCommandShip(ship)) {
+      // The starting command ship tours first (operator, 2026-10-25): it learns the home system's markets until there are good
+      // routes, instead of mining ore it cannot sell well. The operator can still give it any other role.
+      this.registerTourAgent(ship, "starting command ship tours first");
+    } else if (hasMining && hasCargo && !wantTrader) {
       this.miners.set(
         ship.symbol,
         new ShipAgent(ship, {
@@ -3033,42 +3081,7 @@ export class FleetManager {
     } else if (ship.frame?.symbol === "FRAME_SHUTTLE") {
       // Light shuttle: no cargo, no mining — dedicated to touring markets & shipyards
       // so price snapshots and ship-stock intel stay fresh.
-      this.tours.set(
-        ship.symbol,
-        new ShipAgent(ship, {
-          buysBlocked: () => this.windDownBlocksBuys(),
-          api: this.api,
-          shouldRun: () => !this.paused,
-          intentFor: () => this.intents.current(ship.symbol),
-          log: (m) => this.log(`${ship.symbol}: ${m}`),
-          recordLedger: this.recordLedger,
-          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits, ship.symbol),
-          recordMarket: (wp) => this.recordMarketSnapshot(wp),
-          repairHere: (sym: string) => this.repairShip(sym),
-          jumpTo: (sym: string, wp: string) => this.jumpToward(sym, wp),
-          findFuelStop: (systemSymbol: string, from: string, to: string, currentFuel: number, fuelCapacity: number) =>
-            this.findFuelStop(systemSymbol, from, to, currentFuel, fuelCapacity),
-          scrapHere: async (sym: string) => { await this.scrapShip(sym); },
-            ensureSystemCharted: (sys) => this.chartSystemFor(ship.symbol, sys),
-          refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
-          marketTourTargets: () => this.sectorTourTargets(ship.symbol),
-          staleMarketTargets: () => this.staleMarketTargets(),
-          shipyardTourTargets: () => this.shipyardTourTargets(),
-          advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
-          hasTourDestination: () => this.tourDestinations.has(ship.symbol),
-          tourHopPriority: () => this.doctrine.isEnabledOr("tourHopPriority", true),
-          recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
-          hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
-          getCredits: () => this.spendableCredits(),
-          galaxy: this.galaxy,
-          store: this.store,
-          done: () => this.forgetIntent(ship.symbol),
-          // Same funnel as surveySystem(), tagged so the durable row records who
-          // marked it: a tour ship borrowing an explore trip is still a survey.
-          onSystemSurveyed: (sys) => { void this.markSystemSurveyed(sys, "tour"); },
-        }).withRegistry(this.registry),
-      );
-      this.log(`role: tour ${ship.symbol} (market/shipyard intel)`);
+      this.registerTourAgent(ship, "market/shipyard intel");
     } else if (hasCargo) {
       this.traders.set(
         ship.symbol,
@@ -3101,6 +3114,7 @@ export class FleetManager {
     const hasSurveyor = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_SURVEYOR"));
     const hasGasSiphon = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_GAS_SIPHON"));
     const hasCargo = ship.cargo.capacity >= 15;
+    if (isStartingCommandShip(ship)) return "tour";
     if (hasMining && hasCargo) return "miner";
     if (hasSurveyor) return "surveyor";
     if (hasGasSiphon) return "siphoner";
