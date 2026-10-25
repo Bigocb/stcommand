@@ -35,7 +35,7 @@ import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { routeScope, getRouteScope, setRouteScope, routeScopeBar } from "/shared/domain.js";
-import { jobKind, JOB_KINDS, fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
+import { jobKind, JOB_KINDS, fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, walletForHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
 startRateLimitIndicator($("tb-conn"));
@@ -134,7 +134,7 @@ function setView(name) {
       api,
       // Same foldable panels as Tower: tap a panel's header to open or close it.
       collapsible: true,
-      netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined),
+      netWorth: () => (state?.agent ? walletPlusHolds(walletForHolds(state.agent), state.cargoValues).total : undefined),
     });
     metricsScreen.show();
   }
@@ -278,7 +278,7 @@ function renderTopbar() {
   // Credits
   const credits = state?.agent?.credits ?? bridge.credits ?? 0;
   $("tb-credits").textContent = fmt(credits);
-  const wph = walletPlusHolds(credits, state?.cargoValues);
+  const wph = walletPlusHolds(state?.agent ? walletForHolds(state.agent) : credits, state?.cargoValues);
   $("tb-networth").textContent = fmt(wph.total) + (wph.partial ? "+" : "");
   $("tb-networth").title = `Holds ~${fmt(wph.holds)}${wph.partial ? " (some cargo unpriced)" : ""}`;
 

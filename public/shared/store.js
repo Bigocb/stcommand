@@ -257,6 +257,9 @@ export async function loadState() {
       return;
     }
     state = data;
+    // The wallet the live feed moves between polls, and the wallet this response's hold values were priced against, are
+    // different numbers: see walletForHolds() in domain.js.
+    if (state.agent) state.agent.pollCredits = state.agent.credits;
     systems = state.systems ?? [];
     jumpConnections = state.jumpConnections ?? [];
     connectionStatus = state.stale ? { level: "stale", staleSince: state.staleSince ?? null } : { level: "live", staleSince: null };

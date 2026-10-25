@@ -33,7 +33,7 @@ import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jobKind, JOB_KINDS, setHtml } from "/shared/domain.js";
-import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, routeScope, getRouteScope, setRouteScope, routeScopeBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
+import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, walletForHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, routeScope, getRouteScope, setRouteScope, routeScopeBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
   if (flightMode === "DRIFT") return `<span class="fm-tag fm-drift" title="Drifting: not enough fuel for cruise, very slow">drift</span>`;
@@ -215,7 +215,7 @@ function setTab(name) {
   // More first this session. Confirmed live: a feed carrier's card showed
   // no claim at all on a fresh Fleet-tab visit.
   if (name === "fleet") { loadMarkets(); loadProgramme(); renderFleetView(); }
-  if (name === "metrics") { metricsScreen ??= mountMetrics($("metrics-root"), { api, collapsible: true, netWorth: () => (state?.agent ? walletPlusHolds(state.agent.credits ?? 0, state.cargoValues).total : undefined) }); metricsScreen.show(); }
+  if (name === "metrics") { metricsScreen ??= mountMetrics($("metrics-root"), { api, collapsible: true, netWorth: () => (state?.agent ? walletPlusHolds(walletForHolds(state.agent), state.cargoValues).total : undefined) }); metricsScreen.show(); }
   else metricsScreen?.hide();
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
   if (name === "approvals") { loadApprovals(); renderApprovalsScreen(); }
@@ -372,7 +372,7 @@ function renderTiles() {
   const pace = bridge.pace;
   const rate = pace ? pace.perHour1h : bridge.rate ?? 0;
   const trend = pace ? { up: " ▲", down: " ▼", flat: "" }[paceTrend(pace)] : "";
-  const wph = walletPlusHolds(state?.agent?.credits ?? bridge.credits ?? 0, state?.cargoValues);
+  const wph = walletPlusHolds(state?.agent ? walletForHolds(state.agent) : (bridge.credits ?? 0), state?.cargoValues);
 
   setHtml($("home-tiles"), `
     <div class="tile"><div class="k">Credits</div><div class="v">${fmt(state?.agent?.credits ?? bridge.credits ?? 0)}</div></div>

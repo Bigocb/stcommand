@@ -292,6 +292,16 @@ export function paceTrend(pace) {
  * as /api/state returns it). `holds` is the sum alone, `partial` is true when
  * any hold has units we could not price, so the total is a floor.
  */
+/**
+ * The wallet to add hold values to. The live feed moves `agent.credits` the moment a trade lands, but `cargoValues` only
+ * changes with a state poll, so adding the two double-counted a cargo for the seconds between a sale and the next poll
+ * (a 226k hauler load showed Credits + holds 200k too high, 2026-10-25). `pollCredits` is the wallet from the same
+ * response as the hold values, so the pair always agrees. Falls back to the live wallet when there is no snapshot yet.
+ */
+export function walletForHolds(agent) {
+  return agent?.pollCredits ?? agent?.credits ?? 0;
+}
+
 export function walletPlusHolds(credits, cargoValues) {
   let holds = 0;
   let partial = false;

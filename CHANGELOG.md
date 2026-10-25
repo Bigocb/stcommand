@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Credits + holds no longer double counts a cargo between a sale and the next poll
+
+Deck and Tower's "Credits + holds" (and the net-worth line in the metrics chart) added the wallet from the live feed to hold values that only change on a state poll. The feed moves the wallet the moment a trade lands, so for the seconds until the next poll a sold cargo counted twice: a hauler's 226k load made the total read about 1.5M, then it fell back on refresh. Loads had been small before, so it went unnoticed. The state poll now records `agent.pollCredits` (the wallet from the same response as the hold values), `walletForHolds()` returns it, and the three call sites use it; the plain Credits tile still follows the live feed. `tests/walletForHolds.test.ts`. A server sample of wallet and holds every 10 s over five minutes agreed with the estimates to within a few hundred credits per trade, so the hold estimate itself was fine.
+
 ## 2026-10-25 — Gate mission step carries the cash floor
 
 `startGateMission` takes `cashFloor` and `cashResume` (the mission's own pacing: buying holds when the wallet is under the floor and resumes at the resume level; 0 clears it), so a task can keep a working balance while the gate is bought and lower it for the final push. Validated, shown in plain words in the Opening form. `tests/gateOperationSteps.test.ts`.
