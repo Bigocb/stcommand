@@ -360,6 +360,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "autoBuyShips",
+    name: "Auto-buy ships",
+    description: "Let the engine propose its own hull purchases: a tour shuttle when none is touring, mining drones up to the miner target, the best-scored hull for the fleet's biggest gap, a siphoner, a chart scout. Each still goes through an approval card. Off = the engine buys no hulls by itself and only opening tasks and the operator buy them (keeper probes are separate, see Auto-buy keepers). On by default.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "keeperAutoApproveMinCash",
     name: "Keeper auto-approve: keep cash",
     description: "Auto-approve a keeper probe only while the wallet still holds at least this many credits after paying; below it the purchase asks the operator instead. Off = no extra reserve beyond the cash floor. Use it to keep early-game cash for trading, and switch it off (or raise the cash floor) once the gate is open.",

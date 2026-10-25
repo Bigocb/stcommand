@@ -3773,7 +3773,7 @@ export class FleetManager {
    * known system → no purchase (avoids buying a ship that would sit idle).
    */
   async maybeBuyScout(): Promise<void> {
-    if (this.windDownBlocksBuys()) return;
+    if (this.windDownBlocksBuys() || !this.autoBuyShipsOn()) return;
     if (this.scouts.size > 0) return;
     const scanWanted = this.doctrine.value("sensorScanIntervalMin", 0) > 0;
     if (!scanWanted) {
@@ -3844,7 +3844,7 @@ export class FleetManager {
    * cap to 0 doesn't silently kill the gas-income role.
    */
   async maybeBuySiphoner(): Promise<void> {
-    if (this.windDownBlocksBuys()) return;
+    if (this.windDownBlocksBuys() || !this.autoBuyShipsOn()) return;
     if (this.siphoners.size > 0) return;
     if (this.doctrine.value("siphonTarget", 0) <= 0) return;
     const agent = { credits: await this.cachedCredits() };
@@ -3990,8 +3990,13 @@ export class FleetManager {
   }
 
   /** Purchase the highest-scored affordable ship, if any. */
+  /** The engine's own hull purchases (tour shuttle, miners, scored picks, siphoner, scout). Off hands every hull buy to opening tasks and the operator; keeper probes are separate. */
+  private autoBuyShipsOn(): boolean {
+    return this.doctrine.isEnabledOr("autoBuyShips", true);
+  }
+
   async maybeBuyShip(): Promise<void> {
-    if (this.windDownBlocksBuys()) return;
+    if (this.windDownBlocksBuys() || !this.autoBuyShipsOn()) return;
     const agent = { credits: await this.cachedCredits() };
     if (agent.credits < this.minCashReserve() + this.shipBudget()) return;
 

@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — `autoBuyShips`: one switch for the engine's own hull purchases
+
+New doctrine clause `autoBuyShips` (on by default, so nothing changes until it is switched). Off, `maybeBuyShip` (tour shuttle, mining drones, scored picks), `maybeBuySiphoner` and `maybeBuyScout` return before doing anything, so opening tasks and the operator are the only source of hulls and no "priority" `buyShip` cards appear beside the tasks. Keeper probes have their own switch. `tests/autoBuyShips.test.ts`.
+
 ## 2026-10-25 — Opening tasks can trigger on the home gate; keeper auto-approve can keep a cash reserve
 
 New trigger `gateProgressAtLeast` (0-100, 100 = the gate is open) so early-game limits can loosen at a milestone: progress is the delivered share of the home gate mission's materials, rounded down so it only reads 100 once the gate itself is complete, and unknown (not 0) when no gate mission has started. The Opening form's custom builder offers it. New doctrine clause `keeperAutoApproveMinCash` (off by default): while on, a keeper probe is auto-approved only if the wallet still holds that much after paying, otherwise it asks as before. `tests/gateTrigger.test.ts`; the keeper seam test's fake doctrine now answers for the new clause.
