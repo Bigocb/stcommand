@@ -9519,6 +9519,8 @@ export class FleetManager {
    * shared keeper priority list on every sale and two of those overlapping would lose an update.
    */
   private static readonly RETIRE_PER_TICK = 2;
+  /** Whether the reset wind-down scraps hulls (retireNonTraders). Off: see the note at the top of that method. */
+  static WIND_DOWN_SCRAP = false;
   private static readonly SWEEP_SUMMARY_MS = 5 * 60_000;
   private lastSweepSummaryAt = Date.now();
   /** Answers step-start ship reads from what the fleet already knows; shadow-only until the `shipBook` clause is on. */
@@ -10189,6 +10191,13 @@ export class FleetManager {
    * path, not a second implementation of flying to a yard.
    */
   private async retireNonTraders(): Promise<void> {
+    // Off (operator, 2026-10-25): scrapping drained 6 of 316 hulls in 70 minutes and the proceeds are small next to the wallet, so
+    // the wind-down is "no new buys, sell what is held" only. The queue is still emptied so it cannot grow unread.
+    if (!FleetManager.WIND_DOWN_SCRAP) {
+      this.windDownScrapper.take();
+      this.retireQueue.clear();
+      return;
+    }
     const window = this.windDownState();
     if (window.active) {
       // Seeded while the window is open, so a ship that joins mid-window is caught too. Idempotent: a

@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — The reset wind-down no longer scraps ships
+
+Operator decision: hull scrapping is complex for little return (6 of 316 hulls sent in 70 minutes this week, mostly probes that scrap for a
+small amount). The wind-down is now only "no new buys, sell what is held". `retireNonTraders()` returns at the top, behind
+`FleetManager.WIND_DOWN_SCRAP` (false), after emptying its queue so it cannot grow unread. The retirement code and its tests are kept
+(`windDownScrap.ts`) in case it is wanted again.
+
+- Tests: `tests/windDownNoScrap.test.ts` (nothing is sent to a yard with the window open; with the switch on the keeper is sent). Turning the switch on fails the first.
+
 ## 2026-10-25 — Wind-down: a loaded trader sells what it holds instead of idling
 
 At 11:00 UTC the wind-down opened (120 minutes) and by 12:10 the ledger showed no sells in the last hour while 14 traders held about 4.4M
