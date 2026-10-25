@@ -1,7 +1,7 @@
 import { Router, type Response } from "express";
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { createHash } from "node:crypto";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname, relative, sep } from "node:path";
 
 /**
  * The UI versions this server actively offers. `v6` (the 3D map) is the
@@ -144,6 +144,42 @@ export function assetStamp(publicDir: string): string {
   return h.digest("hex").slice(0, 10);
 }
 
+/** The `/shared/...` module URLs under `sharedDir`, sorted (js only, vendor files excluded). */
+export function sharedModuleUrls(sharedDir: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    let entries: Dirent[] = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== "vendor") walk(p);
+      } else if (e.name.endsWith(".js")) {
+        out.push("/shared/" + relative(sharedDir, p).split(sep).join("/"));
+      }
+    }
+  };
+  walk(sharedDir);
+  return out.sort();
+}
+
+/**
+ * An import map that stamps every shared module with `?v=<stamp>`. The HTML stamps its own script tags, but a module's
+ * `import ... from "/shared/domain.js"` is resolved by the browser with no stamp, so behind a CDN that holds `.js` for four hours
+ * a new `m.js` could pair with an old `domain.js` and fail to link ("does not provide an export named ...") — a blank app
+ * (2026-10-25, right after `walletForHolds` was added). The map rewrites those imports, relative ones included, to the stamped URL.
+ */
+export function importMapTag(urls: readonly string[], stamp: string): string {
+  const imports = Object.fromEntries(urls.map((u) => [u, `${u}?v=${stamp}`]));
+  return `<script type="importmap">${JSON.stringify({ imports })}</script>`;
+}
+
+const sharedUrlCache = new Map<string, string[]>();
+
 /**
  * Serve an HTML page with every local `.js`/`.css` reference stamped with
  * `?v=<stamp>`, and `Cache-Control: no-cache`. External (CDN) URLs and
@@ -161,6 +197,14 @@ export function serveHtml(res: Response, file: string, stamp: string): void {
     /(\s(?:src|href)=")(\/[^"]+\.(?:js|css))(")/g,
     (_m, pre, url, post) => `${pre}${url}?v=${stamp}${post}`,
   );
+  // An import map must come before the first module script.
+  const first = html.search(/<script[^>]*type="module"/);
+  if (first !== -1) {
+    const sharedDir = join(dirname(file), "shared");
+    if (!sharedUrlCache.has(sharedDir)) sharedUrlCache.set(sharedDir, sharedModuleUrls(sharedDir));
+    const urls = sharedUrlCache.get(sharedDir)!;
+    if (urls.length) html = html.slice(0, first) + importMapTag(urls, stamp) + "\n" + html.slice(first);
+  }
   res.set("Cache-Control", "no-cache");
   res.type("html").send(html);
 }

@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Tower could not load on a phone after a deploy: stamp every shared module
+
+After the `walletForHolds` change a phone could not load Tower. The HTML already stamped `m.js` with `?v=<hash>`, but the imports inside it (`/shared/domain.js` and the rest) were fetched unstamped, and Cloudflare turns the origin's `no-cache` into a four-hour browser cache for `.js`. A new `m.js` met a cached old `domain.js`, the browser refused to link a missing export, and the app stayed blank. `serveHtml()` now puts an import map ahead of the first module script that maps every `/shared/**.js` URL (relative imports included) to the same `?v=<hash>` URL, so a deploy changes every module's URL at once. `tests/importMapStamp.test.ts`; checked in Chromium that all 19 shared modules load stamped. A phone that already holds a broken copy gets the fixed page on its next load, because the HTML is `no-cache`; if it stays blank, close the tab and reopen.
+
 ## 2026-10-25 — Credits + holds no longer double counts a cargo between a sale and the next poll
 
 Deck and Tower's "Credits + holds" (and the net-worth line in the metrics chart) added the wallet from the live feed to hold values that only change on a state poll. The feed moves the wallet the moment a trade lands, so for the seconds until the next poll a sold cargo counted twice: a hauler's 226k load made the total read about 1.5M, then it fell back on refresh. Loads had been small before, so it went unnoticed. The state poll now records `agent.pollCredits` (the wallet from the same response as the hold values), `walletForHolds()` returns it, and the three call sites use it; the plain Credits tile still follows the live feed. `tests/walletForHolds.test.ts`. A server sample of wallet and holds every 10 s over five minutes agreed with the estimates to within a few hundred credits per trade, so the hold estimate itself was fine.
