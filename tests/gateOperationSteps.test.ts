@@ -24,6 +24,12 @@ describe("validation", () => {
     assert.equal(validateTaskSpec(spec([feed])).ok, true);
     assert.equal(validateTaskSpec(spec([{ ...feed, carrier: "theo 4" }])).ok, false);
   });
+  it("the mission step takes the mission's cash floor and resume level", () => {
+    assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", cashFloor: 2_000_000, cashResume: 2_500_000 }])).ok, true);
+    assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", cashFloor: 0, cashResume: 0 }])).ok, true);
+    assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", cashFloor: 2_000_000, cashResume: 1_000_000 }])).ok, false);
+    assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", cashFloor: -1 }])).ok, false);
+  });
   it("rejects nonsense", () => {
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", buyLotUnits: 0 }])).ok, false);
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", onlyMaterials: ["fab mats"] }])).ok, false);
@@ -50,6 +56,10 @@ describe("runner", () => {
     assert.deepEqual(calls, [["mission", true, 3], ["feed", "IRON", "HIGH", "T-4"]]);
     assert.equal(task.status, "done");
     assert.equal(decide({ trigger: task.trigger, steps: task.steps, stepIndex: 0, refs: {} }, { spendable: 0, bestRouteProfit: undefined, ships: [], yards: [], doneKeys: new Set() }).kind, "run");
+  });
+  it("describes a cash floor in words", () => {
+    assert.match(describeTask({ trigger: { kind: "always" }, steps: [{ kind: "startGateMission", cashFloor: 2_000_000, cashResume: 2_500_000 }] }), /pausing buys below 2,000,000c until it is back to 2,500,000c/);
+    assert.match(describeTask({ trigger: { kind: "always" }, steps: [{ kind: "startGateMission", cashFloor: 0 }] }), /with no cash floor/);
   });
   it("describes both in plain words", () => {
     const text = describeTask({ trigger: { kind: "always" }, steps: [{ kind: "startGateMission", paused: true, recoverPct: 3 }, { kind: "startFeed", waypoint: "X1-A-B1", good: "IRON", stopAtSupply: "HIGH", carrier: "T-4" }] });

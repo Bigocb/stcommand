@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Gate mission step carries the cash floor
+
+`startGateMission` takes `cashFloor` and `cashResume` (the mission's own pacing: buying holds when the wallet is under the floor and resumes at the resume level; 0 clears it), so a task can keep a working balance while the gate is bought and lower it for the final push. Validated, shown in plain words in the Opening form. `tests/gateOperationSteps.test.ts`.
+
 ## 2026-10-25 — `startFeed` can name its crew ship
 
 The engine's own feed-carrier picker takes the biggest empty hold first, which would have pulled a freshly bought hauler off trading onto a feed. A `startFeed` step can now carry `carrier` (a ship symbol); it is assigned straight after the feed starts. `tests/gateOperationSteps.test.ts`.

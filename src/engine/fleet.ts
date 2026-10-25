@@ -7502,7 +7502,7 @@ export class FleetManager {
    * place before any buying: start, pause, set pacing, resume. `paused: true` stops after the pacing and leaves it created but
    * not buying. Idempotent: an existing mission keeps its progress and just gets the pacing and the paused/resumed state.
    */
-  async startHomeGateMission(opts: { paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; recoverPct?: number; onlyMaterials?: string[] }): Promise<void> {
+  async startHomeGateMission(opts: { paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }): Promise<void> {
     const gate = this.galaxy.getSystem(this.systemSymbol)?.waypoints.find((w) => w.type === "JUMP_GATE");
     if (!gate) throw new Error(`no jump gate known in ${this.systemSymbol}`);
     if (this.homeGateOpen()) return; // nothing left to build
