@@ -53,6 +53,8 @@ describe("gateProgressAtLeast trigger", () => {
       spendable: () => 0, ships: () => [], yards: async () => [], bestRouteProfit: () => undefined,
       surveyMissing: async () => ({ total: 0, missing: [], minGoods: 3 }),
       gateProgress: async () => pct,
+      startGateMission: async () => {},
+      startFeed: async () => {},
       buyShip: async () => ({ symbol: "x" }), setRole: async () => {}, setContractDuty: async () => {},
       setDoctrine: async (k, p) => { calls.push(`${k}:${JSON.stringify(p)}`); return {}; }, log: () => {},
     };

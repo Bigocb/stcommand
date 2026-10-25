@@ -7497,6 +7497,22 @@ export class FleetManager {
     return this.missions.startConstruction(waypointSymbol);
   }
 
+  /**
+   * Start the home system's jump-gate construction mission for an opening task. Same order the MCP tool uses so pacing is in
+   * place before any buying: start, pause, set pacing, resume. `paused: true` stops after the pacing and leaves it created but
+   * not buying. Idempotent: an existing mission keeps its progress and just gets the pacing and the paused/resumed state.
+   */
+  async startHomeGateMission(opts: { paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; recoverPct?: number; onlyMaterials?: string[] }): Promise<void> {
+    const gate = this.galaxy.getSystem(this.systemSymbol)?.waypoints.find((w) => w.type === "JUMP_GATE");
+    if (!gate) throw new Error(`no jump gate known in ${this.systemSymbol}`);
+    if (this.homeGateOpen()) return; // nothing left to build
+    await this.startMission(gate.symbol);
+    const { paused, ...pacing } = opts;
+    await this.pauseMission(gate.symbol);
+    if (Object.values(pacing).some((v) => v !== undefined)) await this.setMissionPacing(gate.symbol, pacing);
+    if (!paused) await this.resumeMission(gate.symbol);
+  }
+
   /** Pause a construction mission (stop sourcing/spending). */
   async pauseMission(waypointSymbol: string): Promise<void> {
     await this.missions.pause(waypointSymbol);
@@ -9722,6 +9738,13 @@ export class FleetManager {
           const goods = new Map(this.markets.filter((m) => m.systemSymbol === this.homeSystem).map((m) => [m.symbol, distinctGoods(m)]));
           const priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
           return { ...unpricedMarkets(marketplaces, (m) => goods.get(m), priced, minGoods), minGoods };
+        },
+        startGateMission: (opts) => this.startHomeGateMission(opts),
+        startFeed: async (opts) => {
+          await this.startFeed(opts.waypoint, opts.good, opts.carrierTarget ?? 1, opts.mine === true, opts.buyAt);
+          if (opts.stopAtSupply !== undefined || opts.maxLossPerUnit !== undefined) {
+            await this.setFeedLimits(opts.waypoint, opts.good, { stopAtSupply: opts.stopAtSupply, maxLossPerUnit: opts.maxLossPerUnit }, opts.mine === true);
+          }
         },
         buyShip: async (shipType, yardSymbol) => {
           const ship = await this.buyShip(shipType as never, yardSymbol);

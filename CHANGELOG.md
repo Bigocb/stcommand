@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Opening task steps for the gate operation: `startGateMission`, `startFeed`
+
+Two new steps so the gate can be run from a task list (and carried in a template). `startGateMission` starts the home gate's construction mission with its pacing in place before any buying (start, pause, set pacing, resume), idempotent; `paused: true` leaves it created but not buying so its materials are protected and the supply chain shows up in the chain panel. A later task with `paused: false` lets it buy, still under the engine's own producer-activity and recovery guards. It does nothing once the gate is open. `startFeed` starts a feeder tier (waypoint, good, mine, crew size, buy source) and its supply stop and loss limit. Both are validated, described in plain words in the Opening form, and passed through the same `OpeningHost` seam. `tests/gateOperationSteps.test.ts`.
+
 ## 2026-10-25 — `autoBuyShips`: one switch for the engine's own hull purchases
 
 New doctrine clause `autoBuyShips` (on by default, so nothing changes until it is switched). Off, `maybeBuyShip` (tour shuttle, mining drones, scored picks), `maybeBuySiphoner` and `maybeBuyScout` return before doing anything, so opening tasks and the operator are the only source of hulls and no "priority" `buyShip` cards appear beside the tasks. Keeper probes have their own switch. `tests/autoBuyShips.test.ts`.

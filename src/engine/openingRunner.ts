@@ -51,6 +51,9 @@ export interface OpeningHost {
   buyShip(shipType: string, yardSymbol: string): Promise<{ symbol: string }>;
   setRole(shipSymbol: string, role: string): Promise<void>;
   setContractDuty(shipSymbol: string, on: boolean): Promise<void>;
+  /** Start (idempotent) the home gate's mission; see the startGateMission step. */
+  startGateMission(opts: Extract<Step, { kind: "startGateMission" }>): Promise<void>;
+  startFeed(opts: Extract<Step, { kind: "startFeed" }>): Promise<void>;
   setDoctrine(key: string, patch: { value?: number; enabled?: boolean }): Promise<unknown>;
   log(msg: string): void;
 }
@@ -173,6 +176,16 @@ export class OpeningRunnerImpl {
       }
 
       if (step.kind === "waitFor") return { ok: true };
+
+      if (step.kind === "startGateMission") {
+        await this.host.startGateMission(step);
+        return { ok: true };
+      }
+
+      if (step.kind === "startFeed") {
+        await this.host.startFeed(step);
+        return { ok: true };
+      }
 
       if (step.kind === "setDoctrine") {
         const patch: { value?: number; enabled?: boolean } = {};

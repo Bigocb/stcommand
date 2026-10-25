@@ -54,6 +54,8 @@ function host(over: Partial<OpeningHost> = {}): OpeningHost & { calls: string[] 
     bestRouteProfit: () => 50_000,
     surveyMissing: async () => ({ total: 4, missing: [], minGoods: 3 }),
     gateProgress: async () => undefined,
+    startGateMission: async () => {},
+    startFeed: async () => {},
     buyShip: async (shipType, yard) => {
       calls.push(`buyShip:${shipType}@${yard}`);
       return { symbol: "THEO-9" };

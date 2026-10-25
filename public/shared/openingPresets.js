@@ -69,6 +69,8 @@ export function describeStep(s) {
     if (s.enabled !== undefined) parts.push(s.enabled ? "on" : "off");
     return `set ${s.key} ${parts.join(", ")}`;
   }
+  if (s.kind === "startGateMission") return `${s.paused ? "create the home gate mission but keep it paused (no buying)" : "start the home gate mission buying"}${s.recoverPct !== undefined || s.maxInflationPct !== undefined || s.buyLotUnits !== undefined ? " with set pacing" : ""}`;
+  if (s.kind === "startFeed") return `start a feed of ${s.good} into ${s.waypoint}${s.mine ? " (mined)" : ""}${s.stopAtSupply ? `, stopping at ${s.stopAtSupply} supply` : ""}`;
   if (s.kind === "waitFor") return `wait until ${describeTrigger(s.trigger).replace(/^When /, "").replace(/^Right away/, "now")}`;
   return "do something";
 }

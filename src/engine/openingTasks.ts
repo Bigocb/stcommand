@@ -29,6 +29,10 @@ export type Step =
   | { kind: "setRole"; ship: ShipRef; role: OpeningRole }
   | { kind: "contractDuty"; ship: ShipRef; on: boolean }
   | { kind: "setDoctrine"; key: string; value?: number; enabled?: boolean }
+  /** Start the home gate's construction mission (idempotent). paused: true leaves it created but not buying, so its materials are protected and the chain is visible; false lets it buy (the engine's own producer-activity and recovery guards still apply). Pacing fields are the mission's own (see setMissionPacing). */
+  | { kind: "startGateMission"; paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; recoverPct?: number; onlyMaterials?: string[] }
+  /** Start a feeder tier: a crew that sources `good` and sells it into `waypoint`. */
+  | { kind: "startFeed"; waypoint: string; good: string; mine?: boolean; carrierTarget?: number; buyAt?: string; stopAtSupply?: "MODERATE" | "HIGH" | "ABUNDANT"; maxLossPerUnit?: number }
   /** Does nothing itself: the task waits here until the trigger is met, then carries on with the next step. */
   | { kind: "waitFor"; trigger: Trigger };
 
@@ -107,6 +111,12 @@ export function validateTaskSpec(x: unknown): Validation<TaskSpec> {
       if (step.enabled !== undefined && typeof step.enabled !== "boolean") {
         return { ok: false, error: "Step " + i + ": doctrine enabled must be boolean" };
       }
+    } else if (step.kind === "startGateMission") {
+      const e = validateGateMissionStep(step);
+      if (e) return { ok: false, error: "Step " + i + ": " + e };
+    } else if (step.kind === "startFeed") {
+      const e = validateFeedStep(step);
+      if (e) return { ok: false, error: "Step " + i + ": " + e };
     } else if (step.kind === "waitFor") {
       const w = validateTrigger(step.trigger);
       if (!w.ok) return { ok: false, error: "Step " + i + ": " + w.error };
@@ -125,6 +135,29 @@ export function validateTaskSpec(x: unknown): Validation<TaskSpec> {
     ok: true, 
     value: { key: s.key, name: s.name.trim(), trigger: vTrig.value, steps: cleanedSteps } 
   };
+}
+
+const posInt = (n: unknown, lo: number, hi: number): boolean => typeof n === "number" && Number.isInteger(n) && n >= lo && n <= hi;
+
+function validateGateMissionStep(s: any): string | undefined {
+  if (s.paused !== undefined && typeof s.paused !== "boolean") return "paused must be boolean";
+  if (s.buyLotUnits !== undefined && !posInt(s.buyLotUnits, 1, 1000)) return "buyLotUnits must be a whole number 1 to 1000";
+  if (s.buyGapMin !== undefined && !posInt(s.buyGapMin, 0, 1440)) return "buyGapMin must be a whole number 0 to 1440";
+  if (s.maxInflationPct !== undefined && !posInt(s.maxInflationPct, 0, 500)) return "maxInflationPct must be a whole number 0 to 500";
+  if (s.recoverPct !== undefined && !posInt(s.recoverPct, 0, 100)) return "recoverPct must be a whole number 0 to 100";
+  if (s.onlyMaterials !== undefined && (!Array.isArray(s.onlyMaterials) || s.onlyMaterials.length > 10 || s.onlyMaterials.some((m: unknown) => typeof m !== "string" || !/^[A-Z0-9_]{2,40}$/.test(m)))) return "onlyMaterials must be up to 10 trade symbols";
+  return undefined;
+}
+
+function validateFeedStep(s: any): string | undefined {
+  if (typeof s.waypoint !== "string" || !/^[A-Z0-9-]{3,40}$/.test(s.waypoint)) return "waypoint must be a waypoint symbol like X1-AB12-C3";
+  if (typeof s.good !== "string" || !/^[A-Z0-9_]{2,40}$/.test(s.good)) return "good must be a trade symbol like IRON_ORE";
+  if (s.mine !== undefined && typeof s.mine !== "boolean") return "mine must be boolean";
+  if (s.carrierTarget !== undefined && !posInt(s.carrierTarget, 1, 10)) return "carrierTarget must be a whole number 1 to 10";
+  if (s.buyAt !== undefined && (typeof s.buyAt !== "string" || !/^[A-Z0-9-]{3,40}$/.test(s.buyAt))) return "buyAt must be a waypoint symbol";
+  if (s.stopAtSupply !== undefined && !["MODERATE", "HIGH", "ABUNDANT"].includes(s.stopAtSupply)) return "stopAtSupply must be MODERATE, HIGH or ABUNDANT";
+  if (s.maxLossPerUnit !== undefined && (typeof s.maxLossPerUnit !== "number" || !Number.isFinite(s.maxLossPerUnit) || s.maxLossPerUnit < 0 || s.maxLossPerUnit > 100000)) return "maxLossPerUnit must be 0 to 100000";
+  return undefined;
 }
 
 function validateTrigger(t: any): Validation<Trigger> {
@@ -294,8 +327,8 @@ export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "
     }
     return { kind: "run", stepIndex: task.stepIndex, reason: "execute " + step.kind };
   }
-  if (step.kind === "setDoctrine") {
-    return { kind: "run", stepIndex: task.stepIndex, reason: "execute setDoctrine" };
+  if (step.kind === "setDoctrine" || step.kind === "startGateMission" || step.kind === "startFeed") {
+    return { kind: "run", stepIndex: task.stepIndex, reason: "execute " + step.kind };
   }
   if (step.kind === "waitFor") {
     const w = triggerMet(step.trigger, f);
