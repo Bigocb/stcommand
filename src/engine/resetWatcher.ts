@@ -52,6 +52,8 @@ export interface ResetWatcherPorts {
   stopWorker(tenantId: string): void;
   /** Save the finished week's scoreboard row (run_results). Must run before the wipe. Resolves true if a row was written, false if one already existed. */
   captureRunResult(tenant: WatchedTenant, endedResetDate: string, newResetDate: string): Promise<boolean>;
+  /** Close the tenant's open season week from the scoreboard row just saved. Optional; best effort, never holds the wipe. Resolves a one-line outcome. */
+  closeSeasonWeek?(tenant: WatchedTenant, endedResetDate: string): Promise<string>;
   wipeTenantGameData(tenantId: string): Promise<void>;
   truncateSharedGalaxy(): Promise<void>;
   resetCrawler(): void;
@@ -217,6 +219,13 @@ export class ResetWatcher {
           try {
             const wrote = await this.ports.captureRunResult(t, endedUniverse, status.resetDate);
             this.log(wrote ? `saved ${t.agentSymbol}'s results for the ${endedUniverse} universe` : `results for ${t.agentSymbol} / ${endedUniverse} already saved`);
+            if (this.ports.closeSeasonWeek) {
+              try {
+                this.log(`season: ${t.agentSymbol}: ${await this.ports.closeSeasonWeek(t, endedUniverse)}`);
+              } catch (err) {
+                this.log(`season week for ${t.agentSymbol} was not closed (close it from the Season screen): ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
           } catch (err) {
             const failures = (this.captureFailures.get(t.id) ?? 0) + 1;
             this.captureFailures.set(t.id, failures);

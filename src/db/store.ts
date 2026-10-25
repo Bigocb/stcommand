@@ -4382,6 +4382,18 @@ export class Store {
     });
   }
 
+  /** The saved scoreboard row for one agent's week, preferring the end-of-week capture over a manual mid-week one. Not tenant-scoped (migration 036). */
+  async runResultFor(agentSymbol: string, resetDate: string): Promise<Record<string, unknown> | undefined> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query(
+        `SELECT * FROM run_results WHERE agent_symbol = $1 AND reset_date = $2
+         ORDER BY (capture_kind = 'reset') DESC, captured_at DESC LIMIT 1`,
+        [agentSymbol, resetDate],
+      );
+      return res.rows[0];
+    });
+  }
+
   /** Newest first. Not tenant-scoped (see migration 036). */
   async listRunResults(limit = 20): Promise<Record<string, unknown>[]> {
     return withPool(this.pool, async (c) => {

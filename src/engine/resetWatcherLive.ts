@@ -7,6 +7,7 @@ import { findOrCreateTenant, getTenantToken, listAllTenants } from "../db/tenant
 import type { TenantRegistry } from "./tenantRegistry.js";
 import type { GalaxyCrawler } from "./galaxyCrawler.js";
 import { setCurrentResetDate, setGameResetDate } from "../core/universe.js";
+import { closeEndedWeek } from "./seasonClose.js";
 import { ResetWatcher, setActiveResetWatcher, type ResetWatcherPorts, type TokenProbe } from "./resetWatcher.js";
 
 const CRAWL_KEY = "reset_watcher";
@@ -55,6 +56,7 @@ export function createResetWatcher(
     stopWorker: (id) => registry.stopOne(id),
     captureRunResult: (t, endedResetDate, newResetDate) =>
       store.captureRunResult(t.id, t.agentSymbol, endedResetDate, { endedByReset: newResetDate }),
+    closeSeasonWeek: (t, endedResetDate) => closeEndedWeek(store, t.id, t.agentSymbol, endedResetDate),
     wipeTenantGameData: (id) => store.wipeTenantGameData(id),
     truncateSharedGalaxy: () => store.truncateSharedGalaxyTables(),
     resetCrawler: () => crawler.resetCrawlState(),

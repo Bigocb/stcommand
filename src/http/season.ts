@@ -5,6 +5,7 @@ import { tenantUniverse } from "../db/pool.js";
 import { runAnalysis, runAnalysisCached } from "../ops/analysis.js";
 import { paceRates } from "../ops/pace.js";
 import { configChangeEvent } from "../engine/actionEvents.js";
+import { closeWeekFromResults } from "../engine/seasonClose.js";
 import {
   evaluateGoal, GOAL_METRICS, isPhase, metricsFromReport, normalizeGoal, openingFor, PHASE_INFO, PHASES,
   type Goal, type GoalMetric, type Phase, type WeekRecord,
@@ -149,6 +150,17 @@ export function createSeasonRouter(worker: (req: Request) => TenantWorker | unde
     if (!season) throw new Error("no active season: start one first");
     const { week } = await currentWeek(w, season, await w.store.seasonWeeks(w.tenantId, season.id));
     const now = Date.now();
+    // A week from an earlier universe cannot be analysed live (the analysis sees only the current one, and the reset wiped the market
+    // snapshots it needs): score it from the scoreboard row the reset saved for it.
+    const currentKey = tenantUniverse(w.tenantId) ?? null;
+    if (week.universeKey !== null && currentKey !== null && week.universeKey !== currentKey) {
+      await closeWeekFromResults(w.store, w.tenantId, w.agentSymbol, week, now);
+      w.fleet.recordAction(configChangeEvent({
+        setting: "season:week", before: { week: week.weekNo, open: true }, after: { week: week.weekNo, open: false },
+        atIso: new Date(now).toISOString(), reason: `week ${week.weekNo} closed from the saved ${week.universeKey} results`,
+      }));
+      return payload(w, false);
+    }
     const report = await runAnalysis(w, hoursSince(week.openedAt, now), now);
     const label = typeof req.body?.label === "string" && req.body.label.trim() ? req.body.label.trim().slice(0, 200) : `${season.name}, week ${week.weekNo}`;
     const findingsId = await w.store.saveAnalysisFindings(w.tenantId, { windowStart: report.window.from, windowEnd: report.window.to, label, report });

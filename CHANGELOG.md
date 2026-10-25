@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — A season week from an earlier universe closes from the saved results, and the reset closes it for you
+
+The Season screen still showed week 2 (opened 2026-10-18) after the reset, scored against this week's first hours (826/h, 11 trips). Closing a
+week ran a live analysis, which sees only the current universe and needs market snapshots the reset wipes, so closing it would have filed
+the new week's numbers as last week's.
+
+- `closeWeekFromResults()` (`src/engine/seasonClose.ts`): when the open week's universe is not the current one, `POST /api/season/week/close` scores the goals from the scoreboard row the reset saved for that week (`run_results`, `Store.runResultFor()`), saves no analysis report, and says so. `metricsFromRunResult()` (season.ts) gives profit per hour, net profit and overhead share; positioning costs, trips, estimate accuracy and growth stay unmeasured, so a goal on them is scored missed at close, not guessed.
+- The reset does it itself: after saving the scoreboard and before the wipe, `ResetWatcher` calls the new optional port `closeSeasonWeek`, which closes the open week if it belongs to the universe that just ended. A failure is logged and never holds the wipe.
+- Last week (2026-10-18), from its saved row: 3.94M/h, net 658.6M, overhead 1.8% of sales.
+- Tests: `tests/seasonClose.test.ts` (scoring, no results saved, wrong universe left alone, the reset order, a failing close not holding the wipe). Dropping the universe check fails two.
+
 ## 2026-10-25 — Opening tasks now actually run on the live box
 
 Opening automation has never executed a task in production. `FleetManager.runOpeningTasks()` was called only from `tick()`, a single-pass helper that

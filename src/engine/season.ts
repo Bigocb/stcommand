@@ -163,3 +163,40 @@ export function normalizeGoal(input: unknown, existing?: Goal): Goal {
   if (existing?.fromWeek !== undefined) out.fromWeek = existing.fromWeek;
   return out;
 }
+
+/** The saved end-of-week scoreboard row (run_results) as far as week scoring needs it. Bigint columns arrive as strings. */
+export interface RunResultFacts {
+  started_at: string | Date;
+  ended_at: string | Date;
+  trading_net: string | number | null;
+  sell_revenue: string | number | null;
+  fuel_cost: string | number | null;
+  jump_cost: string | number | null;
+}
+
+const asNumber = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Goal metrics for a week that has already ended, read from its saved scoreboard row instead of a live analysis (the analysis only sees
+ * the current universe, and a reset wipes the market snapshots it needs). Only what the row can honestly give: profit per hour, net
+ * profit and overhead. The rest stay null, so a goal on them is scored missed at close rather than guessed.
+ */
+export function metricsFromRunResult(row: RunResultFacts): Partial<Record<GoalMetric, number | null>> {
+  const net = asNumber(row.trading_net);
+  const hours = Math.max(1, (Date.parse(String(row.ended_at)) - Date.parse(String(row.started_at))) / 3_600_000);
+  const revenue = asNumber(row.sell_revenue);
+  const overhead = (asNumber(row.fuel_cost) ?? 0) + (asNumber(row.jump_cost) ?? 0);
+  return {
+    profitPerHour: net === null || !Number.isFinite(hours) ? null : Math.round(net / hours),
+    netProfit: net,
+    overheadShare: revenue && revenue > 0 ? overhead / revenue : null,
+    positioningCosts: null,
+    trips: null,
+    estimateAccuracy: null,
+    growth: null,
+  };
+}
