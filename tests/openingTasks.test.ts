@@ -162,7 +162,8 @@ describe("Opening Tasks Decide", () => {
     assert.strictEqual(d.kind, "fail");
   });
 
-  it("setRole on {by:step,step:0} with ref but ship not in fleet -> fail", () => {
+  // Was "-> fail", which killed a task whose ship was bought a moment earlier and not yet in the fleet snapshot (2026-10-25). It waits now.
+  it("setRole on {by:step,step:0} with ref but ship not in fleet -> wait", () => {
     const task = {
       trigger: { kind: "always" } as Trigger,
       steps: [
@@ -173,7 +174,7 @@ describe("Opening Tasks Decide", () => {
       refs: { "0": "S-1" }
     };
     const d = decide(task, facts);
-    assert.strictEqual(d.kind, "fail");
+    assert.strictEqual(d.kind, "wait");
   });
 
   it("buyShip: no yard row for type -> wait", () => {
@@ -284,5 +285,40 @@ describe("Opening Tasks Decide", () => {
     const lowCashFacts = { ...facts, spendable: 70000 };
     const d = decide(task, lowCashFacts);
     assert.strictEqual(d.kind, "wait");
+  });
+});
+
+describe("a step that uses the ship an earlier step bought", () => {
+  const steps: Step[] = [
+    { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: 100000, preApproved: true },
+    { kind: "setRole", ship: { by: "step", step: 0 }, role: "tour" },
+  ];
+  const facts = (ships: string[]): OpeningFacts => ({
+    spendable: 500000, bestRouteProfit: undefined, yards: [], doneKeys: new Set(),
+    ships: ships.map((symbol) => ({ symbol, isCommand: false, cargoUnits: 0, waypoint: "X1-A-A1", docked: true })),
+  });
+  const trigger: Trigger = { kind: "always" };
+
+  // 2026-10-25: "Ship for touring" bought THEOREM-7, then failed step 2 for good because the fleet snapshot did not show the
+  // new ship yet, although the ship existed and was already on tour.
+  it("waits while the bought ship is not in the fleet snapshot yet, instead of failing the task", () => {
+    const d = decide({ trigger, steps, stepIndex: 1, refs: { "0": "THEOREM-7" } }, facts(["THEOREM-1"]));
+    assert.strictEqual(d.kind, "wait");
+    assert.match((d as { reason: string }).reason, /THEOREM-7/);
+  });
+
+  it("runs the step once the ship appears", () => {
+    const d = decide({ trigger, steps, stepIndex: 1, refs: { "0": "THEOREM-7" } }, facts(["THEOREM-1", "THEOREM-7"]));
+    assert.strictEqual(d.kind, "run");
+  });
+
+  it("still fails when no ship was ever recorded for that step", () => {
+    const d = decide({ trigger, steps, stepIndex: 1, refs: {} }, facts(["THEOREM-1"]));
+    assert.strictEqual(d.kind, "fail");
+  });
+
+  it("still fails for a literal ship symbol that is not in the fleet", () => {
+    const d = decide({ trigger, steps: [{ kind: "setRole", ship: { by: "symbol", symbol: "GONE-1" }, role: "tour" }], stepIndex: 0, refs: {} }, facts(["THEOREM-1"]));
+    assert.strictEqual(d.kind, "fail");
   });
 });

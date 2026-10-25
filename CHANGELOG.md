@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — An opening task no longer fails because the ship it just bought is not in the fleet snapshot yet
+
+"Ship for touring" (buy a light shuttle, then make it a tour ship) ran at about 200,000c: it bought THEOREM-7, then step 2 failed for good with
+"could not resolve ship ref", although the ship existed and was already on tour (a new shuttle defaults to the tour role, so the outcome was right by luck).
+A task that used the ship it bought for a role or contract duty would have lost that step the same way (a contract-duty step in particular).
+
+- `decide()` (openingTasks.ts): when a step refers to "the ship bought in step N", the task's own record says which ship that is (`refs`), but the ship is only in the fleet facts a moment later. That is now a wait, with the reason "waiting for THEOREM-7 (bought by step 1) to appear in the fleet". It still fails when no ship was ever recorded for that step, and for a literal ship symbol that is not in the fleet.
+- The old test "ref but ship not in fleet → fail" pinned the bug; it now expects a wait.
+- Tests: four cases in `tests/openingTasks.test.ts`. Removing the wait fails the first.
+
 ## 2026-10-25 — A season week from an earlier universe closes from the saved results, and the reset closes it for you
 
 The Season screen still showed week 2 (opened 2026-10-18) after the reset, scored against this week's first hours (826/h, 11 trips). Closing a

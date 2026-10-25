@@ -246,7 +246,13 @@ export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "
     const shipRef = (step as any).ship;
     if (!shipRef) return { kind: "fail", reason: "step missing ship ref: " + JSON.stringify(step) };
     const symbol = resolveShipRef(shipRef, task.refs, f);
-    if (!symbol) return { kind: "fail", reason: "could not resolve ship ref: " + JSON.stringify(shipRef) };
+    if (!symbol) {
+      // A ship an earlier step just bought is recorded in refs at once but only shows in the fleet snapshot a moment later. Failing here
+      // killed the task for good (2026-10-25: "Ship for touring" bought THEOREM-7, then failed on step 2 with the ship already in the fleet).
+      const bought = shipRef.by === "step" ? task.refs[String(shipRef.step)] : undefined;
+      if (bought) return { kind: "wait", reason: "waiting for " + bought + " (bought by step " + (shipRef.step + 1) + ") to appear in the fleet" };
+      return { kind: "fail", reason: "could not resolve ship ref: " + JSON.stringify(shipRef) };
+    }
     return { kind: "run", stepIndex: task.stepIndex, reason: "execute " + step.kind };
   }
   if (step.kind === "setDoctrine") {
