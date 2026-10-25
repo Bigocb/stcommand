@@ -19,6 +19,11 @@ describe("validation", () => {
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", paused: true, buyLotUnits: 20, buyGapMin: 30, recoverPct: 3, maxInflationPct: 25 }])).ok, true);
     assert.equal(validateTaskSpec(spec([{ kind: "startFeed", waypoint: "X1-BT10-D42", good: "IRON", carrierTarget: 1, stopAtSupply: "HIGH", maxLossPerUnit: 15 }])).ok, true);
   });
+  it("a feed can name its crew ship, and only a real symbol", () => {
+    const feed = { kind: "startFeed", waypoint: "X1-BT10-F47", good: "IRON", carrier: "THEO-4" };
+    assert.equal(validateTaskSpec(spec([feed])).ok, true);
+    assert.equal(validateTaskSpec(spec([{ ...feed, carrier: "theo 4" }])).ok, false);
+  });
   it("rejects nonsense", () => {
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", buyLotUnits: 0 }])).ok, false);
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", onlyMaterials: ["fab mats"] }])).ok, false);
@@ -31,25 +36,25 @@ describe("validation", () => {
 describe("runner", () => {
   it("passes both steps to the host and finishes the task", async () => {
     const calls: unknown[] = [];
-    let task: any = { id: 1, key: "k", name: "n", trigger: { kind: "always" }, steps: [{ kind: "startGateMission", paused: true, recoverPct: 3 }, { kind: "startFeed", waypoint: "X1-A-B1", good: "IRON", stopAtSupply: "HIGH" }], status: "queued", stepIndex: 0, stepPhase: "idle", refs: {}, note: null };
+    let task: any = { id: 1, key: "k", name: "n", trigger: { kind: "always" }, steps: [{ kind: "startGateMission", paused: true, recoverPct: 3 }, { kind: "startFeed", waypoint: "X1-A-B1", good: "IRON", stopAtSupply: "HIGH", carrier: "T-4" }], status: "queued", stepIndex: 0, stepPhase: "idle", refs: {}, note: null };
     const store: any = { listOpeningTasks: async () => [task], updateOpeningTask: async (_t: string, _i: number, u: any) => { task = { ...task, ...u }; } };
     const host: OpeningHost = {
       spendable: () => 0, ships: () => [], yards: async () => [], bestRouteProfit: () => undefined,
       surveyMissing: async () => ({ total: 0, missing: [], minGoods: 3 }), gateProgress: async () => undefined,
       startGateMission: async (o) => { calls.push(["mission", o.paused, o.recoverPct]); },
-      startFeed: async (o) => { calls.push(["feed", o.good, o.stopAtSupply]); },
+      startFeed: async (o) => { calls.push(["feed", o.good, o.stopAtSupply, o.carrier]); },
       buyShip: async () => ({ symbol: "x" }), setRole: async () => {}, setContractDuty: async () => {}, setDoctrine: async () => ({}), log: () => {},
     };
     const r = new OpeningRunnerImpl(store, host);
     for (let i = 0; i < 4; i++) await r.run("t");
-    assert.deepEqual(calls, [["mission", true, 3], ["feed", "IRON", "HIGH"]]);
+    assert.deepEqual(calls, [["mission", true, 3], ["feed", "IRON", "HIGH", "T-4"]]);
     assert.equal(task.status, "done");
     assert.equal(decide({ trigger: task.trigger, steps: task.steps, stepIndex: 0, refs: {} }, { spendable: 0, bestRouteProfit: undefined, ships: [], yards: [], doneKeys: new Set() }).kind, "run");
   });
   it("describes both in plain words", () => {
-    const text = describeTask({ trigger: { kind: "always" }, steps: [{ kind: "startGateMission", paused: true, recoverPct: 3 }, { kind: "startFeed", waypoint: "X1-A-B1", good: "IRON", stopAtSupply: "HIGH" }] });
+    const text = describeTask({ trigger: { kind: "always" }, steps: [{ kind: "startGateMission", paused: true, recoverPct: 3 }, { kind: "startFeed", waypoint: "X1-A-B1", good: "IRON", stopAtSupply: "HIGH", carrier: "T-4" }] });
     assert.match(text, /create the home gate mission but keep it paused/);
-    assert.match(text, /start a feed of IRON into X1-A-B1, stopping at HIGH supply/);
+    assert.match(text, /start a feed of IRON into X1-A-B1, stopping at HIGH supply, crewed by T-4/);
   });
 });
 

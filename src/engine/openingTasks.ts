@@ -31,8 +31,8 @@ export type Step =
   | { kind: "setDoctrine"; key: string; value?: number; enabled?: boolean }
   /** Start the home gate's construction mission (idempotent). paused: true leaves it created but not buying, so its materials are protected and the chain is visible; false lets it buy (the engine's own producer-activity and recovery guards still apply). Pacing fields are the mission's own (see setMissionPacing). */
   | { kind: "startGateMission"; paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; recoverPct?: number; onlyMaterials?: string[] }
-  /** Start a feeder tier: a crew that sources `good` and sells it into `waypoint`. */
-  | { kind: "startFeed"; waypoint: string; good: string; mine?: boolean; carrierTarget?: number; buyAt?: string; stopAtSupply?: "MODERATE" | "HIGH" | "ABUNDANT"; maxLossPerUnit?: number }
+  /** Start a feeder tier: a crew that sources `good` and sells it into `waypoint`. carrier: a ship symbol to crew it, so the engine's own picker (biggest empty hold first) cannot take a better-placed hull. */
+  | { kind: "startFeed"; waypoint: string; good: string; mine?: boolean; carrierTarget?: number; buyAt?: string; stopAtSupply?: "MODERATE" | "HIGH" | "ABUNDANT"; maxLossPerUnit?: number; carrier?: string }
   /** Does nothing itself: the task waits here until the trigger is met, then carries on with the next step. */
   | { kind: "waitFor"; trigger: Trigger };
 
@@ -154,6 +154,7 @@ function validateFeedStep(s: any): string | undefined {
   if (typeof s.good !== "string" || !/^[A-Z0-9_]{2,40}$/.test(s.good)) return "good must be a trade symbol like IRON_ORE";
   if (s.mine !== undefined && typeof s.mine !== "boolean") return "mine must be boolean";
   if (s.carrierTarget !== undefined && !posInt(s.carrierTarget, 1, 10)) return "carrierTarget must be a whole number 1 to 10";
+  if (s.carrier !== undefined && (typeof s.carrier !== "string" || !/^[A-Z0-9-]{1,40}$/.test(s.carrier))) return "carrier must be a ship symbol";
   if (s.buyAt !== undefined && (typeof s.buyAt !== "string" || !/^[A-Z0-9-]{3,40}$/.test(s.buyAt))) return "buyAt must be a waypoint symbol";
   if (s.stopAtSupply !== undefined && !["MODERATE", "HIGH", "ABUNDANT"].includes(s.stopAtSupply)) return "stopAtSupply must be MODERATE, HIGH or ABUNDANT";
   if (s.maxLossPerUnit !== undefined && (typeof s.maxLossPerUnit !== "number" || !Number.isFinite(s.maxLossPerUnit) || s.maxLossPerUnit < 0 || s.maxLossPerUnit > 100000)) return "maxLossPerUnit must be 0 to 100000";

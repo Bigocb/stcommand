@@ -9745,6 +9745,7 @@ export class FleetManager {
           if (opts.stopAtSupply !== undefined || opts.maxLossPerUnit !== undefined) {
             await this.setFeedLimits(opts.waypoint, opts.good, { stopAtSupply: opts.stopAtSupply, maxLossPerUnit: opts.maxLossPerUnit }, opts.mine === true);
           }
+          if (opts.carrier) await this.assignFeedCarrier(opts.waypoint, opts.good, opts.carrier, opts.mine === true);
         },
         buyShip: async (shipType, yardSymbol) => {
           const ship = await this.buyShip(shipType as never, yardSymbol);
