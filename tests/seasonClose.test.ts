@@ -120,3 +120,31 @@ describe("the reset watcher", () => {
     assert.ok(calls.includes("wipe"), "recovery must continue");
   });
 });
+
+import { closeSeasonWeekNow } from "../src/http/season.js";
+import { setTenantUniverse } from "../src/db/pool.js";
+
+describe("closeSeasonWeekNow (the Season screen's Close week and the MCP tool)", () => {
+  function worker(universeKey: string | null, row: Record<string, unknown> | undefined) {
+    const { store, week, closed } = fakeStore({ universeKey, row });
+    const actions: unknown[] = [];
+    const w = { tenantId: "t-close-now", agentSymbol: "THEOREM", store, fleet: { recordAction: (e: unknown) => actions.push(e) } } as never;
+    return { w, week, closed, actions };
+  }
+
+  it("closes a week from an earlier universe from the saved results, not a live analysis", async () => {
+    setTenantUniverse("t-close-now", "THEOREM@2026-10-25");
+    const { w, closed, actions } = worker("THEOREM@2026-10-18", LAST_WEEK);
+    await closeSeasonWeekNow(w);
+    assert.equal(closed.length, 1);
+    assert.equal((closed[0] as { findingsId: number | null }).findingsId, null, "no analysis report for a past week");
+    assert.equal(actions.length, 1, "the close is recorded as an action");
+  });
+
+  it("says so when no results were saved for that week, and closes nothing", async () => {
+    setTenantUniverse("t-close-now", "THEOREM@2026-10-25");
+    const { w, closed } = worker("THEOREM@2026-10-18", undefined);
+    await assert.rejects(() => closeSeasonWeekNow(w), /no saved results/);
+    assert.equal(closed.length, 0);
+  });
+});

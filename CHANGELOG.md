@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — MCP tools to read and close the season week
+
+Tower has no season controls and the Season screen's Close week is an HTTP call, so the week left open at the reset could not be closed from the
+operator's usual tools.
+
+- `stcommand_get_season`: the season, its weeks, goals and saved records, and `staleUniverse` for an open week from an earlier universe. Read-only.
+- `stcommand_close_season_week` (optional `label`): the same close as the Season screen. A week from an earlier universe is scored from the saved scoreboard row; the current week is analysed live and its report saved. Recorded as an operator action.
+- The close logic moved out of the route into `closeSeasonWeekNow()` (src/http/season.ts), shared by the route and the tool. Tests: two cases in `tests/seasonClose.test.ts`.
+
 ## 2026-10-25 — An opening task no longer fails because the ship it just bought is not in the fleet snapshot yet
 
 "Ship for touring" (buy a light shuttle, then make it a tour ship) ran at about 200,000c: it bought THEOREM-7, then step 2 failed for good with

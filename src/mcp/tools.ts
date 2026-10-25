@@ -6,6 +6,7 @@ import type { TenantWorker } from "../engine/tenantRegistry.js";
 import type { ShipType } from "../engine/fleet.js";
 import { normalizeShipLotPolicy, effectiveMaxLots, SHIP_LOT_LIMITS } from "../engine/shipLotPolicy.js";
 import { runAnalysis } from "../ops/analysis.js";
+import { closeSeasonWeekNow, seasonSummary } from "../http/season.js";
 import { API_BASE } from "../core/client.js";
 
 /**
@@ -657,6 +658,42 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
         const id = await w.store.saveAnalysisFindings(w.tenantId, { windowStart: report.window.from, windowEnd: report.window.to, label, report });
         await recordMcpAction(w, "capture_findings", undefined, `analysis saved (#${id}, ${hours}h${label ? `, ${label}` : ""})`, { id, hours, label: label ?? null });
         return textResult({ ok: true, id, window: report.window, summary: report.summary, findings: report.findings.length, suggestions: report.suggestions.length });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_get_season",
+    {
+      title: "Read the season plan",
+      description: "The active season, its current week (opened from the last closed one if none is open), every week with its phase, goals and saved record, and whether the open week belongs to an earlier universe (staleUniverse). No live analysis. Read-only.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return textResult(await seasonSummary(w));
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_close_season_week",
+    {
+      title: "Close the current season week",
+      description: "Close the open season week and open the next. A week from an earlier universe (after a reset) is scored from the scoreboard row the reset saved for it (profit per hour, net profit, overhead; other metrics are scored missed), with no analysis report; the current week is analysed live and the report saved. Same as the Season screen's Close week.",
+      inputSchema: { label: z.string().max(200).optional() },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    async ({ label }) => {
+      try {
+        await closeSeasonWeekNow(w, label);
+        await recordMcpAction(w, "close_season_week", undefined, `closed the season week${label ? ` (${label})` : ""}`, { label: label ?? null });
+        return textResult(await seasonSummary(w));
       } catch (err) {
         return errorResult(err);
       }

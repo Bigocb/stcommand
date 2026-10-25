@@ -68,6 +68,44 @@ async function payload(w: TenantWorker, live: boolean): Promise<Record<string, u
   };
 }
 
+/**
+ * Close the current season week. A week from an earlier universe is scored from the scoreboard row the reset saved for it (the live
+ * analysis only sees the current universe); the current week is analysed live and its report saved. Shared by the Season route and the MCP tool.
+ */
+export async function closeSeasonWeekNow(w: TenantWorker, requestedLabel?: string): Promise<void> {
+    const season = await w.store.activeSeason(w.tenantId);
+    if (!season) throw new Error("no active season: start one first");
+    const { week } = await currentWeek(w, season, await w.store.seasonWeeks(w.tenantId, season.id));
+    const now = Date.now();
+    // A week from an earlier universe cannot be analysed live (the analysis sees only the current one, and the reset wiped the market
+    // snapshots it needs): score it from the scoreboard row the reset saved for it.
+    const currentKey = tenantUniverse(w.tenantId) ?? null;
+    if (week.universeKey !== null && currentKey !== null && week.universeKey !== currentKey) {
+      await closeWeekFromResults(w.store, w.tenantId, w.agentSymbol, week, now);
+      w.fleet.recordAction(configChangeEvent({
+        setting: "season:week", before: { week: week.weekNo, open: true }, after: { week: week.weekNo, open: false },
+        atIso: new Date(now).toISOString(), reason: `week ${week.weekNo} closed from the saved ${week.universeKey} results`,
+      }));
+      return;
+    }
+    const report = await runAnalysis(w, hoursSince(week.openedAt, now), now);
+    const label = requestedLabel && requestedLabel.trim() ? requestedLabel.trim().slice(0, 200) : `${season.name}, week ${week.weekNo}`;
+    const findingsId = await w.store.saveAnalysisFindings(w.tenantId, { windowStart: report.window.from, windowEnd: report.window.to, label, report });
+    const metrics = metricsFromReport(report);
+    const goals = (week.goals as Goal[]).map((g) => evaluateGoal(g, metrics, true));
+    const record: WeekRecord = { phase: isPhase(week.phase) ? week.phase : "recover", goals, metrics, closedAt: new Date(now).toISOString() };
+    await w.store.closeSeasonWeek(w.tenantId, week.id, { goals, record, findingsId });
+    w.fleet.recordAction(configChangeEvent({
+      setting: "season:week", before: { week: week.weekNo, open: true }, after: { week: week.weekNo, open: false, met: goals.filter((g) => g.status === "met").length, missed: goals.filter((g) => g.status === "missed").length },
+      atIso: new Date(now).toISOString(), reason: `week ${week.weekNo} closed (report #${findingsId})`,
+    }));
+}
+
+/** The Season screen's payload without the live analysis: the season, its weeks and goals. For the MCP read tool. */
+export function seasonSummary(w: TenantWorker): Promise<Record<string, unknown>> {
+  return payload(w, false);
+}
+
 export function createSeasonRouter(worker: (req: Request) => TenantWorker | undefined): Router {
   const router = Router();
   const withWorker = (fn: (w: TenantWorker, req: Request) => Promise<unknown>) => async (req: Request, res: any) => {
@@ -146,32 +184,7 @@ export function createSeasonRouter(worker: (req: Request) => TenantWorker | unde
   }));
 
   router.post("/week/close", withWorker(async (w, req) => {
-    const season = await w.store.activeSeason(w.tenantId);
-    if (!season) throw new Error("no active season: start one first");
-    const { week } = await currentWeek(w, season, await w.store.seasonWeeks(w.tenantId, season.id));
-    const now = Date.now();
-    // A week from an earlier universe cannot be analysed live (the analysis sees only the current one, and the reset wiped the market
-    // snapshots it needs): score it from the scoreboard row the reset saved for it.
-    const currentKey = tenantUniverse(w.tenantId) ?? null;
-    if (week.universeKey !== null && currentKey !== null && week.universeKey !== currentKey) {
-      await closeWeekFromResults(w.store, w.tenantId, w.agentSymbol, week, now);
-      w.fleet.recordAction(configChangeEvent({
-        setting: "season:week", before: { week: week.weekNo, open: true }, after: { week: week.weekNo, open: false },
-        atIso: new Date(now).toISOString(), reason: `week ${week.weekNo} closed from the saved ${week.universeKey} results`,
-      }));
-      return payload(w, false);
-    }
-    const report = await runAnalysis(w, hoursSince(week.openedAt, now), now);
-    const label = typeof req.body?.label === "string" && req.body.label.trim() ? req.body.label.trim().slice(0, 200) : `${season.name}, week ${week.weekNo}`;
-    const findingsId = await w.store.saveAnalysisFindings(w.tenantId, { windowStart: report.window.from, windowEnd: report.window.to, label, report });
-    const metrics = metricsFromReport(report);
-    const goals = (week.goals as Goal[]).map((g) => evaluateGoal(g, metrics, true));
-    const record: WeekRecord = { phase: isPhase(week.phase) ? week.phase : "recover", goals, metrics, closedAt: new Date(now).toISOString() };
-    await w.store.closeSeasonWeek(w.tenantId, week.id, { goals, record, findingsId });
-    w.fleet.recordAction(configChangeEvent({
-      setting: "season:week", before: { week: week.weekNo, open: true }, after: { week: week.weekNo, open: false, met: goals.filter((g) => g.status === "met").length, missed: goals.filter((g) => g.status === "missed").length },
-      atIso: new Date(now).toISOString(), reason: `week ${week.weekNo} closed (report #${findingsId})`,
-    }));
+    await closeSeasonWeekNow(w, typeof req.body?.label === "string" ? req.body.label : undefined);
     return payload(w, false);
   }));
 
