@@ -18,6 +18,7 @@ import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { CooldownPending, IDLE_STEP, Pending, describeError, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
+import { unpricedMarkets } from "./surveyCoverage.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
 import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
 import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
@@ -9671,6 +9672,15 @@ export class FleetManager {
         bestRouteProfit: () => {
           if (this.lastDispatchRoutes.length === 0) return undefined;
           return this.lastDispatchRoutes.reduce((best, r) => Math.max(best, r.profitPerTrip), 0);
+        },
+        surveyMissing: async () => {
+          const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : 0;
+          const marketplaces = (this.galaxy.getSystem(this.homeSystem)?.waypoints ?? [])
+            .filter((w) => (w.traits ?? []).some((t) => t.symbol === "MARKETPLACE"))
+            .map((w) => w.symbol);
+          const goods = new Map(this.markets.filter((m) => m.systemSymbol === this.homeSystem).map((m) => [m.symbol, distinctGoods(m)]));
+          const priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
+          return { ...unpricedMarkets(marketplaces, (m) => goods.get(m), priced, minGoods), minGoods };
         },
         buyShip: async (shipType, yardSymbol) => {
           const ship = await this.buyShip(shipType as never, yardSymbol);

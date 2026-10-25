@@ -17,13 +17,17 @@ export type Trigger =
   | { kind: "routeProfitAtLeast"; profitPerTrip: number }
   | { kind: "shipHoldEmpty"; ship: ShipRef }
   | { kind: "taskDone"; taskKey: string }
+  /** Every home-system market with at least the keeper minimum of goods has been priced by a ship's visit. */
+  | { kind: "marketsSurveyed" }
   | { kind: "all"; of: Trigger[] };
 
 export type Step =
   | { kind: "buyShip"; shipType: OpeningShipType; maxPrice: number; preApproved: boolean }
   | { kind: "setRole"; ship: ShipRef; role: OpeningRole }
   | { kind: "contractDuty"; ship: ShipRef; on: boolean }
-  | { kind: "setDoctrine"; key: string; value?: number; enabled?: boolean };
+  | { kind: "setDoctrine"; key: string; value?: number; enabled?: boolean }
+  /** Does nothing itself: the task waits here until the trigger is met, then carries on with the next step. */
+  | { kind: "waitFor"; trigger: Trigger };
 
 export interface TaskSpec { key: string; name: string; trigger: Trigger; steps: Step[] }
 
@@ -97,6 +101,14 @@ export function validateTaskSpec(x: unknown): Validation<TaskSpec> {
       if (step.enabled !== undefined && typeof step.enabled !== "boolean") {
         return { ok: false, error: "Step " + i + ": doctrine enabled must be boolean" };
       }
+    } else if (step.kind === "waitFor") {
+      const w = validateTrigger(step.trigger);
+      if (!w.ok) return { ok: false, error: "Step " + i + ": " + w.error };
+      if (w.value.kind === "all" ? w.value.of.some((m) => m.kind === "shipHoldEmpty" && m.ship.by === "step") : false) {
+        return { ok: false, error: "Step " + i + ": a waitFor trigger cannot refer to a bought ship by step" };
+      }
+      cleanedSteps.push({ kind: "waitFor", trigger: w.value });
+      continue;
     } else {
       return { ok: false, error: "Step " + i + ": unknown kind" };
     }
@@ -128,6 +140,7 @@ function validateTrigger(t: any): Validation<Trigger> {
     if (!validateShipRef(t.ship, -1)) return { ok: false, error: "invalid ship ref (by:step not allowed in trigger)" };
     return { ok: true, value: { kind: "shipHoldEmpty", ship: t.ship } };
   }
+  if (t.kind === "marketsSurveyed") return { ok: true, value: { kind: "marketsSurveyed" } };
   if (t.kind === "taskDone") {
     if (typeof t.taskKey !== "string" || t.taskKey.length === 0) return { ok: false, error: "taskKey required" };
     return { ok: true, value: { kind: "taskDone", taskKey: t.taskKey } };
@@ -191,6 +204,8 @@ export interface OpeningFacts {
   ships: { symbol: string; isCommand: boolean; cargoUnits: number; waypoint: string; docked: boolean }[];
   yards: { waypoint: string; shipType: string; price: number }[];
   doneKeys: ReadonlySet<string>;
+  /** Home-system markets worth a keeper (goods count at or above the keeper minimum, or unknown) that no ship has priced yet. Undefined when not gathered. */
+  surveyMissing?: { total: number; missing: string[]; minGoods: number };
 }
 
 export function triggerMet(t: Trigger, f: OpeningFacts): { met: boolean; reason: string } {
@@ -216,6 +231,13 @@ export function triggerMet(t: Trigger, f: OpeningFacts): { met: boolean; reason:
     case "taskDone": {
       const met = f.doneKeys.has(t.taskKey);
       return { met, reason: "task " + t.taskKey + (met ? " is done" : " is not done") };
+    }
+    case "marketsSurveyed": {
+      const c = f.surveyMissing;
+      if (!c) return { met: false, reason: "market coverage not known yet" };
+      if (c.total === 0) return { met: false, reason: "no markets known in the home system yet" };
+      const met = c.missing.length === 0;
+      return { met, reason: met ? c.total + " markets with " + c.minGoods + "+ goods all priced" : c.missing.length + " of " + c.total + " markets with " + c.minGoods + "+ goods still unpriced (" + c.missing.slice(0, 4).join(", ") + (c.missing.length > 4 ? ", ..." : "") + ")" };
     }
     case "all": {
       for (const m of t.of) {
@@ -257,6 +279,11 @@ export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "
   }
   if (step.kind === "setDoctrine") {
     return { kind: "run", stepIndex: task.stepIndex, reason: "execute setDoctrine" };
+  }
+  if (step.kind === "waitFor") {
+    const w = triggerMet(step.trigger, f);
+    if (!w.met) return { kind: "wait", reason: "step " + (task.stepIndex + 1) + " waits: " + w.reason };
+    return { kind: "run", stepIndex: task.stepIndex, reason: "wait over: " + w.reason };
   }
   if (step.kind === "buyShip") {
     const s = step as any;

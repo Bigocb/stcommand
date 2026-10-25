@@ -52,6 +52,7 @@ function host(over: Partial<OpeningHost> = {}): OpeningHost & { calls: string[] 
     ships: () => SHIPS,
     yards: async () => [{ waypoint: "X1-AA1-B1", shipType: "SHIP_LIGHT_SHUTTLE", price: 90_000 }],
     bestRouteProfit: () => 50_000,
+    surveyMissing: async () => ({ total: 4, missing: [], minGoods: 3 }),
     buyShip: async (shipType, yard) => {
       calls.push(`buyShip:${shipType}@${yard}`);
       return { symbol: "THEO-9" };

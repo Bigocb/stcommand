@@ -6,6 +6,7 @@ import {
   type ShipRef,
   type Step,
   type TaskRun,
+  type Trigger,
 } from "./openingTasks.js";
 
 /**
@@ -43,6 +44,8 @@ export interface OpeningHost {
   yards(): Promise<OpeningYardFacts[]>;
   /** Best profit-per-trip among the routes offered this tick; undefined when the dispatcher offered none. */
   bestRouteProfit(): number | undefined;
+  /** Home-system markets at or above the keeper minimum of goods that no ship has priced yet (see surveyCoverage.ts). */
+  surveyMissing(): Promise<{ total: number; missing: string[]; minGoods: number }>;
   buyShip(shipType: string, yardSymbol: string): Promise<{ symbol: string }>;
   setRole(shipSymbol: string, role: string): Promise<void>;
   setContractDuty(shipSymbol: string, on: boolean): Promise<void>;
@@ -167,6 +170,8 @@ export class OpeningRunnerImpl {
         return { ok: true, shipSymbol: symbol };
       }
 
+      if (step.kind === "waitFor") return { ok: true };
+
       if (step.kind === "setDoctrine") {
         const patch: { value?: number; enabled?: boolean } = {};
         if (step.value !== undefined) patch.value = step.value;
@@ -193,7 +198,9 @@ export class OpeningRunnerImpl {
 
   private async gatherFacts(tasks: TaskRun[]): Promise<OpeningFacts> {
     const yards = await this.host.yards();
+    const needsCoverage = tasks.some((t) => t.status !== "done" && usesCoverage(t));
     return {
+      surveyMissing: needsCoverage ? await this.host.surveyMissing() : undefined,
       spendable: this.host.spendable(),
       bestRouteProfit: this.host.bestRouteProfit(),
       ships: this.host.ships(),
@@ -201,4 +208,13 @@ export class OpeningRunnerImpl {
       doneKeys: new Set(tasks.filter((t) => t.status === "done").map((t) => t.key)),
     };
   }
+}
+
+function triggerUsesCoverage(t: Trigger): boolean {
+  return t.kind === "marketsSurveyed" || (t.kind === "all" && t.of.some(triggerUsesCoverage));
+}
+
+/** Only tasks that wait on market coverage pay for gathering it. */
+function usesCoverage(t: TaskRun): boolean {
+  return triggerUsesCoverage(t.trigger) || t.steps.some((s) => s.kind === "waitFor" && triggerUsesCoverage(s.trigger));
 }

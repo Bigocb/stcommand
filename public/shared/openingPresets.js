@@ -53,6 +53,7 @@ export function describeTrigger(t) {
   if (t.kind === "routeProfitAtLeast") return `When the best route pays ${num(t.profitPerTrip)}c a trip`;
   if (t.kind === "shipHoldEmpty") return `When ${describeShipRef(t.ship)} has an empty hold`;
   if (t.kind === "taskDone") return `After task "${t.taskKey}" is done`;
+  if (t.kind === "marketsSurveyed") return "When every market worth a keeper has been priced";
   if (t.kind === "all") return (t.of ?? []).map((m) => describeTrigger(m)).join(", and ").replace(/, and (When|After|Right)/g, (_, w) => `, and ${w.toLowerCase()}`);
   return "On a condition";
 }
@@ -67,6 +68,7 @@ export function describeStep(s) {
     if (s.enabled !== undefined) parts.push(s.enabled ? "on" : "off");
     return `set ${s.key} ${parts.join(", ")}`;
   }
+  if (s.kind === "waitFor") return `wait until ${describeTrigger(s.trigger).replace(/^When /, "").replace(/^Right away/, "now")}`;
   return "do something";
 }
 
@@ -142,6 +144,28 @@ export const OPENING_PRESETS = [
         trigger: { kind: "all", of: [{ kind: "cashAtLeast", credits: v.cash }, { kind: "routeProfitAtLeast", profitPerTrip: v.profit }] },
         steps: [
           { kind: "buyShip", shipType: "SHIP_LIGHT_HAULER", maxPrice: v.maxPrice, preApproved: true },
+          { kind: "setRole", ship: { by: "step", step: 0 }, role: "trader" },
+        ],
+      };
+    },
+  },
+  {
+    id: "survey-ship",
+    label: "Tour ship that becomes a trader",
+    blurb: "Buy a light shuttle and tour it to price the home system's markets. Once every market with at least the keeper minimum of goods has been priced, the same ship becomes a trader.",
+    fields: [
+      { name: "cash", label: "Start when cash reaches", unit: "c", value: 110000, min: 1 },
+      { name: "maxPrice", label: "Pay at most", unit: "c", value: 100000, min: 1 },
+    ],
+    build(v, ctx = {}) {
+      return {
+        key: uniqueKey("survey-ship", ctx.existingKeys),
+        name: "Tour ship that becomes a trader",
+        trigger: { kind: "cashAtLeast", credits: v.cash },
+        steps: [
+          { kind: "buyShip", shipType: "SHIP_LIGHT_SHUTTLE", maxPrice: v.maxPrice, preApproved: true },
+          { kind: "setRole", ship: { by: "step", step: 0 }, role: "tour" },
+          { kind: "waitFor", trigger: { kind: "marketsSurveyed" } },
           { kind: "setRole", ship: { by: "step", step: 0 }, role: "trader" },
         ],
       };

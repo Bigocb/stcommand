@@ -82,3 +82,14 @@ describe("plain-English description", () => {
     assert.match(text, /When cash reaches 375,000c, and when the best route pays 100,000c a trip/);
   });
 });
+
+describe("survey-ship preset", () => {
+  it("reads in plain words, including the wait", () => {
+    const p = OPENING_PRESETS.find((x: any) => x.id === "survey-ship")!;
+    const text = describeTask(p.build(defaults(p), { existingKeys: [] }));
+    assert.match(text, /buy a light shuttle/);
+    assert.match(text, /make the ship bought in step 1 a tour/);
+    assert.match(text, /wait until every market worth a keeper has been priced/);
+    assert.match(text, /a trader\.$/);
+  });
+});
