@@ -702,6 +702,9 @@ body {
 .guide-link, .topguide { font-size: 9.5px; letter-spacing: 0.03em; color: var(--dim); text-decoration: none; }
 .guide-link { display: block; text-align: center; margin-top: 14px; }
 .topguide { margin-left: auto; padding: 4px 2px; }
+/* Log out sits beside the guide link, same quiet type, and is a button so a tap never navigates. */
+.toplogout { margin-left: 10px; padding: 4px 2px; background: none; border: 0; font: inherit; font-size: 9.5px; letter-spacing: 0.03em; color: var(--dim); cursor: pointer; }
+.toplogout:hover, .toplogout:focus-visible { text-decoration: underline; outline: none; }
 .guide-link:hover, .topguide:hover, .guide-link:focus-visible, .topguide:focus-visible { text-decoration: underline; outline: none; }
 
 /* MCP keys in More > Rules. */

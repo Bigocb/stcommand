@@ -9,7 +9,7 @@
  */
 import { api, onUnauthorized } from "/shared/api.js";
 import { crewHtml, crewAction, loadFields, cachedFields } from "/shared/contractCrew.js";
-import { login, probeSession } from "/shared/session.js";
+import { login, logout, probeSession } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
   state, bridge, fleetStatus, approvals, upcomingApprovals, decidedApprovals, dispatchAssignments, contractDutyShips, dispatchRoutes, minerPreferences, intel,
@@ -80,6 +80,14 @@ $("auth-form").addEventListener("submit", async (e) => {
   } catch (err) {
     $("auth-err").textContent = err.message || "Could not reach the server.";
   }
+});
+
+/* Log out: ends the session on the server, then reloads so nothing the last agent's page was holding (fleet, prices, settings)
+ * is still in memory when someone signs in as another agent. The reload lands on the sign-in screen because the session is gone. */
+$("logout-btn").addEventListener("click", async () => {
+  if (!window.confirm("Log out of Tower?")) return;
+  await logout();
+  window.location.reload();
 });
 
 /* ── tabs ──────────────────────────────────

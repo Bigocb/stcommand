@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Tower: a Log out button
+
+Tower had no way to sign out, so after registering a second agent on the same device the first one's session could not be left.
+
+- A "Log out" button in the header beside Guide (`public/m.html`, `m.css`). It asks to confirm, ends the session with the shared `logout()` (`POST /api/gate/logout`), and reloads the page, so none of the last agent's fleet, prices or settings stay in memory when someone signs in as another agent. The reload lands on the sign-in screen because the session is gone.
+- Checked in Chromium with stubbed responses (button shown, confirm, logout posted, sign-in screen shown). Tests: `tests/towerLogout.test.ts` reads the page and script: the button exists, uses the shared logout and reloads, and the shared logout calls the server route.
+
 ## 2026-10-25 — Contract buy guard: never pay more than the contract is worth, never put most of the cash in one purchase
 
 At 15:19 THEOREM-6, on contract duty, bought 20 FOOD at 4,666c each (93k of a 108k wallet) at A1 for a contract that still owed 179,405c for 64 units
