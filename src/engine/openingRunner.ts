@@ -45,6 +45,8 @@ export interface OpeningHost {
   /** Best profit-per-trip among the routes offered this tick; undefined when the dispatcher offered none. */
   bestRouteProfit(): number | undefined;
   /** Home-system markets at or above the keeper minimum of goods that no ship has priced yet (see surveyCoverage.ts). */
+  /** Home gate progress 0-100 (100 = open); undefined when unknown. */
+  gateProgress(): Promise<number | undefined>;
   surveyMissing(): Promise<{ total: number; missing: string[]; minGoods: number }>;
   buyShip(shipType: string, yardSymbol: string): Promise<{ symbol: string }>;
   setRole(shipSymbol: string, role: string): Promise<void>;
@@ -199,7 +201,9 @@ export class OpeningRunnerImpl {
   private async gatherFacts(tasks: TaskRun[]): Promise<OpeningFacts> {
     const yards = await this.host.yards();
     const needsCoverage = tasks.some((t) => t.status !== "done" && usesCoverage(t));
+    const needsGate = tasks.some((t) => t.status !== "done" && (triggerUsesGate(t.trigger) || t.steps.some((s) => s.kind === "waitFor" && triggerUsesGate(s.trigger))));
     return {
+      gatePct: needsGate ? await this.host.gateProgress() : undefined,
       surveyMissing: needsCoverage ? await this.host.surveyMissing() : undefined,
       spendable: this.host.spendable(),
       bestRouteProfit: this.host.bestRouteProfit(),
@@ -208,6 +212,10 @@ export class OpeningRunnerImpl {
       doneKeys: new Set(tasks.filter((t) => t.status === "done").map((t) => t.key)),
     };
   }
+}
+
+function triggerUsesGate(t: Trigger): boolean {
+  return t.kind === "gateProgressAtLeast" || (t.kind === "all" && t.of.some(triggerUsesGate));
 }
 
 function triggerUsesCoverage(t: Trigger): boolean {

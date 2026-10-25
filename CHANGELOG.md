@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Opening tasks can trigger on the home gate; keeper auto-approve can keep a cash reserve
+
+New trigger `gateProgressAtLeast` (0-100, 100 = the gate is open) so early-game limits can loosen at a milestone: progress is the delivered share of the home gate mission's materials, rounded down so it only reads 100 once the gate itself is complete, and unknown (not 0) when no gate mission has started. The Opening form's custom builder offers it. New doctrine clause `keeperAutoApproveMinCash` (off by default): while on, a keeper probe is auto-approved only if the wallet still holds that much after paying, otherwise it asks as before. `tests/gateTrigger.test.ts`; the keeper seam test's fake doctrine now answers for the new clause.
+
 ## 2026-10-25 — Opening buys keep a cash reserve
 
 A task that bought a shuttle at "cash reaches 110,000" would have left about 16,000 to trade with. A `buyShip` step now takes `keepCash`: it waits (with the reason in the task note) unless that much cash is left after paying. The contract, tour, survey and hauler presets set it to 100,000 and start at 200,000 (hauler 450,000); the custom builder has a "Keep at least" field (default 100,000). Tasks queued without it behave as before. `tests/buyKeepCash.test.ts`.

@@ -18,7 +18,7 @@ import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { CooldownPending, IDLE_STEP, Pending, describeError, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
-import { unpricedMarkets } from "./surveyCoverage.js";
+import { unpricedMarkets, gateProgressPct } from "./surveyCoverage.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
 import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
 import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
@@ -3917,6 +3917,25 @@ export class FleetManager {
   }
 
   /**
+   * How far along the home system's jump gate is, 0-100, for opening tasks (trigger gateProgressAtLeast). 100 once the gate is
+   * complete; otherwise the delivered share of the materials of the gate mission(s) for this system; undefined when no mission
+   * has been started yet (progress is not known, never guessed as 0).
+   */
+  private async homeGateProgressPct(): Promise<number | undefined> {
+    if (this.homeGateOpen()) return 100;
+    let required = 0;
+    let fulfilled = 0;
+    for (const m of await this.missions.list()) {
+      if (m.targetSystem !== this.systemSymbol) continue;
+      for (const mat of m.materials) {
+        required += mat.required;
+        fulfilled += Math.min(mat.fulfilled, mat.required);
+      }
+    }
+    return required > 0 ? gateProgressPct(fulfilled, required) : undefined;
+  }
+
+  /**
    * Grow toward explorerTarget by converting a spare hull first, before
    * maybeBuyShip() ever spends credits on one — an explorer just needs fuel
    * range to jump around with, not a specific frame or mount.
@@ -6565,6 +6584,8 @@ export class FleetManager {
       capCredits: this.doctrine.value("autoApproveKeeperProbes"),
       price,
       spendable: this.canAfford(price),
+      keepCash: this.doctrine.isEnabledOr("keeperAutoApproveMinCash", false) ? this.doctrine.value("keeperAutoApproveMinCash") : 0,
+      credits: this.credits,
     });
   }
 
@@ -9683,6 +9704,7 @@ export class FleetManager {
         yards: async () => (await this.store!.shipyardInventory())
           .filter((y) => y.systemSymbol === this.homeSystem)
           .map((y) => ({ waypoint: y.waypointSymbol, shipType: y.shipType, price: y.purchasePrice })),
+        gateProgress: () => this.homeGateProgressPct(),
         bestRouteProfit: () => {
           if (this.lastDispatchRoutes.length === 0) return undefined;
           return this.lastDispatchRoutes.reduce((best, r) => Math.max(best, r.profitPerTrip), 0);

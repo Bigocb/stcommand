@@ -53,6 +53,7 @@ export function describeTrigger(t) {
   if (t.kind === "routeProfitAtLeast") return `When the best route pays ${num(t.profitPerTrip)}c a trip`;
   if (t.kind === "shipHoldEmpty") return `When ${describeShipRef(t.ship)} has an empty hold`;
   if (t.kind === "taskDone") return `After task "${t.taskKey}" is done`;
+  if (t.kind === "gateProgressAtLeast") return t.pct >= 100 ? "When the home gate is open" : `When the home gate is ${t.pct}% built`;
   if (t.kind === "marketsSurveyed") return "When every market worth a keeper has been priced";
   if (t.kind === "all") return (t.of ?? []).map((m) => describeTrigger(m)).join(", and ").replace(/, and (When|After|Right)/g, (_, w) => `, and ${w.toLowerCase()}`);
   return "On a condition";
@@ -221,6 +222,7 @@ export function shipRefFromChoice(choice) {
 
 export function buildCustomTask({ name, trigger, steps }, ctx = {}) {
   const t = trigger?.kind === "cashAtLeast" ? { kind: "cashAtLeast", credits: Number(trigger.amount) }
+    : trigger?.kind === "gateProgressAtLeast" ? { kind: "gateProgressAtLeast", pct: Math.min(100, Math.max(0, Number(trigger.amount))) }
     : trigger?.kind === "routeProfitAtLeast" ? { kind: "routeProfitAtLeast", profitPerTrip: Number(trigger.amount) }
     : { kind: "always" };
   const out = (steps ?? []).map((s) => {

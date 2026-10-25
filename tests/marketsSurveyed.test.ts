@@ -84,6 +84,7 @@ describe("runner, end to end", () => {
       yards: async () => [{ waypoint: "Y", shipType: "SHIP_LIGHT_SHUTTLE", price: 85_000 }],
       bestRouteProfit: () => 1,
       surveyMissing: async () => ({ total: 4, missing, minGoods: 3 }),
+      gateProgress: async () => undefined,
       buyShip: async () => { calls.push("buy"); return { symbol: "T-9" }; },
       setRole: async (s, r) => { calls.push(`role:${s}:${r}`); },
       setContractDuty: async () => {},

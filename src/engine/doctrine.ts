@@ -360,6 +360,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperAutoApproveMinCash",
+    name: "Keeper auto-approve: keep cash",
+    description: "Auto-approve a keeper probe only while the wallet still holds at least this many credits after paying; below it the purchase asks the operator instead. Off = no extra reserve beyond the cash floor. Use it to keep early-game cash for trading, and switch it off (or raise the cash floor) once the gate is open.",
+    value: 150000, min: 0, max: 5000000, step: 10000, unit: "c",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "autoKeeperGoodSystems",
     name: "Keepers for every market in a good system",
     description: "When an explorer finds a system worth touring (it passes the market and shipyard minimums), add all of that system's marketplaces to the keeper priority list, so keepers are bought for them as usual (with Auto-approve keeper probes on, with no card). Off = the keeper list changes only by hand. Takes effect on the next system an explorer accepts.",

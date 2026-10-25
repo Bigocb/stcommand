@@ -27,7 +27,7 @@ function makeFleet(opts: { clauseOn: boolean; cap?: number; price?: number; ship
   };
   fleet.lastDispatchRoutes = [];
   fleet.doctrine = {
-    isEnabledOr: (k: string) => (k === "autoApproveKeeperProbes" ? opts.clauseOn : true),
+    isEnabledOr: (k: string) => (k === "autoApproveKeeperProbes" ? opts.clauseOn : k === "keeperAutoApproveMinCash" ? false : true),
     value: (k: string, def?: number) => (k === "autoApproveKeeperProbes" ? opts.cap ?? 60_000 : def ?? 5),
   };
   fleet.approvals = { request: async () => { calls.approval++; return undefined; } };

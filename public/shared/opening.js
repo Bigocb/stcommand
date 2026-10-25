@@ -216,8 +216,9 @@ function renderCustomForm(container, host, existingKeys) {
         <label>Start<select data-c="trigger">
           <option value="always"${top.trigger === "always" ? " selected" : ""}>Right away</option>
           <option value="cashAtLeast"${top.trigger === "cashAtLeast" ? " selected" : ""}>When cash reaches…</option>
-          <option value="routeProfitAtLeast"${top.trigger === "routeProfitAtLeast" ? " selected" : ""}>When the best route pays… per trip</option></select></label>
-        <label id="amount-wrap" style="${top.trigger === "always" ? "display:none" : ""}">Amount (c)<input type="number" inputmode="numeric" data-c="amount" min="1" value="${escapeHtml(top.amount)}"></label>
+          <option value="routeProfitAtLeast"${top.trigger === "routeProfitAtLeast" ? " selected" : ""}>When the best route pays… per trip</option>
+          <option value="gateProgressAtLeast"${top.trigger === "gateProgressAtLeast" ? " selected" : ""}>When the home gate is… % built (100 = open)</option></select></label>
+        <label id="amount-wrap" style="${top.trigger === "always" ? "display:none" : ""}">Amount (c, or % for the gate)<input type="number" inputmode="numeric" data-c="amount" min="1" value="${escapeHtml(top.amount)}"></label>
         ${steps.map((s, i) => `
           <div class="opening-step" data-i="${i}">
             <label>Action ${i + 1}<select data-s="kind">

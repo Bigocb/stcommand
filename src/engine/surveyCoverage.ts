@@ -17,3 +17,9 @@ export function unpricedMarkets(
   });
   return { total: worth.length, missing: worth.filter((m) => !priced.has(m)) };
 }
+
+/** Share of a gate's materials delivered, rounded down to a whole percent, so 99.9% never reads as 100 (done is decided by the gate itself). */
+export function gateProgressPct(fulfilled: number, required: number): number {
+  if (!(required > 0)) return 0;
+  return Math.max(0, Math.min(99, Math.floor((100 * fulfilled) / required)));
+}

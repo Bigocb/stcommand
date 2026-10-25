@@ -24,6 +24,10 @@ export interface KeeperAutoApproveInput {
   price: number;
   /** Whether the wallet can pay it above the cash floor (FleetManager.canAfford). */
   spendable: boolean;
+  /** Cash the wallet must still hold after paying; 0 or undefined = no extra reserve (the clause keeperAutoApproveMinCash is off). */
+  keepCash?: number;
+  /** The wallet's credits now; only read when keepCash is set. */
+  credits?: number;
 }
 
 export function keeperAutoApprove(i: KeeperAutoApproveInput): { approve: boolean; reason: string } {
@@ -31,6 +35,9 @@ export function keeperAutoApprove(i: KeeperAutoApproveInput): { approve: boolean
   if (!Number.isFinite(i.price) || i.price <= 0) return { approve: false, reason: `price ${i.price} is not a real quote` };
   if (i.price > i.capCredits) return { approve: false, reason: `${i.price}c is over the ${i.capCredits}c auto-approve cap` };
   if (!i.spendable) return { approve: false, reason: `${i.price}c is more than the spendable credits` };
+  if (i.keepCash && i.keepCash > 0 && (i.credits ?? 0) - i.price < i.keepCash) {
+    return { approve: false, reason: `paying ${i.price}c would leave ${Math.max(0, (i.credits ?? 0) - i.price)}c, under the ${i.keepCash}c to keep: the operator decides` };
+  }
   return { approve: true, reason: `${i.price}c is within the ${i.capCredits}c auto-approve cap` };
 }
 

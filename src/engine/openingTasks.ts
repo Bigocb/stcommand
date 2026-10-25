@@ -19,6 +19,8 @@ export type Trigger =
   | { kind: "taskDone"; taskKey: string }
   /** Every home-system market with at least the keeper minimum of goods has been priced by a ship's visit. */
   | { kind: "marketsSurveyed" }
+  /** The home system's jump gate has had this share (0-100) of its materials delivered; 100 means the gate is open. */
+  | { kind: "gateProgressAtLeast"; pct: number }
   | { kind: "all"; of: Trigger[] };
 
 export type Step =
@@ -145,6 +147,10 @@ function validateTrigger(t: any): Validation<Trigger> {
     return { ok: true, value: { kind: "shipHoldEmpty", ship: t.ship } };
   }
   if (t.kind === "marketsSurveyed") return { ok: true, value: { kind: "marketsSurveyed" } };
+  if (t.kind === "gateProgressAtLeast") {
+    if (typeof t.pct !== "number" || !Number.isFinite(t.pct) || t.pct < 0 || t.pct > 100) return { ok: false, error: "pct must be 0 to 100" };
+    return { ok: true, value: { kind: "gateProgressAtLeast", pct: t.pct } };
+  }
   if (t.kind === "taskDone") {
     if (typeof t.taskKey !== "string" || t.taskKey.length === 0) return { ok: false, error: "taskKey required" };
     return { ok: true, value: { kind: "taskDone", taskKey: t.taskKey } };
@@ -209,6 +215,8 @@ export interface OpeningFacts {
   yards: { waypoint: string; shipType: string; price: number }[];
   doneKeys: ReadonlySet<string>;
   /** Home-system markets worth a keeper (goods count at or above the keeper minimum, or unknown) that no ship has priced yet. Undefined when not gathered. */
+  /** Home gate progress 0-100 (100 = open); undefined when unknown. */
+  gatePct?: number;
   surveyMissing?: { total: number; missing: string[]; minGoods: number };
 }
 
@@ -235,6 +243,11 @@ export function triggerMet(t: Trigger, f: OpeningFacts): { met: boolean; reason:
     case "taskDone": {
       const met = f.doneKeys.has(t.taskKey);
       return { met, reason: "task " + t.taskKey + (met ? " is done" : " is not done") };
+    }
+    case "gateProgressAtLeast": {
+      if (f.gatePct === undefined) return { met: false, reason: "gate progress not known yet" };
+      const met = f.gatePct >= t.pct;
+      return { met, reason: "gate " + f.gatePct + "%" + (met ? " >= " : " < ") + t.pct + "%" };
     }
     case "marketsSurveyed": {
       const c = f.surveyMissing;
