@@ -45,7 +45,7 @@ describe("windDown", () => {
 import { TraderAgent } from "../src/engine/trader.js";
 
 describe("TraderAgent.tick() during the wind-down", () => {
-  function trader(opts: { blocked: boolean; units: number; role?: "sell" | "buy" }) {
+  function trader(opts: { blocked: boolean; units: number; role?: "sell" | "buy" | "direct" }) {
     const ship = {
       symbol: "THEO-T", nav: { systemSymbol: "X1-A", waypointSymbol: "X1-A-A1", status: "DOCKED" },
       cargo: { capacity: 40, units: opts.units, inventory: opts.units ? [{ symbol: "IRON", units: opts.units }] : [] },
@@ -79,6 +79,22 @@ describe("TraderAgent.tick() during the wind-down", () => {
 
   it("a loaded hull with a buy leg does not buy more", async () => {
     const { t, ran } = trader({ blocked: true, units: 20, role: "buy" });
+    assert.equal(await t.tick(), false);
+    assert.deepEqual(ran, []);
+  });
+
+  it("a loaded hull with a direct (buy-then-sell) assignment sells what it holds and starts no new buy", async () => {
+    // 2026-10-25: almost every trader holds a "direct" assignment. They stopped at the wind-down gate with full holds
+    // and sold nothing for an hour (14 ships, ~4.4M of cargo that the reset destroys).
+    const { t, ran } = trader({ blocked: true, units: 20, role: "direct" });
+    (t as any).deliverHeldCargo = async () => { ran.push("deliverHeldCargo"); return true; };
+    assert.equal(await t.tick(), true);
+    assert.deepEqual(ran, ["deliverHeldCargo"], "the held cargo is sold; runArbitrage and runBuy must not run");
+  });
+
+  it("a loaded direct hull whose cargo has nothing to deliver idles instead of falling through to a buy", async () => {
+    const { t, ran } = trader({ blocked: true, units: 20, role: "direct" });
+    (t as any).deliverHeldCargo = async () => undefined;
     assert.equal(await t.tick(), false);
     assert.deepEqual(ran, []);
   });

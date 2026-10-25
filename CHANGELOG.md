@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Wind-down: a loaded trader sells what it holds instead of idling
+
+At 11:00 UTC the wind-down opened (120 minutes) and by 12:10 the ledger showed no sells in the last hour while 14 traders held about 4.4M
+of cargo (cost 3.3M) that the reset destroys. `TraderAgent.tick()` returned early while buys were blocked unless the assignment role was
+`sell`; almost every trader holds a `direct` (buy at A, sell at B) assignment, so a loaded hull sat in orbit, one of them at the very
+market it was sent to sell at. 2026-10-18's fix queued traders for scrapping but did not cover ships idling with cargo.
+
+- A loaded hull with any non-sell assignment now runs `deliverHeldCargo()` (sell on the leg it was bought for) and returns; it never falls through to a buy.
+- Tests: two cases in `tests/resetWindDown.test.ts`; removing the fix fails the first.
+- Not fixed: the scrap queue drained 6 hulls in 70 minutes with 316 left, so most keepers are still hulls at the reset. Cause not yet found.
+
 ## 2026-10-25 — Explorer tasks move to the trader tier in the scheduler
 
 Explorer tasks ran at priority 3, the same tier as about 350 keepers, and behind roughly 100 always-ready traders (priority 2). The

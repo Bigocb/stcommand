@@ -3051,7 +3051,13 @@ export class TraderAgent {
 
     // Reset wind-down: an empty hull starts no trip, and a loaded one only sells. A loaded hull with a buy-type
     // assignment waits here rather than buying more into a hold it must empty before the reset.
-    if (this.buysBlocked?.() && (this.ship.cargo.units === 0 || assignedAtTickStart?.role !== "sell")) return false;
+    if (this.buysBlocked?.() && (this.ship.cargo.units === 0 || assignedAtTickStart?.role !== "sell")) {
+      // A loaded hull with a buy-leg assignment (almost every trader holds a "direct" one) used to stop here and sit on its
+      // cargo until the reset destroyed it: 2026-10-25, 14 ships held ~4.4M and sold nothing for an hour. Sell what is held,
+      // on the leg it was bought for, and never fall through to a new buy.
+      if (this.ship.cargo.units > 0) return (await this.deliverHeldCargo()) ?? false;
+      return false;
+    }
     if (assignedAtTickStart?.role === "buy") return this.runBuy(assignedAtTickStart);
     if (assignedAtTickStart?.role === "sell") return this.runSell(assignedAtTickStart);
     if (assignedAtTickStart?.role === "haul") return this.runHaul(assignedAtTickStart);
