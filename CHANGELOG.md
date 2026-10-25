@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Opening tasks now actually run on the live box
+
+Opening automation has never executed a task in production. `FleetManager.runOpeningTasks()` was called only from `tick()`, a single-pass helper that
+`run()` does not call: the live process drives `tickCore`, `tickFeeds` and `tickMaintenance` on their own timers. With the clause on and the cash
+trigger met (wallet 184,447 against a 130,000 "contract ship" task) the task stayed queued with nothing in the log.
+
+- `runOpeningTasks()` now runs inside `tickMaintenance` (every 5 s, right after `refreshCredits`), and is no longer called from `tick()`, so it cannot run twice. With the clause off it still returns before touching the store.
+- The cash trigger reads the wallet (`state.agent.credits`), not the wallet minus the cash floor as docs/opening-tasks-plan.md says. Behaviour is unchanged; the plan doc is wrong on this.
+- Test: `tests/openingWiring.test.ts` reads fleet.ts and checks the maintenance loop calls the runner, `run()` reaches the maintenance loop, and `tick()` does not call it again. Removing the call fails it.
+
 ## 2026-10-25 — Opening tasks: presets, a plain custom builder, and the automation switch on the screen
 
 The Add task form was three browser pop-ups (task key, name, the command ship's new role) and could build one kind of task, which ran at once.

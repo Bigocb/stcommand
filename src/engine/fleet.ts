@@ -9636,7 +9636,6 @@ export class FleetManager {
     await this.tickCore();
     await this.tickFeeds();
     await this.tickMaintenance();
-    await this.runOpeningTasks();
   }
 
   /**
@@ -9951,6 +9950,9 @@ export class FleetManager {
     if (this.paused) return;
     await this.pass("maintenance", async () => {
       await this.timed("refreshCredits", () => this.refreshCredits());
+      // Queued opening tasks (a no-op while the openingAutomation clause is off). This used to be called only from tick(), which
+      // run() never calls, so on the live box no opening task ever ran (2026-10-25: cash passed a task's trigger and nothing happened).
+      await this.timed("runOpeningTasks", () => this.runOpeningTasks());
       await this.timed("chartOccupiedSystems", () => this.chartOccupiedSystems());
       await this.timed("maybeRefreshGateConstruction", () => this.maybeRefreshGateConstruction());
       this.maybeWarmJumpNeighborhoods();
