@@ -12,7 +12,7 @@ be useful context; not a complete project history — see `git log` for that.
 ## 2026-10-25 — An opening task no longer fails because the ship it just bought is not in the fleet snapshot yet
 
 "Ship for touring" (buy a light shuttle, then make it a tour ship) ran at about 200,000c: it bought THEOREM-7, then step 2 failed for good with
-"could not resolve ship ref", although the ship existed and was already on tour (a new shuttle defaults to the tour role, so the outcome was right by luck).
+"could not resolve ship ref", although the ship existed. It only ended up on tour because the engine's own "THEOREM-7 needs a role, suggested tour" approval card was approved by hand (the same card for THEOREM-6 was denied and the role set manually); with the step working, no card is needed.
 A task that used the ship it bought for a role or contract duty would have lost that step the same way (a contract-duty step in particular).
 
 - `decide()` (openingTasks.ts): when a step refers to "the ship bought in step N", the task's own record says which ship that is (`refs`), but the ship is only in the fleet facts a moment later. That is now a wait, with the reason "waiting for THEOREM-7 (bought by step 1) to appear in the fleet". It still fails when no ship was ever recorded for that step, and for a literal ship symbol that is not in the fleet.
