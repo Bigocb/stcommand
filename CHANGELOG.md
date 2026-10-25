@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Opening tasks: presets, a plain custom builder, and the automation switch on the screen
+
+The Add task form was three browser pop-ups (task key, name, the command ship's new role) and could build one kind of task, which ran at once.
+The engine already supported buying ships, contract duty, doctrine changes and conditions on cash or route profit; nothing on screen offered them.
+Opening automation (the doctrine rule that makes the engine run any task) was also off, with no way to see that on the screen.
+
+- `public/shared/openingPresets.js` (pure, shared by Deck and Tower): presets for a contract ship (light shuttle, trader, contract duty), a second ship for touring (waits for the contract ship when that task is queued), a hauler once a route pays, and the command ship's role. Amounts are editable defaults from this week's yard prices. Also `describeTask()`, which writes a task in words, and `buildCustomTask()`.
+- `public/shared/opening.js`: tap a preset, edit its numbers, see the sentence it will run, queue it. Custom builder with dropdowns for the condition and up to 8 actions (buy a ship, change a role, contract duty, change a setting), where an action can refer to a ship bought in an earlier one. Each task row shows what it does in words. A Turn on/off button for the automation rule sits in the header. Keys are made up for you.
+- Tests: `tests/openingPresets.test.ts` checks every preset and a custom task against the server's own validator. The screen was driven in Chromium with a stubbed API (not committed): it caught the custom form losing typed values on "Add another action" and a redraw that re-read stale inputs, both fixed.
+
 ## 2026-10-25 — The starting command ship tours from the first tick
 
 The 2026-10-25 week opened with THEOREM-1 (a frigate with a mining laser and a 40-unit hold) derived as a miner. It mined ore for over an hour,
