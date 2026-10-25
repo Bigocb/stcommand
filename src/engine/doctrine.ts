@@ -157,6 +157,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "contractBuyPriceGuard",
+    name: "Contract buy: price ceiling",
+    description: "A trader buying goods for a contract refuses a unit that costs more than this percent of what the contract still pays per unit it still needs (the payment owed on completion divided by the units still to deliver; an advance already received does not count). It then looks for a cheaper source. Added 2026-10-25 after 20 FOOD were bought at 4,666c each for a contract worth about 2,800c a unit, which took 93k of the cash and stalled trading. On by default. Off = buy at any price the market snapshot allows, as before. Takes effect on the next contract buy.",
+    value: 110, min: 50, max: 300, step: 5, unit: "%",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "contractBuyCashShare",
+    name: "Contract buy: most cash in one purchase",
+    description: "One contract purchase may use at most this percent of the spendable cash (above the cash floor), always allowing at least one unit when one is affordable. A contract pays only on completion, so cash put into it is stuck until the last unit is delivered; the brake keeps a wrong price from taking everything. On by default. Off = a purchase may use all the spendable cash, as before. Takes effect on the next contract buy.",
+    value: 50, min: 10, max: 100, step: 5, unit: "%",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "redirectHops",
     name: "Stranded cargo: stay within",
     description: "When a loaded ship is turned back from its destination (the gate path stopped verifying, or the market can no longer be reached), the cargo is redirected to the best-paying reachable market. With this on, markets within this many gate jumps are tried first; if none takes it, any reachable market does, as before. Measured 2026-10-22: THEOREM-C4's 225 MACHINERY was redirected on a ten-jump trek (about 100 minutes at ten minutes per jump) to X1-NH60. Off (the default) = best price at any distance. Takes effect on the next redirect.",

@@ -384,6 +384,25 @@ export class ContractManager {
     return out;
   }
 
+  /**
+   * What the accepted contracts still pay for the units of `tradeSymbol` they still need: the units, and the payment owed on completion
+   * shared out by units when a contract has several lines. An advance already received is not counted. For the contract buy guard.
+   */
+  async outstandingRewardFor(tradeSymbol: string): Promise<{ units: number; payout: number }> {
+    const all = await this.outstandingDeliveries();
+    const perContract = new Map<string, number>();
+    for (const d of all) perContract.set(d.contractId, (perContract.get(d.contractId) ?? 0) + (d.unitsRequired - d.unitsFulfilled));
+    let units = 0;
+    let payout = 0;
+    for (const d of all) {
+      if (d.tradeSymbol !== tradeSymbol) continue;
+      const remaining = d.unitsRequired - d.unitsFulfilled;
+      units += remaining;
+      payout += (d.onFulfilledPayment * remaining) / (perContract.get(d.contractId) || remaining);
+    }
+    return { units, payout };
+  }
+
   /** Total units of `tradeSymbol` still outstanding across every accepted
    *  contract that wants it — lets a contractBuy purchase cap itself at what
    *  is actually still needed instead of the market's/cargo's/wallet's own

@@ -1,5 +1,6 @@
 import { routeTag } from "./routeTag.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
+import { contractBuyVerdict, NO_CONTRACT_BUY_GUARD, type ContractBuyPolicy } from "./contractBuyGuard.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
@@ -216,6 +217,10 @@ export interface TraderOptions {
    *  market-limit lot regardless, and is left holding the rest with nowhere
    *  to deliver it. */
   contractNeeded?: (tradeSymbol: string) => Promise<number>;
+  /** What the accepted contracts still pay for the units of a good they still need (see contractBuyGuard.ts). */
+  contractReward?: (tradeSymbol: string) => Promise<{ units: number; payout: number }>;
+  /** The contract buy guard's current settings; absent = no guard, as before. */
+  contractBuyPolicy?: () => ContractBuyPolicy;
   /**
    * Seed `heldRoute`/`heldCost` from what's already persisted for this ship
    * (`Store.getAllHeldRoutes()`), keyed by good — the constructor can't
@@ -335,6 +340,8 @@ export class TraderAgent {
   private readonly recoverCostBasis?: TraderOptions["recoverCostBasis"];
   private readonly deliverCargo?: TraderOptions["deliverCargo"];
   private readonly contractNeeded?: TraderOptions["contractNeeded"];
+  private readonly contractReward?: TraderOptions["contractReward"];
+  private readonly contractBuyPolicy?: TraderOptions["contractBuyPolicy"];
   private readonly persistHeldRoute?: TraderOptions["persistHeldRoute"];
   private readonly clearPersistedHeldRoute?: TraderOptions["clearPersistedHeldRoute"];
   private readonly proxy: ShipProxy;
@@ -473,6 +480,8 @@ export class TraderAgent {
     this.recoverCostBasis = opts.recoverCostBasis;
     this.deliverCargo = opts.deliverCargo;
     this.contractNeeded = opts.contractNeeded;
+    this.contractReward = opts.contractReward;
+    this.contractBuyPolicy = opts.contractBuyPolicy;
     this.persistHeldRoute = opts.persistHeldRoute;
     this.clearPersistedHeldRoute = opts.clearPersistedHeldRoute;
     // Seed from whatever the caller already loaded from `held_route` —
@@ -2884,6 +2893,22 @@ export class TraderAgent {
     }
 
     const liveCredits = await this.spendableNow();
+    // The contract buy guard (contractBuyGuard.ts): never pay more per unit than the contract is worth, and never put more than a share of
+    // the cash into one purchase. A contract pays only on completion, so a purchase at a loss strands the cash it used.
+    let guardCap = Number.POSITIVE_INFINITY;
+    if (this.contractReward && this.contractBuyPolicy) {
+      const policy = this.contractBuyPolicy() ?? NO_CONTRACT_BUY_GUARD;
+      if (policy.priceGuardPct > 0 || policy.cashSharePct > 0) {
+        const reward = await this.contractReward(assigned.good);
+        const verdict = contractBuyVerdict({ buyPrice, remainingUnits: reward.units, remainingPayout: reward.payout, spendable: liveCredits }, policy);
+        if (verdict.blocked) {
+          this.log(`skipping contract buy: ${assigned.good} at ${buyAt}: ${verdict.reason}; looking for a cheaper source`);
+          this.deadRoutes.add(`${assigned.good}@${buyAt}`);
+          return this.discoverPrices([buyAt]);
+        }
+        guardCap = verdict.maxUnits;
+      }
+    }
     const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
     // Confirmed live: without the tradeVolume cap this tried to buy the
     // ship's full cargo space (or however much was affordable) in one
@@ -2892,7 +2917,7 @@ export class TraderAgent {
     // per-transaction cap runBuy() already respects (line ~1025 above).
     const volume = cached?.volume ?? affordable;
     const holdRoom = this.ship.cargo.capacity - this.ship.cargo.units;
-    let cap = Math.min(volume, holdRoom, affordable);
+    let cap = Math.min(volume, holdRoom, affordable, guardCap);
     // Kept as its own variable rather than re-derived from `cap` below: once
     // three limits have been min()'d together, a zero no longer says which
     // one produced it, and the whole point of the exits below is to name the

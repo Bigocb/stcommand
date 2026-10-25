@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Contract buy guard: never pay more than the contract is worth, never put most of the cash in one purchase
+
+At 15:19 THEOREM-6, on contract duty, bought 20 FOOD at 4,666c each (93k of a 108k wallet) at A1 for a contract that still owed 179,405c for 64 units
+(2,803c a unit): A1 was the only FOOD price known at that moment, and the old check compared the live price only with the dispatcher's own
+snapshot of the same price (and refused only a jump of more than 50%). Cash fell to the 20,000c cash floor, so trading stalled (buys of 1-3 units),
+and the contract, which pays only on completion, could not be finished (K87 then showed FOOD at 1,275c; the last 44 units needed about 56k).
+The EQUIPMENT contract earlier had also lost money (105k cost for 86k income).
+
+- `src/engine/contractBuyGuard.ts` (pure, `contractBuyVerdict`): refuses a unit costing more than `contractBuyPriceGuard` percent (default 110) of the contract's pay per unit still needed (payment owed on completion over units still to deliver; a banked advance does not count), and limits one purchase to `contractBuyCashShare` percent (default 50) of the spendable cash, always allowing one unit when one is affordable.
+- `ContractManager.outstandingRewardFor()` gives the units and payment still owed for a good, sharing a multi-line contract's payment by units.
+- `runContractBuy()` (trader.ts) applies it after the live price is read: a refusal is logged ("skipping contract buy: FOOD at X: 4,666c a unit is over the ceiling of 3,084c ..."), the route is marked dead for that ship and prices are discovered, so the dispatcher can find the cheaper source.
+- Two doctrine clauses, on by default: `contractBuyPriceGuard` (110%) and `contractBuyCashShare` (50%). Either off reproduces the old behaviour; both are switched off by setting the clause off.
+- Tests: `tests/contractBuyGuard.test.ts` (the 4,666c case is blocked and 1,275c is allowed, the cash share, the missing-facts and off cases, the reward split by units, and the trader seam; removing the block fails it).
+
 ## 2026-10-25 — MCP tools to read and close the season week
 
 Tower has no season controls and the Season screen's Close week is an HTTP call, so the week left open at the reset could not be closed from the
