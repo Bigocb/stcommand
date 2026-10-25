@@ -380,6 +380,8 @@ const REJECTED_TTL_MS = 60 * 24 * 60 * 60 * 1000;
  * second spin into ~12 calls an hour.
  */
 const NO_TARGET_BACKOFF_MS = 5 * 60_000;
+/** Targets an explorer tries in one call when the remote gate of the first is still being built. */
+const EXPLORE_TARGET_TRIES = 3;
 
 /**
  * Single coordinator for the whole fleet: assigns roles, ticks every ship,
@@ -2599,6 +2601,20 @@ export class FleetManager {
     return [...this.chartedSystems];
   }
 
+  private readonly noExploreTargetLoggedAt = new Map<string, number>();
+
+  /** Say why an explorer found nothing to jump to, at most every 30 minutes per ship: the wait itself is silent, so a ship could sit
+   *  for an hour with nothing in its log (THEOREM-B5 at X1-ZR49, 2026-10-25). */
+  private logNoExploreTarget(shipSymbol: string, system: string, connected: readonly string[]): void {
+    const now = Date.now();
+    if (now - (this.noExploreTargetLoggedAt.get(shipSymbol) ?? 0) < 30 * 60_000) return;
+    this.noExploreTargetLoggedAt.set(shipSymbol, now);
+    const building = connected.filter((c) => (this.gateConstructionSkipUntil.get(c) ?? 0) > now);
+    this.log(
+      `${shipSymbol}: explorer: no target from ${system}: ${connected.length} connected, ${building.length} skipped while their gate is built (${building.join(", ") || "none"}), the rest toured or without markets; waiting ${NO_TARGET_BACKOFF_MS / 60_000} min`,
+    );
+  }
+
   /** Record that `systemSymbol`'s remote gate is under construction and skip
    *  it until the persisted expiry — see gateConstructionSkipUntil's own
    *  comment for why this has to survive a restart. */
@@ -4795,72 +4811,98 @@ export class FleetManager {
       // like any other one-hop candidate. Only once *that* also comes up
       // empty (nothing unsurveyed known anywhere) does this fall back to
       // candidates[0], same as before.
-      const target = targetSystem ?? candidates.find((c) => !this.isToured(c)) ?? this.nextHopToUnsurveyed(currentSystem) ?? candidates[0];
-      // Nothing to jump to at all: this is not a failure to retry in ten
-      // seconds, it is the answer. A bare Error here made a stranded ship call
-      // getShip() roughly once a second from catchBackoffMs()'s default while
-      // the same message filled the log (THEOREM-61 at X1-RP88, 2026-10-20).
-      // Pending carries the wait the scheduler actually honours, and it does
-      // not log — an empty frontier is not news every second.
-      if (!target) throw new CooldownPending(Date.now() + NO_TARGET_BACKOFF_MS, "backoff");
-      // Read BEFORE the jump: jumpShip() surveys the system it lands in and
-      // surveySystem() marks that system surveyed as its last act (see its own
-      // comment — it is deliberately the one place completion is recorded).
-      // Checking surveyedSystems *after* the jump therefore always answered
-      // yes, and exploreSystem() returned at the "already surveyed" branch on
-      // every single trip: the market tour below was unreachable dead code,
-      // for one stop or for ten. Confirmed live 2026-10-20, same millisecond:
-      //   surveyed X1-RZ29: 16 markets, 2 shipyards
-      //   THEOREM-59: X1-RZ29 already surveyed, skipping market re-tour
-      // The question this branch means to ask is "did I know this system
-      // before this trip?", so that is what it now asks.
-      const targetWasSurveyed = this.isToured(target);
-      await this.galaxy.loadSystem(target);
-      await this.markSystemCharted(target);
-      const gates = this.galaxy.gatesTo(currentSystem, target);
-      const gate = gates[0];
-      if (!gate) throw new Error(`no jump gate to ${target}`);
-      const remoteGate = this.galaxy.getSystem(target)!.waypoints.find((w) => w.type === "JUMP_GATE");
-      if (!remoteGate) throw new Error(`${target} has no jump gate waypoint`);
-
-      // A gate that is still under construction cannot be jumped through — no point
-      // burning fuel to reach it. Skip these systems until the gate is completed.
-      // Checked (and cached) via GalaxyAtlas so this agrees with every other
-      // gate-aware decision — canJump()'s own comment has the reasoning.
-      if (!(await this.galaxy.refreshGateConstruction(currentSystem, gate))) {
-        // Re-fetch just for the materials detail in the error message — rare
-        // path (only reached when the gate genuinely isn't complete yet), so
-        // the extra call is cheap. A second, unrelated fetch failure here
-        // falls through and lets the jump attempt itself surface the error.
+      // A remote gate that turns out to be unfinished is skipped (skipGateConstruction) and another target is chosen in the
+      // same call, up to EXPLORE_TARGET_TRIES. Before this the error went to the task's catch and the ship waited for the next
+      // scheduled attempt, which 2026-10-25 left THEOREM-B5 in orbit at X1-ZR49 for 20 minutes after X1-DF92 was refused.
+      // An explicit target is never swapped: the caller asked for that system.
+      let target: string | undefined;
+      let targetWasSurveyed = false;
+      let remoteGate: { symbol: string } | undefined;
+      for (let attempt = 1; ; attempt++) {
+        // Re-filtered each pass: a system skipped on the previous pass must not be picked again.
+        const open = candidates.filter((c) => (this.gateConstructionSkipUntil.get(c) ?? 0) <= Date.now());
+        target = targetSystem ?? open.find((c) => !this.isToured(c)) ?? this.nextHopToUnsurveyed(currentSystem) ?? open[0];
         try {
-          const constr = await this.api.getConstruction(currentSystem, gate);
-          if (!constr.isComplete) {
-            throw new Error(`gate ${gate} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
+          // Nothing to jump to at all: this is not a failure to retry in ten
+          // seconds, it is the answer. A bare Error here made a stranded ship call
+          // getShip() roughly once a second from catchBackoffMs()'s default while
+          // the same message filled the log (THEOREM-61 at X1-RP88, 2026-10-20).
+          // Pending carries the wait the scheduler actually honours, and it does
+          // not log — an empty frontier is not news every second.
+          if (!target) {
+            this.logNoExploreTarget(shipSymbol, currentSystem, connected);
+            throw new CooldownPending(Date.now() + NO_TARGET_BACKOFF_MS, "backoff");
           }
+          // Read BEFORE the jump: jumpShip() surveys the system it lands in and
+          // surveySystem() marks that system surveyed as its last act (see its own
+          // comment — it is deliberately the one place completion is recorded).
+          // Checking surveyedSystems *after* the jump therefore always answered
+          // yes, and exploreSystem() returned at the "already surveyed" branch on
+          // every single trip: the market tour below was unreachable dead code,
+          // for one stop or for ten. Confirmed live 2026-10-20, same millisecond:
+          //   surveyed X1-RZ29: 16 markets, 2 shipyards
+          //   THEOREM-59: X1-RZ29 already surveyed, skipping market re-tour
+          // The question this branch means to ask is "did I know this system
+          // before this trip?", so that is what it now asks.
+          targetWasSurveyed = this.isToured(target);
+          await this.galaxy.loadSystem(target);
+          await this.markSystemCharted(target);
+          const gates = this.galaxy.gatesTo(currentSystem, target);
+          const gate = gates[0];
+          if (!gate) throw new Error(`no jump gate to ${target}`);
+          const found = this.galaxy.getSystem(target)!.waypoints.find((w) => w.type === "JUMP_GATE");
+          if (!found) throw new Error(`${target} has no jump gate waypoint`);
+          remoteGate = found;
+
+          // A gate that is still under construction cannot be jumped through — no point
+          // burning fuel to reach it. Skip these systems until the gate is completed.
+          // Checked (and cached) via GalaxyAtlas so this agrees with every other
+          // gate-aware decision — canJump()'s own comment has the reasoning.
+          if (!(await this.galaxy.refreshGateConstruction(currentSystem, gate))) {
+            // Re-fetch just for the materials detail in the error message — rare
+            // path (only reached when the gate genuinely isn't complete yet), so
+            // the extra call is cheap. A second, unrelated fetch failure here
+            // falls through and lets the jump attempt itself surface the error.
+            try {
+              const constr = await this.api.getConstruction(currentSystem, gate);
+              if (!constr.isComplete) {
+                throw new Error(`gate ${gate} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
+              }
+            } catch (err) {
+              if (err instanceof Error && err.message.includes("under construction")) throw err;
+            }
+          }
+
+          // The local gate being complete says nothing about the remote end —
+          // SpaceTraders requires both sides of the link finished, and this is
+          // the check that was missing: without it a ship whose local gate was
+          // fine kept retrying the same jump to a system still building its own
+          // gate forever. Record the skip before throwing, so the next
+          // scheduled attempt picks a different candidate instead of the exact
+          // same doomed one.
+          if (!(await this.galaxy.refreshGateConstruction(target, remoteGate.symbol))) {
+            await this.skipGateConstruction(target);
+            try {
+              const constr = await this.api.getConstruction(target, remoteGate.symbol);
+              if (!constr.isComplete) {
+                throw new Error(`remote gate ${remoteGate.symbol} in ${target} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
+              }
+            } catch (err) {
+              if (err instanceof Error && err.message.includes("under construction")) throw err;
+            }
+          }
+
+          break;
         } catch (err) {
-          if (err instanceof Error && err.message.includes("under construction")) throw err;
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!targetSystem && target && attempt < EXPLORE_TARGET_TRIES && /^remote gate .* is under construction/i.test(msg)) {
+            this.log(`${shipSymbol}: ${target} skipped for now (${msg}); choosing another target`);
+            continue;
+          }
+          throw err;
         }
       }
-
-      // The local gate being complete says nothing about the remote end —
-      // SpaceTraders requires both sides of the link finished, and this is
-      // the check that was missing: without it a ship whose local gate was
-      // fine kept retrying the same jump to a system still building its own
-      // gate forever. Record the skip before throwing, so the next
-      // scheduled attempt picks a different candidate instead of the exact
-      // same doomed one.
-      if (!(await this.galaxy.refreshGateConstruction(target, remoteGate.symbol))) {
-        await this.skipGateConstruction(target);
-        try {
-          const constr = await this.api.getConstruction(target, remoteGate.symbol);
-          if (!constr.isComplete) {
-            throw new Error(`remote gate ${remoteGate.symbol} in ${target} is under construction (${constr.materials.map((m) => `${m.tradeSymbol} ${m.fulfilled}/${m.required}`).join(", ")})`);
-          }
-        } catch (err) {
-          if (err instanceof Error && err.message.includes("under construction")) throw err;
-        }
-      }
-
+      if (!target || !remoteGate) throw new Error("explore: no target chosen"); // unreachable: the loop breaks only with both set
       try {
         await this.jumpShip(shipSymbol, remoteGate.symbol);
       } catch (err) {

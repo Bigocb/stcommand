@@ -9,6 +9,22 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — An explorer refused at an unfinished gate picks another system at once, and says why when it has nowhere to go
+
+THEOREM-B5 was refused a jump to X1-DF92 (its gate is unbuilt: FAB_MATS 0/1600, ADVANCED_CIRCUITRY 0/400). The refusal came from the
+explorer's own live check, so no fuel was spent, and the skip was recorded for three hours. But the error went to the explore task's
+catch and the ship sat in orbit at X1-ZR49 for 20 minutes with nothing in its log; new systems stopped arriving while it waited.
+
+- `exploreSystem()` now retries in the same call: a remote gate that turns out to be unfinished is skipped and the next target is
+  chosen, up to three targets (`EXPLORE_TARGET_TRIES`). The candidate list is filtered again on each pass so a system skipped a moment
+  ago is not picked again. A target the caller asked for is never swapped, and a local-gate refusal still throws (it would fail for every target).
+- The no-target wait (5 minutes) was silent. It now logs once per 30 minutes per ship how many systems are connected and which were
+  skipped while their gate is built (`logNoExploreTarget`).
+- Not found: why B5 stayed silent for 20 minutes. This change covers the refusal path and makes the other path visible; if the next
+  stall logs a no-target line, the cause is in the target filter, not the retry.
+- Tests: `tests/exploreGateRetry.test.ts` (retry moves on, gives up after three, never swaps an explicit target, no-target log is
+  throttled). Removing the retry fails the first test.
+
 ## 2026-10-24 — Agent watch: when each agent registered, what its start looked like, how fast start gates get built
 
 Operator idea after the fresh-gate work: players may register several agents and keep the one that starts next to a built gate.
