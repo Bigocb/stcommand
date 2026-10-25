@@ -767,6 +767,27 @@ export class MissionManager {
     t.basePrice = undefined;
   }
 
+  /**
+   * A pacing wait (buy gap, recovery band) on one material should not park the only carrier at that market while another
+   * material is free to buy. Hands the carrier on to the next unblocked outstanding material for `holdMs`, then it comes back.
+   * Not done while the hold still carries some of `material` (switching would sell it off as unrelated cargo), when there is
+   * no other material to go to, or when the other one is held back itself. Returns true when the carrier moved on.
+   */
+  private yieldToOtherMaterial(mission: Mission, t: TaskState, material: string, held: { symbol: string; units: number }[], holdMs: number): boolean {
+    const now = Date.now();
+    const only = mission.pacing?.onlyMaterials;
+    const others = mission.materials.filter((m) => m.tradeSymbol !== material && m.fulfilled < m.required && (!only?.length || only.includes(m.tradeSymbol)));
+    if (!others.some((m) => (t.blockedUntil?.[m.tradeSymbol] ?? 0) <= now)) return false;
+    if (held.some((i) => i.symbol === material && i.units > 0)) return false;
+    (t.blockedUntil ??= {})[material] = now + holdMs;
+    t.currentMaterial = undefined;
+    t.market = undefined;
+    t.basePrice = undefined;
+    t.waitReason = undefined;
+    t.retryAt = now + 15_000;
+    return true;
+  }
+
   /** Free the hold of anything that isn't `keep` (the mission's own material)
    *  or FUEL — selling for real credits at the ship's current market where
    *  possible, jettisoning only what genuinely can't be sold there. Confirmed
@@ -947,6 +968,10 @@ export class MissionManager {
         const gapKey = `${mission.targetWaypoint}|${material}`;
         const nextBuyAt = this.nextBuyAt.get(gapKey) ?? 0;
         if (Date.now() < nextBuyAt) {
+          if (this.yieldToOtherMaterial(mission, t, material, ship.cargo.inventory, nextBuyAt - Date.now())) {
+            this.log(`mission ${mission.targetWaypoint}: ${material} is inside its ${mission.pacing?.buyGapMin} min buy gap — buying another material meanwhile`);
+            return;
+          }
           t.retryAt = nextBuyAt;
           t.waitReason = `buy gap (${mission.pacing?.buyGapMin} min between purchases)`;
           return;
@@ -976,6 +1001,10 @@ export class MissionManager {
           const before = this.preBuyPrice.get(gapKey);
           const allowed = before !== undefined ? before * (1 + mission.pacing.recoverPct / 100) : Infinity;
           if (!withinRecovery(before, price, mission.pacing.recoverPct)) {
+            if (this.yieldToOtherMaterial(mission, t, material, ship.cargo.inventory, PACING_RECHECK_MS)) {
+              this.log(`mission ${mission.targetWaypoint}: ${material} at ${market} is ${price}c, above its recovery band (${Math.round(allowed)}c) — buying another material meanwhile`);
+              return;
+            }
             t.retryAt = Date.now() + PACING_RECHECK_MS;
             t.waitReason = `${material} ask ${price}c, waiting for ${Math.round(allowed)}c (recovery +${mission.pacing.recoverPct}% over ${before}c)`;
             const last = this.recoverLogAt.get(gapKey) ?? 0;
