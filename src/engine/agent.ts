@@ -19,6 +19,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Surveys to take looking for a preferred deposit before falling back to plain extraction. */
 const PREFERRED_SURVEY_RETRIES = 4;
 const HALT_POLL_MS = 1_000;
+/**
+ * Scheduler priority of a dedicated explorer's task. Was 3, shared with ~350 keepers and behind ~100 always-ready traders (2): the
+ * runner takes the lowest number first and re-sorts every few seconds, so explorers' arrivals ran 15-50 minutes late and no new
+ * systems were found for 7 hours (2026-10-25). Within a tier, oldest-due runs first.
+ */
+export const EXPLORE_PRIORITY = 2;
 
 /** Farthest leg (fuel units) a tour/scout ship will DRIFT when nothing is within
  *  cruise range: a drift is hours per leg, so beyond this the target is not
@@ -2365,12 +2371,9 @@ export class ShipAgent {
     return {
       id: `${this.symbol}-explore`,
       shipSymbol: this.symbol,
-      // Same tier as tour — this hull produces new charted space the same
-      // way a tour ship produces fresh price intel, and a dedicated
-      // explorer starved under budget pressure means the fleet stops
-      // finding anywhere new just as surely as a starved tour means stale
-      // prices.
-      priority: 3,
+      // The trader tier (see EXPLORE_PRIORITY). This hull produces new charted space, and a dedicated explorer starved under
+      // budget pressure means the fleet stops finding anywhere new.
+      priority: EXPLORE_PRIORITY,
       estimatedCalls: 3,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {

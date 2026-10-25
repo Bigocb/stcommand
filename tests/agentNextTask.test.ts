@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { ShipAgent, type Ship } from "../src/engine/agent.js";
+import { ShipAgent, EXPLORE_PRIORITY, type Ship } from "../src/engine/agent.js";
 import { ScoutAgent } from "../src/engine/scout.js";
 import { SiphonerAgent } from "../src/engine/siphoner.js";
 import { NavigationPending } from "../src/engine/agentStep.js";
@@ -160,6 +160,24 @@ describe("ShipAgent.nextTourTask", () => {
     assert.ok(called);
     const delay = result.next!.earliestRunAt - Date.now();
     assert.ok(delay > 25_000 && delay <= 30_000, "no work found must back off ~30s, same as tourLoop()");
+  });
+});
+
+describe("ShipAgent.nextExploreTask", () => {
+  it("runs in the trader tier, ahead of keepers and tours", async () => {
+    // 2026-10-25: at priority 3 an explorer shared a tier with ~350 keepers and sat behind ~100 always-ready traders, so its
+    // arrivals ran 15-50 minutes late and no new system was found for 7 hours. The runner takes the lowest number first.
+    const agent = new ShipAgent(makeShip("EXPLORER-1"), { api: { getCallCount: () => 0 } as any });
+    let called = false;
+    (agent as any).exploreScout = async () => { called = true; return false; };
+    agent.running = true;
+    const task = agent.nextExploreTask();
+    assert.equal(task.id, "EXPLORER-1-explore");
+    assert.equal(task.priority, EXPLORE_PRIORITY);
+    assert.equal(task.priority, agent.nextTask().priority, "same tier as trading");
+    assert.ok(task.priority < agent.nextKeeperTask().priority, "ahead of keepers");
+    await task.run();
+    assert.ok(called);
   });
 });
 

@@ -9,6 +9,21 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Explorer tasks move to the trader tier in the scheduler
+
+Explorer tasks ran at priority 3, the same tier as about 350 keepers, and behind roughly 100 always-ready traders (priority 2). The
+runner takes the lowest number first and re-sorts every few seconds, so a priority-3 task is reached only when no trader is waiting.
+Live (03:15-03:19 UTC, after a restart): 338 tasks queued, 309-337 ready, about 15 tasks run per 35 s, tokens full, so a pass over the
+ready list takes about 12 minutes. `ops_stuck` showed explorer arrivals 15-50 minutes overdue (THEOREM-59 by 50) against about 2 minutes
+for traders, and no new system had been accepted for 7 hours.
+
+- `EXPLORE_PRIORITY` (agent.ts) is 2, so `nextExploreTask()` queues with traders, oldest-due first. Seven explorers, so the extra load is small.
+- Tour ships were not changed: a tour with a trip under way already gets priority 2 (`tourPriority.ts`). THEOREM-B5's tour dispatch
+  did start, about 25 minutes after it was sent. Scouts stay at 4.
+- Not proven: the log buffer reset on the restart, so there is no pre-restart heartbeat to confirm the backlog was the same earlier.
+  The cause is read from the ordering code and the overdue arrivals.
+- Test: `ShipAgent.nextExploreTask` in `tests/agentNextTask.test.ts` (same tier as trading, ahead of keepers); putting the priority back at 3 fails it.
+
 ## 2026-10-25 — An explorer refused at an unfinished gate picks another system at once, and says why when it has nowhere to go
 
 THEOREM-B5 was refused a jump to X1-DF92 (its gate is unbuilt: FAB_MATS 0/1600, ADVANCED_CIRCUITRY 0/400). The refusal came from the
