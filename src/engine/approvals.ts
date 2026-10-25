@@ -101,3 +101,21 @@ export class ApprovalGate {
     return undefined;
   }
 }
+
+/** Kind prefix of the "needs a role" card raised for a just-bought ship (FleetManager.maybeResolveNewShipRoles). */
+export const ROLE_APPROVAL_PREFIX = "assignShipRole:";
+
+/**
+ * The open "needs a role" cards that no longer ask anything: the ship is not waiting on a role decision any more because a
+ * role was set another way (an opening task, the Fleet tab, an MCP call) or the engine restarted and gave it one at boot. Left
+ * alone they sat in the Approvals panel until they timed out, and answering one could not do anything (2026-10-25: THEO-4 and
+ * THEO-5, roled by opening tasks, kept asking). Pure so the rule has a test.
+ */
+export function mootRoleApprovals(
+  open: readonly { id: string; kind: string; status: string }[],
+  stillAwaitingRole: ReadonlySet<string>,
+): string[] {
+  return open
+    .filter((r) => r.status === "pending" && r.kind.startsWith(ROLE_APPROVAL_PREFIX) && !stillAwaitingRole.has(r.kind.slice(ROLE_APPROVAL_PREFIX.length)))
+    .map((r) => r.id);
+}

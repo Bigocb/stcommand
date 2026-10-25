@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-25 — Stale "needs a role" cards are withdrawn
+
+A ship bought by an opening task (or roled from the Fleet tab, MCP, or a restart) kept its "needs a role" approval card until it timed out, and answering it did nothing (THEO-4 and THEO-5, 2026-10-25). Each tick `FleetManager.withdrawMootRoleApprovals()` now expires any open `assignShipRole:` card whose ship is no longer awaiting a role decision (rule in `mootRoleApprovals`, `src/engine/approvals.ts`). Other kinds of card are untouched. `tests/mootRoleApprovals.test.ts`.
+
 ## 2026-10-25 — Opening task: a tour ship that becomes a trader once the markets are priced
 
 New trigger `marketsSurveyed` and new step `waitFor` in the opening-task engine (`src/engine/openingTasks.ts`, `openingRunner.ts`, pure helper `surveyCoverage.ts`). A task can now pause part-way (the ship it bought is only known to that task) until every home-system market with at least `keeperMinGoods` goods has been priced by a visit or a keeper; a market whose goods count is not known yet counts as unpriced rather than being skipped. The new "Tour ship that becomes a trader" preset (Tower and Deck Opening form) buys a light shuttle, sets it to tour, waits for coverage, then sets the same ship to trader. Coverage is only gathered while a task uses it. `tests/marketsSurveyed.test.ts`.

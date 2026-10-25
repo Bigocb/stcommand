@@ -12,7 +12,7 @@ import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent, HeldRouteRow, ShipMovement, ActionEventRecord } from "../db/store.js";
 import { configChangeEvent, keeperListChange } from "./actionEvents.js";
-import { ApprovalGate } from "./approvals.js";
+import { ApprovalGate, mootRoleApprovals } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
 import { CooldownPending, IDLE_STEP, Pending, describeError, type AgentStep } from "./agentStep.js";
@@ -3172,6 +3172,7 @@ export class FleetManager {
    * row per kind.
    */
   private async maybeResolveNewShipRoles(): Promise<void> {
+    await this.withdrawMootRoleApprovals();
     for (const [shipSymbol, pending] of [...this.pendingRoleShips]) {
       const approved = await this.approvals.request(`assignShipRole:${shipSymbol}`, {
         shipSymbol,
@@ -3203,6 +3204,19 @@ export class FleetManager {
         this.log(`${shipSymbol}: left idle — operator will assign a role manually`);
         this.idleShips.set(shipSymbol, pending.ship);
       }
+    }
+  }
+
+  /** Clear "needs a role" cards for ships that are no longer waiting on one (role set by a task, the Fleet tab or a restart). Never throws into the tick. */
+  private async withdrawMootRoleApprovals(): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    try {
+      const open = await this.store.listOpenApprovals(this.tenantId);
+      const ids = mootRoleApprovals(open, new Set(this.pendingRoleShips.keys()));
+      for (const id of ids) await this.store.decideApproval(this.tenantId, id, "expired", true);
+      if (ids.length) this.log(`withdrew ${ids.length} stale role approval${ids.length === 1 ? "" : "s"} (the ships already have a role)`);
+    } catch (err) {
+      this.log(`stale role approvals not cleared this tick: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
