@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-27 — Start scout: register several agents and rank their home systems
+
+`npm run scout:starts` (`src/cli/scoutStarts.ts`) registers 1 to 10 agents on the account and scores each home system for the gate, so a better start can be kept. The score (`src/engine/startScore.ts`, pure, policy as data) counts FAB_MATS sources (a second source is worth +150, none -200), a circuitry producer, whether the raw inputs are sold at home, and market and goods counts. The orchestration (`src/engine/startScout.ts`) takes its network calls as ports; nothing registers without `--yes`, a failed registration does not stop the others, and tokens only go to a git-ignored `.local/` file. Motivated by THEO's single-producer system (docs/start-scout.md). `tests/startScout.test.ts`. Not run against the real API yet.
+
 ## 2026-10-25 — Gate carrier buys another material while one waits to recover
 
 The gate mission's only carrier sat docked at the FAB_MATS market for most of every cycle: after a 20-unit lot the recovery rule (`recoverPct`) holds the next lot until the ask is back within the band, and the 30-minute `buyGapMin` does the same, but a wait did not count as a block, so the carrier never moved on to ADVANCED_CIRCUITRY even when it was cheap (ABUNDANT at 3,815). `MissionManager.yieldToOtherMaterial()` now hands the carrier to the next free outstanding material for the length of the wait, then it returns. It does not move on while the hold still carries some of the waiting material (that would sell it off as unrelated cargo), when no other material is outstanding, or when the other one is held back itself. Cash floor, lot size and price ceiling are unchanged. `tests/missionYield.test.ts`.
