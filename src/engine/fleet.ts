@@ -751,6 +751,7 @@ export class FleetManager {
       // mission's material buying respects the cash floor with no change to
       // mission.ts itself, same trick used for every other injected agent.
       getCredits: async () => this.spendableCredits(),
+      getWalletCredits: () => this.walletCredits(),
       sellCargo: (s, g, u) => this.sellCargo(s, g, u),
       // Confirmed live: this used to call this.api.jettisonCargo() directly —
       // the raw API, bypassing this.jettisonCargo()'s own ledger/activity/log

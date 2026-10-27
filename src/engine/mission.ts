@@ -168,6 +168,11 @@ interface MissionOptions {
   discoverBuyers?: (tradeSymbol: string, systemSymbol: string) => Promise<{ waypoint: string; purchasePrice: number }[]>;
   /** Credits available to spend on mission supplies. */
   getCredits?: () => Promise<number>;
+  /** The wallet before the fleet-wide cash floor comes off. getCredits() is already net of that floor, so a mission's own
+   *  cashFloor was being stacked on top of it: a 750,000 floor needed a wallet of 850,000 with the 100,000 fleet floor
+   *  (2026-10-27: wallet 832,693, carrier waiting "cash 661,853 under the 750,000 floor"). With this set the mission's floor
+   *  is compared with the wallet, and the larger of the two floors is the one kept. */
+  getWalletCredits?: () => number;
   /** Sell cargo for a ship (used to free space / top up credits). */
   sellCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
   jettisonCargo?: (shipSymbol: string, good: string, units: number) => Promise<unknown>;
@@ -211,6 +216,7 @@ export class MissionManager {
   private readonly listBuyers?: MissionOptions["listBuyers"];
   private readonly discoverBuyers?: MissionOptions["discoverBuyers"];
   private readonly getCredits?: MissionOptions["getCredits"];
+  private readonly getWalletCredits?: MissionOptions["getWalletCredits"];
   private readonly sellCargo?: MissionOptions["sellCargo"];
   private readonly jettisonCargo?: MissionOptions["jettisonCargo"];
 
@@ -258,6 +264,7 @@ export class MissionManager {
     this.listBuyers = opts.listBuyers;
     this.discoverBuyers = opts.discoverBuyers;
     this.getCredits = opts.getCredits;
+    this.getWalletCredits = opts.getWalletCredits;
     this.sellCargo = opts.sellCargo;
     this.jettisonCargo = opts.jettisonCargo;
   }
@@ -949,7 +956,13 @@ export class MissionManager {
       }
       const toBuy = Math.min(need.required - need.fulfilled, freeSpace);
       if (toBuy > 0) {
-        const credits = (await this.getCredits?.()) ?? 0;
+        const spendableNow = (await this.getCredits?.()) ?? 0;
+        // The fleet-wide cash floor is what getCredits() has already taken off; add it back so the mission's own floor is a
+        // wallet level, and keep whichever of the two floors is higher.
+        const wallet = this.getWalletCredits?.();
+        const fleetReserve = wallet !== undefined ? Math.max(0, wallet - spendableNow) : 0;
+        const credits = spendableNow + fleetReserve;
+        const missionFloor = Math.max(mission.pacing?.cashFloor ?? 0, fleetReserve);
         const buyer = (await this.listBuyers?.(material, mission.targetSystem))?.find((b) => b.waypoint === market);
         const price = buyer?.purchasePrice ?? 0;
         // No live quote for this market (stale intel, listing dropped) —
@@ -1065,11 +1078,11 @@ export class MissionManager {
         // Spend only what sits above the cash floor. The floor gate above decides whether to buy at all; without this
         // the lot itself was sized from the whole balance (2026-10-08: THEO at ~260k bought 25 AC for 184k, landing at
         // ~75k with a 200k floor, and the traders then had too little cash to buy their own cargo).
-        const spendable = credits - (mission.pacing?.cashFloor ?? 0);
+        const spendable = credits - missionFloor;
         const affordable = price > 0 ? Math.floor(spendable / price) : toBuy;
         if (price > 0 && affordable < 1) {
           t.retryAt = Date.now() + PACING_RECHECK_MS;
-          t.waitReason = `cannot afford one unit above the ${mission.pacing?.cashFloor ?? 0}c floor`;
+          t.waitReason = `cannot afford one unit above the ${missionFloor}c floor`;
           return;
         }
         // Respect the market's per-transaction trade volume limit (e.g. FAB_MATS
@@ -1087,7 +1100,7 @@ export class MissionManager {
         while (bought < lotTarget) {
           const units = Math.max(1, Math.min(lotTarget - bought, volumeCap));
           if (bought > 0) {
-            const floorLeft = credits - spent - (mission.pacing?.cashFloor ?? 0);
+            const floorLeft = credits - spent - missionFloor;
             if (floorLeft < units * price) break;
           }
           let res: Awaited<ReturnType<typeof this.api.purchaseCargo>>;

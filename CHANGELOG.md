@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-27 — Gate mission cash floor is a wallet level, not stacked on the fleet floor
+The mission's `cashFloor` was compared against spendable cash, which is already the wallet minus the fleet cash floor
+(100,000c), so a 750,000c mission floor really needed an 850,000c wallet and the carrier waited with the money there.
+`MissionManager` now gets the raw wallet (`getWalletCredits`) and treats the floor as a wallet level it never spends
+below; the larger of the mission floor and the fleet floor holds. `tests/missionFloor.test.ts`.
+
 ## 2026-10-27 — Gate mission: a max price in credits
 
 The gate's price ceiling was only a percentage over the market's 24-hour low, a baseline the operator never sees. `MissionPacing.maxPrice` is an absolute ceiling in credits per unit: no purchase while the ask is above it (the carrier buys another material meanwhile, or waits and rechecks every 5 minutes), and a lot stops before a chunk that would land above it. When set it replaces the percentage ceiling entirely, and `chain-health` shows it as the ceiling. (The first version took the lower of the two, so a max price of 7,000 was still blocked by the default 40% cap of 1,740; fixed the same day.) Settable from Tower's and Deck's mission card ("max price (c)"), the pacing API and MCP tool, and the `startGateMission` opening step. `tests/missionPacing.test.ts`, `tests/gateOperationSteps.test.ts`.
