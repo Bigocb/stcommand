@@ -1336,6 +1336,20 @@ export class TraderAgent {
     return true;
   }
 
+  /** Ask the operator to approve buying a contract good above the price guard; the loss is what the units cost over what the contract still pays. */
+  private async askContractOverpay(good: string, buyAt: string, price: number, reward: { units: number; payout: number }, reason: string): Promise<boolean | undefined> {
+    if (!this.requestApproval) return false;
+    const loss = Math.max(0, Math.round(price * reward.units - reward.payout));
+    return this.requestApproval(`contractBuyOverCeiling:${good}`, {
+      shipSymbol: this.symbol,
+      detail: `${this.symbol} cannot find ${good} under the contract ceiling: ${reason}. Buying the ${reward.units} unit(s) still needed at ${buyAt} costs about ${Math.round(price * reward.units).toLocaleString("en-US")}c against ${Math.round(reward.payout).toLocaleString("en-US")}c still owed${loss > 0 ? `, a loss of about ${loss.toLocaleString("en-US")}c` : ""}. Approve to buy now, deny to keep trading until the price falls.`,
+      cost: loss,
+      timeoutMs: 60 * 60_000,
+      onTimeout: "deny",
+      denyCooldownMs: 2 * 60 * 60_000,
+    });
+  }
+
   /** Units per buy call for a route: the smaller market tradeVolume, capped by this ship's own lot policy. */
   private tradeLotSize(buyVolume: number, sellVolume: number): number {
     return Math.max(0, effectiveLotSize(Math.min(buyVolume, sellVolume), { lotSize: this.lotSizeCap() }));
@@ -2902,11 +2916,18 @@ export class TraderAgent {
         const reward = await this.contractReward(assigned.good);
         const verdict = contractBuyVerdict({ buyPrice, remainingUnits: reward.units, remainingPayout: reward.payout, spendable: liveCredits }, policy);
         if (verdict.blocked) {
-          this.log(`skipping contract buy: ${assigned.good} at ${buyAt}: ${verdict.reason}; looking for a cheaper source`);
-          this.deadRoutes.add(`${assigned.good}@${buyAt}`);
-          return this.discoverPrices([buyAt]);
+          // Over the ceiling: ask the operator rather than shuttle between markets for a price that may never come. While the
+          // question is open (or after a denial) the ship trades; an approval lets this one purchase through at the live price.
+          const approved = await this.askContractOverpay(assigned.good, buyAt, buyPrice, reward, verdict.reason);
+          if (approved !== true) {
+            this.log(`skipping contract buy: ${assigned.good} at ${buyAt}: ${verdict.reason}; ${approved === undefined ? "waiting on the operator, trading meanwhile" : "operator declined, trading"}`);
+            this.deadRoutes.add(`${assigned.good}@${buyAt}`);
+            return this.runArbitrage(undefined);
+          }
+          this.log(`operator approved buying ${assigned.good} at ${buyPrice}c, over the contract ceiling`);
+        } else {
+          guardCap = verdict.maxUnits;
         }
-        guardCap = verdict.maxUnits;
       }
     }
     const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;

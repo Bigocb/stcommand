@@ -77,9 +77,10 @@ describe("ContractManager.outstandingRewardFor", () => {
 });
 
 describe("the trader's contract buy uses the guard", () => {
-  function trader(opts: { price: number; guard: boolean; credits?: number }) {
+  function trader(opts: { price: number; guard: boolean; credits?: number; approval?: boolean | undefined | "none" }) {
     const logs: string[] = [];
     const bought: number[] = [];
+    const asked: string[] = [];
     const ship = {
       symbol: "T-1",
       nav: { status: "DOCKED", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A", flightMode: "CRUISE", route: { arrival: new Date(0).toISOString() } },
@@ -96,6 +97,7 @@ describe("the trader's contract buy uses the guard", () => {
       },
       log: (m: string) => logs.push(m),
       contractNeeded: async () => 64,
+      ...(opts.approval !== "none" && "approval" in opts ? { requestApproval: async (kind: string, o: { detail: string }) => { asked.push(`${kind}|${o.detail}`); return opts.approval as boolean | undefined; } } : {}),
       ...(opts.guard ? {
         contractReward: async () => ({ units: 64, payout: 179405 }),
         contractBuyPolicy: () => POLICY,
@@ -104,19 +106,47 @@ describe("the trader's contract buy uses the guard", () => {
     let toured = 0;
     const a = agent as never as Record<string, unknown>;
     a.discoverPrices = async () => { toured += 1; return true; };
-    a.runArbitrage = async () => true;
+    let traded = 0;
+    a.runArbitrage = async () => { traded += 1; return true; };
     a.navigateTo = async () => {};
     a.ensureDocked = async () => {};
     a.liveBuyPrice = async () => opts.price;
-    return { logs, bought, toured: () => toured, run: () => (agent as never as { runContractBuy(x: unknown): Promise<boolean> }).runContractBuy({ shipSymbol: "T-1", good: "FOOD", role: "contractBuy", buyAt: "X1-A-A1", buyPrice: opts.price, source: "auto" }) };
+    return { logs, bought, asked, traded: () => traded, toured: () => toured, run: () => (agent as never as { runContractBuy(x: unknown): Promise<boolean> }).runContractBuy({ shipSymbol: "T-1", good: "FOOD", role: "contractBuy", buyAt: "X1-A-A1", buyPrice: opts.price, source: "auto" }) };
   }
 
   it("refuses to buy at a price the contract cannot repay, logs why, and looks for another source", async () => {
     const t = trader({ price: 4666, guard: true });
     await t.run();
     assert.deepEqual(t.bought, [], "nothing bought");
-    assert.equal(t.toured(), 1);
+    assert.equal(t.traded(), 1, "it earns instead of shuttling between markets for a price that may never come");
     assert.match(t.logs.join("\n"), /skipping contract buy: FOOD.*over the ceiling of 3,084c/);
+  });
+
+  it("asks the operator when over the ceiling, and trades while the question is open", async () => {
+    const t = trader({ price: 4666, guard: true, approval: undefined });
+    await t.run();
+    assert.equal(t.asked.length, 1);
+    assert.match(t.asked[0]!, /^contractBuyOverCeiling:FOOD\|.*4,666c|^contractBuyOverCeiling:FOOD\|.*over the ceiling of 3,084c/);
+    assert.match(t.asked[0]!, /loss of about 119,/);
+    assert.deepEqual(t.bought, []);
+    assert.equal(t.traded(), 1);
+    assert.match(t.logs.join("\n"), /waiting on the operator/);
+  });
+
+  it("buys the units still needed once the operator approves", async () => {
+    const t = trader({ price: 4666, guard: true, approval: true });
+    await t.run();
+    assert.equal(t.bought.length, 1, "approved: one purchase goes through at the live price");
+    assert.equal(t.traded(), 0);
+    assert.match(t.logs.join("\n"), /operator approved buying FOOD at 4666c/);
+  });
+
+  it("trades and does not buy when the operator declines", async () => {
+    const t = trader({ price: 4666, guard: true, approval: false });
+    await t.run();
+    assert.deepEqual(t.bought, []);
+    assert.equal(t.traded(), 1);
+    assert.match(t.logs.join("\n"), /operator declined/);
   });
 
   it("buys at a good price, but only up to its share of the cash", async () => {

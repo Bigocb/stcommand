@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-27 — Contract buy over the price ceiling asks the operator
+A contract ship that found its good over the buy guard's ceiling (110% of the contract's pay per unit) skipped the buy and toured
+markets for a cheaper source, which on a one-source good like IRON looped between two waypoints burning a refuel each pass
+(THEO-6, 2026-10-27: 271c against a 196c ceiling, with our own iron feed holding the price up). It now raises a
+`contractBuyOverCeiling:<good>` approval stating the price, the ceiling and the loss, and trades while the question is open or
+after a denial (re-asks after 2 h; unanswered requests expire as a denial after 1 h). Approving lets that one purchase go
+through at the live price. Tests in `tests/contractBuyGuard.test.ts`.
+
 ## 2026-10-27 — Gate mission cash floor is a wallet level, not stacked on the fleet floor
 The mission's `cashFloor` was compared against spendable cash, which is already the wallet minus the fleet cash floor
 (100,000c), so a 750,000c mission floor really needed an 850,000c wallet and the carrier waited with the money there.
