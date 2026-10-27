@@ -1931,6 +1931,8 @@ function renderOps() {
                 <input class="field-input mp-lot" type="number" min="1" placeholder="default" value="${m.pacing?.buyLotUnits ?? ""}" aria-label="Units per purchase" /></label>
               <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">Gap (min)
                 <input class="field-input mp-gap" type="number" min="1" placeholder="none" value="${m.pacing?.buyGapMin ?? ""}" aria-label="Minutes between purchases" /></label>
+              <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="Never pay more than this per unit; the lower of this and the % ceiling applies">Max price (c)
+                <input class="field-input mp-max" type="number" min="1" placeholder="none" value="${m.pacing?.maxPrice ?? ""}" aria-label="Maximum price per unit in credits" /></label>
               <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">Ceiling % over 24h low
                 <input class="field-input mp-cap" type="number" min="1" placeholder="40" value="${m.pacing?.maxInflationPct ?? ""}" aria-label="Price ceiling percent" /></label>
               <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="Buy the next lot only once the ask is back within this % of its level before the previous lot">Recover %
@@ -2021,7 +2023,7 @@ $("ops-missions").addEventListener("click", async (e) => {
   try {
     if (act === "save-pacing") {
       const val = (cls) => { const v = card.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
-      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume") });
+      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), maxPrice: val(".mp-max"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume") });
     } else if (act === "toggle-material") {
       const next = toggledOnlyMaterials(wp, b.dataset.material);
       if (next === undefined) { alert("That would hold every material — use Stop to pause the whole mission."); b.disabled = false; return; }

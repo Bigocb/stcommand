@@ -30,7 +30,7 @@ export type Step =
   | { kind: "contractDuty"; ship: ShipRef; on: boolean }
   | { kind: "setDoctrine"; key: string; value?: number; enabled?: boolean }
   /** Start the home gate's construction mission (idempotent). paused: true leaves it created but not buying, so its materials are protected and the chain is visible; false lets it buy (the engine's own producer-activity and recovery guards still apply). Pacing fields are the mission's own (see setMissionPacing). */
-  | { kind: "startGateMission"; paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }
+  | { kind: "startGateMission"; paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; maxPrice?: number; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }
   /** Start a feeder tier: a crew that sources `good` and sells it into `waypoint`. carrier: a ship symbol to crew it, so the engine's own picker (biggest empty hold first) cannot take a better-placed hull. */
   | { kind: "startFeed"; waypoint: string; good: string; mine?: boolean; carrierTarget?: number; buyAt?: string; stopAtSupply?: "MODERATE" | "HIGH" | "ABUNDANT"; maxLossPerUnit?: number; carrier?: string }
   /** Does nothing itself: the task waits here until the trigger is met, then carries on with the next step. */
@@ -144,6 +144,7 @@ function validateGateMissionStep(s: any): string | undefined {
   if (s.buyLotUnits !== undefined && !posInt(s.buyLotUnits, 1, 1000)) return "buyLotUnits must be a whole number 1 to 1000";
   if (s.buyGapMin !== undefined && !posInt(s.buyGapMin, 0, 1440)) return "buyGapMin must be a whole number 0 to 1440";
   if (s.maxInflationPct !== undefined && !posInt(s.maxInflationPct, 0, 500)) return "maxInflationPct must be a whole number 0 to 500";
+  if (s.maxPrice !== undefined && !posInt(s.maxPrice, 0, 100_000_000)) return "maxPrice must be a whole number 0 to 100,000,000 (0 clears it)";
   if (s.recoverPct !== undefined && !posInt(s.recoverPct, 0, 100)) return "recoverPct must be a whole number 0 to 100";
   if (s.cashFloor !== undefined && !posInt(s.cashFloor, 0, 1_000_000_000)) return "cashFloor must be a whole number 0 to 1,000,000,000 (0 clears it)";
   if (s.cashResume !== undefined && !posInt(s.cashResume, 0, 1_000_000_000)) return "cashResume must be a whole number 0 to 1,000,000,000 (0 clears it)";

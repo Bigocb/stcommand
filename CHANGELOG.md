@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-27 — Gate mission: a max price in credits
+
+The gate's price ceiling was only a percentage over the market's 24-hour low, a baseline the operator never sees. `MissionPacing.maxPrice` is an absolute ceiling in credits per unit: no purchase while the ask is above it (the carrier buys another material meanwhile, or waits and rechecks every 5 minutes), and a lot stops before a chunk that would land above it. The lower of it and the percentage applies, and `chain-health` now shows the lower one as the ceiling. Settable from Tower's and Deck's mission card ("max price (c)"), the pacing API and MCP tool, and the `startGateMission` opening step. `tests/missionPacing.test.ts`, `tests/gateOperationSteps.test.ts`.
+
 ## 2026-10-27 — Start scout: register several agents and rank their home systems
 
 `npm run scout:starts` (`src/cli/scoutStarts.ts`) registers 1 to 10 agents on the account and scores each home system for the gate, so a better start can be kept. The score (`src/engine/startScore.ts`, pure, policy as data) counts FAB_MATS sources (a second source is worth +150, none -200), a circuitry producer, whether the raw inputs are sold at home, and market and goods counts. The orchestration (`src/engine/startScout.ts`) takes its network calls as ports; nothing registers without `--yes`, a failed registration does not stop the others, and tokens only go to a git-ignored `.local/` file. Motivated by THEO's single-producer system (docs/start-scout.md). `tests/startScout.test.ts`. Not run against the real API yet.

@@ -30,6 +30,12 @@ describe("validation", () => {
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", cashFloor: 2_000_000, cashResume: 1_000_000 }])).ok, false);
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", cashFloor: -1 }])).ok, false);
   });
+  it("the mission step takes an absolute max price", () => {
+    assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", maxPrice: 5000 }])).ok, true);
+    assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", maxPrice: 0 }])).ok, true);
+    assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", maxPrice: -1 }])).ok, false);
+    assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", maxPrice: 1.5 }])).ok, false);
+  });
   it("rejects nonsense", () => {
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", buyLotUnits: 0 }])).ok, false);
     assert.equal(validateTaskSpec(spec([{ kind: "startGateMission", onlyMaterials: ["fab mats"] }])).ok, false);

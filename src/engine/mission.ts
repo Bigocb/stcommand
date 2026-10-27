@@ -74,6 +74,9 @@ export interface MissionPacing {
   buyGapMin?: number;
   /** Cumulative price ceiling, percent above the market's trailing-24h low (default 40). */
   maxInflationPct?: number;
+  /** Absolute ceiling in credits per unit, for any material the mission buys: no purchase while the ask is above it
+   *  (the other material is bought meanwhile). Works alongside maxInflationPct; the lower of the two applies. */
+  maxPrice?: number;
   /** Buy the next lot only once the ask has come back to within this percent of what it was before the previous
    *  lot: a sawtooth that paces buying by the market's own refill rather than by the clock. Unset = no such gate. */
   recoverPct?: number;
@@ -480,11 +483,11 @@ export class MissionManager {
    */
   /** Merge pacing settings into a mission. A key set to null (or 0 for the lot and gap) clears it
    *  back to the default; keys not mentioned keep their value. */
-  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null }): Promise<MissionPacing | null> {
+  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null }): Promise<MissionPacing | null> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
     const next: MissionPacing = { ...(mission.pacing ?? {}) };
-    const apply = (key: "buyLotUnits" | "buyGapMin" | "maxInflationPct" | "recoverPct" | "cashFloor" | "cashResume", v: number | null | undefined, min: number, max: number) => {
+    const apply = (key: "buyLotUnits" | "buyGapMin" | "maxInflationPct" | "maxPrice" | "recoverPct" | "cashFloor" | "cashResume", v: number | null | undefined, min: number, max: number) => {
       if (v === undefined) return;
       if (v === null || v === 0) { delete next[key]; return; }
       const range = Number.isFinite(max) ? `between ${min} and ${max}` : `at least ${min}`;
@@ -501,6 +504,7 @@ export class MissionManager {
     // is cashFloor/cashResume plus the per-material 30m pause above, not this
     // number; the ceiling is a pacing preference, not a safety limit.
     apply("maxInflationPct", patch.maxInflationPct, 1, Number.POSITIVE_INFINITY);
+    apply("maxPrice", patch.maxPrice, 1, 100_000_000);
     apply("recoverPct", patch.recoverPct, 1, 100);
     apply("cashFloor", patch.cashFloor, 1, 1_000_000_000);
     apply("cashResume", patch.cashResume, 1, 1_000_000_000);
@@ -1015,6 +1019,22 @@ export class MissionManager {
             return;
           }
         }
+        // The operator's own price in credits, if set: simpler to reason about than a percent over a baseline they never saw.
+        const maxPrice = mission.pacing?.maxPrice;
+        if (maxPrice !== undefined && price > maxPrice) {
+          if (this.yieldToOtherMaterial(mission, t, material, ship.cargo.inventory, PACING_RECHECK_MS)) {
+            this.log(`mission ${mission.targetWaypoint}: ${material} at ${market} is ${price}c, over the ${maxPrice}c max price — buying another material meanwhile`);
+            return;
+          }
+          t.retryAt = Date.now() + PACING_RECHECK_MS;
+          t.waitReason = `${material} ask ${price}c is over the ${maxPrice}c max price`;
+          const lastLog = this.recoverLogAt.get(`${gapKey}|max`) ?? 0;
+          if (Date.now() - lastLog > 30 * 60_000) {
+            this.recoverLogAt.set(`${gapKey}|max`, Date.now());
+            this.log(`mission ${mission.targetWaypoint}: ${material} at ${market} is ${price}c, waiting for it to fall to the ${maxPrice}c max price; next check ${new Date(t.retryAt).toISOString().slice(11, 19)}`);
+          }
+          return;
+        }
         const ceiling = (mission.pacing?.maxInflationPct ?? MAX_MISSION_BUY_INFLATION_CUMULATIVE * 100) / 100;
         const firstSeen = await this.baselineFor(mission, need, market, price);
         if (price > firstSeen * (1 + ceiling)) {
@@ -1058,7 +1078,7 @@ export class MissionManager {
         // ~40 minute round trip half empty. Later chunks stop at the price ceiling or the cash floor.
         t.waitReason = undefined;
         const lotTarget = Math.max(1, Math.min(toBuy, affordable, lotCap));
-        const priceCeiling = firstSeen * (1 + ceiling);
+        const priceCeiling = Math.min(firstSeen * (1 + ceiling), maxPrice ?? Infinity);
         let bought = 0;
         let spent = 0;
         while (bought < lotTarget) {

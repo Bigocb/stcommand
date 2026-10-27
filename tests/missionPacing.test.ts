@@ -168,3 +168,34 @@ describe("MissionManager.carrierStatus", () => {
     assert.deepEqual(h.bought, [5]);
   });
 });
+
+describe("MissionPacing.maxPrice: an absolute price in credits", () => {
+  it("setPacing keeps it, clears it with null, and validates the range", async () => {
+    const { mgr } = harness();
+    await mgr.startConstruction("X1-A-I1");
+    assert.deepEqual(await mgr.setPacing("X1-A-I1", { maxPrice: 5000 }), { maxPrice: 5000 });
+    assert.deepEqual(await mgr.setPacing("X1-A-I1", { buyLotUnits: 20 }), { maxPrice: 5000, buyLotUnits: 20 });
+    assert.deepEqual(await mgr.setPacing("X1-A-I1", { maxPrice: null }), { buyLotUnits: 20 });
+    await assert.rejects(() => mgr.setPacing("X1-A-I1", { maxPrice: -5 }), /between/);
+  });
+
+  async function run(maxPrice: number | undefined, ask: number) {
+    const h = harness({ price: ask, tradeVolume: 20 });
+    await h.mgr.startConstruction("X1-A-I1");
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 20, maxInflationPct: 100_000, ...(maxPrice !== undefined ? { maxPrice } : {}) });
+    await h.mgr.tick();
+    return h.bought;
+  }
+
+  it("buys nothing while the ask is above it, and says why", async () => {
+    assert.deepEqual(await run(5000, 6000), []);
+  });
+  it("buys when the ask is at or under it", async () => {
+    assert.deepEqual(await run(5000, 5000), [20]);
+    assert.deepEqual(await run(5000, 4000), [20]);
+  });
+  it("without it nothing changes", async () => {
+    assert.deepEqual(await run(undefined, 6000), [20]);
+  });
+});

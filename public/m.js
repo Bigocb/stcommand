@@ -1868,6 +1868,7 @@ function renderMoreMissions() {
       <div class="mission-pacing">
         <label class="mp-field"><span>lot</span><input type="number" class="mp-lot" min="1" placeholder="default" value="${m.pacing?.buyLotUnits ?? ""}" aria-label="Units per purchase"></label>
         <label class="mp-field"><span>gap min</span><input type="number" class="mp-gap" min="1" placeholder="none" value="${m.pacing?.buyGapMin ?? ""}" aria-label="Minutes between purchases"></label>
+        <label class="mp-field"><span>max price (c)</span><input type="number" class="mp-max" min="1" placeholder="none" value="${m.pacing?.maxPrice ?? ""}" aria-label="Maximum price per unit in credits"></label>
         <label class="mp-field"><span>ceiling %</span><input type="number" class="mp-cap" min="1" placeholder="40" value="${m.pacing?.maxInflationPct ?? ""}" aria-label="Price ceiling percent"></label>
         <label class="mp-field" title="Buy the next lot only once the ask is back within this % of its level before the previous lot"><span>recover %</span><input type="number" class="mp-rec" min="1" placeholder="off" value="${m.pacing?.recoverPct ?? ""}" aria-label="Recovery percent"></label>
         <label class="mp-field" title="Hold purchases while credits are under this"><span>cash floor</span><input type="number" class="mp-floor" min="1" placeholder="off" value="${m.pacing?.cashFloor ?? ""}" aria-label="Cash floor"></label>
@@ -2197,7 +2198,7 @@ $("more-missions").addEventListener("click", async (e) => {
     } else if (act === "save-pacing") {
       const row = b.closest(".mission-pacing");
       const val = (cls) => { const v = row.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
-      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume") });
+      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), maxPrice: val(".mp-max"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume") });
     } else if (act === "toggle-material") {
       const m = missions.find((x) => x.targetWaypoint === wp);
       const outstanding = (m?.materials ?? []).filter((x) => x.fulfilled < x.required).map((x) => x.tradeSymbol);

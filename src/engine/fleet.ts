@@ -7472,7 +7472,9 @@ export class FleetManager {
         for (const p of producers) {
           const low = mat.priceBaselines?.[p.waypoint]?.price ?? null;
           (p as ChainProducer).low24h = low;
-          (p as ChainProducer).ceiling = low !== null ? Math.round(low * (1 + ceilingPct / 100)) : null;
+          const pctCeiling = low !== null ? Math.round(low * (1 + ceilingPct / 100)) : null;
+          const cap = m.pacing?.maxPrice;
+          (p as ChainProducer).ceiling = cap !== undefined ? (pctCeiling === null ? cap : Math.min(pctCeiling, cap)) : pctCeiling;
         }
         materials.push({
           tradeSymbol: mat.tradeSymbol,
@@ -7502,7 +7504,7 @@ export class FleetManager {
    * place before any buying: start, pause, set pacing, resume. `paused: true` stops after the pacing and leaves it created but
    * not buying. Idempotent: an existing mission keeps its progress and just gets the pacing and the paused/resumed state.
    */
-  async startHomeGateMission(opts: { paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }): Promise<void> {
+  async startHomeGateMission(opts: { paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; maxPrice?: number; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }): Promise<void> {
     const gate = this.galaxy.getSystem(this.systemSymbol)?.waypoints.find((w) => w.type === "JUMP_GATE");
     if (!gate) throw new Error(`no jump gate known in ${this.systemSymbol}`);
     if (this.homeGateOpen()) return; // nothing left to build
@@ -7583,7 +7585,7 @@ export class FleetManager {
   /** Per-mission buy pacing (lot size, minimum gap, price ceiling) — see MissionPacing. */
   async setMissionPacing(
     waypointSymbol: string,
-    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null },
+    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null },
   ) {
     return this.missions.setPacing(waypointSymbol, patch);
   }

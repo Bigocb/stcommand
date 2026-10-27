@@ -229,7 +229,7 @@ export function chainHealthHtml(h) {
     ${inputRows(p.inputs ?? [], depth)}`;
   return h.materials.map((m) => {
     const pct = m.required ? Math.round((m.fulfilled / m.required) * 100) : 0;
-    const pacing = m.pacing ? Object.entries(m.pacing).map(([k, v]) => `${k.replace("buyLotUnits", "lot").replace("buyGapMin", "gap").replace("maxInflationPct", "ceiling%").replace("recoverPct", "recover%")} ${v}`).join(" · ") : "default pacing";
+    const pacing = m.pacing ? Object.entries(m.pacing).map(([k, v]) => `${k.replace("buyLotUnits", "lot").replace("buyGapMin", "gap").replace("maxInflationPct", "ceiling%").replace("maxPrice", "max price").replace("recoverPct", "recover%")} ${v}`).join(" · ") : "default pacing";
     return `
       <div class="ch-card">
         <div class="ch-head">
