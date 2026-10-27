@@ -1864,7 +1864,7 @@ function renderMoreMissions() {
       </div>
       <div class="detail">crew ${crew.length}/${target}${crew.length ? `: ${escapeHtml(crew.join(", "))}` : ""}</div>
       ${matRows}
-      <div class="detail">Buy pacing — slows buying so the price is not outrun. Blank = default. Lot = units per purchase, gap = minutes between purchases, ceiling = % over the 24h low, recover = wait for the ask to fall back within this % of its pre-lot level.</div>
+      <div class="detail">Buy pacing — slows buying so the price is not outrun. Blank = default. Lot = units per purchase, gap = minutes between purchases, max price = never pay more than this many credits a unit (replaces the % ceiling when set), ceiling = % over the 24h low, recover = wait for the ask to fall back within this % of its pre-lot level.</div>
       <div class="mission-pacing">
         <label class="mp-field"><span>lot</span><input type="number" class="mp-lot" min="1" placeholder="default" value="${m.pacing?.buyLotUnits ?? ""}" aria-label="Units per purchase"></label>
         <label class="mp-field"><span>gap min</span><input type="number" class="mp-gap" min="1" placeholder="none" value="${m.pacing?.buyGapMin ?? ""}" aria-label="Minutes between purchases"></label>

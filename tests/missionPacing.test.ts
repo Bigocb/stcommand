@@ -199,3 +199,27 @@ describe("MissionPacing.maxPrice: an absolute price in credits", () => {
     assert.deepEqual(await run(undefined, 6000), [20]);
   });
 });
+
+describe("maxPrice replaces the percentage ceiling", () => {
+  // 2026-10-27: max price 7,000 was set with the ask at 5,386, but the default 40% cap over the 1,243 low (1,740) still blocked every buy.
+  async function runWithBaseline(pacing: Record<string, number>, ask: number) {
+    const h = harness({ price: ask, tradeVolume: 20 });
+    await h.mgr.startConstruction("X1-A-I1", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0, priceBaselines: { "X1-A-M1": { price: 1000, seededAt: Date.now() } } } as any]);
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 20, ...pacing });
+    await h.mgr.tick();
+    return h.bought;
+  }
+  it("buys at 5,000 against a 1,000 baseline when the max price is 7,000, with no percentage set", async () => {
+    assert.deepEqual(await runWithBaseline({ maxPrice: 7000 }, 5000), [20]);
+  });
+  it("a percentage still applies when no max price is set (default 40% over 1,000 = 1,400)", async () => {
+    assert.deepEqual(await runWithBaseline({}, 5000), []);
+  });
+  it("a max price is not undone by a smaller percentage that is also set", async () => {
+    assert.deepEqual(await runWithBaseline({ maxPrice: 7000, maxInflationPct: 40 }, 5000), [20]);
+  });
+  it("still holds above the max price", async () => {
+    assert.deepEqual(await runWithBaseline({ maxPrice: 4000 }, 5000), []);
+  });
+});

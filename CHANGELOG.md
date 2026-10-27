@@ -11,7 +11,7 @@ be useful context; not a complete project history — see `git log` for that.
 
 ## 2026-10-27 — Gate mission: a max price in credits
 
-The gate's price ceiling was only a percentage over the market's 24-hour low, a baseline the operator never sees. `MissionPacing.maxPrice` is an absolute ceiling in credits per unit: no purchase while the ask is above it (the carrier buys another material meanwhile, or waits and rechecks every 5 minutes), and a lot stops before a chunk that would land above it. The lower of it and the percentage applies, and `chain-health` now shows the lower one as the ceiling. Settable from Tower's and Deck's mission card ("max price (c)"), the pacing API and MCP tool, and the `startGateMission` opening step. `tests/missionPacing.test.ts`, `tests/gateOperationSteps.test.ts`.
+The gate's price ceiling was only a percentage over the market's 24-hour low, a baseline the operator never sees. `MissionPacing.maxPrice` is an absolute ceiling in credits per unit: no purchase while the ask is above it (the carrier buys another material meanwhile, or waits and rechecks every 5 minutes), and a lot stops before a chunk that would land above it. When set it replaces the percentage ceiling entirely, and `chain-health` shows it as the ceiling. (The first version took the lower of the two, so a max price of 7,000 was still blocked by the default 40% cap of 1,740; fixed the same day.) Settable from Tower's and Deck's mission card ("max price (c)"), the pacing API and MCP tool, and the `startGateMission` opening step. `tests/missionPacing.test.ts`, `tests/gateOperationSteps.test.ts`.
 
 ## 2026-10-27 — Start scout: register several agents and rank their home systems
 

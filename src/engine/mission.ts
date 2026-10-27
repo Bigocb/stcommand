@@ -75,7 +75,10 @@ export interface MissionPacing {
   /** Cumulative price ceiling, percent above the market's trailing-24h low (default 40). */
   maxInflationPct?: number;
   /** Absolute ceiling in credits per unit, for any material the mission buys: no purchase while the ask is above it
-   *  (the other material is bought meanwhile). Works alongside maxInflationPct; the lower of the two applies. */
+   *  (the other material is bought meanwhile). When set it REPLACES the percentage ceiling (maxInflationPct and its
+   *  default 40): a price in credits is the operator's own rule, and a leftover percentage over a baseline they never
+   *  saw would silently override it (2026-10-27: max price 7,000 set, ask 5,386, nothing bought because the default
+   *  40% cap was 1,740). */
   maxPrice?: number;
   /** Buy the next lot only once the ask has come back to within this percent of what it was before the previous
    *  lot: a sawtooth that paces buying by the market's own refill rather than by the clock. Unset = no such gate. */
@@ -1037,7 +1040,7 @@ export class MissionManager {
         }
         const ceiling = (mission.pacing?.maxInflationPct ?? MAX_MISSION_BUY_INFLATION_CUMULATIVE * 100) / 100;
         const firstSeen = await this.baselineFor(mission, need, market, price);
-        if (price > firstSeen * (1 + ceiling)) {
+        if (maxPrice === undefined && price > firstSeen * (1 + ceiling)) {
           (t.blockedUntil ??= {})[material] = Date.now() + 30 * 60_000;
           t.currentMaterial = undefined;
           t.market = undefined;
@@ -1078,7 +1081,7 @@ export class MissionManager {
         // ~40 minute round trip half empty. Later chunks stop at the price ceiling or the cash floor.
         t.waitReason = undefined;
         const lotTarget = Math.max(1, Math.min(toBuy, affordable, lotCap));
-        const priceCeiling = Math.min(firstSeen * (1 + ceiling), maxPrice ?? Infinity);
+        const priceCeiling = maxPrice ?? firstSeen * (1 + ceiling);
         let bought = 0;
         let spent = 0;
         while (bought < lotTarget) {

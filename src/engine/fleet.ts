@@ -7473,8 +7473,7 @@ export class FleetManager {
           const low = mat.priceBaselines?.[p.waypoint]?.price ?? null;
           (p as ChainProducer).low24h = low;
           const pctCeiling = low !== null ? Math.round(low * (1 + ceilingPct / 100)) : null;
-          const cap = m.pacing?.maxPrice;
-          (p as ChainProducer).ceiling = cap !== undefined ? (pctCeiling === null ? cap : Math.min(pctCeiling, cap)) : pctCeiling;
+          (p as ChainProducer).ceiling = m.pacing?.maxPrice ?? pctCeiling;
         }
         materials.push({
           tradeSymbol: mat.tradeSymbol,
