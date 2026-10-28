@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-28 — Auto-approved keepers buy through a ship at any yard in the system, not only the cheapest yard
+TV37 (22 markets wanted keepers, auto-approve on, 4.4M in the wallet) bought none: the cheapest keeper hull was a probe at C43, no ship of ours was
+docked at C43, and the keeper THEO-1F sat at H56, another yard in the same system selling surveyors and mining drones. The log said "none of our ships is
+docked at X1-TV37-C43 ... goes ahead when one is there" and no card was raised, so nothing moved. When the cheapest yard has no ship, the auto-approve path now
+tries `pickKeeperYardWithShip()` (`keeperYard.ts`): the best yard of the system where one of ours already is, hull preference first (probe, surveyor, drones),
+price within a hull, and buys through that ship if the price is within the auto-approve cap and cash reserve. The cheapest yard is still tried first. A keeper
+bought this way may be a surveyor rather than a probe. Tests: `tests/keeperYard.test.ts`.
+
 ## 2026-10-28 — The route board no longer leads with routes no trader can reach
 2026-10-28: another agent of the same operator (THEOREM, paused) had keepers and traders in X1-PK42, whose gate was unfinished. Prices are one
 galaxy-wide table, so THEO's Tower led with PK42 JEWELRY at +4.1M/h, with "not flying" blamed on THEO-6's contract duty. The dispatcher never sent a ship

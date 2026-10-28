@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { routeUnreachableReason } from "../src/engine/routeReach.js";
+// @ts-expect-error plain browser module, no types
 import { sortRoutes } from "../public/shared/domain.js";
 
 const home = new Set(["X1-BT10"]);
@@ -33,7 +34,7 @@ describe("the board sorts an unreachable route last, whatever its rate", () => {
       { goodSymbol: "SHIP_PLATING", ratePerHour: 130_347, profitPerTrip: 3_838, unreachable: false },
       { goodSymbol: "FUEL", ratePerHour: 58_725, profitPerTrip: 522 },
     ];
-    assert.deepEqual(sortRoutes(routes, "hour").map((r) => r.goodSymbol), ["SHIP_PLATING", "FUEL", "JEWELRY"]);
-    assert.deepEqual(sortRoutes(routes, "trip").map((r) => r.goodSymbol), ["SHIP_PLATING", "FUEL", "JEWELRY"]);
+    assert.deepEqual(sortRoutes(routes, "hour").map((r: { goodSymbol: string }) => r.goodSymbol), ["SHIP_PLATING", "FUEL", "JEWELRY"]);
+    assert.deepEqual(sortRoutes(routes, "trip").map((r: { goodSymbol: string }) => r.goodSymbol), ["SHIP_PLATING", "FUEL", "JEWELRY"]);
   });
 });

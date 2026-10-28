@@ -55,7 +55,7 @@ import { getGameResetDate } from "../core/universe.js";
 import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
-import { pickCheapestKeeperYard } from "./keeperYard.js";
+import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange, warpRouteKey, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
 import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
@@ -6949,6 +6949,22 @@ export class FleetManager {
       if (r === "bought") {
         this.log(`keeper probe for ${marketWaypoint} auto-approved and bought at ${best.waypointSymbol}: ${auto.reason}`);
         return true;
+      }
+      // Nothing of ours at the cheapest yard: use a yard of the same system where a ship of ours already is (2026-10-28: TV37's probes were
+      // at C43 with no ship, while THEO-1F, a keeper, sat at H56 in the same system and could have bought all 22).
+      if (r === "no-ship") {
+        const summary = this.fleetStatusSummary();
+        const alt = pickKeeperYardWithShip(yards, { systemSymbol: marketSystem, hulls: KEEPER_HULL_PREFERENCE, nowMs: Date.now(), distance: yardDist, shipPresentAt: (wp) => pickShipAtYard(summary, wp) !== undefined });
+        if (alt && alt.waypointSymbol !== best.waypointSymbol) {
+          const altAuto = this.keeperAutoApproves(alt.purchasePrice);
+          if (altAuto.approve) {
+            const r2 = await this.buyKeeperThroughPresentShip(alt.waypointSymbol, marketWaypoint, alt.purchasePrice, alt.shipType);
+            if (r2 === "bought") {
+              this.log(`keeper ${keeperHullLabel(alt.shipType)} for ${marketWaypoint} auto-approved and bought at ${alt.waypointSymbol} through a ship already there (cheapest yard ${best.waypointSymbol} had none): ${altAuto.reason}`);
+              return true;
+            }
+          }
+        }
       }
       this.keeperNote(`mnoship:${marketWaypoint}`, `keeper for ${marketWaypoint} is within the auto-approve cap but none of our ships is ${r === "failed" ? "reachable" : "docked"} at ${best.waypointSymbol} to buy through; it goes ahead when one is there (no approval card raised)`);
       return false;

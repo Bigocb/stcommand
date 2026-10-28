@@ -38,3 +38,22 @@ export function pickCheapestKeeperYard<T extends KeeperYardRow>(
   }
   return best;
 }
+
+/**
+ * The yard to buy a keeper through when the cheapest one has none of our ships at it: the best yard in the system where one of ours
+ * already is. Hull preference still comes first (probe, then surveyor, then drones), price decides within a hull. A keeper stationed
+ * at any yard of the system can buy for the rest of it, so the batch need not wait for a ship to dock at the cheapest yard.
+ *
+ * Only a fallback: the caller tries the cheapest yard first, since a cheaper yard saves real credits across a whole system.
+ */
+export function pickKeeperYardWithShip<T extends KeeperYardRow>(
+  rows: readonly T[],
+  opts: { systemSymbol: string; hulls: readonly string[]; nowMs: number; freshMs?: number; distance?: (waypoint: string) => number; shipPresentAt: (waypoint: string) => boolean },
+): T | undefined {
+  const here = rows.filter((r) => opts.shipPresentAt(r.waypointSymbol));
+  for (const hull of opts.hulls) {
+    const pick = pickCheapestKeeperYard(here, { systemSymbol: opts.systemSymbol, hulls: [hull], nowMs: opts.nowMs, freshMs: opts.freshMs, distance: opts.distance });
+    if (pick) return pick;
+  }
+  return undefined;
+}
