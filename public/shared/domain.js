@@ -365,7 +365,8 @@ export function setRouteSort(mode) {
 /** Best first. Routes with no trip time sort after the timed ones in "hour" mode. */
 export function sortRoutes(routes, mode) {
   const key = mode === "trip" ? (r) => r.profitPerTrip ?? 0 : (r) => r.ratePerHour ?? -1;
-  return [...routes].sort((a, b) => key(b) - key(a) || (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0));
+  // A route no trader can reach goes last whatever its numbers (the server marks it `unreachable`).
+  return [...routes].sort((a, b) => (a.unreachable ? 1 : 0) - (b.unreachable ? 1 : 0) || key(b) - key(a) || (b.profitPerTrip ?? 0) - (a.profitPerTrip ?? 0));
 }
 /** The sort toggle's markup; clicks are handled by the caller on [data-act='route-sort']. */
 export function routeSortBar(mode) {

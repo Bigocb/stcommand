@@ -29,6 +29,7 @@ import { runsLeft } from "../engine/runsLeft.js";
 import { startSurveyTour } from "../engine/surveyTourControl.js";
 import { parseRouteTag } from "../engine/routeTag.js";
 import { contractsOverview } from "./contractsOverview.js";
+import { routeUnreachableReason } from "../engine/routeReach.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -825,6 +826,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
           })(),
         };
       });
+      // A route no trader of ours can get to is not a route, however good its prices look (they can come from another agent's keepers:
+      // 2026-10-28, THEOREM's ships priced X1-PK42 while its gate was unfinished and THEO's board led with 4M/h JEWELRY there). The
+      // dispatcher already refuses to send a ship (whyUnreachable); say so here, with the real reason, and rank those routes last.
+      const traderSystems = new Set<string>();
+      for (const st of w.fleet.getShipStatuses()) {
+        if (st.role !== "trader" || st.paused) continue;
+        const sys = w.state.get().ships.find((x) => x.symbol === st.symbol)?.nav?.systemSymbol;
+        if (sys) traderSystems.add(sys);
+      }
+      const marked = allRoutes.map((r) => {
+        const why = traderSystems.size ? routeUnreachableReason(r, traderSystems, (a, b) => w.fleet.canFlyBetween(a, b)) : null;
+        return why ? { ...r, unreachable: true, skipReason: why, skipMore: [], skipMoreLabel: "" } : { ...r, unreachable: false };
+      });
+      const unreachableRoutes = marked.filter((r) => r.unreachable).sort((a, b) => b.profitPerTrip - a.profitPerTrip).slice(0, 5);
+      allRoutes = marked.filter((r) => !r.unreachable) as typeof allRoutes;
       // The board can sort by profit per trip or per hour, so keep the best 25 of each rather than only the first.
       // Two explicit sorts, not `allRoutes.slice(0, 25)`: computeDispatchRoutes() hands back its list already sorted
       // by rate-per-hour, so slicing the head re-took the by-rate set and the union below collapsed into it. Live
@@ -837,7 +853,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const missingSameSystem = allRoutes
         .filter((r) => !r.crossSystem && !top.includes(r))
         .slice(0, 5);
-      const routes = [...top, ...missingSameSystem].sort((a, b) => b.profitPerTrip - a.profitPerTrip);
+      const routes = [...[...top, ...missingSameSystem].sort((a, b) => b.profitPerTrip - a.profitPerTrip), ...unreachableRoutes];
 
       // Same ?system= filter as routes/snapshots above — the Yards &
       // outfitting panel shares this endpoint and previously always showed

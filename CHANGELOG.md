@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-28 — The route board no longer leads with routes no trader can reach
+2026-10-28: another agent of the same operator (THEOREM, paused) had keepers and traders in X1-PK42, whose gate was unfinished. Prices are one
+galaxy-wide table, so THEO's Tower led with PK42 JEWELRY at +4.1M/h, with "not flying" blamed on THEO-6's contract duty. The dispatcher never sent a ship
+(its per-trader `whyUnreachable` said "no finished gate path"); the board just did not use that answer, because its reachability filter covered only routes
+whose buy and sell systems differ.
+
+- `routeUnreachableReason()` (`src/engine/routeReach.ts`, pure): a route is unreachable when no active trader is in its buy system or can fly there
+  (`canFlyBetween`, multi-hop included). `/api/markets` marks such routes `unreachable`, gives them the real reason ("no trader can reach X1-PK42: no finished
+  gate path from X1-BT10"), keeps them out of the top-25 cuts and lists at most five of them after the rest; the Tower and Deck sort puts them last in either mode.
+- Not changed: the dispatcher's own scoring. It already refuses the assignment, and its work list still shows these routes at the top. Tests: `tests/routeReach.test.ts`.
+
 ## 2026-10-28 — A finished gate mission opens the gate at once, not after the 45-minute re-read
 The gate opened on 2026-10-28 ~03:26 UTC with the mission reporting complete, but the galaxy cache still held "unfinished" (an unfinished gate is
 re-read only every 45 minutes, and only when something asks), so the new gate-open milestone, the explorer task and the dispatcher's cross-system
