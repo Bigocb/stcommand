@@ -2,6 +2,7 @@ import { routeTag } from "./routeTag.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { contractBuyVerdict, NO_CONTRACT_BUY_GUARD, type ContractBuyPolicy } from "./contractBuyGuard.js";
 import { NO_TRADE_BUY_LIMIT, tripBuyBudget, type TradeBuyPolicy } from "./tripBudget.js";
+import { sinkPreflight } from "./sinkPreflight.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
@@ -83,7 +84,7 @@ export interface TraderOptions {
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Provide latest market snapshots from persistent store on each tick. */
-  getMarketSnapshots?: () => Promise<{ waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[]>;
+  getMarketSnapshots?: () => Promise<{ waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number; timestamp?: string }[]>;
   /** Multi-system atlas for jump routing between systems. */
   atlas?: GalaxyAtlas;
   /** Doctrine toggle for warp travel (see warpTour.ts). Off, or absent, means every cross-system leg takes a gate. */
@@ -263,6 +264,10 @@ const HOLD_BEFORE_FLOOR_APPROVAL_MS = 5 * 60_000;
  *  for the ship to pick something else, short enough that a genuinely recovered route is not lost: deadRoutes is
  *  cleared every tick, so without this the same two markets would be read and the same line logged every few seconds. */
 const SINK_BLOCK_MS = 5 * 60_000;
+/** Cargo already bought: how often the destination is re-judged before travelling, how old a stored reading may be, and the longest a hold on that account lasts. */
+const SINK_PREFLIGHT_RECHECK_MS = 5 * 60_000;
+const SINK_PREFLIGHT_MAX_AGE_MS = 20 * 60_000;
+const SINK_PREFLIGHT_MAX_HOLD_MS = 45 * 60_000;
 /** How long a lot held below its floor waits before the market is read (and the hold is logged) again. */
 const FLOOR_HOLD_RECHECK_MS = 60_000;
 
@@ -1305,6 +1310,43 @@ export class TraderAgent {
     return true;
   }
 
+  /** Per good: when the destination is next re-judged before travel, and when a hold on that account began. */
+  private sinkPreflightAt = new Map<string, number>();
+  private sinkPreflightHeldSince = new Map<string, number>();
+
+  /**
+   * Before flying cargo to its sell market: is the destination still worth it? (sinkPreflight.ts.) The bid comes from a stored
+   * snapshot no older than 20 minutes: a market far away shows no prices to a ship that is not there. True = handled this tick
+   * (redirected to a better market, or held where it is); false = go. A held cargo is looked at again every 5 minutes and let
+   * go after 45, when the loss floor on arrival takes over, so a cargo is never parked indefinitely on a stale reading.
+   */
+  private async sinkLooksBadBeforeTravel(good: string, units: number, leg: DirectLeg & { lotSize: number }): Promise<boolean> {
+    const impact = this.buyGuardImpactPct();
+    if (!(impact > 0) || this.manualLegSkipsLossFloor(good)) return false;
+    const now = Date.now();
+    const due = this.sinkPreflightAt.get(good) ?? 0;
+    if (now < due) return this.sinkPreflightHeldSince.has(good);
+    const cost = await this.costBasis(good);
+    if (cost === undefined || cost <= 0) return false;
+    const snap = ((await this.getMarketSnapshots?.()) ?? []).find((r) => r.waypointSymbol === leg.sellAt && r.goodSymbol === good);
+    const age = snap?.timestamp ? now - Date.parse(snap.timestamp) : 0;
+    const bid = snap && age <= SINK_PREFLIGHT_MAX_AGE_MS && snap.sellPrice > 0 ? snap.sellPrice : undefined;
+    const v = sinkPreflight({ costPerUnit: cost, units, lotSize: leg.lotSize > 0 ? leg.lotSize : units, bid, impactPerLot: impact / 100, maxLossPct: this.maxLossPct });
+    this.sinkPreflightAt.set(good, now + SINK_PREFLIGHT_RECHECK_MS);
+    if (v.ok) { this.sinkPreflightHeldSince.delete(good); return false; }
+    const since = this.sinkPreflightHeldSince.get(good) ?? now;
+    if (now - since >= SINK_PREFLIGHT_MAX_HOLD_MS) {
+      this.sinkPreflightHeldSince.delete(good);
+      this.log(`held ${good}: still not worth flying to ${leg.sellAt} after ${Math.round((now - since) / 60_000)} min, going anyway (${v.reason})`);
+      return false;
+    }
+    this.recordDoctrineFire?.("buyGuardImpactPct");
+    this.sinkPreflightHeldSince.set(good, since);
+    if (await this.redirectBelowFloor(good, leg)) { this.sinkPreflightHeldSince.delete(good); return true; }
+    this.log(`holding ${units}u ${good} at ${this.ship.nav.waypointSymbol}: not flying to ${leg.sellAt}: ${v.reason}`);
+    return true;
+  }
+
   /** True when selling at `price` would exceed the allowed loss vs the cost basis. */
   /**
    * A lot is below its loss floor: keep holding, or has the operator approved selling it here? After
@@ -2281,6 +2323,8 @@ export class TraderAgent {
       }
 
       if (this.ship.nav.waypointSymbol !== leg.sellAt) {
+        // Cargo in the hold: look at the destination again before spending the jumps and fuel (sinkPreflight.ts).
+        if (await this.sinkLooksBadBeforeTravel(item.symbol, item.units, leg)) return true;
         await this.navigateTo(leg.sellAt);
         // Reached only on the blocking path; under the scheduler navigateTo()
         // has already ended the tick and the next one re-enters above.

@@ -1419,7 +1419,7 @@ export class FleetManager {
    * every tick. Feeding the wider window keeps both sides looking at the same
    * world, and the trader re-reads live prices when it docks regardless.
    */
-  private async freshSnapshots(): Promise<{ waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[]> {
+  private async freshSnapshots(): Promise<{ waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number; timestamp: string }[]> {
     const rows = await this.store?.freshMarketSnapshots(this.crossSystemMaxAgeMin());
     return (
       rows?.map((s) => ({
@@ -1428,6 +1428,7 @@ export class FleetManager {
         purchasePrice: s.purchasePrice,
         sellPrice: s.sellPrice,
         tradeVolume: s.tradeVolume,
+        timestamp: s.timestamp,
       })) ?? []
     );
   }

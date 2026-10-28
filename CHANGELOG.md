@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-28 — Cargo already bought: the destination is re-checked before it is flown there
+Option 1 of the rival-trading discussion (operator, 2026-10-28). The GRAVITON cargo was judged against KR9-A1's bid once, at the buy (58k); a rival then sold 126
+units into that market and the bid was 25.7k when the ship arrived, after the jumps and fuel were spent. The loss floor judged it only on arrival.
+
+- `src/engine/sinkPreflight.ts` (pure): with cargo in the hold, take the destination's bid, discount it for the lots the cargo will sell in (the buy guard's per-lot impact,
+  `buyGuardImpactPct`), and compare it with the loss floor, cost less `maxLossPct`. Under the floor: don't fly. No reading, impact 0 or no cost basis judges nothing.
+- `TraderAgent.deliverHeldCargo()` runs it before navigating to the sell market. The bid is a stored market snapshot no older than 20 minutes (a market far away shows no
+  prices to a ship that is not there, so a live read from the buy market is not possible); `freshSnapshots()` now carries each row's timestamp. Under the floor, the ship
+  first tries `redirectBelowFloor()` (another market that clears the floor), else holds where it is and logs `holding Nu GOOD at …: not flying to …`. It looks again every
+  5 minutes and gives up the hold after 45 (the arrival loss floor then applies), so a cargo is never parked on a stale reading. An operator's manual leg is not judged.
+- Not covered: a ship the operator flies by hand, and a collapse after the last check but before arrival. Tests: `tests/sinkPreflight.test.ts` (12; removing the hook fails 3).
+
 ## 2026-10-28 — A trade's buying is capped at a share of the spendable cash (doctrine `tradeBuyCashShare`)
 THEO-1E bought 40 GRAVITON_EMITTERS at about 33.8k a unit, 1.35M in one trip and about 40% of the wallet, for a route into a market that takes lots of 18.
 A rival (VCMININGCORP-339) sold 126 units into that market seven minutes before it arrived; the cargo sold for 765k, a 586k loss. Contract buys already had a
