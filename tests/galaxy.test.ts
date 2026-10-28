@@ -45,6 +45,19 @@ async function makeSeededAtlas(
 }
 
 describe("GalaxyAtlas: gate-construction cache", () => {
+  it("noteGateComplete() opens a gate that was last read as unfinished, without another API call", async () => {
+    const { atlas, calls } = await makeSeededAtlas(async () => ({ isComplete: false, materials: [] }));
+    await atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
+    assert.equal(atlas.gateComplete("X1-A-GATE"), false);
+    const before = calls.length;
+
+    atlas.noteGateComplete("X1-A-GATE"); // the gate's own construction mission reported complete
+
+    assert.equal(atlas.gateComplete("X1-A-GATE"), true);
+    assert.equal(calls.length, before, "no extra read: the 45-minute re-read limit is exactly what this bypasses");
+    assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), true, "and it stays open (one-way)");
+  });
+
   it("gateComplete() is undefined and canJump() is false before anything has been checked", async () => {
     const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
 

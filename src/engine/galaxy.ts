@@ -286,6 +286,18 @@ export class GalaxyAtlas {
     return this.gateConstruction.get(gateSymbol);
   }
 
+  /**
+   * Record that a gate is complete because the game said so through another route (the construction mission that built it
+   * reports complete). The cache is one-way and an unfinished gate is re-read only every GATE_RECHECK_MS (45 minutes), so
+   * without this a gate that just opened stayed "closed" to traders, explorers and tasks for up to that long.
+   */
+  noteGateComplete(gateSymbol: string): void {
+    if (this.gateConstruction.get(gateSymbol) === true) return;
+    this.gateConstruction.set(gateSymbol, true);
+    this.pathCache.clear();
+    this.store?.recordGalaxyGateConstruction?.(gateSymbol, true)?.catch(() => { /* best-effort */ });
+  }
+
   /** True if a jump from fromSystem to toSystem is possible right now,
    *  per cached construction status. An unchecked or under-construction
    *  gate reads as not jumpable — the safe default, matching how a fresh

@@ -3938,6 +3938,7 @@ export class FleetManager {
 
   /** Set once the gate-open milestone is on record for this process, so the check below costs nothing afterwards. */
   private gateMilestoneChecked = false;
+  private gateMissionCheckedAt = 0;
   private readonly gateSeenClosedAt: { value?: number } = {};
 
   /**
@@ -3949,8 +3950,18 @@ export class FleetManager {
   private async maybeRecordGateOpened(): Promise<void> {
     if (this.gateMilestoneChecked || !this.store || !this.tenantId) return;
     if (!this.homeGateOpen()) {
-      this.gateSeenClosedAt.value = Date.now();
-      return;
+      // The cached status only changes when something reads the gate, and an unfinished gate is re-read only every 45 minutes, so the
+      // opening would otherwise reach everything that asks (this watcher, tasks, explorers, the dispatcher) up to that late. The gate's
+      // own construction mission reports complete the moment its last material lands: believe that, and refresh the cache with it.
+      if (Date.now() - this.gateMissionCheckedAt < 20_000) return;
+      this.gateMissionCheckedAt = Date.now();
+      const gate = this.galaxy.getSystem(this.systemSymbol)?.waypoints.find((w) => w.type === "JUMP_GATE");
+      const built = gate && (await this.missions.list()).some((m) => m.targetSystem === this.systemSymbol && m.status === "complete");
+      if (gate && built) this.galaxy.noteGateComplete(gate.symbol);
+      if (!this.homeGateOpen()) {
+        this.gateSeenClosedAt.value = Date.now();
+        return;
+      }
     }
     this.gateMilestoneChecked = true;
     const weekMs = (() => { const d = getGameResetDate(); const ms = d ? Date.parse(d) : NaN; return Number.isFinite(ms) ? ms : Date.now() - 7 * 86_400_000; })();

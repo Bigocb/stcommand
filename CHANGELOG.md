@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-28 — A finished gate mission opens the gate at once, not after the 45-minute re-read
+The gate opened on 2026-10-28 ~03:26 UTC with the mission reporting complete, but the galaxy cache still held "unfinished" (an unfinished gate is
+re-read only every 45 minutes, and only when something asks), so the new gate-open milestone, the explorer task and the dispatcher's cross-system
+routes would all have waited up to that long. `GalaxyAtlas.noteGateComplete()` records a gate complete without a read; the fleet tick calls it for the
+home gate when its construction mission is complete (checked at most every 20 s while the gate looks closed). The cache stays one-way. Test in `tests/galaxy.test.ts`.
+
 ## 2026-10-28 — The home gate opening is a week milestone (report, Season screen, goals)
 Operator: the gate-open time should be tracked in the weekly report. Last week it took 34 h; this week's result had nowhere to live.
 
