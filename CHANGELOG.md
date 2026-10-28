@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-28 — The home gate opening is a week milestone (report, Season screen, goals)
+Operator: the gate-open time should be tracked in the weekly report. Last week it took 34 h; this week's result had nowhere to live.
+
+- `maybeRecordGateOpened()` (fleet tick) writes one `milestone` action event (`gate_open`) the first tick it sees the home gate complete: hours into the week
+  (from the week's first ledger row, the start of play), wallet and ship count. If the gate was already open on the first look (restart after it
+  finished) the event is marked "noticed late", so the time is an upper bound. The week's rows are read before writing, so a restart never adds a second.
+- The analysis report has `milestones` and `summary.gateOpenHours`; saved reports and week records keep them across the reset. The Season screen's
+  This week row has a "Home gate" tile (hours, or "closed"), and Plan has a new goal measure, "Hours until the home gate opens" (lower is better),
+  so next week can carry a goal such as "inside 34 h".
+- Tests: `tests/gateMilestone.test.ts` (event, one-per-week listing, goal evaluation); `tests/season.test.ts` measures now include `gateOpenHours`.
+
 ## 2026-10-27 — Contract buy over the price ceiling asks the operator
 A contract ship that found its good over the buy guard's ceiling (110% of the contract's pay per unit) skipped the buy and toured
 markets for a cheaper source, which on a one-source good like IRON looped between two waypoints burning a refuel each pass

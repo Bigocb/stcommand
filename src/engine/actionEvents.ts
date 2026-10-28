@@ -136,3 +136,31 @@ export function keeperListChange(before: string[], after: string[]): { added: st
     count: after.length,
   };
 }
+
+/** The week's milestones the report lists and goals can be measured on. */
+export const GATE_OPEN_SUBJECT = "gate_open";
+
+/**
+ * The home jump gate is complete. `hoursIntoWeek` is measured from the week's first ledger row (the start of play, not the
+ * server reset), so it matches how the operator counts "gate open in N hours"; null when no row was found.
+ */
+export function gateOpenedEvent(g: {
+  atIso: string;
+  hoursIntoWeek: number | null;
+  credits?: number;
+  ships?: number;
+  system: string;
+  /** True when the engine only noticed the open gate (a restart, or the gate was built before it started watching): the time is then an upper bound. */
+  lateNotice?: boolean;
+}): ActionEventRecord {
+  return {
+    at: g.atIso,
+    kind: "milestone",
+    actor: "engine",
+    subject: GATE_OPEN_SUBJECT,
+    waypoint: g.system,
+    observed: { hoursIntoWeek: g.hoursIntoWeek === null ? null : Math.round(g.hoursIntoWeek * 10) / 10, credits: g.credits ?? null, ships: g.ships ?? null },
+    context: { lateNotice: g.lateNotice ?? false },
+    reason: `home gate open in ${g.system}${g.hoursIntoWeek === null ? "" : ` after ${(Math.round(g.hoursIntoWeek * 10) / 10)} h`}${g.lateNotice ? " (noticed late)" : ""}`,
+  };
+}

@@ -197,6 +197,7 @@ export function mountSeason(root, { api } = {}) {
         ${kpi("Profit / hour", compact(m.profitPerHour), live ? `over ${live.hours} h${live.pace?.sinceReset ? ` · since reset ${compact(live.pace.sinceReset.profitPerHour)}/h over ${live.pace.sinceReset.hours} h` : ""}` : "", tone(m.profitPerHour))}
         ${kpi("Overhead", share(m.overheadShare), "fuel and jumps / sales")}
         ${kpi("Trips", compact(m.trips), `net ${compact(m.netProfit)}`)}
+        ${kpi("Home gate", gateKpi(live), gateKpiNote(live), live?.metrics?.gateOpenHours != null ? "good" : "")}
         ${kpi("Goals met", `${met} / ${goals.length}`, "")}
       </div>
       <div class="cols2 ss-cols">
@@ -204,6 +205,17 @@ export function mountSeason(root, { api } = {}) {
         ${panel("Suggestions", suggs, "advisory")}
       </div>
       ${live?.notes?.length ? `<div class="ss-note">${live.notes.map(h).join("<br>")}</div>` : ""}`;
+  }
+
+  /** "34.2 h" once the home gate has opened (measured from the week's first trade), "closed" until then. */
+  function gateKpi(live) {
+    const hrs = live?.metrics?.gateOpenHours;
+    return hrs == null ? "closed" : `${Math.round(hrs * 10) / 10} h`;
+  }
+  function gateKpiNote(live) {
+    const ms = (live?.milestones ?? []).find((x) => x.kind === "gate_open");
+    if (!ms) return "no milestone yet";
+    return `opened ${h(when(ms.at))}${ms.credits != null ? ` · ${compact(ms.credits)} in the wallet` : ""}${ms.ships != null ? ` · ${ms.ships} ships` : ""}${/noticed late/.test(ms.note ?? "") ? " · time is an upper bound" : ""}`;
   }
 
   function renderStart() {

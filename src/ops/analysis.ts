@@ -16,10 +16,11 @@ export async function runAnalysis(w: TenantWorker, sinceHours: number, nowMs: nu
   const resetDate = getGameResetDate();
   const weekMs = resetDate ? Date.parse(resetDate) : NaN;
   const coverageSinceIso = new Date(Number.isFinite(weekMs) ? Math.min(weekMs, fromMs - lookbackMs) : fromMs - lookbackMs).toISOString();
-  const [ledger, events, coverageEvents] = await Promise.all([
+  const [ledger, events, coverageEvents, milestoneEvents] = await Promise.all([
     w.store.analysisLedgerRows(w.tenantId, sinceIso),
     w.store.actionEvents(w.tenantId, { sinceIso }),
     w.store.actionEvents(w.tenantId, { sinceIso: coverageSinceIso, kinds: ["config_change"], limit: 20000 }),
+    w.store.actionEvents(w.tenantId, { sinceIso: coverageSinceIso, kinds: ["milestone"], limit: 200 }),
   ]);
   const pairs = new Map<string, { waypoint: string; good: string }>();
   for (const r of ledger) {
@@ -35,7 +36,7 @@ export async function runAnalysis(w: TenantWorker, sinceHours: number, nowMs: nu
   const hullEvents = shipRows.map((r) => ({ ts: Date.parse(r.timestamp), amount: r.scrap ? -r.total : r.total }));
   const ourShips = new Set<string>([...w.fleet.fleetStatusSummary().map((s) => s.symbol), ...ledger.map((r) => r.shipSymbol)]);
   const localShips = new Set(w.fleet.shipReachList().map((e) => e.shipSymbol));
-  return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips, wealth: wealthRows, hullEvents, localShips, coverageEvents });
+  return buildAnalysisReport({ fromMs, nowMs, ledger, events, snapshots, marketTrades, ourShips, wealth: wealthRows, hullEvents, localShips, coverageEvents, milestoneEvents });
 }
 
 /**

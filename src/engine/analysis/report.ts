@@ -5,6 +5,7 @@
  * be read over MCP, and it is what gets saved to analysis_findings at the end of a week.
  */
 import type { ActionEventRow, AnalysisLedgerRow, AnalysisSnapshotRow } from "../../db/store.js";
+import { GATE_OPEN_SUBJECT } from "../actionEvents.js";
 import { calibrate, type Calibration } from "./calibration.js";
 import { growthPerWeek, type HullEvent, type WealthPoint } from "../growth.js";
 import { changeFindings, changeImpacts, windowMetrics, type ChangeImpact } from "./changes.js";
@@ -30,6 +31,8 @@ export interface AnalysisInputs {
   localShips?: ReadonlySet<string>;
   /** keeper_markets config changes from the whole week (not just the window): when each system gained coverage, for the freshness curve. */
   coverageEvents?: readonly ActionEventRow[];
+  /** milestone events from the whole week (the gate opening), whatever the report window. */
+  milestoneEvents?: readonly ActionEventRow[];
 }
 
 export interface ReachSummary {
@@ -46,6 +49,30 @@ export interface RankedSuggestion extends Suggestion {
   confidence: Finding["confidence"];
 }
 
+export interface Milestone {
+  kind: string;
+  at: string;
+  hoursIntoWeek: number | null;
+  credits: number | null;
+  ships: number | null;
+  note: string;
+}
+
+/** Milestone events as report rows, the earliest of each kind only (a restart must not make the gate open twice). */
+export function milestonesFromEvents(events: readonly ActionEventRow[]): Milestone[] {
+  const seen = new Set<string>();
+  const out: Milestone[] = [];
+  for (const e of [...events].filter((x) => x.kind === "milestone").sort((a, b) => a.at.localeCompare(b.at))) {
+    const kind = e.subject ?? "milestone";
+    if (seen.has(kind)) continue;
+    seen.add(kind);
+    const o = (e.observed ?? {}) as Record<string, unknown>;
+    const num = (v: unknown) => (typeof v === "number" ? v : null);
+    out.push({ kind, at: e.at, hoursIntoWeek: num(o.hoursIntoWeek), credits: num(o.credits), ships: num(o.ships), note: e.reason ?? kind });
+  }
+  return out;
+}
+
 export interface AnalysisReport {
   window: { from: string; to: string; hours: number };
   summary: {
@@ -59,7 +86,11 @@ export interface AnalysisReport {
     priceMovesAttributed: number;
     /** Growth of cash plus holds plus hull capital, percent a day (null without enough wealth samples). */
     growthPerWeek: number | null;
+    /** Hours from the week's first trade to the home gate opening; null while it is still closed. */
+    gateOpenHours: number | null;
   };
+  /** Week milestones in time order (the home gate opening). */
+  milestones: Milestone[];
   /** The same measures for local-only ships and for cross-system ships, so their profit per hour can be compared. */
   byReach: { local: ReachSummary; cross: ReachSummary };
   findings: Finding[];
@@ -121,6 +152,7 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
 
   const byReach = reachSummaries(trips, ledger, input.localShips ?? new Set(), input.fromMs, input.nowMs);
 
+  const milestones = milestonesFromEvents(input.milestoneEvents ?? input.events);
   const notes: string[] = [];
   const withEstimate = closed.filter((t) => t.expectedProfit !== null).length;
   if (closed.length && withEstimate === 0) notes.push("No trip in this window has a recorded estimate yet (tracking started 2026-10-15), so estimate accuracy and calibration are empty.");
@@ -140,7 +172,9 @@ export function buildAnalysisReport(input: AnalysisInputs, policy: AnalysisPolic
       configChanges: changes.length,
       priceMovesAttributed: moves.length,
       growthPerWeek: growthPerWeek(input.wealth ?? [], input.hullEvents ?? [], input.fromMs, input.nowMs)?.perWeekPct ?? null,
+      gateOpenHours: milestones.find((m) => m.kind === GATE_OPEN_SUBJECT)?.hoursIntoWeek ?? null,
     },
+    milestones,
     byReach,
     findings: findings.slice(0, 40),
     suggestions: rankSuggestions(findings).slice(0, 15),

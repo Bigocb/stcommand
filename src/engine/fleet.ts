@@ -11,7 +11,7 @@ import { FeedManager } from "./feed.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent, HeldRouteRow, ShipMovement, ActionEventRecord } from "../db/store.js";
-import { configChangeEvent, keeperListChange } from "./actionEvents.js";
+import { configChangeEvent, gateOpenedEvent, GATE_OPEN_SUBJECT, keeperListChange } from "./actionEvents.js";
 import { ApprovalGate, mootRoleApprovals } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
@@ -3934,6 +3934,40 @@ export class FleetManager {
       }
     }
     return required > 0 ? gateProgressPct(fulfilled, required) : undefined;
+  }
+
+  /** Set once the gate-open milestone is on record for this process, so the check below costs nothing afterwards. */
+  private gateMilestoneChecked = false;
+  private readonly gateSeenClosedAt: { value?: number } = {};
+
+  /**
+   * Record when the home gate completes, once per week, for the weekly report and the season goals (analysis report `milestones`).
+   * A tick that sees the gate closed remembers it; if the first tick that sees it open follows a closed one, the time is exact (to
+   * one tick). If it is open on the very first look (a restart after it finished, or a gate built before we watched) the event is
+   * marked `lateNotice`: the time is an upper bound. Never writes a second row: the week's rows are read before writing.
+   */
+  private async maybeRecordGateOpened(): Promise<void> {
+    if (this.gateMilestoneChecked || !this.store || !this.tenantId) return;
+    if (!this.homeGateOpen()) {
+      this.gateSeenClosedAt.value = Date.now();
+      return;
+    }
+    this.gateMilestoneChecked = true;
+    const weekMs = (() => { const d = getGameResetDate(); const ms = d ? Date.parse(d) : NaN; return Number.isFinite(ms) ? ms : Date.now() - 7 * 86_400_000; })();
+    const existing = await this.store.actionEvents(this.tenantId, { sinceIso: new Date(weekMs).toISOString(), kinds: ["milestone"], limit: 50 });
+    if (existing.some((e) => e.subject === GATE_OPEN_SUBJECT)) return;
+    const first = await this.store.opsLedger(this.tenantId, { sinceIso: new Date(weekMs).toISOString(), limit: 1, oldestFirst: true });
+    const firstTs = first[0]?.timestamp ? Date.parse(String(first[0].timestamp)) : NaN;
+    const now = Date.now();
+    this.recordAction(gateOpenedEvent({
+      atIso: new Date(now).toISOString(),
+      hoursIntoWeek: Number.isFinite(firstTs) ? (now - firstTs) / 3_600_000 : null,
+      credits: Math.round(this.walletCredits()),
+      ships: this.getShipStatuses().length,
+      system: this.systemSymbol,
+      lateNotice: this.gateSeenClosedAt.value === undefined,
+    }));
+    this.log(`home gate in ${this.systemSymbol} is open; milestone recorded`);
   }
 
   /**
@@ -10049,6 +10083,7 @@ export class FleetManager {
       await this.timed("maybeManageFreshSystems", () => this.maybeManageFreshSystems());
       await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       await this.timed("repairSuspendedShips", () => this.repairSuspendedShips());
+      await this.timed("maybeRecordGateOpened", () => this.maybeRecordGateOpened());
       await this.timed("maybeGrowExplorers", () => this.maybeGrowExplorers());
       await this.timed("maybeBuyShip", () => this.maybeBuyShip());
       await this.timed("maybeResolveNewShipRoles", () => this.maybeResolveNewShipRoles());

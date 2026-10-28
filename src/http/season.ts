@@ -53,7 +53,7 @@ async function payload(w: TenantWorker, live: boolean): Promise<Record<string, u
     const report = await runAnalysisCached(w, hours, now);
     const metrics = metricsFromReport(report);
     goals = goals.map((g) => evaluateGoal(g, metrics, false));
-    liveOut = { hours: Math.round(hours * 10) / 10, metrics, summary: report.summary, suggestions: report.suggestions.slice(0, 5), findings: report.findings.slice(0, 5), notes: report.notes, pace: await paceRates(w, now) };
+    liveOut = { hours: Math.round(hours * 10) / 10, metrics, summary: report.summary, milestones: report.milestones, suggestions: report.suggestions.slice(0, 5), findings: report.findings.slice(0, 5), notes: report.notes, pace: await paceRates(w, now) };
   }
   const stale = week.universeKey !== null && meta.universeKey !== null && week.universeKey !== meta.universeKey;
   return {
