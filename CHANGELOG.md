@@ -9,6 +9,18 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-28 — A trade's buying is capped at a share of the spendable cash (doctrine `tradeBuyCashShare`)
+THEO-1E bought 40 GRAVITON_EMITTERS at about 33.8k a unit, 1.35M in one trip and about 40% of the wallet, for a route into a market that takes lots of 18.
+A rival (VCMININGCORP-339) sold 126 units into that market seven minutes before it arrived; the cargo sold for 765k, a 586k loss. Contract buys already had a
+cash-share brake; ordinary trades had none, so one wrong estimate could take whatever the wallet held (operator, 2026-10-28: "like contracts").
+
+- `src/engine/tripBudget.ts` (pure): a trip may spend at most `tradeBuyCashShare` percent (default 25) of the spendable cash it started with, and never less than
+  `tradeBuyFreeBelow` (default 300,000c) so a small wallet, such as the 175k opening, is never throttled. 0% / the clause off reproduces today's behaviour.
+- The direct-route buy loop in `TraderAgent` (the one that bought the GRAVITON) sizes the budget once before the first lot and stops buying when the trip has used it,
+  logging `stopping at Nu GOOD: a trip may use …` and counting a doctrine fire. The trip just carries fewer units.
+- Both clauses are on by default and adjustable in Doctrine. Not changed: the warehouse buy and contract buy paths (the latter has its own cap), and the sell side.
+- Tests: `tests/tripBudget.test.ts` (the rule, and the real buy loop with the limit on, off and absent; removing the cap fails the first loop test).
+
 ## 2026-10-28 — Auto-approved keepers buy through a ship at any yard in the system, not only the cheapest yard
 TV37 (22 markets wanted keepers, auto-approve on, 4.4M in the wallet) bought none: the cheapest keeper hull was a probe at C43, no ship of ours was
 docked at C43, and the keeper THEO-1F sat at H56, another yard in the same system selling surveyors and mining drones. The log said "none of our ships is

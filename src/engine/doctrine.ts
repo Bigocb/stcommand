@@ -171,6 +171,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "tradeBuyCashShare",
+    name: "Trade buy: most cash in one trip",
+    description: "One trade's purchases may use at most this percent of the spendable cash (above the cash floor) the trip started with. Added 2026-10-28 after one trip put 1.35M, about 40% of the wallet, into GRAVITON_EMITTERS for a market that a rival then crashed. The trip simply buys fewer units when the limit bites. Trips costing less than 'Trade buy: always allowed' are never limited, so a small wallet (the opening) is not throttled. On by default. Off = a trip may use all the spendable cash, as before. Takes effect on the next purchase.",
+    value: 25, min: 5, max: 100, step: 5, unit: "%",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "tradeBuyFreeBelow",
+    name: "Trade buy: always allowed",
+    description: "A trip may always spend up to this many credits, whatever 'Trade buy: most cash in one trip' works out to. Keeps the early game, when the whole wallet is small, from being throttled by the share limit.",
+    value: 300000, min: 0, max: 5000000, step: 50000, unit: "c",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "redirectHops",
     name: "Stranded cargo: stay within",
     description: "When a loaded ship is turned back from its destination (the gate path stopped verifying, or the market can no longer be reached), the cargo is redirected to the best-paying reachable market. With this on, markets within this many gate jumps are tried first; if none takes it, any reachable market does, as before. Measured 2026-10-22: THEOREM-C4's 225 MACHINERY was redirected on a ten-jump trek (about 100 minutes at ten minutes per jump) to X1-NH60. Off (the default) = best price at any distance. Takes effect on the next redirect.",

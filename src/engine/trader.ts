@@ -1,6 +1,7 @@
 import { routeTag } from "./routeTag.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { contractBuyVerdict, NO_CONTRACT_BUY_GUARD, type ContractBuyPolicy } from "./contractBuyGuard.js";
+import { NO_TRADE_BUY_LIMIT, tripBuyBudget, type TradeBuyPolicy } from "./tripBudget.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
@@ -221,6 +222,8 @@ export interface TraderOptions {
   contractReward?: (tradeSymbol: string) => Promise<{ units: number; payout: number }>;
   /** The contract buy guard's current settings; absent = no guard, as before. */
   contractBuyPolicy?: () => ContractBuyPolicy;
+  /** How much cash one trade's purchases may use (see tripBudget.ts). Absent = no limit, as before. */
+  tradeBuyPolicy?: () => TradeBuyPolicy;
   /**
    * Seed `heldRoute`/`heldCost` from what's already persisted for this ship
    * (`Store.getAllHeldRoutes()`), keyed by good — the constructor can't
@@ -342,6 +345,7 @@ export class TraderAgent {
   private readonly contractNeeded?: TraderOptions["contractNeeded"];
   private readonly contractReward?: TraderOptions["contractReward"];
   private readonly contractBuyPolicy?: TraderOptions["contractBuyPolicy"];
+  private readonly tradeBuyPolicy?: TraderOptions["tradeBuyPolicy"];
   private readonly persistHeldRoute?: TraderOptions["persistHeldRoute"];
   private readonly clearPersistedHeldRoute?: TraderOptions["clearPersistedHeldRoute"];
   private readonly proxy: ShipProxy;
@@ -482,6 +486,7 @@ export class TraderAgent {
     this.contractNeeded = opts.contractNeeded;
     this.contractReward = opts.contractReward;
     this.contractBuyPolicy = opts.contractBuyPolicy;
+    this.tradeBuyPolicy = opts.tradeBuyPolicy;
     this.persistHeldRoute = opts.persistHeldRoute;
     this.clearPersistedHeldRoute = opts.clearPersistedHeldRoute;
     // Seed from whatever the caller already loaded from `held_route` —
@@ -2540,13 +2545,23 @@ export class TraderAgent {
       let bought = 0;
       let totalPaid = 0;
       let lastPrice = buyPrice;
+      // The cash this whole trip may use (tripBudget.ts): sized once, from the cash in hand before the first lot.
+      const tripLimit = tripBuyBudget(liveCredits, this.tradeBuyPolicy?.() ?? NO_TRADE_BUY_LIMIT);
       /** What the lot before the one just bought cost; undefined for the first lot of the trip (guard 2 only). */
       let prevLotPrice: number | undefined;
       let lotCap = route.lotSize;
       while (bought < target) {
-        const affordable = lastPrice > 0 ? Math.floor(liveCredits / lastPrice) : 0;
+        const room = Math.min(liveCredits, tripLimit.budget - totalPaid);
+        const affordable = lastPrice > 0 ? Math.floor(room / lastPrice) : 0;
         const lot = Math.max(0, Math.min(lotCap, target - bought, affordable));
-        if (lot <= 0) break;
+        if (lot <= 0) {
+          // Stopped by the trip's own cash limit, not by the wallet or the hold: say so, and count it as a doctrine fire.
+          if (room < liveCredits && target - bought > 0) {
+            this.recordDoctrineFire?.("tradeBuyCashShare");
+            this.log(`stopping at ${bought}u ${route.good}: ${tripLimit.reason}`);
+          }
+          break;
+        }
         this.currentStep = { kind: "transacting", action: "buy", good: route.good };
         this.assertAt(route.buyAt, `buy ${route.good}`);
         let res: Awaited<ReturnType<SpaceTradersAPI["purchaseCargo"]>>;

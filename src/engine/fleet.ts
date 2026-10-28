@@ -1550,6 +1550,10 @@ export class FleetManager {
         priceGuardPct: this.doctrine.isEnabledOr("contractBuyPriceGuard", true) ? this.doctrine.value("contractBuyPriceGuard", 110) : 0,
         cashSharePct: this.doctrine.isEnabledOr("contractBuyCashShare", true) ? this.doctrine.value("contractBuyCashShare", 50) : 0,
       }),
+      tradeBuyPolicy: () => ({
+        cashSharePct: this.doctrine.isEnabledOr("tradeBuyCashShare", true) ? this.doctrine.value("tradeBuyCashShare", 25) : 0,
+        freeBelow: this.doctrine.value("tradeBuyFreeBelow", 300_000),
+      }),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       declineRoute: (wholeGood) => this.dispatcher.decline(shipSymbol, wholeGood),
