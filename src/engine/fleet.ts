@@ -4593,7 +4593,21 @@ export class FleetManager {
       // Only ships with a warp drive get this line; everyone else's gate hop is the normal path and needs no note.
       this.log(`${shipSymbol}: not warping toward ${targetSystem} (${warp.reason}), using gates`);
     }
-    const path = this.findSystemPath(s.nav.systemSymbol, targetSystem);
+    let path = this.findSystemPath(s.nav.systemSymbol, targetSystem);
+    if (!path || path.length < 2) {
+      // After a restart only the systems loaded since then are in the gate graph, so a ship standing one gate from its target found
+      // "no path" for ever (THEO-FD and FF sat at VK87, next to DJ38, for 30 minutes on 2026-10-29). Read the gates at both ends once
+      // and look again before giving up.
+      try {
+        await this.galaxy.loadSystem(s.nav.systemSymbol);
+        await this.galaxy.scanJumpGates(s.nav.systemSymbol);
+        await this.galaxy.loadSystem(targetSystem);
+        await this.galaxy.scanJumpGates(targetSystem);
+        path = this.findSystemPath(s.nav.systemSymbol, targetSystem);
+      } catch (err) {
+        this.log(`${shipSymbol}: reading the gates at ${s.nav.systemSymbol} and ${targetSystem} failed: ${describeError(err)}`);
+      }
+    }
     if (!path || path.length < 2) {
       this.log(`${shipSymbol}: no known jump-gate path from ${s.nav.systemSymbol} to ${targetSystem} yet — will retry as more of the galaxy is charted`);
       return false;
