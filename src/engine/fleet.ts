@@ -7167,6 +7167,17 @@ export class FleetManager {
       delivery = this.pickKeeperDelivery(marketSystem, yards);
       if (delivery) best = { waypointSymbol: delivery.yard, price: delivery.price, hull: delivery.hull };
     }
+    // A system whose yards sell a keeper hull but where none of our ships is at one of them (BT69 on 2026-10-29, with the explorers parked)
+    // cannot buy locally either: deliver one from a yard elsewhere, the first probe docking at a yard so the rest can be bought there.
+    if (best && !delivery) {
+      const here = this.fleetStatusSummary();
+      const present = (wp: string): boolean => pickShipAtYard(here, wp) !== undefined;
+      const localWithShip = pickKeeperYardWithShip(yards, { systemSymbol: marketSystem, hulls: KEEPER_HULL_PREFERENCE, nowMs: Date.now(), shipPresentAt: present });
+      if (!present(best.waypointSymbol) && !localWithShip) {
+        const d = this.pickKeeperDelivery(marketSystem, yards);
+        if (d) { delivery = d; best = { waypointSymbol: d.yard, price: d.price, hull: d.hull }; }
+      }
+    }
     if (!best) { this.keeperNote(`mnohull:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: no yard in ${marketSystem} has a stored ${KEEPER_HULL_PREFERENCE.join("/")} (${yards.filter((y) => y.systemSymbol === marketSystem).length} stored yard rows in that system; a yard is stored only when one of our ships reads it)`); return false; } // no shipyard in this system has a cached keeper hull in stock right now
     if (!this.canAfford(best.price)) { this.keeperNote(`mafford:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: ${keeperHullLabel(best.hull)} at ${best.waypointSymbol} costs ${best.price}c, more than the spendable credits`); return false; }
 

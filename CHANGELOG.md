@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Keeper delivery also covers a system whose yards have no ship of ours at them
+BT69 sat staged with 6 keepers to buy: its yards list probes and have stored prices, so the delivery path (which only applied when no yard in the system had a stored keeper hull) did not fire, and a local purchase needs one of our ships docked at a yard, which the explorers used to supply and are now parked. `maybeRequestKeeperProbeForMarket()` now also switches to a delivery when the system's cheapest yard has no ship of ours at it and no other yard of the system does either. Behind the same `keeperDeliveryHops` clause and approval or auto-approve rule.
+
 ## 2026-10-29 — A hop no longer trusts a stale "gate under construction" cache
 After the path fix THEO-FD and FF stood at VK87 logging "X1-DJ38-E15D is still under construction — will retry" although ships had jumped through that gate all day: the construction cache is one-way for "complete" but an "unfinished" entry is only re-read every 45 minutes, so a wrong one stays wrong. `hopToward()` now confirms a gate cached as unfinished with a live public read (`verifyGateBeforeJump`) and, if it is finished, corrects the cache (`noteGateComplete`) and goes ahead.
 
