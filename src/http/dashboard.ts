@@ -17,6 +17,7 @@ import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
+import { worthRate } from "../engine/worthRate.js";
 import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
 import { growthPerWeek, hullCapitalAt, type HullEvent } from "../engine/growth.js";
 import { paceRates } from "../ops/pace.js";
@@ -671,9 +672,19 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       });
 
       const pace = paceFromBuckets(await w.store.tradingPaceBuckets(w.tenantId, 6, 15), 15);
+      // The rate in wallet plus holds (engine/worthRate.ts): counts cargo at what it should fetch, hull purchases added back.
+      // A failed read leaves it out; the overview then shows nothing for it.
+      let worthPace: ReturnType<typeof worthRate> = null;
+      try {
+        const sinceIso = new Date(Date.now() - 5 * 3_600_000).toISOString();
+        const [samples, hullRows] = await Promise.all([w.store.wealthSamplesSince(w.tenantId, sinceIso), w.store.shipLedgerRows(w.tenantId, sinceIso)]);
+        worthPace = worthRate(samples, hullEventsFrom(hullRows), Date.now());
+      } catch (err) {
+        console.error("[dashboard] worth rate failed:", err instanceof Error ? err.message : err);
+      }
 
       res.json({
-        rate, prevRate: prev, pace, forgone,
+        rate, prevRate: prev, pace, worthPace, forgone,
         matchedNet: matched.net, matchedTrades: matched.trades, matchedWindowHours: RATE_WINDOW_HOURS,
         series: series.map((p) => p.net),
         credits: state.agent?.credits ?? 0,

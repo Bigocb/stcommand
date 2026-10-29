@@ -301,6 +301,16 @@ function renderTopbar() {
   if (rate >= 0) rateEl.classList.add("good");
   else rateEl.classList.add("bad");
 
+  // Rate in wallet plus holds (server: engine/worthRate.ts). Counts cargo at what it should fetch; blank until an hour of samples exists.
+  const wp = bridge.worthPace;
+  const wr = $("tb-worthrate");
+  if (wr) {
+    const v = wp?.perHour1h;
+    wr.textContent = v === null || v === undefined ? "—" : signed(v);
+    wr.className = "v" + (v === null || v === undefined ? "" : v >= 0 ? " good" : " bad");
+    wr.title = wp ? `Wallet plus holds, per hour: last 60 min${wp.perHour3h !== null ? `, 3h avg ${signed(wp.perHour3h)}` : ""}. Cargo counts at what it should fetch; ship purchases are added back.` : "";
+  }
+
   // Ships count
   $("tb-ships").textContent = (state?.ships ?? []).length;
 

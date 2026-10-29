@@ -381,7 +381,7 @@ function renderTiles() {
 
   setHtml($("home-tiles"), `
     <div class="tile"><div class="k">Credits</div><div class="v">${fmt(state?.agent?.credits ?? bridge.credits ?? 0)}</div></div>
-    <div class="tile"><div class="k">Credits + holds</div><div class="v">${fmt(wph.total)}${wph.partial ? "+" : ""}</div><div class="sub">holds ~${fmt(wph.holds)}</div></div>
+    <div class="tile"><div class="k">Credits + holds</div><div class="v">${fmt(wph.total)}${wph.partial ? "+" : ""}</div><div class="sub">holds ~${fmt(wph.holds)}</div>${bridge.worthPace && bridge.worthPace.perHour1h !== null ? `<div class="sub" title="Change in credits plus the estimated value of every hold, per hour, with ship purchases added back. Counts cargo at what it should fetch, so it includes profit not yet sold.">${signed(bridge.worthPace.perHour1h)}/hr${bridge.worthPace.perHour3h !== null ? ` · 3h ${signed(bridge.worthPace.perHour3h)}` : ""}</div>` : ""}</div>
     <div class="tile"><div class="k">Rate</div><div class="v ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h avg ${signed(pace.perHour3h)} · net trading</div>${paceSparkline(pace.series)}` : ""}</div>
     <div class="tile"><div class="k">Fleet</div><div class="v">${ships.length}<span class="sub"> hulls</span></div><div class="sub">${stranded} stranded · ${unassigned} unassigned</div></div>
   `);
