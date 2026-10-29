@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Keeper queue: a request with no ship at its yard no longer blocks every other market
+Operator saw no approval cards for new systems. Cause: an approved purchase for X1-CK45-D44 had to be bought at X1-CK45-A2, none of our ships was there, and the queue (one open request per kind) waited on it for ever, so KX84, SF98 and the rest never got a card. New clause `keeperYardWaitMin` (default 30 min, on; off = the old wait-for-ever): the first time an approved request finds no ship at its yard the wait is timed, and past the grace the row is consumed, logged (`keeper: released the approved keeper request for ...`), and the market is skipped by the queue for 2 hours or until a ship docks at its yard (`src/engine/keeperQueueStall.ts`, wired in `fleet.ts` `resolvePendingKeeperProbeApproval` and `advanceKeeperMarketQueue`). The wait is held in memory, so a restart starts it again. Tests in `tests/keeperQueueStall.test.ts`.
+
 ## 2026-10-29 — Compare: weeks lined up on the gate
 A week whose gate opened a day later looked 68% behind on the hours-since-first-trade view (this week's gate: 58 h, 10-18's: 34 h). Compare now also lines the weeks up on each one's first gate jump (`gateAligned()` in `src/engine/weekCompare.ts`, `gateAligned` in `/api/compare`): matched profit before the gate, profit in the same number of hours after it (the shorter of the two weeks' time since their gates), profit per hour over those hours, sells, and cumulative profit since the gate at +6/12/24/36/48/72/96 h. The footer says what profit per hour is: matched profit (completed round trips only, before fuel, jump costs and ship purchases) over the hours in the window. Tests in `tests/weekCompare.test.ts`.
 

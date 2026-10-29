@@ -150,6 +150,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "keeperYardWaitMin",
+    name: "Keeper request waits for a ship at its yard",
+    description: "A keeper purchase you approved can only run when one of our ships is docked at the shipyard it is bought at. The queue holds one open request at a time, so one with no ship at its yard used to block every other market's request for ever (2026-10-29: CK45 blocked KX84, SF98 and the rest). After this many minutes without a ship there, the request is released and the queue moves on; that market is left out for 2 hours, or until a ship docks at its yard. Clause off = wait for ever (the old behaviour). Takes effect on the next keeper queue pass.",
+    value: 30, min: 5, max: 240, step: 5, unit: " min",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "positioningHops",
     name: "Positioning jumps",
     description: "How many gate jumps a trader may take to reach a route's buy market. A route needing more jumps than this is not offered to a ship. Every jump costs about 5,000 credits and a cooldown before the first sale, so the first trip still has to out-earn the positioning cost. Hard ceiling 10 (set in code); default 3, the old fixed limit. Takes effect on the next dispatch recompute.",

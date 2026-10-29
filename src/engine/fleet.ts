@@ -55,6 +55,7 @@ import { getGameResetDate } from "../core/universe.js";
 import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
+import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange, warpRouteKey, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
@@ -7022,6 +7023,13 @@ export class FleetManager {
    * through the whole priority list on a bounded cadence instead of
    * stalling indefinitely on markets nothing happens to visit.
    */
+  /** When each open keeper request first found no ship at its yard (request row id -> ms), and the markets let go of since (market -> ms until which the queue skips them). Memory only: a restart starts the wait again. */
+  private keeperYardWait = new Map<string, number>();
+  private keeperQueueCooldown = new Map<string, number>();
+  private keeperStallPolicy(): StallPolicy {
+    return { ...DEFAULT_STALL_POLICY, graceMin: this.doctrine.isEnabledOr("keeperYardWaitMin", false) ? this.doctrine.value("keeperYardWaitMin", 0) : 0 };
+  }
+
   private async advanceKeeperMarketQueue(): Promise<void> {
     if (!this.store || !this.tenantId) return;
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
@@ -7043,6 +7051,7 @@ export class FleetManager {
     let tried = 0;
     for (const m of priority) {
       if (covered.has(m)) continue;
+      if (inCooldown(this.keeperQueueCooldown.get(m), Date.now())) continue; // released a while ago for want of a ship at its yard
       if (await this.maybeRequestKeeperProbeForMarket(m)) return;
       if (++tried >= (autoOn ? 40 : 8)) return;
     }
@@ -7232,7 +7241,19 @@ export class FleetManager {
       // before its own purchaseShip() call.
       const candidate = this.fleetStatusSummary().find((s) => s.waypoint === waypointSymbol)?.symbol;
       if (!candidate) {
-        this.keeperNote(`nocand:${waypointSymbol}`, `approved keeper purchase for ${targetMarket} cannot run: it must be bought at ${waypointSymbol} and none of our ships is there. It stays open, and blocks every other request of this kind, until a ship docks there`);
+        const stall = this.keeperStallPolicy();
+        const nowMs = Date.now();
+        const since = this.keeperYardWait.get(row.id) ?? nowMs;
+        this.keeperYardWait.set(row.id, since);
+        if (shouldRelease(since, nowMs, stall)) {
+          // Let the slot go so the next market can ask; the market is skipped for a while rather than asked for again at once.
+          await this.store.consumeApproval(this.tenantId, row.id);
+          this.keeperYardWait.delete(row.id);
+          this.keeperQueueCooldown.set(targetMarket, nowMs + stall.cooldownMin * 60_000);
+          this.log(`keeper: ${releaseReason(targetMarket, waypointSymbol, (nowMs - since) / 60_000, stall)}`);
+          return;
+        }
+        this.keeperNote(`nocand:${waypointSymbol}`, `approved keeper purchase for ${targetMarket} cannot run: it must be bought at ${waypointSymbol} and none of our ships is there. ${stall.graceMin > 0 ? `It is released after ${stall.graceMin} min so the queue can move on` : "It stays open, and blocks every other request of this kind, until a ship docks there"}`);
         return;
       }
       try {
