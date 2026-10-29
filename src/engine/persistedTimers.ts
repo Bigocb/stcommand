@@ -11,10 +11,10 @@ export interface TimerStore {
   write: (json: string) => Promise<void>;
 }
 
-export type TimerBook = Record<"yardWait" | "queueCooldown" | "surveyRetry", Map<string, number>>;
+export type TimerBook = Record<"yardWait" | "queueCooldown" | "surveyRetry" | "topUp", Map<string, number>>;
 
 export class PersistedTimers {
-  readonly book: TimerBook = { yardWait: new Map(), queueCooldown: new Map(), surveyRetry: new Map() };
+  readonly book: TimerBook = { yardWait: new Map(), queueCooldown: new Map(), surveyRetry: new Map(), topUp: new Map() };
   private loaded = false;
   constructor(private readonly io: TimerStore) {}
 

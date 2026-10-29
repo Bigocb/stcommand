@@ -57,6 +57,7 @@ import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { yardsFirst } from "./keeperOrder.js";
 import { PersistedTimers } from "./persistedTimers.js";
+import { DEFAULT_TOPUP_POLICY, pickTopUp, type TopUpSystem } from "./keeperTopUp.js";
 import { DEFAULT_DELIVERY_POLICY, deliveryArrived, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
@@ -5755,7 +5756,51 @@ export class FleetManager {
     return this.timersDoc;
   }
   private get remoteSurveyRetry(): Map<string, number> { return this.timersDoc?.book.surveyRetry ?? this.noTimers.surveyRetry; }
-  private readonly noTimers = { surveyRetry: new Map<string, number>(), yardWait: new Map<string, number>(), queueCooldown: new Map<string, number>() };
+  private readonly noTimers = { surveyRetry: new Map<string, number>(), yardWait: new Map<string, number>(), queueCooldown: new Map<string, number>(), topUp: new Map<string, number>() };
+
+  private lastTopUpCheckAt = 0;
+  private topUpNoteAt = "";
+  /**
+   * Add one more worthwhile market of a live system to the keeper list now and then (keeperTopUp.ts). Checked every 5 minutes; the time
+   * of the last addition is a persisted timer, so a restart does not hand out an extra one. The usual keeper queue does the buying.
+   */
+  private async maybeTopUpKeepers(): Promise<void> {
+    if (!this.store || !this.tenantId || !this.doctrine.isEnabledOr("keeperTopUpPerHour", false)) return;
+    const now = Date.now();
+    if (now - this.lastTopUpCheckAt < 5 * 60_000) return;
+    this.lastTopUpCheckAt = now;
+    const timers = this.timers();
+    await timers?.load();
+    const covered = this.coveredKeeperMarkets();
+    const listed = new Set(await this.keeperPriorityMarkets());
+    const systems: TopUpSystem[] = [];
+    for (const q of this.systemQueue.list()) {
+      if (q.state !== "live" || q.held) continue;
+      const { add } = await this.keeperCandidatesForSystem(q.system);
+      const have = (this.galaxy.getSystem(q.system)?.waypoints ?? []).filter((w) => covered.has(w.symbol) || listed.has(w.symbol)).length;
+      systems.push({ system: q.system, covered: have, candidates: add });
+    }
+    const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
+    const load = polls.reduce((t, c) => t + c, 0);
+    const decision = pickTopUp(systems, {
+      nowMs: now,
+      lastAddMs: timers?.book.topUp.get("lastAdd"),
+      keepers: this.keepers.size,
+      max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,
+      keeperCallsPerMin: load,
+      callsPerKeeper: polls.length ? load / polls.length : 0.2,
+      pending: [...listed].filter((m) => !covered.has(m)).length,
+    }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90 });
+    if (!decision.market) {
+      if (decision.reason !== this.topUpNoteAt) { this.topUpNoteAt = decision.reason; this.keeperNote("topup", `keeper top-up: nothing added (${decision.reason})`); }
+      return;
+    }
+    await this.addKeeperPriorityMarkets([decision.market]);
+    timers?.book.topUp.set("lastAdd", now);
+    await timers?.save(now);
+    this.topUpNoteAt = "";
+    this.log(`keeper top-up: ${decision.market} added to the keeper list (${decision.reason})`);
+  }
 
   /**
    * Read systems remotely, with no ship: waypoints with traits, every market's goods lists and every shipyard's hull-type list,
@@ -10445,6 +10490,7 @@ export class FleetManager {
       await this.timed("maintainFreshGate", () => this.maintainFreshGate());
       await this.timed("maybeManageFreshSystems", () => this.maybeManageFreshSystems());
       await this.timed("maybeRemoteSurvey", () => this.maybeRemoteSurvey());
+      await this.timed("maybeTopUpKeepers", () => this.maybeTopUpKeepers());
       await this.timed("advanceKeeperDeliveries", () => this.advanceKeeperDeliveries());
       await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       await this.timed("repairSuspendedShips", () => this.repairSuspendedShips());

@@ -472,6 +472,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperTopUpPerHour",
+    name: "Keepers: top up live systems",
+    description: "Add this many more worthwhile markets an hour to the keeper list, from systems that are already live, least-covered system first (a fresh system starts with only its best few markets, see Fresh systems: keepers per system). Each one is then bought like any keeper (approval card, or auto-approve under its cap). It adds nothing while the keepers' polling load is at the ceiling below, the keeper limit is reached, or 3 listed markets still wait for a keeper. Off (the default) = live systems keep only the markets they started with. See src/engine/keeperTopUp.ts.",
+    value: 2, min: 1, max: 12, step: 1, unit: " per hour",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "keeperTopUpMaxCalls",
+    name: "Keepers: top-up polling ceiling",
+    description: "Top-up stops while the keepers' own polling would pass this many API calls a minute (the API allows 90 in all; trading, ship moves and surveys need the rest). Check ops keeper_review for the current load. Only applies while Keepers: top up live systems is on.",
+    value: 60, min: 10, max: 90, step: 5, unit: " calls/min",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperTriage",
     name: "Keepers: park the ones on dead markets, and look again later",
     description: "Every 10 minutes, park (not scrap) up to this many keepers whose market no viable route touches and which either has never seen a trade of ours and scores under half the median keeper, or has been quiet for 6 hours (a market whose routes are all held back as dead is a crashed one). A parked keeper stops polling and frees a slot under Keepers: most the fleet will run, and the engine sets itself a reminder: after 90 minutes (then 3 hours, then 6) it looks again, brings the keeper back if a route through the market is viable again or we have traded there, unparks it for one cycle when it has no recent read to judge by, and after 3 looks leaves it parked and says so. At most 15% of the keepers are ever parked this way, nothing happens in the first 24 hours of a week, and a keeper with a reminder pending is not touched. Off (the default) = nothing is parked automatically. Takes effect on the next check. See src/engine/keeperTriage.ts and reminders.ts.",
