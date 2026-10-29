@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — HTTP park
+`POST /api/fleet/park {shipSymbol}` parks a hull (the MCP tool `stcommand_park_ship`'s twin), alongside the unpark route added earlier, so a parked keeper that was unparked for a test can be put back from the dashboard API.
+
 ## 2026-10-29 — A probe can cross a jump gate (tested live)
 `docs/opening-tasks-plan.md` said a probe "cannot cross gates" (0 fuel capacity); nothing in the books had ever tried it, and the related note that probes "cannot self-navigate" was already disproven the same evening (THEO-AA flew C41 to A2). Test: THEO-1B, a parked keeper probe (fuel 0/0, engine speed 9) docked at the BT10 gate X1-BT10-I55, was unparked and sent to X1-V90-C20E. The jump went through at 03:12:02 for 5,791 credits (the usual ~5.2k to V90 plus about 10%), with the normal ~5 minute cooldown. So a keeper probe can be bought where a probe is in stock and sent through gates to a system whose own yard sells none (DJ38's only yard stocks interceptors). The doc line is corrected; nothing in the engine uses it yet.
 

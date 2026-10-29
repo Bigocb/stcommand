@@ -2120,6 +2120,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  /** Park a hull (the same as the MCP tool stcommand_park_ship): it stays where it is and makes no game-API calls until unparked. */
+  router.post("/fleet/park", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol } = req.body ?? {};
+    if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
+    try {
+      const r = await w.fleet.parkShip(shipSymbol);
+      await w.store.recordOperatorAction(w.tenantId, "park", shipSymbol, `${shipSymbol} parked`, {});
+      res.json({ ok: true, shipSymbol, ...r });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/fleet/role", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
