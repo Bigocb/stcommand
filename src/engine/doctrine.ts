@@ -150,6 +150,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "remoteSurveyIntake",
+    name: "Remote survey: queue systems worth covering",
+    description: "After the remote surveyor reads a system (see Remote survey: systems read per pass), apply the same worth test an explorer's survey does (enough markets and a shipyard) and, if it passes, queue the system behind the fresh-system gate with its markets that need a keeper, best first and shipyards first, so the first keeper docks at a yard. This is what lets the system queue fill without an explorer finding the systems. Needs Auto keeper good systems on, and does nothing to a system already queued. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next remote survey pass.",
+    value: 1, min: 1, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "keeperDeliveryHops",
     name: "Keepers delivered across gates",
     description: "A market whose own system has no yard selling a keeper hull (DJ38's only yard lists an interceptor) can get its keeper from a yard in another system: a probe bought there is sent through the gates under a hold and becomes the market's keeper on arrival (2026-10-29: a probe went YF38 to DJ38 for about 13.6k in jumps). This is the most gate jumps allowed between the yard's system and the market's. It picks the cheapest hull-plus-jumps among yards with one of our ships docked, and asks through the usual keeper approval card (its price is the hull plus the expected jumps), or buys without one when the auto-approve keeper rule allows that total. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next keeper queue pass.",

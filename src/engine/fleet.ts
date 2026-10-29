@@ -55,6 +55,7 @@ import { getGameResetDate } from "../core/universe.js";
 import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
+import { yardsFirst } from "./keeperOrder.js";
 import { DEFAULT_DELIVERY_POLICY, deliveryArrived, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
@@ -5081,18 +5082,7 @@ export class FleetManager {
         return target;
       }
       // Worth touring: every market in it gets a keeper (autoKeeperGoodSystems), the way the operator did by hand.
-      if (this.doctrine.isEnabledOr("autoKeeperGoodSystems", false)) {
-        const { add: fresh, thin } = await this.keeperCandidatesForSystem(target);
-        if (thin.length > 0) this.log(`${shipSymbol}: ${target}: skipped ${thin.length} thin market(s) for the keeper list (${thin.map((t) => `${t.market} ${t.goods}`).join(", ")})`);
-        if (fresh.length > 0 && this.freshGateMode() !== "off") {
-          // Queued behind the fresh-system gate (systemQueue.ts): nothing is bought and no route runs through it until it is staged and released.
-          this.queueFreshSystem(target, fresh);
-          await this.saveFreshGate();
-        } else if (fresh.length > 0) {
-          this.log(`${shipSymbol}: ${target} is worth a tour; adding ${fresh.length} market(s) to the keeper list`);
-          try { await this.addKeeperPriorityMarkets(fresh); } catch (err) { this.log(`keeper list add for ${target} failed: ${describeError(err)}`); }
-        }
-      }
+      await this.intakeKeeperCandidates(target, shipSymbol);
       // surveySystem()'s own surveyMarkets() call sweeps every MARKETPLACE
       // waypoint in `target` via a remote getMarket() call — but confirmed
       // live, that only returns real tradeGoods for a waypoint the ship is
@@ -5662,6 +5652,28 @@ export class FleetManager {
     if (changed) await this.saveKeeperDeliveries();
   }
 
+  /**
+   * A system that passed the worth test: its markets that need a keeper are queued behind the fresh-system gate (or, with the gate off,
+   * put straight on the keeper list), best first and shipyards first (yardsFirst()). Shared by an explorer's survey and the remote
+   * surveyor (clause remoteSurveyIntake). Does nothing unless autoKeeperGoodSystems is on, and never re-queues a system already queued.
+   */
+  private async intakeKeeperCandidates(target: string, who: string): Promise<void> {
+    if (!this.doctrine.isEnabledOr("autoKeeperGoodSystems", false)) return;
+    const { add, thin } = await this.keeperCandidatesForSystem(target);
+    if (thin.length > 0) this.log(`${who}: ${target}: skipped ${thin.length} thin market(s) for the keeper list (${thin.map((t) => `${t.market} ${t.goods}`).join(", ")})`);
+    const yards = new Set((this.galaxy.getSystem(target)?.waypoints ?? []).filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")).map((w) => w.symbol));
+    const fresh = yardsFirst(add, yards);
+    if (fresh.length > 0 && this.freshGateMode() !== "off") {
+      // Queued behind the fresh-system gate (systemQueue.ts): nothing is bought and no route runs through it until it is staged and released.
+      if (this.systemQueue.get(target)) return;
+      this.queueFreshSystem(target, fresh);
+      await this.saveFreshGate();
+    } else if (fresh.length > 0) {
+      this.log(`${who}: ${target} is worth a tour; adding ${fresh.length} market(s) to the keeper list`);
+      try { await this.addKeeperPriorityMarkets(fresh); } catch (err) { this.log(`keeper list add for ${target} failed: ${describeError(err)}`); }
+    }
+  }
+
   private lastRemoteSurveyAt = 0;
   private remoteSurveyRetry = new Map<string, number>();
 
@@ -5694,9 +5706,18 @@ export class FleetManager {
         const yards = await this.galaxy.surveyShipyards(system, this.store);
         await this.store.recordMarketDirectory(system, markets.map((m) => ({ symbol: m.symbol, imports: m.imports ?? [], exports: m.exports ?? [], exchange: m.exchange ?? [] })));
         await this.store.recordShipyardDirectory(system, yards.map((y) => ({ symbol: y.symbol, shipTypes: y.shipTypes ?? [] })));
+        // Keep the in-memory snapshots the keeper scorer reads (surveySystem() does the same), so a remotely read system can be scored.
+        if (markets.length) this.markets = [...this.markets.filter((m) => m.systemSymbol !== system), ...markets];
         const probeYards = yards.filter((y) => (y.shipTypes ?? []).includes("SHIP_PROBE")).length;
         this.log(`remote survey of ${system} (${hops.get(system)} hop(s) from home): ${markets.length} markets, ${yards.length} yards (${probeYards} list probes); nothing marked surveyed`);
         if (!markets.length) this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
+        // Without explorers nothing else would queue a system for keepers: the same worth test an explorer's survey applies.
+        if (markets.length && this.doctrine.isEnabledOr("remoteSurveyIntake", false)) {
+          const counts = countWaypoints(this.galaxy.getSystem(system)?.waypoints ?? []);
+          const verdict = judgeSystem(counts, this.exploreWorthPolicy());
+          if (verdict.good) await this.intakeKeeperCandidates(system, "remote survey");
+          else this.log(`remote survey: ${system} not worth covering (${verdict.reason})`);
+        }
       } catch (err) {
         this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
         this.log(`remote survey of ${system} failed, trying again in 2 h: ${describeError(err)}`);
@@ -7187,7 +7208,11 @@ export class FleetManager {
     // Systems where one of our ships is at a yard that sells a keeper hull go first: a card for any other system waits for a ship to
     // dock there and holds the single request slot meanwhile (see serviceableFirst()).
     const serviceable = await this.keeperServiceableSystems();
-    const priority = serviceableFirst(wanted, serviceable);
+    // In a system where no yard's stock has been read yet, its shipyard markets go first: the first keeper docked at a yard reads the
+    // stock and prices there and lets the rest of the system's keepers be bought locally (keeperOrder.ts).
+    const stocked = new Set(((await this.store.shipyardInventory()) ?? []).filter((r) => KEEPER_HULL_PREFERENCE.includes(r.shipType)).map((r) => r.systemSymbol));
+    const yardFirst = new Set(wanted.filter((m) => this.registry.isShipyard(m) && !stocked.has(m.slice(0, m.lastIndexOf("-")))));
+    const priority = serviceableFirst(yardsFirst(wanted, yardFirst), serviceable);
     // Walk the uncovered markets in priority order until one actually asks (or buys). A market that cannot be
     // requested right now (no keeper hull in stock in its system, the shipyard path already asked for it, ...)
     // must not block the ones behind it: 2026-10-10 the head, MB58-E47, sat unrequestable for hours while
