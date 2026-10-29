@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Keeper queue: markets that can be bought now go first
+Operator queued new CK45 keepers and got no cards. Cause: the queue walked its list in score order, and cards raised for PK42-A2 and DQ39-C14B (yards with no ship of ours) were approved, could not run, and held the single request slot while CK45, where THEO-AA sat at the yard, waited. The queue now puts markets in systems where one of our ships is at a keeper-hull yard first (`serviceableFirst()` in `keeperQueueStall.ts`, `keeperServiceableSystems()` in `fleet.ts`); nothing is dropped. And an approved request waiting for a ship is released after 1 minute instead of the full `keeperYardWaitMin` when a buyable market in another system is waiting behind it. Tests in `tests/keeperQueueStall.test.ts`.
+
 ## 2026-10-29 — Sending a parked ship now says so; HTTP unpark
 `POST /api/fleet/dispatch` answered ok for a parked ship and did nothing (parked hulls have no agent): THEO-AA, a staged keeper at X1-CK45-C41, was "sent" to the CK45 shipyard and never moved. It now answers 409 saying the ship is parked. New `POST /api/fleet/unpark {shipSymbol, role?}` does what the MCP tool `stcommand_unpark_ship` does (resumes the role it had, or the one given), so a parked ship can be unparked from the dashboard API too.
 

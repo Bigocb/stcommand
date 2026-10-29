@@ -29,3 +29,14 @@ export function inCooldown(untilMs: number | undefined, nowMs: number): boolean 
 export function releaseReason(market: string, yard: string, waitedMin: number, policy: StallPolicy): string {
   return `released the approved keeper request for ${market}: no ship of ours was at ${yard} after ${Math.round(waitedMin)} min, and it was blocking every other market. ${market} is left out of the queue for ${policy.cooldownMin} min, or until a ship docks at ${yard}`;
 }
+
+/**
+ * Markets in systems where one of our ships is already at a keeper-hull yard come first, the rest keep their order behind them.
+ * A card for a market whose yard has no ship of ours can only be bought once a ship happens to dock there, and until then it holds
+ * the queue's single slot (2026-10-29: approved cards for PK42-A2 and DQ39-C14B held the slot while CK45, where THEO-AA sat at the
+ * yard, waited for its cards). Nothing is dropped: with no serviceable market the list is unchanged.
+ */
+export function serviceableFirst(priority: readonly string[], serviceableSystems: ReadonlySet<string>): string[] {
+  const systemOf = (m: string): string => m.slice(0, m.lastIndexOf("-"));
+  return [...priority.filter((m) => serviceableSystems.has(systemOf(m))), ...priority.filter((m) => !serviceableSystems.has(systemOf(m)))];
+}

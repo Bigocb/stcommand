@@ -25,3 +25,15 @@ describe("keeperQueueStall", () => {
     assert.match(line, /120 min/);
   });
 });
+
+import { serviceableFirst } from "../src/engine/keeperQueueStall.js";
+describe("serviceableFirst", () => {
+  it("puts markets in systems with a ship at a keeper yard first, keeping each group's order", () => {
+    const out = serviceableFirst(["X1-PK42-A2", "X1-DQ39-C14B", "X1-CK45-D44", "X1-CK45-C41"], new Set(["X1-CK45"]));
+    assert.deepEqual(out, ["X1-CK45-D44", "X1-CK45-C41", "X1-PK42-A2", "X1-DQ39-C14B"]);
+  });
+  it("leaves the list alone when no system is serviceable, and never drops a market", () => {
+    const list = ["X1-A-1", "X1-B-2"];
+    assert.deepEqual(serviceableFirst(list, new Set()), list);
+  });
+});

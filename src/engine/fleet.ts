@@ -55,7 +55,7 @@ import { getGameResetDate } from "../core/universe.js";
 import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
-import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
+import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange, warpRouteKey, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
@@ -7034,6 +7034,14 @@ export class FleetManager {
     return { ...DEFAULT_STALL_POLICY, graceMin: this.doctrine.isEnabledOr("keeperYardWaitMin", false) ? this.doctrine.value("keeperYardWaitMin", 0) : 0 };
   }
 
+  /** Systems where one of our ships is docked or orbiting at a yard that sells a keeper hull: a keeper request there can be bought at once. */
+  private async keeperServiceableSystems(): Promise<Set<string>> {
+    const summary = this.fleetStatusSummary();
+    return new Set(
+      ((await this.store?.shipyardInventory()) ?? []).filter((r) => KEEPER_HULL_PREFERENCE.includes(r.shipType) && pickShipAtYard(summary, r.waypointSymbol) !== undefined).map((r) => r.systemSymbol),
+    );
+  }
+
   private async advanceKeeperMarketQueue(): Promise<void> {
     if (!this.store || !this.tenantId) return;
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
@@ -7047,7 +7055,11 @@ export class FleetManager {
     const covered = this.coveredKeeperMarkets();
     // Best-scoring first (keeperValue.ts), except markets the operator listed that carry no score, which stay ahead of them.
     const scores = await this.keeperScores();
-    const priority = orderForBuying((await this.keeperPriorityMarkets()).filter((m) => !covered.has(m)), (m) => scores.get(m));
+    const wanted = orderForBuying((await this.keeperPriorityMarkets()).filter((m) => !covered.has(m)), (m) => scores.get(m));
+    // Systems where one of our ships is at a yard that sells a keeper hull go first: a card for any other system waits for a ship to
+    // dock there and holds the single request slot meanwhile (see serviceableFirst()).
+    const serviceable = await this.keeperServiceableSystems();
+    const priority = serviceableFirst(wanted, serviceable);
     // Walk the uncovered markets in priority order until one actually asks (or buys). A market that cannot be
     // requested right now (no keeper hull in stock in its system, the shipyard path already asked for it, ...)
     // must not block the ones behind it: 2026-10-10 the head, MB58-E47, sat unrequestable for hours while
@@ -7249,7 +7261,12 @@ export class FleetManager {
         const nowMs = Date.now();
         const since = this.keeperYardWait.get(row.id) ?? nowMs;
         this.keeperYardWait.set(row.id, since);
-        if (shouldRelease(since, nowMs, stall)) {
+        // A market elsewhere that could be bought right now is waiting behind this request: do not make it wait out the full grace.
+        const serviceable = await this.keeperServiceableSystems();
+        const sysOf = (m: string): string => m.slice(0, m.lastIndexOf("-"));
+        const covered = this.coveredKeeperMarkets();
+        const waitingElsewhere = stall.graceMin > 0 && (await this.keeperPriorityMarkets()).some((m) => !covered.has(m) && sysOf(m) !== sysOf(targetMarket) && serviceable.has(sysOf(m)) && !inCooldown(this.keeperQueueCooldown.get(m), nowMs));
+        if (shouldRelease(since, nowMs, waitingElsewhere ? { ...stall, graceMin: 1 } : stall)) {
           // Let the slot go so the next market can ask; the market is skipped for a while rather than asked for again at once.
           await this.store.consumeApproval(this.tenantId, row.id);
           this.keeperYardWait.delete(row.id);
