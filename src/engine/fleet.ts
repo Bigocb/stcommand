@@ -5710,7 +5710,10 @@ export class FleetManager {
       }
     }
     hops.delete(this.systemSymbol);
-    const picks = pickRemoteSurveys({ reachable: hops, alreadyRead: await this.store.directorySystems(), retryAt: this.remoteSurveyRetry, nowMs: now }, { ...DEFAULT_REMOTE_SURVEY_POLICY, perPass });
+    // Read already (the directory has rows for it) or judged not worth reading (an explorer's or this surveyor's durable "rejected" mark).
+    const alreadyRead = await this.store.directorySystems();
+    if (this.tenantId) for (const m of await this.store.recentSystemSurveys(this.tenantId, 2000)) if (m.source === "rejected") alreadyRead.add(m.systemSymbol);
+    const picks = pickRemoteSurveys({ reachable: hops, alreadyRead, retryAt: this.remoteSurveyRetry, nowMs: now }, { ...DEFAULT_REMOTE_SURVEY_POLICY, perPass });
     for (const system of picks) {
       try {
         await this.galaxy.loadSystem(system);
@@ -5722,13 +5725,24 @@ export class FleetManager {
         if (markets.length) this.markets = [...this.markets.filter((m) => m.systemSymbol !== system), ...markets];
         const probeYards = yards.filter((y) => (y.shipTypes ?? []).includes("SHIP_PROBE")).length;
         this.log(`remote survey of ${system} (${hops.get(system)} hop(s) from home): ${markets.length} markets, ${yards.length} yards (${probeYards} list probes); nothing marked surveyed`);
-        if (!markets.length) this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
-        // Without explorers nothing else would queue a system for keepers: the same worth test an explorer's survey applies.
-        if (markets.length && this.doctrine.isEnabledOr("remoteSurveyIntake", false)) {
-          const counts = countWaypoints(this.galaxy.getSystem(system)?.waypoints ?? []);
+        // What the waypoint traits say settles it: a system whose waypoints loaded and has neither a market nor a shipyard is
+        // empty for the whole week, so it is marked once (the same "rejected" mark an explorer writes, shared and durable) and never
+        // read again. Only a read that loaded no waypoints at all is a failure worth retrying.
+        const waypoints = this.galaxy.getSystem(system)?.waypoints ?? [];
+        const counts = countWaypoints(waypoints);
+        if (!waypoints.length) {
+          this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
+        } else if (counts.markets + counts.shipyards === 0) {
+          await this.markSystemSurveyed(system, "rejected", { markets: 0, shipyards: 0 });
+          this.log(`remote survey: ${system} has no market and no shipyard; marked rejected, not read again`);
+        } else if (this.doctrine.isEnabledOr("remoteSurveyIntake", false)) {
+          // Without explorers nothing else would queue a system for keepers: the same worth test an explorer's survey applies.
           const verdict = judgeSystem(counts, this.exploreWorthPolicy());
           if (verdict.good) await this.intakeKeeperCandidates(system, "remote survey");
-          else this.log(`remote survey: ${system} not worth covering (${verdict.reason})`);
+          else {
+            await this.markSystemSurveyed(system, "rejected", { markets: counts.markets, shipyards: counts.shipyards });
+            this.log(`remote survey: ${system} not worth covering (${verdict.reason}); marked rejected`);
+          }
         }
       } catch (err) {
         this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);

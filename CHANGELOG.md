@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — The remote surveyor marks systems like an explorer does; a delivery hop no longer waits out the market cadence
+- **Marks.** A system whose waypoints loaded and has neither a market nor a shipyard is marked `rejected` once (durable, shared with every explorer, `markSystemSurveyed`) and never read again; with `remoteSurveyIntake` on, a system that fails the worth test is marked `rejected` too instead of only logged. The 2-hour retry now applies only to a read that loaded no waypoints at all (a failure), not to "nothing there" (PV25, SQ36, TZ85 and CC14 were being read again every 2 hours and after each restart). The picker also skips every system carrying a `rejected` mark.
+- **Keeper poll.** `nextKeeperTask()` waited the market's 5 to 30 minute snapshot cadence after each successful hold step, so a delivery sat 12+ minutes at the RY50 gate (THEO-FD/FE/FF) before its next hop. A keeper under a hold on a waypoint is now stepped every 30 seconds.
+
 ## 2026-10-29 — A restart no longer drops a keeper delivery's destination
 Three probes bought at RY50-Z12X for DJ38 (13:30) lost their destination at the 13:35 redeploy: boot replays a stored hold through `holdShip()`, which always held the ship at its own position (here, RY50's gate), so each cross-system hold was re-pinned to the gate it was flying to. `holdShip()` now takes the stored waypoint (`holdShip(ship, st.holdWaypoint)`) so a replay keeps the original target, and `advanceKeeperDeliveries()` puts a delivery's hold back on its market whenever it names something else, which also repairs the three already affected. Not covered by an engine test (the boot path needs a live fleet); the repair log line is `delivery hold put back on`.
 
