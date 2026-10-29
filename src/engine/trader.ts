@@ -1,3 +1,4 @@
+import { approvedSaleAllows } from "./approvedSale.js";
 import { routeTag } from "./routeTag.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { contractBuyVerdict, NO_CONTRACT_BUY_GUARD, type ContractBuyPolicy } from "./contractBuyGuard.js";
@@ -321,6 +322,13 @@ export class TraderAgent {
   private readonly requestApproval?: TraderOptions["requestApproval"];
   /** When each held-below-floor good was first seen held, so the approval ask waits out a brief dip. */
   private heldBelowFloorSince = new Map<string, number>();
+  /** Goods whose below-floor sale the operator approved, with the price the card quoted; cleared when that sale ends (approvedSale.ts). */
+  private approvedFloorSale = new Map<string, { quote: number; at: number }>();
+  /** The price an approved below-floor sale of this good was quoted at, for 10 minutes after the approval (a sale that failed part way must not leave a standing waiver). */
+  private approvedQuote(good: string): number | undefined {
+    const a = this.approvedFloorSale.get(good);
+    return a && Date.now() - a.at < 10 * 60_000 ? a.quote : undefined;
+  }
   /** Goods the operator approved selling below the floor — consumed by the next sell. */
   private floorOverride = new Set<string>();
   private readonly atlas?: GalaxyAtlas;
@@ -1379,6 +1387,7 @@ export class TraderAgent {
     });
     if (decision !== true) return false;
     this.heldBelowFloorSince.delete(good);
+    this.approvedFloorSale.set(good, { quote: live, at: Date.now() });
     this.log(`operator approved selling ${units}u ${good} below floor at ${live}c`);
     return true;
   }
@@ -2109,17 +2118,18 @@ export class TraderAgent {
         remaining -= lot;
         soldAny += lot;
         totalReceived += sold.transaction.totalPrice;
-        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
+        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol) && !approvedSaleAllows(this.approvedQuote(item.symbol), sold.transaction.pricePerUnit) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
           this.recordDoctrineFire?.("maxLossPct");
           this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
           break;
         }
-        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol)) {
+        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol) && !approvedSaleAllows(this.approvedQuote(item.symbol), sold.transaction.pricePerUnit)) {
           const why = await this.nextLotBlock(item.symbol, this.ship.nav.waypointSymbol, sold.transaction.pricePerUnit, prevLotPrice);
           prevLotPrice = sold.transaction.pricePerUnit;
           if (why) { this.recordDoctrineFire?.("maxLossPct"); this.log(`holding remaining ${remaining}u ${item.symbol}: ${why}`); break; }
         }
       }
+      this.approvedFloorSale.delete(item.symbol);
       this.log(`cleared leftover ${soldAny}u ${item.symbol} at ${this.ship.nav.waypointSymbol} (${totalReceived}c)`);
       return true;
     } catch (err) {
@@ -2396,12 +2406,12 @@ export class TraderAgent {
         // dumping the rest of the hold once a lot's own realized price has
         // fallen below the loss floor, same guard the pre-loop live-price
         // check already applied once, up front.
-        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
+        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol) && !approvedSaleAllows(this.approvedQuote(item.symbol), sold.transaction.pricePerUnit) && (await this.exceedsLossFloor(item.symbol, sold.transaction.pricePerUnit))) {
           this.recordDoctrineFire?.("maxLossPct");
           this.log(`holding remaining ${remaining}u ${item.symbol}: price dropped to ${sold.transaction.pricePerUnit}c mid-sale, below loss floor`);
           break;
         }
-        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol)) {
+        if (remaining > 0 && !this.manualLegSkipsLossFloor(item.symbol) && !approvedSaleAllows(this.approvedQuote(item.symbol), sold.transaction.pricePerUnit)) {
           const why = await this.nextLotBlock(item.symbol, leg.sellAt, sold.transaction.pricePerUnit, prevLotPrice);
           prevLotPrice = sold.transaction.pricePerUnit;
           if (why) { this.recordDoctrineFire?.("maxLossPct"); this.log(`holding remaining ${remaining}u ${item.symbol}: ${why}`); break; }
@@ -2410,6 +2420,7 @@ export class TraderAgent {
       // The buy happened on an earlier tick, so the cost basis comes from
       // heldCost rather than a purchase response in scope. Signed, because a
       // loss rendered as "(+-9036c)" is what hid a losing loop for hours.
+      this.approvedFloorSale.delete(item.symbol);
       const paid = (this.heldCost.get(item.symbol) ?? 0) * soldAny;
       const delta = totalReceived - paid;
       this.log(`sold ${soldAny}u ${item.symbol} at ${leg.sellAt} (${delta >= 0 ? "+" : ""}${delta}c)`);
