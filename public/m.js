@@ -26,6 +26,7 @@ import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { seasonCardHtml } from "/shared/season.js";
 import { mountCompare } from "/shared/compare.js";
+import { mountQueue } from "/shared/queue.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { mountExplorers } from "/shared/explorers.js";
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
@@ -253,6 +254,7 @@ const NAV_GROUPS = [
     { key: "prices", label: "Prices", screen: "markets", seg: "prices" },
     { key: "keepers", label: "Keepers", screen: "more", pane: "fleet", only: ["more-sec-keepers"] },
     { key: "bysystem", label: "By system", screen: "markets", seg: "systems" },
+    { key: "queue", label: "Queue", screen: "more", pane: "work", only: ["more-sec-queue"] },
   ] },
   { key: "industry", label: "Industry", tabs: [
     { key: "chain", label: "Supply chain", screen: "more", pane: "work", only: ["more-sec-chain"] },
@@ -308,6 +310,7 @@ function openTab(groupKey, tabKey) {
     $("mkt-seg").querySelector(`[data-seg="${tab.seg}"]`)?.click();
   }
   renderNav();
+  renderMoreQueue();
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-group]");
@@ -2170,7 +2173,17 @@ function renderMoreCompare() {
   compareCard.show();
 }
 
+/** Queue (public/shared/queue.js): the fresh-system queue and the figures around it. Loaded and refreshed only while its tab is open. */
+let queueCard = null;
+function renderMoreQueue() {
+  const el = $("more-queue");
+  if (!el) return;
+  queueCard ??= mountQueue(el, { api, approvalCount: () => approvals.length });
+  if (currentTab === "queue") queueCard.show(); else queueCard.hide();
+}
+
 function renderMore() {
+  renderMoreQueue();
   renderMoreSeason();
   renderMoreCompare();
   renderBulkScrap();

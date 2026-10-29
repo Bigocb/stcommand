@@ -870,3 +870,18 @@ select:focus, .price-picker select:focus, select.role-select:focus { outline: 1p
 .cmp .kpi .v{font-family:var(--mono);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
 
 .cmp .cmp-scroll{overflow-x:auto;max-width:100%}
+
+/* Queue tab (public/shared/queue.js) */
+.qq{font-family:var(--mono);font-size:11.5px;color:var(--bone)}
+.qq .qq-top{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--dim);flex-wrap:wrap}
+.qq .qq-top b{color:var(--bone)}
+.qq .qq-refresh{background:var(--panel);color:var(--dim);border:1px solid var(--hair-hi);border-radius:4px;padding:4px 8px;font-family:var(--mono);font-size:11px}
+.qq .qq-rule{margin:8px 0 2px;color:var(--dim);font-size:11px}
+.qq .qq-sub{font-size:10.5px;color:var(--dim);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.06em}
+.qq .qq-t{width:100%;border-collapse:collapse}
+.qq .qq-t th{text-align:left;font-weight:normal;color:var(--dim);font-size:10.5px;padding:3px 6px 3px 0;border-bottom:1px solid var(--hair)}
+.qq .qq-t td{padding:5px 6px 5px 0;border-bottom:1px solid var(--hair);word-break:break-word}
+.qq .qq-none,.qq .qq-ok{color:var(--dim)}
+.qq .qq-line{color:var(--dim);margin-top:6px}
+.qq .qq-line b{color:var(--bone)}
+.qq .qq-warn{margin-top:6px;color:var(--amber, #e8a73a)}
