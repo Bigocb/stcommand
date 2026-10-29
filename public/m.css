@@ -1044,3 +1044,11 @@ button, .btn, select, input { min-height: 40px; font-size: 15px; }
 .sheet-close { min-height: 0; width: 36px; height: 36px; font-size: 18px; border-width: 2px; color: var(--bone); }
 .sheet .who { font-size: 20px; }
 .sheet .sub { font-size: 16px; }
+
+/* ══ Tower scale (operator, 2026-10-29: "everything's just a little too big... reduce everything by 30%") ══════════
+ * One knob for the whole app: every page, the sheet, the sign-in cards and the rate-limit toast are drawn at --tower-scale
+ * of the sizes above. The fixed shell is enlarged by the inverse so it still fills the screen. Raise it (0.8, 0.9) or lower
+ * it here to retune everything at once; 1 is the Clear Tower sizes as designed. */
+:root { --tower-scale: 0.7; }
+.app, .auth-gate { zoom: var(--tower-scale); width: calc(100vw / var(--tower-scale)); height: calc(100dvh / var(--tower-scale)); }
+.rl-toast { zoom: var(--tower-scale); }
