@@ -27,6 +27,7 @@ import { mountMetrics } from "/shared/metrics.js";
 import { seasonCardHtml } from "/shared/season.js";
 import { mountCompare } from "/shared/compare.js";
 import { mountQueue } from "/shared/queue.js";
+import { hourlyRows, hourlyAverage } from "/shared/hourly.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { mountExplorers } from "/shared/explorers.js";
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
@@ -231,62 +232,74 @@ function setTab(name) {
   }
 }
 /* ── Navigation groups ─────────────────────
- * Five bottom-bar items, the same groups as Deck's rail (docs/mobile-app-design.md, "Navigation groups"). A group's
- * screens are tabs in the sub-nav under the top bar. Each tab is an existing screen, optionally narrowed: `pane` opens
- * one of More's panes, `only` shows just those sections of it, and `seg` picks a Markets segment; the screen's own
- * segment bar is hidden, since the sub-nav replaces it. Map, Insights and Settings live under More; Tower has no Map.
+ * Task-first (redesign option B, 2026-10-29): the bottom bar is grouped by the question the operator is asking. Now: is
+ * everything fine? Money: how fast are we earning? Expand: what is the fresh-system queue doing? Ships: is anything stuck?
+ * Menu: everything else, as a list page. A group's screens are tabs in the sub-nav under the top bar. Each tab is an
+ * existing screen, optionally narrowed: `pane` opens one of More's panes, `only` shows just those sections of it, `seg`
+ * picks a Markets segment, and `view` picks a part of Home (status or activity); the screen's own segment bar is hidden,
+ * since the sub-nav replaces it. Menu's tabs are not shown as pills: its list page opens them, and the sub-nav then
+ * shows "‹ Menu" to go back. docs/mobile-app-design.md, "Task-first navigation".
  */
 const NAV_GROUPS = [
-  { key: "overview", label: "Overview", tabs: [
-    { key: "home", label: "Home", screen: "home" },
+  { key: "now", label: "Now", tabs: [
+    { key: "home", label: "Status", screen: "home", view: "status" },
     { key: "approvals", label: "Approvals", screen: "approvals", badge: true },
+    { key: "trouble", label: "Trouble", screen: "trouble" },
+    { key: "activity", label: "Activity", screen: "home", view: "activity" },
   ] },
-  { key: "fleet", label: "Fleet", tabs: [
-    { key: "ships", label: "Ships", screen: "fleet" },
-    { key: "explorers", label: "Explorers", screen: "more", pane: "explorers" },
-    { key: "mining", label: "Mining", screen: "more", pane: "mining" },
-    { key: "yards", label: "Yards", screen: "markets", seg: "yards" },
-    { key: "scrap", label: "Scrap", screen: "more", pane: "fleet", only: ["more-sec-scrap"] },
-  ] },
-  { key: "trade", label: "Trade", tabs: [
+  { key: "money", label: "Money", tabs: [
+    { key: "hourly", label: "Hourly", screen: "hourly" },
     { key: "routes", label: "Routes", screen: "markets", seg: "routes" },
     { key: "contracts", label: "Contracts", screen: "more", pane: "work", only: ["more-sec-contracts"] },
     { key: "prices", label: "Prices", screen: "markets", seg: "prices" },
+    { key: "metrics", label: "Metrics", screen: "metrics" },
+    { key: "compare", label: "Compare", screen: "more", pane: "work", only: ["more-sec-compare"] },
+  ] },
+  { key: "expand", label: "Expand", tabs: [
+    { key: "queue", label: "Queue", screen: "more", pane: "work", only: ["more-sec-queue"] },
     { key: "keepers", label: "Keepers", screen: "more", pane: "fleet", only: ["more-sec-keepers"] },
     { key: "bysystem", label: "By system", screen: "markets", seg: "systems" },
-    { key: "queue", label: "Queue", screen: "more", pane: "work", only: ["more-sec-queue"] },
+    { key: "explorers", label: "Explorers", screen: "more", pane: "explorers" },
+    { key: "yards", label: "Yards", screen: "markets", seg: "yards" },
   ] },
-  { key: "industry", label: "Industry", tabs: [
-    { key: "chain", label: "Supply chain", screen: "more", pane: "work", only: ["more-sec-chain"] },
-    { key: "missions", label: "Missions", screen: "more", pane: "work", only: ["more-sec-missions"] },
-    { key: "feeds", label: "Feeds", screen: "more", pane: "work", only: ["more-sec-feeds"] },
+  { key: "ships", label: "Ships", tabs: [
+    { key: "ships", label: "Ships", screen: "fleet" },
+    { key: "stuck", label: "Stuck", screen: "trouble" },
+    { key: "mining", label: "Mining", screen: "more", pane: "mining" },
+    { key: "scrap", label: "Scrap", screen: "more", pane: "fleet", only: ["more-sec-scrap"] },
   ] },
-  { key: "more", label: "More", tabs: [
-    { key: "metrics", label: "Metrics", screen: "metrics" },
-    { key: "season", label: "Season", screen: "more", pane: "work", only: ["more-sec-season"] },
-    { key: "compare", label: "Compare", screen: "more", pane: "work", only: ["more-sec-compare"] },
-    { key: "doctrine", label: "Doctrine", screen: "more", pane: "rules", only: ["more-sec-doctrine"] },
-    { key: "blocked", label: "Blocked", screen: "more", pane: "rules", only: ["more-sec-blocked"] },
-    { key: "opening", label: "Opening", screen: "more", pane: "rules", only: ["more-sec-opening"] },
-    { key: "keys", label: "Keys", screen: "more", pane: "rules", only: ["more-sec-keys"] },
-    { key: "alerts", label: "Alerts", screen: "more", pane: "rules", only: ["more-sec-notify"] },
-    { key: "copilot", label: "Co-pilot", screen: "copilot" },
-    { key: "admin", label: "Admin", screen: "admin", adminOnly: true },
+  { key: "menu", label: "Menu", list: true, tabs: [
+    { key: "menu", label: "Menu", screen: "menu" },
+    { key: "chain", label: "Supply chain", section: "Industry", screen: "more", pane: "work", only: ["more-sec-chain"] },
+    { key: "missions", label: "Missions", section: "Industry", screen: "more", pane: "work", only: ["more-sec-missions"] },
+    { key: "feeds", label: "Feeds", section: "Industry", screen: "more", pane: "work", only: ["more-sec-feeds"] },
+    { key: "season", label: "Season", section: "Plan", screen: "more", pane: "work", only: ["more-sec-season"] },
+    { key: "opening", label: "Opening", section: "Plan", screen: "more", pane: "rules", only: ["more-sec-opening"] },
+    { key: "doctrine", label: "Doctrine", section: "Rules", screen: "more", pane: "rules", only: ["more-sec-doctrine"] },
+    { key: "blocked", label: "Blocked goods", section: "Rules", screen: "more", pane: "rules", only: ["more-sec-blocked"] },
+    { key: "alerts", label: "Alerts", section: "Setup", screen: "more", pane: "rules", only: ["more-sec-notify"] },
+    { key: "copilot", label: "Co-pilot", section: "Setup", screen: "copilot" },
+    { key: "keys", label: "MCP keys", section: "Setup", screen: "more", pane: "rules", only: ["more-sec-keys"] },
+    { key: "admin", label: "Admin", section: "Setup", screen: "admin", adminOnly: true },
   ] },
 ];
 const navGet = (k) => { try { return window.localStorage.getItem(k); } catch { return null; } };
 const navSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch { /* private window: fine */ } };
-let currentGroup = "overview";
+let currentGroup = "now";
 let currentTab = "home";
 
 const groupTabs = (key) => (NAV_GROUPS.find((g) => g.key === key)?.tabs ?? []).filter((t) => !t.adminOnly || $("tab-admin")?.hidden === false);
 
 function renderNav() {
   const pending = approvals.length;
-  setHtml($("tabbar"), NAV_GROUPS.map((g) => `<button${g.key === currentGroup ? ' class="on"' : ""} data-group="${g.key}"><span class="dot"></span>${g.label}${g.key === "overview" && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join(""));
-  const tabs = groupTabs(currentGroup);
+  setHtml($("tabbar"), NAV_GROUPS.map((g) => `<button${g.key === currentGroup ? ' class="on"' : ""} data-group="${g.key}"><span class="dot"></span>${g.label}${g.key === "now" && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join(""));
+  const group = NAV_GROUPS.find((g) => g.key === currentGroup);
+  // Menu is a list page: its items are not pills; inside one, the sub-nav offers the way back.
+  const tabs = group?.list
+    ? (currentTab === "menu" ? [] : [{ key: "menu", label: "‹ Menu" }, ...groupTabs(currentGroup).filter((t) => t.key === currentTab)])
+    : groupTabs(currentGroup);
   const sub = $("subnav");
-  sub.hidden = tabs.length <= 1;
+  sub.hidden = group?.list ? tabs.length === 0 : tabs.length <= 1;
   setHtml(sub, tabs.map((t) => `<button${t.key === currentTab ? ' class="on"' : ""} data-tab="${t.key}">${t.label}${t.badge && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join(""));
 }
 
@@ -301,6 +314,12 @@ function openTab(groupKey, tabKey) {
   document.querySelectorAll(".grp-hidden").forEach((el) => el.classList.remove("grp-hidden"));
   // A screen that fails to render (a bad API answer) must not leave the navigation stuck on the previous tab.
   try { setTab(tab.screen); } catch (err) { console.error(err); }
+  const home = document.querySelector('[data-screen="home"]');
+  if (home) home.dataset.view = tab.view ?? "status";
+  if (tab.screen === "trouble") renderTrouble();
+  if (tab.screen === "hourly") renderHourlyScreen();
+  if (tab.screen === "menu") renderMenu();
+  if (tab.screen === "home" && tab.view !== "activity") loadStatusExtras();
   if (tab.pane) {
     $("more-seg").classList.add("grp-hidden");
     $("more-seg").querySelector(`[data-mseg="${tab.pane}"]`)?.click();
@@ -334,7 +353,7 @@ function syncAppBadge(n) {
 /* ── notifications: the settings screen, and where a tapped notification goes ──
  * The server sends a url like /m#approvals; the hash names a tab. Open it on load (the app was closed) and on a message
  * from the service worker (the app was already open). */
-const HASH_TABS = { home: ["overview", "home"], approvals: ["overview", "approvals"], fleet: ["fleet", "ships"], metrics: ["more", "metrics"] };
+const HASH_TABS = { home: ["now", "home"], approvals: ["now", "approvals"], fleet: ["ships", "ships"], metrics: ["money", "metrics"] };
 function openFromHash(hash) {
   const target = HASH_TABS[String(hash || "").replace(/^#/, "")];
   if (target) openTab(target[0], target[1]);
@@ -371,6 +390,10 @@ function unassignedTraders() {
   );
 }
 
+/* Now › Status state (redesign B): the fleet counts the checks show, and the extras read from the ops endpoints. */
+let statusFleet = { hulls: 0, stranded: 0, unassigned: 0 };
+let statusExtras = { queue: null, keepers: null, stuck: null, hourly: null };
+let statusExtrasAt = 0;
 function renderTiles() {
   const ships = state?.ships ?? [];
   const stranded = fleetStatus.stranded?.length ?? 0;
@@ -379,17 +402,113 @@ function renderTiles() {
   const rate = pace ? pace.perHour1h : bridge.rate ?? 0;
   const trend = pace ? { up: " ▲", down: " ▼", flat: "" }[paceTrend(pace)] : "";
   const wph = walletPlusHolds(state?.agent ? walletForHolds(state.agent) : (bridge.credits ?? 0), state?.cargoValues);
+  const wp = bridge.worthPace;
 
+  // Now › Status (redesign B): two headline figures, then the hourly table and the checks (renderStatusExtras).
   setHtml($("home-tiles"), `
-    <div class="tile"><div class="k">Credits</div><div class="v">${fmt(state?.agent?.credits ?? bridge.credits ?? 0)}</div></div>
-    <div class="tile"><div class="k">Credits + holds</div><div class="v">${fmt(wph.total)}${wph.partial ? "+" : ""}</div><div class="sub">holds ~${fmt(wph.holds)}</div>${bridge.worthPace && bridge.worthPace.perHour1h !== null ? `<div class="sub" title="Change in credits plus the estimated value of every hold, per hour, with ship purchases added back. Counts cargo at what it should fetch, so it includes profit not yet sold.">${signed(bridge.worthPace.perHour1h)}/hr${bridge.worthPace.perHour3h !== null ? ` · 3h ${signed(bridge.worthPace.perHour3h)}` : ""}</div>` : ""}</div>
-    <div class="tile"><div class="k">Rate</div><div class="v ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h avg ${signed(pace.perHour3h)} · net trading</div>${paceSparkline(pace.series)}` : ""}</div>
-    <div class="tile"><div class="k">Fleet</div><div class="v">${ships.length}<span class="sub"> hulls</span></div><div class="sub">${stranded} stranded · ${unassigned} unassigned</div></div>
+    <div class="tile"><div class="k">Profit per hour</div><div class="v hero ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h average ${signed(pace.perHour3h)} · net trading</div>${paceSparkline(pace.series)}` : ""}</div>
+    <div class="tile"><div class="k">Credits + holds</div><div class="v hero">${fmt(wph.total)}${wph.partial ? "+" : ""}</div>
+      ${wp && wp.perHour1h !== null ? `<div class="sub" title="Change in credits plus the estimated value of every hold, per hour, with ship purchases added back. Counts cargo at what it should fetch, so it includes profit not yet sold.">Worth ${signed(wp.perHour1h)}/hr${wp.perHour3h !== null ? ` · 3h ${signed(wp.perHour3h)}` : ""}</div>` : ""}
+      <div class="pair"><div><div class="pk">Credits</div><div class="pv" title="${escapeAttr(fmt(state?.agent?.credits ?? bridge.credits ?? 0))}">${short(state?.agent?.credits ?? bridge.credits ?? 0).replace("+", "")}</div></div><div><div class="pk">Holds</div><div class="pv" title="${escapeAttr(fmt(wph.holds))}">~${short(wph.holds).replace("+", "")}</div></div></div>
+    </div>
   `);
+  statusFleet = { hulls: ships.length, stranded, unassigned };
+  renderChecks();
   syncAppBadge(stranded + unassigned + approvals.length);
   $("tb-note").textContent = stranded + unassigned + approvals.length > 0
     ? `${approvals.length + stranded + unassigned} need you`
     : "all clear";
+}
+
+/* ── Now › Status extras (redesign B): the hourly table and the checks list ──
+ * The checks are the questions the operator asks every hour, each a big row that opens the tab with the answer. They read
+ * the queue, keepers, stuck and metrics endpoints at most once a minute, and only while Status is open. */
+async function loadStatusExtras(force = false) {
+  if (!force && Date.now() - statusExtrasAt < 60_000) { renderChecks(); renderHomeHourly(); return; }
+  statusExtrasAt = Date.now();
+  const get = (path) => api("GET", path).catch(() => null);
+  const [queue, keepers, stuck, metrics] = await Promise.all([get("/api/ops/system_queue"), get("/api/ops/keepers"), get("/api/ops/stuck"), get("/api/metrics?hours=6")]);
+  statusExtras = { queue, keepers, stuck, hourly: metrics?.buckets ? hourlyRows(metrics.buckets, metrics.bucketMinutes, Date.now()) : null };
+  renderChecks();
+  renderHomeHourly();
+}
+const hourLabel = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric" });
+/** +1.58M / -420k: table cells at 18 px must fit four columns in 390 px; the headline tiles keep the exact figures. */
+const short = (n) => {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "—";
+  const x = Number(n), a = Math.abs(x), sg = x > 0 ? "+" : x < 0 ? "−" : "";
+  if (a >= 1e6) return `${sg}${(a / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${sg}${Math.round(a / 1e3)}k`;
+  return `${sg}${Math.round(a)}`;
+};
+function hourlyTableHtml(rows, count) {
+  if (!rows?.length) return `<div class="empty">No hourly figures yet.</div>`;
+  const avg = hourlyAverage(rows, 3);
+  const cell = (n) => (n === null || n === undefined ? "—" : `<span class="${n >= 0 ? "green" : "red"}" title="${escapeAttr(signed(n))}">${short(n)}</span>`);
+  return `<table class="hr-t"><thead><tr><th>Hour</th><th class="n">Trading</th><th class="n">Worth</th><th class="n">Sales</th></tr></thead><tbody>
+    ${rows.slice(0, count).map((r) => `<tr><td>${hourLabel(r.start)}${r.partial ? " <span class='hr-now'>now</span>" : ""}</td><td class="n">${cell(r.net)}</td><td class="n">${cell(r.worth)}</td><td class="n">${r.sells}</td></tr>`).join("")}
+    ${avg ? `<tr class="hr-avg"><td>${avg.hours}h avg</td><td class="n">${cell(avg.net)}</td><td class="n">${cell(avg.worth)}</td><td class="n">${avg.sells ?? "—"}</td></tr>` : ""}
+  </tbody></table>`;
+}
+function renderHomeHourly() {
+  const el = $("home-hourly");
+  if (el) setHtml(el, hourlyTableHtml(statusExtras.hourly, 4));
+}
+function renderChecks() {
+  const el = $("home-checks");
+  if (!el) return;
+  const q = statusExtras.queue, k = statusExtras.keepers?.counts, st = statusExtras.stuck?.counts;
+  const byState = (name) => (q?.queue ?? []).filter((x) => x.state === name).length;
+  const staged = (q?.queue ?? []).find((x) => x.state === "staged");
+  const rows = [
+    { go: "now:approvals", k: "Approvals", v: approvals.length ? `${approvals.length} waiting` : "None", line: approvals.length ? "Tap to decide" : "Nothing waiting on you", tone: approvals.length ? "amber" : "" },
+    { go: "ships:ships", k: "Ships", v: `${statusFleet.hulls} hulls`, line: `${statusFleet.stranded} stranded · ${statusFleet.unassigned} unassigned`, tone: statusFleet.stranded ? "red" : "" },
+    { go: "now:trouble", k: "Trouble", v: st ? (st.crit ? `${st.crit} critical` : st.warn ? `${st.warn} warnings` : "None") : "—", line: st ? `${st.crit ?? 0} critical · ${st.warn ?? 0} warnings · ${st.info ?? 0} info` : "Loading…", tone: st?.crit ? "red" : st?.warn ? "amber" : "" },
+    { go: "expand:queue", k: "Fresh systems", v: q ? `${byState("live")} live` : "—", line: q ? `${byState("staged")} staged${staged ? ` (${staged.system})` : ""} · ${byState("scouted")} scouted` : "Loading…" },
+    { go: "expand:keepers", k: "Keepers", v: k ? `${k.covered} covered` : "—", line: k ? `${k.enroute ?? 0} on the way · ${k.staged ?? 0} staged · ${k.pending ?? 0} waiting` : "Loading…" },
+  ];
+  setHtml(el, rows.map((r) => `<button class="check" data-go="${r.go}"><span class="ck">${escapeHtml(r.k)}</span><span class="cv ${r.tone}">${escapeHtml(r.v)}</span><span class="cl">${escapeHtml(r.line)}</span><span class="chev">›</span></button>`).join(""));
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("[data-go]");
+  if (!b) return;
+  const [g, t] = b.dataset.go.split(":");
+  openTab(g, t);
+});
+
+/* ── Now › Trouble and Ships › Stuck: the stuck-ships report (GET /api/ops/stuck), most severe first ── */
+async function renderTrouble() {
+  const el = $("trouble-list");
+  if (!el) return;
+  let stuck;
+  try { stuck = await api("GET", "/api/ops/stuck"); } catch (err) { setHtml(el, `<div class="empty">${escapeHtml(err.message || String(err))}</div>`); return; }
+  const rank = { crit: 0, warn: 1, info: 2 };
+  const list = [...(stuck?.findings ?? [])].sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
+  $("trouble-count").textContent = list.filter((f) => f.severity !== "info").length;
+  if (!list.length) { setHtml(el, `<div class="empty">Nothing looks stuck.</div>`); return; }
+  const word = { crit: "Critical", warn: "Warning", info: "Note" };
+  setHtml(el, list.map((f) => `<div class="card trouble ${f.severity}"><div class="row1"><span class="who">${escapeHtml(f.ship)}</span><span class="sev">${word[f.severity] ?? escapeHtml(f.severity)}</span></div><div class="detail">${escapeHtml(String(f.kind).replace(/_/g, " "))}: ${escapeHtml(f.detail)}</div></div>`).join(""));
+}
+
+/* ── Money › Hourly: trading and worth per clock hour for the last 12 hours (/api/metrics buckets, shared/hourly.js) ── */
+async function renderHourlyScreen() {
+  const el = $("hourly-table");
+  if (!el) return;
+  try {
+    const m = await api("GET", "/api/metrics?hours=12");
+    setHtml(el, hourlyTableHtml(hourlyRows(m.buckets ?? [], m.bucketMinutes, Date.now()), 12) + `<div class="hr-note">Trading is profit on completed sales, less fuel and jumps. Worth is the change in credits plus holds, with ship purchases not counted as a loss.</div>`);
+  } catch (err) {
+    setHtml(el, `<div class="empty">${escapeHtml(err.message || String(err))}</div>`);
+  }
+}
+
+/* ── Menu: everything that is not Now, Money, Expand or Ships, as a list of big rows ── */
+function renderMenu() {
+  const el = $("menu-list");
+  if (!el) return;
+  const items = groupTabs("menu").filter((t) => t.section);
+  const sections = [...new Set(items.map((t) => t.section))];
+  setHtml(el, sections.map((sec) => `<div class="sec-h">${escapeHtml(sec)}</div><div class="menu-sec">${items.filter((t) => t.section === sec).map((t) => `<button class="menu-row" data-go="menu:${t.key}">${escapeHtml(t.label)}<span class="chev">›</span></button>`).join("")}</div>`).join(""));
 }
 
 /* ── home: triage feed ──────────────────────
@@ -761,13 +880,39 @@ function renderFleetView() {
   else $("fleet-sheet").hidden = true;
 }
 
+/* Ships › Ships filters (redesign B): All / Trouble (stranded or unassigned) / Moving / Docked, and a search over ship,
+ * role, job and system. The bar lives in m.html so typing in the search box keeps its focus through re-renders. */
+let shipFilter = "all";
+const SHIP_FILTERS = {
+  all: () => true,
+  trouble: (r) => r.stranded || r.job === "unassigned",
+  moving: (r) => r.nav === "IN_TRANSIT",
+  docked: (r) => r.nav === "DOCKED",
+};
+$("ship-filter")?.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-sf]");
+  if (!b) return;
+  shipFilter = b.dataset.sf;
+  renderRoster();
+});
+$("ship-search")?.addEventListener("input", () => renderRoster());
+
 function renderRoster() {
   const rows = fleetRows();
-  $("roster-hd").textContent = `${rows.length} hull${rows.length === 1 ? "" : "s"}`;
+  const needle = ($("ship-search")?.value ?? "").trim().toUpperCase();
+  const matches = (r) => !needle || [r.symbol, r.role, r.job, r.waypoint].some((x) => String(x ?? "").toUpperCase().includes(needle));
+  const counts = Object.fromEntries(Object.entries(SHIP_FILTERS).map(([k, f]) => [k, rows.filter(f).length]));
+  document.querySelectorAll("#ship-filter button[data-sf]").forEach((b) => {
+    b.classList.toggle("on", b.dataset.sf === shipFilter);
+    b.textContent = `${b.dataset.sf[0].toUpperCase()}${b.dataset.sf.slice(1)} ${counts[b.dataset.sf] ?? 0}`;
+  });
+  const shown = rows.map((r, i) => ({ r, i })).filter(({ r }) => SHIP_FILTERS[shipFilter](r) && matches(r));
+  $("roster-hd").textContent = `${shown.length} of ${rows.length} hull${rows.length === 1 ? "" : "s"}`;
   if (!rows.length) { setHtml($("roster-scroll"), '<div class="empty">No ships in the register.</div>'); return; }
+  if (!shown.length) { setHtml($("roster-scroll"), '<div class="empty">No ship matches.</div>'); return; }
   const collapsed = loadCollapsed();
   const groups = new Map();
-  rows.forEach((r, i) => {
+  shown.forEach(({ r, i }) => {
     const g = groups.get(r.role) ?? [];
     g.push({ r, i });
     groups.set(r.role, g);
@@ -2179,7 +2324,7 @@ let queueCard = null;
 function renderMoreQueue() {
   const el = $("more-queue");
   if (!el) return;
-  queueCard ??= mountQueue(el, { api, approvalCount: () => approvals.length });
+  queueCard ??= mountQueue(el, { api, approvalCount: () => approvals.length, layout: "cards" });
   if (currentTab === "queue") queueCard.show(); else queueCard.hide();
 }
 

@@ -964,3 +964,67 @@ button, .btn, select, input { min-height: 48px; font-size: 17px; }
 .topbar > * { white-space: nowrap; }
 .topbar .who { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 360px) { .topbar { gap: 8px; } .topbar .brand { letter-spacing: 0.02em; } }
+
+/* ══ Task-first navigation (redesign option B, 2026-10-29) ══════════════════════════════════════════════════════
+ * Now › Status is an answer sheet: two headline figures, the hourly table and a list of checks, each a big row that opens
+ * the tab with the answer. Activity has its own tab (Home's two views), Trouble lists the stuck report, Money › Hourly is
+ * profit per clock hour and Menu is a list page. Styles from the Clear Tower block above. */
+[data-screen="home"][data-view="activity"] .home-scroll > :not(.act-only) { display: none !important; }
+[data-screen="home"]:not([data-view="activity"]) .act-only { display: none; }
+.tile .v.hero { font-size: 40px; }
+.tile .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.tile .pair > div { background: var(--raised); border-radius: 6px; padding: 10px 12px; min-width: 0; }
+.tile .pair .pk { font-family: var(--chrome); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: #e8c98f; }
+.tile .pair .pv { font-weight: 700; font-size: 22px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+
+.hr-t { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.hr-t th { text-align: left; font-family: var(--chrome); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: #e8c98f; padding: 6px 4px; border-bottom: 2px solid var(--hair-hi); }
+.hr-t td { font-size: 18px; padding: 10px 4px; border-bottom: 2px solid var(--hair); }
+.hr-t .n { text-align: right; }
+.hr-t .hr-avg td { font-weight: 700; border-bottom: none; }
+.hr-t .hr-now { font-size: 15px; color: var(--amber); }
+.hr-note { margin-top: 12px; font-size: 16px; color: var(--dim); }
+
+#home-checks, .menu-sec { display: flex; flex-direction: column; gap: 10px; }
+.check, .menu-row {
+  display: grid; grid-template-columns: 1fr auto 24px; grid-template-areas: "k v chev" "l l chev"; align-items: center; gap: 2px 10px;
+  width: 100%; min-height: 72px; padding: 12px 14px; text-align: left; background: var(--panel); color: var(--bone);
+  border: 2px solid var(--hair); border-radius: 8px; font-family: var(--mono);
+}
+.check .ck { grid-area: k; font-family: var(--chrome); font-weight: 700; font-size: 18px; }
+.check .cv { grid-area: v; font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; }
+.check .cv.amber { color: var(--amber); } .check .cv.red { color: var(--red); }
+.check .cl { grid-area: l; font-size: 17px; color: var(--dim); }
+.check .chev, .menu-row .chev { grid-area: chev; font-size: 28px; color: #e8c98f; text-align: right; }
+.menu-row { grid-template-areas: "k chev"; grid-template-columns: 1fr 24px; min-height: 64px; font-family: var(--chrome); font-weight: 700; font-size: 19px; }
+
+.card.trouble { padding: 14px; margin-bottom: 10px; }
+.card.trouble .row1 { display: flex; justify-content: space-between; gap: 10px; }
+.card.trouble .who { font-weight: 700; font-size: 20px; }
+.card.trouble .sev { font-family: var(--chrome); font-weight: 700; font-size: 16px; text-transform: uppercase; }
+.card.trouble.crit { border-color: var(--red); } .card.trouble.crit .sev { color: var(--red); }
+.card.trouble.warn { border-color: var(--amber); } .card.trouble.warn .sev { color: var(--amber); }
+.card.trouble .detail { font-size: 18px; margin-top: 6px; }
+/* Expand › Queue as cards (shared/queue.js layout "cards") */
+.qq .qq-card { background: var(--raised); border: 2px solid var(--hair); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+.qq .qq-warn-card { border-color: var(--amber); }
+.qq .qq-q { font-family: var(--chrome); font-weight: 700; font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; color: #e8c98f; margin-bottom: 6px; }
+.qq .qq-big { font-weight: 700; font-size: 28px; color: var(--ice); }
+.qq .qq-a { font-size: 18px; color: var(--bone); margin-top: 4px; }
+.qq .qq-rule-a { color: var(--dim); }
+.qq .qq-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.qq .qq-counts > div { background: var(--panel); border-radius: 6px; padding: 10px; text-align: center; }
+.qq .qq-counts b { display: block; font-size: 32px; font-variant-numeric: tabular-nums; }
+.qq .qq-counts span { font-size: 16px; color: var(--dim); }
+.qq .qq-links { display: flex; flex-direction: column; gap: 10px; }
+.qq .qq-link { text-align: left; background: var(--panel); color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; padding: 12px 14px; font-family: var(--mono); font-size: 18px; }
+#more-queue.card.qq { background: none; border: none; padding: 0; }
+/* Ships › Ships filters and search (redesign B) */
+.ship-filter { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+.ship-filter button { min-height: 52px; background: transparent; color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; font-family: var(--chrome); font-weight: 700; font-size: 18px; }
+.ship-filter button.on { background: var(--amber); border-color: var(--amber); color: #0a0908; }
+.ship-search { width: 100%; min-height: 52px; margin-bottom: 10px; padding: 0 14px; background: var(--panel); color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; font-family: var(--mono); font-size: 18px; }
+.ship-search::placeholder { color: var(--dim); }
+.roster-hd { font-size: 17px; color: var(--bone); }
+.tile .pair .pv { font-size: 24px; }
+@media (max-width: 360px) { .hr-t th { font-size: 13px; letter-spacing: 0; padding: 6px 2px; } .hr-t td { font-size: 16px; padding: 10px 2px; } }

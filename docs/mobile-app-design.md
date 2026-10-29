@@ -433,3 +433,34 @@ A keeps every screen and tab where it was and changes only how it reads:
 Deck is untouched: the shared modules keep their own markup and Tower styles them through `m.css` classes only.
 
 Next: option B, the task-first navigation (Now, Money, Expand, Ships, Menu) on top of these styles.
+
+## Task-first navigation (2026-10-29, redesign option B)
+
+Built on the Clear Tower styles. The bottom bar is grouped by the question the operator is asking:
+
+| Bottom tab | Sub-tabs |
+|---|---|
+| **Now** | Status (Home), Approvals, Trouble, Activity |
+| **Money** | Hourly, Routes, Contracts, Prices, Metrics, Compare |
+| **Expand** | Queue, Keepers, By system, Explorers, Yards |
+| **Ships** | Ships, Stuck, Mining, Scrap |
+| **Menu** (a list page) | Industry: Supply chain, Missions, Feeds · Plan: Season, Opening · Rules: Doctrine, Blocked goods · Setup: Alerts, Co-pilot, MCP keys, Admin |
+
+- **Now › Status** is an answer sheet: profit per hour (40 px), credits + holds with the worth rate and a credits/holds pair,
+  an hourly table (the last four clock hours and a 3-hour average), and **Checks**: Approvals, Ships, Trouble, Fresh
+  systems, Keepers, each a 72 px row that opens the tab with the answer. The checks read `/api/ops/system_queue`,
+  `/api/ops/keepers`, `/api/ops/stuck` and `/api/metrics?hours=6` at most once a minute while Status is open.
+- **Activity** is Home's other view (`data-view`), no longer under the cards.
+- **Trouble / Stuck** list `/api/ops/stuck`, most severe first.
+- **Money › Hourly** is trading and worth per clock hour for 12 hours, from the `/api/metrics` 30-minute buckets
+  (`public/shared/hourly.js`, tested in `tests/hourly.test.ts`). Worth is the change in `netWorth` (credits + holds + hull
+  capital), so buying ships does not read as a loss. No server change was needed.
+- **Expand › Queue** shows one question per card (`mountQueue(..., { layout: "cards" })`): next to open with its keepers
+  and the release rule in words, the counts, last released, live systems newest first, the systems waiting behind the gate,
+  and links to Keepers and Hourly instead of repeating them.
+- **Ships › Ships** has filter buttons with counts (All, Trouble, Moving, Docked) and a search over ship, role, job and
+  system.
+- **Menu** lists its items as 64 px rows; inside one, the sub-nav shows "‹ Menu" to go back.
+
+Notification links (`/m#approvals` etc.) map to the new groups. Saved last-tab memory per group resets once (harmless).
+Checked at 390 and 320 px with no horizontal overflow; the hourly table drops to 16 px cells under 360 px.

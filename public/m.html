@@ -74,18 +74,45 @@
           <button data-mode="halt">Halt</button>
         </div>
         <div class="tiles" id="home-tiles"></div>
+        <div class="st-only">
+          <div class="sec-h">Hourly</div>
+          <div class="card" id="home-hourly"><div class="empty">Loading…</div></div>
+          <div class="sec-h">Checks</div>
+          <div id="home-checks"></div>
+        </div>
         <div id="attention-sec" hidden>
           <div class="sec-h">Needs attention <span class="n" id="attention-count">0</span></div>
           <div id="attention-list"></div>
         </div>
         <div class="sec-h">Needs a decision <span class="n" id="triage-count">0</span></div>
         <div id="triage-list"></div>
+        <div class="act-only">
         <div class="sec-h">Activity</div>
         <div id="home-activity"></div>
+        </div>
       </div>
+    </div>
+    <div class="screen" data-screen="trouble">
+      <div class="home-scroll">
+        <div class="sec-h">Trouble <span class="n" id="trouble-count">0</span></div>
+        <div id="trouble-list"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+    <div class="screen" data-screen="hourly">
+      <div class="home-scroll">
+        <div class="sec-h">Profit per clock hour</div>
+        <div class="card" id="hourly-table"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+    <div class="screen" data-screen="menu">
+      <div class="home-scroll" id="menu-list"></div>
     </div>
     <div class="screen" data-screen="fleet">
       <div class="roster" id="fleet-roster-view">
+        <div class="ship-filter" id="ship-filter">
+          <button data-sf="all" class="on">All</button><button data-sf="trouble">Trouble</button><button data-sf="moving">Moving</button><button data-sf="docked">Docked</button>
+        </div>
+        <input class="ship-search" id="ship-search" type="search" placeholder="Find a ship, role or system" autocomplete="off" />
         <div class="roster-hd" id="roster-hd"></div>
         <div class="roster-scroll" id="roster-scroll"></div>
       </div>
