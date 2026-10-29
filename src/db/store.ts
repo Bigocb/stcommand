@@ -1842,6 +1842,32 @@ export class Store {
   // migrations/059 holds both tables; both are in TENANT_GAME_TABLES because a
   // universe reset invalidates every system and waypoint symbol they name.
 
+  /** Save what each market of a system trades (its import, export and exchange lists), as read remotely by a survey. Idempotent: a re-read replaces the lists. */
+  async recordMarketDirectory(systemSymbol: string, markets: { symbol: string; imports: string[]; exports: string[]; exchange: string[] }[]): Promise<void> {
+    if (!markets.length) return;
+    await withPool(this.pool, async (c) => {
+      for (const m of markets) {
+        await c.query(
+          `INSERT INTO market_directory (waypoint_symbol, system_symbol, imports, exports, exchange, updated_at)
+           VALUES ($1, $2, $3, $4, $5, now())
+           ON CONFLICT (waypoint_symbol) DO UPDATE SET imports = excluded.imports, exports = excluded.exports, exchange = excluded.exchange, updated_at = now()`,
+          [m.symbol, systemSymbol, m.imports, m.exports, m.exchange],
+        );
+      }
+    });
+  }
+
+  /** The saved goods lists, optionally for one system, newest read first. */
+  async marketDirectory(systemSymbol?: string): Promise<{ waypointSymbol: string; systemSymbol: string; imports: string[]; exports: string[]; exchange: string[]; updatedAt: string }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ waypoint_symbol: string; system_symbol: string; imports: string[]; exports: string[]; exchange: string[]; updated_at: Date }>(
+        `SELECT waypoint_symbol, system_symbol, imports, exports, exchange, updated_at FROM market_directory ${systemSymbol ? "WHERE system_symbol = $1" : ""} ORDER BY updated_at DESC, waypoint_symbol`,
+        systemSymbol ? [systemSymbol] : [],
+      );
+      return res.rows.map((r) => ({ waypointSymbol: r.waypoint_symbol, systemSymbol: r.system_symbol, imports: r.imports, exports: r.exports, exchange: r.exchange, updatedAt: r.updated_at.toISOString() }));
+    });
+  }
+
   /** Record (or refresh) this tenant's survey of one system. Idempotent: a
    *  re-survey updates the row's timestamp and counts, never adds a second. */
   async recordSystemSurvey(
@@ -4200,7 +4226,7 @@ export class Store {
   private static readonly SHARED_GALAXY_TABLES = [
     "galaxy_systems", "galaxy_factions", "galaxy_crawl_state",
     "market_snapshots", "market_latest", "shipyard_inventory", "module_catalog",
-    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions", "field_surveys",
+    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions", "field_surveys", "market_directory",
   ];
 
   /** Wipes every shared galaxy-fact table — see SHARED_GALAXY_TABLES's own

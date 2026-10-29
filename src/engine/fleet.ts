@@ -2450,6 +2450,13 @@ export class FleetManager {
     // scout revisited it. This is the one place completion should be marked:
     // every call site that finishes exploring/scouting a system routes
     // through here (exploreSystem(), jumpShip(), autoExplore() itself).
+    // What each market trades is readable remotely, so save it: a survey then says where keepers are worth sending, and it
+    // survives a restart (migrations/064).
+    try {
+      await this.store?.recordMarketDirectory(systemSymbol, markets.map((m) => ({ symbol: m.symbol, imports: m.imports ?? [], exports: m.exports ?? [], exchange: m.exchange ?? [] })));
+    } catch (err) {
+      this.log(`market directory for ${systemSymbol} not saved: ${describeError(err)}`);
+    }
     await this.markSystemSurveyed(systemSymbol, "survey", { markets: markets.length, shipyards: shipyards.length });
     this.log(`surveyed ${systemSymbol}: ${markets.length} markets, ${shipyards.length} shipyards`);
   }

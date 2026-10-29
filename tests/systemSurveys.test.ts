@@ -131,3 +131,20 @@ describe("explorer-state tables survive a universe reset correctly", () => {
     assert.deepEqual(await store.listTourQueues(tenantA), [], "and every queued waypoint symbol");
   });
 });
+
+describe("market directory (migrations/064)", () => {
+  it("saves a system's goods lists, replaces them on a re-read, and reads them back by system", async () => {
+    const sys = `X1-MD${Date.now() % 100000}`;
+    await store.recordMarketDirectory(sys, [
+      { symbol: `${sys}-A1`, imports: ["IRON"], exports: ["FUEL"], exchange: [] },
+      { symbol: `${sys}-B2`, imports: [], exports: [], exchange: ["ICE", "FOOD"] },
+    ]);
+    await store.recordMarketDirectory(sys, [{ symbol: `${sys}-A1`, imports: ["IRON", "FOOD"], exports: ["FUEL"], exchange: [] }]);
+    const rows = await store.marketDirectory(sys);
+    assert.equal(rows.length, 2);
+    assert.deepEqual(rows.find((r) => r.waypointSymbol === `${sys}-A1`)!.imports, ["IRON", "FOOD"]);
+    assert.deepEqual(rows.find((r) => r.waypointSymbol === `${sys}-B2`)!.exchange, ["ICE", "FOOD"]);
+    assert.equal((await store.marketDirectory("X1-NOPE")).length, 0);
+    await pool.query(`DELETE FROM market_directory WHERE system_symbol = $1`, [sys]);
+  });
+});

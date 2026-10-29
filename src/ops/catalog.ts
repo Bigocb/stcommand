@@ -21,6 +21,7 @@ import { miningFieldsReport, type FieldWaypoint } from "../engine/miningFields.j
 import { contractsOverview } from "../http/contractsOverview.js";
 import { runAnalysis } from "./analysis.js";
 import { DEFAULT_YARD_POLICY, yardReport } from "../engine/yardScan.js";
+import { summarizeDirectory } from "../engine/marketDirectory.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
 const bool = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional();
@@ -557,6 +558,19 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx, a) {
       const intel = await ctx.w.fleet.getIntel();
       return yardReport(intel.shipyards, ctx.now(), { fastAbove: a.fastAbove, affordableUnder: a.affordableUnder, limit: Math.min(Math.max(a.limit, 1), 60) });
+    },
+  },
+
+  {
+    name: "market_directory",
+    title: "What each surveyed market trades, ranked, with keeper coverage",
+    description: "The goods lists (imports, exports, exchange) a survey read remotely for every market of a system, saved when the survey ran. No ship has to have stood there and there are no prices: the number of distinct goods is the signal for where a keeper is worth sending. Per system: markets, how many already have a keeper, how many have at least minGoods goods and no keeper (worthKeeping), and the markets best first. Filter with system. Read-only.",
+    input: { system: z.string().optional(), minGoods: num(5), limit: num(40) },
+    async run(ctx, a) {
+      const rows = await ctx.w.store.marketDirectory(a.system);
+      const covered = new Set(ctx.w.fleet.keeperStations().map((k) => k.market));
+      const systems = summarizeDirectory(rows, covered, ctx.now(), a.minGoods);
+      return { systems: systems.length, rows: rows.length, list: systems.slice(0, Math.min(Math.max(a.limit, 1), 200)).map((s) => ({ ...s, ranked: a.system ? s.ranked : s.ranked.slice(0, 6) })) };
     },
   },
 

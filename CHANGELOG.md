@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — The survey keeps each market's goods list; explorers can survey without touring markets
+Operator plan (after probes were shown to cross gates): an explorer surveys a system and moves on, and keepers are chosen from what the markets trade, then sent by probe. The game gives anyone each market's import, export and exchange lists without a ship there (only prices need one); the survey already read them but kept them in memory only. Now `surveySystem()` saves them (`market_directory`, migrations/064, shared galaxy table wiped at the reset) and the ops tool `market_directory` ranks a system's markets by distinct goods with keeper coverage and a `worthKeeping` count (`src/engine/marketDirectory.ts`). `exploreMaxMarketStops` may now be 0: the explorer still docks at every shipyard (yard stock is only revealed docked) but reads no markets. Tests in `tests/marketDirectory.test.ts` and `tests/systemSurveys.test.ts`.
+
 ## 2026-10-29 — HTTP park
 `POST /api/fleet/park {shipSymbol}` parks a hull (the MCP tool `stcommand_park_ship`'s twin), alongside the unpark route added earlier, so a parked keeper that was unparked for a test can be put back from the dashboard API.
 

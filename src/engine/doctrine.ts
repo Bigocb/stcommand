@@ -495,8 +495,8 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "exploreMaxMarketStops",
     name: "Explorer: markets read per tour",
-    description: "How many markets an explorer reads in a system it tours, after every shipyard (all shipyards are always visited). The gate it stands on is read on arrival and is not counted. Takes effect on the next tour.",
-    value: 10, min: 1, max: 40, step: 1, unit: " markets",
+    description: "How many markets an explorer reads in a system it tours, after every shipyard (all shipyards are always visited). The gate it stands on is read on arrival and is not counted. 0 = visit the shipyards only: the survey still reads each market's goods list remotely (saved in the market directory), and keepers bring the prices. Takes effect on the next tour.",
+    value: 10, min: 0, max: 40, step: 1, unit: " markets",
     enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
