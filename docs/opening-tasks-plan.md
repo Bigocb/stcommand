@@ -192,7 +192,7 @@ export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "
 | `contract-ship` | Contract ship | `all[ taskDone "cmd-trader", shipHoldEmpty {by:"command"}, cashAtLeast 110000 ]` | `buyShip SHIP_LIGHT_SHUTTLE maxPrice 100000 preApproved false`; `setRole {by:"step",step:0} trader`; `contractDuty {by:"step",step:0} on` |
 | `tour-ship` | Tour ship | `all[ taskDone "contract-ship", cashAtLeast 110000 ]` | `buyShip SHIP_LIGHT_SHUTTLE maxPrice 100000 preApproved false`; `setRole {by:"step",step:0} tour` |
 
-(A SHIP_PROBE is not used for touring: a probe has 0 fuel capacity and cannot cross gates. The light shuttle at the home yard cost 84,521 on 2026-10-18.)
+(A SHIP_PROBE is not used for touring: it is a stationary keeper hull at speed 9. It CAN cross gates despite its 0 fuel capacity: THEO-1B jumped X1-BT10 -> X1-V90 on 2026-10-29 (cost in CHANGELOG). The light shuttle at the home yard cost 84,521 on 2026-10-18.)
 
 ### 4.2 Persistence: `Store` methods in `src/db/store.ts`
 
