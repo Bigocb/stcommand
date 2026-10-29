@@ -20,6 +20,7 @@ import { buildMetrics, bucketMinutesFor } from "../engine/metrics.js";
 import { miningFieldsReport, type FieldWaypoint } from "../engine/miningFields.js";
 import { contractsOverview } from "../http/contractsOverview.js";
 import { runAnalysis } from "./analysis.js";
+import { DEFAULT_YARD_POLICY, yardReport } from "../engine/yardScan.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
 const bool = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional();
@@ -545,6 +546,17 @@ export const OPS_TOOLS: OpsTool[] = [
     input: { sinceHours: num(72) },
     async run(ctx, a) {
       return explorerReport(ctx.w, Math.min(Math.max(a.sinceHours, 1), 720), ctx.now());
+    },
+  },
+
+  {
+    name: "yard_scan",
+    title: "Hulls on offer, ranked by cargo x speed per credit",
+    description: "Every ship type seen in the shipyards we have read, at its cheapest yard: hold (from the fitted cargo modules, since the yard's own cargo figure is often 0), engine speed, fuel, price, how many yards offer it, how old the reading is, and a score = hold x speed per 1,000 credits. fastAndAffordable lists the hulls faster than fastAbove (default 15, the common light hulls) at or under affordableUnder (default 1,000,000), the answer to \"is there a cheap fast ship\". Route times are costed at the slowest hull, so speed is worth most on same-system routes: see the shipSpeedWeight clause. Only yards we have read are listed; the explorers add more. Read-only.",
+    input: { fastAbove: num(DEFAULT_YARD_POLICY.fastAbove), affordableUnder: num(DEFAULT_YARD_POLICY.affordableUnder), limit: num(DEFAULT_YARD_POLICY.limit) },
+    async run(ctx, a) {
+      const intel = await ctx.w.fleet.getIntel();
+      return yardReport(intel.shipyards, ctx.now(), { fastAbove: a.fastAbove, affordableUnder: a.affordableUnder, limit: Math.min(Math.max(a.limit, 1), 60) });
     },
   },
 

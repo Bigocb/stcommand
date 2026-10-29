@@ -126,6 +126,7 @@ import { learnImpact, type ImpactPolicy, type Learned } from "./lotImpact.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
 import { DEFAULT_MATCH_POLICY, matchShips, type MatchPolicy } from "./matching.js";
+import { DEFAULT_SPEED_POLICY, scaleSeconds, speedGain, speedReason, type SpeedPolicy } from "./shipSpeed.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
 import { goodOfKey, type DispatchExplainSnapshot, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
 
@@ -969,7 +970,7 @@ export class RouteDispatcher {
    */
   recompute(
     routes: DispatchRoute[],
-    traders: { shipSymbol: string; capacity: number; busy?: boolean; system?: string; waypoint?: string; fuelCapacity?: number; reach?: ShipReach }[],
+    traders: { shipSymbol: string; capacity: number; speed?: number; busy?: boolean; system?: string; waypoint?: string; fuelCapacity?: number; reach?: ShipReach }[],
     warehouseTargets: WarehouseTarget[] = [],
     haulTargets: HaulTarget[] = [],
     missionBuyTargets: MissionBuyTarget[] = [],
@@ -1029,7 +1030,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; marketRecoveryMin?: number; routeBlockMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; marketRecoveryMin?: number; routeBlockMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1650,6 +1651,15 @@ export class RouteDispatcher {
       const r = this.declined.get(ship);
       return !!r && r.until > nowMs && w.good === r.good && (r.wholeGood || (w.buyAt === r.buyAt && w.sellAt === r.sellAt));
     };
+    // A faster hull earns more per hour from a same-system route (shipSpeed.ts); off at weight 0.
+    const speedPolicy: SpeedPolicy = { ...DEFAULT_SPEED_POLICY, weightPct: Math.max(0, tuning?.speedWeight ?? 0) };
+    const gainFor = (t: { speed?: number }): number => speedGain(t.speed, tuning?.modelSpeed, speedPolicy);
+    if (speedPolicy.weightPct > 0) {
+      for (const t of sorted) {
+        const note = speedReason(t.shipSymbol, t.speed, tuning?.modelSpeed, gainFor(t));
+        if (note && !t.busy) log?.(note);
+      }
+    }
     let loopOrder = sorted;
     const matchPolicy: MatchPolicy = { ...DEFAULT_MATCH_POLICY, topN: Math.max(0, Math.floor(tuning?.matchTopN ?? 0)) };
     if (matchPolicy.topN > 0) {
@@ -1658,8 +1668,8 @@ export class RouteDispatcher {
       const byKey = new Map(tradeItems.map((w) => [w.key, w]));
       const traderBySymbol = new Map(idle.map((t) => [t.shipSymbol, t]));
       const matched = matchShips(
-        tradeItems.map((w) => ({ key: w.key, profitPerTrip: w.profitPerTrip, rawProfit: w.rawProfit, profitByHold: w.profitByHold, volume: w.volume, tripSeconds: w.tripSeconds })),
-        idle.map((t) => ({ shipSymbol: t.shipSymbol, capacity: t.capacity })),
+        tradeItems.map((w) => ({ key: w.key, profitPerTrip: w.profitPerTrip, rawProfit: w.rawProfit, profitByHold: w.profitByHold, volume: w.volume, tripSeconds: w.tripSeconds, flightBound: !!w.secPerDist })),
+        idle.map((t) => ({ shipSymbol: t.shipSymbol, capacity: t.capacity, speedGain: gainFor(t) })),
         {
           positioningSeconds: (ship, item) => {
             const t = traderBySymbol.get(ship.shipSymbol);
@@ -1763,13 +1773,17 @@ export class RouteDispatcher {
         if (extra === undefined) return undefined; // an extra buyer here is not worth it / over the cap
         // Direct routes carry a time-scaled score (see scoreRoute()); keep the extra buyers' impact cost on the
         // same scale, and charge the flight from this trader to the buy market against the trip's own time.
-        const timeScale = w.tripSeconds ? REFERENCE_TRIP_SECONDS / w.tripSeconds : 1;
+        // A same-system route's time is all flying, so a faster hull runs it in proportionally less: its per-hour
+        // value, and the extra buyers' cost on the same scale, rise by the ship's speed gain, and its flight to the
+        // buy market shrinks with the trip. Cross-system routes are mostly jump cooldowns, which speed does not shorten.
+        const gain = w.secPerDist ? gainFor(t) : 1;
+        const timeScale = (w.tripSeconds ? REFERENCE_TRIP_SECONDS / w.tripSeconds : 1) * gain;
         let penalty = extra * timeScale;
-        let score = w.profitPerTrip - penalty;
+        let score = w.profitPerTrip * gain - penalty;
         let positioning = 0;
         if (w.tripSeconds && w.secPerDist && w.buyAt && t.waypoint && t.system !== undefined && w.buySystem === t.system) {
-          positioning = distanceBetween(t.waypoint, w.buyAt) * w.secPerDist;
-          score *= w.tripSeconds / (w.tripSeconds + positioning);
+          positioning = scaleSeconds(distanceBetween(t.waypoint, w.buyAt) * w.secPerDist, gain);
+          score *= scaleSeconds(w.tripSeconds, gain) / (scaleSeconds(w.tripSeconds, gain) + positioning);
         }
         if (score <= 0) return undefined;
         if (w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system) {

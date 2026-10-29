@@ -34,11 +34,15 @@ export interface MatchItem {
   volume?: number;
   /** One-way trip seconds, to turn positioning time into a share of the trip. */
   tripSeconds?: number;
+  /** True for a same-system route, whose time is flying and so shortens on a faster hull. */
+  flightBound?: boolean;
 }
 
 export interface MatchShip {
   shipSymbol: string;
   capacity: number;
+  /** Per-hour multiplier for this hull's speed on a flight-bound route (shipSpeed.ts); 1 or absent when unknown or off. */
+  speedGain?: number;
 }
 
 export interface MatchContext {
@@ -61,9 +65,10 @@ export function fitValue(item: MatchItem, ship: MatchShip, positioningSeconds: n
   else if (item.volume !== undefined && item.volume > 0) share = ship.capacity / item.volume;
   else share = 1;
   share = Math.min(1, Math.max(0, share));
-  const trip = item.tripSeconds;
-  const timeScale = trip && trip > 0 ? trip / (trip + Math.max(0, positioningSeconds)) : 1;
-  return item.profitPerTrip * share * timeScale;
+  const gain = item.flightBound ? Math.max(0, ship.speedGain ?? 1) || 1 : 1;
+  const trip = item.tripSeconds && item.tripSeconds > 0 ? item.tripSeconds / gain : item.tripSeconds;
+  const timeScale = trip && trip > 0 ? trip / (trip + Math.max(0, positioningSeconds) / gain) : 1;
+  return item.profitPerTrip * share * timeScale * gain;
 }
 
 /**

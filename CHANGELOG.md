@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Hull speed counts: per-ship speed in route value, and a yard scan
+Operator insight: speed matters as much as hold size (the bulk freighter is speed 60, most hulls are 15), and fewer, bigger, faster ships also mean fewer API calls. Two changes, both advisory-safe:
+- **Per-ship speed (`src/engine/shipSpeed.ts`, clause `shipSpeedWeight`, off by default).** Route times are costed at the slowest hull's speed (`fleet.ts routeModelSpeed()`, now one shared helper), so a speed-60 ship was valued like a shuttle. With the clause on, a same-system route is worth more to a faster hull by that share of its real speed ratio (capped at 4x), its flight to the buy market counts for less, and the route matcher (`matching.ts`, `speedGain`/`flightBound`) uses the same gain. Cross-system routes are unchanged (jump cooldowns dominate). Weight 0 / clause off reproduces the old behaviour; tests in `tests/shipSpeed.test.ts`.
+- **Yard scan (`src/engine/yardScan.ts`, ops `yard_scan`).** Every hull seen in the yards we have read, at its cheapest yard, scored as hold x speed per 1,000 credits (hold from the cargo modules, since the yard's own figure is often 0), plus a `fastAndAffordable` list (faster than 15, at most 1M by default). Read-only; tests in `tests/yardScan.test.ts`.
+
 ## 2026-10-29 — Week over week: Compare tab in Deck and a Compare card in Tower
 Operator request: compare this week with a previous week, with a dropdown of earlier weeks and "any tenants from the previous week" (all tenants are the operator's).
 

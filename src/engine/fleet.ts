@@ -1638,7 +1638,7 @@ export class FleetManager {
    * fleet's most profitable route away for hours behind a ship parked at a
    * building site, doing nothing with it.
    */
-  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean; system: string; waypoint: string; fuelCapacity: number; reach?: ShipReach }[] {
+  private dispatcherTraders(): { shipSymbol: string; capacity: number; speed: number; busy: boolean; system: string; waypoint: string; fuelCapacity: number; reach?: ShipReach }[] {
     // "auto" is the weakest owner in ShipRegistry's precedence, so
     // availableFor("auto") answers exactly "not held, not suspended, not
     // committed to a mission/warehouse/keeper claim" — same intent as the
@@ -1660,6 +1660,7 @@ export class FleetManager {
       .map(([sym, a]) => ({
         shipSymbol: sym,
         capacity: a.getShip().cargo?.capacity ?? 0,
+        speed: a.getShip().engine?.speed ?? 0,
         // Cargo in the hold means the ship is mid-haul on its current route.
         // Reassigning it there strands that cargo, so the dispatcher leaves it be.
         busy: (a.getShip().cargo?.units ?? 0) > 0,
@@ -1675,6 +1676,13 @@ export class FleetManager {
         waypoint: a.getShip().nav.waypointSymbol,
         fuelCapacity: a.getShip().fuel?.capacity ?? 0,
       }));
+  }
+
+  /** The one speed every route's flying time is costed at: the slowest non-drone hull that could fly a route. */
+  private routeModelSpeed(): number {
+    const flyers = [...this.traders.values(), ...this.tours.values(), ...this.explorers.values()].map((a) => a.getShip());
+    const speeds = flyers.filter((sh) => sh.frame?.symbol !== "FRAME_DRONE").map((sh) => sh.engine?.speed ?? 0).filter((v) => v > 0);
+    return speeds.length ? Math.min(...speeds) : 0;
   }
 
   private traderFacts(sym: string, a: TraderAgent, available: Set<string>): TraderFacts {
@@ -2254,8 +2262,7 @@ export class FleetManager {
     // 15-speed shuttles, so costing it at the one 36-speed frigate overstated every per-hour figure ~2x.
     // A drone hull (a mining drone repurposed as a tour ship, speed 9) never takes a trade route, so it must not
     // set the speed every route is costed at: THEO-17 did that on 2026-10-08, stretching every modelled trip ~1.7x.
-    const speeds = flyers.filter((sh) => sh.frame?.symbol !== "FRAME_DRONE").map((sh) => sh.engine?.speed ?? 0).filter((v) => v > 0);
-    const fleetSpeed = speeds.length ? Math.min(...speeds) : 0;
+    const fleetSpeed = this.routeModelSpeed();
     const spendable = this.spendableCredits();
     const maxLots = this.maxLotsPerTrip();
     const impactPolicy: ImpactPolicy = { ...DEFAULT_IMPACT_POLICY, maxAgeMs: 4 * 3_600_000, maxFactor: this.doctrine.isEnabledOr("lotImpactMaxFactor", false) ? this.doctrine.value("lotImpactMaxFactor", 0) : 0 };
@@ -9975,7 +9982,7 @@ export class FleetManager {
           homeReserve: 1,
           gateFor: (from, to) => this.galaxy.gatesTo(from, to)[0],
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), matchTopN: this.doctrine.value("routeMatchTopN", 0), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0 },
+        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0 },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
       // Keep each trader's trip and commitment across a restart, so a ship flying to its buy market is not re-routed.

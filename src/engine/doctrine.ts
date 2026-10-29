@@ -143,6 +143,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "shipSpeedWeight",
+    name: "Value a hull's speed",
+    description: "Route times are costed at the slowest hull's speed (most hulls are speed 15), so a speed-60 freighter was valued like a shuttle although it finishes a same-system trip in a quarter of the time. With this on, a same-system route is worth more to a faster hull by this share of its real speed advantage (100 = the full ratio, capped at 4x), and its flight to the buy market counts for less. It changes which ship gets which route and how routes rank for that ship, not the prices or the route board. Cross-system routes are unchanged (jump cooldowns dominate). Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 100, min: 10, max: 100, step: 10, unit: "%",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "positioningHops",
     name: "Positioning jumps",
     description: "How many gate jumps a trader may take to reach a route's buy market. A route needing more jumps than this is not offered to a ship. Every jump costs about 5,000 credits and a cooldown before the first sale, so the first trip still has to out-earn the positioning cost. Hard ceiling 10 (set in code); default 3, the old fixed limit. Takes effect on the next dispatch recompute.",
