@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { nextBuyLotDecision, sinkCheck, type BuyGuardPolicy } from "../src/engine/buyGuard.js";
+import { nextBuyLotDecision, sinkCheck, sinkCheckShrunk, type BuyGuardPolicy } from "../src/engine/buyGuard.js";
 
 /**
  * The numbers are THEOREM-5's MEDICINE loop of 2026-10-18 (E52 > G58, lots of 20): its own buying walked the ask
@@ -87,5 +87,37 @@ describe("nextBuyLotDecision: the next lot is judged after the lots already held
     const d = nextBuyLotDecision({ lotsBought: 2, lastPrice: 4_628, liveSink: 4_549, fallbackSink: 4_549, marginFloor: floorFor(4_628), policy: { impactPerLot: 0 } });
     assert.equal(d.ok, true);
     assert.equal(d.reason, "guard off");
+  });
+});
+
+describe("sinkCheckShrunk: cut the trip before refusing it", () => {
+  const base = { liveBuy: 204, liveSink: 312, marginFloor: 10, policy: { impactPerLot: 0.045 } as BuyGuardPolicy };
+  it("passes the planned lots when the whole plan clears the floor", () => {
+    const d = sinkCheckShrunk({ ...base, lots: 3 });
+    assert.equal(d.ok, true);
+    assert.equal(d.lots, 3);
+  });
+  it("cuts an 8-lot plan that fails on average to the largest plan that passes", () => {
+    const full = sinkCheck({ ...base, lots: 8 });
+    // Chosen so eight lots fail but fewer pass (the THEO-AB COPPER case: 312c bid against a 204c ask).
+    const tight = { ...base, liveSink: 250 };
+    const eight = sinkCheck({ ...tight, lots: 8 });
+    const shrunk = sinkCheckShrunk({ ...tight, lots: 8 });
+    assert.equal(eight.ok, false, "the full plan fails: " + eight.reason);
+    assert.equal(shrunk.ok, true);
+    assert.ok(shrunk.lots >= 1 && shrunk.lots < 8, `cut to ${shrunk.lots} lots`);
+    assert.equal(sinkCheck({ ...tight, lots: shrunk.lots }).ok, true);
+    assert.equal(sinkCheck({ ...tight, lots: shrunk.lots + 1 }).ok, false, "one more lot would fail");
+    assert.ok(full.ok !== undefined);
+  });
+  it("refuses only when even one lot fails", () => {
+    const d = sinkCheckShrunk({ ...base, liveSink: 205, lots: 8 });
+    assert.equal(d.ok, false);
+    assert.equal(d.lots, 0);
+  });
+  it("guard off passes everything unchanged", () => {
+    const d = sinkCheckShrunk({ ...base, lots: 8, policy: { impactPerLot: 0 } });
+    assert.equal(d.ok, true);
+    assert.equal(d.lots, 8);
   });
 });

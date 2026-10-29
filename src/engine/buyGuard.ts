@@ -54,6 +54,27 @@ export function sinkCheck(i: SinkCheckInput): GuardDecision {
   return { ok: true, reason: `expected margin ${Math.round(margin)}c over ${n} lot(s), floor ${Math.round(i.marginFloor)}c` };
 }
 
+export interface ShrunkDecision extends GuardDecision {
+  /** Lots the trip may buy: the planned number when it passes, fewer when only a smaller trip does, 0 when even one lot fails. */
+  lots: number;
+}
+
+/**
+ * sinkCheck() for the whole plan, and when that fails, for the largest smaller plan that passes. A trip planned at 8 lots
+ * (the per-trip lot cap was raised to 8 for the big hulls) refused outright on 2026-10-29 when its average margin over 8
+ * lots was 0c although three lots earned well: THEO-AB and THEO-EE, the 490-unit freighters, each flew to a buy market,
+ * were turned away at the dock and marked the route dead, while the same buy at three lots would have paid. Refuse only
+ * when a single lot fails. Pure.
+ */
+export function sinkCheckShrunk(i: SinkCheckInput): ShrunkDecision {
+  const planned = Math.max(1, Math.floor(i.lots));
+  for (let n = planned; n >= 1; n--) {
+    const v = sinkCheck({ ...i, lots: n });
+    if (v.ok) return { ok: true, lots: n, reason: n === planned ? v.reason : `trip cut from ${planned} to ${n} lot(s): ${v.reason}` };
+  }
+  return { ...sinkCheck({ ...i, lots: 1 }), ok: false, lots: 0 };
+}
+
 /** After each lot, before the next. */
 export interface NextBuyLotInput {
   lotsBought: number;              // lots already bought in this trip (>= 1)

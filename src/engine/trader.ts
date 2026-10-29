@@ -20,7 +20,7 @@ import type { ShipMovement, ActionEventRecord } from "../db/store.js";
 import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { nextLotDecision } from "./lotGuard.js";
 import { sellFloor, belowSellFloor } from "./lossAllowance.js";
-import { nextBuyLotDecision, sinkCheck } from "./buyGuard.js";
+import { nextBuyLotDecision, sinkCheckShrunk } from "./buyGuard.js";
 import { withinHaulLimit } from "./haulLimit.js";
 import { CONTRACT_DELIVERY_BACKOFF_MS, isNoGatePathError } from "./contractReach.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
@@ -2558,16 +2558,22 @@ export class TraderAgent {
       // read is passed to guard 2 between lots, so the destination is not read again for every lot.
       const guardPct = this.buyGuardImpactPct();
       let sinkNow: number | undefined;
+      let sinkUnitsCap: number | undefined;   // set when only a smaller trip than planned passes the destination check
       if (guardPct > 0 && !this.isPinnedRoute(route)) {
         const lots = Math.max(1, Math.ceil(Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units) / Math.max(1, route.lotSize)));
         sinkNow = await this.liveSellPrice(route.sellAt, route.good);
-        const verdict = sinkCheck({
+        const verdict = sinkCheckShrunk({
           liveBuy: liveBuy ?? route.buyPrice,
           liveSink: sinkNow,
           lots,
           marginFloor: effectiveMarginFloor(this.marginFloor, liveBuy ?? route.buyPrice),
           policy: { impactPerLot: guardPct / 100 },
         });
+        if (verdict.ok && verdict.lots < lots) {
+          sinkUnitsCap = verdict.lots * Math.max(1, route.lotSize);
+          this.recordDoctrineFire?.("buyGuardImpactPct");
+          this.log(`${route.good}: ${verdict.reason}`);
+        }
         if (!verdict.ok) {
           this.recordDoctrineFire?.("buyGuardImpactPct");
           this.log(`skipping buy: ${verdict.reason}`);
@@ -2586,7 +2592,7 @@ export class TraderAgent {
       // FOOD with far fewer credits in hand).
       let liveCredits = await this.spendableNow();
       const buyPrice = liveBuy ?? route.buyPrice;
-      const target = Math.max(0, Math.floor(Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units)));
+      const target = Math.max(0, Math.floor(Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units, sinkUnitsCap ?? Infinity)));
       if (target <= 0) return true;
       // A single purchaseCargo() call is capped at the market's own
       // advertised trade volume per transaction (confirmed live: "SILVER has
