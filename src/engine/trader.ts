@@ -21,6 +21,7 @@ import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { nextLotDecision } from "./lotGuard.js";
 import { sellFloor, belowSellFloor } from "./lossAllowance.js";
 import { nextBuyLotDecision, sinkCheckShrunk } from "./buyGuard.js";
+import { sizeTrip } from "./tripSize.js";
 import { withinHaulLimit } from "./haulLimit.js";
 import { CONTRACT_DELIVERY_BACKOFF_MS, isNoGatePathError } from "./contractReach.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
@@ -1587,7 +1588,7 @@ export class TraderAgent {
       const ignoreProfitFloor = assignment?.source === "manual";
       const viable = this.viableRoute(assigned, ignoreProfitFloor);
       if (viable) {
-        this.log(`findRoute: flying assigned ${assigned.good} ${assigned.buyAt} -> ${assigned.sellAt}`);
+        this.log(`findRoute: flying assigned ${assigned.good} ${assigned.buyAt} -> ${assigned.sellAt} (${viable.volume} units)`);
         return viable;
       }
       const why = this.whyNotViable(assigned, ignoreProfitFloor);
@@ -1698,8 +1699,9 @@ export class TraderAgent {
     const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * this.maxLotsPerTrip());
     if (volume <= 0 || lotSize <= 0) return `volume=${volume} lotSize=${lotSize} cargo=${this.ship.cargo.capacity} credits=${credits}`;
     const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize, buyVolume: buy.volume, sellVolume: sell.volume };
-    const profit = this.routeProfit(route);
-    if (!ignoreProfitFloor && profit <= 0) return `profit ${profit} <= 0 (trip cost ${this.tripCost(r.buyAt, r.sellAt)})`;
+    // The full load first; if it loses to our own price impact, one lot less, and so on (tripSize.ts). Same rule as viableRoute().
+    const sized = sizeTrip(volume, lotSize, (units) => this.routeProfit({ ...route, volume: units }));
+    if (!ignoreProfitFloor && sized.units <= 0) return `profit ${this.routeProfit(route)} <= 0 at ${volume} units and ${sized.profit} at one lot (trip cost ${this.tripCost(r.buyAt, r.sellAt)})`;
     return "viable";
   }
 
@@ -1803,8 +1805,12 @@ export class TraderAgent {
     const volume = Math.min(this.ship.cargo.capacity, affordable, lotSize * this.maxLotsPerTrip());
     if (volume <= 0 || lotSize <= 0) return undefined;
     const route: Route = { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume, lotSize, buyVolume: buy.volume, sellVolume: sell.volume };
-    if (!ignoreProfitFloor && this.routeProfit(route) <= 0) return undefined;
-    return route;
+    if (ignoreProfitFloor) return route;
+    // Operator's rule (2026-10-29): the full load if it pays; otherwise step down one lot and try again (tripSize.ts). On a
+    // 490-hold freighter the full ~480 units often lose to our own impact on a route that pays at a smaller size.
+    const sized = sizeTrip(volume, lotSize, (units) => this.routeProfit({ ...route, volume: units }));
+    if (sized.units <= 0) return undefined;
+    return sized.units === volume ? route : { ...route, volume: sized.units };
   }
 
   /**
