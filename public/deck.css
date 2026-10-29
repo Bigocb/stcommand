@@ -688,6 +688,7 @@ table.mf .dim{color:var(--dim)}
 .cmp .cmp-pick{font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .cmp .cmp-pick select{background:var(--panel);color:var(--bone);border:1px solid var(--hair-hi);border-radius:4px;padding:6px 8px;font-family:var(--mono);font-size:11.5px;max-width:100%}
 .cmp .cmp-note,.cmp .cmp-foot{font-family:var(--mono);font-size:10.5px;color:var(--dim);line-height:1.5}
+.cmp .cmp-sub{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.06em}
 .cmp .cmp-foot{margin-top:10px}
 .cmp .cmp-empty{font-family:var(--mono);font-size:11.5px;color:var(--dim);padding:14px;line-height:1.5}
 .cmp .cmp-kpis{margin-bottom:12px}

@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Compare: weeks lined up on the gate
+A week whose gate opened a day later looked 68% behind on the hours-since-first-trade view (this week's gate: 58 h, 10-18's: 34 h). Compare now also lines the weeks up on each one's first gate jump (`gateAligned()` in `src/engine/weekCompare.ts`, `gateAligned` in `/api/compare`): matched profit before the gate, profit in the same number of hours after it (the shorter of the two weeks' time since their gates), profit per hour over those hours, sells, and cumulative profit since the gate at +6/12/24/36/48/72/96 h. The footer says what profit per hour is: matched profit (completed round trips only, before fuel, jump costs and ship purchases) over the hours in the window. Tests in `tests/weekCompare.test.ts`.
+
 ## 2026-10-29 — Compare shows every tenant's weeks on a one-owner box
 Operator: they are the only user on the box, so reading another tenant's earlier weeks should not need a second setting. With `OPERATOR_AGENTS` unset, Compare now lists every tenant's kept weeks (THEO, THEOREM, ...) to any signed-in agent; set it to a list that leaves an agent out to keep a shared box's tenants apart again. Every other operator-only view still needs the list. Tests in `tests/compareRoute.test.ts`.
 

@@ -126,14 +126,23 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
       ${small ? "" : kpi("Best hour", L.a.bestHourPnl, L.b.bestHourPnl)}
       ${kpi("Gate opened (h)", gate(A), gate(B), (v) => (v === null ? "—" : `${v}`))}
     </div>`;
+    const G = data.gateAligned;
+    const gateKpis = G ? `<div class="cmp-sub">Lined up on the gate: each week's first jump, then the same ${G.hours} h after it</div><div class="kpirow cmp-kpis">
+      ${kpi("Before the gate", G.a.beforePnl, G.b.beforePnl)}
+      ${kpi(`After the gate, ${G.hours} h`, G.a.pnl, G.b.pnl)}
+      ${kpi("After the gate / hour", G.a.pnlPerHour, G.b.pnlPerHour)}
+      ${small ? "" : kpi("Sells after the gate", G.a.sells, G.b.sells)}
+    </div>` : "";
+    const gateRows = G ? G.checkpoints.filter((r) => !small || [6, 12, 24].includes(r.hour)) : [];
+    const gateTable = gateRows.length ? `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Since gate</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th></tr></thead><tbody>${gateRows.map((r) => `<tr><td>+${r.hour} h</td><td class="num">${compact(r.a)}</td><td class="num">${compact(r.b)}</td><td class="num ${tone(r.delta)}">${signed(r.delta)}</td></tr>`).join("")}</tbody></table></div>` : "";
     const charts = `<div class="cmp-charts">
       <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), label: "matched profit", height: small ? 120 : 160 })}</div>
       ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Wallet</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), label: "wallet" })}</div>`}
     </div>`;
     const rows = data.checkpoints.filter((r) => r.a || r.b).filter((r) => !small || [12, 24, 48, 72].includes(r.hour));
     const table = `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Hour</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th>${small ? "" : "<th class=\"num\">Wallet A</th><th class=\"num\">Wallet B</th>"}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r.hour} h</td><td class="num">${r.a ? compact(r.a.cumPnl) : "—"}</td><td class="num">${r.b ? compact(r.b.cumPnl) : "—"}</td><td class="num ${tone(r.pnlDelta)}">${signed(r.pnlDelta)}</td>${small ? "" : `<td class="num">${r.a ? compact(r.a.wallet) : "—"}</td><td class="num">${r.b ? compact(r.b.wallet) : "—"}</td>`}</tr>`).join("")}</tbody></table></div>`;
-    const foot = `<div class="cmp-foot">Matched profit counts completed round trips only. Hours run from each week's first trade; the dotted lines mark the first gate jump. ${A.reached} h of this week${B.reached < A.reached ? "" : ""}, ${B.reached} h of the other. Totals above are cut at ${L.hours} h so a week in progress is not set against a finished one.</div>`;
-    root.innerHTML = head + kpis + charts + table + foot;
+    const foot = `<div class="cmp-foot">Matched profit counts completed round trips only. Hours run from each week's first trade; the dotted lines mark the first gate jump. ${A.reached} h of this week${B.reached < A.reached ? "" : ""}, ${B.reached} h of the other. The first block lines the weeks up on the gate; the tiles below it cut both weeks at the same ${L.hours} h since the first trade. Profit / hour is matched profit (completed round trips, before fuel, jump costs and ship purchases) divided by the hours in the window.</div>`;
+    root.innerHTML = head + gateKpis + gateTable + kpis + charts + table + foot;
     bind();
   }
 

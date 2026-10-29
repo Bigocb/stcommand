@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { checkpoints, hoursReached, likeForLike, toPoints, weekTotals, type HourRow } from "../src/engine/weekCompare.js";
+import { checkpoints, gateAligned, hoursReached, likeForLike, toPoints, weekTotals, type HourRow } from "../src/engine/weekCompare.js";
 
 const row = (hour: number, o: Partial<HourRow> = {}): HourRow => ({ hour, sells: 0, pnl: 0, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null, ...o });
 
@@ -45,5 +45,28 @@ describe("weekCompare: two weeks lined up by hours since the first trade", () =>
   it("an empty week reaches hour 0 and totals nothing", () => {
     assert.equal(hoursReached({ hours: [] }), 0);
     assert.equal(weekTotals({ hours: [] }).matchedPnl, 0);
+  });
+});
+
+describe("gateAligned", () => {
+  const wk = (gate: number | null, pnls: number[]) => ({ firstJumpHour: gate, hours: pnls.map((pnl, hour) => ({ hour, sells: 1, pnl, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null })) });
+  it("lines two weeks up on their own gates and cuts both at the same hours after it", () => {
+    const a = wk(3, [1, 1, 1, 10, 10, 10]);            // gate at 3, three hours after it so far
+    const b = wk(1, [5, 20, 20, 20, 20, 20, 20, 20]);  // gate at 1, seven hours after it
+    const g = gateAligned(a, b)!;
+    assert.equal(g.hours, 2);                           // a has hours 3,4 before its last (5) minus gate = 2
+    assert.deepEqual([g.a.beforePnl, g.a.pnl, g.a.pnlPerHour], [3, 20, 10]);
+    assert.deepEqual([g.b.beforePnl, g.b.pnl, g.b.pnlPerHour], [5, 40, 20]);
+    assert.equal(g.checkpoints.length, 0);              // no checkpoint hour fits in 2 h
+  });
+  it("reports cumulative profit since the gate at checkpoint hours", () => {
+    const a = wk(0, Array(10).fill(2));
+    const b = wk(2, [0, 0, ...Array(10).fill(3)]);
+    const g = gateAligned(a, b)!;
+    assert.deepEqual(g.checkpoints.map((c) => [c.hour, c.a, c.b, c.delta]), [[6, 12, 18, -6]]);
+  });
+  it("is undefined when a gate has not opened or the week has not run past it", () => {
+    assert.equal(gateAligned(wk(null, [1, 2]), wk(0, [1, 2, 3])), undefined);
+    assert.equal(gateAligned(wk(2, [1, 2, 3]), wk(0, [1, 2, 3])), undefined);
   });
 });

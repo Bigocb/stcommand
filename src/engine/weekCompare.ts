@@ -119,3 +119,58 @@ export function likeForLike(a: Pick<WeekSeries, "hours">, b: Pick<WeekSeries, "h
   const cut = (s: Pick<WeekSeries, "hours">) => ({ hours: s.hours.filter((r) => r.hour <= hours) });
   return { hours, a: weekTotals(cut(a)), b: weekTotals(cut(b)) };
 }
+
+export const GATE_CHECKPOINT_HOURS = [6, 12, 24, 36, 48, 72, 96] as const;
+
+export interface GateWindow {
+  /** Matched profit before the gate's first jump hour. */
+  beforePnl: number;
+  /** Matched profit in the `hours` after it. */
+  pnl: number;
+  pnlPerHour: number;
+  sells: number;
+  ships: number;
+}
+
+export interface GateAligned {
+  /** Hours after the gate that BOTH weeks have reached; the window every figure below covers. */
+  hours: number;
+  a: GateWindow;
+  b: GateWindow;
+  /** Matched profit since the gate opened, at hours after it. */
+  checkpoints: { hour: number; a: number | null; b: number | null; delta: number | null }[];
+}
+
+/**
+ * The two weeks lined up on the hour each one's gate opened (its first gate jump) instead of on the first trade, so a week whose
+ * gate opened a day later is not marked down for the wait. Every figure after the gate covers the same number of hours, the
+ * shorter of what the two weeks have had since their gates. Undefined when either week has no gate jump yet or has not run past it.
+ */
+export function gateAligned(a: Pick<WeekSeries, "hours" | "firstJumpHour">, b: Pick<WeekSeries, "hours" | "firstJumpHour">): GateAligned | undefined {
+  if (a.firstJumpHour === null || a.firstJumpHour === undefined || b.firstJumpHour === null || b.firstJumpHour === undefined) return undefined;
+  const ga = a.firstJumpHour, gb = b.firstJumpHour;
+  const k = Math.min(hoursReached(a) - ga, hoursReached(b) - gb);
+  if (k <= 0) return undefined;
+  const win = (s: Pick<WeekSeries, "hours">, g: number): GateWindow => {
+    let before = 0, pnl = 0, sells = 0, ships = 0;
+    for (const r of s.hours) {
+      if (r.hour < g) before += r.pnl;
+      else if (r.hour < g + k) { pnl += r.pnl; sells += r.sells; ships += r.ships; }
+    }
+    return { beforePnl: Math.round(before), pnl: Math.round(pnl), pnlPerHour: Math.round(pnl / k), sells, ships };
+  };
+  const since = (pts: Point[], g: number, h: number): number => {
+    const end = pts[g + h - 1], start = g > 0 ? pts[g - 1] : undefined;
+    return end ? end.cumPnl - (start?.cumPnl ?? 0) : 0;
+  };
+  const pa = toPoints(a, ga + k), pb = toPoints(b, gb + k);
+  return {
+    hours: k,
+    a: win(a, ga),
+    b: win(b, gb),
+    checkpoints: GATE_CHECKPOINT_HOURS.filter((h) => h <= k).map((hour) => {
+      const x = since(pa, ga, hour), y = since(pb, gb, hour);
+      return { hour, a: x, b: y, delta: x - y };
+    }),
+  };
+}

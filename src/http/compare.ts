@@ -3,7 +3,7 @@ import type { TenantWorker } from "../engine/tenantRegistry.js";
 import { tenantUniverse } from "../db/pool.js";
 import { isUniverseKey } from "../engine/universe.js";
 import { isOperator, operatorAgents } from "./operatorFlag.js";
-import { checkpoints, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
+import { checkpoints, gateAligned, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
 
 /**
  * Week over week (src/engine/weekCompare.ts), for the Season screen's Compare tab and Tower's card. Mounted in the dashboard router.
@@ -91,6 +91,7 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
         a: { label: a.label, universeKey: a.universeKey, startAt: a.startAt, firstJumpHour: a.firstJumpHour, totals: weekTotals(a), points: pa, reached: hoursReached(a) },
         b: { label: b.label, universeKey: b.universeKey, startAt: b.startAt, firstJumpHour: b.firstJumpHour, totals: weekTotals(b), points: pb, reached: hoursReached(b) },
         likeForLike: likeForLike(a, b),
+        gateAligned: gateAligned(a, b) ?? null,
         checkpoints: checkpoints(pa, pb, hoursReached(a), hoursReached(b)),
         upToHour: upTo,
       });
