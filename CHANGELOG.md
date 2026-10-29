@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Compare shows every tenant's weeks on a one-owner box
+Operator: they are the only user on the box, so reading another tenant's earlier weeks should not need a second setting. With `OPERATOR_AGENTS` unset, Compare now lists every tenant's kept weeks (THEO, THEOREM, ...) to any signed-in agent; set it to a list that leaves an agent out to keep a shared box's tenants apart again. Every other operator-only view still needs the list. Tests in `tests/compareRoute.test.ts`.
+
 ## 2026-10-29 — Hull speed counts: per-ship speed in route value, and a yard scan
 Operator insight: speed matters as much as hold size (the bulk freighter is speed 60, most hulls are 15), and fewer, bigger, faster ships also mean fewer API calls. Two changes, both advisory-safe:
 - **Per-ship speed (`src/engine/shipSpeed.ts`, clause `shipSpeedWeight`, off by default).** Route times are costed at the slowest hull's speed (`fleet.ts routeModelSpeed()`, now one shared helper), so a speed-60 ship was valued like a shuttle. With the clause on, a same-system route is worth more to a faster hull by that share of its real speed ratio (capped at 4x), its flight to the buy market counts for less, and the route matcher (`matching.ts`, `speedGain`/`flightBound`) uses the same gain. Cross-system routes are unchanged (jump cooldowns dominate). Weight 0 / clause off reproduces the old behaviour; tests in `tests/shipSpeed.test.ts`.

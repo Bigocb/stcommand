@@ -2,21 +2,27 @@ import { Router, type Request } from "express";
 import type { TenantWorker } from "../engine/tenantRegistry.js";
 import { tenantUniverse } from "../db/pool.js";
 import { isUniverseKey } from "../engine/universe.js";
-import { isOperator } from "./operatorFlag.js";
+import { isOperator, operatorAgents } from "./operatorFlag.js";
 import { checkpoints, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
 
 /**
  * Week over week (src/engine/weekCompare.ts), for the Season screen's Compare tab and Tower's card. Mounted in the dashboard router.
  *
  *   GET /api/compare/weeks              the weeks that can be compared: this tenant's own kept weeks, and, for an operator
- *                                       (OPERATOR_AGENTS), every other tenant's too. Ids are `<tenantId>|<universeKey>`.
+ *                                       (or any caller while OPERATOR_AGENTS is unset), every other tenant's too. Ids are `<tenantId>|<universeKey>`.
  *   GET /api/compare?week=<id>[&base=<id>]  the series for `week` set against `base` (default: this tenant's current week),
  *                                       lined up by hours since each week's first trade.
  *
- * Another tenant's ledger is readable only by an operator: tenant isolation is the point of the row-level policies, and this is the
- * one deliberate crossing, behind the same env list that already gates the operator's agent-watch view.
+ * Another tenant's ledger is read across tenants only here, deliberately; see `canSeeAll`.
  */
 const MAX_HOURS = 168;
+
+/**
+ * Every tenant's weeks are readable when OPERATOR_AGENTS is unset (a box with one owner, where all the tenants are the same
+ * person and a second setting only gets in the way), or when the caller is listed in it. Naming other operators and leaving this
+ * agent out of the list is how a shared box keeps tenants apart.
+ */
+const canSeeAll = (agentSymbol: string | undefined): boolean => operatorAgents().size === 0 || isOperator(agentSymbol);
 
 interface WeekRef { tenantId: string; agentSymbol: string; universeKey: string }
 
@@ -59,7 +65,7 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
   router.get("/weeks", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    const op = isOperator(req.agentSymbol);
+    const op = canSeeAll(req.agentSymbol);
     try {
       res.json({ operator: op, weeks: await weekList(w, op) });
     } catch (err) {
@@ -70,10 +76,10 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
   router.get("/", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    const op = isOperator(req.agentSymbol);
+    const op = canSeeAll(req.agentSymbol);
     try {
       const other = await resolve(w, op, typeof req.query.week === "string" ? req.query.week : undefined);
-      if (!other) return res.status(400).json({ error: "week must be one of GET /api/compare/weeks" + (op ? "" : " (another tenant's weeks need operator access: OPERATOR_AGENTS)") });
+      if (!other) return res.status(400).json({ error: "week must be one of GET /api/compare/weeks" + (op ? "" : " (another tenant's weeks need operator access: list this agent in OPERATOR_AGENTS)") });
       const currentKey = tenantUniverse(w.tenantId);
       const baseId = typeof req.query.base === "string" ? req.query.base : currentKey ? `${w.tenantId}|${currentKey}` : undefined;
       const base = await resolve(w, op, baseId);

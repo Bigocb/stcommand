@@ -70,8 +70,8 @@ after(async () => {
 const get = async (path: string) => { const r = await fetch(base + path); return { status: r.status, json: (await r.json()) as any }; };
 
 describe("week-over-week routes", () => {
-  it("a tenant lists only its own kept weeks and flags the current one", async () => {
-    delete process.env.OPERATOR_AGENTS;
+  it("a tenant lists only its own kept weeks and flags the current one, when OPERATOR_AGENTS names someone else", async () => {
+    process.env.OPERATOR_AGENTS = "SOMEONE-ELSE";
     const r = await get("/api/compare/weeks");
     assert.equal(r.json.operator, false);
     assert.deepEqual(r.json.weeks.map((x: any) => x.universeKey).sort(), [`${MY.toUpperCase()}@2026-10-11`, `${MY.toUpperCase()}@2026-10-25`]);
@@ -89,8 +89,14 @@ describe("week-over-week routes", () => {
     assert.equal(r.json.b.points[2].wallet, 5000);
   });
 
-  it("refuses another tenant's week unless the caller is an operator", async () => {
+  it("with OPERATOR_AGENTS unset (one owner on the box) every tenant's weeks are listed", async () => {
     delete process.env.OPERATOR_AGENTS;
+    const list = await get("/api/compare/weeks");
+    assert.ok(list.json.weeks.some((x: any) => x.universeKey === `${OTHER.toUpperCase()}@2026-10-18`));
+  });
+
+  it("refuses another tenant's week unless the caller is an operator", async () => {
+    process.env.OPERATOR_AGENTS = "SOMEONE-ELSE";
     const id = encodeURIComponent(`${other}|${OTHER.toUpperCase()}@2026-10-18`);
     const r = await get(`/api/compare?week=${id}`);
     assert.equal(r.status, 400);
