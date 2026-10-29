@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — The timers I added no longer reset at a restart; the gate walk uses the whole known graph
+Operator: nothing should be wiped by a restart; the database is there for that. Two of today's features were exactly that fault.
+- **Timers.** The keeper queue's wait for a ship at a yard, the 2-hour cool-off after a request is let go, and the remote surveyor's retry times were in-memory maps, so each of the day's five deploys started a 30-minute wait again. They now live in one fleet flag (`keeperTimers`, `src/engine/persistedTimers.ts`), read once and written whenever one changes; cool-offs and retries that have run out are dropped when it is written. Tests in `tests/persistedTimers.test.ts` (a second instance reads what the first wrote, as after a restart).
+- **Gate walk.** `hopToward()` looked for a path in the gates of systems loaded since the process started, so a ship one gate from its target found "no known path" after any restart. It now asks the graph hydrated from the database at boot first (`GalaxyAtlas.jumpPath`), and keeps the in-memory walk and the live gate read (previous entry) as fallbacks.
+Not audited yet: the rest of the engine's in-memory state; see the follow-up task.
+
 ## 2026-10-29 — A held ship one gate from its target no longer waits for a path that never comes
 `hopToward()` found "no known jump-gate path" for THEO-FD and FF sitting at VK87, next to DJ38 (and FE at RY50, two hops out), because after a restart only the systems loaded since then are in the gate graph and nothing loaded the ones the walk needed. They sat 30+ minutes retrying the same lookup. It now reads the gates at both ends once (`scanJumpGates` for the ship's system and the target) and looks again before giving up.
 

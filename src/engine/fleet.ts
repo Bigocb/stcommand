@@ -56,6 +56,7 @@ import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { yardsFirst } from "./keeperOrder.js";
+import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_DELIVERY_POLICY, deliveryArrived, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
@@ -4593,7 +4594,9 @@ export class FleetManager {
       // Only ships with a warp drive get this line; everyone else's gate hop is the normal path and needs no note.
       this.log(`${shipSymbol}: not warping toward ${targetSystem} (${warp.reason}), using gates`);
     }
-    let path = this.findSystemPath(s.nav.systemSymbol, targetSystem);
+    // The hydrated graph (the whole known galaxy, read from the database at boot) first; the in-memory walk only knows the systems
+    // loaded since this process started.
+    let path = this.galaxy.jumpPath(s.nav.systemSymbol, targetSystem) ?? this.findSystemPath(s.nav.systemSymbol, targetSystem);
     if (!path || path.length < 2) {
       // After a restart only the systems loaded since then are in the gate graph, so a ship standing one gate from its target found
       // "no path" for ever (THEO-FD and FF sat at VK87, next to DJ38, for 30 minutes on 2026-10-29). Read the gates at both ends once
@@ -5719,7 +5722,19 @@ export class FleetManager {
   }
 
   private lastRemoteSurveyAt = 0;
-  private remoteSurveyRetry = new Map<string, number>();
+  private timersDoc?: PersistedTimers;
+  /** Wait and cool-off timers that survive a restart (persistedTimers.ts); null until there is a store and a tenant. */
+  private timers(): PersistedTimers | undefined {
+    if (!this.store || !this.tenantId) return undefined;
+    const store = this.store, tenantId = this.tenantId;
+    this.timersDoc ??= new PersistedTimers({
+      read: () => store.getFleetFlag(tenantId, "keeperTimers"),
+      write: (json) => store.setFleetFlag(tenantId, "keeperTimers", json),
+    });
+    return this.timersDoc;
+  }
+  private get remoteSurveyRetry(): Map<string, number> { return this.timersDoc?.book.surveyRetry ?? this.noTimers.surveyRetry; }
+  private readonly noTimers = { surveyRetry: new Map<string, number>(), yardWait: new Map<string, number>(), queueCooldown: new Map<string, number>() };
 
   /**
    * Read systems remotely, with no ship: waypoints with traits, every market's goods lists and every shipyard's hull-type list,
@@ -5730,6 +5745,7 @@ export class FleetManager {
   private async maybeRemoteSurvey(): Promise<void> {
     const perPass = this.doctrine.isEnabledOr("remoteSurveyPerPass", false) ? Math.floor(this.doctrine.value("remoteSurveyPerPass", 0)) : 0;
     if (perPass <= 0 || !this.store) return;
+    await this.timers()?.load();
     const now = Date.now();
     if (now - this.lastRemoteSurveyAt < 5 * 60_000) return;
     this.lastRemoteSurveyAt = now;
@@ -5746,6 +5762,7 @@ export class FleetManager {
     const alreadyRead = await this.store.directorySystems();
     if (this.tenantId) for (const m of await this.store.recentSystemSurveys(this.tenantId, 2000)) if (m.source === "rejected") alreadyRead.add(m.systemSymbol);
     const picks = pickRemoteSurveys({ reachable: hops, alreadyRead, retryAt: this.remoteSurveyRetry, nowMs: now }, { ...DEFAULT_REMOTE_SURVEY_POLICY, perPass });
+    let timersChanged = false;
     for (const system of picks) {
       try {
         await this.galaxy.loadSystem(system);
@@ -5765,6 +5782,7 @@ export class FleetManager {
         const counts = countWaypoints(waypoints);
         if (!waypoints.length) {
           this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
+          timersChanged = true;
         } else if (counts.markets + counts.shipyards === 0) {
           await this.markSystemSurveyed(system, "rejected", { markets: 0, shipyards: 0 });
           this.log(`remote survey: ${system} has no market and no shipyard; marked rejected, not read again`);
@@ -5779,9 +5797,11 @@ export class FleetManager {
         }
       } catch (err) {
         this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
+        timersChanged = true;
         this.log(`remote survey of ${system} failed, trying again in 2 h: ${describeError(err)}`);
       }
     }
+    if (timersChanged) await this.timers()?.save(now);
   }
 
   private async maybeManageFreshSystems(): Promise<void> {
@@ -7236,8 +7256,8 @@ export class FleetManager {
    * stalling indefinitely on markets nothing happens to visit.
    */
   /** When each open keeper request first found no ship at its yard (request row id -> ms), and the markets let go of since (market -> ms until which the queue skips them). Memory only: a restart starts the wait again. */
-  private keeperYardWait = new Map<string, number>();
-  private keeperQueueCooldown = new Map<string, number>();
+  private get keeperYardWait(): Map<string, number> { return this.timersDoc?.book.yardWait ?? this.noTimers.yardWait; }
+  private get keeperQueueCooldown(): Map<string, number> { return this.timersDoc?.book.queueCooldown ?? this.noTimers.queueCooldown; }
   private keeperStallPolicy(): StallPolicy {
     return { ...DEFAULT_STALL_POLICY, graceMin: this.doctrine.isEnabledOr("keeperYardWaitMin", false) ? this.doctrine.value("keeperYardWaitMin", 0) : 0 };
   }
@@ -7253,6 +7273,7 @@ export class FleetManager {
   private async advanceKeeperMarketQueue(): Promise<void> {
     if (!this.store || !this.tenantId) return;
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
+    await this.timers()?.load();
     const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
     const autoOn = this.doctrine.isEnabledOr("autoApproveKeeperProbes", false);
     // With auto-approve on, an open card (a quote over the cap) must not stall the markets that are under it.
@@ -7481,10 +7502,12 @@ export class FleetManager {
       // before its own purchaseShip() call.
       const candidate = this.fleetStatusSummary().find((s) => s.waypoint === waypointSymbol)?.symbol;
       if (!candidate) {
+        await this.timers()?.load();
         const stall = this.keeperStallPolicy();
         const nowMs = Date.now();
-        const since = this.keeperYardWait.get(row.id) ?? nowMs;
-        this.keeperYardWait.set(row.id, since);
+        const knownSince = this.keeperYardWait.get(row.id);
+        const since = knownSince ?? nowMs;
+        if (knownSince === undefined) { this.keeperYardWait.set(row.id, since); await this.timers()?.save(nowMs); }
         // A market elsewhere that could be bought right now is waiting behind this request: do not make it wait out the full grace.
         const serviceable = await this.keeperServiceableSystems();
         const sysOf = (m: string): string => m.slice(0, m.lastIndexOf("-"));
@@ -7495,6 +7518,7 @@ export class FleetManager {
           await this.store.consumeApproval(this.tenantId, row.id);
           this.keeperYardWait.delete(row.id);
           this.keeperQueueCooldown.set(targetMarket, nowMs + stall.cooldownMin * 60_000);
+          await this.timers()?.save(nowMs);
           this.log(`keeper: ${releaseReason(targetMarket, waypointSymbol, (nowMs - since) / 60_000, stall)}`);
           return;
         }
