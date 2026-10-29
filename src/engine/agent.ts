@@ -2431,7 +2431,11 @@ export class ShipAgent {
         this.inFlight = p;
         try {
           const snapshotted = await p;
-          return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted ? this.keeperDelayMs() : 30_000)) };
+          // An operator hold on a waypoint (such as a delivery walking through the gates) is stepped again in 30 seconds, not after
+          // the market's 5 to 30 minute snapshot cadence: each gate hop of a delivery waited that long, so two jumps took an hour.
+          const goal = this.intentFor?.()?.goal;
+          const driven = goal?.kind === "hold" && !!goal.waypoint;
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted && !driven ? this.keeperDelayMs() : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextKeeperTask(err.resumeAt) };
