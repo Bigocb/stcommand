@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Sending a parked ship now says so; HTTP unpark
+`POST /api/fleet/dispatch` answered ok for a parked ship and did nothing (parked hulls have no agent): THEO-AA, a staged keeper at X1-CK45-C41, was "sent" to the CK45 shipyard and never moved. It now answers 409 saying the ship is parked. New `POST /api/fleet/unpark {shipSymbol, role?}` does what the MCP tool `stcommand_unpark_ship` does (resumes the role it had, or the one given), so a parked ship can be unparked from the dashboard API too.
+
 ## 2026-10-29 — Keeper queue: a request with no ship at its yard no longer blocks every other market
 Operator saw no approval cards for new systems. Cause: an approved purchase for X1-CK45-D44 had to be bought at X1-CK45-A2, none of our ships was there, and the queue (one open request per kind) waited on it for ever, so KX84, SF98 and the rest never got a card. New clause `keeperYardWaitMin` (default 30 min, on; off = the old wait-for-ever): the first time an approved request finds no ship at its yard the wait is timed, and past the grace the row is consumed, logged (`keeper: released the approved keeper request for ...`), and the market is skipped by the queue for 2 hours or until a ship docks at its yard (`src/engine/keeperQueueStall.ts`, wired in `fleet.ts` `resolvePendingKeeperProbeApproval` and `advanceKeeperMarketQueue`). The wait is held in memory, so a restart starts it again. Tests in `tests/keeperQueueStall.test.ts`.
 

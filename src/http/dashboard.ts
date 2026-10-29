@@ -1996,6 +1996,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     if (typeof shipSymbol !== "string" || typeof waypointSymbol !== "string") {
       return res.status(400).json({ error: "shipSymbol and waypointSymbol required" });
     }
+    // A parked ship has no agent to fly it: the send used to answer ok and then do nothing (THEO-AA, 2026-10-29).
+    if (w.fleet.isParked(shipSymbol)) {
+      return res.status(409).json({ error: `${shipSymbol} is parked, so it cannot be sent anywhere. Unpark it first (POST /api/fleet/unpark), then send it.` });
+    }
 
     try {
       const api = w.fleet.getApi();
@@ -2098,6 +2102,23 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   });
 
   const MANUAL_ROLES = new Set(["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"]);
+
+  /** Resume a parked ship (the same as the MCP tool stcommand_unpark_ship): `role` optional, else the role it had when parked. */
+  router.post("/fleet/unpark", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { shipSymbol, role } = req.body ?? {};
+    if (typeof shipSymbol !== "string" || (role !== undefined && (typeof role !== "string" || !MANUAL_ROLES.has(role) || role === "parked"))) {
+      return res.status(400).json({ error: "shipSymbol required; role, when given, must be a manual role other than parked" });
+    }
+    try {
+      const r = await w.fleet.unparkShip(shipSymbol, role as Parameters<typeof w.fleet.unparkShip>[1]);
+      await w.store.recordOperatorAction(w.tenantId, "unpark", shipSymbol, `${shipSymbol} unparked as ${r.role}`, { role: r.role });
+      res.json({ ok: true, shipSymbol, ...r });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
 
   router.post("/fleet/role", async (req, res) => {
     const w = worker(req);

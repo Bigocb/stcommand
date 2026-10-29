@@ -5929,6 +5929,10 @@ export class FleetManager {
     return { unparked: true, role: target, ...(note ? { note } : {}) };
   }
 
+  isParked(shipSymbol: string): boolean {
+    return this.parkedShips.has(shipSymbol);
+  }
+
   /** Parked hulls with the last position and the role they will resume, for the operator. */
   parkedList(): { ship: string; at: string; nav: string; from?: string; keeperMarket?: string; cargoUnits: number }[] {
     return [...this.parkedShips].map(([ship, s]) => ({
