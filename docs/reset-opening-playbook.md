@@ -5,6 +5,31 @@ gate stalled at 174/1,600 FAB_MATS because the input chains were only fed from d
 than the producer made the material. See `CHANGELOG.md` entries dated 2026-10-05 and the project review doc for the
 evidence behind each step. Numbers are from that week; re-measure on a new map.
 
+## The start as the operator wants it (2026-10-29)
+
+Within the first hour or two of a reset:
+
+1. The reset happens and the agent is registered.
+2. The command ship and one keeper are what the game gives us (the engine already handles this).
+3. The command ship tours until a good route turns up, then trades to build cash.
+4. At 1,000,000 credits the gate mission starts with the **FAB_MATS price ceiling at 2,000**. The mission waits whenever the
+   market is above that, so starting this early only buys runway: it fills slowly while cash is short and the producer
+   recovers, and the ceiling can be raised once cash is higher and we can push more.
+5. Keepers are bought slowly as cash allows, for the markets in the home system.
+
+Saved as the opening template **"Opening: tour, trade, gate mission at 1M (FAB_MATS 2k), slow keepers"** on the THEOREM tenant
+(ops tool `get_opening_templates`), seven tasks: command ship to tour; to trader at a route paying 10,000 a trip (a guess for
+"a good route": a 40-unit hold is about 250 a unit, change it if it is wrong); keeper auto-approve off at the start, a low
+200,000 keeper cash reserve while cash is short, auto-approve on at 300,000, the gate mission at 1,000,000 (FAB_MATS only,
+ceiling 2,000, 40-unit lots), and the keeper reserve up to 5,000,000 at 5,000,000. ADVANCED_CIRCUITRY and
+QUANTUM_STABILIZERS are not in the template (they are what the feeds above are for, and circuitry costs about 3,650 a unit,
+over the 2,000 ceiling); the plan for those comes when the gate is about to open.
+
+Without explorers (2026-10-29): keepers for systems whose own yard sells no keeper hull are delivered by probe through the gates
+(`keeperDeliveryHops`), the remote surveyor (`remoteSurveyPerPass`) reads each system's markets and yards with no ship, and
+`remoteSurveyIntake` queues the worth-covering ones. Explorers were parked on 2026-10-29 once that pipeline queued its first
+systems; see the CHANGELOG entries of that date.
+
 ## Hour 0: register and look
 
 1. Register, sign in on the dashboard, run the admin reset cleanup for the old tenant. `protectChainGoods` is on by

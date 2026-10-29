@@ -22,6 +22,10 @@ gate (`recoverPct`) allows. Operator insight (2026-10-24): the best hours of the
 systems that had just gained keeper coverage, and the yield per unit fell as we sold into them. So next week: big hulls, and always
 be expanding, with the engine buying and rotating keepers to keep fresh systems coming within the API budget. Plan and evidence in
 `docs/fresh-system-expansion-plan.md`.
+Operator's start for the next reset (2026-10-29, details in `docs/reset-opening-playbook.md`): command ship tours until a good route, then
+trades; at 1,000,000 credits the gate mission starts with the FAB_MATS ceiling at 2,000 and waits when the market is above it; keepers
+are bought slowly as cash allows. Saved as an opening template on THEOREM. Explorers are parked: keepers reach yardless systems by probe
+delivery and the remote surveyor reads systems with no ship (see the 2026-10-29 CHANGELOG entries).
 Update this section when the operator states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server
