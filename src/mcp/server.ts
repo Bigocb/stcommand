@@ -3,6 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { TenantRegistry } from "../engine/tenantRegistry.js";
 import { registerTools } from "./tools.js";
+import { enableAgentArg } from "./agentSwitch.js";
+import { isOperator, operatorAgents } from "../http/operatorFlag.js";
 
 /**
  * Sent back on `initialize` (MCP's `InitializeResult.instructions` field)
@@ -196,6 +198,19 @@ export function createMcpRouter(registry: TenantRegistry): Router {
 
     const server = new McpServer({ name: "stcommand", version: "1.0.0" }, { instructions: PLAYER_INSTRUCTIONS });
     const tools = instrumentTools(server, tenantId);
+    // One key for every agent on a one-owner box: each tool takes an optional `agent` (agentSwitch.ts).
+    enableAgentArg(server, {
+      own: { tenantId, agentSymbol },
+      allowed: operatorAgents().size === 0 || isOperator(agentSymbol),
+      directory: async () => (await worker.store.tenantDirectory()).map((t) => ({ tenantId: t.id, agentSymbol: t.agentSymbol })),
+      // Only an engine already running: booting one here would start that agent's fleet flying from a read.
+      workerFor: async (ref) => {
+        const running = registry.get(ref.tenantId);
+        if (!running) throw new Error("its engine is not running on this box (it starts when that agent signs in)");
+        return running;
+      },
+      registerAll: registerTools,
+    });
     registerTools(server, worker);
     if (rpcMethod === "tools/list") console.log(`[mcp] tenant=${tenantId} tools/list — ${tools.count()} tools registered`);
 
