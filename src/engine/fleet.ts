@@ -4634,8 +4634,15 @@ export class FleetManager {
     // changes; FleetManager.tick()'s periodic refreshGateConstruction()
     // sweep is what notices a genuinely-finished gate and flips this back.
     if (this.galaxy.gateComplete(remoteGate.symbol) === false) {
-      this.log(`${shipSymbol}: ${remoteGate.symbol} is still under construction — will retry`);
-      return false;
+      // The cache is one-way and re-reads an unfinished gate only every 45 minutes, so "false" can be stale: DJ38's gate had ships
+      // jumping through it all day while this lookup still called it unfinished (THEO-FD, 2026-10-29). Confirm with a live read
+      // before giving up on the hop; a gate found finished is corrected in the cache.
+      if ((await this.galaxy.verifyGateBeforeJump(remoteGate.symbol)) === "ok") {
+        this.galaxy.noteGateComplete(remoteGate.symbol);
+      } else {
+        this.log(`${shipSymbol}: ${remoteGate.symbol} is still under construction — will retry`);
+        return false;
+      }
     }
     try {
       await this.jumpShip(shipSymbol, remoteGate.symbol, { keepHold: true });

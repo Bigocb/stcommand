@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — A hop no longer trusts a stale "gate under construction" cache
+After the path fix THEO-FD and FF stood at VK87 logging "X1-DJ38-E15D is still under construction — will retry" although ships had jumped through that gate all day: the construction cache is one-way for "complete" but an "unfinished" entry is only re-read every 45 minutes, so a wrong one stays wrong. `hopToward()` now confirms a gate cached as unfinished with a live public read (`verifyGateBeforeJump`) and, if it is finished, corrects the cache (`noteGateComplete`) and goes ahead.
+
 ## 2026-10-29 — The timers I added no longer reset at a restart; the gate walk uses the whole known graph
 Operator: nothing should be wiped by a restart; the database is there for that. Two of today's features were exactly that fault.
 - **Timers.** The keeper queue's wait for a ship at a yard, the 2-hour cool-off after a request is let go, and the remote surveyor's retry times were in-memory maps, so each of the day's five deploys started a 30-minute wait again. They now live in one fleet flag (`keeperTimers`, `src/engine/persistedTimers.ts`), read once and written whenever one changes; cool-offs and retries that have run out are dropped when it is written. Tests in `tests/persistedTimers.test.ts` (a second instance reads what the first wrote, as after a restart).
