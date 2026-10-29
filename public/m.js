@@ -270,6 +270,7 @@ const NAV_GROUPS = [
     { key: "opening", label: "Opening", screen: "more", pane: "rules", only: ["more-sec-opening"] },
     { key: "keys", label: "Keys", screen: "more", pane: "rules", only: ["more-sec-keys"] },
     { key: "alerts", label: "Alerts", screen: "more", pane: "rules", only: ["more-sec-notify"] },
+    { key: "copilot", label: "Co-pilot", screen: "copilot" },
     { key: "admin", label: "Admin", screen: "admin", adminOnly: true },
   ] },
 ];

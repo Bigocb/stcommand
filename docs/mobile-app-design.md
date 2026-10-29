@@ -409,3 +409,27 @@ in the order it was made:
    regenerate both together if the art changes.
 
 iOS caches home-screen icons hard: test on a fresh Add to Home Screen after deleting the old one.
+
+## Clear Tower: readable for low vision (2026-10-29, redesign option A)
+
+The operator has low vision and could not read the small grey secondary text (holds, 3-hour averages, timestamps). Measured:
+the old grey (`--dim #93897a`) was 5.4:1 on a card, which passes the usual 4.5 rule, but it was set at 9–11 px in about 100
+rules. Size was the main problem. Three options were drawn up (design notes and mockups were produced in the session
+scratchpad, `tower-redesign/OPTIONS.md`); the operator chose **A now, then B**.
+
+A keeps every screen and tab where it was and changes only how it reads:
+
+- **Colour tokens** (all text 7:1 or better on the card): `--bone #f6f2ea` (main text, 16.6:1), `--dim #ddd4c4` (second
+  lines, 12.6:1; it was the unreadable grey), labels `#e8c98f` (11.6:1), `--amber #ffb52e` (10.5:1), `--green #72e6a0`
+  (12.0:1), `--red #ff9585` (8.7:1), `--ice #bccbd6` (11.2:1), borders `--hair-hi #8a7656` (4.2:1), hairlines `--hair #3a3125`.
+- **Type**: nothing under 15 px. Every size in `m.css` was remapped (≤9.5 px → 15, ≤11.5 → 16, ≤12.5 → 17, ≤15 → 18, larger
+  ones up about 20%); body 18 px; Home figures 32 px. Wide letter-spacing taken back now that the type is larger.
+- **Layout** (the "Clear Tower" block at the end of `m.css`): Home tiles one per row; sub-tabs wrap into rows of 48 px
+  pills so no tab hides off screen (Trade takes three rows, the price of nothing hidden); bottom bar 68 px with
+  full-strength labels; controls at least 48 px; switches 56 × 32; Doctrine rows put the name on its own line. Checked at
+  390 and 320 px with no horizontal overflow.
+- **Co-pilot** had a screen but no tab; it is now More › Co-pilot.
+
+Deck is untouched: the shared modules keep their own markup and Tower styles them through `m.css` classes only.
+
+Next: option B, the task-first navigation (Now, Money, Expand, Ships, Menu) on top of these styles.
