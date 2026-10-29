@@ -2423,6 +2423,7 @@ export class FleetManager {
       this.log(`survey of ${systemSymbol} skipped: no waypoints loaded, leaving it unsurveyed`);
       return;
     }
+    await this.refreshTraitsIfEmpty(systemSymbol);
     await this.galaxy.scanJumpGates(systemSymbol);
     this.log(`surveyMarkets: fetching markets in ${systemSymbol}`);
     const markets = await this.galaxy.surveyMarkets(systemSymbol, this.store);
@@ -5686,6 +5687,23 @@ export class FleetManager {
     }
   }
 
+  /**
+   * A cached waypoint list can be trait-less: a system scanned before anyone charted its markets keeps all its waypoints with no
+   * traits for good (see GalaxyAtlas.refreshWaypointTraits()). A survey that read it found "0 markets, 0 shipyards" and, as the
+   * explorer's survey and then the remote surveyor did, called the system empty: SQ36 (10 markets, 2 yards), TZ85 (7, 1), CC14 (8),
+   * PV25 (8) and JG4 (6) all read 0/0 on 2026-10-29. When the cache shows neither a market nor a yard, fetch the live traits once
+   * before believing it.
+   */
+  private async refreshTraitsIfEmpty(systemSymbol: string): Promise<void> {
+    const counts = countWaypoints(this.galaxy.getSystem(systemSymbol)?.waypoints ?? []);
+    if (counts.markets + counts.shipyards > 0) return;
+    try {
+      await this.galaxy.refreshWaypointTraits(systemSymbol);
+    } catch (err) {
+      this.log(`live waypoint traits for ${systemSymbol} not fetched: ${describeError(err)}`);
+    }
+  }
+
   private lastRemoteSurveyAt = 0;
   private remoteSurveyRetry = new Map<string, number>();
 
@@ -5717,6 +5735,7 @@ export class FleetManager {
     for (const system of picks) {
       try {
         await this.galaxy.loadSystem(system);
+        await this.refreshTraitsIfEmpty(system);
         const markets = await this.galaxy.surveyMarkets(system, this.store);
         const yards = await this.galaxy.surveyShipyards(system, this.store);
         await this.store.recordMarketDirectory(system, markets.map((m) => ({ symbol: m.symbol, imports: m.imports ?? [], exports: m.exports ?? [], exchange: m.exchange ?? [] })));
