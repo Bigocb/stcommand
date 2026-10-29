@@ -1028,3 +1028,9 @@ button, .btn, select, input { min-height: 48px; font-size: 17px; }
 .roster-hd { font-size: 17px; color: var(--bone); }
 .tile .pair .pv { font-size: 24px; }
 @media (max-width: 360px) { .hr-t th { font-size: 13px; letter-spacing: 0; padding: 6px 2px; } .hr-t td { font-size: 16px; padding: 10px 2px; } }
+/* sub-tabs, second pass (operator, 2026-10-29: "I don't need the buttons at the top to be so big"): smaller pills in
+ * sentence case, so a group's tabs usually fit on one row; still wrap rather than hide, and still 40 px to tap. */
+.subnav { gap: 6px; padding: 6px 12px 8px; }
+.subnav button { min-height: 40px; padding: 0 12px; border-radius: 20px; font-size: 15px; text-transform: none; letter-spacing: 0.02em; }
+.subnav button { min-height: 38px; padding: 0 10px; font-size: 14px; letter-spacing: 0.01em; }
+.subnav button { padding: 0 9px; } .subnav { gap: 5px; }

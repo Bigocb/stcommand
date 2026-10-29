@@ -720,7 +720,12 @@ $("fleet-modes").addEventListener("click", async (e) => {
     alert(err.message);
   }
 });
-subscribe("bridge", () => { renderFleetModes(); renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
+subscribe("bridge", () => { renderFleetModes(); renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); if (statusOpen()) loadStatusExtras(); });
+/** Now › Status is on screen: the checks and hourly table refresh with the bridge (loadStatusExtras reads at most once a minute). */
+function statusOpen() {
+  const home = document.querySelector('[data-screen="home"]');
+  return !!home?.classList.contains("on") && home.dataset.view !== "activity";
+}
 subscribe("dispatch", () => { renderTiles(); renderTriage(); if (fleetTabActive()) renderFleetView(); });
 subscribe("approvals", () => { renderTiles(); renderTriage(); renderApprovalsScreen(); });
 
