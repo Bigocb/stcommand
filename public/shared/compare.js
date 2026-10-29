@@ -111,7 +111,7 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     if (error) { root.innerHTML = `<div class="cmp-empty">${h(error)}</div>`; return; }
     if (!weeks) { root.innerHTML = `<div class="cmp-empty">Loading…</div>`; return; }
     if (!weeks.weeks.some((w) => !w.current)) {
-      root.innerHTML = `<div class="cmp-empty">No earlier week to compare with yet. A week is kept once it ends${weeks.operator ? "" : "; other agents' weeks need operator access (OPERATOR_AGENTS)"}.</div>`;
+      root.innerHTML = `<div class="cmp-empty">No earlier week to compare with yet. A week is kept once it ends${weeks.operator ? "" : `; other agents' weeks are hidden because OPERATOR_AGENTS on the server is set to ${(weeks.operatorList || []).join(", ") || "a list"} and ${weeks.you || "this agent"} is not in it (remove the setting or add ${weeks.you || "this agent"})`}.</div>`;
       return;
     }
     const head = `<div class="cmp-head">${selectHtml()}${busy ? '<span class="cmp-note">Loading…</span>' : ""}</div>`;

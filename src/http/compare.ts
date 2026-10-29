@@ -67,7 +67,7 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const op = canSeeAll(req.agentSymbol);
     try {
-      res.json({ operator: op, weeks: await weekList(w, op) });
+      res.json({ operator: op, operatorList: [...operatorAgents()], you: req.agentSymbol, weeks: await weekList(w, op) });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
