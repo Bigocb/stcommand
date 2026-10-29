@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — A system with its keepers delivered counts as ready for release
+BT69 had all six keepers delivered by probe (16:04 to 16:08) and still read 0% ready: the release rule counted only staged keepers parked on arrival (`stagedParked`), and a delivered probe is working its market, not parked, so the system could never be released. Readiness now counts `keepersInPlaceMarkets()`: the parked ones plus any keeper in its market's system. Both the rule's input and the ops view use it.
+
 ## 2026-10-29 — Keeper delivery also covers a system whose yards have no ship of ours at them
 BT69 sat staged with 6 keepers to buy: its yards list probes and have stored prices, so the delivery path (which only applied when no yard in the system had a stored keeper hull) did not fire, and a local purchase needs one of our ships docked at a yard, which the explorers used to supply and are now parked. `maybeRequestKeeperProbeForMarket()` now also switches to a delivery when the system's cheapest yard has no ship of ours at it and no other yard of the system does either. Behind the same `keeperDeliveryHops` clause and approval or auto-approve rule.
 

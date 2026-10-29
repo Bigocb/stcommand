@@ -5605,6 +5605,20 @@ export class FleetManager {
     if (changed) await this.saveFreshGate();
   }
 
+  /**
+   * Markets with a keeper in place for the release rule's readiness: the staged keepers parked on arrival, and any keeper that is in
+   * its market's system (a probe delivered through the gates is working its market, not parked, so counting parked ones alone left BT69
+   * at 0% ready with all six keepers delivered on 2026-10-29 and the system could never be released).
+   */
+  private keepersInPlaceMarkets(): Set<string> {
+    const out = this.parkedMarketsOfStaged();
+    for (const [ship, market] of this.keeperMarkets) {
+      const system = this.shipFor(ship)?.nav.systemSymbol;
+      if (system !== undefined && system === market.slice(0, market.lastIndexOf("-"))) out.add(market);
+    }
+    return out;
+  }
+
   private parkedMarketsOfStaged(): Set<string> {
     const out = new Set<string>();
     for (const [ship] of this.stagedParked) {
@@ -5821,7 +5835,7 @@ export class FleetManager {
     if (!all.length) return;
     const policy = this.releasePolicy();
 
-    const ready = this.parkedMarketsOfStaged();
+    const ready = this.keepersInPlaceMarkets();
     const queue: QueueFacts[] = all.filter((q) => q.state !== "live").map((q) => ({
       system: q.system, state: q.state as "scouted" | "staged", held: q.held, addedAt: q.addedAt, stagedAt: q.stagedAt, markets: q.markets.length,
       ...(q.state === "staged" ? { readyShare: q.markets.length ? q.markets.filter((m) => ready.has(m)).length / q.markets.length : 0 } : {}),
@@ -5869,7 +5883,7 @@ export class FleetManager {
 
   /** For the ops tool: the queue, readiness, live premiums, what the rule says now and the last notes. */
   freshGateState(): Record<string, unknown> {
-    const ready = this.parkedMarketsOfStaged();
+    const ready = this.keepersInPlaceMarkets();
     return {
       mode: this.freshGateMode(),
       policy: this.releasePolicy(),
